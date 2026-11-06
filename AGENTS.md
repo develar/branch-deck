@@ -32,8 +32,8 @@ Hard rules in one place; the linked section says why and what to do instead.
 - Never a behaviour change without its spec, `[@test]` links and docs in the same commit ([Specs and Docs](#specs-and-docs)).
 - Never git outside `GitCommandExecutor` in the app's code, never a write to the user's working tree beyond the named
   exception, never a raw `Command::new("git")` in a test fixture ([Git Operations](#git-operations)).
-- Never a `gh` process for GitHub (HTTP through `crates/github`; the one `gh` is `gh auth token` of the token chain),
-  never `-c credential.helper=`.
+- Never a `gh` process in the code (GitHub over HTTP, `crates/github`; but `gh auth token`), never
+  `-c credential.helper=`; an agent may run `gh` for its issues and pull requests.
 - Never a branch on `error.message` or an error's `kind`: the page acts on `ApiError.code` (`src/lib/errors.ts`);
   `pnpm lint:arch` fails on it ([Code Style](#code-style)).
 - Never a read of the main window before its subscription: its start asks `subscribe_view` alone
@@ -191,7 +191,6 @@ How agents commit to this repository; "Git Operations" below is about the git th
 - **Linear history, no merge commits**, on any branch. Land a lease with `brd lease pick`, never `git cherry-pick`; by
   hand `git rebase <target>` and `git merge --ff-only <branch>`.
 - Once per clone: `git config core.hooksPath .githooks && git config merge.ff only && git config rerere.enabled false`.
-- Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
 
 ### Git Operations
 Hard rules of the git the app and `brd` run. Each rule in full, with its exceptions and its test, is the section of the
