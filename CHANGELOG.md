@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.0.0](https://github.com/develar/branch-deck/compare/v0.49.0...v1.0.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **bd:** the agent CLI is brd, the host binary brd-host; bd and bd-host are no longer installed or recognised.
+
+### Features
+
+* **bd:** bd unapply --dry-run, as bd reapply and bd drop have ([81f3b30](https://github.com/develar/branch-deck/commit/81f3b30ffe66566dd256499590fb89dc56b8517a))
+* **bd:** one word per sense of a flag, and a flag of another command names that command ([d17a093](https://github.com/develar/branch-deck/commit/d17a093454f4e6277b8c3aaac33b0d18157e869d))
+* **bd:** rename the agent CLI to brd and bd-host to brd-host ([5dedc60](https://github.com/develar/branch-deck/commit/5dedc606a7f2f6595d0a2c3ff49a8eff720aba02))
+* **stack:** add Stack Together ([515535c](https://github.com/develar/branch-deck/commit/515535cca1ca07883cf9f43e9ec189ac589340b2))
+
+
+### Bug Fixes
+
+* **bd-host:** one relief per volume and tick, not one per repository ([97ad5f5](https://github.com/develar/branch-deck/commit/97ad5f58718cdd2a62951370c326a846636ceb52))
+* **bd:** bd pick --from passes the check of pick_requires_check, as bd lease pick ([2ae6db6](https://github.com/develar/branch-deck/commit/2ae6db6e3642a2e151aca6b473c43285e4d5d0b3))
+* **bd:** the skill keeps the agent's plan in the shared checkout ([263e237](https://github.com/develar/branch-deck/commit/263e23772d615f9efacb892458ca03eb4754e1df))
+
 ## [0.49.0](https://github.com/develar/branch-deck/compare/v0.48.0...v0.49.0) (2026-11-05)
 
 
