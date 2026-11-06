@@ -101,6 +101,33 @@ fn a_reword_locks_only_the_witness_and_the_write() {
   assert_span(&span, &WITNESS_AND_WRITE);
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn a_reword_signs_every_rewritten_commit() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let (repo, commits, _) = stacked();
+  repo.enable_ssh_signing();
+  let request = RewordRequest {
+    repository_path: repo.path_str().to_owned(),
+    rewords: vec![CommitReword {
+      commit: commits[0].clone(),
+      text: RewordText::Subject("(alpha) Signed subject".to_owned()),
+    }],
+  };
+
+  reword_request_core(repo.git_executor(), &request, &on_head(&repo)).unwrap();
+  let rewritten = repo.git(&["rev-list", "origin/master..HEAD"]);
+  for commit in rewritten.lines() {
+    repo.git(&["verify-commit", commit]);
+  }
+  assert!(rewritten.lines().count() > 1);
+  assert!(rewritten.lines().all(|commit| repo.git(&["log", "-1", "--format=%G?", commit]).trim() == "G"));
+}
+
 /// A restack and an unstack write only the stack parents: the store commit before the lock, under it the witness and
 /// the transaction that verifies HEAD
 #[test]

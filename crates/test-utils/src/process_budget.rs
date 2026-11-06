@@ -7,6 +7,7 @@ use crate::git_test_utils::TestRepo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 
 /// An executor that counts every git process it starts
 #[must_use]
@@ -38,6 +39,61 @@ pub fn assert_processes(git: &GitCommandExecutor, expected: &[(&str, u32)]) {
   let expected: Vec<(String, u32)> = expected.iter().map(|(subcommand, count)| ((*subcommand).to_string(), *count)).collect();
   assert_eq!(processes(git), expected);
 }
+
+/// Add process counts to `processes`, retaining its sorted order
+#[must_use]
+pub fn with_added_processes(processes: &[(&'static str, u32)], additions: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
+  let additions: Vec<(&'static str, i64)> = additions.iter().map(|(command, count)| (*command, i64::from(*count))).collect();
+  with_process_deltas(processes, &additions)
+}
+
+/// Apply signed process-count deltas to `processes`, retaining its sorted order
+#[must_use]
+pub fn with_process_deltas(processes: &[(&'static str, u32)], changes: &[(&'static str, i64)]) -> Vec<(&'static str, u32)> {
+  let mut counts: BTreeMap<&'static str, i64> = processes.iter().map(|(command, count)| (*command, i64::from(*count))).collect();
+  for (command, delta) in changes {
+    *counts.entry(*command).or_default() += *delta;
+  }
+  counts
+    .into_iter()
+    .filter_map(|(command, count)| {
+      assert!(count >= 0, "negative process count for {command}");
+      (count > 0).then(|| (command, u32::try_from(count).unwrap()))
+    })
+    .collect()
+}
+
+/// Assert that every first-parent commit in `base..tip` has a signature Git verifies
+#[track_caller]
+pub fn assert_signed_commits(repo: &TestRepo, base: &str, tip: &str) {
+  let range = format!("{base}..{tip}");
+  let commits = repo.git(&["rev-list", &range]);
+  assert!(!commits.trim().is_empty(), "the range {range} must contain commits");
+  for commit in commits.lines() {
+    repo.git(&["verify-commit", commit]);
+  }
+  let statuses = repo.git(&["log", "--format=%G?", &range]);
+  assert_eq!(statuses.trim(), vec!["G"; commits.lines().count()].join("\n"));
+}
+
+/// The processes of a first sync with two virtual branches
+pub const FIRST_SYNC: &[(&str, u32)] = &[
+  ("cat-file", 1),
+  ("config", 1),
+  ("fast-import", 3),
+  ("for-each-ref", 1),
+  ("log", 2),
+  ("merge-base", 1),
+  ("merge-tree", 2),
+  ("notes", 1),
+  ("remote", 1),
+  ("rev-list", 2),
+  ("rev-parse", 1),
+  ("show-ref", 1),
+  ("symbolic-ref", 1),
+  ("update-ref", 2),
+  ("var", 1),
+];
 
 /// A repository whose `origin/master` is its initial commit
 #[must_use]

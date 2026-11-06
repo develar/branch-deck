@@ -1,6 +1,6 @@
 //! The git config an operation reads, with one `git config` process: the `branchdeck.*` settings of
-//! `repository_config` and the branch descriptions of `brd describe`. An operation reads it once and passes it on,
-//! instead of one process per key (docs/design/git-operations.md, "Repository settings").
+//! `repository_config`, `commit.gpgsign` and the branch descriptions of `brd describe`. An operation reads it once and
+//! passes it on, instead of one process per key (docs/design/git-operations.md, "Repository settings").
 
 use crate::github_repository::GitHubRepository;
 use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
@@ -14,15 +14,18 @@ use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
+use git_ops::commit_signing::Signing;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
+use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The eight `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `brd workspace` and
-/// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
-/// lowercase, the branch name as it is
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|branch\..+\.description)$";
+/// The `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `brd workspace` and
+/// Settings read), `commit.gpgsign`, and every `branch.<name>.description`, as `--get-regexp` matches them: the section
+/// and the key lowercase, the branch name as it is
+const SNAPSHOT_REGEXP: &str =
+  r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|commit\.gpgsign|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -59,6 +62,8 @@ pub struct ConfigSnapshot {
   entries: Vec<ConfigEntry>,
   /// Full ref -> description of every branch that has one
   descriptions: HashMap<String, Description>,
+  /// The last effective `commit.gpgsign` value; a key without a value is `true`
+  signing: Option<String>,
 }
 
 impl ConfigSnapshot {
@@ -86,8 +91,13 @@ impl ConfigSnapshot {
         descriptions.insert(format!("refs/heads/{name}"), Description::parse(value));
       }
     }
-    let entries = parse_config_entries(output).into_iter().filter(|entry| entry.key.starts_with("branchdeck.")).collect();
-    Self { entries, descriptions }
+    let all_entries = parse_config_entries(output);
+    let signing = all_entries
+      .iter()
+      .rfind(|entry| entry.key == "commit.gpgsign")
+      .map(|entry| entry.value.clone().unwrap_or_else(|| "true".to_string()));
+    let entries = all_entries.into_iter().filter(|entry| entry.key.starts_with("branchdeck.")).collect();
+    Self { entries, descriptions, signing }
   }
 
   /// The settings as Settings → Repository resolves them, without the detected GitHub repository
@@ -159,6 +169,18 @@ impl ConfigSnapshot {
       return false;
     }
     setting.value
+  }
+
+  /// The effective `commit.gpgsign`, off when unset, with the same boolean syntax Git accepts
+  pub fn signing(&self) -> Result<Signing> {
+    match self.signing.as_deref() {
+      None => Ok(Signing::Off),
+      Some(value) => match parse_git_bool(Some(value)) {
+        Some(true) => Ok(Signing::On),
+        Some(false) => Ok(Signing::Off),
+        None => Err(anyhow!("commit.gpgsign is not a boolean: {value}")),
+      },
+    }
   }
 
   /// `branchdeck.branchPrefix` as git resolves it, trimmed, and whether the repository's own config sets it

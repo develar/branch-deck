@@ -10,6 +10,7 @@ use domain_types::commit::{Commit, SubjectParts};
 use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult, SquashedTarget};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::{FixupTarget, fixup_targets};
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_writer::read_raw_commits;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
@@ -245,8 +246,9 @@ pub fn squash_fixup_commits_on(git_executor: &GitCommandExecutor, params: &Squas
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let first = prepare_fold(git_executor, params, options, range).and_then(|fold| fold.ready(git_executor, repo_path));
-  let prepare = || prepare_fold(git_executor, params, options, None).and_then(|fold| fold.ready(git_executor, repo_path));
+  let signing = commit_signing(git_executor, repo_path)?;
+  let first = prepare_fold(git_executor, params, options, range, signing).and_then(|fold| fold.ready(git_executor, repo_path));
+  let prepare = || prepare_fold(git_executor, params, options, None, signing).and_then(|fold| fold.ready(git_executor, repo_path));
   let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, first, prepare)?;
   let PreparedFold { rewrite, groups, orphans } = prepared;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
@@ -299,7 +301,7 @@ impl PreparedFold {
 pub fn check_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<Vec<String>> {
   let repo_path = &params.repository_path;
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let fold = prepare_fold(git_executor, params, options, range)?;
+  let fold = prepare_fold(git_executor, params, options, range, Signing::Off)?;
   let dropped = fold
     .groups
     .iter()
@@ -322,7 +324,7 @@ impl Prepared for PreparedFold {
 
 /// The plan of `params` on HEAD as it reads it (or as `range` read it), the one `options` expects, and the squashed
 /// commits written on temporary refs (`prepare_squash`), not `ready` yet: the branch is not moved
-fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<PreparedFold> {
+fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>, signing: Signing) -> Result<PreparedFold> {
   let repo_path = &params.repository_path;
   let FoldRange { head, commits, grouping } = match range {
     Some(range) => range,
@@ -385,7 +387,7 @@ fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, 
   }
 
   // `ready` before the lock: the carried mapping notes are written there; a dry run does not
-  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups)?;
+  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups, signing)?;
   Ok(PreparedFold { rewrite, groups, orphans })
 }
 

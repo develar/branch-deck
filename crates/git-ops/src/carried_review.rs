@@ -5,6 +5,7 @@
 //! when the base did not move: the reviewed tip is then the carried commit. A conflict carries nothing.
 
 use crate::commit_chain::{ChainCommit, CommitChain};
+use crate::commit_signing::Signing;
 use crate::merge_memo::MergeOutcome;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -26,7 +27,7 @@ pub fn carry_reviewed(git: &GitCommandExecutor, repository_path: &str, reviewed_
   if reviewed_base == base {
     return Ok(Some(reviewed_tip.to_string()));
   }
-  let mut chain = CommitChain::new(git, repository_path);
+  let mut chain = CommitChain::new(git, repository_path, Signing::Off);
   let tree = match chain.merge(reviewed_base, base, reviewed_tip)? {
     MergeOutcome::Clean { tree } => tree,
     MergeOutcome::Conflict { files } => {

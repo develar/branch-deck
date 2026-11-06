@@ -1794,7 +1794,6 @@ fn two_leases_never_get_the_same_slot() {
     fixture.give_back(path);
   }
   let paths: Vec<String> = std::thread::scope(|scope| {
-    #[expect(clippy::needless_collect, reason = "every get starts before the first one is joined")]
     let gets: Vec<_> = (0..4).map(|_| scope.spawn(|| fixture.run(&["lease", "get"]))).collect();
     gets
       .into_iter()

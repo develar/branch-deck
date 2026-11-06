@@ -44,6 +44,7 @@ use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
+use test_utils::process_budget::{FIRST_SYNC, assert_signed_commits, with_added_processes, with_process_deltas};
 
 /// The context `brd --prefix test-user` resolves in `repo`; its executor counts every process of the command
 fn context(repo: &TestRepo) -> RepoContext {
@@ -474,7 +475,7 @@ fn a_fold() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 1),
+      ("config", 2),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 3),
@@ -508,7 +509,7 @@ fn a_squash() {
     &context,
     &[
       ("cat-file", 2), // the stores of the grouping; the squashed commit
-      ("config", 1),
+      ("config", 2),
       ("fast-import", 2),  // the squashed commit; the carried notes
       ("for-each-ref", 2), // the baseline; the witness of HEAD under the lock
       ("log", 3),          // the commits ahead; the history with its notes; the new one with its trees
@@ -547,7 +548,7 @@ fn a_reword() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 1),
+      ("config", 2),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 2),
@@ -581,7 +582,7 @@ fn a_reword_in_a_lease() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 1),
+      ("config", 2),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("log", 2),
@@ -944,8 +945,9 @@ fn a_move_hunk() {
 }
 
 /// The processes of `brd move-hunk` (`a_move_hunk`)
-const MOVE_HUNK: [(&str, u32); 12] = [
+const MOVE_HUNK: [(&str, u32); 13] = [
   ("cat-file", 2),
+  ("config", 1),
   ("diff-tree", 2),
   ("fast-import", 2),
   ("for-each-ref", 2), // the baseline listing, and the witness of HEAD under the lock
@@ -973,36 +975,39 @@ fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut Pick
 
 /// Two commits picked onto a branch one commit ahead and the worktree followed, with the processes of `a_pick`
 #[track_caller]
-fn assert_followed_pick(context: &RepoContext, output: &PickOutput) {
-  assert_followed_pick_with(context, output, 0);
+fn assert_followed_pick(context: &RepoContext, output: &PickOutput, signed: bool) {
+  assert_followed_pick_with(context, output, 0, signed);
 }
 
 /// `assert_followed_pick` with `more_logs` more `log` processes
 #[track_caller]
-fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_logs: u32) {
+fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_logs: u32, signed: bool) {
   assert_eq!(
     (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
     (2, Some(bd_update::pick_command::FollowedState::Moved))
   );
-  assert_processes(
-    context,
-    &[
-      ("cat-file", 1),
-      ("config", 1),
-      ("diff-tree", 2),
-      ("for-each-ref", 1),
-      ("log", 4 + more_logs),
-      ("merge-base", 4),
-      ("read-tree", 4),
-      ("remote", 1),
-      ("replay", 1),
-      ("rev-list", 1),
-      ("rev-parse", 17),
-      ("symbolic-ref", 7),
-      ("update-index", 4),
-      ("update-ref", 4),
-    ],
-  );
+  let expected = vec![
+    ("cat-file", 1),
+    ("config", 2),
+    ("diff-tree", 2),
+    ("for-each-ref", 1),
+    ("log", 4 + more_logs),
+    ("merge-base", 4),
+    ("read-tree", 4),
+    ("remote", 1),
+    ("replay", 1),
+    ("rev-list", 1),
+    ("rev-parse", 17),
+    ("symbolic-ref", 7),
+    ("update-index", 4),
+    ("update-ref", 4),
+  ];
+  let expected = if signed {
+    with_added_processes(&expected, &[("cat-file", 1), ("update-ref", 1), ("fast-import", 1)])
+  } else {
+    expected
+  };
+  assert_processes(context, &expected);
 }
 
 /// `brd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
@@ -1019,7 +1024,7 @@ fn a_pick() {
   lane.commit("(lane) Add b", "b.txt", "b\n");
   commit_subjects(&repo, &["(own) Add c"]);
   let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
-  assert_followed_pick(&context, &output);
+  assert_followed_pick(&context, &output, false);
 }
 
 /// `brd pick --from <worktree> --follow` with `[commit] check` of `.branchdeck.toml`: the processes of `a_pick` and
@@ -1034,7 +1039,7 @@ fn a_pick_with_the_commit_rules() {
   repo.create_commit(".branchdeck.toml", ".branchdeck.toml", "[commit]\ncheck = [\"(feat|fix|docs): .+\"]\n");
   let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
   assert!(output.message_warnings.is_empty());
-  assert_followed_pick_with(&context, &output, 1);
+  assert_followed_pick_with(&context, &output, 1, false);
 }
 
 /// `brd pick --remote auth` of a commit someone else pushed: the sync of `brd sync` first, then the fetch of the branch
@@ -1055,7 +1060,7 @@ fn a_remote_pick() {
     &context,
     &[
       ("cat-file", 5),
-      ("config", 3),
+      ("config", 4),
       ("diff-tree", 1),
       ("fast-import", 1),
       ("fetch", 1),
@@ -1495,6 +1500,7 @@ fn a_lease_pick_that_conflicts() {
   assert_processes(
     &context,
     &[
+      ("config", 1),
       ("for-each-ref", 1),
       ("log", 2),
       ("merge-base", 4),
@@ -1523,7 +1529,7 @@ fn a_lease_pick_that_conflicts() {
     &[
       ("cat-file", 6),
       ("check-attr", 2),
-      ("config", 1),
+      ("config", 2),
       ("diff-tree", 4),
       ("fast-import", 1),
       ("for-each-ref", 1),
@@ -1569,6 +1575,11 @@ fn the_tree_check_of_a_lease_pick() {
 /// --follow` in the checkout it was cut from (`a_pick`)
 #[test]
 fn a_lease_pick() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
   let (repo, _home, environment, got) = leased_repo();
   let lane = std::path::Path::new(&got.path);
   for (subject, file) in [("(lane) Add a", "a.txt"), ("(lane) Add b", "b.txt")] {
@@ -1581,6 +1592,8 @@ fn a_lease_pick() {
       .unwrap();
   }
   commit_subjects(&repo, &["(own) Add c"]);
+  let base = repo.head();
+  repo.enable_ssh_signing();
   let lease = LeaseContext::resolve(&environment, Some(lane)).unwrap();
   let (checkout, branch) = bd_lease::lease_command::lease_home(&lease).unwrap();
   assert_git_processes(&lease.git, &[("rev-parse", 1), ("show-ref", 1)]);
@@ -1588,7 +1601,9 @@ fn a_lease_pick() {
   // the checkout as the pool keeps it, the repository as git names its top level (forward slashes on Windows)
   assert_eq!(canonical(std::path::Path::new(&checkout)), canonical(std::path::Path::new(&context.repository)));
   let output = crate::lease_pick_in(&context, &got.path, branch, None, &environment, &bd_lease::lease_command::LeasePickArgs::default()).unwrap();
-  assert_followed_pick(&context, &output);
+  assert_followed_pick(&context, &output, true);
+  let tip = repo.head();
+  assert_signed_commits(&repo, &base, &tip);
 }
 
 /// `brd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
@@ -1683,24 +1698,9 @@ fn a_pick_into_a_branch_the_target_has() {
 const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1), ("symbolic-ref", 1)];
 
 /// What `brd safe-push auth --dry-run` runs besides the target conflict check (`a_safe_push_check`)
-const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
-  ("cat-file", 3),
-  ("config", 1),
-  ("diff-tree", 1),
-  ("fast-import", 3),
-  ("for-each-ref", 2),
-  ("log", 7),
-  ("merge-base", 1),
-  ("merge-tree", 1),
-  ("notes", 1),
-  ("remote", 1),
-  ("rev-list", 2),
-  ("rev-parse", 1),
-  ("show-ref", 1),
-  ("symbolic-ref", 1),
-  ("update-ref", 2),
-  ("var", 1),
-];
+fn safe_push_check() -> Vec<(&'static str, u32)> {
+  with_process_deltas(FIRST_SYNC, &[("cat-file", 2), ("diff-tree", 1), ("for-each-ref", 1), ("log", 5), ("merge-tree", -1)])
+}
 
 /// `base` with the counts of `more` added, by subcommand
 fn with_more(base: &[(&'static str, u32)], more: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
@@ -1749,7 +1749,7 @@ fn a_safe_push_check() {
   };
   let output = safe_push(&context, &args, &environment).unwrap();
   assert!(output.push_needed && output.robot.is_none(), "{output:?}");
-  assert_safe_push_processes(&context, SAFE_PUSH_CHECK);
+  assert_safe_push_processes(&context, &safe_push_check());
 }
 
 /// `brd safe-push auth`, a start through the API: what `a_safe_push_check` decides on, then the run of the engine
@@ -1767,7 +1767,7 @@ fn a_safe_push_start() {
   };
   let output = safe_push(&context, &args, &environment).unwrap();
   assert!(output.robot.is_some() && output.pushed.len() == 1, "{output:?}");
-  assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("cat-file", 1), ("for-each-ref", 4), ("log", 1), ("push", 1)]));
+  assert_safe_push_processes(&context, &with_more(&safe_push_check(), &[("cat-file", 1), ("for-each-ref", 4), ("log", 1), ("push", 1)]));
 }
 
 /// `brd land auth` with the flags `flags` sets, in a repository whose `origin` (off GitHub and off Space) has its master
@@ -1849,7 +1849,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
   assert_eq!(output.lands, ["auth", "form"]);
   assert!(output.alone.as_ref().is_some_and(|alone| alone.result == "builds"), "{output:?}");
   // the alone trial reads the names the landing gate reads, in the same session
-  assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("fast-import", 1), ("show-ref", 1)]));
+  assert_safe_push_processes(&context, &with_more(&safe_push_check(), &[("fast-import", 1), ("show-ref", 1)]));
 }
 
 /// `brd safe-push auth --whole-stack --dry-run` of a stack that forks into form and side: what `a_safe_push_check` runs,

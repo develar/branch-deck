@@ -7,6 +7,7 @@
 //! processes, whatever the length of the range.
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
+use crate::commit_signing::Signing;
 use crate::commit_utils::empty_tree;
 use crate::commit_writer::{
   EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenCommits, WrittenEdit, current_committer, discard_temp_refs, read_raw_commits, write_edited_commit,
@@ -179,8 +180,8 @@ fn read_blobs(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) 
 /// Move the change, as `request` names it, from one commit into another, in one rewrite of the checked out branch that
 /// keeps HEAD's tree. Refused, with nothing written but git objects, if the change conflicts with a commit of the range,
 /// if a commit would be left without changes, or if HEAD is not `expected_head`
-pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>) -> Result<MoveHunkOutcome, MoveHunkError> {
-  prepare_move_hunk(git_executor, repo_path, request)?.apply(git_executor, repo_path)
+pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>, signing: Signing) -> Result<MoveHunkOutcome, MoveHunkError> {
+  prepare_move_hunk(git_executor, repo_path, request, signing)?.apply(git_executor, repo_path)
 }
 
 /// A move computed and, for `MoveHunkMode::Apply`, written: its commits and their notes exist (the commits on temporary
@@ -260,7 +261,7 @@ impl PreparedMoveHunk {
 /// `move_hunk` up to the move of the branch: the checks, the new trees and, for `MoveHunkMode::Apply`, the commits with
 /// their notes, the commits on temporary refs (`PreparedMoveHunk`); before the repository lock of `brd move-hunk`
 #[instrument(skip(git_executor, request), fields(from = %request.from, to = %request.to, path = %request.path, mode = ?request.mode))]
-pub fn prepare_move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>) -> Result<PreparedMoveHunk, MoveHunkError> {
+pub fn prepare_move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>, signing: Signing) -> Result<PreparedMoveHunk, MoveHunkError> {
   if request.from == request.to {
     return Err(MoveHunkError::Refused("The change is already in that commit: name two different commits".to_string()));
   }
@@ -354,6 +355,7 @@ pub fn prepare_move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, req
       encoding: None,
       message: b"branch-deck: move hunk\n",
     },
+    signing,
   )?;
   let result = rewrite(
     git_executor,
@@ -368,6 +370,7 @@ pub fn prepare_move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, req
       theirs: &theirs,
       committer: &committer,
       head: &head,
+      signing,
     },
   );
   match result {
@@ -402,6 +405,7 @@ struct Rewrite<'a> {
   theirs: &'a WrittenEdit,
   committer: &'a str,
   head: &'a str,
+  signing: Signing,
 }
 
 /// Compute the new trees and check them; unless a dry run, write the commits, and for `Apply` their notes too, with the
@@ -421,6 +425,7 @@ fn rewrite(
     theirs,
     committer,
     head,
+    signing,
   } = work;
   let tree_of = |index: usize| -> &str { &raw[&commits[index].id].tree };
 
@@ -526,12 +531,13 @@ fn rewrite(
         mapped: mapped.to_string(),
         source,
         resolved: mapped_resolution(note),
+        signed: signing == Signing::On,
       };
       notes.push((index, note.content()));
     }
   }
 
-  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &[], Some(committer))?;
+  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, &[], Some(committer), signing)?;
   let new_head = written.ids.last().cloned().ok_or_else(|| anyhow!("no commits were written"))?;
   let rewritten = commits.iter().map(|commit| commit.id.clone()).zip(written.ids.iter().cloned()).collect();
   let outcome = MoveHunkOutcome {

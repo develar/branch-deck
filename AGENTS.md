@@ -222,8 +222,8 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
   `operations::journal` the journal; a start whose answer was lost is `Unknown`, never sent again.
 - **Guards** (`History::check_rewrite`): no rebase/merge/cherry-pick in progress, HEAD not detached (but `brd reword`
   in a lease and an undo), no merges in the range; a sync under the first two is `SyncDeferred`.
-- **Metadata**: message-only rewrites keep author and committer byte for byte, content rewrites keep the author;
-  signatures are stripped.
+- **Metadata**: rewrites keep authors (and message-only committers); strip old signatures, sign branch rewrites per
+  `commit.gpgsign`.
 - **Batch**: one process per phase, never per item; never parse translated text (exit codes, `--porcelain`, `-z`).
 - **Exit codes**: `merge-tree` and `replay` exit 1 on conflicts, `merge-tree --stdin` 0 with a status per merge;
   `merge-base` 1 is "no", any other non-zero an error.

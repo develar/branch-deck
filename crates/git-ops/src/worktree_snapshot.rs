@@ -14,6 +14,7 @@
 //! beside the `status`. A repository whose git does not trust the executable bit or links (`core.fileMode`,
 //! `core.symlinks` false), and a path with a newline, which `--stdin-paths` can't name, take the index copy instead
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::{EditedCommit, TreeEdit, write_edited_commit};
 use crate::lease_slot::LeaseConfig;
 use crate::ref_transaction::RefTransaction;
@@ -323,6 +324,7 @@ fn write_commit(git: &GitCommandExecutor, repo: &str, head: &Head, base_tree: &s
       encoding: None,
       message: message.as_bytes(),
     },
+    Signing::Off,
   )?;
   let mut transaction = RefTransaction::new();
   written.delete_temp_ref(&mut transaction);

@@ -31,6 +31,7 @@ use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::commit_list::{get_frozen_commit_list_with_handler, on_local_baseline};
+use git_ops::commit_signing::Signing;
 use git_ops::commit_writer::{delete_stale_temp_refs, write_cache_notes};
 use git_ops::landed_pairing::CommitKey;
 use git_ops::notes::write_commit_notes_with;
@@ -316,6 +317,7 @@ struct PreparedSync {
   tree_id_cache: TreeIdCache,
   /// Whether the copies resolve the conflicts of git by words (`branchdeck.resolveByWords`)
   resolve: ResolveMode,
+  signing: Signing,
   /// The remote tips and the baseline commit for the remote statuses; `None` without branches
   remote_tips: Option<RemoteTips>,
   /// With stacked branches on, where each branch goes
@@ -434,6 +436,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
   let grouping = read_grouping_inputs_with(git_executor, repository_path, config.stacks()?)?;
   let resolve = config.resolve_mode()?;
+  let signing = config.signing()?;
   let landing = facts.landing_remote(config.landing()?);
   let review_experimental = config.review_experimental();
   // the conflict views of the unchanged branches come from the object cache, the new ones go there
@@ -601,6 +604,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     first_parent_id,
     tree_id_cache,
     resolve,
+    signing,
     remote_tips,
     stacks,
     idle_stack_parents,
@@ -1013,6 +1017,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     first_parent_id,
     tree_id_cache,
     resolve,
+    signing,
     remote_tips,
     stacks,
     idle_stack_parents,
@@ -1117,7 +1122,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     ))
   });
   let stack_branches = Arc::new(stack_branches);
-  let stack_builds = Arc::new(StackBuilds::new(object_cache.clone(), resolve));
+  let stack_builds = Arc::new(StackBuilds::new(object_cache.clone(), resolve, signing));
   // the stack branches are built beside the virtual branches, from the same originals and trees
   let stack_building = build_stack_branches(
     git_executor.clone(),
@@ -1151,6 +1156,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       conflict_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,
+      signing,
       owners: CommitOwners::new(&branches, |name| {
         stacks.as_ref().and_then(|stacks| stacks.get(name)).and_then(|stack| stack.effective_base.as_deref())
       }),

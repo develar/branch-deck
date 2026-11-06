@@ -11,6 +11,7 @@ use anyhow::{Result, ensure};
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::SquashCommitsResult;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::with_dirs_of;
@@ -51,9 +52,10 @@ pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCom
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
+  let signing = commit_signing(git_executor, repo_path)?;
   // ready before the lock: the carried mapping notes are written there
   let prepare = || -> Result<PreparedSquash> {
-    let PreparedSquash { rewrite, target } = prepare_squash_commits(git_executor, params, &message, options)?;
+    let PreparedSquash { rewrite, target } = prepare_squash_commits(git_executor, params, &message, options, signing)?;
     Ok(PreparedSquash {
       rewrite: rewrite.ready(git_executor, repo_path)?,
       target,
@@ -82,7 +84,7 @@ pub fn check_squash_commits_core(git_executor: &GitCommandExecutor, params: &Squ
   let message = checked_message(params)?;
   let repo_path = &params.repository_path;
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let prepared = prepare_squash_commits(git_executor, params, &message, options)?;
+  let prepared = prepare_squash_commits(git_executor, params, &message, options, Signing::Off)?;
   prepared.rewrite.discard(git_executor, repo_path);
   Ok(prepared.rewrite.old_head().to_string())
 }
@@ -267,7 +269,7 @@ impl Prepared for PreparedSquash {
 
 /// The history down to the oldest commit of `params`, on the HEAD `options` expects, and the squashed commits written on
 /// temporary refs (`prepare_squash`): the branch is not moved
-fn prepare_squash_commits(git_executor: &GitCommandExecutor, params: &SquashCommitsParams, message: &str, options: &RewriteOptions) -> Result<PreparedSquash> {
+fn prepare_squash_commits(git_executor: &GitCommandExecutor, params: &SquashCommitsParams, message: &str, options: &RewriteOptions, signing: Signing) -> Result<PreparedSquash> {
   let repo_path = &params.repository_path;
   let ids: Vec<&str> = params.commit_ids.iter().map(String::as_str).collect();
   let history = History::read_to_with_notes(git_executor, repo_path, &ids)?;
@@ -284,7 +286,7 @@ fn prepare_squash_commits(git_executor: &GitCommandExecutor, params: &SquashComm
     // a squash gives one commit with the user's message: commits that cancel each other are dropped instead
     if_empty: IfEmpty::Refuse,
   };
-  let rewrite = prepare_squash(git_executor, repo_path, &history, &[group])?;
+  let rewrite = prepare_squash(git_executor, repo_path, &history, &[group], signing)?;
   Ok(PreparedSquash { rewrite, target })
 }
 

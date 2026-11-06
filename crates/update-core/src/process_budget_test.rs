@@ -6,15 +6,16 @@ use crate::resolve_session::unapply_branch_suggestion;
 use crate::update_project::update_project_test::{path, setup};
 use crate::update_project::{UpdateProjectParams, update_project_core};
 use domain_types::update_project::UpdateState;
+use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::LockWait;
 use test_utils::git_test_utils::TestRepo;
-use test_utils::process_budget::{assert_processes, counting};
+use test_utils::process_budget::{assert_processes, assert_signed_commits, counting, with_added_processes};
 
 /// The processes of Update Project after its fetch (`an_update`, `an_update_after_its_fetch`): one `update-index`, the
 /// refresh of the user's index that the dry run of the local changes copies and the move takes as it is
 const UPDATE: &[(&str, u32)] = &[
   ("cat-file", 1),
-  ("config", 1),
+  ("config", 2),
   ("diff-tree", 2),
   ("for-each-ref", 1),
   ("log", 3),
@@ -37,6 +38,20 @@ fn with_fetch(processes: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
   all
 }
 
+fn run_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) {
+  let result = update_project_core(
+    git,
+    &UpdateProjectParams {
+      repository_path: path(repo).to_string(),
+      fetch,
+    },
+    &|_| {},
+    LockWait::default(),
+  )
+  .unwrap();
+  assert!(result.applied.is_some(), "{result:?}");
+}
+
 /// Update Project: the fetch, the check and the rebase of the local commit onto the upstream, the files following. The
 /// directories are read once at the start (one `rev-parse`): the guards, the lock, the pending moves and the index of
 /// the dry run take them from there. Before its replay the check pairs the local commit with the upstream commits by
@@ -50,17 +65,7 @@ fn an_update() {
   fixture.clone.create_commit("(auth) Add login", "login.txt", "login\n");
   fixture.upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   let git = counting();
-  let result = update_project_core(
-    &git,
-    &UpdateProjectParams {
-      repository_path: path(&fixture.clone).to_string(),
-      fetch: true,
-    },
-    &|_| {},
-    LockWait::default(),
-  )
-  .unwrap();
-  assert!(result.applied.is_some(), "{result:?}");
+  run_update(&git, &fixture.clone, true);
   assert_processes(&git, &with_fetch(UPDATE));
 }
 
@@ -73,20 +78,32 @@ fn an_update_after_its_fetch() {
   fixture.upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   fixture.clone.git(&["fetch", "--quiet", "origin"]);
   let git = counting();
-  let result = update_project_core(
-    &git,
-    &UpdateProjectParams {
-      repository_path: path(&fixture.clone).to_string(),
-      fetch: false,
-    },
-    &|_| {},
-    LockWait::default(),
-  )
-  .unwrap();
-  assert!(result.applied.is_some(), "{result:?}");
+  run_update(&git, &fixture.clone, false);
   // the processes of `an_update` without the fetch: the time of the last fetch is that of `FETCH_HEAD` in the
   // directories read at the start
   assert_processes(&git, UPDATE);
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn signing_an_update_adds_one_batch_read_and_write() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let fixture = setup();
+  fixture.clone.create_commit("Local change", "local.txt", "local\n");
+  fixture.upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  fixture.clone.git(&["fetch", "--quiet", "origin"]);
+  fixture.clone.enable_ssh_signing();
+  let git = counting();
+
+  run_update(&git, &fixture.clone, false);
+  let tip = fixture.clone.head();
+  assert_signed_commits(&fixture.clone, &fixture.clone.git(&["rev-parse", "refs/remotes/origin/master"]), &tip);
+  let expected = with_added_processes(UPDATE, &[("cat-file", 1), ("rev-list", 1), ("fast-import", 1)]);
+  assert_processes(&git, &expected);
 }
 
 /// Update Project of `upstream_and_clone_with_twins` after its fetch: the check pairs the local commits once. Before the
@@ -122,7 +139,7 @@ fn a_conflicting_update_pairs_its_commits_once() {
     &[
       ("cat-file", 2),
       ("check-attr", 1),
-      ("config", 1),
+      ("config", 2),
       ("diff-tree", 5),
       ("for-each-ref", 1),
       ("log", 4),

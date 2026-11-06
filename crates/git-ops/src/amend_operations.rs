@@ -2,6 +2,7 @@
 //! (docs/design/git-operations.md). The descendants of the amended commit are replayed with `git replay`, which writes
 //! only objects; the branch moves in one ref transaction, and the index stages exactly the amended files.
 
+use crate::commit_signing::{Signing, sign_range};
 use crate::commit_writer::{NewCommit, NewParent, current_committer, read_raw_commits, write_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
@@ -37,10 +38,10 @@ pub struct AmendResult {
 /// replayed on top. Afterwards the files match HEAD, other staged changes stay staged, and the working tree is not
 /// written. The amended commit keeps its author and message; its committer is the current user.
 #[instrument(skip(git_executor), fields(original_commit = %params.original_commit_id))]
-pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<AmendResult, CopyCommitError> {
+pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams, signing: Signing) -> Result<AmendResult, CopyCommitError> {
   let original_commit_id = params.original_commit_id.clone();
   let history = History::read_to(git_executor, repo_path, &[original_commit_id.as_str()])?;
-  let prepared = prepare_amend(git_executor, repo_path, &history, params)?.ready(git_executor, repo_path)?;
+  let prepared = prepare_amend(git_executor, repo_path, &history, params, signing)?.ready(git_executor, repo_path)?;
   apply_amend(git_executor, repo_path, &prepared, &original_commit_id)
 }
 
@@ -59,7 +60,13 @@ pub fn apply_amend(git_executor: &GitCommandExecutor, repo_path: &str, prepared:
 /// the amended commit and its replayed descendants are written, the branch is not moved and the index not touched;
 /// `PreparedRewrite::apply` does both
 #[instrument(skip(git_executor, history), fields(original_commit = %params.original_commit_id))]
-pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, params: AmendToCommitParams) -> Result<PreparedRewrite, CopyCommitError> {
+pub fn prepare_amend(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  history: &History,
+  params: AmendToCommitParams,
+  signing: Signing,
+) -> Result<PreparedRewrite, CopyCommitError> {
   let AmendToCommitParams { original_commit_id, files } = params;
   if files.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No files specified to amend")));
@@ -103,6 +110,7 @@ pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, history
       encoding: raw.encoding.as_deref(),
       message: &raw.message,
     }],
+    signing,
   )?;
   let amended_commit_id = written.ids[0].clone();
 
@@ -130,6 +138,19 @@ pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, history
       Err(e) => {
         prepared.discard(git_executor, repo_path);
         return Err(e);
+      }
+    }
+    match sign_range(git_executor, repo_path, Some(&amended_commit_id), &prepared.new_head, signing) {
+      Ok(Some(signed)) => {
+        if let Some(tip) = signed.ids.last() {
+          prepared.new_head.clone_from(tip);
+        }
+        prepared.written.push(signed);
+      }
+      Ok(None) => {}
+      Err(error) => {
+        prepared.discard(git_executor, repo_path);
+        return Err(CopyCommitError::Other(error));
       }
     }
     // the replayed history must end with exactly the working-tree versions of the files, nothing else changed

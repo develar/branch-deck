@@ -1,4 +1,5 @@
 use crate::commit_chain::{ChainCommit, CommitChain};
+use crate::commit_signing::Signing;
 use crate::merge_memo::MergeOutcome;
 use crate::word_resolve::{ResolvedFile, WordResolution};
 use pretty_assertions::assert_eq;
@@ -56,7 +57,7 @@ fn a_commit_has_the_id_commit_tree_gives_it() {
   let base = repo.create_commit("base", "a.txt", "a\n");
   let tree = repo.git(&["rev-parse", &format!("{base}^{{tree}}")]);
   let messages = ["subject", "subject\n\nbody", "subject\n\nbody\n", "subject\n\n\n", "ünïcode — subject"];
-  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str());
+  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::Off);
   for message in messages {
     let commit = commit(&tree, &base, message);
     assert_eq!(chain.write_commit(&commit).unwrap(), commit_tree(&repo, &commit), "message {message:?}");
@@ -78,7 +79,7 @@ fn a_chain_writes_commits_on_its_own_commits_and_flushes_them_for_other_processe
   let repo = TestRepo::new();
   let base = repo.create_commit("base", "a.txt", "a\n");
   let tree = repo.git(&["rev-parse", &format!("{base}^{{tree}}")]);
-  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str());
+  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::Off);
   let first = chain.write_commit(&commit(&tree, &base, "first")).unwrap();
   let second = chain.write_commit(&commit(&tree, &first, "second")).unwrap();
   chain.flush().unwrap();
@@ -101,7 +102,7 @@ fn a_merge_of_trees_is_the_merge_of_their_commits() {
   let conflict = repo.create_commit("conflict", "a.txt", "uno\n2\n3\n");
   let tree = |commit: &str| repo.git(&["rev-parse", &format!("{commit}^{{tree}}")]);
 
-  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str());
+  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::Off);
   let merged = chain.merge(&tree(&base), &tree(&target), &tree(&clean)).unwrap();
   let expected = repo.git(&["merge-tree", "--write-tree", "--merge-base", &base, &target, &clean]);
   assert_eq!(merged, MergeOutcome::Clean { tree: expected });
@@ -120,7 +121,7 @@ fn a_chain_dropped_on_an_error_ends_its_writer_cleanly() {
   let base = repo.create_commit("base", "a.txt", "a\n");
   let tree = repo.git(&["rev-parse", &format!("{base}^{{tree}}")]);
   let id = {
-    let mut chain = CommitChain::new(repo.git_executor(), repo.path_str());
+    let mut chain = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::Off);
     chain.write_commit(&commit(&tree, &base, "dropped")).unwrap()
   };
   assert_eq!(repo.git(&["cat-file", "-t", &id]), "commit");
@@ -154,8 +155,8 @@ fn chains_that_checkpoint_at_the_same_time_leave_no_temporary_ref() {
   };
   let resolved_tree = tree(&resolved);
   // two branches of a sync build in parallel; with a shared ref the second checkpoint refused a tip without the first
-  let mut first = CommitChain::new(repo.git_executor(), repo.path_str());
-  let mut second = CommitChain::new(repo.git_executor(), repo.path_str());
+  let mut first = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::Off);
+  let mut second = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::Off);
   first
     .write_commit(&ChainCommit {
       resolution: Some(&resolution),
@@ -170,5 +171,28 @@ fn chains_that_checkpoint_at_the_same_time_leave_no_temporary_ref() {
     .unwrap();
   first.finish().unwrap();
   second.finish().unwrap();
+  assert_eq!(repo.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "");
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn a_signing_chain_writes_verifiable_signatures_for_every_commit() {
+  #[cfg(windows)]
+  if !crate::commit_signing::ssh_keygen_available() {
+    return;
+  }
+
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "a.txt", "a\n");
+  let tree = repo.git(&["rev-parse", &format!("{base}^{{tree}}")]);
+  repo.enable_ssh_signing();
+  let mut chain = CommitChain::new(repo.git_executor(), repo.path_str(), Signing::On);
+  let first = chain.write_commit(&commit(&tree, &base, "first")).unwrap();
+  let second = chain.write_commit(&commit(&tree, &first, "second")).unwrap();
+  chain.finish().unwrap();
+
+  repo.git(&["verify-commit", &first]);
+  repo.git(&["verify-commit", &second]);
+  assert_eq!(repo.git(&["log", "--format=%G?", &format!("{base}..{second}")]), "G\nG");
   assert_eq!(repo.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "");
 }

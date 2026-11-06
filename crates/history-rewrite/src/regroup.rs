@@ -26,6 +26,7 @@ use domain_types::error::ErrorCode;
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_writer::{StoreCommit, WrittenCommits, WrittenStore, write_commits_with_notes, write_store_commits};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{DETACHED, checked_out_branch, checked_out_ref, is_object_id, read_head, short_id, with_dirs_of};
@@ -966,7 +967,12 @@ fn regroup_accepted(
 ) -> Result<RegroupOutcome, RegroupError> {
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repository_path)?;
-  let mut prepare = || prepare_regroup(git_executor, repository_path, options, &mut assign, &mut accept);
+  let signing = if options.dry_run {
+    Signing::Off
+  } else {
+    commit_signing(git_executor, repository_path)?
+  };
+  let mut prepare = || prepare_regroup(git_executor, repository_path, options, &mut assign, &mut accept, signing);
   let prepared = match prepare() {
     Ok(prepared) if prepared.write.is_none() => return Ok(prepared.outcome),
     // a dry run takes no lock
@@ -1039,6 +1045,7 @@ fn prepare_regroup(
   options: &RegroupOptions,
   assign: &mut impl FnMut(&Snapshot) -> Result<Change, RegroupError>,
   accept: &mut impl FnMut(&RegroupOutcome) -> Result<(), RegroupError>,
+  signing: Signing,
 ) -> Result<PreparedRegroup, RegroupError> {
   let snapshot = Snapshot::read_for(git_executor, repository_path, options.lease_home.as_deref())?;
   let appended = match ensure_expected_head(options.expect_head.as_deref(), &snapshot.head, || snapshot.branch.clone()) {
@@ -1097,14 +1104,31 @@ fn prepare_regroup(
       .filter(|commit| commit.changed)
       .map(|commit| (commit.id.as_str(), commit.message.as_str()));
     let detached = snapshot.branch == DETACHED;
-    prepare_reword_at(git_executor, repository_path, (&snapshot.baseline, detached), &commits, rewrites, &snapshot.head, &stores)?
+    prepare_reword_at(
+      git_executor,
+      repository_path,
+      (&snapshot.baseline, detached),
+      &commits,
+      rewrites,
+      &snapshot.head,
+      &stores,
+      signing,
+    )?
   } else {
     None
   };
   let write = match reworded {
     Some(prepared) => Some(RegroupWrite::Reword(prepared)),
     // only the stores change: they were computed for this HEAD
-    None if !stores.is_empty() => Some(RegroupWrite::Stores(write_commits_with_notes(git_executor, repository_path, &[], None, &stores, None)?)),
+    None if !stores.is_empty() => Some(RegroupWrite::Stores(write_commits_with_notes(
+      git_executor,
+      repository_path,
+      &[],
+      None,
+      &stores,
+      None,
+      Signing::Off,
+    )?)),
     None => None,
   };
   prepared.moved_stores = moved_stores;

@@ -55,6 +55,9 @@ pub struct Commit {
   /// The resolve by words the virtual commit of `mapped_commit_id` took (`notes::RESOLVED_PREFIX`)
   #[serde(skip)]
   pub mapped_resolution: Option<NoteResolution>,
+  /// Whether the mapping note says the virtual commit was signed (`notes::SIGNED_PREFIX`)
+  #[serde(skip)]
+  pub mapped_signed: bool,
   /// `subject` as the grouping reads it (`sync_utils::commit_subject::subject_parts`), for the page that shows and words
   /// it; the commit list writes it with `subject`
   pub subject_parts: SubjectParts,

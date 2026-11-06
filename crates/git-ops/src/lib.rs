@@ -25,6 +25,7 @@
 //! Writing objects and refs:
 //! - `ref_transaction`: `RefTransaction`, every ref move in one `update-ref --stdin` with compare-and-swap
 //! - `pushed_tracking`: the remote-tracking refs git's push left behind, moved to the pushed heads by compare-and-swap
+//! - `commit_signing`: the repository's `commit.gpgsign` and the signature header of a rewritten commit
 //! - `commit_writer`: commits, store commits and notes from one `fast-import`, with exact metadata, and temporary refs
 //! - `reviewed_refs`: the base and the tip a local branch had when the user marked it reviewed
 //! - `carried_review`: the reviewed change of a branch carried onto its base now, for the diff since the review
@@ -91,6 +92,7 @@ pub mod cherry_pick;
 pub mod commit_chain;
 pub mod commit_files;
 pub mod commit_list;
+pub mod commit_signing;
 pub mod commit_utils;
 pub mod commit_writer;
 pub mod conflict_analysis;

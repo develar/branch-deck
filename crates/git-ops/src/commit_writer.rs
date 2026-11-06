@@ -5,6 +5,7 @@
 //! of `commit_chain.rs`.
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, for_each_object};
+use crate::commit_signing::{Signing, map_signing_error, push_signature_placeholder, signed_commits_arg};
 use crate::ref_transaction::RefTransaction;
 use crate::revs::ref_exists;
 use anyhow::{Result, anyhow};
@@ -15,7 +16,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, instrument, warn};
 
-/// A commit object as stored: identity lines verbatim (`Name <email> <seconds> <tz>`) and the message bytes
+/// A commit object as stored: identity lines verbatim (`Name <email> <seconds> <tz>`), whether it has a signature, and
+/// the message bytes; the signature itself is not kept
 #[derive(Debug, Clone)]
 pub struct RawCommit {
   pub tree: String,
@@ -23,11 +25,12 @@ pub struct RawCommit {
   pub author: String,
   pub committer: String,
   pub encoding: Option<String>,
+  pub signed: bool,
   pub message: Vec<u8>,
 }
 
-/// Read commit objects with one `cat-file --batch` (`cat_file_batch`). Signatures and other extra headers are not kept:
-/// a rewritten commit can't keep a valid signature.
+/// Read commit objects with one `cat-file --batch` (`cat_file_batch`). The signature bytes and other extra headers are
+/// not kept: a rewritten commit can't keep a valid signature.
 #[instrument(skip(git_executor, ids), fields(count = ids.len()))]
 pub fn read_raw_commits(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) -> Result<HashMap<String, RawCommit>> {
   let mut commits = HashMap::with_capacity(ids.len());
@@ -60,6 +63,7 @@ pub fn parse_raw_commit(oid: &str, content: &[u8]) -> Result<RawCommit> {
     author: String::new(),
     committer: String::new(),
     encoding: None,
+    signed: false,
     message,
   };
   for line in headers.lines() {
@@ -71,6 +75,7 @@ pub fn parse_raw_commit(oid: &str, content: &[u8]) -> Result<RawCommit> {
       "author" => commit.author = value.to_string(),
       "committer" => commit.committer = value.to_string(),
       "encoding" => commit.encoding = Some(value.to_string()),
+      "gpgsig" => commit.signed = true,
       _ => {}
     }
   }
@@ -306,8 +311,9 @@ pub fn unique_temp_ref() -> String {
 }
 
 /// Append the start of a commit on `temp_ref` with mark `mark`: `(author, committer)`, the encoding and the message
-fn push_commit_header(stream: &mut Vec<u8>, temp_ref: &str, mark: usize, (author, committer): (&str, &str), encoding: Option<&str>, message: &[u8]) {
+fn push_commit_header(stream: &mut Vec<u8>, temp_ref: &str, mark: usize, (author, committer): (&str, &str), encoding: Option<&str>, message: &[u8], signing: Signing) {
   stream.extend_from_slice(format!("commit {temp_ref}\nmark :{mark}\nauthor {author}\ncommitter {committer}\n").as_bytes());
+  push_signature_placeholder(stream, signing);
   if let Some(encoding) = encoding {
     stream.extend_from_slice(format!("encoding {encoding}\n").as_bytes());
   }
@@ -341,8 +347,8 @@ pub struct NotesOfWritten<'a> {
 }
 
 /// Write `commits` with one `git fast-import` run and return their ids
-pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>]) -> Result<WrittenCommits> {
-  write_commits_with_notes(git_executor, repo_path, commits, None, &[], None)
+pub fn write_commits(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[NewCommit<'_>], signing: Signing) -> Result<WrittenCommits> {
+  write_commits_with_notes(git_executor, repo_path, commits, None, &[], None, signing)
 }
 
 /// `write_commits` that also attaches notes to the new commits, in one notes commit of the same `fast-import` run, and
@@ -357,6 +363,7 @@ pub fn write_commits_with_notes(
   notes: Option<&NotesOfWritten<'_>>,
   stores: &[StoreCommit<'_>],
   committer: Option<&str>,
+  signing: Signing,
 ) -> Result<WrittenCommits> {
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(commits.len() * 256);
@@ -365,7 +372,15 @@ pub fn write_commits_with_notes(
       // without `from`, a commit continues the ref's previous commit; reset it to write a root commit
       stream.extend_from_slice(format!("reset {temp_ref}\n\n").as_bytes());
     }
-    push_commit_header(&mut stream, &temp_ref, index + 1, (commit.author, commit.committer), commit.encoding, commit.message);
+    push_commit_header(
+      &mut stream,
+      &temp_ref,
+      index + 1,
+      (commit.author, commit.committer),
+      commit.encoding,
+      commit.message,
+      signing,
+    );
     match commit.parent {
       Some(NewParent::Existing(id)) => stream.extend_from_slice(format!("from {id}\n").as_bytes()),
       Some(NewParent::Written(parent_index)) => {
@@ -403,7 +418,7 @@ pub fn write_commits_with_notes(
 
   let write = || {
     git_executor
-      .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path)
+      .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", signed_commits_arg(signing)], repo_path)
       .stdin(&stream)
       .bytes()
   };
@@ -412,9 +427,13 @@ pub fn write_commits_with_notes(
     // `<ref>^0` names anew; the commits are the same objects
     Err(first) if has_notes => {
       debug!(error = %format!("{first:#}"), "the notes lost to another writer: once more from its tip");
-      write()?
+      match write() {
+        Ok(output) => output,
+        Err(error) => return Err(map_signing_error(error, signing)),
+      }
     }
-    output => output?,
+    Ok(output) => output,
+    Err(error) => return Err(map_signing_error(error, signing)),
   };
   let mut ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
   let store_commits = ids.split_off(ids.len().saturating_sub(stores.len()));
@@ -435,7 +454,7 @@ pub fn write_commits_with_notes(
 #[instrument(skip(git_executor, stores), fields(stores = stores.len()))]
 pub fn write_store_updates(git_executor: &GitCommandExecutor, repo_path: &str, stores: &[StoreUpdate<'_>], verify: Option<(&str, &str)>, operation: &str) -> Result<Vec<String>> {
   let commits: Vec<StoreCommit<'_>> = stores.iter().map(|store| store.commit.clone()).collect();
-  let written = write_commits_with_notes(git_executor, repo_path, &[], None, &commits, None)?;
+  let written = write_commits_with_notes(git_executor, repo_path, &[], None, &commits, None, Signing::Off)?;
   let mut transaction = RefTransaction::new();
   if let Some((full_ref, expected)) = verify {
     transaction.verify(full_ref, expected);
@@ -607,10 +626,10 @@ impl WrittenEdit {
 /// Write `commit` with one `git fast-import` run: the blobs, the tree and the commit, and with `ls` the trees of the
 /// commit and of its parent, so the caller sees an empty result without another process
 #[instrument(skip(git_executor, commit), fields(edits = commit.edits.len()))]
-pub fn write_edited_commit(git_executor: &GitCommandExecutor, repo_path: &str, commit: &EditedCommit<'_>) -> Result<WrittenEdit> {
+pub fn write_edited_commit(git_executor: &GitCommandExecutor, repo_path: &str, commit: &EditedCommit<'_>, signing: Signing) -> Result<WrittenEdit> {
   let temp_ref = unique_temp_ref();
   let mut stream = Vec::with_capacity(1024);
-  push_commit_header(&mut stream, &temp_ref, 1, (commit.author, commit.committer), commit.encoding, commit.message);
+  push_commit_header(&mut stream, &temp_ref, 1, (commit.author, commit.committer), commit.encoding, commit.message, signing);
   stream.extend_from_slice(format!("from {}\nM 040000 {} \"\"\n", commit.parent, commit.tree).as_bytes());
   for edit in commit.edits {
     match edit {
@@ -625,9 +644,10 @@ pub fn write_edited_commit(git_executor: &GitCommandExecutor, repo_path: &str, c
   stream.extend_from_slice(format!("\nls :1 \"\"\nls {} \"\"\nget-mark :1\ndone\n", commit.parent).as_bytes());
 
   let output = git_executor
-    .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path)
+    .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", signed_commits_arg(signing)], repo_path)
     .stdin(&stream)
-    .bytes()?;
+    .bytes()
+    .map_err(|error| map_signing_error(error, signing))?;
   let output = String::from_utf8(output)?;
   // `040000 tree <id>\t` per `ls`, then the commit id
   let mut lines = output.lines();

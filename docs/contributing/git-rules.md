@@ -236,7 +236,9 @@ Message-only rewrites (reword, move) keep author and committer byte-for-byte (`c
 `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer =
 current user. The one named exception: `brd move-hunk` (`move_hunk.rs`) keeps author and committer byte-for-byte for
 every commit whose diff stays the same (`patch-id --stable`), so their virtual commits stay; `from`, `to` and the
-commits whose diff of the file changed get committer = current user and no mapping note. Signatures are stripped.
+commits whose diff of the file changed get committer = current user and no mapping note. Original signatures are
+stripped; with `commit.gpgsign=true`, new branch commits are signed with Git's configured key, while internal store and
+notes commits remain unsigned. A signing failure is `signing_failed` and leaves refs unmoved.
 
 ## Batch
 

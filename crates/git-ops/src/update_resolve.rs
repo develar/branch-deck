@@ -6,9 +6,10 @@
 //! files through `update_branch` (the guarded working-tree update) and only then deletes the ref.
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
+use crate::commit_signing::{Signing, sign_range};
 use crate::commit_writer::{
-  EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs,
-  parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
+  EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenCommits, WrittenEdit, WrittenStore, current_committer,
+  discard_temp_refs, parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
 use crate::landed_pairing::{LandedCandidate, LandedDrop, PathLines, interdiffs};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
@@ -666,6 +667,52 @@ pub enum Step {
   Blocked { session: Session, paths: Vec<String> },
   /// `--continue --dry-run`: the resolution passes the checks; nothing was written but git objects
   Checked { session: Session, resolution: Option<Resolution> },
+  /// Internal handoff: a new round's objects are prepared, and the caller applies the session-ref CAS under the lock
+  PreparedRound(PreparedRound),
+  /// Internal handoff: the final replay and signature pass are prepared; the caller takes the repository lock before applying it
+  PreparedFinish(PreparedFinish),
+}
+
+/// A new resolve round written on temporary refs, ready for the locked session-ref transaction
+#[derive(Debug)]
+pub struct PreparedRound {
+  ref_name: String,
+  previous_commit: String,
+  state: SessionState,
+  objects: Option<RoundObjects>,
+  written: WrittenStore,
+  resolved_refs: Vec<ResolvedRef>,
+}
+
+impl PreparedRound {
+  /// Discard temporary refs if taking the lock failed before applying the round
+  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    self.written.discard(git_executor, repo_path);
+    discard(git_executor, repo_path, None, &self.resolved_refs);
+  }
+}
+
+/// A resolved tip signed outside the repository lock, ready for the locked ref transaction
+#[derive(Debug)]
+pub struct PreparedFinish {
+  ref_name: String,
+  base_commit: String,
+  state: SessionState,
+  unsaved: bool,
+  resolved_refs: Vec<ResolvedRef>,
+  signed: Option<WrittenCommits>,
+  blocked: Vec<String>,
+  files_change: bool,
+}
+
+impl PreparedFinish {
+  /// Discard temporary refs if taking the repository lock failed before applying the finish
+  pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    if let Some(signed) = &self.signed {
+      signed.discard(git_executor, repo_path);
+    }
+    discard(git_executor, repo_path, None, &self.resolved_refs);
+  }
 }
 
 /// Read the session of `worktree_id`, and HEAD, with one `cat-file --batch`; `None` without one
@@ -758,7 +805,7 @@ pub struct SessionStart<'a> {
 /// `PreparedStart::start`, with nothing between
 #[instrument(skip(git_executor, start), fields(branch = start.plan.checked.branch))]
 pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: SessionStart<'_>) -> Result<Step> {
-  prepare_session_start(git_executor, repo_path, start.plan, start.worktree, start.resolve)?.start(git_executor, repo_path, start.dir, start.dir_created)
+  prepare_session_start(git_executor, repo_path, start.plan, start.worktree, start.resolve, Signing::Off)?.start(git_executor, repo_path, start.dir, start.dir_created)
 }
 
 /// The first round of a new session, computed and its objects written, while no ref names it yet: `start` writes its
@@ -769,6 +816,8 @@ pub struct PreparedStart {
   objects: Option<RoundObjects>,
   /// The temporary refs of the commits that the words resolved, deleted in the transaction of `start`
   words_refs: Vec<ResolvedRef>,
+  /// The signature pass of the ready tip, deleted with the session-start transaction
+  signed: Option<WrittenCommits>,
 }
 
 impl PreparedStart {
@@ -780,13 +829,21 @@ impl PreparedStart {
   /// # Errors
   /// The state not written, the transaction refused, the finish failed
   pub fn start(self, git_executor: &GitCommandExecutor, repo_path: &str, dir: Option<String>, dir_created: bool) -> Result<Step> {
-    let Self { mut state, objects, words_refs } = self;
+    let Self {
+      mut state,
+      objects,
+      words_refs,
+      signed,
+    } = self;
     state.dir = dir;
     state.dir_created = dir_created;
     let session_ref = session_ref(&state.worktree);
     let written = match write_state(git_executor, repo_path, &state, None) {
       Ok(written) => written,
       Err(e) => {
+        if let Some(signed) = &signed {
+          signed.discard(git_executor, repo_path);
+        }
         discard(git_executor, repo_path, None, &words_refs);
         return Err(e);
       }
@@ -797,8 +854,14 @@ impl PreparedStart {
     for resolved_ref in &words_refs {
       resolved_ref.delete(&mut transaction);
     }
+    if let Some(signed) = &signed {
+      signed.delete_temp_refs(&mut transaction);
+    }
     if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
       discard(git_executor, repo_path, Some(&written), &words_refs);
+      if let Some(signed) = signed {
+        signed.discard(git_executor, repo_path);
+      }
       return Err(e);
     }
     info!(round = state.round, replayed = state.replayed, total = state.total(), "started a resolve session");
@@ -808,11 +871,15 @@ impl PreparedStart {
       return Ok(Step::Round(session));
     }
     let Session { ref_name, commit, state, .. } = session;
-    finish(git_executor, repo_path, &ref_name, &commit, state, false, &[])
+    let prepared = prepare_finish(git_executor, repo_path, &ref_name, &commit, state, false, Vec::new(), Signing::Off)?;
+    finish_prepared(git_executor, repo_path, prepared)
   }
 
   /// Abandon the start: delete the temporary refs of the commits the words resolved, leaving the objects to `git gc`
   pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    if let Some(signed) = &self.signed {
+      signed.discard(git_executor, repo_path);
+    }
     discard(git_executor, repo_path, None, &self.words_refs);
   }
 }
@@ -824,14 +891,21 @@ impl PreparedStart {
 /// that resolves itself (`advance`). Only objects are written, and the temporary refs of the resolved commits.
 /// `Unsupported` when the first conflict can't be resolved in a round
 #[instrument(skip(git_executor, plan, worktree), fields(branch = plan.checked.branch))]
-pub fn prepare_session_start(git_executor: &GitCommandExecutor, repo_path: &str, plan: &UpdatePlan, worktree: &Worktree, resolve: ResolveMode) -> Result<PreparedStart> {
+pub fn prepare_session_start(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  plan: &UpdatePlan,
+  worktree: &Worktree,
+  resolve: ResolveMode,
+  signing: Signing,
+) -> Result<PreparedStart> {
   if !plan.is_applicable_conflict() {
     bail!("A resolve session starts only from the check of an update that conflicts");
   }
+  sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
   let checked = &plan.checked;
   let excluded = plan.excluded();
   let replay = plan.replay_plan().ok_or_else(|| anyhow!("The check of a conflicting update has no replay plan"))?;
-  sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
   let committer = current_committer(git_executor, repo_path)?;
   let mut state = SessionState {
     version: STATE_VERSION,
@@ -866,7 +940,20 @@ pub fn prepare_session_start(git_executor: &GitCommandExecutor, repo_path: &str,
   }
   // the round of the check's first conflict opens without a search
   let (objects, words_refs) = advance(git_executor, repo_path, &mut state, replay.first_conflict, resolve)?;
-  Ok(PreparedStart { state, objects, words_refs })
+  let signed = if state.status == SessionStatus::Ready {
+    sign_range_or_discard(git_executor, repo_path, Some(&state.upstream_head), &state.tip, signing, &words_refs)?
+  } else {
+    None
+  };
+  if let Some(tip) = signed.as_ref().and_then(|signed| signed.ids.last()) {
+    state.tip.clone_from(tip);
+  }
+  Ok(PreparedStart {
+    state,
+    objects,
+    words_refs,
+    signed,
+  })
 }
 
 /// The resolution of one conflicting path, as the caller read it
@@ -930,6 +1017,45 @@ pub fn continue_session(
   dry_run: bool,
   resolve: ResolveMode,
 ) -> Result<Step> {
+  let step = continue_session_inner(git_executor, repo_path, worktree, session, round, input, dry_run, resolve, Signing::Off, false)?;
+  match step {
+    Step::PreparedRound(prepared) => apply_prepared_round(git_executor, repo_path, prepared),
+    Step::PreparedFinish(prepared) => finish_prepared(git_executor, repo_path, prepared),
+    step => Ok(step),
+  }
+}
+
+/// Prepare a continuation without moving refs; a final finish is returned for the caller to apply under the repository lock
+#[instrument(skip(git_executor, worktree, session, input))]
+#[expect(clippy::too_many_arguments, reason = "the session continuation takes the caller's single signing decision")]
+pub fn prepare_continue_session(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  worktree: &Worktree,
+  session: Session,
+  round: Option<u32>,
+  input: &RoundInput,
+  dry_run: bool,
+  resolve: ResolveMode,
+  signing: Signing,
+) -> Result<Step> {
+  continue_session_inner(git_executor, repo_path, worktree, session, round, input, dry_run, resolve, signing, true)
+}
+
+#[instrument(skip(git_executor, worktree, session, input))]
+#[expect(clippy::too_many_arguments, reason = "the step of a session: what the caller read and decided")]
+fn continue_session_inner(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  worktree: &Worktree,
+  session: Session,
+  round: Option<u32>,
+  input: &RoundInput,
+  dry_run: bool,
+  resolve: ResolveMode,
+  signing: Signing,
+  defer_finish: bool,
+) -> Result<Step> {
   let mut state = session.state.clone();
   if let Some(round) = round
     && round != state.round
@@ -949,12 +1075,8 @@ pub fn continue_session(
     return if dry_run {
       Ok(Step::Checked { session, resolution: None })
     } else {
-      sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
       finish_files_after_move(git_executor, repo_path, session)
     };
-  }
-  if state.status == SessionStatus::Applying && !dry_run {
-    sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
   }
   follow_head(git_executor, repo_path, &mut state, session.head_seen.as_deref())?;
 
@@ -997,6 +1119,7 @@ pub fn continue_session(
           encoding: raw.encoding.as_deref(),
           message: &raw.message,
         },
+        Signing::Off,
       )?;
       let empty = written.tree == written.parent_tree;
       let resolved = if let Some(landed) = &landed {
@@ -1078,20 +1201,57 @@ pub fn continue_session(
   };
   if state.status != SessionStatus::Resolving {
     let unsaved = state != session.state;
-    return finish(git_executor, repo_path, &session.ref_name, &session.commit, state, unsaved, &resolved_refs);
+    let prepared = prepare_finish(git_executor, repo_path, &session.ref_name, &session.commit, state, unsaved, resolved_refs, signing)?;
+    return if defer_finish {
+      Ok(Step::PreparedFinish(prepared))
+    } else {
+      finish_prepared(git_executor, repo_path, prepared)
+    };
   }
-  let written = write_state(git_executor, repo_path, &state, Some(&session.commit))?;
+  let written = match write_state(git_executor, repo_path, &state, Some(&session.commit)) {
+    Ok(written) => written,
+    Err(error) => {
+      discard(git_executor, repo_path, None, &resolved_refs);
+      return Err(error);
+    }
+  };
+  let prepared = PreparedRound {
+    ref_name: session.ref_name,
+    previous_commit: session.commit,
+    state,
+    objects,
+    written,
+    resolved_refs,
+  };
+  if defer_finish {
+    Ok(Step::PreparedRound(prepared))
+  } else {
+    apply_prepared_round(git_executor, repo_path, prepared)
+  }
+}
+
+/// Apply a prepared intermediate resolve round under the repository lock
+pub fn apply_prepared_round(git_executor: &GitCommandExecutor, repo_path: &str, prepared: PreparedRound) -> Result<Step> {
+  let PreparedRound {
+    ref_name,
+    previous_commit,
+    state,
+    objects,
+    written,
+    resolved_refs,
+  } = prepared;
   let mut transaction = RefTransaction::new();
-  transaction.update(&session.ref_name, &written.ids[0], Some(&session.commit));
+  transaction.update(&ref_name, &written.ids[0], Some(&previous_commit));
   written.delete_temp_refs(&mut transaction);
   for resolved_ref in &resolved_refs {
     resolved_ref.delete(&mut transaction);
   }
-  if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
-    discard(git_executor, repo_path, Some(&written), &resolved_refs);
-    return Err(e);
+  if let Err(error) = transaction.commit(git_executor, repo_path, "resolve session") {
+    discard(git_executor, repo_path, None, &resolved_refs);
+    written.discard(git_executor, repo_path);
+    return Err(error);
   }
-  let mut session = Session::new(session.ref_name, written.ids[0].clone(), state);
+  let mut session = Session::new(ref_name, written.ids[0].clone(), state);
   session.objects = objects;
   Ok(Step::Round(session))
 }
@@ -1207,6 +1367,25 @@ fn discard(git_executor: &GitCommandExecutor, repo_path: &str, written: Option<&
       resolved_ref.delete(transaction);
     }
   });
+}
+
+fn discard_resolved_error<T>(git_executor: &GitCommandExecutor, repo_path: &str, resolved_refs: &[ResolvedRef], error: anyhow::Error) -> Result<T> {
+  discard(git_executor, repo_path, None, resolved_refs);
+  Err(error)
+}
+
+fn sign_range_or_discard(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  base: Option<&str>,
+  tip: &str,
+  signing: Signing,
+  resolved_refs: &[ResolvedRef],
+) -> Result<Option<WrittenCommits>> {
+  match sign_range(git_executor, repo_path, base, tip, signing) {
+    Ok(signed) => Ok(signed),
+    Err(error) => discard_resolved_error(git_executor, repo_path, resolved_refs, error),
+  }
 }
 
 /// Delete the session ref with compare-and-swap. A session whose branch moved (`applied`) is deleted only when the files
@@ -1389,14 +1568,25 @@ fn rename_targets(git_executor: &GitCommandExecutor, repo_path: &str, round: u32
   Ok(targets)
 }
 
-fn refuse_check_failure(refused: &mut Vec<(RefusalKind, String)>, failure: CheckFailure, path: String) {
-  let kind = match failure {
+fn content_edit<'a>(input: &'a RoundInput, path: &str, display_path: String, refused: &mut Vec<(RefusalKind, String)>) -> Option<&'a Vec<u8>> {
+  let Some(EditCopy::Content(content)) = input.edits.get(path) else {
+    refused.push((RefusalKind::MissingResolution, display_path));
+    return None;
+  };
+  Some(content)
+}
+
+const fn refusal_kind(failure: CheckFailure) -> RefusalKind {
+  match failure {
     CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
     CheckFailure::LineEnds => RefusalKind::LineEnds,
     CheckFailure::Encoding => RefusalKind::Encoding,
     CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
-  };
-  refused.push((kind, path));
+  }
+}
+
+fn refuse_check_failure(refused: &mut Vec<(RefusalKind, String)>, failure: CheckFailure, path: String) {
+  refused.push((refusal_kind(failure), path));
 }
 
 /// Check the input of a round: every conflicting path needs exactly one resolution, an edit passes the marker checks.
@@ -1456,11 +1646,9 @@ fn check_round(
     let mut replaced: Option<Vec<&[u8]>> = None;
     let mut file_edits = Vec::new();
     let mut renamed_to = None;
-    let edit = input.edits.get(&file.path);
     let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
     let (outcome, result): (Outcome, &[u8]) = if let Some(new_path) = rename_to {
-      let Some(EditCopy::Content(content)) = edit else {
-        refused.push((RefusalKind::MissingResolution, path));
+      let Some(content) = content_edit(input, &file.path, path.clone(), &mut refused) else {
         continue;
       };
       let lines = match check_resolution(merged, content, labels) {
@@ -1523,8 +1711,7 @@ fn check_round(
         refused.push((RefusalKind::MissingResolution, path));
         continue;
       }
-      let Some(EditCopy::Content(content)) = edit else {
-        refused.push((RefusalKind::MissingResolution, path));
+      let Some(content) = content_edit(input, &file.path, path.clone(), &mut refused) else {
         continue;
       };
       let failure = match file.kind {
@@ -2186,15 +2373,17 @@ fn note_of(state: &SessionState, resolution: &Resolution) -> String {
 /// moved: the next `--continue` finishes) or `applied` (the branch moved: the next `--continue` lets the files follow).
 /// Local changes on the paths it writes refuse it first (`Step::Blocked`); `state` is saved as `ready` then when it is
 /// `unsaved`. `resolved_refs` (of the resolved commit of the last round) are deleted with the first transaction
-fn finish(
+#[expect(clippy::too_many_arguments, reason = "the prepared finish carries the session state and its temporary refs")]
+fn prepare_finish(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   ref_name: &str,
   base_commit: &str,
   mut state: SessionState,
   unsaved: bool,
-  resolved_refs: &[ResolvedRef],
-) -> Result<Step> {
+  resolved_refs: Vec<ResolvedRef>,
+  signing: Signing,
+) -> Result<PreparedFinish> {
   let (head, tip) = (state.head.clone(), state.tip.clone());
   state.status = SessionStatus::Ready;
   let changed = changed_paths(git_executor, repo_path, &head, &tip)?;
@@ -2203,24 +2392,58 @@ fn finish(
   } else {
     blocking_paths(git_executor, repo_path, &head, &tip, &changed)?
   };
+  let signed = if blocked.is_empty() {
+    sign_range_or_discard(git_executor, repo_path, Some(&state.upstream_head), &state.tip, signing, &resolved_refs)?
+  } else {
+    None
+  };
+  if let Some(tip) = signed.as_ref().and_then(|signed| signed.ids.last()) {
+    state.tip.clone_from(tip);
+  }
+  Ok(PreparedFinish {
+    ref_name: ref_name.to_string(),
+    base_commit: base_commit.to_string(),
+    state,
+    unsaved,
+    resolved_refs,
+    signed,
+    blocked,
+    files_change: !changed.is_empty(),
+  })
+}
+
+/// Apply a final resolve finish under the repository lock after `prepare_finish` signed its replay output
+pub fn finish_prepared(git_executor: &GitCommandExecutor, repo_path: &str, prepared: PreparedFinish) -> Result<Step> {
+  let PreparedFinish {
+    ref_name,
+    base_commit,
+    state,
+    unsaved,
+    resolved_refs,
+    mut signed,
+    blocked,
+    files_change,
+  } = prepared;
+  let head = state.head.clone();
+  let tip = state.tip.clone();
   if !blocked.is_empty() {
-    let mut commit = base_commit.to_string();
+    let mut commit = base_commit.clone();
     if unsaved {
-      let written = write_state(git_executor, repo_path, &state, Some(base_commit))?;
+      let written = write_state(git_executor, repo_path, &state, Some(&base_commit))?;
       let mut transaction = RefTransaction::new();
-      transaction.update(ref_name, &written.ids[0], Some(base_commit));
+      transaction.update(&ref_name, &written.ids[0], Some(&base_commit));
       written.delete_temp_refs(&mut transaction);
-      for resolved_ref in resolved_refs {
+      for resolved_ref in &resolved_refs {
         resolved_ref.delete(&mut transaction);
       }
       if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
-        discard(git_executor, repo_path, Some(&written), resolved_refs);
+        discard(git_executor, repo_path, Some(&written), &resolved_refs);
         return Err(e);
       }
       commit.clone_from(&written.ids[0]);
     }
     return Ok(Step::Blocked {
-      session: Session::new(ref_name.to_string(), commit, state),
+      session: Session::new(ref_name, commit, state),
       paths: blocked,
     });
   }
@@ -2244,27 +2467,42 @@ fn finish(
   let (applying_json, applied_json) = (serde_json::to_vec_pretty(&applying)?, serde_json::to_vec_pretty(&applied)?);
   let entries = state_entries(&applying);
   let commits = [
-    state_commit(&applying, &applying_json, &entries, Some(NewParent::Existing(base_commit))),
+    state_commit(&applying, &applying_json, &entries, Some(NewParent::Existing(&base_commit))),
     state_commit(&applied, &applied_json, &entries, Some(NewParent::Written(0))),
   ];
-  let written = write_store_commits(git_executor, repo_path, &commits, (!notes.is_empty()).then_some(&store_notes), Some(&state.committer))?;
+  let written = match write_store_commits(git_executor, repo_path, &commits, (!notes.is_empty()).then_some(&store_notes), Some(&state.committer)) {
+    Ok(written) => written,
+    Err(error) => {
+      if let Some(signed) = &signed {
+        signed.discard(git_executor, repo_path);
+      }
+      discard(git_executor, repo_path, None, &resolved_refs);
+      return Err(error);
+    }
+  };
   let (applying_commit, applied_commit) = (written.ids[0].clone(), written.ids[1].clone());
 
   // 1. applying: nothing moved yet
   let mut transaction = RefTransaction::new();
-  transaction.update(ref_name, &applying_commit, Some(base_commit));
-  for resolved_ref in resolved_refs {
+  transaction.update(&ref_name, &applying_commit, Some(&base_commit));
+  for resolved_ref in &resolved_refs {
     resolved_ref.delete(&mut transaction);
   }
+  if let Some(signed) = &signed {
+    signed.delete_temp_refs(&mut transaction);
+  }
   if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session applying") {
-    discard(git_executor, repo_path, Some(&written), resolved_refs);
+    discard(git_executor, repo_path, Some(&written), &resolved_refs);
+    if let Some(signed) = signed.take() {
+      signed.discard(git_executor, repo_path);
+    }
     return Err(e);
   }
   // 2. and 3. the branch with the session ref and the notes, then the files; both roll back together
   let mut with = RefTransaction::new();
-  with.update(ref_name, &applied_commit, Some(&applying_commit));
+  with.update(&ref_name, &applied_commit, Some(&applying_commit));
   let mut rollback_with = RefTransaction::new();
-  rollback_with.update(ref_name, &applying_commit, Some(&applied_commit));
+  rollback_with.update(&ref_name, &applying_commit, Some(&applied_commit));
   if let Some((notes_commit, _)) = &written.notes {
     store_notes.add_to(&mut with, notes_commit);
     match &notes_before {
@@ -2280,7 +2518,7 @@ fn finish(
       head_ref: &HeadRef::of(&state.branch),
       head: &head,
       new_head: &tip,
-      files_change: !changed.is_empty(),
+      files_change,
       refreshed: false,
       operation: UPDATE_OPERATION,
       with: &with,
@@ -2294,11 +2532,11 @@ fn finish(
   }
   // 4. done
   let mut transaction = RefTransaction::new();
-  transaction.delete(ref_name, Some(&applied_commit));
+  transaction.delete(&ref_name, Some(&applied_commit));
   transaction.commit(git_executor, repo_path, "resolve session finished")?;
   info!(rounds = state.round, %tip, "finished the resolve session");
   Ok(Step::Applied {
-    session: Session::new(ref_name.to_string(), applied_commit, applied),
+    session: Session::new(ref_name, applied_commit, applied),
     previous_head: head,
   })
 }

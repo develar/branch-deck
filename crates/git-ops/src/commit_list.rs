@@ -202,6 +202,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   let mapped_commit_id = note.and_then(crate::notes::mapped_commit_id).map(str::to_string);
   let mapped_source = note.and_then(crate::notes::mapped_source);
   let mapped_resolution = note.and_then(crate::notes::mapped_resolution);
+  let mapped_signed = note.is_some_and(crate::notes::mapped_signed);
   let note = note.map(str::to_string);
 
   Ok(Commit {
@@ -222,6 +223,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     mapped_commit_id,
     mapped_source,
     mapped_resolution,
+    mapped_signed,
     subject_parts: subject_parts(&subject),
   })
 }

@@ -28,7 +28,7 @@ fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) ->
 }
 
 fn prepare(repo: &TestRepo, history: &History, plan: &RewritePlan) -> Result<PreparedRewrite, CopyCommitError> {
-  prepare_plan(repo.git_executor(), repo_path(repo), history, plan, SQUASH_CHECKS)?.ready(repo.git_executor(), repo_path(repo))
+  prepare_plan(repo.git_executor(), repo_path(repo), history, plan, SQUASH_CHECKS, crate::commit_signing::Signing::Off)?.ready(repo.git_executor(), repo_path(repo))
 }
 
 fn squash(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Result<()> {
@@ -188,6 +188,7 @@ fn rewrite_refused_during_merge() {
       original_commit_id: commit.clone(),
       files: vec!["login.rs".to_string()],
     },
+    crate::commit_signing::Signing::Off,
   )
   .unwrap_err()
   .to_string();

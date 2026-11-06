@@ -32,6 +32,7 @@ fn commit(id: &str, copy: &str) -> Commit {
     mapped_commit_id: Some(copy.to_string()),
     mapped_source: None,
     mapped_resolution: None,
+    mapped_signed: false,
     subject_parts: SubjectParts::default(),
   }
 }

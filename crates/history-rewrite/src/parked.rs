@@ -14,6 +14,7 @@ use crate::store_lines::{LineStore, StoreDrop, StoreMoved, drop_store_lines, for
 use anyhow::Result;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::Signing;
 use git_ops::commit_writer::{WrittenCommits, write_commits_with_notes};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::with_dirs_of;
@@ -300,6 +301,7 @@ fn prepare_lines(
     None,
     std::slice::from_ref(&update.commit),
     None,
+    Signing::Off,
   )?);
   Ok(prepared)
 }

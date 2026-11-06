@@ -8,11 +8,12 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::landed_pairing::{LandedDrop, LandedReads};
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
-  CheckPurpose, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update, check_update_before_lock, check_update_guards_on,
-  check_update_undo, finish_pending_update, pending_update, recheck_update,
+  LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update_before_lock_with_signing, check_update_guards_on, check_update_undo,
+  finish_pending_update, pending_update, recheck_update,
 };
 use git_ops::update_resolve::{PreparedStart, prepare_session_start};
 use git_ops::word_resolve::ResolveMode;
@@ -161,6 +162,7 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
 
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
 fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
+  let signing = commit_signing(git_executor, repo_path)?;
   // onto a local branch the guards run in the check, which reads HEAD
   let upstream = if let Some(branch) = options.onto {
     local_upstream(git_executor, repo_path, branch)?
@@ -203,10 +205,11 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // the check (the replay, the resolution by words, the landed candidates) on the HEAD and the upstream it reads once,
   // before the lock: the lock is held only for the witness, the local changes and the move
   on_progress(UpdatePhase::Checking.into());
-  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::NotHeld)?;
+  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, signing)?;
   // nothing to move (up to date, blocked, or a conflict that starts no session): the check is the answer, and no lock
   // is waited for, unless a crash left files to follow
   if moves_nothing(&prepared.plan.check.state, resolve) && pending_update(git_executor, repo_path)?.is_none() {
+    prepared.plan.discard(git_executor, repo_path);
     let mut check = prepared.plan.check;
     check.fetched_at = fetched_at;
     info!(state = ?check.state, "update not applied, checked without the lock");
@@ -221,7 +224,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   }
   // a conflict that starts a session: its first round (the replays up to the conflict the check found, the merge, the
   // words) is computed before the lock too
-  let mut start = session_start(git_executor, repo_path, &prepared, resolve)?;
+  let mut start = session_start(git_executor, repo_path, &prepared, resolve, signing)?;
   let mut checks = 1;
   let lock = loop {
     let locked = (|| -> Result<_> {
@@ -234,7 +237,10 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       let holds = !recovered && recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)?;
       Ok((lock, recovered, holds))
     })();
-    let (lock, recovered, holds) = locked.inspect_err(|_| discard_start(git_executor, repo_path, start.as_ref()))?;
+    let (lock, recovered, holds) = locked.inspect_err(|_| {
+      discard_start(git_executor, repo_path, start.as_ref());
+      prepared.plan.discard(git_executor, repo_path);
+    })?;
     if holds {
       break lock;
     }
@@ -244,15 +250,13 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     discard_start(git_executor, repo_path, start.take().as_ref());
     on_progress(UpdatePhase::Checking.into());
     if recovered || checks >= CHECKS_WITHOUT_THE_LOCK {
-      info!(recovered, "the update is checked again under the lock");
-      prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
-      start = session_start(git_executor, repo_path, &prepared, resolve)?;
-      break lock;
+      info!(recovered, "the update is checked once more without the lock");
     }
+    prepared.plan.discard(git_executor, repo_path);
     drop(lock);
     info!("the branch or its upstream moved during the check: it checks again without the lock");
-    prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::NotHeld)?;
-    start = session_start(git_executor, repo_path, &prepared, resolve)?;
+    prepared = prepare_update(git_executor, repo_path, upstream_ref, signing)?;
+    start = session_start(git_executor, repo_path, &prepared, resolve, signing)?;
     checks += 1;
   };
   let Prepared { grouping, mut plan, .. } = prepared;
@@ -264,14 +268,25 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     let outcome = start_resolve(git_executor, repo_path, start, &grouping, dir, lock)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
-  let moved = match &plan.check.state {
+  let state = plan.check.state.clone();
+  let moved = match state {
     UpdateState::Clean { .. } => {
       on_progress(UpdatePhase::Updating.into());
-      Some(apply_update(git_executor, repo_path, &plan)?)
+      match apply_update(git_executor, repo_path, &plan) {
+        Ok(moved) => Some(moved),
+        Err(error) => {
+          plan.discard(git_executor, repo_path);
+          return Err(error);
+        }
+      }
     }
-    UpdateState::UpToDate => None,
+    UpdateState::UpToDate => {
+      plan.discard(git_executor, repo_path);
+      None
+    }
     UpdateState::Conflict { .. } | UpdateState::Blocked { .. } => {
-      info!(state = ?plan.check.state, "update not applied");
+      info!(state = ?state, "update not applied");
+      plan.discard(git_executor, repo_path);
       None
     }
   };
@@ -307,9 +322,11 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
 
 /// The first round of the resolve session that the conflicting check of `prepared` starts (`Resolve::Yes`); `None` for
 /// any other check
-fn session_start(git_executor: &GitCommandExecutor, repo_path: &str, prepared: &Prepared, resolve: Resolve<'_>) -> Result<Option<PreparedStart>> {
+fn session_start(git_executor: &GitCommandExecutor, repo_path: &str, prepared: &Prepared, resolve: Resolve<'_>, signing: Signing) -> Result<Option<PreparedStart>> {
   match (&prepared.plan.check.state, resolve) {
-    (UpdateState::Conflict { .. }, Resolve::Yes { worktree, .. }) => prepare_session_start(git_executor, repo_path, &prepared.plan, worktree, prepared.resolve_mode).map(Some),
+    (UpdateState::Conflict { .. }, Resolve::Yes { worktree, .. }) => {
+      prepare_session_start(git_executor, repo_path, &prepared.plan, worktree, prepared.resolve_mode, signing).map(Some)
+    }
     _ => Ok(None),
   }
 }
@@ -345,15 +362,6 @@ const fn moves_nothing(state: &UpdateState, resolve: Resolve<'_>) -> bool {
   }
 }
 
-/// Whether the caller of `prepare_update` holds the repository lock
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lock {
-  /// The check runs before it: `recheck_update` under the lock reads the local changes and that nothing moved
-  NotHeld,
-  /// Under it: the check is the exact one
-  Held,
-}
-
 /// The check of an update and what it read
 struct Prepared {
   grouping: GroupingInputs,
@@ -362,13 +370,10 @@ struct Prepared {
 }
 
 /// The inputs of the check, then the check of `upstream` for an apply
-fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, lock: Lock) -> Result<Prepared> {
+fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, signing: Signing) -> Result<Prepared> {
   let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
   let landed = LandedLookup::ByKey { stacks: grouping.stacks };
-  let plan = match lock {
-    Lock::NotHeld => check_update_before_lock(git_executor, repo_path, upstream, landed, resolve_mode)?,
-    Lock::Held => check_update(git_executor, repo_path, upstream, CheckPurpose::Apply, landed, resolve_mode)?,
-  };
+  let plan = check_update_before_lock_with_signing(git_executor, repo_path, upstream, landed, resolve_mode, signing)?;
   Ok(Prepared { grouping, resolve_mode, plan })
 }
 

@@ -10,6 +10,7 @@ use anyhow::Result;
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::{DropCommitsResult, RemovedCommit, UndoneDrop};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::revs::{is_object_id, with_dirs_of};
 use git_ops::unapply::{DropKind, DropPlan, apply_drop, apply_drop_undo, check_drop, check_drop_undo};
 use git_ops::update_branch::UndoCheck;
@@ -106,7 +107,9 @@ pub fn drop_commits_core(git_executor: &GitCommandExecutor, params: &DropCommits
   let repo = params.repository_path.as_str();
   // the guards, the lock and the mark take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo)?;
-  let prepare = || prepare_drop(git_executor, params, options);
+  let configured_signing = commit_signing(git_executor, repo)?;
+  let signing = if params.dry_run { Signing::Off } else { configured_signing };
+  let prepare = || prepare_drop(git_executor, params, options, signing);
   if params.dry_run {
     let prepared = prepare()?;
     prepared.prepared.discard(git_executor, repo);
@@ -149,7 +152,7 @@ fn result_of(prepared: &PreparedDrop, new_head: &str, undo_token: Option<String>
 
 /// Everything a drop reads and computes before the lock: the commits it names among the commits ahead of the baseline,
 /// the checked drop (its notes written, unless a dry run), the branches the next sync builds anew and those it empties
-fn prepare_drop(git_executor: &GitCommandExecutor, params: &DropCommitsParams, options: &RewriteOptions) -> Result<PreparedDrop> {
+fn prepare_drop(git_executor: &GitCommandExecutor, params: &DropCommitsParams, options: &RewriteOptions, signing: Signing) -> Result<PreparedDrop> {
   let repo = params.repository_path.as_str();
   if params.commit_ids.is_empty() {
     return Err(DropSelectionRefused::NoCommit.into());
@@ -170,7 +173,7 @@ fn prepare_drop(git_executor: &GitCommandExecutor, params: &DropCommitsParams, o
   let grouping = read_grouping_inputs(git_executor, repo)?;
   // oldest first, as `CommitsAhead` lists them
   let ids: Vec<String> = ahead.iter().filter(|commit| resolved.full.contains(&commit.id)).map(|commit| commit.id.clone()).collect();
-  let plan = check_drop(git_executor, repo, &ids, DropKind::Drop)?;
+  let plan = check_drop(git_executor, repo, &ids, DropKind::Drop, signing)?;
   if let Err(e) = options.ensure_head(git_executor, repo, plan.head()) {
     plan.discard(git_executor, repo);
     return Err(e.into());

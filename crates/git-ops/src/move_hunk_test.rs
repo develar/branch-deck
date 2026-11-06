@@ -1,3 +1,4 @@
+use super::commit_signing::Signing;
 use super::move_hunk::{MoveHunkError, MoveHunkMode, MoveHunkOutcome, MoveHunkRequest, MovedChange, move_hunk};
 use super::notes::{MappingNote, write_commit_notes};
 use super::rewrite_test_utils::{assert_no_temp_refs, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
@@ -69,7 +70,29 @@ fn request<'a>(repo: &TestRepo, from: &'a str, to: &'a str, path: &'a str, chang
 }
 
 fn run(repo: &TestRepo, request: &MoveHunkRequest<'_>) -> Result<MoveHunkOutcome, MoveHunkError> {
-  move_hunk(repo.git_executor(), repo_path(repo), request)
+  move_hunk(repo.git_executor(), repo_path(repo), request, Signing::Off)
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn moving_a_hunk_signs_every_rewritten_commit() -> Result<()> {
+  #[cfg(windows)]
+  if !crate::commit_signing::ssh_keygen_available() {
+    return Ok(());
+  }
+
+  let (repo, [a, _, b]) = base_a_x_b();
+  let base = repo.git(&["rev-parse", "HEAD~3"]);
+  repo.enable_ssh_signing();
+  let request = request(&repo, &b, &a, "f.txt", MovedChange::WholeFile);
+
+  let outcome = move_hunk(repo.git_executor(), repo_path(&repo), &request, Signing::On)?;
+
+  for (_, commit) in &outcome.commits {
+    repo.git(&["verify-commit", commit]);
+  }
+  assert_eq!(repo.git(&["log", "--format=%G?", &format!("{base}..{}", outcome.new_head)]).trim(), "G\nG\nG");
+  Ok(())
 }
 
 /// The new id of `old` in `outcome`
@@ -100,6 +123,7 @@ fn write_mapping_note(repo: &TestRepo, original: &str, mapped: &str) -> Result<(
       tree: tree_of(original),
     },
     resolved: None,
+    signed: false,
   };
   write_commit_notes(repo.git_executor(), repo_path(repo), &[note])
 }
@@ -227,6 +251,7 @@ fn a_commit_between_that_shifts_the_lines_still_applies() -> Result<()> {
       tree: tree_of(new_x),
     },
     resolved: None,
+    signed: false,
   };
   assert_eq!(git(&repo, &["notes", "show", new_x]), expected_note.content());
   assert_no_temp_refs(&repo)
@@ -375,7 +400,7 @@ fn a_move_runs_a_fixed_set_of_processes() -> Result<()> {
   write_mapping_note(&repo, &x, &a)?;
   let counting = repo.git_executor().with_process_stats("test");
 
-  move_hunk(&counting, repo_path(&repo), &request(&repo, &b, &a, "f.txt", MovedChange::WholeFile))?;
+  move_hunk(&counting, repo_path(&repo), &request(&repo, &b, &a, "f.txt", MovedChange::WholeFile), Signing::Off)?;
 
   let processes: Vec<(String, u32)> = counting
     .process_stats()

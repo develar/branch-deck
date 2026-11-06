@@ -3,6 +3,7 @@
 //! (`read_noted_commits` their committer times and subjects too), and notes are written with one `fast-import`
 //! (`commit_writer.rs`).
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use domain_types::commit::{NoteResolution, NoteSource};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -17,6 +18,8 @@ pub const SOURCE_PREFIX: &str = "v-commit-source-v1:";
 /// The line of a mapping note whose virtual commit resolved a conflict of git by words (`word_resolve`):
 /// `<resolve version> <conflicts> <files>`
 pub const RESOLVED_PREFIX: &str = "v-commit-resolved-v1:";
+/// A mapping note line that says its virtual copy has a signature
+pub const SIGNED_PREFIX: &str = "v-commit-signed-v1:";
 
 /// A mapping note to write: `original` is copied as `mapped` from `source`, with the resolve by words it took
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +28,7 @@ pub struct MappingNote {
   pub mapped: String,
   pub source: NoteSource,
   pub resolved: Option<NoteResolution>,
+  pub signed: bool,
 }
 
 impl MappingNote {
@@ -33,6 +37,9 @@ impl MappingNote {
     let mut content = format!("{PREFIX}{}\n{SOURCE_PREFIX}{} {}", self.mapped, self.source.parent_tree, self.source.tree);
     if let Some(resolved) = self.resolved {
       let _ = write!(content, "\n{RESOLVED_PREFIX}{} {} {}", resolved.version, resolved.conflicts, resolved.files);
+    }
+    if self.signed {
+      let _ = write!(content, "\n{SIGNED_PREFIX}");
     }
     content
   }
@@ -64,12 +71,17 @@ pub fn mapped_resolution(note: &str) -> Option<NoteResolution> {
   }
 }
 
+/// Whether the mapping note records that its virtual copy was signed
+pub fn mapped_signed(note: &str) -> bool {
+  note.lines().any(|line| line.trim() == SIGNED_PREFIX)
+}
+
 /// The mapping lines of a note, to copy them onto a rewritten commit without the lines of other notes
 pub fn mapping_lines(note: &str) -> Option<String> {
   let lines: Vec<&str> = note
     .lines()
     .map(str::trim)
-    .filter(|line| line.starts_with(PREFIX) || line.starts_with(SOURCE_PREFIX) || line.starts_with(RESOLVED_PREFIX))
+    .filter(|line| line.starts_with(PREFIX) || line.starts_with(SOURCE_PREFIX) || line.starts_with(RESOLVED_PREFIX) || line.starts_with(SIGNED_PREFIX))
     .collect();
   lines.iter().any(|line| line.starts_with(PREFIX)).then(|| lines.join("\n"))
 }
@@ -157,10 +169,11 @@ pub fn write_commits_with_mapping_notes(
   notes: Vec<(usize, String)>,
   stores: &[StoreCommit<'_>],
   committer: Option<&str>,
+  signing: Signing,
 ) -> Result<WrittenCommits, anyhow::Error> {
   let notes_ref = if notes.is_empty() { None } else { Some(notes_ref(git_executor, repo_path)?) };
   let notes = notes_ref.as_deref().map(|notes_ref| NotesOfWritten { notes_ref, notes });
-  write_commits_with_notes(git_executor, repo_path, commits, notes.as_ref(), stores, committer)
+  write_commits_with_notes(git_executor, repo_path, commits, notes.as_ref(), stores, committer, signing)
 }
 
 /// Write mapping notes after a sync, all in one notes commit on the default notes ref (`core.notesRef`, normally

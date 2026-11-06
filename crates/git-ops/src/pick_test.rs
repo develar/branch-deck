@@ -1,4 +1,7 @@
-use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, check_pick, check_pick_undo, pick_dry_run};
+use crate::commit_signing::Signing;
+use crate::pick::{
+  FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, SubjectPrefix, apply_pick, check_pick, check_pick_undo, check_pick_with_signing, pick_dry_run,
+};
 use crate::revs::ref_exists;
 use crate::rewrite_guard::HeadMoved;
 use crate::update_branch::{GuardRefusal, PENDING_UPDATE_PREFIX, ReflogEntry, UndoCheck, apply_update_undo, finish_pending_update, undone_move_base};
@@ -68,6 +71,30 @@ fn a_checked_follow() -> (TestRepo, String, TestWorktree, PickPlan) {
   repo.create_commit("(own) other", "own.txt", "own\n");
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
   (repo, base, worktree, plan)
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn a_fast_forward_pick_keeps_the_original_commits_with_signing_enabled() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  let first = worktree.commit("first", "b.txt", "b\n");
+  let second = worktree.commit("second", "c.txt", "c\n");
+  repo.enable_ssh_signing();
+  let request = from(&worktree, false);
+
+  let plan = check_pick_with_signing(repo.git_executor(), repo.path_str(), &request, Signing::On).unwrap();
+  assert_eq!(plan.check.new_head, second);
+  assert_eq!(
+    plan.check.picked.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(),
+    [first.as_str(), second.as_str()]
+  );
+  let applied = apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+
+  assert_eq!(applied.new_head, second);
+  assert_eq!(repo.head(), second);
+  assert_eq!(repo.git(&["log", "--format=%G?", &format!("{base}..HEAD")]).trim(), "N\nN");
 }
 
 /// Delete the reflog of the target branch: its fork points are gone

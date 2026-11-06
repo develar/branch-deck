@@ -7,6 +7,7 @@
 //! with `option no-deref`. The check needs no lock: its caller checks before the repository lock and, under it, only
 //! the witness (`recheck_pick`) before the moves.
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::{NewCommit, NewParent, read_raw_commits, write_commits};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::landed_pairing::present_by_patch_id;
@@ -284,8 +285,12 @@ pub enum PickRefusal {
 /// A range that starts at the target's HEAD is a fast-forward: the commits land as they are. Otherwise the copies keep
 /// their authors, the committer is the current user, and the committer date is the newest of the range's and HEAD's
 /// (`committer_date`), so the same pick writes the same commits, the dry run's and the real one's.
-#[instrument(skip(git_executor))]
 pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &PickRequest<'_>) -> Result<PickPlan> {
+  check_pick_with_signing(git_executor, target, request, Signing::Off)
+}
+
+#[instrument(skip(git_executor))]
+pub fn check_pick_with_signing(git_executor: &GitCommandExecutor, target: &str, request: &PickRequest<'_>, signing: Signing) -> Result<PickPlan> {
   let branch = check_update_guards(git_executor, target)?;
   if let Some(expected) = request.expect_branch
     && expected != branch
@@ -421,8 +426,8 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
     let kept: Vec<UpdateCommit> = range.iter().filter(|commit| !commit.same_patch).map(|commit| commit.commit.clone()).collect();
     let replayed = commits_of(git_executor, target, &[tip.clone(), format!("^{head}")])?;
     let (mut picked, dropped) = match_replayed(&kept, &replayed);
-    if let Some(prefix) = request.prefix {
-      tip = prefix_subjects(git_executor, target, &head, &replayed, &mut picked, prefix)?;
+    if request.prefix.is_some() || signing == Signing::On {
+      tip = prefix_subjects(git_executor, target, &head, &replayed, &mut picked, request.prefix, signing)?;
     }
     let present: Vec<PickCommit> = range
       .iter()
@@ -791,13 +796,14 @@ fn prefix_subjects(
   head: &str,
   replayed: &[UpdateCommit],
   picked: &mut [PickedCommit],
-  prefix: SubjectPrefix<'_>,
+  prefix: Option<SubjectPrefix<'_>>,
+  signing: Signing,
 ) -> Result<String> {
   let ids: Vec<&str> = replayed.iter().map(|commit| commit.id.as_str()).collect();
   let raw = read_raw_commits(git_executor, target, &ids)?;
   let prefixed: Vec<bool> = replayed
     .iter()
-    .map(|copy| picked.iter().any(|commit| commit.new_id == copy.id && prefix.commits.contains(&commit.commit)))
+    .map(|copy| prefix.is_some_and(|prefix| picked.iter().any(|commit| commit.new_id == copy.id && prefix.commits.contains(&commit.commit))))
     .collect();
   let messages: Vec<Vec<u8>> = replayed
     .iter()
@@ -805,7 +811,7 @@ fn prefix_subjects(
     .map(|(copy, prefixed)| {
       let message = &raw[copy.id.as_str()].message;
       if *prefixed {
-        [format!("({}) ", prefix.group).into_bytes(), message.clone()].concat()
+        [format!("({}) ", prefix.map_or("", |prefix| prefix.group)).into_bytes(), message.clone()].concat()
       } else {
         message.clone()
       }
@@ -827,12 +833,12 @@ fn prefix_subjects(
       }
     })
     .collect();
-  let written = write_commits(git_executor, target, &commits)?;
+  let written = write_commits(git_executor, target, &commits, signing)?;
   written.discard(git_executor, target);
   for ((copy, new_id), prefixed) in replayed.iter().zip(&written.ids).zip(&prefixed) {
     if let Some(commit) = picked.iter_mut().find(|commit| commit.new_id == copy.id) {
       commit.new_id.clone_from(new_id);
-      if *prefixed {
+      if let Some(prefix) = prefix.filter(|_| *prefixed) {
         commit.subject = format!("({}) {}", prefix.group, commit.subject);
       }
     }

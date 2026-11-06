@@ -365,6 +365,27 @@ fn squashes_interleaved_groups_in_one_rewrite() {
   assert_eq!(reflog.trim(), "branch-deck: squash fixups");
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn a_fold_signs_replacements_and_replayed_commits() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let (test_repo, head) = interleaved_repo();
+  let base = test_repo.git(&["rev-parse", "HEAD~5"]);
+  test_repo.enable_ssh_signing();
+
+  let result = squash_fixups(&test_repo, &head, AutosquashScope::All).unwrap();
+
+  let rewritten = test_repo.git(&["rev-list", &format!("{base}..{}", result.new_head)]);
+  for commit in rewritten.lines() {
+    test_repo.git(&["verify-commit", commit]);
+  }
+  assert_eq!(test_repo.git(&["log", "--format=%G?", &format!("{base}..{}", result.new_head)]).trim(), "G\nG\nG");
+}
+
 #[test]
 fn squashes_only_the_fixups_of_one_branch_or_one_fixup() {
   let (test_repo, head) = interleaved_repo();

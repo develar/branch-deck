@@ -300,6 +300,8 @@ pub enum ErrorCode {
   /// Git cannot form the identity of the user (`git var GIT_COMMITTER_IDENT`: `user.name` or `user.email` unset), which
   /// the notes and the rewritten commits are written with: nothing was written; set both, then run again
   NoIdentity,
+  /// Git could not sign commits while `commit.gpgsign` is true; configure or unlock the signing key, then run again
+  SigningFailed,
   /// A git command failed
   GitError,
   /// A network command (fetch, push) failed
@@ -338,7 +340,8 @@ impl ErrorCode {
       | Self::NotASlot
       | Self::SlotInPool
       | Self::NotParked
-      | Self::NoIdentity => 2,
+      | Self::NoIdentity
+      | Self::SigningFailed => 2,
       Self::HeadMoved
       | Self::GroupsMoved
       | Self::StacksMoved

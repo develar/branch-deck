@@ -11,6 +11,7 @@ use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_command_executor::StoppedCommand;
 use git_executor::git_info::GitNotFound;
+use git_ops::commit_signing::SigningFailed;
 use git_ops::commit_writer::NoIdentity;
 use git_ops::index_lock::IndexLocked;
 use git_ops::pick::PickRefusal;
@@ -192,6 +193,9 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
   }
   if error.downcast_ref::<NoIdentity>().is_some() {
     return code(ErrorCode::NoIdentity);
+  }
+  if error.downcast_ref::<SigningFailed>().is_some() {
+    return code(ErrorCode::SigningFailed);
   }
   if error.downcast_ref::<NoBaseline>().is_some() || error.downcast_ref::<NoUpstream>().is_some() {
     return code(ErrorCode::NoBaseline);

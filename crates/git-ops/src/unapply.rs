@@ -5,6 +5,7 @@
 //! follow, and only then does HEAD move, through the guarded update of `update_branch`. Only `check_drop` builds a
 //! plan, and its `DropKind` names the move, so no other crate can move HEAD through the working-tree exemption.
 
+use crate::commit_signing::Signing;
 use crate::copy_commit::CopyCommitError;
 use crate::paths::changed_paths;
 use crate::ref_transaction::RefTransaction;
@@ -124,9 +125,9 @@ impl DropPlan {
 /// drop changes refuse it with `MoveBlocked`, staged or not; work on other paths stays as it is. Nothing is changed but
 /// git objects
 #[instrument(skip(git_executor))]
-pub fn check_drop(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids: &[String], kind: DropKind) -> Result<DropPlan> {
+pub fn check_drop(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids: &[String], kind: DropKind, signing: Signing) -> Result<DropPlan> {
   let branch = check_update_guards(git_executor, repo_path)?;
-  let prepared = prepare_drop_commits(git_executor, repo_path, commit_ids).map_err(|e| match e {
+  let prepared = prepare_drop_commits(git_executor, repo_path, commit_ids, signing).map_err(|e| match e {
     CopyCommitError::Other(e) => match refused_in(&e) {
       Some(refused) if refused.kind == RefusalKind::Empty => anyhow::Error::new(DropRefused(emptied_message(kind, &branch))),
       _ => e,

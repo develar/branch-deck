@@ -6,6 +6,7 @@ use domain_types::rewrite::{CommitReword, RewordText};
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
+use git_ops::commit_signing::Signing;
 use git_ops::notes::write_commit_notes;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
@@ -89,6 +90,7 @@ fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncConte
     verify_mapping_notes: false,
     owners: CommitOwners::default(),
     resolve: ResolveMode::On,
+    signing: Signing::Off,
   }
 }
 

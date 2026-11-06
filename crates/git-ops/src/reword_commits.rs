@@ -2,6 +2,7 @@
 //! `fast-import` and one ref transaction; the trees stay the same, so the index and the working tree are untouched
 //! (docs/design/git-operations.md, "Reword, move, add issue reference").
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::{NewCommit, NewParent, StoreCommit, StoreUpdate, WrittenCommits, complete_line, read_raw_commits};
 use crate::history::History;
 use crate::notes::write_commits_with_mapping_notes;
@@ -33,7 +34,7 @@ pub struct RewordCommitParams {
 /// the current branch ahead of `baseline_branch`, if the range has a merge commit, and if the branch moved while the
 /// new commits were created.
 pub fn reword_commits_batch(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, rewrites: Vec<RewordCommitParams>) -> Result<HashMap<String, String>> {
-  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, &[]).map(|(mapping, _)| mapping)
+  reword_commits_batch_at(git_executor, repo_path, baseline_branch, rewrites, None, &[], Signing::Off).map(|(mapping, _)| mapping)
 }
 
 /// `reword_commits_batch` for a rewrite computed from the history at `expected_head`: fails with `HeadMoved` (as the
@@ -48,6 +49,7 @@ pub fn reword_commits_batch_at(
   rewrites: Vec<RewordCommitParams>,
   expected_head: Option<&str>,
   stores: &[StoreUpdate<'_>],
+  signing: Signing,
 ) -> Result<(HashMap<String, String>, Vec<String>)> {
   if rewrites.is_empty() {
     // the stores move only with a rewrite: `commit_writer::write_store_updates` writes them alone
@@ -58,7 +60,7 @@ pub fn reword_commits_batch_at(
     };
   }
   let store_commits: Vec<StoreCommit<'_>> = stores.iter().map(|store| store.commit.clone()).collect();
-  let prepared = prepare_reword(git_executor, repo_path, (baseline_branch, false), rewrites, expected_head, &store_commits)?;
+  let prepared = prepare_reword(git_executor, repo_path, (baseline_branch, false), rewrites, expected_head, &store_commits, signing)?;
   let mut also = RefTransaction::new();
   for (store, store_commit) in stores.iter().zip(prepared.store_commits()) {
     store.add_to(&mut also, store_commit);
@@ -155,6 +157,7 @@ pub fn prepare_reword(
   rewrites: Vec<RewordCommitParams>,
   expected_head: Option<&str>,
   stores: &[StoreCommit<'_>],
+  signing: Signing,
 ) -> Result<PreparedReword> {
   if rewrites.is_empty() {
     return Err(anyhow!("No commit to reword"));
@@ -238,7 +241,7 @@ pub fn prepare_reword(
     }
   }
 
-  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, stores, None)?;
+  let written = write_commits_with_mapping_notes(git_executor, repo_path, &new_commits, notes, stores, None, signing)?;
   if written.ids.is_empty() {
     return Err(anyhow!("no commits were written"));
   }

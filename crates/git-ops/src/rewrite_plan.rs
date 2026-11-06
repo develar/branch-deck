@@ -5,6 +5,7 @@
 //! its virtual copy; a conflict or a loss of changes refuses the rewrite as `RewriteRefused`.
 
 use crate::commit_chain::CommitChain;
+use crate::commit_signing::{Signing, sign_range};
 use crate::commit_utils::empty_tree;
 use crate::commit_writer::{
   NewCommit, NewParent, RawCommit, WrittenCommits, current_committer, discard_temp_refs, read_raw_commits, write_cache_notes, write_commits, write_notes_on_existing,
@@ -258,7 +259,14 @@ enum Role<'a> {
 /// are written and the kept ones replayed, oldest first; the branch is not moved, `PreparedRewrite::apply` does it.
 /// A refusal (conflict, empty result, failed check) leaves no temporary refs.
 #[instrument(skip(git_executor, history, plan))]
-pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, plan: &RewritePlan, checks: PlanChecks) -> Result<PreparedRewrite, CopyCommitError> {
+pub fn prepare_plan(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  history: &History,
+  plan: &RewritePlan,
+  checks: PlanChecks,
+  signing: Signing,
+) -> Result<PreparedRewrite, CopyCommitError> {
   let roles = plan_roles(history, plan)?;
   let Some((&oldest_position, _)) = roles.last_key_value() else {
     return Err(CopyCommitError::Other(anyhow!("Nothing to rewrite")));
@@ -272,7 +280,9 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     target: &target,
     raw_commits: HashMap::new(),
     trees: HashMap::new(),
-    merger: CommitChain::new(git_executor, repo_path),
+    merger: CommitChain::new(git_executor, repo_path, signing),
+    signing,
+    replayed: false,
     committer: String::new(),
     written: Vec::new(),
     replacements: Vec::new(),
@@ -280,6 +290,18 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     carried_notes: Vec::new(),
   };
   let outcome = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
+    let new_head = if writer.replayed {
+      match sign_range(git_executor, repo_path, history.parent(oldest_position), &new_head, signing)? {
+        Some(signed) => {
+          let tip = signed.ids.last().cloned().ok_or_else(|| CopyCommitError::Other(anyhow!("no signed commit was written")))?;
+          writer.written.push(signed);
+          tip
+        }
+        None => new_head,
+      }
+    } else {
+      new_head
+    };
     let new_tree = writer.tree(&new_head)?;
     Ok((new_head, new_tree))
   });
@@ -366,6 +388,8 @@ struct PlanWriter<'a> {
   trees: HashMap<String, String>,
   /// One `merge-tree --stdin` for every merge of the plan
   merger: CommitChain,
+  signing: Signing,
+  replayed: bool,
   committer: String,
   /// The replacements, each on its temporary ref
   written: Vec<WrittenCommits>,
@@ -474,10 +498,11 @@ impl PlanWriter<'_> {
   }
 
   /// Replay the kept commits between the changed commit `previous` and `end_position` (inclusive) onto `new_tip`
-  fn replay_segment(&self, new_tip: Option<&str>, (previous_position, previous_role): (usize, Role<'_>), end_position: usize) -> Result<String, CopyCommitError> {
+  fn replay_segment(&mut self, new_tip: Option<&str>, (previous_position, previous_role): (usize, Role<'_>), end_position: usize) -> Result<String, CopyCommitError> {
     let previous_id = self.history.id(previous_position);
     let end = self.history.id(end_position);
     let new_tip = new_tip.ok_or_else(|| CopyCommitError::Other(anyhow!("No commit to replay {} onto", short_id(end))))?;
+    self.replayed = true;
     replay_onto(self.git_executor, self.repo_path, new_tip, previous_id, end)?.ok_or_else(|| {
       if matches!(previous_role, Role::Drop) {
         return refusal(format!(
@@ -592,6 +617,7 @@ impl PlanWriter<'_> {
         encoding,
         message,
       }],
+      self.signing,
     )?;
     let new_id = written.ids.first().cloned().ok_or_else(|| CopyCommitError::Other(anyhow!("no commit was written")))?;
     self.written.push(written);
@@ -664,7 +690,7 @@ impl PlanWriter<'_> {
 /// (`git replay` leaves it out) refuses it as `RewriteRefused` of `RefusalKind::Empty`. The branch is not moved: the
 /// guarded move of `unapply` does it, the files following
 #[instrument(skip(git_executor))]
-pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String]) -> Result<PreparedRewrite, CopyCommitError> {
+pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String], signing: Signing) -> Result<PreparedRewrite, CopyCommitError> {
   if commit_ids_to_drop.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No commits specified to drop")));
   }
@@ -679,5 +705,5 @@ pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, 
     keep_head_tree: false,
     check_commit_count: true,
   };
-  prepare_plan(git_executor, repo_path, &history, &plan, checks)
+  prepare_plan(git_executor, repo_path, &history, &plan, checks, signing)
 }

@@ -3,13 +3,14 @@ use crate::revs::current_worktree;
 use crate::update_branch::{CheckPurpose, LandedLookup, UpstreamRef, apply_update, check_update};
 use crate::update_resolve::{
   ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundConflict, RoundInput, STATE_FILE, STATE_VERSION, SessionStart, SessionState, SessionStatus, Side, Step,
-  conflict_files, continue_session, discard, follow_head, is_valid_tree_path, read_session, start_session, write_state,
+  conflict_files, continue_session, discard, finish_prepared, follow_head, is_valid_tree_path, prepare_continue_session, read_session, start_session, write_state,
 };
 use crate::word_resolve::ResolveMode;
 use domain_types::update_project::{UpdateKind, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::process_budget::assert_signed_commits;
 
 /// An id of no object
 const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -413,6 +414,44 @@ fn a_later_round_that_its_words_resolve_resolves_in_the_continue_and_the_finish_
   let note = resolve_note(&clone, &resolved);
   assert!(note.contains("\nround: 2\n"), "{note}");
   assert!(note.ends_with(&format!("commit: {}\nresolved-by-words: 1 1\nwords\tf.txt", words.commit)), "{note}");
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn a_words_resolved_finish_is_signed_before_its_ref_moves() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let (_upstream, clone) = words_and_real_conflict(false);
+  let Step::Round(session) = start_with(&clone, ResolveMode::On) else {
+    panic!("a round must open");
+  };
+  clone.enable_ssh_signing();
+  let (git, path) = (clone.git_executor(), clone.path_str());
+  let worktree = current_worktree(git, path).unwrap();
+  let upstream = session.state().upstream_head.clone();
+  let before = clone.head();
+  let input = RoundInput {
+    takes: vec![(Side::Commit, "g.txt".to_string())],
+    ..RoundInput::default()
+  };
+
+  let Step::PreparedFinish(prepared) = prepare_continue_session(git, path, &worktree, session, None, &input, false, ResolveMode::On, crate::commit_signing::Signing::On).unwrap()
+  else {
+    panic!("the final round must be prepared for the locked finish");
+  };
+  assert_ne!(prepared.state.tip, before);
+  assert!(prepared.signed.is_some());
+  assert_eq!(clone.head(), before);
+
+  let tip = prepared.state.tip.clone();
+  let Step::Applied { .. } = finish_prepared(git, path, prepared).unwrap() else {
+    panic!("the signed finish must move the branch");
+  };
+  assert_eq!(clone.head(), tip);
+  assert_signed_commits(&clone, &upstream, &tip);
 }
 
 /// Point the session ref of `main` at a state commit whose `state.json` is `json`

@@ -14,6 +14,7 @@ use domain_types::stack::BlockReason;
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, ProgressReporter, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_chain::CommitChain;
+use git_ops::commit_signing::Signing;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, RememberedCopy, VirtualCommit, create_or_update_commit, read_virtual_commits};
 use git_ops::landed_pairing::CommitKey;
 use git_ops::notes::MappingNote;
@@ -57,6 +58,7 @@ pub struct BranchSyncContext<P: ProgressReporter> {
   pub conflict_tips: HashMap<String, String>,
   /// Whether a conflict of git resolves by words (`branchdeck.resolveByWords`)
   pub resolve: ResolveMode,
+  pub signing: Signing,
 }
 
 /// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
@@ -202,6 +204,7 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
     conflict_chains,
     conflict_tips,
     resolve,
+    signing,
     ..
   } = ctx;
   let total_branches = *total_branches;
@@ -261,7 +264,7 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
   let mut is_any_commit_changed = false;
   let mut pending_notes: Vec<MappingNote> = Vec::new();
   // one merge-tree and one fast-import process for all commits of the branch
-  let chain = RefCell::new(CommitChain::new(git_executor, repository_path));
+  let chain = RefCell::new(CommitChain::new(git_executor, repository_path, *signing));
 
   // recreate each commit on top of the last one
   let total_commits_in_branch = commits.len();
@@ -300,6 +303,7 @@ pub fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: Branch
       existing_virtual_commits: existing_virtual_commits.as_ref(),
       verify_notes: *verify_mapping_notes,
       committer_timestamp,
+      signing: *signing,
       remembered: remembered.as_ref().and_then(|chain| {
         chain.copies.get(current_commit_idx).map(|(id, tree)| RememberedCopy {
           id,

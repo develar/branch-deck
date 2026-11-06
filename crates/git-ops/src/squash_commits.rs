@@ -2,6 +2,7 @@
 //! (docs/design/git-operations.md, "Squash"). Every group becomes one `Replace` step of a rewrite plan; HEAD keeps its
 //! tree, so the index and the working tree stay as they are, and Undo is a ref move back.
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::complete_line;
 use crate::copy_commit::CopyCommitError;
 use crate::history::History;
@@ -43,7 +44,7 @@ pub enum SquashMessage {
 /// the commits in between, leaves no changes (unless its `IfEmpty::Drop` leaves it out) or empties a later commit, or if
 /// the rewrite would change HEAD's tree.
 #[instrument(skip(git_executor, history))]
-pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, groups: &[SquashGroup]) -> Result<PreparedRewrite, CopyCommitError> {
+pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, groups: &[SquashGroup], signing: Signing) -> Result<PreparedRewrite, CopyCommitError> {
   if groups.is_empty() {
     return Err(CopyCommitError::Other(anyhow!("No commits to squash")));
   }
@@ -98,7 +99,7 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
     keep_head_tree: true,
     check_commit_count: true,
   };
-  prepare_plan(git_executor, repo_path, history, &plan, checks)
+  prepare_plan(git_executor, repo_path, history, &plan, checks, signing)
 }
 
 /// Undo a rewrite that kept HEAD's tree (a squash, a reword or a regroup): move the checked out branch from

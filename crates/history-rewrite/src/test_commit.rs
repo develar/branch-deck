@@ -30,6 +30,7 @@ pub fn commit(id: &str, message: &str) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    mapped_signed: false,
   }
 }
 
@@ -77,6 +78,7 @@ pub fn write_mapping_notes(git_executor: &GitCommandExecutor, repo_path: &str, c
         parent_tree: trees[1].clone(),
       },
       resolved: None,
+      signed: false,
     })
     .collect();
   write_commit_notes(git_executor, repo_path, &notes).unwrap();

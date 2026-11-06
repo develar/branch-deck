@@ -193,7 +193,8 @@ plans it from the grouping (`plan_stack_branches`, `crates/sync-core/src/stack_b
 branches in one `CommitChain` and moves its ref once every member is built; it writes no mapping notes and sends one
 `StackBranchUpdate` (state, tip, remote status) instead of the events of a branch row. The build is remembered by a
 hash of the base and the original commit ids (`StackBuilds`, the object cache), so an unchanged stack costs no git
-process. A stack branch whose stack no longer forks is deleted unless it is on the remote; one not rebuilt keeps its
+process. With signing enabled, an unsigned cached build is rejected and rebuilt once; a signed unchanged build is reused.
+A stack branch whose stack no longer forks is deleted unless it is on the remote; one not rebuilt keeps its
 tip and is never pushed. See "Stack branch" in [Git Operations](git-operations.md) and
 [Whole Stack](../../spec/branch/whole-stack.spec.md).
 

@@ -8,6 +8,7 @@ use file_diffs::patch::BlockPatch;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{get_frozen_commit_list, on_local_baseline};
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, PreparedMoveHunk, prepare_move_hunk};
 use git_ops::revs::{DetachedHead, current_branch, short_id};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
@@ -122,7 +123,12 @@ pub fn move_hunk_core(
   params: &MoveHunkParams,
   options: &MoveHunkOptions,
 ) -> Result<MoveHunkResult, MoveHunkError> {
-  let prepare = || prepare_move(git_executor, repository_path, cache, params, options);
+  let signing = if options.mode == MoveHunkMode::Apply {
+    commit_signing(git_executor, repository_path)?
+  } else {
+    Signing::Off
+  };
+  let prepare = || prepare_move(git_executor, repository_path, cache, params, options, signing);
   let (prepared, _lock) = if options.mode == MoveHunkMode::Apply {
     let lock = RewriteOptions {
       expect_head: options.expect_head.clone(),
@@ -175,6 +181,7 @@ fn prepare_move(
   cache: &ObjectCache,
   params: &MoveHunkParams,
   options: &MoveHunkOptions,
+  signing: Signing,
 ) -> Result<PreparedMove, MoveHunkError> {
   ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
   let branch = current_branch(git_executor, repository_path)?.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
@@ -215,7 +222,7 @@ fn prepare_move(
     baseline_branch: &baseline,
     mode: options.mode,
   };
-  let prepared = prepare_move_hunk(git_executor, repository_path, &request).map_err(rewrite_error)?;
+  let prepared = prepare_move_hunk(git_executor, repository_path, &request, signing).map_err(rewrite_error)?;
   Ok(PreparedMove {
     prepared,
     from,

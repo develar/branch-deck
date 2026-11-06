@@ -2727,6 +2727,8 @@ export type ErrorCode =
  *  the notes and the rewritten commits are written with: nothing was written; set both, then run again
  */
 "no_identity" | 
+/**  Git could not sign commits while `commit.gpgsign` is true; configure or unlock the signing key, then run again */
+"signing_failed" | 
 /**  A git command failed */
 "git_error" | 
 /**  A network command (fetch, push) failed */

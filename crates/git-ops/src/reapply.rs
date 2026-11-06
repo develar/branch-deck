@@ -4,6 +4,7 @@
 //! authors and committers as they are), then they are picked onto HEAD by the machinery of `pick`: a commit HEAD has by
 //! its patch is left out, one that becomes empty drops, a conflict or local changes in the way change nothing.
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::{NewCommit, NewParent, WrittenCommits, read_raw_commits, write_commits};
 use crate::pick::{AppliedPick, PickPlan, apply_pick_carrying};
 use crate::ref_transaction::RefTransaction;
@@ -46,6 +47,7 @@ pub fn restore_chain_messages(
   repo_path: &str,
   start: &str,
   tip: &str,
+  signing: Signing,
   restore: impl Fn(&str, &[u8]) -> Option<Vec<u8>>,
 ) -> Result<RestoredChain> {
   let excluded = format!("^{start}");
@@ -88,7 +90,7 @@ pub fn restore_chain_messages(
       message: message.as_deref().unwrap_or(&commit.message),
     })
     .collect();
-  let written = write_commits(git_executor, repo_path, &new_commits)?;
+  let written = write_commits(git_executor, repo_path, &new_commits, signing)?;
   let new_tip = written.ids.last().cloned().ok_or_else(|| anyhow!("fast-import wrote no commit"))?;
   debug!(restored, %new_tip, "restored the messages of the unapplied branch");
   Ok(RestoredChain {

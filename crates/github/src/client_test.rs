@@ -1,4 +1,4 @@
-use crate::client::{GitHubError, RestAnswer, STACKS_API_VERSION, WriteMethod, classify_failure};
+use crate::client::{GitHubError, REQUEST_TIMEOUT, RestAnswer, STACKS_API_VERSION, WriteMethod, classify_failure};
 use crate::fake_github::{FakeAnswer, start_fake};
 use pretty_assertions::assert_eq;
 use reqwest::StatusCode;
@@ -263,7 +263,10 @@ async fn a_get_that_timed_out_is_not_asked_again() {
   let (fake, client) = start_fake().await;
   fake.answer("GET", "/repos/o/r", FakeAnswer::ok(json!({"id": 1})));
   let held = fake.hold("GET", "/repos/o/r");
-  let error = client.get::<serde_json::Value>("t", &["repos", "o", "r"], &[]).await.unwrap_err();
+  let request = tokio::spawn(async move { client.get::<serde_json::Value>("t", &["repos", "o", "r"], &[]).await });
+  held.arrived().await;
+  tokio::time::advance(REQUEST_TIMEOUT).await;
+  let error = request.await.unwrap().unwrap_err();
   assert!(matches!(error, GitHubError::Timeout), "{error:?}");
   assert_eq!(held.arrivals(), 1);
 }

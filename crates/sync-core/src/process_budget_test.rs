@@ -21,6 +21,7 @@ use domain_types::rewrite::{AmendCommandResult, AutosquashScope, CommitReword, R
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::SigningFailed;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::drop_commits::{DropCommitsParams, drop_commits_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
@@ -32,7 +33,7 @@ use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
-use test_utils::process_budget::{alpha_and_beta_on_origin, assert_processes, counting, empty_cache, repo_on_origin};
+use test_utils::process_budget::{FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, repo_on_origin};
 use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
@@ -52,27 +53,101 @@ async fn a_first_sync() {
   sync(&git, &repo).await;
   // jscpd:ignore-start: the sync of `brd sync`, `brd push` and the Safe Push check (crates/bd-cli/src/process_budget_test.rs),
   // so their budgets end in the same processes: a change of one count shows in both
-  assert_processes(
-    &git,
-    &[
-      ("cat-file", 1),
-      ("config", 1),
-      ("fast-import", 3),
-      ("for-each-ref", 1),
-      ("log", 2),
-      ("merge-base", 1),
-      ("merge-tree", 2),
-      ("notes", 1),
-      ("remote", 1),
-      ("rev-list", 2),
-      ("rev-parse", 1),
-      ("show-ref", 1),
-      ("symbolic-ref", 1),
-      ("update-ref", 2),
-      ("var", 1),
-    ],
-  );
+  assert_processes(&git, FIRST_SYNC);
   // jscpd:ignore-end
+}
+
+fn assert_signed_virtual_branches(repo: &TestRepo, base: &str) -> String {
+  let refs = repo.git(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/virtual/"]);
+  assert_eq!(refs.lines().count(), 2);
+  for line in refs.lines() {
+    let (_, tip) = line.split_once(' ').unwrap();
+    assert_signed_commits(repo, base, tip);
+  }
+  refs
+}
+
+#[tokio::test]
+async fn signing_a_first_sync_adds_no_writer_processes() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  repo.enable_ssh_signing();
+  let git = counting();
+
+  sync(&git, &repo).await;
+
+  assert_processes(&git, FIRST_SYNC);
+  let base = repo.git(&["rev-parse", "refs/remotes/origin/master"]);
+  assert_signed_virtual_branches(&repo, &base);
+}
+
+#[tokio::test]
+async fn a_signed_sync_marks_and_reuses_its_virtual_copies() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  let unsigned_git = counting();
+  sync(&unsigned_git, &repo).await;
+  assert_processes(&unsigned_git, FIRST_SYNC);
+  let unsigned = repo.git(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/virtual/"]);
+  repo.enable_ssh_signing();
+  let signed_git = counting();
+  sync(&signed_git, &repo).await;
+  let mut signed_recopy = FIRST_SYNC.to_vec();
+  let (_, logs) = signed_recopy.iter_mut().find(|(command, _)| *command == "log").unwrap();
+  *logs += 2;
+  assert_processes(&signed_git, &signed_recopy);
+  let base = repo.git(&["rev-parse", "refs/remotes/origin/master"]);
+  let signed = repo.git(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/virtual/"]);
+  assert_ne!(signed, unsigned);
+  assert_eq!(assert_signed_virtual_branches(&repo, &base), signed);
+
+  let second_git = counting();
+  sync(&second_git, &repo).await;
+  assert_processes(&second_git, &UNCHANGED_SYNC);
+  assert_eq!(repo.git(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/virtual/"]), signed);
+  repo.git(&["config", "--local", "--replace-all", "commit.gpgsign", "false"]);
+  let unsigned_setting_git = counting();
+  sync(&unsigned_setting_git, &repo).await;
+  assert_processes(&unsigned_setting_git, &UNCHANGED_SYNC);
+  assert_eq!(repo.git(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/virtual/"]), signed);
+}
+
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn a_signed_sync_builds_a_signed_stack_branch() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let repo = stack_ahead_of_bare_origin();
+  repo.git(&["config", "branchdeck.stacks", "true"]);
+  repo.create_commit("(alpha/gamma) Gamma", "gamma.txt", "gamma\n");
+  repo.enable_ssh_signing();
+  sync(&GitCommandExecutor::new(), &repo).await;
+
+  let base = repo.git(&["rev-parse", "refs/remotes/origin/master"]);
+  let tip = repo.git(&["rev-parse", "refs/heads/test/stack/alpha"]);
+  assert_signed_commits(&repo, &base, &tip);
+}
+
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn a_signed_sync_with_a_missing_key_moves_no_virtual_branch_ref() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let (repo, _) = alpha_and_beta_on_origin();
+  repo.enable_ssh_signing();
+  let missing_key = repo.path().join("missing-signing-key");
+  repo.git(&["config", "--local", "--replace-all", "user.signingkey", missing_key.to_str().unwrap()]);
+
+  let error = sync_branches(&GitCommandExecutor::new(), &path(&repo), PREFIX, TestReporter::new(), SyncOptions::default())
+    .await
+    .unwrap_err();
+
+  assert!(error.downcast_ref::<SigningFailed>().is_some(), "{error:#}");
+  assert_eq!(repo.git(&["for-each-ref", "--format=%(refname)", "refs/heads/test/virtual/"]), "");
 }
 
 #[tokio::test]
@@ -426,6 +501,7 @@ fn an_amend() {
     &git,
     &[
       ("cat-file", 1),
+      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 1), // the witness of HEAD under the lock
       ("log", 1),
@@ -473,7 +549,7 @@ async fn a_drop() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 1),
+      ("config", 2),
       ("diff-tree", 1),
       ("for-each-ref", 4),
       ("log", 4),
@@ -549,7 +625,7 @@ async fn a_drop_of_commits() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 1),
+      ("config", 2),
       ("diff-tree", 1),
       ("for-each-ref", 2),
       ("log", 3),
@@ -606,7 +682,7 @@ async fn a_reapply() {
     &git,
     &[
       ("cat-file", 2),
-      ("config", 1),
+      ("config", 2),
       ("diff-tree", 1),
       ("fast-import", 1),
       ("for-each-ref", 3),
@@ -666,6 +742,7 @@ fn a_squash() {
     &git,
     &[
       ("cat-file", 1),
+      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("log", 2), // the history; the new one with its trees, which counts it and gives the tree of the new HEAD
@@ -700,7 +777,7 @@ fn the_app_reword() {
     &git,
     &[
       ("cat-file", 2),
-      ("config", 1),
+      ("config", 2),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 2),
@@ -766,7 +843,7 @@ fn a_squash_of_fixups() {
     &git,
     &[
       ("cat-file", 3),
-      ("config", 1),
+      ("config", 2),
       ("fast-import", 2),
       ("for-each-ref", 2), // the baseline, the witness of HEAD under the lock
       ("log", 3),

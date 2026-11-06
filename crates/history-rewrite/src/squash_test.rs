@@ -70,6 +70,28 @@ fn squashes_into_the_oldest_selected_commit_whatever_the_order() {
   );
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn a_squash_and_its_replayed_descendants_are_signed() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let test_repo = TestRepo::new();
+  let base = test_repo.create_commit("Initial", "README.md", "readme");
+  let target = test_repo.create_commit("Add a", "a.txt", "a");
+  let folded = test_repo.create_commit("Add b", "b.txt", "b");
+  test_repo.create_commit("Add c", "c.txt", "c");
+  test_repo.enable_ssh_signing();
+
+  let result = squash(&test_repo, &[&target, &folded], "Add a and b").unwrap();
+
+  test_repo.git(&["verify-commit", &result.new_commit_id]);
+  test_repo.git(&["verify-commit", &result.new_head]);
+  assert_eq!(test_repo.git(&["log", "--format=%G?", &format!("{base}..{}", result.new_head)]).trim(), "G\nG");
+}
+
 #[test]
 fn refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject() {
   let (test_repo, a, b) = repo_with_two_commits();

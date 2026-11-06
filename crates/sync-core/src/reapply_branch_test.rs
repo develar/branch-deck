@@ -9,6 +9,7 @@ use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
+use test_utils::process_budget::assert_signed_commits;
 
 const UNAPPLIED: &str = "test-prefix/unapplied/feature";
 
@@ -78,6 +79,25 @@ fn reapply_puts_the_commits_back_on_top_with_their_prefix_and_files_and_the_sync
     repo.git(&["log", "--reverse", "--format=%s", "test-prefix/virtual/feature", "^master~2"]),
     "Add file0\nAdd file2"
   );
+  Ok(())
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn reapply_signs_the_restored_messages_and_target_copies() -> Result<()> {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return Ok(());
+  }
+
+  let repo = unapplied_repo();
+  let base = repo.head();
+  repo.enable_ssh_signing();
+
+  let result = reapply(&repo, "feature", false)?;
+
+  assert_eq!(repo.git(&["rev-list", &format!("{base}..{}", result.new_head)]).lines().count(), 2);
+  assert_signed_commits(&repo, &base, &result.new_head);
   Ok(())
 }
 

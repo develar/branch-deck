@@ -243,7 +243,9 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
      commits between the two whose change only shifted, and every commit above. Their virtual commits keep their ids,
      so the sync leaves their branches as they are. Only the two commits and those between whose diff of the file
      changed get the current user as committer.
-   - Signatures are stripped because they would no longer be valid.
+   - Original signatures are stripped because a rewritten commit invalidates them. When `commit.gpgsign` is true, a new
+     signature is made with Git's configured key for every new commit that lands on a branch; internal store and notes
+     commits stay unsigned. A signing failure is `SigningFailed` (`signing_failed`) with Git's words, before any refs move.
    - The current user is `git var GIT_COMMITTER_IDENT` (`current_committer`, also for the notes commits); a git that
      cannot form it fails the write with `NoIdentity` before anything is written, the code `no_identity` of the app
      and of `brd`, which the page shows as the alert with the two `git config --global` commands. The notes of a sync
@@ -274,6 +276,14 @@ pick`, the unapply and the reapply, and the drop of commits (their own sections 
    parked branch, one built on parked, one a merged Safe Push landed whole and one a running Safe Push holds are
    refused by the same view of the robots (`patronus_view`) on both sides, whatever the page checked before ("App
    stack push").
+
+### Re-signing replay output
+
+`git replay` cannot honor `commit.gpgsign`. When signing is enabled, the operation prepares the replay result, reads the
+first-parent range from the first unsigned commit through its tip with one `rev-list` and one `cat-file --batch`, then
+writes that suffix with one `fast-import --signed-commits=sign-if-invalid`. Already signed commits at the start of the
+range are reused. The pass runs before the repository lock; its temporary ref is deleted in the same transaction that
+moves the branch. With signing off, this pass does not run.
 
 ### Lock spans
 
@@ -340,9 +350,10 @@ of a robot on its remote branch (`a_restart_on_the_remote_branch_takes_no_lock`)
 | `merge-tree --write-tree` | 2.38 | conflict detection and tree merges without a working tree |
 | `merge-tree --merge-base` | 2.40 | cherry-pick semantics in sync, the amended tree |
 | `git replay` | 2.44 | replaying commits in memory |
-| `fast-import --signed-commits` | 2.52 | stripping signatures that a rewrite invalidates |
+| `fast-import --signed-commits=strip` | 2.52 | stripping signatures that a rewrite invalidates |
 | `replay --ref-action=print` | 2.53 | reading the new tip without letting replay move refs |
 | `replay --ref`, dropping commits that become empty | 2.54 | segment tips that are commit ids, not branches |
+| `fast-import --signed-commits=sign-if-invalid` | 2.54 | signing rewritten branch commits with `commit.gpgsign` |
 
 The minimum is therefore **2.54** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`). On macOS a Homebrew git
 is preferred, and its one `git version` gives both the check and the version. A successful discovery is kept for the
@@ -2654,11 +2665,14 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    commit, each answered before the next is sent. The created commits go to one `fast-import --date-format=raw`, which
    answers each id at once (`get-mark`), so the reuse checks and the next commit have it. The grouping prefix is
    stripped from the subject (a prefix that is an issue key stays as the key: `(IJPL-1) docs: x` is copied as
-   `docs: IJPL-1 x`, see [Virtual Branches](virtual-branches.md#grouping-rules)) and `branch-deck` is the committer. The commit object has the bytes `commit-tree -m`
-   wrote before: the message completed with a newline, name and email without git's crud, a date without a timezone
-   in UTC, no `encoding` header and no signature (with `commit.gpgSign`, `commit-tree` signed the copies, and a
-   signature carries its time, so a copy made again got another id). A commit copied again therefore has the id it had, and the virtual commits of a repository stay as
-   they are across the change. The writer's commits are readable by other processes only after it ends: it ends
+   `docs: IJPL-1 x`, see [Virtual Branches](virtual-branches.md#grouping-rules)) and `branch-deck` is the committer.
+   The commit object has the bytes `commit-tree -m` wrote before, apart from its signature: the message completed with
+   a newline, name and email without git's crud, a date without a timezone in UTC, and no `encoding` header. With
+   `commit.gpgsign` off, copies have no signature. With it on, each commit has an invalid placeholder `gpgsig`, which
+   `fast-import --signed-commits=sign-if-invalid` replaces with a signature from Git's configured key in this same
+   writer. A signature carries its time, so the first signed copy has a new id; the mapping note's
+   `v-commit-signed-v1:` line records that later syncs can reuse it. With signing off, copies are reused as before.
+   The writer's commits are readable by other processes only after it ends: it ends
    before a conflict is analysed (the conflict is merged once more with the commits, for the conflict view, unless the
    object cache remembers the view: see `conflict_info` in "Object cache") and when
    the branch is built, before its head goes to the branches built on it. Its ref is reset before `done`, so the

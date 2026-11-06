@@ -11,7 +11,8 @@ use domain_types::branch_names::{BranchKind, normalize_branch_prefix, qualified_
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::{ReapplyBranchResult, UndoneReapply};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::pick::{PickPlan, PickRequest, PickSource, PickState, PickedCommit, check_pick};
+use git_ops::commit_signing::{Signing, commit_signing};
+use git_ops::pick::{PickPlan, PickRequest, PickSource, PickState, PickedCommit, check_pick_with_signing};
 use git_ops::reapply::{RestoredChain, UnappliedRef, apply_reapply, apply_reapply_undo, check_reapply_undo, restore_chain_messages};
 use git_ops::revs::with_dirs_of;
 use git_ops::unapply::MoveBlocked;
@@ -81,9 +82,11 @@ pub fn reapply_branch_core(git_executor: &GitCommandExecutor, params: &ReapplyBr
   let full_name = qualified_branch_name(normalize_branch_prefix(branch_prefix), BranchKind::Unapplied, &params.branch_name)?;
   // the guards, the lock and the mark take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo)?;
-  let prepare = || prepare_reapply(git_executor, repo, &params.branch_name, &full_name, options);
+  let configured_signing = commit_signing(git_executor, repo)?;
+  let signing = if params.dry_run { Signing::Off } else { configured_signing };
+  let prepare = || prepare_reapply(git_executor, repo, &params.branch_name, &full_name, options, signing);
   if params.dry_run {
-    let prepared = prepare()?;
+    let prepared = prepare_reapply(git_executor, repo, &params.branch_name, &full_name, options, Signing::Off)?;
     prepared.discard(git_executor, repo);
     return Ok(prepared.result);
   }
@@ -149,7 +152,7 @@ impl Prepared for PreparedReapply {
 /// Everything a reapply reads and computes: the unapplied branch with its worktree, the start of its own commits, the
 /// restored messages (objects only) and the pick onto HEAD with the dry run of its files; a refusal discards what it
 /// wrote
-fn prepare_reapply(git_executor: &GitCommandExecutor, repo: &str, name: &str, full_name: &str, options: &RewriteOptions) -> Result<PreparedReapply> {
+fn prepare_reapply(git_executor: &GitCommandExecutor, repo: &str, name: &str, full_name: &str, options: &RewriteOptions, signing: Signing) -> Result<PreparedReapply> {
   let full_ref = format!("refs/heads/{full_name}");
   let listed = git_executor.execute_command(&["for-each-ref", "--format=%(objectname)%00%(worktreepath)", &full_ref], repo)?;
   let Some((tip, worktree)) = listed.lines().next().and_then(|line| line.split_once('\0')) else {
@@ -170,11 +173,11 @@ fn prepare_reapply(git_executor: &GitCommandExecutor, repo: &str, name: &str, fu
 
   // a virtual commit has no grouping prefix: the subject that groups elsewhere gets `(<name>) ` back
   let grouping = read_grouping_inputs(git_executor, repo)?;
-  let chain = restore_chain_messages(git_executor, repo, &start, tip, |subject, message| {
+  let chain = restore_chain_messages(git_executor, repo, &start, tip, signing, |subject, message| {
     (grouping.branch_of(subject).as_deref() != Some(name)).then(|| [format!("({name}) ").as_bytes(), message].concat())
   })?;
   let range = format!("{start}..{}", chain.tip);
-  let plan = check_pick(
+  let plan = check_pick_with_signing(
     git_executor,
     repo,
     &PickRequest {
@@ -185,6 +188,7 @@ fn prepare_reapply(git_executor: &GitCommandExecutor, repo: &str, name: &str, fu
       expect_source_head: None,
       prefix: None,
     },
+    signing,
   )
   .inspect_err(|_| chain.discard(git_executor, repo))?;
   let refused = match &plan.check.state {

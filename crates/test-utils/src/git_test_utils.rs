@@ -2,13 +2,16 @@ use crate::history::{HistoryCommit, HistoryStream, numbered_lines};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Write as _;
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
 use tempfile::TempDir;
 
 // Constants for test Git user configuration
 const TEST_USER_NAME: &str = "Test User";
 const TEST_USER_EMAIL: &str = "test@example.com";
+const SSH_TEST_PRIVATE_KEY: &[u8] = include_bytes!("../fixtures/commit-signing/test_key");
 
 /// Config for a fixture repository: no background `git maintenance` or auto gc. A commit or a push would otherwise
 /// start one that holds `.git/objects/maintenance.lock`, and a clone of the repository at that moment fails with
@@ -231,6 +234,7 @@ pub(crate) fn commit_id_of_summary(output: &str) -> Option<String> {
 pub struct TestRepo {
   dir: TempDir,
   git_executor: GitCommandExecutor,
+  ssh_signing_key: OnceLock<tempfile::NamedTempFile>,
 }
 
 impl Default for TestRepo {
@@ -255,7 +259,11 @@ impl TestRepo {
       .unwrap_or_else(|e| panic!("Git init failed: {e}"));
     append_config(dir.path(), &TEST_REPO_CONFIG);
 
-    Self { dir, git_executor }
+    Self {
+      dir,
+      git_executor,
+      ssh_signing_key: OnceLock::new(),
+    }
   }
 
   /// A repository whose `master` has `commits`, written by one `fast-import` and checked out by one `read-tree`
@@ -315,7 +323,11 @@ impl TestRepo {
   pub fn new_empty() -> Self {
     let dir = tempfile::tempdir().unwrap();
     let git_executor = GitCommandExecutor::new();
-    Self { dir, git_executor }
+    Self {
+      dir,
+      git_executor,
+      ssh_signing_key: OnceLock::new(),
+    }
   }
 
   /// Get the repository path
@@ -326,6 +338,26 @@ impl TestRepo {
   /// Get the repository path as a string
   pub fn path_str(&self) -> &str {
     self.dir.path().to_str().unwrap()
+  }
+
+  /// Configure the fixture repository to sign commits with the test-only SSH key
+  pub fn enable_ssh_signing(&self) {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/commit-signing");
+    let key = self.ssh_signing_key.get_or_init(|| {
+      let mut key = tempfile::NamedTempFile::new_in(self.path()).unwrap();
+      key.write_all(SSH_TEST_PRIVATE_KEY).unwrap();
+      key
+    });
+    let allowed_signers = fixtures.join("allowed_signers");
+    append_config(
+      self.path(),
+      &[
+        ("gpg.format", "ssh"),
+        ("user.signingkey", key.path().to_str().unwrap()),
+        ("gpg.ssh.allowedSignersFile", allowed_signers.to_str().unwrap()),
+        ("commit.gpgsign", "true"),
+      ],
+    );
   }
 
   /// Runs git in the repository; panics on a failure

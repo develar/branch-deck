@@ -203,6 +203,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::BranchExists
     | ErrorCode::GitNotFound
     | ErrorCode::NoIdentity
+    | ErrorCode::SigningFailed
     | ErrorCode::GitError
     | ErrorCode::NetworkError
     | ErrorCode::PatronusError

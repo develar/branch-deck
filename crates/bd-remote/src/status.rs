@@ -510,7 +510,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
 
   // the brief view prints neither
   let tips = if args.brief { HashMap::new() } else { virtual_tips(context, &grouping) };
-  let all_stacks = read_stack_branches(&context.prefix, &grouping, &context.cache(), context.config()?.resolve_mode()?);
+  let config = context.config()?;
+  let all_stacks = read_stack_branches(&context.prefix, &grouping, &context.cache(), config.resolve_mode()?, config.signing()?);
   // what merged Safe Pushes landed, until the update archives it, by content: the robots kept in the object cache while
   // they hold, else one list and one poll (`robot_list`)
   let (landed, landing_needs, mut steps) = if args.unassigned || grouping.branches.is_empty() {
@@ -548,7 +549,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     (landed_branches(&facts), landing_needs, steps)
   };
   let stacks = if args.branch.is_some() || args.unassigned { Vec::new() } else { all_stacks };
-  let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
+  let descriptions = if args.brief { HashMap::new() } else { config.descriptions().clone() };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
   let short = context.short_ids(

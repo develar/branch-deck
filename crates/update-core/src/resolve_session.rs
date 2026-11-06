@@ -11,6 +11,7 @@ use domain_types::conflict::ResolvedFileSummary;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_utils::get_commits_info;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
@@ -18,7 +19,8 @@ use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
 use git_ops::update_resolve::{
   ConflictKind, EditCopy, LandedInput, PreparedStart, RefusalKind, Resolution, ResolveError, RoundConflict, RoundInput, RoundObjects, Session, SessionState, SessionStatus, Side,
-  Stage, Step, abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths,
+  Stage, Step, abort_session, apply_prepared_round, commit_patch, finish_prepared, list_sessions, prepare_continue_session, read_round_objects, read_session,
+  round_upstream_commits, session_blocked_paths,
 };
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{LockWait, RepositoryLock, RewriteOptions, lock_repository};
@@ -521,14 +523,17 @@ pub struct ContinueOptions {
 #[instrument(skip(git_executor))]
 pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: &ContinueOptions, lock_timeout: Duration) -> Result<SessionOutcome> {
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let lock = if options.dry_run {
-    None
-  } else {
-    Some(lock_repository(git_executor, repo_path, lock_timeout)?)
-  };
   let worktree = current_worktree(git_executor, repo_path)?;
   let session = read_session(git_executor, repo_path, &worktree.id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: worktree.id.clone() }))?;
   let previous = session.state().clone();
+  let signing = if options.dry_run { Signing::Off } else { commit_signing(git_executor, repo_path)? };
+  let mut lock = if !options.dry_run && previous.status == SessionStatus::Applied {
+    let lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+    sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
+    Some(lock)
+  } else {
+    None
+  };
   let mut edits = HashMap::new();
   if let Some(conflict) = &previous.conflict
     && options.landed.is_none()
@@ -550,9 +555,90 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     landed: options.landed.clone(),
   };
   let resolve = ConfigSnapshot::read(git_executor, repo_path)?.resolve_mode()?;
-  let step = continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve)
+  let step = prepare_continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve, signing)
     .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
+  let step = match step {
+    Step::PreparedRound(prepared) => {
+      let held = lock_and_recheck_edits(git_executor, repo_path, lock_timeout, lock.take(), &previous, &input, || {
+        prepared.discard(git_executor, repo_path);
+      })?;
+      let step = apply_prepared_round(git_executor, repo_path, prepared)?;
+      lock = Some(held);
+      step
+    }
+    Step::PreparedFinish(prepared) => {
+      let held = lock_and_recheck_edits(git_executor, repo_path, lock_timeout, lock.take(), &previous, &input, || {
+        prepared.discard(git_executor, repo_path);
+      })?;
+      let step = finish_prepared(git_executor, repo_path, prepared)?;
+      lock = Some(held);
+      step
+    }
+    step => step,
+  };
   outcome(git_executor, repo_path, step, Some(&previous), None, lock, ViewDetail::Round)
+}
+
+fn recheck_edit_copies(state: &SessionState, input: &RoundInput) -> Result<()> {
+  if input.landed.is_some() {
+    return Ok(());
+  }
+  let Some(conflict) = &state.conflict else { return Ok(()) };
+  for file in &conflict.files {
+    let decided = input.deletes.iter().any(|path| file.is_named(path)) || input.takes.iter().any(|(_, path)| file.is_named(path));
+    if decided {
+      continue;
+    }
+    let expected = input.edits.get(&file.path).ok_or_else(|| anyhow!("The resolve edit for {} was not prepared", file.path))?;
+    if &read_edit_copy(state, file)? != expected {
+      return Err(anyhow!(
+        "The resolve edit for {} changed while it was being prepared; run `brd update --continue` again",
+        file.path
+      ));
+    }
+  }
+  Ok(())
+}
+
+fn lock_and_recheck_edits(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  lock_timeout: Duration,
+  held: Option<RepositoryLock>,
+  previous: &SessionState,
+  input: &RoundInput,
+  discard: impl Fn(),
+) -> Result<RepositoryLock> {
+  let lock = lock_prepared_step(git_executor, repo_path, lock_timeout, held, previous.status, &discard)?;
+  if let Err(error) = recheck_edit_copies(previous, input) {
+    discard();
+    return Err(error);
+  }
+  Ok(lock)
+}
+
+fn lock_prepared_step(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  lock_timeout: Duration,
+  held: Option<RepositoryLock>,
+  previous_status: SessionStatus,
+  discard: impl Fn(),
+) -> Result<RepositoryLock> {
+  let lock = match held {
+    Some(lock) => lock,
+    None => match lock_repository(git_executor, repo_path, lock_timeout) {
+      Ok(lock) => lock,
+      Err(error) => {
+        discard();
+        return Err(error);
+      }
+    },
+  };
+  if previous_status == SessionStatus::Applying {
+    sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
+  }
+  Ok(lock)
 }
 
 /// A refused resolution with the absolute `edit` copy of each path, and, for leftover markers or a missing resolution,
@@ -600,6 +686,22 @@ fn outcome(
     }
   };
   match step {
+    Step::PreparedRound(prepared) => {
+      let Some(lock) = lock else {
+        prepared.discard(git_executor, repo_path);
+        return Err(anyhow!("A prepared resolve round needs the repository lock"));
+      };
+      let step = apply_prepared_round(git_executor, repo_path, prepared)?;
+      outcome(git_executor, repo_path, step, previous, grouping, Some(lock), detail)
+    }
+    Step::PreparedFinish(prepared) => {
+      let Some(lock) = lock else {
+        prepared.discard(git_executor, repo_path);
+        return Err(anyhow!("A prepared resolve finish needs the repository lock"));
+      };
+      let step = finish_prepared(git_executor, repo_path, prepared)?;
+      outcome(git_executor, repo_path, step, previous, grouping, Some(lock), detail)
+    }
     Step::Round(session) => {
       closed(session.state());
       // the copies go under the lock; what the output shows of them is read after it

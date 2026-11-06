@@ -15,6 +15,7 @@
 //! words) writes the ref to disk, so the end of such a writer deletes it (`reset` from the null id); without a
 //! checkpoint the ref only ever lived in the memory of `fast-import` (`reset` without `from`).
 
+use crate::commit_signing::{Signing, map_signing_error, push_signature_placeholder, signed_commits_arg};
 use crate::commit_writer::{complete_line, quote_path, unique_temp_ref};
 use crate::merge_memo::MergeOutcome;
 use crate::merge_tree_output::parse_batch_merge;
@@ -53,6 +54,7 @@ pub struct ChainCommit<'a> {
 pub struct CommitChain {
   git_executor: GitCommandExecutor,
   repo_path: String,
+  signing: Signing,
   merger: Option<InteractiveCommand>,
   writer: Option<InteractiveCommand>,
   /// The temporary ref the commits of the running writer are written on
@@ -65,10 +67,11 @@ pub struct CommitChain {
 }
 
 impl CommitChain {
-  pub fn new(git_executor: &GitCommandExecutor, repo_path: &str) -> Self {
+  pub fn new(git_executor: &GitCommandExecutor, repo_path: &str, signing: Signing) -> Self {
     Self {
       git_executor: git_executor.clone(),
       repo_path: repo_path.to_string(),
+      signing,
       merger: None,
       writer: None,
       writer_ref: unique_temp_ref(),
@@ -107,8 +110,10 @@ impl CommitChain {
       .map_or_else(|| commit.parent.to_string(), |parent_mark| format!(":{parent_mark}"));
     let message = complete_line(commit.message);
 
-    let mut stream = Vec::with_capacity(256 + message.len());
-    stream.extend_from_slice(format!("commit {}\nmark :{mark}\nauthor {author}\ncommitter {committer}\ndata {}\n", self.writer_ref, message.len()).as_bytes());
+    let mut stream = Vec::with_capacity(320 + message.len());
+    stream.extend_from_slice(format!("commit {}\nmark :{mark}\nauthor {author}\ncommitter {committer}\n", self.writer_ref).as_bytes());
+    push_signature_placeholder(&mut stream, self.signing);
+    stream.extend_from_slice(format!("data {}\n", message.len()).as_bytes());
     stream.extend_from_slice(&message);
     // the tree of the merge, whose files with the markers the resolved files replace
     let base_tree = commit.resolution.map_or(commit.tree, |resolution| resolution.merge_tree.as_str());
@@ -131,13 +136,16 @@ impl CommitChain {
       None => self.writer.insert(
         self
           .git_executor
-          .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw"], &self.repo_path)
+          .cmd(
+            &["fast-import", "--quiet", "--done", "--date-format=raw", signed_commits_arg(self.signing)],
+            &self.repo_path,
+          )
           .interactive(b'\n')
-          .map_err(|e| e.context(format!("fast-import of {}", self.writer_ref)))?,
+          .map_err(|e| map_signing_error(e.context(format!("fast-import of {}", self.writer_ref)), self.signing))?,
       ),
     };
-    writer.send_bytes(&stream)?;
-    let id = writer.read_line(REPLY_TIMEOUT)?;
+    writer.send_bytes(&stream).map_err(|error| map_signing_error(error, self.signing))?;
+    let id = writer.read_line(REPLY_TIMEOUT).map_err(|error| map_signing_error(error, self.signing))?;
     if id.len() < 40 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
       bail!("fast-import answered {id:?} for a commit");
     }
@@ -151,8 +159,8 @@ impl CommitChain {
       // commands run in order, so the answer to `progress` comes once the pack is written. The checkpoint also writes
       // the ref, which `flush` deletes
       self.checkpointed = Some(id.len());
-      writer.send("checkpoint\nprogress checkpointed\n")?;
-      let progress = writer.read_line(REPLY_TIMEOUT)?;
+      writer.send("checkpoint\nprogress checkpointed\n").map_err(|error| map_signing_error(error, self.signing))?;
+      let progress = writer.read_line(REPLY_TIMEOUT).map_err(|error| map_signing_error(error, self.signing))?;
       if progress != "progress checkpointed" {
         bail!("fast-import answered {progress:?} to a checkpoint");
       }
@@ -172,7 +180,7 @@ impl CommitChain {
     let ended = writer.send(&format!("reset {}\n{delete}\ndone", self.writer_ref)).and_then(|()| writer.finish());
     // the next writer of the chain gets a fresh ref: a failed end may leave this one behind (the sync sweeps it)
     let writer_ref = std::mem::replace(&mut self.writer_ref, unique_temp_ref());
-    ended.map_err(|e| e.context(format!("fast-import of {writer_ref}")))
+    ended.map_err(|e| map_signing_error(e.context(format!("fast-import of {writer_ref}")), self.signing))
   }
 
   /// Flush the commits and end both processes

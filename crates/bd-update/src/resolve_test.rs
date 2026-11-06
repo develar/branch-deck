@@ -1672,9 +1672,9 @@ fn under_the_lock(wrapped: &bd_cli::fixture_test::LockSpanGit) -> Vec<String> {
   under
 }
 
-/// What `brd update --continue` runs under the repository lock, as it is: the read of the session and of the copies, the
-/// commit of the round, the replay of the rest and the finish (its exact check, the move of the branch and the files,
-/// the session refs); only the landed report after it. The one core of brd that computes under the lock
+/// What `brd update --continue` runs under the repository lock: the session CAS, the written state commit, the finish
+/// (its exact check, the move of the branch and the files, the session refs); replay reads and preparation run before it.
+/// Only the landed report runs after it. The lock span of the final move
 /// (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]
@@ -1685,23 +1685,12 @@ fn a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish()
   let (wrapped, exit_code, done) = continue_logged(&clone);
   assert_eq!(exit_code, 0, "{done}");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~2"]), upstream.head());
-  let round_and_finish = [
-    "cat-file",
-    "config",
-    "diff-tree",
-    "fast-import",
-    "read-tree",
-    "replay",
-    "rev-parse",
-    "symbolic-ref",
-    "update-index",
-    "update-ref",
-  ];
+  let round_and_finish = ["fast-import", "read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"];
   assert_eq!(under_the_lock(&wrapped), round_and_finish, "{:#?}", wrapped.commands());
   let replays = wrapped.locked_runs("replay");
   assert!(
-    !replays.is_empty() && replays.iter().all(|locked| *locked),
-    "the replay of the rest under the lock: {:#?}",
+    !replays.is_empty() && replays.iter().all(|locked| !*locked),
+    "the replay prepared before the lock: {:#?}",
     wrapped.commands()
   );
 }

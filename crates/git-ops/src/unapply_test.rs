@@ -1,3 +1,4 @@
+use crate::commit_signing::Signing;
 use crate::notes::{MappingNote, notes_ref, read_notes, write_commit_notes};
 use crate::revs::ref_exists;
 use crate::revs::resolve_tree_id;
@@ -48,18 +49,38 @@ fn read(repo: &TestRepo, file: &str) -> Option<String> {
 }
 
 fn blocked(repo: &TestRepo, commits: &[String]) -> MoveBlocked {
-  let error = check_drop(repo.git_executor(), repo.path_str(), commits, DropKind::Unapply).unwrap_err();
+  let error = check_drop(repo.git_executor(), repo.path_str(), commits, DropKind::Unapply, Signing::Off).unwrap_err();
   error.downcast_ref::<MoveBlocked>().cloned().unwrap_or_else(|| panic!("not blocked: {error:#}"))
 }
 
 fn checked(repo: &TestRepo, commits: &[String]) -> DropPlan {
-  check_drop(repo.git_executor(), repo.path_str(), commits, DropKind::Unapply).unwrap()
+  check_drop(repo.git_executor(), repo.path_str(), commits, DropKind::Unapply, Signing::Off).unwrap()
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn unapply_signs_the_surviving_branch_commit() {
+  #[cfg(windows)]
+  if !crate::commit_signing::ssh_keygen_available() {
+    return;
+  }
+
+  let (repo, commits, tip) = repo_with_feature();
+  let base = repo.git(&["rev-parse", "HEAD~3"]);
+  repo.enable_ssh_signing();
+  let plan = check_drop(repo.git_executor(), repo.path_str(), &commits, DropKind::Unapply, Signing::On).unwrap();
+
+  apply_unapply(repo.git_executor(), repo.path_str(), &plan, &refs(&tip)).unwrap();
+
+  let head = repo.head();
+  repo.git(&["verify-commit", &head]);
+  assert_eq!(repo.git(&["log", "--format=%G?", &format!("{base}..{head}")]).trim(), "G");
 }
 
 /// The refusal of a drop of `commits`, with nothing changed and no temporary ref left
 fn drop_refused(repo: &TestRepo, commits: &[String]) -> DropRefused {
   let head = repo.head();
-  let error = check_drop(repo.git_executor(), repo.path_str(), commits, DropKind::Drop).unwrap_err();
+  let error = check_drop(repo.git_executor(), repo.path_str(), commits, DropKind::Drop, Signing::Off).unwrap_err();
   assert_eq!(repo.head(), head);
   assert_eq!(repo.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "");
   error.downcast_ref::<DropRefused>().cloned().unwrap_or_else(|| panic!("not a refused drop: {error:#}"))
@@ -133,7 +154,7 @@ fn a_conflict_of_the_drop_changes_nothing() {
   let add_b = repo.git(&["log", "--format=%H", "--grep=add b", "-n1"]);
   repo.create_commit("(other) change b", "b.txt", "b2\n");
   let head = repo.head();
-  let error = check_drop(repo.git_executor(), repo.path_str(), &[add_b], DropKind::Unapply).unwrap_err();
+  let error = check_drop(repo.git_executor(), repo.path_str(), &[add_b], DropKind::Unapply, Signing::Off).unwrap_err();
   assert!(error.downcast_ref::<DropRefused>().is_some(), "{error:#}");
   assert_eq!(repo.head(), head);
   assert_eq!(repo.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "");
@@ -214,6 +235,7 @@ fn mapping_note(repo: &TestRepo, commit: &str, mapped: &str) -> MappingNote {
       tree: resolve_tree_id(repo.git_executor(), repo.path_str(), commit).unwrap(),
     },
     resolved: None,
+    signed: false,
   }
 }
 
@@ -224,7 +246,7 @@ fn a_drop_takes_the_commits_and_their_files_out_of_head_and_its_undo_brings_them
   // a change on a path the drop does not write stays
   std::fs::write(repo.path().join("a.txt"), "mine\n").unwrap();
 
-  let plan = check_drop(repo.git_executor(), repo.path_str(), &commits[..1], DropKind::Drop).unwrap();
+  let plan = check_drop(repo.git_executor(), repo.path_str(), &commits[..1], DropKind::Drop, Signing::Off).unwrap();
   assert!(plan.files_change());
   apply_drop(repo.git_executor(), repo.path_str(), &plan).unwrap();
   let new_head = repo.head();
@@ -266,7 +288,7 @@ fn a_drop_of_a_commit_and_its_revert_moves_no_file_and_a_later_commit_keeps_its_
   let head_tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
   std::fs::write(repo.path().join("b.txt"), "untracked where the dropped commit was\n").unwrap();
 
-  let plan = check_drop(repo.git_executor(), repo.path_str(), &[added, revert], DropKind::Drop).unwrap();
+  let plan = check_drop(repo.git_executor(), repo.path_str(), &[added, revert], DropKind::Drop, Signing::Off).unwrap();
   assert!(!plan.files_change());
   plan.write_carried_notes(repo.git_executor(), repo.path_str());
   apply_drop(repo.git_executor(), repo.path_str(), &plan).unwrap();
@@ -314,7 +336,7 @@ fn a_drop_under_a_staged_change_names_the_path() {
   repo.git(&["add", "it's.txt", "base.txt"]);
   let head = repo.head();
 
-  let error = check_drop(repo.git_executor(), repo.path_str(), &[dropped], DropKind::Drop).unwrap_err();
+  let error = check_drop(repo.git_executor(), repo.path_str(), &[dropped], DropKind::Drop, Signing::Off).unwrap_err();
   let blocked = error.downcast_ref::<MoveBlocked>().unwrap_or_else(|| panic!("not blocked: {error:#}"));
   assert_eq!(blocked.paths, ["it's.txt"]);
   assert_eq!(repo.head(), head);
@@ -329,7 +351,7 @@ fn a_drop_is_refused_during_a_merge() {
   let commit = repo.create_commit("(feature) Add login", "login.rs", "// login");
   std::fs::write(repo.path().join(".git/MERGE_HEAD"), format!("{commit}\n")).unwrap();
 
-  let error = check_drop(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit), DropKind::Drop).unwrap_err();
+  let error = check_drop(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit), DropKind::Drop, Signing::Off).unwrap_err();
   assert!(format!("{error:#}").contains("a merge is in progress"), "{error:#}");
   assert_eq!(repo.head(), commit);
 }
@@ -338,6 +360,6 @@ fn a_drop_is_refused_during_a_merge() {
 fn an_interrupted_drop_finishes_its_files() {
   let (repo, commits, _) = repo_with_feature();
   let head = repo.head();
-  let plan = check_drop(repo.git_executor(), repo.path_str(), &commits[..1], DropKind::Drop).unwrap();
+  let plan = check_drop(repo.git_executor(), repo.path_str(), &commits[..1], DropKind::Drop, Signing::Off).unwrap();
   assert_an_interrupted_move_finishes(&repo, &head, &plan, "branch-deck: drop");
 }

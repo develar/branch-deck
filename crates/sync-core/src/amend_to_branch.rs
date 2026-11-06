@@ -6,6 +6,7 @@ use anyhow::Result;
 use domain_types::rewrite::{AmendCommandResult, AmendResult};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::amend_operations::{AmendToCommitParams, apply_amend, prepare_amend};
+use git_ops::commit_signing::commit_signing;
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::history::History;
 use git_ops::revs::with_dirs_of;
@@ -39,6 +40,7 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
   let repo = repository_path.as_str();
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo)?;
+  let signing = commit_signing(git_executor, repo)?;
   // the HEAD of the history is the one `options` expects before the amended commit is looked for on it: a HEAD another
   // process rewrote has a copy of that commit, not the commit, and the refusal is `HeadMoved`, which the engine
   // resolves again on that HEAD
@@ -51,7 +53,7 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
       original_commit_id: original_commit_id.clone(),
       files: files.clone(),
     };
-    prepare_amend(git_executor, repo, &history, amend)
+    prepare_amend(git_executor, repo, &history, amend, signing)
       .and_then(|prepared| prepared.ready(git_executor, repo))
       .map_err(failed)
   };

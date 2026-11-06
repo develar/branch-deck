@@ -76,6 +76,26 @@ fn a_drop_takes_the_commits_and_their_files_out_and_names_what_the_next_sync_bui
   Ok(())
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn dropping_a_commit_signs_the_replayed_survivors() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let (repo, [dropped, ..]) = repo_with_branches();
+  let base = repo.git(&["rev-parse", "HEAD~3"]);
+  repo.enable_ssh_signing();
+
+  let result = drop(&repo, &[&dropped], false).unwrap();
+
+  assert_eq!(repo.git(&["log", "--format=%G?", &format!("{base}..{}", result.new_head)]).trim(), "G\nG");
+  for commit in repo.git(&["rev-list", &format!("{base}..{}", result.new_head)]).lines() {
+    repo.git(&["verify-commit", commit]);
+  }
+}
+
 /// A commit and its revert leave HEAD's files as they are: no file moves, and the branches after the pair keep their
 /// copies; a branch left without a commit is named
 #[test]

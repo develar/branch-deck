@@ -39,6 +39,12 @@ fn an_error_without_a_code_of_its_own_is_internal_and_canceled_is_a_code() {
 }
 
 #[test]
+fn a_signing_failure_is_a_code_two_error() {
+  assert_eq!(serde_json::to_value(ErrorCode::SigningFailed).unwrap(), json!("signing_failed"));
+  assert_eq!(ErrorCode::SigningFailed.exit_code(), 2);
+}
+
+#[test]
 fn the_details_are_tagged_by_their_kind_of_data() {
   let conflict = ApiError::new(ErrorCode::TargetConflict, "conflict").with_details(ErrorDetails::Conflict {
     commits: vec!["abc".to_owned()],

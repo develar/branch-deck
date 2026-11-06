@@ -1,4 +1,5 @@
 use super::amend_operations::{AmendResult, AmendToCommitParams, amend_to_commit_in_main};
+use super::commit_signing::Signing;
 use super::copy_commit::CopyCommitError;
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, read_file, repo_path, show, stage_file, status, write_file};
 use anyhow::Result;
@@ -7,11 +8,38 @@ use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 fn amend(repo: &TestRepo, original_commit_id: &str, files: &[&str]) -> Result<AmendResult, CopyCommitError> {
+  amend_with_signing(repo, original_commit_id, files, Signing::Off)
+}
+
+fn amend_with_signing(repo: &TestRepo, original_commit_id: &str, files: &[&str], signing: Signing) -> Result<AmendResult, CopyCommitError> {
   let params = AmendToCommitParams {
     original_commit_id: original_commit_id.to_string(),
     files: files.iter().map(ToString::to_string).collect(),
   };
-  amend_to_commit_in_main(repo.git_executor(), repo_path(repo), params)
+  amend_to_commit_in_main(repo.git_executor(), repo_path(repo), params, signing)
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn amend_signs_the_replacement_and_replayed_descendants() -> Result<()> {
+  #[cfg(windows)]
+  if !super::commit_signing::ssh_keygen_available() {
+    return Ok(());
+  }
+
+  let repo = TestRepo::new();
+  let amended = repo.create_commit("Initial commit", "file1.txt", "initial content");
+  repo.create_commit("Add second file", "file2.txt", "second file");
+  repo.enable_ssh_signing();
+  stage_file(&repo, "file1.txt", "amended content")?;
+
+  let result = amend_with_signing(&repo, &amended, &["file1.txt"], Signing::On)?;
+  repo.git(&["verify-commit", &result.amended_commit_id]);
+  repo.git(&["verify-commit", &result.rebased_to_commit]);
+  assert_eq!(repo.git(&["log", "-1", "--format=%G?", &result.amended_commit_id]).trim(), "G");
+  assert_eq!(repo.git(&["log", "-1", "--format=%G?", &result.rebased_to_commit]).trim(), "G");
+  assert_file1_amended(&repo, &result, &amended)?;
+  Ok(())
 }
 
 /// `file1.txt` of a two-commit repo was amended into `original_commit`, which got a new ID

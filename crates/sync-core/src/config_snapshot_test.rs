@@ -5,6 +5,7 @@ use domain_types::landing_route::LandingSetting;
 use domain_types::settings::GitBranchPrefix;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
+use git_ops::commit_signing::Signing;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::stack::stacks_enabled;
 use pretty_assertions::assert_eq;
@@ -12,6 +13,19 @@ use test_utils::git_test_utils::TestRepo;
 
 fn snapshot(repo: &TestRepo) -> ConfigSnapshot {
   ConfigSnapshot::read(repo.git_executor(), repo.path_str()).unwrap()
+}
+
+#[test]
+fn signing_is_read_from_the_effective_git_boolean() {
+  let repo = TestRepo::new();
+  let signing = || snapshot(&repo).signing();
+  assert_eq!(signing().unwrap(), Signing::Off);
+  for (value, expected) in [("yes", Signing::On), ("oN", Signing::On), ("0", Signing::Off), ("OFF", Signing::Off)] {
+    repo.set_config("commit.gpgsign", value).unwrap();
+    assert_eq!(signing().unwrap(), expected, "{value}");
+  }
+  repo.set_config("commit.gpgsign", "invalid").unwrap();
+  assert_eq!(signing().unwrap_err().to_string(), "commit.gpgsign is not a boolean: invalid");
 }
 
 /// `branchdeck.stacks` as `git config --type=bool` reads it: `Some` of its answer, `None` when git refuses the value

@@ -1,15 +1,18 @@
-use crate::stack_branch::{BuildResult, StackBranchPlan, StackBranchSync, StackBuild, StackFinish, build_stack_branch, finish_stack_branches, plan_stack_branches};
+use crate::stack_branch::{BuildResult, StackBranchPlan, StackBranchSync, StackBuild, StackBuilds, StackFinish, build_stack_branch, finish_stack_branches, plan_stack_branches};
 use domain_types::commit::{Commit, SubjectParts};
 use domain_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
+use git_ops::commit_signing::Signing;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::CommitGrouper;
 use history_rewrite::stack::place_branches;
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use test_utils::git_test_utils::TestRepo;
+use test_utils::process_budget::assert_signed_commits;
 
 /// A commit of `subject` by `email`, without git
 fn commit(index: usize, subject: &str, email: &str) -> Commit {
@@ -31,6 +34,7 @@ fn commit(index: usize, subject: &str, email: &str) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    mapped_signed: false,
     subject_parts: SubjectParts::default(),
   }
 }
@@ -154,7 +158,7 @@ fn a_conflicting_build_names_the_commit_and_keeps_the_ref() {
   let git = GitCommandExecutor::new();
   let commits: Vec<Commit> = get_commit_list(&git, &path, &base).unwrap().into_iter().filter(|commit| commit.id == changed).collect();
 
-  let build = build_stack_branch(&git, &path, "test/stack/auth", &TreeIdCache::new(), &base, &commits, ResolveMode::Off).unwrap();
+  let build = build_stack_branch(&git, &path, "test/stack/auth", &TreeIdCache::new(), &base, &commits, ResolveMode::Off, Signing::Off).unwrap();
 
   let conflict = StackBuild::Conflict {
     commit: changed.clone(),
@@ -199,6 +203,52 @@ fn a_conflicting_build_names_the_commit_and_keeps_the_ref() {
   assert_eq!(repo.rev_parse("test/stack/auth").unwrap(), base);
 }
 
+#[test]
+fn an_unsigned_stack_build_is_not_reused_when_signing_is_enabled() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "README.md", "base\n");
+  let id = repo.create_commit("(auth) Add auth", "auth.txt", "auth\n");
+  let commits = get_commit_list(repo.git_executor(), repo.path_str(), &base).unwrap();
+  assert_eq!(commits[0].id, id);
+  let key = super::build_key(&base, &commits, ResolveMode::Off);
+  let cache = ObjectCache::disabled();
+  let unsigned = StackBuild::Built {
+    tip: "unsigned".to_string(),
+    signed: false,
+  };
+  StackBuilds::new(cache.clone(), ResolveMode::Off, Signing::Off).remember(key, &unsigned);
+
+  let signing = StackBuilds::new(cache, ResolveMode::Off, Signing::On);
+
+  assert!(signing.get(&key).is_none());
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn a_stack_build_signs_every_copy() {
+  #[cfg(windows)]
+  if sync_utils::child_process::windowless_command("ssh-keygen").arg("-?").output().is_err() {
+    return;
+  }
+
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "README.md", "base\n");
+  repo.create_commit("(auth) Add auth", "auth.txt", "auth\n");
+  repo.create_commit("(auth/login) Add login", "login.txt", "login\n");
+  repo.enable_ssh_signing();
+  let git = repo.git_executor();
+  let commits = get_commit_list(git, repo.path_str(), &base).unwrap();
+
+  let StackBuild::Built { tip, signed } = build_stack_branch(git, repo.path_str(), "test/stack/auth", &TreeIdCache::new(), &base, &commits, ResolveMode::Off, Signing::On).unwrap()
+  else {
+    panic!("the stack must build");
+  };
+
+  assert!(signed);
+  assert_eq!(repo.git(&["rev-list", &format!("{base}..{tip}")]).lines().count(), 2);
+  assert_signed_commits(&repo, &base, &tip);
+}
+
 /// The move is a compare-and-swap on the tip the sync listed: a ref another process moved meanwhile keeps that tip,
 /// and the stack branch is stale, saying so
 #[test]
@@ -228,7 +278,7 @@ fn another_process_moving_the_stack_branch_keeps_its_tip_stale() {
     failed: &HashMap::new(),
   };
 
-  let finished = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(StackBuild::Built { tip: built }))]);
+  let finished = finish_stack_branches(&finish, &sync, vec![Some(BuildResult::Built(StackBuild::Built { tip: built, signed: false }))]);
   let updates = finished.updates;
 
   assert!(finished.moved_elsewhere, "the sync asks for one more run (`SyncReport::retry`)");

@@ -26,6 +26,7 @@ use domain_types::stack::{BlockReason, BranchStack, StackBranchConflict, StackBr
 use domain_types::{BranchError, BranchSyncStatus, RemoteStatusUpdate};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_chain::CommitChain;
+use git_ops::commit_signing::Signing;
 use git_ops::copy_commit::{CopyCommitError, CreateCommitParams, ProgressInfo, create_or_update_commit};
 use git_ops::merge_memo::MergeMemo;
 use git_ops::ref_transaction::RefTransaction;
@@ -43,7 +44,7 @@ use tracing::{debug, info, instrument, warn};
 
 /// The version of a remembered build: bump it when the copies change (their message, ident or dates), so no build of
 /// the old copies is read
-const STACK_BUILD_VERSION: u32 = 2;
+const STACK_BUILD_VERSION: u32 = 3;
 
 /// A stack that forks and what its stack branch is built from
 #[derive(Debug, Clone)]
@@ -169,12 +170,11 @@ fn most_frequent_email(commits: &[&Commit]) -> Option<String> {
 pub enum StackBuild {
   Built {
     tip: String,
+    #[serde(default)]
+    signed: bool,
   },
   /// The original commit whose copy conflicts, and the conflicting paths
-  Conflict {
-    commit: String,
-    files: Vec<String>,
-  },
+  Conflict { commit: String, files: Vec<String> },
 }
 
 /// The key of a build: a hash of the base, the ids of the original commits in their order and the resolve mode. A
@@ -206,25 +206,31 @@ fn remembered() -> std::sync::MutexGuard<'static, HashMap<[u8; 32], StackBuild>>
 pub struct StackBuilds {
   cache: ObjectCache,
   resolve: ResolveMode,
+  signing: Signing,
   pending: Mutex<Vec<([u8; 32], StackBuild)>>,
 }
 
 impl StackBuilds {
-  pub fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
+  pub fn new(cache: ObjectCache, resolve: ResolveMode, signing: Signing) -> Self {
     Self {
       cache,
       resolve,
+      signing,
       pending: Mutex::default(),
     }
   }
 
   /// The build of `key`, when one is remembered
   pub fn get(&self, key: &[u8; 32]) -> Option<StackBuild> {
-    let known = remembered().get(key).cloned();
-    if known.is_some() {
-      return known;
-    }
-    let build = self.cache.get_stack_builds::<StackBuild>(STACK_BUILD_VERSION, &[*key]).pop().flatten()?;
+    let reusable = |build: &StackBuild| self.signing == Signing::Off || !matches!(build, StackBuild::Built { signed: false, .. });
+    let build = remembered().get(key).cloned().filter(|build| reusable(build)).or_else(|| {
+      self
+        .cache
+        .get_stack_builds::<StackBuild>(STACK_BUILD_VERSION, &[*key])
+        .pop()
+        .flatten()
+        .filter(|build| reusable(build))
+    })?;
     remembered().insert(*key, build.clone());
     Some(build)
   }
@@ -261,6 +267,7 @@ impl MergeMemo for LightConflicts {
 /// the deterministic committer dates), without its notes and events. `tree_id_cache` has the trees of the commits and
 /// the date of the base
 #[instrument(skip(git_executor, tree_id_cache, commits), fields(commits = commits.len()))]
+#[expect(clippy::too_many_arguments, reason = "the stack build takes the sync's inputs and one signing decision")]
 pub fn build_stack_branch(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -269,9 +276,10 @@ pub fn build_stack_branch(
   base: &str,
   commits: &[Commit],
   resolve: ResolveMode,
+  signing: Signing,
 ) -> Result<StackBuild> {
   let tree_id_cache = tree_id_cache.with_other_memo(Arc::new(LightConflicts));
-  let chain = RefCell::new(CommitChain::new(git_executor, repository_path));
+  let chain = RefCell::new(CommitChain::new(git_executor, repository_path, signing));
   let mut parent = base.to_string();
   let mut committer_timestamp = tree_id_cache.get_committer_timestamp(git_executor, repository_path, base)?;
   let on_status = |_: BranchSyncStatus| {};
@@ -297,6 +305,7 @@ pub fn build_stack_branch(
       existing_virtual_commits: None,
       verify_notes: false,
       committer_timestamp,
+      signing,
       // a stack branch remembers its whole build (`StackBuilds`), not the copies before a conflict
       remembered: None,
       resolve,
@@ -319,7 +328,10 @@ pub fn build_stack_branch(
     }
   }
   chain.into_inner().finish()?;
-  Ok(StackBuild::Built { tip: parent })
+  Ok(StackBuild::Built {
+    tip: parent,
+    signed: signing == Signing::On,
+  })
 }
 
 /// How a build of a stack branch ended in a sync: remembered, built now, or failed
@@ -413,7 +425,7 @@ pub(crate) fn build_planned(
   }
   let key = build_key(base, &plan.commits, builds.resolve);
   match builds.get(&key) {
-    Some(StackBuild::Built { tip }) if listed_tip != Some(tip.as_str()) => {
+    Some(StackBuild::Built { tip, .. }) if listed_tip != Some(tip.as_str()) => {
       debug!(stack = %plan.full_name, "the remembered build is not where the ref is, building it again");
     }
     Some(build) => {
@@ -423,7 +435,16 @@ pub(crate) fn build_planned(
     None => {}
   }
   Some(
-    match build_stack_branch(git_executor, repository_path, &plan.full_name, tree_id_cache, base, &plan.commits, builds.resolve) {
+    match build_stack_branch(
+      git_executor,
+      repository_path,
+      &plan.full_name,
+      tree_id_cache,
+      base,
+      &plan.commits,
+      builds.resolve,
+      builds.signing,
+    ) {
       Ok(build) => {
         builds.remember(key, &build);
         BuildResult::Built(build)
@@ -495,7 +516,7 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
       }
       (None, result) => match (failed_member(plan, finish.failed), result) {
         (Some(block), _) => blocked(&mut update, block),
-        (None, Some(BuildResult::Remembered(StackBuild::Built { tip }) | BuildResult::Built(StackBuild::Built { tip }))) => {
+        (None, Some(BuildResult::Remembered(StackBuild::Built { tip, .. }) | BuildResult::Built(StackBuild::Built { tip, .. }))) => {
           let (state, tip, error) = move_stack_branch(finish, &plan.full_name, tip, old_tip.as_deref());
           moved_elsewhere |= matches!(error, Some(StackMoveError::MovedElsewhere(_)));
           let error = error.map(StackMoveError::into_message);
@@ -629,7 +650,7 @@ fn delete_obsolete(git_executor: &GitCommandExecutor, repository_path: &str, obs
 /// statuses: a stack blocked by its placement is `Blocked`; else what the build of its commits gave when it is
 /// remembered (the memory of the process, `cache`) and the ref is at it; else `Stale`, the ref is not known to be the
 /// build of these commits (or there is none). No git
-pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache: &ObjectCache, resolve: ResolveMode) -> Vec<StackBranchUpdate> {
+pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache: &ObjectCache, resolve: ResolveMode, signing: Signing) -> Vec<StackBranchUpdate> {
   let (Some(forest), Some(placements), Some(base)) = (&grouping.forest, &grouping.placements, &grouping.base) else {
     return Vec::new();
   };
@@ -637,7 +658,7 @@ pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache
   let positions: HashMap<&str, usize> = grouping.commit_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
   let plans = plan_stack_branches(branch_prefix, &forest.order, placements, &commits, &positions);
   let sync = StackBranchSync::new(plans, &grouping.listed, branch_prefix, &grouping.remote_tips);
-  let builds = StackBuilds::new(cache.clone(), resolve);
+  let builds = StackBuilds::new(cache.clone(), resolve, signing);
   let mut updates: Vec<StackBranchUpdate> = sync
     .plans
     .iter()
@@ -650,7 +671,7 @@ pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache
         return update;
       }
       match builds.get(&build_key(base, &plan.commits, resolve)) {
-        Some(StackBuild::Built { tip }) if update.tip.as_ref() == Some(&tip) => update.state = StackBranchState::Built,
+        Some(StackBuild::Built { tip, .. }) if update.tip.as_ref() == Some(&tip) => update.state = StackBranchState::Built,
         Some(StackBuild::Conflict { commit, files }) => {
           update.state = StackBranchState::Conflict;
           update.conflict = Some(StackBranchConflict { commit, files });

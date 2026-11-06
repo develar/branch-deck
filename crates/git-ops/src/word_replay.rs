@@ -8,6 +8,7 @@
 //!   replay. It is the tree of the merge with the resolved files (`write_edited_commit`). As the commits of `git replay`,
 //!   it has no ref once the replay ends: the branch move of the update makes it reachable.
 
+use crate::commit_signing::Signing;
 use crate::commit_writer::{EditedCommit, TreeEdit, WrittenEdit, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of};
@@ -111,6 +112,7 @@ pub(crate) fn resolve_merge_onto(
       encoding: raw.encoding.as_deref(),
       message: &raw.message,
     },
+    Signing::Off,
   )?;
   if written.tree != resolution.tree {
     let temp_ref = written.temp_ref.clone();

@@ -24,6 +24,7 @@ use file_diffs::service::FileDiffs;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{get_frozen_commit_list, on_local_baseline};
+use git_ops::commit_signing::Signing;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::autosquash::plan_autosquash;
@@ -637,6 +638,7 @@ impl CheckSession {
       // conflicts are light, without missing commits: `missing_commits` finds them in the report
       owners: CommitOwners::default(),
       resolve: self.resolve,
+      signing: Signing::Off,
     };
 
     // the branches to check in stack order, a parent before its children

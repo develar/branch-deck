@@ -14,6 +14,7 @@ use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use domain_types::rewrite::{CommitReword, RewordResult, RewordText};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_signing::Signing;
 use git_ops::commit_utils::find_commit;
 use git_ops::commit_writer::StoreCommit;
 use git_ops::revs::short_id;
@@ -171,6 +172,7 @@ fn following_fixups(snapshot: &Snapshot, messages: &HashMap<String, String>) -> 
 /// at `expected_head` ahead of `baseline` (`git_ops::reword_commits::prepare_reword`; `detached`: of a detached HEAD),
 /// with the commits of `stores` in the same run: the new commits on temporary refs, before the repository lock, no ref
 /// moved; `None` when no message changes once cleaned up
+#[expect(clippy::too_many_arguments, reason = "the regroup reword carries its snapshot, stores and signing mode")]
 pub(crate) fn prepare_reword_at<'a>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -179,6 +181,7 @@ pub(crate) fn prepare_reword_at<'a>(
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
   expected_head: &str,
   stores: &[StoreCommit<'_>],
+  signing: Signing,
 ) -> Result<Option<PreparedReword>> {
   let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
   if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
@@ -202,7 +205,7 @@ pub(crate) fn prepare_reword_at<'a>(
   let reworded_count = params.len();
   // also maps the commits recreated on top of a reworded one, unchanged messages included; `prepare_reword` refuses a
   // commit that is no longer on the current branch
-  let prepared = prepare_reword(git_executor, repository_path, baseline, params, Some(expected_head), stores)?;
+  let prepared = prepare_reword(git_executor, repository_path, baseline, params, Some(expected_head), stores, signing)?;
   info!(reworded_count, "Wrote the reworded commits");
   Ok(Some(prepared))
 }

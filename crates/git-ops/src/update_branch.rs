@@ -6,8 +6,9 @@
 //! (`pick::apply_pick`, a branch or a detached HEAD), the unapply and the reapply of a virtual branch (`unapply`,
 //! `reapply`) and their undo (`apply_update_undo`, `apply_move_undo_with`).
 
+use crate::commit_signing::{Signing, sign_range};
 use crate::commit_utils::blob_id;
-use crate::commit_writer::{current_committer, write_notes_to_refs};
+use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
 use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed, with_patch_identical};
 use crate::merge_tree_output::parse_merge_tree_batch;
@@ -115,6 +116,8 @@ pub struct UpdatePlan {
   replay: Option<ReplayPlan>,
   /// What the pairing read (`LandedLookup::ByKey` of a rebase), for the landed report of the check
   landed_reads: Option<Arc<LandedReads>>,
+  /// The signature pass of the replay, kept until the branch ref transaction
+  signed: Option<WrittenCommits>,
 }
 
 /// What the pairing of a check left out (`landed_pairing::pair_before_replay`, after a conflict `pair_landed`): the
@@ -217,6 +220,13 @@ impl UpdatePlan {
   pub fn landed_reads(&self) -> Option<&LandedReads> {
     self.landed_reads.as_deref()
   }
+
+  /// Delete the temporary ref of the signature pass when the prepared update is abandoned
+  pub fn discard(&mut self, git_executor: &GitCommandExecutor, repo_path: &str) {
+    if let Some(signed) = self.signed.take() {
+      signed.discard(git_executor, repo_path);
+    }
+  }
 }
 
 /// Check, without the network and without writing anything, whether the checked out branch can be updated to
@@ -239,7 +249,21 @@ pub fn check_update(
   landed: LandedLookup,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
-  check_update_read(git_executor, repo_path, upstream, purpose, landed, resolve, Blocks::Now)
+  check_update_with_signing(git_executor, repo_path, upstream, purpose, landed, resolve, Signing::Off)
+}
+
+/// `check_update` with the signing mode read once by the operation core
+#[instrument(skip(git_executor))]
+pub fn check_update_with_signing(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: UpstreamRef<'_>,
+  purpose: CheckPurpose,
+  landed: LandedLookup,
+  resolve: ResolveMode,
+  signing: Signing,
+) -> Result<UpdatePlan> {
+  check_update_read(git_executor, repo_path, upstream, purpose, landed, resolve, Blocks::Now, signing)
 }
 
 /// `check_update` for an apply whose caller takes the repository lock only after it (Update Project): the replay, the
@@ -248,10 +272,24 @@ pub fn check_update(
 /// `apply_update` refuses the plan before it
 #[instrument(skip(git_executor))]
 pub fn check_update_before_lock(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, landed: LandedLookup, resolve: ResolveMode) -> Result<UpdatePlan> {
-  check_update_read(git_executor, repo_path, upstream, CheckPurpose::Apply, landed, resolve, Blocks::UnderTheLock)
+  check_update_before_lock_with_signing(git_executor, repo_path, upstream, landed, resolve, Signing::Off)
+}
+
+/// `check_update_before_lock` with the signing mode read once by the operation core
+#[instrument(skip(git_executor))]
+pub fn check_update_before_lock_with_signing(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: UpstreamRef<'_>,
+  landed: LandedLookup,
+  resolve: ResolveMode,
+  signing: Signing,
+) -> Result<UpdatePlan> {
+  check_update_read(git_executor, repo_path, upstream, CheckPurpose::Apply, landed, resolve, Blocks::UnderTheLock, signing)
 }
 
 /// The check of the state `read_checked_head` reads
+#[expect(clippy::too_many_arguments, reason = "the update check takes one signing decision with the state it checks")]
 fn check_update_read(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -260,6 +298,7 @@ fn check_update_read(
   landed: LandedLookup,
   resolve: ResolveMode,
   blocks: Blocks,
+  signing: Signing,
 ) -> Result<UpdatePlan> {
   let (branch, head, upstream_head) = read_checked_head(git_executor, repo_path, upstream.tracking_ref, upstream.local)?;
   let checked = CheckedHead {
@@ -267,7 +306,7 @@ fn check_update_read(
     head: &head,
     upstream_head: &upstream_head,
   };
-  check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, blocks)
+  check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, blocks, signing)
 }
 
 /// The guards, then the checked out branch (`HEAD` for a detached HEAD, only onto a `local` upstream), HEAD and the
@@ -327,7 +366,7 @@ pub fn check_update_of(
   landed: LandedLookup,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
-  check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, Blocks::Now)
+  check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, Blocks::Now, Signing::Off)
 }
 
 #[expect(clippy::too_many_arguments, reason = "check_update_of and when its blocks are read")]
@@ -340,6 +379,7 @@ fn check_update_with(
   landed: LandedLookup,
   resolve: ResolveMode,
   blocks: Blocks,
+  signing: Signing,
 ) -> Result<UpdatePlan> {
   let (branch, head, upstream_head) = (checked.branch.to_string(), checked.head.to_string(), checked.upstream_head.to_string());
   let Some(base) = merge_base(git_executor, repo_path, &head, &upstream_head)? else {
@@ -376,6 +416,7 @@ fn check_update_with(
     checked,
     replay: None,
     landed_reads: None,
+    signed: None,
   };
   if base == upstream_head {
     return Ok(plan);
@@ -454,14 +495,26 @@ fn check_update_with(
   if purpose == CheckPurpose::Preview {
     preview_cache().put(key, outcome.clone(), probe);
   }
-  let Some(new_head) = new_head else { return Ok(plan) };
+  let Some(mut new_head) = new_head else { return Ok(plan) };
   plan.replayed_head = Some(new_head.clone());
   if !blocked.is_empty() {
     plan.check.state = blocked_state(blocked);
     return Ok(plan);
   }
 
+  if purpose == CheckPurpose::Apply
+    && kind == UpdateKind::Rebase
+    && signing == Signing::On
+    && let Some(signed) = sign_range(git_executor, repo_path, Some(&plan.check.upstream_head), &new_head, signing)?
+  {
+    if let Some(tip) = signed.ids.last() {
+      new_head.clone_from(tip);
+    }
+    plan.signed = Some(signed);
+  }
+
   plan.check.state = UpdateState::Clean { kind };
+  plan.replayed_head = Some(new_head.clone());
   plan.new_head = Some(new_head);
   plan.files_change = files_change;
   plan.changed = changed.to_vec();
@@ -1073,6 +1126,10 @@ pub fn apply_update<'a>(git_executor: &GitCommandExecutor, repo_path: &str, plan
     bail!("The local changes of this check are not read yet: recheck_update under the lock first");
   }
   let check = &plan.check;
+  let mut with = RefTransaction::new();
+  if let Some(signed) = &plan.signed {
+    signed.delete_temp_refs(&mut with);
+  }
   let none = RefTransaction::new();
   move_branch_and_files_carrying(
     git_executor,
@@ -1084,7 +1141,7 @@ pub fn apply_update<'a>(git_executor: &GitCommandExecutor, repo_path: &str, plan
       files_change: plan.files_change,
       refreshed: plan.index_refreshed,
       operation: UPDATE_OPERATION,
-      with: &none,
+      with: &with,
       rollback_with: &none,
     },
   )?;

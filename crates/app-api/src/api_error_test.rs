@@ -4,6 +4,7 @@ use app_settings::service::SettingsError;
 use domain_types::error::{ErrorCode, ErrorDetails, HolderTool, LockHolderInfo, Retry};
 use file_diffs::accio::SearchCanceled;
 use git_executor::git_info::GitNotFound;
+use git_ops::commit_signing::SigningFailed;
 use git_ops::commit_writer::NoIdentity;
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::rewrite_guard::HeadMoved;
@@ -222,6 +223,10 @@ fn api_error_answers_the_setup_of_git_by_its_code() {
   assert_eq!((missing.code, missing.message.as_str()), (ErrorCode::GitNotFound, words));
   let unsigned = anyhow::Error::new(NoIdentity("fatal: empty ident name not allowed".to_owned())).context("Cannot write the notes");
   assert_eq!(api_error_at(&unsigned, NOW).code, ErrorCode::NoIdentity);
+  let signing = anyhow::Error::new(SigningFailed("fatal: no signing key configured".to_owned())).context("Cannot write branch commits");
+  let signing = api_error_at(&signing, NOW);
+  assert_eq!(signing.code, ErrorCode::SigningFailed);
+  assert!(signing.message.contains("fatal: no signing key configured"));
   assert_eq!(
     no_branch_prefix("jane".to_owned()).details,
     Some(ErrorDetails::PrefixSuggestion { prefix: "jane".to_owned() })

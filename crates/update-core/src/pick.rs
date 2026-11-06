@@ -13,9 +13,11 @@ use domain_types::rewrite::PickRemoteCommitsResult;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{get_commit_list_at, read_messages_and_paths};
+use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::copy_commit::virtual_message_of;
 use git_ops::pick::{
-  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, check_pick, check_pick_undo, recheck_pick,
+  AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, check_pick_undo, check_pick_with_signing,
+  recheck_pick,
 };
 use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked};
@@ -275,6 +277,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
   let target = params.repository_path.as_str();
   // the steps on the target take its directories from here; those on the source worktree read its own
   let git_executor = &with_dirs_of(git_executor, target)?;
+  let signing = if params.dry_run { Signing::Off } else { commit_signing(git_executor, target)? };
   let (baseline, upstream) = baseline_tracking_ref(git_executor, target)?;
   let remote = match &params.from {
     PickFrom::Remote(remote) => Some(remote_commits(git_executor, target, baseline.as_deref(), remote)?),
@@ -305,7 +308,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     last: None,
   };
   let (plan, applied) = if params.dry_run {
-    let plan = check_pick(git_executor, target, &request)?;
+    let plan = check_pick_with_signing(git_executor, target, &request, signing)?;
     options.ensure_head(git_executor, target, &plan.check.head)?;
     messages.verify(git_executor, target, &plan, false)?;
     (plan, None)
@@ -314,7 +317,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
       worktrees.push(source);
     }
-    land(git_executor, &worktrees, &request, options, &mut messages)?
+    land(git_executor, &worktrees, &request, options, &mut messages, signing)?
   };
   let landing = if plan.check.picked.is_empty() {
     Landing::default()
@@ -495,6 +498,7 @@ fn land(
   request: &PickRequest<'_>,
   options: &RewriteOptions<'_>,
   messages: &mut MessageCheck<'_>,
+  signing: Signing,
 ) -> Result<(PickPlan, Option<AppliedPick>)> {
   let target = worktrees[0];
   let apply = |plan: &PickPlan| (plan.check.state == PickState::Clean).then(|| apply_pick(git_executor, target, plan)).transpose();
@@ -502,7 +506,7 @@ fn land(
     if options.held_lock.is_some() || any_pending(git_executor, worktrees)? {
       break;
     }
-    let mut plan = check_pick(git_executor, target, request)?;
+    let mut plan = check_pick_with_signing(git_executor, target, request, signing)?;
     options.ensure_head(git_executor, target, &plan.check.head)?;
     messages.verify(git_executor, target, &plan, true)?;
     if plan.check.state != PickState::Clean || !plan.moves_anything() {
@@ -526,7 +530,7 @@ fn land(
   }
   let _lock = options.lock(git_executor, target)?;
   finish_pending(git_executor, worktrees)?;
-  let plan = check_pick(git_executor, target, request)?;
+  let plan = check_pick_with_signing(git_executor, target, request, signing)?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
   // a check under the lock: new picked commits are read here, the same ones not again
   messages.verify(git_executor, target, &plan, true)?;
@@ -650,6 +654,7 @@ fn copy_commit(commit: &PickedCommit) -> Commit {
     mapped_commit_id: None,
     mapped_source: None,
     mapped_resolution: None,
+    mapped_signed: false,
     subject_parts: SubjectParts::default(),
   }
 }

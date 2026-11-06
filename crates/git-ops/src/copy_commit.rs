@@ -4,7 +4,8 @@
 
 use crate::cherry_pick::PickedTree;
 use crate::commit_chain::{ChainCommit, CommitChain};
-use crate::notes::MappingNote;
+use crate::commit_signing::Signing;
+use crate::notes::{MappingNote, mapped_signed};
 use crate::tree_id_cache::TreeIdCache;
 use crate::word_resolve::{RESOLVE_VERSION, ResolveMode, Resolved, note_resolution};
 use anyhow::anyhow;
@@ -130,6 +131,7 @@ pub struct CreateCommitParams<'a> {
   pub verify_notes: bool,
   /// Committer date (unix seconds) of a new commit: the same input then writes the same commit
   pub committer_timestamp: u32,
+  pub signing: Signing,
   /// The copy an earlier sync wrote of this commit onto `new_parent_oid`, which it remembers for a branch that
   /// conflicts after it (`sync_core::conflict_chain`): taken without a merge and without a write
   pub remembered: Option<RememberedCopy<'a>>,
@@ -199,6 +201,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     committer_timestamp,
     remembered,
     resolve,
+    signing,
   } = params;
 
   // the commit list read the tree with the commit
@@ -218,12 +221,13 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     parent_tree: original_parent_tree_id.clone(),
     tree: original_tree_id.clone(),
   };
-  if let Some(copy) = remembered {
+  let was_signed = commit.note.as_deref().is_some_and(mapped_signed);
+  if let Some(copy) = remembered.filter(|copy| signing == Signing::Off || (was_signed && commit.mapped_commit_id.as_deref() == Some(copy.id))) {
     debug!(commit_id = %commit.id, copy = copy.id, "taking the copy the sync remembers");
     // the next commit of the branch is copied onto this one
     tree_id_cache.insert(copy.id, copy.tree);
     let resolved = copy.resolved.map(|resolved| summary_of_note(&resolved, commit, new_parent_oid));
-    return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source, resolved));
+    return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source, resolved, was_signed));
   }
   let commit_message = virtual_message(commit);
 
@@ -256,6 +260,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
   // copy of this commit: a note copied onto another commit (`git notes copy`, `notes.rewriteRef`) names another source
   let mut picked = None;
   if reuse_if_possible
+    && (signing == Signing::Off || was_signed)
     && let Some(mapped_id) = &commit.mapped_commit_id
     && let Some(virtual_commit) = existing_virtual_commits.and_then(|commits| commits.get(mapped_id))
     && virtual_commit.parent == new_parent_oid
@@ -300,6 +305,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
             mapped: mapped_id.clone(),
             source: source.clone(),
             resolved: resolved.as_ref().map(note_resolution),
+            signed: was_signed,
           });
           return Ok(CopiedCommit { resolved, ..reused(note) });
         }
@@ -334,11 +340,19 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
       message: &commit_message,
       resolution: picked.resolved.as_ref().and_then(Resolved::to_write),
     })
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
+    .map_err(|error| CopyCommitError::Other(error.context("Failed to create commit")))?;
   // the next commit of the branch is copied onto this one; its tree is known, so don't ask git for it
   tree_id_cache.insert(&new_commit_hash, &tree_id);
   let resolved = picked.resolved.as_ref().map(|resolved| resolved.summary(parent_of(commit), new_parent_oid));
-  Ok(copied(commit, new_commit_hash, new_parent_oid, existing_virtual_commits, source, resolved))
+  Ok(copied(
+    commit,
+    new_commit_hash,
+    new_parent_oid,
+    existing_virtual_commits,
+    source,
+    resolved,
+    signing == Signing::On,
+  ))
 }
 
 /// The parent of a commit that a resolve merged: a root commit has none and never merges
@@ -368,6 +382,7 @@ fn copied(
   existing_virtual_commits: Option<&HashMap<String, VirtualCommit>>,
   source: NoteSource,
   resolved: Option<WordResolutionSummary>,
+  signed: bool,
 ) -> CopiedCommit {
   let status = if commit.mapped_commit_id.as_deref() == Some(new_commit_hash.as_str())
     && existing_virtual_commits.is_some_and(|commits| commits.get(&new_commit_hash).is_some_and(|existing| existing.parent == new_parent_oid))
@@ -382,6 +397,7 @@ fn copied(
     mapped: new_commit_hash.clone(),
     source,
     resolved: note_resolved,
+    signed,
   });
   CopiedCommit {
     hash: new_commit_hash,
