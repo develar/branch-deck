@@ -1,6 +1,6 @@
 use crate::lease_test::{Fixture, path_of, slot_git};
 use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, canonical, git, record_check};
-use bd_core::bd_command::shell_word;
+use bd_core::bd_command::{CLI_NAME, shell_word};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -30,9 +30,13 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
   assert_eq!(
     got["next"],
     json!([
-      format!("bd -C {} lease pick", shell_word(&path)),
+      format!("{CLI_NAME} -C {} lease pick", shell_word(&path)),
       format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap()),
     ])
+  );
+  assert!(
+    got["next"].as_array().unwrap().iter().all(|command| command.as_str().unwrap().starts_with(CLI_NAME)),
+    "{got}"
   );
   // a source on a detached HEAD names no branch to land on: no pick in `next`
   fixture.give_back(&path);
@@ -40,6 +44,10 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
   let got = fixture.get(&[]);
   assert_eq!(got["home"], json!({ "checkout": display(fixture.repo.path()), "branch": null }));
   assert_eq!(got["next"], json!([format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap())]));
+  assert!(
+    got["next"].as_array().unwrap().iter().all(|command| command.as_str().unwrap().starts_with(CLI_NAME)),
+    "{got}"
+  );
   let (exit_code, output) = lease_pick(&fixture, &path_of(&got), &[]);
   assert_error(&output, exit_code, (4, "no_home_branch"));
 }

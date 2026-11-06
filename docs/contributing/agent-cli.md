@@ -1545,7 +1545,7 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
 ```json
 {"schema":2,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","state":"created","commit_count":2,
-   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null},"push":"bd -C /repo push auth"},
+   "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null},"push":"brd -C /repo push auth"},
   {"name":"login","ref":"…","state":"conflict","commit_count":1,"tip":null,
    "conflict":{"commit":"9d0e1f2a","subject":"(login) Use the session","files":["src/session.rs"],
      "missing_commits":["5f6a7b8c"]}}],

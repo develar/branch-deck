@@ -43,10 +43,15 @@ pub(crate) struct Exemption {
 
 /// Fails when `find` hits a line outside `exemptions`, or an exempt file has another number of hits than its exemption
 pub(crate) fn check(rule: &str, instead: &str, exemptions: &[Exemption], find: impl Fn(&Source) -> Vec<usize>) {
+  check_sources(rule, instead, &production_sources(), exemptions, find);
+}
+
+/// Fails when `find` hits a line outside `exemptions`, or an exempt file has another number of hits than its exemption
+pub(crate) fn check_sources(rule: &str, instead: &str, sources: &[Source], exemptions: &[Exemption], find: impl Fn(&Source) -> Vec<usize>) {
   let mut report = Vec::new();
   let mut exempt_hits = vec![0; exemptions.len()];
-  for source in production_sources() {
-    let lines = find(&source);
+  for source in sources {
+    let lines = find(source);
     match exemptions.iter().position(|exemption| exemption.path == source.path) {
       Some(index) => exempt_hits[index] += lines.len(),
       None => report.extend(lines.iter().map(|line| format!("  {}:{line}", source.path))),
@@ -67,11 +72,11 @@ pub(crate) fn check(rule: &str, instead: &str, exemptions: &[Exemption], find: i
 pub(crate) fn production_sources() -> Vec<Source> {
   let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory");
   let mut files = Vec::new();
-  collect_rust_files(&workspace.join("src-tauri/src"), &mut files);
+  collect_rust_files(&workspace.join("src-tauri/src"), &mut files, false);
   for entry in fs::read_dir(workspace.join("crates")).expect("crates directory").flatten() {
     let name = entry.file_name();
     if !EXEMPT_CRATES.iter().any(|exempt| name == *exempt) {
-      collect_rust_files(&entry.path().join("src"), &mut files);
+      collect_rust_files(&entry.path().join("src"), &mut files, false);
     }
   }
   assert!(files.len() > 20, "the scan found too few sources, is the workspace layout different? {}", files.len());
@@ -88,18 +93,35 @@ pub(crate) fn production_sources() -> Vec<Source> {
     .collect()
 }
 
+/// Every Rust source under `crates/*/src`, including tests, for rules that guard user-visible source text
+pub(crate) fn all_crate_sources() -> Vec<Source> {
+  let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory");
+  let mut files = Vec::new();
+  for entry in fs::read_dir(workspace.join("crates")).expect("crates directory").flatten() {
+    collect_rust_files(&entry.path().join("src"), &mut files, true);
+  }
+  files
+    .iter()
+    .map(|file| {
+      let text = fs::read_to_string(file).expect("readable source");
+      let path = file.strip_prefix(&workspace).unwrap_or(file).to_string_lossy().replace('\\', "/");
+      Source { path, text }
+    })
+    .collect()
+}
+
 fn is_test_file(path: &Path) -> bool {
   let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
   name.ends_with("_test.rs") || name.ends_with("_tests.rs") || name == "tests.rs" || path.components().any(|c| c.as_os_str() == "tests")
 }
 
-fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
+fn collect_rust_files(dir: &Path, files: &mut Vec<PathBuf>, include_tests: bool) {
   let Ok(entries) = fs::read_dir(dir) else { return };
   for entry in entries.flatten() {
     let path = entry.path();
     if path.is_dir() {
-      collect_rust_files(&path, files);
-    } else if path.extension().is_some_and(|e| e == "rs") && !is_test_file(&path) {
+      collect_rust_files(&path, files, include_tests);
+    } else if path.extension().is_some_and(|e| e == "rs") && (include_tests || !is_test_file(&path)) {
       files.push(path);
     }
   }

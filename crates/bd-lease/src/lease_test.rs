@@ -822,7 +822,7 @@ fn a_return_after_a_pick_that_rolled_back_refuses_the_commit() {
 }
 
 /// A session lands a commit with `brd pick --follow`, then fixes its message on the shared branch from its own worktree
-/// (`bd -C <shared checkout> reword`): the worktree needs nothing, its old tip is landed by content, a later pick
+/// (`brd -C <shared checkout> reword`): the worktree needs nothing, its old tip is landed by content, a later pick
 /// lands only a new commit and moves the worktree, and the return passes
 #[test_log::test]
 fn a_session_rewords_its_landed_commit_from_its_lease() {

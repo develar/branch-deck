@@ -1,6 +1,6 @@
 use crate::lease_test::{Fixture, path_of};
 use bd_cli::fixture_test::{canonical, git};
-use bd_core::bd_command::shell_word;
+use bd_core::bd_command::{CLI_NAME, shell_word};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -54,9 +54,13 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
   assert_eq!(
     output["next"],
     json!([
-      format!("bd -C {} lease pick", shell_word(&slot)),
+      format!("{CLI_NAME} -C {} lease pick", shell_word(&slot)),
       format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
     ])
+  );
+  assert!(
+    output["next"].as_array().unwrap().iter().all(|command| command.as_str().unwrap().starts_with(CLI_NAME)),
+    "{output}"
   );
   // without a scan of the processes (Windows) the get records no holder process, and the lease names none
   let mut active = json!({ "lease_id": lease["lease_id"], "holder": "lane-1", "path": slot });

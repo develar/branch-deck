@@ -127,7 +127,7 @@ pub enum ErrorCode {
   /// pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
   LeaseFollowsHome,
   /// `brd drop` in a lease of the pool of a commit its home branch has: the pick landed it there, so the drop runs in the
-  /// shared checkout (`next_steps`: `bd -C <checkout> drop …`, then `brd lease pick`, which moves the lease onto the new
+  /// shared checkout (`next_steps`: `brd -C <checkout> drop …`, then `brd lease pick`, which moves the lease onto the new
   /// tip); nothing was changed
   DropInHome,
   /// Uncommitted, staged or untracked files sit on paths `brd update`, `brd pick` (or their undo) writes; `paths` lists

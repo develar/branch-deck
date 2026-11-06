@@ -663,7 +663,7 @@ pub fn update_lease_onto(context: &RepoContext, branch: &str) -> Result<UpdateOu
   Ok(output)
 }
 
-/// `bd -C <lease> lease pick`
+/// `brd -C <lease> lease pick`
 fn lease_pick_command(context: &RepoContext) -> String {
   format!("{} -C {} lease pick", context.bd, shell_word(&context.repository))
 }

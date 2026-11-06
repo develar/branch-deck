@@ -2,7 +2,7 @@
 //! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
-use bd_core::bd_command::shell_word;
+use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, counted_git};
 use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
@@ -325,7 +325,7 @@ impl LeaseHomeOutput {
 pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str) -> Vec<String> {
   let mut next = Vec::new();
   if home.branch.is_some() && !home.checkout.is_empty() {
-    next.push(format!("bd -C {} lease pick", shell_word(path)));
+    next.push(format!("{CLI_NAME} -C {} lease pick", shell_word(path)));
   }
   next.push(format!("brd lease return --lease-id {lease_id}"));
   next
@@ -347,7 +347,7 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
     return Err(CliError::new(
       ErrorCode::ResolveInProgress,
       format!(
-        "A resolve session is open in {top_level}: finish it with `bd -C {lease} update --continue` and then `bd -C {lease} lease pick`, or close it with `bd -C {lease} update --abort`"
+        "A resolve session is open in {top_level}: finish it with `{CLI_NAME} -C {lease} update --continue` and then `{CLI_NAME} -C {lease} lease pick`, or close it with `{CLI_NAME} -C {lease} update --abort`"
       ),
     ));
   }
@@ -403,7 +403,7 @@ pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<
   Err(CliError::new(
     ErrorCode::LeaseFollowsHome,
     format!(
-      "{top_level} is a lease: it follows {branch} of {checkout}, not the baseline. `bd -C {lease} lease pick` lands its commits on {branch} and moves \
+      "{top_level} is a lease: it follows {branch} of {checkout}, not the baseline. `{CLI_NAME} -C {lease} lease pick` lands its commits on {branch} and moves \
        it onto the tip; {branch} itself is updated in {checkout} by its owner: ask the user",
       checkout = home.checkout,
       lease = shell_word(top_level),
@@ -451,8 +451,8 @@ pub fn refuse_drop_of_home_commits(git: &GitCommandExecutor, git_common_dir: &Pa
       ),
     )
   }
-  .with_next_step(format!("bd -C {checkout} drop {named}"), false)
-  .with_next_step(format!("bd -C {} lease pick", shell_word(top_level)), false))
+  .with_next_step(format!("{CLI_NAME} -C {checkout} drop {named}"), false)
+  .with_next_step(format!("{CLI_NAME} -C {} lease pick", shell_word(top_level)), false))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

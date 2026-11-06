@@ -21,6 +21,8 @@ pub mod process_stats;
 mod process_tree;
 
 #[cfg(test)]
+mod cli_name_scan_test;
+#[cfg(test)]
 mod concurrency_scan_test;
 #[cfg(test)]
 mod console_window_scan_test;

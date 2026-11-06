@@ -6,7 +6,7 @@
 //! `bd_core::operation_record`)
 
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
-use bd_core::bd_command::shell_word;
+use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::operation_record::{asked_on, recorded};
@@ -324,7 +324,7 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
 pub struct HomePick {
   /// The branch the target must have checked out, else `home_branch_switched`
   pub branch: String,
-  /// `bd -C <lease> lease pick`: what a conflict's `next` runs again
+  /// `brd -C <lease> lease pick`: what a conflict's `next` runs again
   pub again: String,
   /// The check of the lease's tree that `brd lease pick` made already, after the update of a conflict: the gate reads
   /// it instead of asking git again
@@ -397,7 +397,7 @@ fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&H
 /// message names the command of the path the agent took, `brd lease pick` in a lease, else `brd pick --from`
 fn unchecked_tree(context: &RepoContext, dir: &str, check: &TreeCheck, args: &PickArgs, lease: bool) -> CliError {
   let (command, again) = if lease {
-    ("brd lease pick", format!("bd -C {} lease pick", shell_word(dir)))
+    ("brd lease pick", format!("{CLI_NAME} -C {} lease pick", shell_word(dir)))
   } else {
     let follow = if args.follow { " --follow" } else { "" };
     ("brd pick", format!("{} pick --from {}{follow}", context.bd, shell_word(dir)))
