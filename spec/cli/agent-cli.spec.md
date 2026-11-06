@@ -1681,13 +1681,15 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
   every push, never reorder, squash or split commits and never drop one yourself (brd drops a commit it proves landed,
   `--landed` one after the user's yes; `brd squash` squashes the commits the user asked to squash), `brd pick` instead of a cherry-pick, `error.code`, parked branches,
-  unapply), and below the commit subject and its settings, in five lines, the commit body a review reads (the lead
-  with the new state, a paragraph per decision, code names in backticks that `brd review-plan` resolves, `Look closely:`, the labels
+  unapply), the commit subject with the form of the repository after its `(branch) ` prefix, also with the rule off
+  (its agent instructions, else its `git log`; a pick refuses what `[commit] check` rejects), and below it, in five
+  lines, the commit body a review reads (the diff shows what, the body why: the lead with the new state and its cause,
+  a paragraph per decision, code names in backticks that `brd review-plan` resolves, `Look closely:`, the labels
   of the verification, the trailers last; [The Commit Body a Review Reads](../../docs/guide/commit-bodies.md)); the
   details of an output belong in the binary's help, not in the skill. `brd help skill` must print the
   same text. Its `allowed-tools` must be
   `Bash(<brd>:*)`, `<brd>` as the body names it, so that Claude Code runs every brd command without a permission prompt.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_brd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_brd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 - It must say whether `brd` on `PATH` is the installed one, and print `agents` `{lease, subject_branch}`, the rules of
   `brd workspace` that the global git config gives every repository; `--uninstall` must remove the skills and only its

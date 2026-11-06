@@ -1,6 +1,6 @@
 # The Commit Body a Review Reads
 
-**Updated:** 2026-11-01  
+**Updated:** 2026-11-06  
 **Tags:** [commits, review, agents, writing]
 
 The body of a commit is the one place where the author of a change, a person or an agent, tells its story at the
@@ -42,6 +42,13 @@ The subject says what changes for the user of the code, as a sentence in the pre
 the Project view only when it does not restore a stored layout", not "fix project view" or "refactor startup". It is
 the title of the step everywhere: a tree row, the heading of the step, the line of `git log --oneline`. One sentence
 of about 100 characters is fine; a second sentence belongs in the lead.
+
+The subject has the form of the repository: its agent instructions say it, else its `git log` shows it (a ticket, a
+label, a conventional type). A `(branch) ` prefix of Branch Deck goes first, and the form of the repository follows
+it: `(dev-dist-cache) setup build: write the pinned Qodana date`. The push drops the prefix, so the rest alone must
+pass the commit rules of the repository; `brd pick` refuses a message that they reject (`message_format`).
+
+The diff shows what changed; the body says why. A body that only retells the diff gives a review nothing to judge.
 
 ## The lead
 

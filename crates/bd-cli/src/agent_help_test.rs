@@ -465,27 +465,47 @@ fn the_skill_keeps_the_agents_plan_in_the_shared_checkout() {
 }
 
 /// Below the commit subject and its settings the skill says how to write the body a review reads
-/// (docs/guide/commit-bodies.md): the lead, code names in backticks that `brd review-plan` resolves, `Look closely:`, the
-/// labels of the verification and the trailers last, in five lines
+/// (docs/guide/commit-bodies.md): why, the lead, a paragraph per decision, code names in backticks that `brd
+/// review-plan` resolves, `Look closely:`, the labels of the verification and the trailers last, in five lines
 #[test]
 fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject() {
   let skill = skill_text("brd");
   let subject = skill.find("- `subject_branch.on`: start each commit subject with `(branch) `").unwrap();
-  let start = skill.find("- The body is what a review reads first").unwrap();
+  let start = skill.find("- The diff shows what changed; the body says why.").unwrap();
   let end = start + 2 + skill[start + 2..].find("\n- ").unwrap();
   let body = &skill[start..=end];
   assert!(subject < start, "{skill}");
   assert_eq!(body.lines().count(), 5, "{body}");
   for words in [
-    "a lead of 1–3 sentences with the new\n  state and why",
-    "code names in backticks as the code spells them (`Owner.member`,\n  a path)",
-    "`brd review-plan` lists those that resolve nothing (`target: null`)",
+    "a lead of 1–3 sentences\n  with the new state and its cause",
+    "a paragraph per decision: what you chose, what not, why",
+    "Code names in\n  backticks as the code spells them (`Owner.member`, a path)",
+    "`brd review-plan` lists those that\n  resolve nothing (`target: null`)",
     "`Look closely:` where the reviewer must decide",
-    "`Tests:`, `Evidence:`, `Left out:` each right before its list",
+    "`Tests:`, `Evidence:`,\n  `Left out:` each right before its list",
     "the trailers last",
   ] {
     assert!(body.contains(words), "{words}: {body}");
   }
+}
+
+/// The repository form of a subject follows the `(branch) ` prefix, also with the rule off, from the agent instructions
+/// of the repository or its `git log`; the push drops the prefix, and a pick refuses what `[commit] check` rejects. `brd
+/// help worktrees` says the same for `(branch)`, `(parent/leaf)` and `(leaf)`
+#[test]
+fn the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix() {
+  let skill = skill_text("brd");
+  let start = skill.find("- `subject_branch.on`: start each commit subject with `(branch) `").unwrap();
+  let end = start + 2 + skill[start + 2..].find("\n- ").unwrap();
+  let rule = &skill[start..=end];
+  for words in [
+    "Then, also\n  off (no prefix), write the subject as the repository does: its agent instructions, else its `git log`.",
+    "The push drops\n  the prefix; a pick refuses a message that `[commit] check` rejects (`message_format`).",
+  ] {
+    assert!(rule.contains(words), "{words}: {rule}");
+  }
+  assert!(WORKTREES_HELP.contains("A subject is `(branch) ` and then the subject form of the repository (its agent\n   instructions, else its `git log`)"));
+  assert!(WORKTREES_HELP.contains("`(parent/leaf) ` and then that form; once the stack parents know the leaf, `(leaf) ` and then that form"));
 }
 
 /// `brd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into

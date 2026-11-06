@@ -26,7 +26,9 @@ commit there and land each commit at once with `brd pick` ([brd pick](pick.spec.
 on everywhere, since isolation harms no repository; the subject branch is on everywhere too, since the prefix is what
 groups an agent's commit into its branch and the copies of the virtual branches drop it. A `(branch)` prefix reaches
 the remote as it is only where the commits land themselves, not their virtual branches: such a repository turns the
-rule off, or names its own form of a subject in its agent instructions, which win. The global config gives every repository its value, the repository's own `.git/config` wins,
+rule off, or names its own form of a subject in its agent instructions, which win. With the rule on or off, the subject
+after the prefix has the form of the repository (its agent instructions, else its `git log`), which `[commit] check`
+can enforce at the pick ([brd pick](pick.spec.md#the-commit-rules)). The global config gives every repository its value, the repository's own `.git/config` wins,
 and the user changes both in Settings → Agents ([Settings](../repository/settings.spec.md#agents)). What the user says
 in the session wins over both.
 

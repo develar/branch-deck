@@ -261,9 +261,11 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
 
 1. When `brd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, on by default), write the prefix
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
-   (`brd suggest`, issue keys). A subject is `(branch) <one sentence>`. With stacked branches
-   (`branchdeck.stacks`) a new stack is declared once, `(parent/leaf) <one sentence>`; once the stack parents know the
-   leaf, `(leaf) <one sentence>` is enough, as a plan of `brd suggest` writes it. `(parent/leaf)` on a commit of a
+   (`brd suggest`, issue keys). A subject is `(branch) ` and then the subject form of the repository (its agent
+   instructions, else its `git log`): the push drops the prefix, so the rest alone must pass the commit rules of the
+   repository (`message_format`). With stacked branches (`branchdeck.stacks`) a new stack is declared once,
+   `(parent/leaf) ` and then that form; once the stack parents know the leaf, `(leaf) ` and then that form is enough,
+   as a plan of `brd suggest` writes it. `(parent/leaf)` on a commit of a
    branch that is a root stacks the whole branch on `parent` (`reparented` in the pick); two parents for one branch
    are conflicting parents, `brd restack <leaf> <parent>` keeps one. The branch is a readable name of a few words, never an issue
    id as the name; an issue id stays in the subject after the prefix, or in the body. A series of commits is a stack
@@ -776,10 +778,9 @@ allowed-tools: {allowed_tools}
 brd is `{command}`; run it as written, it is quoted for the shell. Below, `brd` stands for it.
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
-of their subjects. brd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
-virtual branches, pushes them and starts their Patronus Safe Push. Only `brd update` (the branch onto its baseline),
-`brd pick` (the commits of another worktree onto the branch), `brd unapply` and `brd reapply` (a branch out of it and back),
-`brd drop` (commits out of it for good) and their undo write the working tree, through the guarded update.
+of their subjects. brd regroups the commits by rewriting the prefixes, rebuilds the virtual branches, pushes them and
+starts their Patronus Safe Push. Only `brd update` (the branch onto its baseline), `brd pick`, `brd unapply`,
+`brd reapply`, `brd drop` and their undo write the working tree, through the guarded update.
 
 Before the first edit or commit in a repository, run `brd workspace` and follow it; what the user says in the session
 wins over it:
@@ -796,20 +797,21 @@ wins over it:
 - `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
   `git add -A` or `git add .`.
 - `subject_branch.on`: start each commit subject with `(branch) `, a readable name of a few words, never an issue id as
-  the name; reuse a branch of `brd status --brief` that fits; with `stacks`, a new stack is `(parent/leaf)`. Off: write
-  the subject as the repository does, without a prefix.
-- Both are the user's settings (Settings → Agents of the app, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
+  the name; reuse a branch of `brd status --brief` that fits; with `stacks`, a new stack is `(parent/leaf)`. Then, also
+  off (no prefix), write the subject as the repository does: its agent instructions, else its `git log`. The push drops
+  the prefix; a pick refuses a message that `[commit] check` rejects (`message_format`).
+- Both are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
   never change them.
-- The body is what a review reads first: after the subject (the behaviour change), a lead of 1–3 sentences with the new
-  state and why, then a paragraph per decision. Write code names in backticks as the code spells them (`Owner.member`,
-  a path): they link to the diffs, and `brd review-plan` lists those that resolve nothing (`target: null`). Ask with
-  `Look closely:` where the reviewer must decide; then `Tests:`, `Evidence:`, `Left out:` each right before its list,
-  measurements indented by four spaces, the trailers last.
+- The diff shows what changed; the body says why. After the subject (the behaviour change): a lead of 1–3 sentences
+  with the new state and its cause, then a paragraph per decision: what you chose, what not, why. Code names in
+  backticks as the code spells them (`Owner.member`, a path) link to the diffs; `brd review-plan` lists those that
+  resolve nothing (`target: null`). Ask with `Look closely:` where the reviewer must decide; then `Tests:`, `Evidence:`,
+  `Left out:` each right before its list, measurements indented by four spaces, the trailers last.
 - A lease is the only worktree of your own: never `git worktree add` or a clone for it on your own initiative, also not
   when a brd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
   (`path`, `lease_id`, `holder`).
-- In Claude Code, `cd` into `path` once: the shell stays there when the pool is in `permissions.additionalDirectories`
-  of the settings, and Read, Edit and Write take the files by their paths in `path`. When the shell goes back,
+- In Claude Code, `cd` into `path` once: the shell stays there when the pool is in `permissions.additionalDirectories`,
+  and Read, Edit and Write take the files by their paths in `path`. When the shell goes back,
   `EnterWorktree` with that `path` moves the session there; it asks the user.
 - In a sandbox (Codex) a change of directory does not make `path` writable: before the first edit there, ask for write
   access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease.
@@ -825,8 +827,8 @@ command prints and what each of its refusals asks.
 - Run brd in the repository, or pass `-C <repo>`.
 - Land the commits of your lease with `brd lease pick`, of another worktree with `brd pick`, never with
   `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
-- Every command prints one JSON object on stdout, with the `operation_id` of its run (its log lines, its journal
-  entry). Branch on `error.code` and the exit code, never on the message;
+- Every command prints one JSON object on stdout, with the `operation_id` of its run. Branch on `error.code` and the
+  exit code, never on the message;
   `brd schema <command>` prints the JSON Schema of its output, `brd version` the version of brd and git.
 - Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits with `brd fold`;
   squash the commits the user asked to squash with `brd squash`, after showing its --dry-run. A commit of yours that
