@@ -26,19 +26,18 @@ use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
 use git_ops::update_resolve::{ConflictKind, LandedInput, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
-use history_rewrite::repository_lock::{LockWait, RepositoryLocked, RewriteOptions};
-use history_rewrite::snapshot::read_grouping_inputs;
+use history_rewrite::repository_lock::{LockWait, RepositoryLocked};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use sync_core::baseline::check_baseline_update;
-use sync_core::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use sync_utils::list_cut::kept;
 use sync_utils::paths::display_path;
 use update_core::resolve_copies::Materialize;
 use update_core::resolve_session::{
   ContinueOptions, DropProof as CoreDropProof, DroppedCommit, LandedTwin, NoSession, SessionOutcome, SessionView, ViewDetail, abort_resolve, continue_resolve, session_status,
+  unapply_branch_suggestion,
 };
 use update_core::update_project::{BdUpdate, FetchFailed, NoUpstream, UndoneUpdate, UpdateOptions, UpdateUndoToken, undo_update_core, update_and_resolve};
 
@@ -1171,31 +1170,16 @@ fn update_core_error(context: &RepoContext, error: anyhow::Error) -> CliError {
         commit: pair.commit,
       })
       .collect();
-    let next = commit.as_deref().and_then(|commit| unapply_branch_suggestion(context, commit)).map_or_else(
-      || "`brd update --abort` and ask the user".to_string(),
-      |branch| format!("`brd update --abort`, then `brd unapply {}`", shell_word(&branch)),
-    );
+    let next = commit
+      .as_deref()
+      .and_then(|commit| unapply_branch_suggestion(&context.git, &context.repository, &context.prefix, commit, LockWait::Bounded(context.lock_timeout)))
+      .map_or_else(
+        || "`brd update --abort` and ask the user".to_string(),
+        |branch| format!("`brd update --abort`, then `brd unapply {}`", shell_word(&branch)),
+      );
     let _ = write!(output.message, ". Next: {next}");
   }
   output
-}
-
-fn unapply_branch_suggestion(context: &RepoContext, commit: &str) -> Option<String> {
-  let subject = context.git.execute_command(&["log", "-1", "--format=%s", commit], &context.repository).ok()?;
-  let branch = read_grouping_inputs(&context.git, &context.repository).ok()?.branch_of(subject.trim())?;
-  let params = UnapplyBranchParams {
-    repository_path: context.repository.clone(),
-    branch_name: branch.clone(),
-    original_commit_ids: None,
-    dry_run: true,
-  };
-  let options = RewriteOptions {
-    expect_head: None,
-    lock_wait: LockWait::Bounded(context.lock_timeout),
-    held_lock: None,
-  };
-  unapply_branch_core(&context.git, params, &context.prefix, &options).ok()?;
-  Some(branch)
 }
 
 /// The code of a failed undo of an update, a pick, an unapply or a reapply: as for an update, with the code `in_undo`

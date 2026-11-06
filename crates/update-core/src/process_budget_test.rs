@@ -2,6 +2,7 @@
 //! (docs/design/git-operations.md, "Batch"), as `sync_core`'s `process_budget_test` pins those of its cores. A change
 //! that runs fewer processes lowers the numbers here; one that runs more has to say why.
 
+use crate::resolve_session::unapply_branch_suggestion;
 use crate::update_project::update_project_test::{path, setup};
 use crate::update_project::{UpdateProjectParams, update_project_core};
 use domain_types::update_project::UpdateState;
@@ -134,6 +135,29 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("rev-parse", 4),
       ("symbolic-ref", 2),
       ("var", 1),
+    ],
+  );
+}
+
+/// A suggested unapply reads the unsupported commit once and checks the branch with the existing dry-run core
+#[test]
+fn an_unapply_suggestion_reads_its_commit_once() {
+  let repo = TestRepo::new();
+  let commit = repo.create_commit("(auth) Add login", "login.txt", "login\n");
+  let git = counting();
+  let suggestion = unapply_branch_suggestion(&git, repo.path_str(), "branch-deck", &commit, LockWait::default());
+  assert_eq!(suggestion, None);
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 2),
+      ("config", 2),
+      ("for-each-ref", 1),
+      ("log", 2),
+      ("remote", 1),
+      ("rev-list", 1),
+      ("rev-parse", 1),
+      ("symbolic-ref", 1),
     ],
   );
 }

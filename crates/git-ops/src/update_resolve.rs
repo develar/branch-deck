@@ -1389,6 +1389,16 @@ fn rename_targets(git_executor: &GitCommandExecutor, repo_path: &str, round: u32
   Ok(targets)
 }
 
+fn refuse_check_failure(refused: &mut Vec<(RefusalKind, String)>, failure: CheckFailure, path: String) {
+  let kind = match failure {
+    CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
+    CheckFailure::LineEnds => RefusalKind::LineEnds,
+    CheckFailure::Encoding => RefusalKind::Encoding,
+    CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
+  };
+  refused.push((kind, path));
+}
+
 /// Check the input of a round: every conflicting path needs exactly one resolution, an edit passes the marker checks.
 /// Returns the resolution (without the resolved commit), the tree edits, and the objects of the round, read with one
 /// `cat-file --batch -Z`
@@ -1446,22 +1456,17 @@ fn check_round(
     let mut replaced: Option<Vec<&[u8]>> = None;
     let mut file_edits = Vec::new();
     let mut renamed_to = None;
+    let edit = input.edits.get(&file.path);
+    let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
     let (outcome, result): (Outcome, &[u8]) = if let Some(new_path) = rename_to {
-      let Some(EditCopy::Content(content)) = input.edits.get(&file.path) else {
+      let Some(EditCopy::Content(content)) = edit else {
         refused.push((RefusalKind::MissingResolution, path));
         continue;
       };
-      let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
       let lines = match check_resolution(merged, content, labels) {
         Ok(lines) => lines,
         Err(failure) => {
-          let kind = match failure {
-            CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
-            CheckFailure::LineEnds => RefusalKind::LineEnds,
-            CheckFailure::Encoding => RefusalKind::Encoding,
-            CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
-          };
-          refused.push((kind, path));
+          refuse_check_failure(&mut refused, failure, path);
           continue;
         }
       };
@@ -1518,11 +1523,10 @@ fn check_round(
         refused.push((RefusalKind::MissingResolution, path));
         continue;
       }
-      let Some(EditCopy::Content(content)) = input.edits.get(&file.path) else {
+      let Some(EditCopy::Content(content)) = edit else {
         refused.push((RefusalKind::MissingResolution, path));
         continue;
       };
-      let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
       let failure = match file.kind {
         ConflictKind::Content => match check_resolution(merged, content, labels) {
           Ok(lines) => {
@@ -1540,13 +1544,7 @@ fn check_round(
         _ => has_markers(content, labels).then_some(CheckFailure::UnresolvedMarkers),
       };
       if let Some(failure) = failure {
-        let kind = match failure {
-          CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
-          CheckFailure::LineEnds => RefusalKind::LineEnds,
-          CheckFailure::Encoding => RefusalKind::Encoding,
-          CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
-        };
-        refused.push((kind, path));
+        refuse_check_failure(&mut refused, failure, path);
         continue;
       }
       file_edits.push(PathEdit::Content {

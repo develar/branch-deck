@@ -1518,6 +1518,10 @@ of another process runs while the start searches and replays
 (`a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`), and the
 session opens on the HEAD it left. `--continue` and `--abort` hold it from their first read.
 
+On `unsupported_conflict`, `update-core::resolve_session::unapply_branch_suggestion` reads the commit subject and
+grouping inputs, then suggests `brd unapply <branch>` only when `sync_core::unapply_branch_core` accepts its dry run;
+`bd-update` only formats that result.
+
 **State in git.** All state of a session is in git; only the copies are files.
 
 - The session ref is `refs/branch-deck/resolve/<worktree id>`: `main` for the main worktree, else the name of the

@@ -47,6 +47,14 @@ fn worktree_status(repo: &TestRepo) -> String {
   git(repo, &["status", "--porcelain", "--untracked-files=all"])
 }
 
+fn update_after_sync(clone: &TestRepo) -> Value {
+  let (sync_code, synced) = run_in(clone, &["sync"]);
+  assert_eq!(sync_code, 0, "{synced}");
+  let (exit_code, output) = run_in(clone, &["update"]);
+  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  output
+}
+
 #[test_log::test]
 fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
   let (upstream, clone) = conflicting_clone();
@@ -402,10 +410,7 @@ fn binary_and_file_directory_conflicts_are_refused_and_start_no_session() {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("bin.dat", "\0one"), ("df", "file\n")]);
   clone.create_commit("(auth) Change the binary", "bin.dat", "\0mine");
   upstream.create_commit("Change the binary upstream", "bin.dat", "\0theirs");
-  let (sync_code, synced) = run_in(&clone, &["sync"]);
-  assert_eq!(sync_code, 0, "{synced}");
-  let (exit_code, output) = run_in(&clone, &["update"]);
-  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  let output = update_after_sync(&clone);
   assert_eq!(output["error"]["paths"], json!(["bin.dat"]));
   // the refusal names the commit
   assert!(output["error"]["message"].as_str().unwrap().contains("(auth) Change the binary"), "{output}");
@@ -418,10 +423,7 @@ fn binary_and_file_directory_conflicts_are_refused_and_start_no_session() {
   clone.create_commit("(auth) Change df", "df", "mine\n");
   git(&upstream, &["rm", "-q", "df"]);
   upstream.create_commit("df becomes a directory", "df/inner.txt", "inner\n");
-  let (sync_code, synced) = run_in(&clone, &["sync"]);
-  assert_eq!(sync_code, 0, "{synced}");
-  let (exit_code, output) = run_in(&clone, &["update"]);
-  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  let _ = update_after_sync(&clone);
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
 }
 

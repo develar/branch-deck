@@ -170,16 +170,13 @@ fn a_cherry_pick_in_another_worktree_does_not_refuse_the_fold() {
   assert_eq!(subjects(&repo), "fixup! Nothing like it\n(ui) Add b\n(auth) Add a");
 }
 
-/// A fixup that changes the line a commit between it and its target changed too folds nothing: `squash_conflict` with
-/// the commits it names, never a `git_error`
-#[test_log::test]
-fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
+fn assert_conflicting_fixup_is_refused(fixup_subject: &str) {
   let (repo, [target, _, fixup]) = repo_with_commits(
     &[("README.md", "readme\n")],
     &[
       HistoryCommit::new("(auth) Add a", &[("a.txt", "1\n")]).at(1_700_000_000),
       HistoryCommit::new("(ui) Change a", &[("a.txt", "2\n")]).at(1_700_000_100),
-      HistoryCommit::new("fixup! (auth) Add a", &[("a.txt", "3\n")]).at(1_700_000_200),
+      HistoryCommit::new(fixup_subject, &[("a.txt", "3\n")]).at(1_700_000_200),
     ],
   );
   let head = repo.head();
@@ -191,23 +188,16 @@ fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
   assert_eq!(repo.head(), head);
 }
 
+/// A fixup that changes the line a commit between it and its target changed too folds nothing: `squash_conflict` with
+/// the commits it names, never a `git_error`
+#[test_log::test]
+fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
+  assert_conflicting_fixup_is_refused("fixup! (auth) Add a");
+}
+
 #[test_log::test]
 fn a_prefixed_fixup_that_conflicts_is_refused_as_a_squash_conflict() {
-  let (repo, [target, _, fixup]) = repo_with_commits(
-    &[("README.md", "readme\n")],
-    &[
-      HistoryCommit::new("(auth) Add a", &[("a.txt", "1\n")]).at(1_700_000_000),
-      HistoryCommit::new("(ui) Change a", &[("a.txt", "2\n")]).at(1_700_000_100),
-      HistoryCommit::new("(auth) fixup! Add a", &[("a.txt", "3\n")]).at(1_700_000_200),
-    ],
-  );
-  let head = repo.head();
-
-  let (exit_code, output) = run_in(&repo, &["fold"]);
-  assert_error(&output, exit_code, (4, "squash_conflict"));
-  assert_eq!(output["error"]["commits"], json!([fixup, target]), "{output}");
-  assert_eq!(output["error"]["paths"], json!(["a.txt"]), "{output}");
-  assert_eq!(repo.head(), head);
+  assert_conflicting_fixup_is_refused("(auth) fixup! Add a");
 }
 
 /// Another process that moves HEAD after the plan of `brd fold`, whose range its core takes, before the core reads the

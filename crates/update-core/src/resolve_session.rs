@@ -11,6 +11,7 @@ use domain_types::conflict::ResolvedFileSummary;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateResolvedCommit, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_utils::get_commits_info;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
 use git_ops::resolve_check::count_markers;
@@ -20,14 +21,34 @@ use git_ops::update_resolve::{
   Stage, Step, abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths,
 };
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
+use history_rewrite::repository_lock::{LockWait, RepositoryLock, RewriteOptions, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::config_snapshot::ConfigSnapshot;
+use sync_core::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use sync_utils::paths::display_path;
 use tracing::{instrument, warn};
+
+/// A branch whose unapply is a safe next step after an unsupported conflict, when its dry run succeeds
+pub fn unapply_branch_suggestion(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, commit: &str, lock_wait: LockWait) -> Option<String> {
+  let subject = get_commits_info(git_executor, repository_path, &[commit]).ok()?.into_values().next()?.subject;
+  let branch = read_grouping_inputs(git_executor, repository_path).ok()?.branch_of(subject.trim())?;
+  let params = UnapplyBranchParams {
+    repository_path: repository_path.to_string(),
+    branch_name: branch.clone(),
+    original_commit_ids: None,
+    dry_run: true,
+  };
+  let options = RewriteOptions {
+    expect_head: None,
+    lock_wait,
+    held_lock: None,
+  };
+  unapply_branch_core(git_executor, params, branch_prefix, &options).ok()?;
+  Some(branch)
+}
 
 /// No resolve session for this worktree
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

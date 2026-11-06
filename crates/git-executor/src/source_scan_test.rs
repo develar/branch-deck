@@ -68,6 +68,17 @@ pub(crate) fn check_sources(rule: &str, instead: &str, sources: &[Source], exemp
   assert!(report.is_empty(), "{rule}:\n{}\nInstead: {instead}", report.join("\n"));
 }
 
+fn read_sources(workspace: &Path, files: &[PathBuf], text: impl Fn(String) -> String) -> Vec<Source> {
+  files
+    .iter()
+    .map(|file| {
+      let contents = fs::read_to_string(file).expect("readable source");
+      let path = file.strip_prefix(workspace).unwrap_or(file).to_string_lossy().replace('\\', "/");
+      Source { path, text: text(contents) }
+    })
+    .collect()
+}
+
 /// Every production source of the workspace
 pub(crate) fn production_sources() -> Vec<Source> {
   let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("workspace directory");
@@ -80,17 +91,7 @@ pub(crate) fn production_sources() -> Vec<Source> {
     }
   }
   assert!(files.len() > 20, "the scan found too few sources, is the workspace layout different? {}", files.len());
-  files
-    .iter()
-    .map(|file| {
-      let text = fs::read_to_string(file).expect("readable source");
-      let path = file.strip_prefix(&workspace).unwrap_or(file).to_string_lossy().replace('\\', "/");
-      Source {
-        path,
-        text: production_part(&text),
-      }
-    })
-    .collect()
+  read_sources(&workspace, &files, |text| production_part(&text))
 }
 
 /// Every Rust source under `crates/*/src`, including tests, for rules that guard user-visible source text
@@ -100,14 +101,7 @@ pub(crate) fn all_crate_sources() -> Vec<Source> {
   for entry in fs::read_dir(workspace.join("crates")).expect("crates directory").flatten() {
     collect_rust_files(&entry.path().join("src"), &mut files, true);
   }
-  files
-    .iter()
-    .map(|file| {
-      let text = fs::read_to_string(file).expect("readable source");
-      let path = file.strip_prefix(&workspace).unwrap_or(file).to_string_lossy().replace('\\', "/");
-      Source { path, text }
-    })
-    .collect()
+  read_sources(&workspace, &files, |text| text)
 }
 
 fn is_test_file(path: &Path) -> bool {

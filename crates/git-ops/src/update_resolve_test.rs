@@ -58,6 +58,17 @@ fn file(key: usize, path: &str) -> ConflictFile {
   }
 }
 
+fn rename_rename_merge_tree(additional_messages: &[u8]) -> Vec<u8> {
+  let mut output = b"tree\0\
+100644 b1 1\tbase.txt\0\
+100644 o2 2\tonto.txt\0\
+100644 c3 3\tcommit.txt\0\0\
+3\0base.txt\0onto.txt\0commit.txt\0CONFLICT (rename/rename)\0x\n\0"
+    .to_vec();
+  output.extend_from_slice(additional_messages);
+  output
+}
+
 #[test]
 fn a_long_basename_is_cut_and_keeps_its_extension() {
   let long = format!("dir/{}.txt", "é".repeat(200));
@@ -134,14 +145,7 @@ fn only_text_and_modify_delete_conflicts_are_supported() {
 
 #[test]
 fn a_rename_rename_conflict_is_one_file_with_all_three_names() {
-  let merge = parse_merge_tree_output(
-    b"tree\0\
-100644 b1 1\tbase.txt\0\
-100644 o2 2\tonto.txt\0\
-100644 c3 3\tcommit.txt\0\0\
-3\0base.txt\0onto.txt\0commit.txt\0CONFLICT (rename/rename)\0x\n\0",
-  )
-  .unwrap();
+  let merge = parse_merge_tree_output(&rename_rename_merge_tree(&[])).unwrap();
   let files = conflict_files(&merge).unwrap();
   assert_eq!(files.len(), 1);
   let file = &files[0];
@@ -161,15 +165,7 @@ fn a_rename_rename_conflict_is_one_file_with_all_three_names() {
 
 #[test]
 fn a_rename_rename_path_in_an_unsupported_message_refuses_the_round() {
-  let merge = parse_merge_tree_output(
-    b"tree\0\
-100644 b1 1\tbase.txt\0\
-100644 o2 2\tonto.txt\0\
-100644 c3 3\tcommit.txt\0\0\
-3\0base.txt\0onto.txt\0commit.txt\0CONFLICT (rename/rename)\0x\n\0\
-1\0onto.txt\0CONFLICT (binary)\0x\n\0",
-  )
-  .unwrap();
+  let merge = parse_merge_tree_output(&rename_rename_merge_tree(b"1\0onto.txt\0CONFLICT (binary)\0x\n\0")).unwrap();
   let error = conflict_files(&merge).unwrap_err();
   let ResolveError::Unsupported { paths, message, rename_pairs, .. } = error.downcast::<ResolveError>().unwrap() else {
     panic!("the overlapping unsupported conflict must refuse the round")

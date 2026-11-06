@@ -503,12 +503,8 @@ mod folded_fixup_tests {
   use git_ops::lease_slot::UnlandedCommit;
   use test_utils::git_test_utils::TestRepo;
 
-  fn proof(target_content: &str, fixup_content: &str) -> (String, Option<Proof>) {
-    let repo = TestRepo::new();
-    let source = repo.create_commit("base", "base.txt", "base\n");
-    repo.create_commit("(lane) X", "folded.txt", target_content);
-    let target = repo.git(&["rev-parse", "HEAD"]);
-    repo.git(&["checkout", "-q", "--detach", &source]);
+  fn proof_at(repo: &TestRepo, source: &str, target: &str, fixup_content: &str) -> Option<Proof> {
+    repo.git(&["checkout", "-q", "--detach", source]);
     std::fs::write(repo.path().join("folded.txt"), fixup_content).unwrap();
     repo.git(&["add", "folded.txt"]);
     repo.git(&["commit", "-q", "-m", "fixup! (lane) X"]);
@@ -518,8 +514,16 @@ mod folded_fixup_tests {
       subject: "fixup! (lane) X".to_string(),
     }];
     let mut proofs = Proofs::new(&commits);
-    folded_fixups(repo.git_executor(), repo.path_str(), &target, Some(&source), &mut proofs).unwrap();
-    (target.clone(), proofs.proven.remove(&candidate))
+    folded_fixups(repo.git_executor(), repo.path_str(), target, Some(source), &mut proofs).unwrap();
+    proofs.proven.remove(&candidate)
+  }
+
+  fn proof(target_content: &str, fixup_content: &str) -> (String, Option<Proof>) {
+    let repo = TestRepo::new();
+    let source = repo.create_commit("base", "base.txt", "base\n");
+    repo.create_commit("(lane) X", "folded.txt", target_content);
+    let target = repo.git(&["rev-parse", "HEAD"]);
+    (target.clone(), proof_at(&repo, &source, &target, fixup_content))
   }
 
   #[test]
@@ -542,18 +546,8 @@ mod folded_fixup_tests {
     let older = repo.git(&["rev-parse", "HEAD"]);
     repo.create_commit("(lane) X", "folded.txt", "newest\n");
     let newest = repo.git(&["rev-parse", "HEAD"]);
-    repo.git(&["checkout", "-q", "--detach", &source]);
-    std::fs::write(repo.path().join("folded.txt"), "first\n").unwrap();
-    repo.git(&["add", "folded.txt"]);
-    repo.git(&["commit", "-q", "-m", "fixup! (lane) X"]);
-    let candidate = repo.git(&["rev-parse", "HEAD"]);
-    let commits = vec![UnlandedCommit {
-      id: candidate.clone(),
-      subject: "fixup! (lane) X".to_string(),
-    }];
-    let mut proofs = Proofs::new(&commits);
-    folded_fixups(repo.git_executor(), repo.path_str(), &newest, Some(&source), &mut proofs).unwrap();
+    let proof = proof_at(&repo, &source, &newest, "first\n");
     assert_ne!(older, newest);
-    assert!(!proofs.proven.contains_key(&candidate));
+    assert!(proof.is_none());
   }
 }
