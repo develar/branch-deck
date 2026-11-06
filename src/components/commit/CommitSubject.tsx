@@ -4,7 +4,7 @@ import { LinkedText } from "@/components/commit/LinkedText"
 import { splitSubjectPrefix } from "@/lib/commit"
 
 /** The subject with issue links and its conventional-commit prefix dimmed (`prefixClassName`) */
-function SubjectText({ subject, prefixClassName }: { subject: string; prefixClassName: string }) {
+export function CommitSubjectText({ subject, prefixClassName }: { subject: string; prefixClassName: string }) {
   const { prefix, text } = splitSubjectPrefix(subject)
   return (
     <>
@@ -30,7 +30,7 @@ function SubjectText({ subject, prefixClassName }: { subject: string; prefixClas
 export function CommitSubject({ subject, clamp = true, className, ...props }: { subject: string; clamp?: boolean; className?: string } & HTMLAttributes<HTMLSpanElement>) {
   return (
     <span {...props} className={cn(clamp && "line-clamp-2", "text-sm text-pretty text-foreground", className)}>
-      <SubjectText subject={subject} prefixClassName="font-mono font-normal text-muted-foreground" />
+      <CommitSubjectText subject={subject} prefixClassName="font-mono font-normal text-muted-foreground" />
     </span>
   )
 }
@@ -42,7 +42,7 @@ export function CommitSubject({ subject, clamp = true, className, ...props }: { 
 export function CommitSubjectLine({ subject }: { subject: string }) {
   return (
     <span className="truncate">
-      <SubjectText subject={subject} prefixClassName="font-mono text-muted-foreground" />
+      <CommitSubjectText subject={subject} prefixClassName="font-mono text-muted-foreground" />
     </span>
   )
 }

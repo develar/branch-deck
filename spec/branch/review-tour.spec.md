@@ -27,6 +27,7 @@ targets:
   - ../../src/components/review/RangeReview.tsx
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/commit/CommitRow.tsx
+  - ../../src/components/commit/CommitSubject.tsx
   - ../../src/lib/file-tree.ts
   - ../../src/lib/range-review.ts
   - ../../src/presenters/review-units.ts
@@ -466,8 +467,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   several branches, which the column heads by branch); the row of a step and a commit row their subject whole and
   their hash in their card (a commit without a body in the native hover of its title), never a box on the row that
   takes the width of the title; a title of a step, a task or a commit wraps as many lines as needed at the width of the
-  sidebar (24rem at first), its chevron, icon, mark and line counts on its first line; a file row stays one line. A row
-  of a file whose own row is in another step says
+  sidebar (24rem at first), its chevron, icon, mark and line counts on its first line; a file row stays one line. A
+  commit-derived step dims its conventional prefix, as the commit row does. A row of a file whose own row is in another
+  step says
   where after its name ("in step 2", a task of no number by its name, cut at half the row), its hover in words; either, of a
   commit with a body, the mark of its card, which its hover and `I` on the focused row open as in the main window
   ([Commit Row](../commit/commit-row.spec.md#commit-card)), Escape giving the focus back to the row; a commit row is

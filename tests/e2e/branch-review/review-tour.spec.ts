@@ -695,6 +695,7 @@ test.describe("Review tour", () => {
     await window.setViewportSize({ width: 1440, height: 900 })
 
     await expect(longTitle).toHaveText("fix(review): explain how the review opening prepares readers for careful review of changed source files")
+    await expect(longTitle.locator("[data-slot=commit-subject-prefix]")).toHaveText("fix(review):")
     const longTitleLines = await longTitle.evaluate(element => {
       const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight)
       return element.getBoundingClientRect().height / lineHeight

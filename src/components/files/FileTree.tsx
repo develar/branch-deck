@@ -7,6 +7,7 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitRow, CommitRowBadges } from "@/components/commit/CommitRow"
 import type { CommitRowFacts } from "@/components/commit/CommitRow"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
+import { CommitSubjectText } from "@/components/commit/CommitSubject"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { FileRowMark } from "@/components/files/FileRowMark"
@@ -689,7 +690,15 @@ function DirectoryRowContent({
         {...titleHover}
       >
         {/* a code name wraps at its dots, never inside a word but one wider than the row */}
-        {node.code === true ? <BreakableCode text={name} humps /> : path ? <bdi dir="ltr">{name}</bdi> : name}
+        {node.code === true ? (
+          <BreakableCode text={name} humps />
+        ) : path ? (
+          <bdi dir="ltr">{name}</bdi>
+        ) : node.commit !== undefined ? (
+          <CommitSubjectText subject={name} prefixClassName="font-mono font-normal text-muted-foreground" />
+        ) : (
+          name
+        )}
       </span>
       {ownerMark !== null && (
         <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">
