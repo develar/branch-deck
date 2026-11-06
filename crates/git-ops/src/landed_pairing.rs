@@ -828,7 +828,12 @@ fn interdiffs_cut(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(
   if pairs.is_empty() {
     return Ok(Vec::new());
   }
-  let commits: Vec<&str> = pairs.iter().flat_map(|(local, upstream)| local.iter().copied().chain([*upstream])).collect();
+  let mut seen = HashSet::new();
+  let commits: Vec<&str> = pairs
+    .iter()
+    .flat_map(|(local, upstream)| local.iter().copied().chain([*upstream]))
+    .filter(|commit| seen.insert(*commit))
+    .collect();
   let patches = git_executor
     .cmd(
       &["diff-tree", "--stdin", "-p", "-U0", "--full-index", "--no-renames", "--no-ext-diff", "--no-textconv"],

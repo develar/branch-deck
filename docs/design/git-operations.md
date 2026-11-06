@@ -2141,7 +2141,9 @@ the commits the one before left:
    commits the ladder read, no process), through the twin check of the rung before: four commits of a dead lease of
    idea-1 were made anew a day after the versions master had, with the same lines, and no identity paired them. The
    subject only picks the pair; the lines decide;
-6. the mapping note of a sync (`v-commit-v1`, not stale by its source tree, `mapped_virtual`): the virtual copy on the
+6. a remaining `fixup! <subject>` whose newest matching subject commit on the branch after the lease's source head
+   holds every changed line of the fixup (`interdiffs`, `local_only` empty), the proof `folded_fixup` of `brd fold`;
+7. the mapping note of a sync (`v-commit-v1`, not stale by its source tree, `mapped_virtual`): the virtual copy on the
    branch, or proven there by the patch id or the rungs above, the copy a resolve by words made of the commit.
 
 A commit no rung proves is unlanded. It runs on git objects only: `check_pick` needs a worktree on the branch, its

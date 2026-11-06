@@ -15,7 +15,9 @@
 //!    loses nothing: the line is gone);
 //! 5. a commit of the same author and subject at another author time (a commit made anew, a rebase that reset the
 //!    author), whose change passes the twin check of the rung before: the content decides, the subject only picks it;
-//! 6. the mapping note of a sync (`v-commit-v1`): its virtual copy, which a robot rebased and landed, is on the branch
+//! 6. a `fixup! <subject>` commit: the newest commit of `<subject>` on the branch after the source head has every
+//!    changed line of the fixup (`interdiffs`, `local_only` empty), as a fold leaves it;
+//! 7. the mapping note of a sync (`v-commit-v1`): its virtual copy, which a robot rebased and landed, is on the branch
 //!    or proven there by the same rungs.
 //!
 //! No range comes from the reflog of the branch: the fork point a pick starts from can leave commits out, and a commit
@@ -78,6 +80,8 @@ pub enum Proof {
   TwinRemovedBefore,
   /// A commit of the branch of the same author and subject, at another author time, passes the twin check
   SubjectTwin,
+  /// The newest commit with the target subject after the lease source head holds every line the fixup changes
+  FoldedFixup { target: String },
   /// Its virtual copy (`v-commit-v1`) landed on the branch
   Note { virtual_commit: String },
 }
@@ -116,7 +120,7 @@ impl LandedCheck {
     match self {
       Self::Reachability { reason: None } => "no branch, tag or remote branch holds".to_string(),
       Self::Reachability { reason: Some(reason) } => format!("no branch, tag or remote branch holds (no check by content: {reason})"),
-      Self::Content { branch } => format!("{branch} lacks by content: no pick, patch id, identity, twin of `brd update` or mapping note of a sync proves them there"),
+      Self::Content { branch } => format!("{branch} lacks by content: no pick, patch id, identity, twin of `brd update`, folded fixup or mapping note of a sync proves them there"),
     }
   }
 }
@@ -296,7 +300,13 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
     return Ok(());
   }
 
-  // 6. the virtual copy of a sync, by its mapping note
+  // 6. a folded fixup: the newest commit of its target subject after the lease source head holds its changed lines
+  folded_fixups(git_executor, slot, &tip, base, proofs)?;
+  if proofs.is_done() {
+    return Ok(());
+  }
+
+  // 7. the virtual copy of a sync, by its mapping note
   let copies: HashMap<&str, &str> = reads
     .local
     .iter()
@@ -339,6 +349,52 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
   for (copy, _) in landed_by_pairing(git_executor, slot, &pair_twins(git_executor, slot, &copy_reads, stacks)?)? {
     if let Some(original) = copies.get(copy.as_str()) {
       proofs.add(original, note(&copy));
+    }
+  }
+  Ok(())
+}
+
+/// Prove each remaining `fixup! <subject>` from the newest commit of that subject after the lease source head, if its
+/// change holds every changed line of the fixup
+fn folded_fixups(git_executor: &GitCommandExecutor, slot: &str, tip: &str, base: Option<&str>, proofs: &mut Proofs<'_>) -> Result<()> {
+  let left: HashSet<&str> = proofs.left().into_iter().collect();
+  let fixups: Vec<(&str, &str)> = proofs
+    .candidates
+    .iter()
+    .filter(|candidate| left.contains(candidate.id.as_str()))
+    .filter_map(|candidate| {
+      let target = candidate.subject.strip_prefix("fixup! ")?;
+      (!target.is_empty()).then_some((candidate.id.as_str(), target))
+    })
+    .collect();
+  if fixups.is_empty() {
+    return Ok(());
+  }
+  let subjects: HashSet<&str> = fixups.iter().map(|(_, subject)| *subject).collect();
+  let mut args = vec!["log", "--no-merges", "--topo-order", "--format=%H%x00%s", tip];
+  let excluded = base.map(|base| format!("^{base}"));
+  if let Some(excluded) = excluded.as_deref() {
+    args.push(excluded);
+  }
+  let log = git_executor.execute_command(&args, slot)?;
+  let mut targets = HashMap::new();
+  for record in log.split_terminator('\n') {
+    let Some((id, subject)) = record.split_once('\0') else { continue };
+    if subjects.contains(subject) && !targets.contains_key(subject) {
+      targets.insert(subject.to_string(), id.to_string());
+    }
+  }
+  let pairing: Vec<(&str, &str, &str)> = fixups
+    .iter()
+    .filter_map(|(commit, subject)| targets.get(*subject).map(|target| (*commit, *subject, target.as_str())))
+    .collect();
+  if pairing.is_empty() {
+    return Ok(());
+  }
+  let pairs: Vec<(Vec<&str>, &str)> = pairing.iter().map(|(commit, _, target)| (vec![*commit], *target)).collect();
+  for ((commit, _, target), interdiff) in pairing.into_iter().zip(interdiffs(git_executor, slot, &pairs)?) {
+    if interdiff.local_only.is_empty() {
+      proofs.add(commit, Proof::FoldedFixup { target: target.to_string() });
     }
   }
   Ok(())
@@ -439,4 +495,65 @@ fn removed_before<'a>(git_executor: &GitCommandExecutor, slot: &str, candidates:
     }
   }
   Ok(proven)
+}
+
+#[cfg(test)]
+mod folded_fixup_tests {
+  use super::{Proof, Proofs, folded_fixups};
+  use git_ops::lease_slot::UnlandedCommit;
+  use test_utils::git_test_utils::TestRepo;
+
+  fn proof(target_content: &str, fixup_content: &str) -> (String, Option<Proof>) {
+    let repo = TestRepo::new();
+    let source = repo.create_commit("base", "base.txt", "base\n");
+    repo.create_commit("(lane) X", "folded.txt", target_content);
+    let target = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["checkout", "-q", "--detach", &source]);
+    std::fs::write(repo.path().join("folded.txt"), fixup_content).unwrap();
+    repo.git(&["add", "folded.txt"]);
+    repo.git(&["commit", "-q", "-m", "fixup! (lane) X"]);
+    let candidate = repo.git(&["rev-parse", "HEAD"]);
+    let commits = vec![UnlandedCommit {
+      id: candidate.clone(),
+      subject: "fixup! (lane) X".to_string(),
+    }];
+    let mut proofs = Proofs::new(&commits);
+    folded_fixups(repo.git_executor(), repo.path_str(), &target, Some(&source), &mut proofs).unwrap();
+    (target.clone(), proofs.proven.remove(&candidate))
+  }
+
+  #[test]
+  fn newest_target_that_holds_every_changed_line_proves_a_folded_fixup() {
+    let (target, proof) = proof("first\ntarget-only\n", "first\n");
+    assert_eq!(proof, Some(Proof::FoldedFixup { target }));
+  }
+
+  #[test]
+  fn a_target_missing_a_changed_line_does_not_prove_a_folded_fixup() {
+    let (_, proof) = proof("first\ntarget-only\n", "first\nmissing\n");
+    assert_eq!(proof, None);
+  }
+
+  #[test]
+  fn an_older_target_with_the_fixup_line_does_not_override_a_newer_target() {
+    let repo = TestRepo::new();
+    let source = repo.create_commit("base", "base.txt", "base\n");
+    repo.create_commit("(lane) X", "folded.txt", "first\n");
+    let older = repo.git(&["rev-parse", "HEAD"]);
+    repo.create_commit("(lane) X", "folded.txt", "newest\n");
+    let newest = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["checkout", "-q", "--detach", &source]);
+    std::fs::write(repo.path().join("folded.txt"), "first\n").unwrap();
+    repo.git(&["add", "folded.txt"]);
+    repo.git(&["commit", "-q", "-m", "fixup! (lane) X"]);
+    let candidate = repo.git(&["rev-parse", "HEAD"]);
+    let commits = vec![UnlandedCommit {
+      id: candidate.clone(),
+      subject: "fixup! (lane) X".to_string(),
+    }];
+    let mut proofs = Proofs::new(&commits);
+    folded_fixups(repo.git_executor(), repo.path_str(), &newest, Some(&source), &mut proofs).unwrap();
+    assert_ne!(older, newest);
+    assert!(!proofs.proven.contains_key(&candidate));
+  }
 }

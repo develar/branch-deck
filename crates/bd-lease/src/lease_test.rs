@@ -8,6 +8,7 @@ use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, gone_process, repo_on_baseline, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
+use lease_pool::landed_work::{LandedCommit, Proof};
 use lease_pool::lease::GetStep;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -641,6 +642,18 @@ pub(crate) fn commit_content(path: &str, subject: &str, file: &str, content: &st
   slot_git(path, &["rev-parse", "HEAD"])
 }
 
+fn commit_as_other_author(repo: &TestRepo, subject: &str, files: &[(&str, &str)]) -> String {
+  for (file, content) in files {
+    std::fs::write(repo.path().join(file), content).unwrap();
+    git(repo, &["add", file]);
+  }
+  slot_git(
+    repo.path_str(),
+    &["-c", "user.name=Target Author", "-c", "user.email=target@example.com", "commit", "-q", "-m", subject],
+  );
+  git(repo, &["rev-parse", "HEAD"])
+}
+
 /// The `(commit, proof)` of each commit a return or a takeover found landed
 pub(crate) fn proofs(landed: &Value) -> Vec<(String, String)> {
   landed
@@ -672,6 +685,85 @@ fn a_return_finds_a_commit_that_landed_with_a_conflict_resolution() {
     (vec![(fixup, "twin".to_string()), (commit, "twin".to_string())], &json!("content")),
     "{returned}"
   );
+}
+
+#[test_log::test]
+fn a_return_counts_two_folded_fixups_as_landed_without_confirmation() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit("Add f", "f.txt", "a\nz\n");
+  let source_head = git(&fixture.repo, &["rev-parse", "HEAD"]);
+  let path = path_of(&fixture.get(&[]));
+  let target = commit_as_other_author(&fixture.repo, "(lane) X", &[("target.txt", "target\n")]);
+  let first = commit_content(&path, "fixup! (lane) X", "folded-one.txt", "first\n");
+  let second = commit_content(&path, "fixup! (lane) X", "folded-two.txt", "second\n");
+
+  let (pick_code, picked) = fixture.run(&["--prefix", PREFIX, "pick", "--from", &path]);
+  assert_eq!(pick_code, 0, "{picked}");
+  let (fold_code, folded) = fixture.run(&["--prefix", PREFIX, "fold"]);
+  assert_eq!(fold_code, 0, "{folded}");
+  assert!(target.starts_with(folded["folded"][0]["commit"].as_str().unwrap()), "{folded}");
+  let folded_fixups = folded["folded"][0]["fixups"].as_array().unwrap();
+  assert_eq!(folded_fixups.len(), 2, "{folded}");
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("folded-one.txt")).unwrap(), "first\n");
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("folded-two.txt")).unwrap(), "second\n");
+  assert_eq!(git(&fixture.repo, &["show", "HEAD:folded-one.txt"]), "first");
+  assert_eq!(git(&fixture.repo, &["show", "HEAD:folded-two.txt"]), "second");
+  assert_eq!(git(&fixture.repo, &["rev-parse", "HEAD~1"]), source_head);
+  let folded_head = git(&fixture.repo, &["rev-parse", "HEAD"]);
+  let pairs = [(vec![first.as_str()], folded_head.as_str()), (vec![second.as_str()], folded_head.as_str())];
+  let interdiffs = git_ops::landed_pairing::interdiffs(fixture.repo.git_executor(), &path, &pairs).unwrap();
+  assert!(interdiffs.iter().all(|interdiff| interdiff.local_only.is_empty()), "{interdiffs:?}");
+
+  let twin = commit_content(&path, "(lane) Add b to f", "f.txt", "a\nb\nz\n");
+  fixture.repo.create_commit("(peer) Add m to f", "f.txt", "a\nm\nz\n");
+  std::fs::write(fixture.repo.path().join("f.txt"), "a\nb\nm\nz\n").unwrap();
+  git(&fixture.repo, &["add", "f.txt"]);
+  git(&fixture.repo, &["commit", "-q", "-C", &twin, "--date=2001-02-03T04:05:06Z"]);
+  let newest_target = git(&fixture.repo, &["log", "--format=%H", "-1", "--grep=X", "master"]);
+  assert_eq!(newest_target, folded_head);
+
+  let returned = fixture.give_back(&path);
+  let landed = proofs(&returned["landed"]);
+  assert_eq!(landed.len(), 3, "{returned}");
+  for fixup in [&first, &second] {
+    assert_eq!(
+      landed.iter().find(|(commit, _)| commit == fixup).map(|(_, proof)| proof.as_str()),
+      Some("folded_fixup"),
+      "{returned}"
+    );
+  }
+  assert_eq!(
+    landed.iter().find(|(commit, _)| commit == &twin).map(|(_, proof)| proof.as_str()),
+    Some("subject_twin"),
+    "{returned}"
+  );
+  assert_eq!(returned.get("given_up"), None, "{returned}");
+}
+
+#[test_log::test]
+fn a_folded_fixup_stays_unlanded_when_its_target_lacks_a_changed_line() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  commit_as_other_author(&fixture.repo, "(lane) X", &[("folded-one.txt", "first\n")]);
+  std::fs::write(Path::new(&path).join("folded-one.txt"), "first\n").unwrap();
+  std::fs::write(Path::new(&path).join("folded-two.txt"), "second\n").unwrap();
+  slot_git(&path, &["add", "folded-one.txt", "folded-two.txt"]);
+  slot_git(&path, &["commit", "-q", "-m", "fixup! (lane) X"]);
+  let fixup = slot_git(&path, &["rev-parse", "HEAD"]);
+
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert_eq!(output["error"]["commits"], json!([fixup]), "{output}");
+}
+
+#[test]
+fn a_folded_fixup_proof_is_named_in_the_return_output() {
+  let output = crate::lease_command::landed_output(&[LandedCommit {
+    id: "fixup-id".to_string(),
+    subject: "fixup! (lane) X".to_string(),
+    proof: Proof::FoldedFixup { target: "target-id".to_string() },
+  }]);
+  assert_eq!(serde_json::to_value(output).unwrap()[0]["proof"], json!("folded_fixup"));
 }
 
 /// A commit of the slot removes a line that master rewrote meanwhile, and the robot's resolution removed the rewritten

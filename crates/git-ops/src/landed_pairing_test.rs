@@ -374,3 +374,23 @@ fn the_interdiff_of_a_twin_sums_the_fixups_and_names_a_binary_file() {
     }]
   );
 }
+
+#[test]
+fn interdiffs_compare_multiple_local_commits_to_the_same_upstream() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      HistoryCommit::new("fixup! (lane) X", &[("f.txt", &numbered_lines(&[(5, "first")]))]).at(200),
+      HistoryCommit::new("fixup! (lane) X", &[("g.txt", "second\n")]).at(300),
+    ],
+  );
+  let upstream = repo.commit_history(
+    "refs/heads/upstream",
+    &[HistoryCommit::new("(lane) X", &[("f.txt", &numbered_lines(&[(5, "first")])), ("g.txt", "second\n")]).at(400)],
+  );
+  let pairs = [(vec![local[0].as_str()], upstream[0].as_str()), (vec![local[1].as_str()], upstream[0].as_str())];
+  let diffs = interdiffs(repo.git_executor(), repo.path_str(), &pairs).unwrap();
+  assert_eq!(diffs.len(), 2);
+  assert!(diffs.iter().all(|diff| diff.local_only.is_empty()), "{diffs:?}");
+}

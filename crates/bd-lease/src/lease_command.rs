@@ -886,6 +886,8 @@ pub enum LandedProofOutput {
   /// A commit of the branch of the same author and subject at another author time (made anew, a rebase that reset the
   /// author) passes the twin check
   SubjectTwin,
+  /// A `fixup!` commit whose newest target subject on the branch after the lease source head holds its changed lines
+  FoldedFixup,
   /// Its virtual copy landed on the branch
   Note,
 }
@@ -904,6 +906,7 @@ pub(crate) fn landed_output(landed: &[LandedCommit]) -> Vec<LandedCommitOutput> 
         Proof::Twin => LandedProofOutput::Twin,
         Proof::TwinRemovedBefore => LandedProofOutput::TwinRemovedBefore,
         Proof::SubjectTwin => LandedProofOutput::SubjectTwin,
+        Proof::FoldedFixup { .. } => LandedProofOutput::FoldedFixup,
         Proof::Note { .. } => LandedProofOutput::Note,
       },
       virtual_commit: match &commit.proof {
