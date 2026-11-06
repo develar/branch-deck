@@ -201,6 +201,37 @@ fn a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines
   assert_eq!(told, ["Open takes a mode", "Open names its flags again"]);
 }
 
+/// A commit that removes a declaration of its own starts its step, even when it rewrites a line of an earlier one
+#[test]
+fn a_commit_that_removes_a_declaration_of_its_own_starts_its_step_though_it_rewrites_a_line_of_another() {
+  let repo = TestRepo::new();
+  let base_source = API.replace("\n\nfun close()", "\nfun close()");
+  let base = repo.create_commit_with_files("Add", &[("src/a/Api.kt", &base_source)]);
+  let first = "fun open(path: String, mode: Int): Int {\n  val read = mode == 1\n  return if (read) 1 else 2\n}";
+  let first_source = base_source.replace("fun open(path: String): Int = 1", first);
+  repo.create_commit_with_files("Open takes a mode\n\nThe open of a file names its mode.", &[("src/a/Api.kt", &first_source)]);
+  let rewritten = first.replace("val read = mode == 1", "val reading = mode == 1");
+  // Two old-side code lines: one line written by the earlier step and its own one-line `close` declaration.
+  let head = repo.create_commit_with_files(
+    "Close is no longer needed\n\nThe API no longer closes a file.",
+    &[("src/a/Api.kt", &format!("package a\n\n{rewritten}\n"))],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(plan.steps.steps.len(), 2);
+  assert_eq!(plan.steps.steps[0].commits[0].title, "Open takes a mode");
+  assert_eq!(plan.steps.steps[0].commits[0].role, CommitRole::Starts);
+  assert_eq!(plan.steps.steps[1].commits[0].title, "Close is no longer needed");
+  assert_eq!(plan.steps.steps[1].commits[0].role, CommitRole::Starts);
+  let close = plan.units.iter().find(|unit| unit.name.as_deref() == Some("close")).unwrap();
+  let joined = plan.steps.steps[0]
+    .stops
+    .iter()
+    .flat_map(|stop| &stop.joined)
+    .find(|joined| joined.unit == close.id)
+    .unwrap();
+  assert_eq!(joined.step, 1);
+}
+
 /// A commit whose body tells a story of its own (a lead and a labelled part, or more than a few lines) starts its step,
 /// though it rewrites the code of an earlier one; the earlier step, none of whose lines lands, names the commit that
 /// took it out

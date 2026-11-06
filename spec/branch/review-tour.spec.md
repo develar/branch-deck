@@ -89,10 +89,11 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   ones; a unit of a file of no language by its blocks. The step lists the other steps whose commits changed lines of
   it (`also`).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`, `a_file_of_no_language_is_cut_into_the_steps_of_its_blocks`, `a_body_of_a_few_words_tells_a_step_a_fixup_none`)
-- A commit that tells a step must follow up the step of an earlier one (`followsUp`) when half of its changed lines of
-  code on the old side or more were written by the commit that starts that step, when it owns no unit but a
-  mechanical one (it joins the step that holds most of its lines), and when a later commit rewrote all it wrote (it
-  joins the step of the commit that rewrote the most of it). A chain of follow-ups ends at a step. A commit whose body
+- A commit that tells a step must follow up the step of an earlier one (`followsUp`) by its lines only when half of its
+  changed lines of code on the old side or more were written by the commit that starts that step, and it owns no
+  non-mechanical unit that step did not change. It follows up too when it owns no unit but a mechanical one (it joins
+  the step that holds most of its lines), and when a later commit rewrote all it wrote (it joins the step of the commit
+  that rewrote the most of it). A chain of follow-ups ends at a step. A commit whose body
   tells a story of its own (a lead and a labelled part, or more than 5 lines as the fold counts them; a verification
   section such as `Tests:` or `Evidence:` is no labelled part and its lines do not count, nor is a Look closely a
   labelled part) must start its step however much of an earlier step's code it rewrites: its story, its Look closely included, is never folded
@@ -100,6 +101,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   wrote (`takenOutBy`): "Nothing of it lands: step 5 took it out", "step 5" showing that commit's step, its title in the
   hover; a subject inside the sentence does not read.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`, `a_commit_rewritten_whole_follows_the_step_of_the_commit_that_rewrote_it`, `a_commit_with_a_story_of_its_own_starts_a_step_though_it_rewrites_the_code_of_another`)
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_commit_that_removes_a_declaration_of_its_own_starts_its_step_though_it_rewrites_a_line_of_another`)
   [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should start a step at a commit with a story of its own though it rewrites the code of others, and name it in a step it took the code of, which shows its step`)
 - A commit without a body tells no step: it is listed in the step that holds most of its lines (`noStory`), and the

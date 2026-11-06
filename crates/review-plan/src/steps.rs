@@ -7,9 +7,10 @@
 //!   the commit that removed it. A block of the range belongs to the commit of most of its lines.
 //! - **Steps of the commits**, when the commits tell them: a commit with a body (`tells_a_story`) starts a step and owns
 //!   the units most of whose lines it wrote; only what lands is shown, the units of the range. A commit whose changed
-//!   code lines are mostly lines an earlier step head wrote follows that step up (a round of it), unless its body
-//!   tells a story of its own (`tells_its_own_story`: a lead and a labelled part, or more than `OWN_STORY_LINES`
-//!   lines, its verification sections counting for nothing), and so does a commit that owns no unit; a commit without a body owns nothing, its lines show where they landed, and the units only such
+//!   code lines are mostly lines an earlier step head wrote follows that step up (a round of it) only when it owns no
+//!   non-mechanical unit that step never changed. Its body can still tell a story of its own
+//!   (`tells_its_own_story`: a lead and a labelled part, or more than `OWN_STORY_LINES` lines, its verification sections
+//!   counting for nothing), and so does a commit that owns no unit; a commit without a body owns nothing, its lines show where they landed, and the units only such
 //!   commits wrote are the step "Changes without a story". A unit of a file of no language is cut by its blocks.
 //! - **Steps of the concerns** when the commits tell no story: no body, or one commit, whose message is the brief. A
 //!   long branch is told by its commits too: measured on idea-1, its concerns were no shorter a list, and they lost
@@ -823,6 +824,13 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
   let mechanical = |part: &Part| matches!(input.units[part.unit].kind, UnitKind::Mechanical { .. });
   // a mechanical change alone is no step of its own
   let owns = |commit: usize| parts.iter().zip(&owners).any(|((part, _), owner)| *owner == Some(commit) && !mechanical(part));
+  // a non-mechanical unit of its own: one the candidate step never changed
+  let owns_apart_from = |commit: usize, earlier: usize, head_of: &[Option<usize>]| {
+    parts
+      .iter()
+      .zip(&owners)
+      .any(|((part, lines), owner)| *owner == Some(commit) && !mechanical(part) && !lines.keys().any(|&other| other < commit && head_of[other] == Some(earlier)))
+  };
   // the head of the step of each commit of a story: itself, or the head it follows up
   let mut head_of: Vec<Option<usize>> = vec![None; input.commits.len()];
   for commit in (0..input.commits.len()).filter(|&commit| story[commit]) {
@@ -832,7 +840,7 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
       .filter(|&earlier| head_of[earlier] == Some(earlier))
       .map(|earlier| (earlier, rewrites.of.get(&(commit, earlier)).copied().unwrap_or(0)))
       .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
-      .filter(|(_, lines)| removed > 0 && lines * 2 >= removed && !tells_its_own_story(&input.commits[commit].1));
+      .filter(|(earlier, lines)| removed > 0 && lines * 2 >= removed && !tells_its_own_story(&input.commits[commit].1) && !owns_apart_from(commit, *earlier, &head_of));
     head_of[commit] = Some(match rewritten {
       Some((earlier, _)) => earlier,
       None if !owns(commit) => {
