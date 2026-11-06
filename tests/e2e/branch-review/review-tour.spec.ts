@@ -68,21 +68,23 @@ function currentReviewFindMarker(window: Page): Promise<ReviewFindMarker | null>
 
 // the `review_tour` template: the branch `layout` of five commits with bodies, a refactor of the manager, the rule
 // `allowed` with its two uses and a test that calls it, a test of the welcome the branch does not touch, a change of the
-// paint no test calls, the restart story with a rule of the spec and its test link, and a round that renames the flag of
+// paint no test of the branch reaches, the restart story with a rule of the spec and its test link, and a round that renames the flag of
 // the rule
 
-/** The index of the repository, as accio answers `tests --at` the code of the steps of `layout` at its tip */
+/**
+ * The index of the repository, as accio answers `tests --at … --tests <file>…` the code of the steps of `layout` at its
+ * tip with the test files of the branch given
+ */
 function writeTestIndex(repositoryPath: string): void {
-  const test = (file: string, line: number, readsAs: string) => ({ file, line, declaration: `Test.${readsAs}`, reads_as: readsAs, framework: "junit4", depth: 1 })
+  const test = (file: string, line: number, readsAs: string) => ({ file, line, declaration: `Test.${readsAs}`, reads_as: readsAs, framework: "junit4", depth: 1, class: "direct" })
   const tests = {
-    // `allowed`, by the test the branch adds
-    "src/a/Manager.kt:6": { tests: [test("test/a/ManagerTest.kt", 8, "the open may show only the stored layout")] },
-    // `focus`, by the test of the welcome the branch does not touch
-    "src/b/Welcome.kt:6": { tests: [test("test/b/WelcomeTest.kt", 7, "the welcome focuses its project")] },
-    // `show`: no caller is a test
-    "src/a/Frame.kt:4": { tests: [] },
-    // `paint`: none within the depth, with callers left
-    "src/a/Frame.kt:6": { tests: [], cut: "depth" },
+    // `allowed`, by the test the branch adds, which calls it
+    "src/a/Manager.kt:6": { tests: [test("test/a/ManagerTest.kt", 8, "the open may show only the stored layout")], complete: true },
+    // `show`: no test of the branch reaches it, every way walked
+    "src/a/Frame.kt:4": { tests: [], complete: true },
+    // `focus` and `paint`: accio did not walk every way, unknown
+    "src/b/Welcome.kt:6": { tests: [], complete: false },
+    "src/a/Frame.kt:6": { tests: [], complete: false },
   }
   writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ tests }))
 }
@@ -121,7 +123,7 @@ test.describe("Review tour", () => {
     await expect(step(2).getByTestId("review-contents-step-lead")).toContainText("Two startup steps showed the project view at each open")
     // the contents name the file of the tests of the change that reach the rule; the opening tells the rest
     await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText("Tested by ManagerTest.kt · New API: allowed")
-    // the paint, which accio walked only within its depth: unknown, no warning; the story proven by its scenario
+    // the paint, whose ways accio did not walk all: unknown, no warning; the story proven by its scenario
     await expect(step(3).getByTestId("review-contents-step-title")).toHaveText("the view paints with the first frame")
     await expect(step(3).getByTestId("review-contents-step-unproven")).toHaveCount(0)
     await expect(step(4).getByTestId("review-contents-step-facts")).toHaveText("Proven by restart.json")
@@ -167,14 +169,17 @@ test.describe("Review tour", () => {
     const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
     await expect(opening.getByTestId("commit-body-lead").first()).toContainText("Two startup steps showed the project view at each open")
     await expect(opening).toContainText("The product decision is to keep the layout of the user.")
-    // its facts a line each: the file of the tests of the change, the test it did not touch that calls the code, the
-    // code no test reaches
+    // its facts a line each: the file of the tests of the change, its test and its way in the hover, the code no test of
+    // the change reaches
     await expect(opening.getByTestId("review-opening-facts").getByTestId("review-step-fact")).toHaveText([
       "Tested by ManagerTest.kt",
-      "1 existing test calls it",
-      "No test reaches show",
+      "No test of the change reaches show",
       "New API: allowed",
     ])
+    await expect(opening.getByTestId("review-step-tested").filter({ hasText: "ManagerTest.kt" })).toHaveAttribute(
+      "title",
+      "the open may show only the stored layout: calls allowed",
+    )
     const round = opening.getByTestId("review-opening-follow-up")
     await expect(round).toContainText("Follows upthe rule names its flag again")
     const foldedStory = round.getByText("The review asked for the name of the flag to say what it holds.", { exact: true })
@@ -183,7 +188,10 @@ test.describe("Review tour", () => {
     await round.getByRole("button", { name: /the rule names its flag again/ }).click()
     await expect(round).toContainText("The review asked for the name of the flag to say what it holds.")
     await captureHtmlSnapshot(opening, "review-opening")
-    await expect(window.getByTestId("review-opening").nth(2).getByTestId("review-opening-facts")).toHaveText("No test found within 3 calls")
+    // the opening of the paint, unknown: no fact of its tests
+    const paint = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 3 · the view paints with the first frame", exact: true }) })
+    await expect(paint).toBeVisible()
+    await expect(paint.getByTestId("review-opening-facts")).toHaveCount(0)
     // the map of the files beside the diffs crosses itself at the start of each step with a card; its hover names the
     // file and its step
     const map = window.getByTestId("review-file-map")

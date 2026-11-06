@@ -4,11 +4,13 @@ use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
 use crate::prose::ProseChange;
-use crate::steps::{CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ShownElsewhere, StepSource, StepStop, StepTest, commit_title, join_units, tells_a_story};
+use crate::steps::{
+  CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ShownElsewhere, StepSource, StepStop, StepTest, TestWay, commit_title, join_units, tells_a_story,
+};
 use crate::test_support::{plan_of, plan_of_range, range};
 use crate::units::{ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use domain_types::commit_body::CommitBodyBlock;
-use file_diffs::accio::{ReachingTest, TestReach, TestStep, WalkCut};
+use file_diffs::accio::{ReachingTest, TestClass, TestReach};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -263,8 +265,8 @@ fn a_declaration_a_step_adds_comes_first_and_its_uses_right_after_it() {
   );
 }
 
-/// A test that reaches a declaration: its path, line, the name it reads as, its depth and the callers on the way
-fn reaching(path: &str, line: u32, reads_as: &str, depth: u32, via: &[&str]) -> ReachingTest {
+/// A given test that reaches a declaration: its path, line, the name it reads as, its depth and what its way goes through
+fn reaching(path: &str, line: u32, reads_as: &str, depth: u32, class: TestClass) -> ReachingTest {
   ReachingTest {
     path: path.to_string(),
     line,
@@ -272,29 +274,22 @@ fn reaching(path: &str, line: u32, reads_as: &str, depth: u32, via: &[&str]) -> 
     reads_as: reads_as.to_string(),
     framework: "junit4".to_string(),
     depth,
-    via: via
-      .iter()
-      .map(|declaration| TestStep {
-        declaration: (*declaration).to_string(),
-        path: "src/a/Frame.kt".to_string(),
-        line: 1,
-      })
-      .collect(),
+    via: Vec::new(),
+    class,
+    through_hub: false,
   }
 }
 
-/// A test of the change as a test reads it: its name, its fewest calls to the code and what of the code it reaches
-type ProofTest<'a> = (&'a str, u32, Vec<&'a str>);
+/// A test of the change as a test reads it: its name, its fewest calls to the code, its nearest way and what of the code
+/// it reaches
+type ProofTest<'a> = (&'a str, u32, TestWay, Vec<&'a str>);
 
-/// The tests of the steps of `plan`, each list sorted: the tests of the change by file, each with its depth and the code
-/// it reaches; the tests it did not touch that call the code; the code none reaches; the declarations a walk left
-/// unknown; the declarations a test reaches
+/// The tests of the steps of `plan`, each list sorted: the tests of the change by file, each with its depth, its way and
+/// the code it reaches; the code none reaches; the declarations a test reaches
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Tested<'a> {
   proof: Vec<(&'a str, Vec<ProofTest<'a>>)>,
-  callers: Vec<(&'a str, Vec<&'a str>)>,
   unreached: Vec<&'a str>,
-  unfollowed: u32,
   reached: u32,
 }
 
@@ -305,24 +300,22 @@ fn tested(plan: &ReviewPlan) -> Tested<'_> {
   let mut tested = Tested::default();
   for tests in plan.steps.steps.iter().map(|step| &step.tests) {
     for file in &tests.proof {
-      let of_file = file.tests.iter().map(|test| (test.name.as_str(), test.depth, names(&test.reaches))).collect();
+      let of_file = file.tests.iter().map(|test| (test.name.as_str(), test.depth, test.way, names(&test.reaches))).collect();
       tested.proof.push((file.path.as_str(), of_file));
     }
-    tested.callers.extend(tests.callers.iter().map(|test| (test.name.as_str(), names(&test.reaches))));
     tested.unreached.extend(tests.unreached.iter().map(|it| it.name.as_str()));
-    tested.unfollowed += tests.unfollowed;
     tested.reached += tests.reached;
   }
   tested.proof.sort();
-  tested.callers.sort();
   tested.unreached.sort_unstable();
   tested
 }
 
-/// The tests that reach a declaration of the code of a step, as accio answers by its place at the head: the tests of the
-/// change by their file, the tests it did not touch only when they call the code; a declaration no test reaches only
-/// when accio walked every caller, one it stopped short of a count; each declaration at the line of its name at the
-/// head. Without accio no step knows its tests, and the plan says why
+/// The tests of the change that reach a declaration of the code of a step, as accio answers by its place at the head
+/// with the test files of the change given: by their file, each with its nearest way; a test of a given file the change
+/// did not touch is none; a declaration no test of the change reaches only when accio walked every way, one it did not
+/// unknown; each declaration at the line of its name at the head. Without accio no step knows its tests, and the plan
+/// says why
 #[test]
 fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   let repo = TestRepo::new();
@@ -354,47 +347,58 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
       ),
     ],
   );
-  let tests = |tests: Vec<ReachingTest>, cut: Option<WalkCut>| TestReach { tests, cut, unavailable: false };
+  let tests = |tests: Vec<ReachingTest>, complete: bool| TestReach {
+    tests,
+    complete,
+    unavailable: false,
+  };
   let index = Counts::of(&[]).with_tests([
     (
       "src/a/Manager.kt:4",
       tests(
         vec![
-          reaching("test/a/ManagerTest.kt", 6, "opens", 1, &[]),
-          reaching("test/a/StartTest.kt", 2, "the start opens the manager", 1, &[]),
+          reaching("test/a/ManagerTest.kt", 6, "opens", 1, TestClass::Direct),
+          // a test of the given file the change did not touch (no test of the range holds its line)
+          reaching("test/a/ManagerTest.kt", 40, "an untouched test opens the manager", 1, TestClass::Direct),
         ],
-        None,
+        true,
       ),
     ),
     (
       "src/a/Manager.kt:8",
       tests(
-        vec![
-          reaching("test/a/ManagerTest.kt", 8, "the project open may show only the stored layout", 2, &["Frame.show"]),
-          reaching("test/a/LayoutTest.kt", 3, "the layout is kept", 2, &["Frame.show"]),
-        ],
-        None,
+        vec![reaching(
+          "test/a/ManagerTest.kt",
+          8,
+          "the project open may show only the stored layout",
+          5,
+          TestClass::Product,
+        )],
+        true,
       ),
     ),
-    ("src/a/Frame.kt:3", tests(Vec::new(), Some(WalkCut::Depth))),
+    // accio did not walk every way from `paint`: unknown
+    ("src/a/Frame.kt:3", tests(Vec::new(), false)),
   ]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(index.tested(), ["src/a/Frame.kt:3", "src/a/Manager.kt:4", "src/a/Manager.kt:6", "src/a/Manager.kt:8"]);
+  // one query, the test files of the change given
+  assert_eq!(index.given(), [vec!["test/a/ManagerTest.kt".to_string()]]);
   assert_eq!(index.revisions(), std::slice::from_ref(&head));
   assert_eq!(
     tested(&plan),
     Tested {
       // the file of the change in each step whose code its tests reach (`open` and `allowed` are two concerns), each test
-      // with what it reaches, through other callers too
+      // with its way and what it reaches
       proof: vec![
-        ("test/a/ManagerTest.kt", vec![("opens", 1, vec!["open"])]),
-        ("test/a/ManagerTest.kt", vec![("the project open may show only the stored layout", 2, vec!["allowed"])]),
+        ("test/a/ManagerTest.kt", vec![("opens", 1, TestWay::Calls, vec!["open"])]),
+        (
+          "test/a/ManagerTest.kt",
+          vec![("the project open may show only the stored layout", 5, TestWay::EndToEnd, vec!["allowed"])]
+        ),
       ],
-      // of the tests it did not touch, the one that calls the code; the layout test reaches it through a caller only
-      callers: vec![("the start opens the manager", vec!["open"])],
-      // no caller of `isEmpty` is a test; the walk from `paint` of the new file stopped with callers left: unknown
+      // no test of the change reaches `isEmpty`, every way walked; `paint` is unknown
       unreached: vec!["isEmpty"],
-      unfollowed: 1,
       reached: 2,
     },
     "{:?}",
@@ -429,6 +433,51 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   assert_eq!(plan.index_note.as_deref(), Some(NO_ACCIO));
 }
 
+/// A test that reaches two declarations of a step by two ways is listed once, with its fewest calls and its nearest way
+#[test]
+fn a_test_of_two_ways_is_listed_once_by_its_nearest() {
+  let repo = TestRepo::new();
+  let manager = "package a\n\nclass Manager {\n  fun open(): Int = 1\n\n  fun close(): Int = 1\n}\n";
+  let test = |value: u8| format!("package a\n\nimport org.junit.Test\n\nclass ManagerTest {{\n  @Test fun `opens and closes`() = check(Manager().open() == {value})\n}}\n");
+  let base = repo.create_commit_with_files("Add", &[("src/a/Manager.kt", manager), ("test/a/ManagerTest.kt", &test(1))]);
+  let head = repo.create_commit_with_files(
+    "The manager opens and closes twice\n\nBoth return two.",
+    &[("src/a/Manager.kt", &manager.replace("= 1", "= 2")), ("test/a/ManagerTest.kt", &test(2))],
+  );
+  let opens = |depth, class| TestReach {
+    tests: vec![reaching("test/a/ManagerTest.kt", 6, "opens and closes", depth, class)],
+    complete: true,
+    unavailable: false,
+  };
+  let index = Counts::of(&[]).with_tests([("src/a/Manager.kt:4", opens(3, TestClass::Product)), ("src/a/Manager.kt:6", opens(2, TestClass::TestCode))]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!(
+    tested(&plan).proof,
+    [("test/a/ManagerTest.kt", vec![("opens and closes", 2, TestWay::TestCode, vec!["open", "close"])])],
+    "{:?}",
+    plan.steps
+  );
+}
+
+/// A range without tests asks accio nothing: no test of the change reaches its code, whatever the index
+#[test]
+fn a_range_without_tests_asks_nothing_and_no_test_of_it_reaches_its_code() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("src/a/Frame.kt", "package a\n\nfun paint() = 1\n")]);
+  let head = repo.create_commit_with_files("Paint two\n\nThe frame paints two.", &[("src/a/Frame.kt", "package a\n\nfun paint() = 2\n")]);
+  let index = Counts::of(&[]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!(index.tested(), Vec::<String>::new());
+  assert_eq!(
+    tested(&plan),
+    Tested {
+      unreached: vec!["paint"],
+      ..Tested::default()
+    }
+  );
+  assert!(plan.steps.steps.iter().all(|step| step.tests.answered));
+}
+
 /// A Rust source of `size` returning `value`, with a fixture of its inline tests returning `prepared` and a test that
 /// asserts `asserted`
 fn store_source(value: u8, prepared: &str, asserted: u8) -> String {
@@ -447,8 +496,8 @@ fn a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of() {
   let index = Counts::of(&[]).with_tests([(
     "src/store.rs:1",
     TestReach {
-      tests: vec![reaching("src/store.rs", 14, "size is right", 1, &[])],
-      cut: None,
+      tests: vec![reaching("src/store.rs", 14, "size is right", 1, TestClass::Direct)],
+      complete: true,
       unavailable: false,
     },
   )]);
@@ -457,7 +506,7 @@ fn a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of() {
   assert_eq!(
     tested(&plan),
     Tested {
-      proof: vec![("src/store.rs", vec![("size is right", 1, vec!["size"])])],
+      proof: vec![("src/store.rs", vec![("size is right", 1, TestWay::Calls, vec!["size"])])],
       reached: 1,
       ..Tested::default()
     },
@@ -489,7 +538,7 @@ fn a_new_file_is_code_its_tests_are_the_changes_and_their_step_proves_the_other(
   let index = Counts::of(&[]).with_tests([(
     "src/a/Joiner.kt:3",
     TestReach {
-      tests: vec![reaching("test/a/JoinerTest.kt", 6, "joins two rows", 1, &[])],
+      tests: vec![reaching("test/a/JoinerTest.kt", 6, "joins two rows", 1, TestClass::Direct)],
       ..TestReach::default()
     },
   )]);
@@ -508,6 +557,7 @@ fn a_new_file_is_code_its_tests_are_the_changes_and_their_step_proves_the_other(
         line: 6,
         name: "joins two rows".to_string(),
         depth: 1,
+        way: TestWay::Calls,
         reaches: vec!["Joiner".to_string()],
       }],
     }]

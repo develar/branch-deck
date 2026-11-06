@@ -21,10 +21,12 @@ pub(crate) struct Counts {
   canceled: bool,
   /// Each query: `references` or `tests`, its places (`DeclarationAt::argument`) and its revision
   queries: Mutex<Vec<(&'static str, Vec<String>, String)>>,
-  /// The place -> the tests that reach it
+  /// The place -> the given tests that reach it; a place it does not know none reaches, its answer complete
   tests: HashMap<String, TestReach>,
   /// The places accio finds no declaration at
   unavailable: Vec<String>,
+  /// The given tests of each query of `tests`
+  given: Mutex<Vec<Vec<String>>>,
 }
 
 /// The usages an answer holds at most, as accio's `--limit`
@@ -112,6 +114,7 @@ impl Counts {
       queries: Mutex::default(),
       tests: HashMap::new(),
       unavailable: Vec::new(),
+      given: Mutex::default(),
     }
   }
 
@@ -162,6 +165,11 @@ impl Counts {
   /// The places whose tests were asked
   pub(crate) fn tested(&self) -> Vec<String> {
     self.asked("tests")
+  }
+
+  /// The given tests of each query of `tests`, in the order asked
+  pub(crate) fn given(&self) -> Vec<Vec<String>> {
+    self.given.lock().unwrap().clone()
   }
 
   /// The revisions the queries answered at, each once, sorted
@@ -222,14 +230,21 @@ impl SymbolIndex for Counts {
     Ok(Some(answers))
   }
 
-  fn tests(&self, _repository_root: &str, declarations: &[DeclarationAt], _depth: u32, revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+  fn tests(&self, _repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+    self.given.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(given.to_vec());
     if !self.ask("tests", declarations, revision)? {
       return Ok(None);
     }
     Ok(Some(
       declarations
         .iter()
-        .map(|declaration| self.tests.get(&declaration.argument()).cloned().unwrap_or_default())
+        // a place it does not know no given test reaches, every way walked
+        .map(|declaration| {
+          self.tests.get(&declaration.argument()).cloned().unwrap_or_else(|| TestReach {
+            complete: true,
+            ..TestReach::default()
+          })
+        })
         .collect(),
     ))
   }

@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 18` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 19` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -57,7 +57,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 18;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 19;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -170,8 +170,8 @@ pub struct ReviewPlanOutput {
   /// names; else, with no body or one commit, a step per concern. Each step shows parts of the units (`stops`: `unit`,
   /// `path`, `blocks`; a declaration it adds or changes the form of first, the stops that `uses` it right after; `also` the other steps that changed its lines; `joined`
   /// the declarations without a block of their own on a line of its blocks, each with its `step`) and the
-  /// tests accio finds among the callers of its code (`tests`: `answered`, `reached` with each test's `unit` when the
-  /// range adds or changes it, `unreached` with `within` when the walk stopped at the depth), the public declarations it
+  /// tests of the change accio finds among the callers of its code (`tests`: `answered`, `proof` with each test's `unit`
+  /// and `way`, `reached`, `unreached` only on a complete answer), the public declarations it
   /// adds (`newApi`, by the key of their `api` entry) and the links between modules it adds (`moduleLinks`, by their
   /// place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`); its units the
   /// stop of another step shows (`shownElsewhere`, with that `step`); its `title` and what gives it (`titleSource`:

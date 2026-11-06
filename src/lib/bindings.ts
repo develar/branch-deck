@@ -8359,6 +8359,8 @@ export type StepTest = {
 	name: string,
 	/**  The fewest calls between the test and the code of the step: 1 when the test calls it */
 	depth: number,
+	/**  What its nearest way to the code of the step goes through */
+	way: TestWay,
 	/**  The declarations of the step it reaches, by their names as the step leads them, in the order of its code */
 	reaches: string[],
 };
@@ -8375,23 +8377,14 @@ export type StepTests = {
 	 *  order of its code
 	 */
 	proof: ProofFile[],
-	/**
-	 *  The tests the change did not touch that call its code (1 call), each once; one that reaches it only through
-	 *  other callers is no fact of the step
-	 */
-	callers: StepTest[],
-	/**  How many of its declarations a test reaches, the change's or another, at any depth the walk went */
+	/**  How many of its declarations a test of the change reaches */
 	reached: number,
 	/**
-	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test reaches, accio
-	 *  having walked every caller within `TEST_DEPTH` calls; none of a test file, whose helpers a test runs. A name two of
-	 *  them share is led by its owner
+	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test of the change
+	 *  reaches, accio having walked every way from them (`complete`); none of a test file, whose helpers a test runs. A
+	 *  name two of them share is led by its owner
 	 */
 	unreached: UnreachedDeclaration[],
-	/**  How many of its declarations no test reached within `within` calls with callers left: unknown, never "no test" */
-	unfollowed: number,
-	/**  The calls the walk went at most (`TEST_DEPTH`); 0 without the answer */
-	within: number,
 	/**
 	 *  The tests the `[@test]` lines of the rules of a spec it adds or changes name, by the path they give: a scenario
 	 *  that names no declaration
@@ -8772,6 +8765,15 @@ export type TargetReview =
 { kind: "range"; segments: ReviewSegment[] } | 
 /**  The commits of a list, in its order */
 { kind: "commits"; commits: ReviewCommit[] };
+
+/**  What the way from a test to the code of a step goes through, nearest first (accio's `class`) */
+export type TestWay = 
+/**  The test calls it */
+"calls" | 
+/**  Only the code of tests is on the way: a fixture, a helper of the test */
+"testCode" | 
+/**  Product code is on the way: an end-to-end test */
+"endToEnd";
 
 /**  The diff of two texts */
 export type TextDiff = {

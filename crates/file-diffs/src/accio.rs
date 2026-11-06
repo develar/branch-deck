@@ -2,8 +2,8 @@
 //! the files of a review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name>` and
 //! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout. A review
 //! plan asks about declarations by their place (spec/branch/review-plan.spec.md, "Fan-in";
-//! spec/branch/review-tour.spec.md, "Tests that reach it"): `accio references --at <path>:<line>` and
-//! `accio tests --at …`, every place of one plan in one process, which accio answers in parallel.
+//! spec/branch/review-tour.spec.md, "Tests That Reach It"): `accio references --at <path>:<line>` and
+//! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel.
 //!
 //! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked.
 //!
@@ -30,8 +30,9 @@ use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find
 const LIMIT: &str = "20";
 /// The usages a lookup answers at most
 const REFERENCES_LIMIT: &str = "100";
-/// The tests a lookup answers at most, per declaration
-const TESTS_LIMIT: &str = "60";
+/// The tests a lookup answers at most, per declaration: the given tests of a change reach one declaration by the
+/// hundred (97 tests of 7 files for one place of idea-1)
+const TESTS_LIMIT: &str = "1000";
 
 /// A declaration an index knows: a path of the repository and a line from 1
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -127,7 +128,7 @@ impl DeclarationAt {
   }
 }
 
-/// A test that reaches a declaration through its callers (`accio tests`)
+/// A given test that reaches a declaration through its callers (`accio tests --tests`)
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ReachingTest {
   #[serde(rename = "file")]
@@ -144,6 +145,23 @@ pub struct ReachingTest {
   /// The callers on the way, from the test's callee to the declaration's caller
   #[serde(default)]
   pub via: Vec<TestStep>,
+  /// What its way goes through
+  pub class: TestClass,
+  /// Its way goes through a caller so many call that accio walked it only for the given tests
+  #[serde(default)]
+  pub through_hub: bool,
+}
+
+/// What the way from a test to a declaration goes through, nearest first
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TestClass {
+  /// The test calls it
+  Direct,
+  /// Only the code of tests is on the way: a fixture, a helper of the test
+  TestCode,
+  /// Product code is on the way: an end-to-end test
+  Product,
 }
 
 /// A caller on the way from a test to a declaration
@@ -155,26 +173,14 @@ pub struct TestStep {
   pub line: u32,
 }
 
-/// Why a walk of the callers stopped short
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WalkCut {
-  /// Callers at the last depth were not walked further
-  Depth,
-  /// The limit of the answer
-  Limit,
-  /// A caller so many call that its callers were not walked
-  Hub,
-}
-
-/// The tests that reach one declaration
+/// The given tests that reach one declaration
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct TestReach {
   #[serde(default)]
   pub tests: Vec<ReachingTest>,
-  /// Why the walk stopped short; `None` when it walked every caller within the depth
+  /// accio walked every way from the given tests to it: a given test it lists not is one that does not reach it
   #[serde(default)]
-  pub cut: Option<WalkCut>,
+  pub complete: bool,
   /// accio found no declaration at the place asked (a line that names none, a declaration it does not index): no answer,
   /// never "no test"
   #[serde(default)]
@@ -211,9 +217,10 @@ pub trait SymbolIndex: Send + Sync {
   /// repository has no index
   fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> Result<Option<Vec<References>>>;
 
-  /// The tests in the tree of `revision` that reach each declaration of `declarations` through at most `depth` calls,
-  /// only by calls tied by a type or an import, in their order; `None` when the repository has no index
-  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], depth: u32, revision: &str) -> Result<Option<Vec<TestReach>>>;
+  /// The tests of `given` (test files of the tree of `revision`) that reach each declaration of `declarations` through
+  /// any number of calls, only by calls tied by a type or an import, in their order; `None` when the repository has no
+  /// index
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> Result<Option<Vec<TestReach>>>;
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, as accio words it. A
@@ -369,20 +376,15 @@ impl SymbolIndex for AccioSearch<'_> {
       .map(Some)
   }
 
-  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], depth: u32, revision: &str) -> Result<Option<Vec<TestReach>>> {
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> Result<Option<Vec<TestReach>>> {
     if declarations.is_empty() {
       return Ok(Some(Vec::new()));
     }
-    let depth = depth.to_string();
-    self
-      .query(
-        "tests",
-        &["--limit", TESTS_LIMIT, "--depth", &depth, "--resolved"],
-        repository_root,
-        &Targets::At(declarations),
-        Some(revision),
-      )
-      .map(Some)
+    let mut options = vec!["--limit", TESTS_LIMIT, "--resolved"];
+    for test in given {
+      options.extend(["--tests", test.as_str()]);
+    }
+    self.query("tests", &options, repository_root, &Targets::At(declarations), Some(revision)).map(Some)
   }
 }
 
@@ -427,8 +429,8 @@ impl<'a> Lenient<'a> {
 
   /// The tests that reach each declaration, as `SymbolIndex::tests`: `None` when the repository has no index or the
   /// query failed (`error` says why)
-  pub fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], depth: u32, revision: &str) -> Result<Option<Vec<TestReach>>> {
-    self.answered(self.index.tests(repository_root, declarations, depth, revision))
+  pub fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> Result<Option<Vec<TestReach>>> {
+    self.answered(self.index.tests(repository_root, declarations, given, revision))
   }
 
   /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
@@ -472,7 +474,8 @@ impl<'a> Lenient<'a> {
 
 /// The index of a fixture, for the e2e server: `<git dir>/branch-deck-accio.json`, the hits of each query of `symbol`
 /// and of `references` (by a name, or by a place as `<path>:<line>`, whatever its revision), the answer of `tests` of
-/// each place, or the `error` every query fails with; a repository without the file has no index
+/// each place whatever the given tests, or the `error` every query fails with; a repository without the file has no
+/// index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -524,7 +527,7 @@ impl SymbolIndex for FixtureIndex {
     }))
   }
 
-  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> Result<Option<Vec<TestReach>>> {
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], _given: &[String], _revision: &str) -> Result<Option<Vec<TestReach>>> {
     Ok(Self::read(repository_root)?.map(|mut fixture| {
       declarations
         .iter()

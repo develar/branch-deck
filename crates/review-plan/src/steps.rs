@@ -19,11 +19,11 @@
 //! - **The order** of a step is that of the story, but a declaration the step adds or changes the form of comes first
 //!   and the uses of it in the step right after it (`uses`); a mechanical part follows the step its concern is in.
 //! - **The tests that reach it** (`add_tests`, after the plan): per declaration of the code of a step (no test code: a
-//!   test, a fixture of its class or module, `ReviewUnit::test`; of a new file each declaration at its top), the tests
-//!   accio finds among its callers within `TEST_DEPTH` calls by calls a type or an import ties (`accio tests --at`,
-//!   every declaration of the plan in one process). The step lists the tests of the change that reach its code by their
-//!   file (a test of a new file is one too), the tests it did not touch only when they call the code, and a declaration
-//!   none reaches only when accio walked every caller: a walk it cut is a count, unknown, never "no test".
+//!   test, a fixture of its class or module, `ReviewUnit::test`; of a new file each declaration at its top), the tests of
+//!   the change that accio finds among its callers at any depth by calls a type or an import ties (`accio tests --at …
+//!   --tests <file>…`, every declaration of the plan and every test file of the change in one process). The step lists
+//!   them by their file (a test of a new file is one too), each with what its way goes through, and a declaration none
+//!   reaches only when accio walked every way (`complete`): an answer it cut names nothing, unknown, never "no test".
 //! - **A declaration without a block of its own** (of one side, whose lines a block of another unit holds) is no stop:
 //!   it joins the stop that shows the block of the line of its name (`StepStop::joined`, with the step it is of), and a
 //!   step whose unit another step's stop shows names it among its facts (`ReviewStep::shown_elsewhere`) and lists its
@@ -46,7 +46,7 @@ use anyhow::Result;
 use code_symbols::language::language_of;
 use code_symbols::summary::{DeclKind, FileSummary};
 use domain_types::commit_body::{CommitBodyBlock, LabelKind};
-use file_diffs::accio::{DeclarationAt, ReachingTest, SymbolIndex};
+use file_diffs::accio::{DeclarationAt, ReachingTest, SymbolIndex, TestClass, TestReach};
 use object_cache::commit_diff::FileChange;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -61,8 +61,6 @@ use trial_check::symbol_scan::SymbolInput;
 const MAX_USES: usize = 6;
 /// The shortest name of a declaration whose uses follow it
 const MIN_NAME: usize = 3;
-/// The calls between a test and the code of a step that `add_tests` walks at most
-pub const TEST_DEPTH: u32 = 3;
 /// The fewest words of a body that tells a step
 const MIN_BODY_WORDS: usize = 3;
 /// The lines past which a body tells a story of its own (`tells_its_own_story`)
@@ -337,19 +335,12 @@ pub struct StepTests {
   /// The tests of the change (`StepTest::unit`) that reach its code, by their file, each file and each test once, in the
   /// order of its code
   pub proof: Vec<ProofFile>,
-  /// The tests the change did not touch that call its code (1 call), each once; one that reaches it only through
-  /// other callers is no fact of the step
-  pub callers: Vec<StepTest>,
-  /// How many of its declarations a test reaches, the change's or another, at any depth the walk went
+  /// How many of its declarations a test of the change reaches
   pub reached: u32,
-  /// Its declarations of a parsed language whose body or form changed, or that it adds, that no test reaches, accio
-  /// having walked every caller within `TEST_DEPTH` calls; none of a test file, whose helpers a test runs. A name two of
-  /// them share is led by its owner
+  /// Its declarations of a parsed language whose body or form changed, or that it adds, that no test of the change
+  /// reaches, accio having walked every way from them (`complete`); none of a test file, whose helpers a test runs. A
+  /// name two of them share is led by its owner
   pub unreached: Vec<UnreachedDeclaration>,
-  /// How many of its declarations no test reached within `within` calls with callers left: unknown, never "no test"
-  pub unfollowed: u32,
-  /// The calls the walk went at most (`TEST_DEPTH`); 0 without the answer
-  pub within: u32,
   /// The tests the `[@test]` lines of the rules of a spec it adds or changes name, by the path they give: a scenario
   /// that names no declaration
   pub scenarios: Vec<String>,
@@ -395,8 +386,34 @@ pub struct StepTest {
   pub name: String,
   /// The fewest calls between the test and the code of the step: 1 when the test calls it
   pub depth: u32,
+  /// What its nearest way to the code of the step goes through
+  pub way: TestWay,
   /// The declarations of the step it reaches, by their names as the step leads them, in the order of its code
   pub reaches: Vec<String>,
+}
+
+/// What the way from a test to the code of a step goes through, nearest first (accio's `class`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TestWay {
+  /// The test calls it
+  Calls,
+  /// Only the code of tests is on the way: a fixture, a helper of the test
+  TestCode,
+  /// Product code is on the way: an end-to-end test
+  EndToEnd,
+}
+
+impl From<TestClass> for TestWay {
+  fn from(class: TestClass) -> Self {
+    match class {
+      TestClass::Direct => Self::Calls,
+      TestClass::TestCode => Self::TestCode,
+      TestClass::Product => Self::EndToEnd,
+    }
+  }
 }
 
 /// Whether the steps show every block of the range once
@@ -1216,29 +1233,33 @@ fn range_unit(test: &ReachingTest, range_tests: &[RangeTest]) -> Option<String> 
     .map(|it| it.unit.clone())
 }
 
-/// Adds `test`, which reaches `name` of the step, to `tests`: once by its place, its fewest calls, each name once
-fn add_test(tests: &mut Vec<StepTest>, test: &ReachingTest, unit: Option<String>, name: &str) {
+/// Adds `test`, which reaches `name` of the step, to `tests`: once by its place, its fewest calls and its nearest way,
+/// each name once
+fn add_test(tests: &mut Vec<StepTest>, test: &ReachingTest, unit: String, name: &str) {
   if let Some(known) = tests.iter_mut().find(|it| it.path == test.path && it.line == test.line) {
     known.depth = known.depth.min(test.depth);
+    known.way = known.way.min(test.class.into());
     if !known.reaches.iter().any(|it| it == name) {
       known.reaches.push(name.to_string());
     }
     return;
   }
   tests.push(StepTest {
-    unit,
+    unit: Some(unit),
     path: test.path.clone(),
     line: test.line,
     name: test.reads_as.clone(),
     depth: test.depth,
+    way: test.class.into(),
     reaches: vec![name.to_string()],
   });
 }
 
-/// Add the tests that reach the code of each step at `head`, within `TEST_DEPTH` calls by calls a type or an import
-/// ties, asked by their places in one query (`StepTests`), and to each step the other steps its tests prove
-/// (`ReviewStep::proves`); the answer is why the steps have none, `None` when the index answered or nothing was asked.
-/// Fails when the index was canceled
+/// Add the tests of the change that reach the code of each step at `head`, at any depth by calls a type or an import
+/// ties, asked by their places in one query with every test file of the range (`StepTests`), and to each step the other
+/// steps its tests prove (`ReviewStep::proves`); the answer is why the steps have none, `None` when the index answered or
+/// nothing was asked. With an index, a range without tests asks nothing: no test of the change reaches its code. Fails
+/// when the index was canceled
 pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &str, steps: &mut ReviewSteps) -> Result<Option<String>> {
   let places: Vec<DeclarationAt> = steps
     .steps
@@ -1250,25 +1271,36 @@ pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &
   if places.is_empty() {
     return Ok(None);
   }
-  let answers = match ask_index(index, |lenient| lenient.tests(repository_path, &places, TEST_DEPTH, head))? {
-    Ok(answers) => answers,
-    Err(note) => return Ok(Some(note)),
+  let given: Vec<String> = steps.range_tests.iter().map(|test| test.path.clone()).collect::<BTreeSet<_>>().into_iter().collect();
+  let answers = if given.is_empty() && index.is_some() {
+    // no test of the change: none reaches any of its code, whatever the index would answer
+    vec![
+      TestReach {
+        complete: true,
+        ..TestReach::default()
+      };
+      places.len()
+    ]
+  } else {
+    match ask_index(index, |lenient| lenient.tests(repository_path, &places, &given, head))? {
+      Ok(answers) => answers,
+      Err(note) => return Ok(Some(note)),
+    }
   };
   let reach_of: HashMap<&DeclarationAt, _> = places.iter().zip(&answers).collect();
   let ReviewSteps { steps, range_tests, .. } = steps;
   for step in steps.iter_mut() {
     let tests = &mut step.tests;
     tests.answered = true;
-    tests.within = TEST_DEPTH;
     for code in &step.code {
       // a place accio found no declaration at is neither reached nor unreached: it answered nothing of it
       let Some(reach) = reach_of.get(&code.at).filter(|reach| !reach.unavailable) else {
         continue;
       };
-      if reach.tests.is_empty() {
-        if reach.cut.is_some() {
-          tests.unfollowed += 1;
-        } else {
+      // a test of a given file the change did not touch is no test of the change
+      let of_change: Vec<(&ReachingTest, String)> = reach.tests.iter().filter_map(|test| range_unit(test, range_tests).map(|unit| (test, unit))).collect();
+      if of_change.is_empty() {
+        if reach.complete {
           tests.unreached.push(UnreachedDeclaration {
             name: code.name.clone(),
             path: code.at.path.clone(),
@@ -1278,21 +1310,15 @@ pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &
         continue;
       }
       tests.reached += 1;
-      for test in &reach.tests {
-        match range_unit(test, range_tests) {
-          Some(unit) => {
-            let file = tests.proof.iter().position(|file| file.path == test.path).unwrap_or_else(|| {
-              tests.proof.push(ProofFile {
-                path: test.path.clone(),
-                tests: Vec::new(),
-              });
-              tests.proof.len() - 1
-            });
-            add_test(&mut tests.proof[file].tests, test, Some(unit), &code.name);
-          }
-          None if test.depth == 1 => add_test(&mut tests.callers, test, None, &code.name),
-          None => {}
-        }
+      for (test, unit) in of_change {
+        let file = tests.proof.iter().position(|file| file.path == test.path).unwrap_or_else(|| {
+          tests.proof.push(ProofFile {
+            path: test.path.clone(),
+            tests: Vec::new(),
+          });
+          tests.proof.len() - 1
+        });
+        add_test(&mut tests.proof[file].tests, test, unit, &code.name);
       }
     }
   }

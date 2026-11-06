@@ -327,7 +327,6 @@ function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap
       facts: {
         line: null,
         tests: [],
-        unfollowed: null,
         proves: [],
         newApi: { places: [], more: 0 },
         moduleLinks: { places: [], more: 0 },

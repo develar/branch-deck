@@ -68,7 +68,7 @@ impl SymbolIndex for FakeReferences {
   }
 
   /// Find Usages asks no tests
-  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _given: &[String], _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
     anyhow::bail!("Find Usages asked for tests")
   }
 }
@@ -149,7 +149,7 @@ impl SymbolIndex for FailingIndex {
     Err(self.0())
   }
 
-  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _given: &[String], _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
     Err(self.0())
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: Review Tour
-description: Requirements for the story of a review (experimental), one document that a reviewer who sees a change for the first time reads from its overview into each step's opening above its diffs; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, of one commit whose message tells its parts by the code they name a step per part, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
+description: Requirements for the story of a review (experimental), one document that a reviewer who sees a change for the first time reads from its overview into each step's opening above its diffs; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, of one commit whose message tells its parts by the code they name a step per part, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests of the change that reach its code through its callers; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/steps.rs
@@ -179,18 +179,19 @@ reachable from: that is the impact of the change, `brd impact`'s.
   file's).
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_new_file_is_code_its_tests_are_the_changes_and_their_step_proves_the_other`)
 - After the plan, with the usages of its API, every declaration of the code of the steps must be asked in one
-  `accio tests --at <path>:<line> --ref <head> --depth 3 --resolved` (`TEST_DEPTH`, `within`): the tests that reach it
-  through its callers, only by calls a type or an import ties. The tests of the change that reach the code of a step
-  are its `proof`, by their file, each test once with the name it reads as, its fewest calls (`depth`) and the
-  declarations of the step it reaches (`reaches`); the tests the change did not touch only when they call the code
-  (`callers`, depth 1), one that reaches it through other callers being no fact of the step; `reached` counts the
-  declarations a test reaches. A declaration no test reaches is `unreached` only when accio walked every caller; one
-  accio stopped short of at the depth with callers left is a count (`unfollowed`), unknown, never "no test". A place
-  accio finds no declaration at (`unavailable`: a line it does not index) is neither: accio answered nothing of it.
-  `answered` says accio answered; without accio, or without a usable index, a step has none of them, and `index_note`
-  says why. The given tests of the change asked at any depth, by the class of the path, wait for accio
-  ([#179](https://github.com/develar/branch-deck/issues/179)).
-  [@test] ../../crates/review-plan/src/steps_test.rs (`the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches`, `a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of`)
+  `accio tests --at <path>:<line> --ref <head> --tests <file>… --resolved`, the test files of the tests of the change
+  given: the given tests that reach it through its callers at any depth, only by calls a type or an import ties. The
+  tests of the change that reach the code of a step are its `proof`, by their file, each test once with the name it
+  reads as, its fewest calls (`depth`), its nearest `way` (`calls`, `testCode` through the code of tests only,
+  `endToEnd` through product code: accio's `class`) and the declarations of the step it reaches (`reaches`); a test of
+  a given file the change did not touch is no fact of the step. `reached` counts the declarations a test of the change
+  reaches. A declaration no test of the change reaches is `unreached` only when accio walked every way (`complete`);
+  one it did not is unknown, never "no test". A place accio finds no declaration at (`unavailable`: a line it does not
+  index) is neither: accio answered nothing of it. A range without tests asks nothing: no test of the change reaches
+  its code. `answered` says the steps know their tests; without accio, or without a usable index, a step has none of
+  them, and `index_note` says why. The query costs a plan ~20 s on a branch of a large monorepo until accio answers it
+  fast ([#191](https://github.com/develar/branch-deck/issues/191)).
+  [@test] ../../crates/review-plan/src/steps_test.rs (`the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches`, `a_test_of_two_ways_is_listed_once_by_its_nearest`, `a_range_without_tests_asks_nothing_and_no_test_of_it_reaches_its_code`, `a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of`)
 - A step whose units hold tests of the change that reach the code of other steps must name those steps (`proves`).
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_new_file_is_code_its_tests_are_the_changes_and_their_step_proves_the_other`)
 - A step that adds or changes a rule of a spec must list the tests its test links name (`scenarios`): a scenario
@@ -302,7 +303,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_link_reads_as_its_text_with_its_target`, `a_long_paragraph_changed_in_one_sentence_shows_it_first`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 18`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 19`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -326,10 +327,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   title (the title Rust gives the commit that starts it; a step of the concerns
   its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one short line: the
   files of the tests of the change that reach its code ("Tested by ManagerTest.kt", each showing its first test, its
-  tests in its hover; the opening tells the rest), the code no test reaches beside a scenario ("No test reaches load"),
+  tests in its hover; the opening tells the rest), the code no test of the change reaches beside a scenario ("No test
+  of the change reaches load"),
   "Proven by …", "New API: Cache and Reader", "New link between modules: Reader.kt → Cache.kt", each name showing its
-  place; a step accio answered for whose code no test reaches, every caller walked, and no scenario proves says so in
-  the warning tone ("No test reaches paint"); code accio stopped short of is never named there; a list of names in the facts
+  place; a step accio answered for whose code no test of the change reaches, every way walked, and no scenario proves
+  says so in the warning tone ("No test of the change reaches paint"); code accio did not walk every way of is never
+  named there; a list of names in the facts
   names up to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`), the
   new API and the new links between modules too ("New API: Cache, Reader, Store and 16 more", each name its place),
   which the opening names whole; a name two new declarations share led by its type ("Event.rightEdge and
@@ -373,10 +376,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the prose; a commit with a story a disclosure (`Disclosure`, one disclosure of the document: the folds of a body,
   these rows and what the overview folds) whose body is set `nested`, never larger than its row; then the facts of the
   step, muted, each fact a line of its own and every name, each in the code font showing its place in the diffs: the
-  files of the tests of the change, each its tests in its hover ("Tested by ManagerTest.kt"), how many tests the
-  change did not touch call its code, their names in its hover ("1 existing test calls it"), its code no test reaches,
-  each at its declaration, the name selected ("No test reaches show"), of a step no test reaches whose walk accio cut
-  "No test found within 3 calls", the steps its tests prove ("Proves step 2", showing that step), "New API: allowed";
+  files of the tests of the change, each its tests in its hover with their way ("Tested by ManagerTest.kt"; "opens:
+  calls open", "opens: reaches open through the test code", "opens: reaches open end to end"), its code no test of the
+  change reaches, each at its declaration, the name selected ("No test of the change reaches show"), nothing of code
+  accio did not walk every way of, the steps its tests prove ("Proves step 2", showing that step), "New API: allowed";
   of a task what joins its parts, its names code), the warning of a step no test reaches, its names code too, and the
   group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
@@ -555,8 +558,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
                "proof": [{"path": "…/DeferredToolWindowRegistrationTest.kt",
                           "tests": [{"unit": "…", "path": "…/DeferredToolWindowRegistrationTest.kt", "line": 171,
                                      "name": "the project open may show only the tool windows that the stored layout shows",
-                                     "depth": 1, "reaches": ["isShownOnStartupAllowed"]}]}],
-               "callers": [], "reached": 1, "unreached": [], "unfollowed": 1, "within": 3, "scenarios": []},
+                                     "depth": 1, "way": "calls", "reaches": ["isShownOnStartupAllowed"]}]}],
+               "reached": 1, "unreached": [], "scenarios": []},
      "proves": [],
      "newApi": [], "moduleLinks": [], "title": "the project open shows the Project view only when …", "takenOutBy": null}],
   "coverage": {"blocks": 76, "inStops": 76, "mechanical": 0, "missing": 0, "twice": 0},
@@ -587,11 +590,11 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 
 - A follow-up by the lines it rewrites joins a task of its own to the step that created its file: of 8 such joins of
   a branch of 66 commits, 2 were tasks of their own. Their bodies stay in the step.
-- "No test reaches" is as good as the call graph of accio: a call through reflection, a dependency injection or a
-  lambda passed far away is no edge, and a call only the name ties is not walked (the calls inside a lambda with a
-  receiver, `withFixture { … }`, JetBrains/accio#213). A walk stopped at 3 calls with callers left names nothing: a
-  test of the change deeper than that (an end-to-end test through an RPC, 17 calls away) is not seen until the
-  review asks the tests of the change themselves ([#179](https://github.com/develar/branch-deck/issues/179)).
+- "No test of the change reaches" is as good as the call graph of accio: a call through reflection, a dependency
+  injection or a lambda passed far away is no edge, and a call only the name ties is not walked. The answer of the
+  given tests costs a plan of 52 places ~20 s and ~100 s of CPU on the IntelliJ monorepo (2026-11-06), against 2.6 s
+  for the depth-3 walk it replaced; the review waits for JetBrains/accio#376
+  ([#191](https://github.com/develar/branch-deck/issues/191)).
 
 ## Measurements
 

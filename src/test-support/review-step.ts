@@ -14,7 +14,7 @@ export function reviewStep(id: string, commits: StepCommit[], stops: [string, st
     stops: stops.map(([unit, path]) => ({ unit, path, blocks: null, uses: null, also: [], concern: null, joined: [], marks: [] })),
     paths: [...new Set(stops.map(([, path]) => path))],
     elsewhere: [],
-    tests: { answered: true, proof: [], callers: [], reached: 0, unreached: [], unfollowed: 0, within: 3, scenarios: [], ...tests },
+    tests: { answered: true, proof: [], reached: 0, unreached: [], scenarios: [], ...tests },
     proves: [],
     newApi: [],
     moduleLinks: [],
