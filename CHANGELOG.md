@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/develar/branch-deck/compare/v1.0.0...v1.1.0) (2026-11-06)
+
+
+### Features
+
+* **bd:** brd lease return counts a picked fixup that brd fold folded as landed ([87ac0f4](https://github.com/develar/branch-deck/commit/87ac0f4ac463b9c372d1e7574c896bfca02b1342))
+* **bd:** brd update resolves a rename/rename conflict in a round ([12d54c6](https://github.com/develar/branch-deck/commit/12d54c6d8f3e1d7d4c0fd0bcb3749cc77193e3ad))
+
+
+### Bug Fixes
+
+* **brd:** keep angle brackets literal ([bccf60d](https://github.com/develar/branch-deck/commit/bccf60dc27c6da1ecd3864e57c71c0cfccfc035c))
+* **brd:** resolve autosquash markers after prefixes ([d8695fa](https://github.com/develar/branch-deck/commit/d8695fa879df61b4363459559d868c655e51cc91))
+* **brd:** use brd in lease commands ([88fbddb](https://github.com/develar/branch-deck/commit/88fbddba77cbbfceb81033de4bb5115fa7686305))
+
 ## [1.0.0](https://github.com/develar/branch-deck/compare/v0.49.0...v1.0.0) (2026-11-06)
 
 
