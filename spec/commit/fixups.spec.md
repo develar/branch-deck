@@ -118,10 +118,12 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   reads it, once more under the lock when HEAD moved meanwhile, and answers what it folded (each target with its
   subject, its new id and its fixups, and the orphans), which `brd fold` prints.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`, `a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_folds_a_fixup_with_its_marker_after_the_prefix`)
 - A fixup that conflicts with the commits between it and its target or after it, or that leaves a later commit empty,
   refuses the squash as the squash of a selection does ([Squash Commits](squash.spec.md)): `squash_conflict` with the
   commits and files it names, `squash_empty`; the commits after the folded ones keep their mapping notes.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_prefixed_fixup_that_conflicts_is_refused_as_a_squash_conflict`)
 - Fixups that cancel their target (the target as they leave it has no changes, as an agent's fixup that undoes its own
   commit) must take it out of the history with them, the commits in between replayed onto its parent and HEAD's tree
   kept; the other groups of the scope fold as always. The result names the target without a new id, so a queued

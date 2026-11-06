@@ -724,6 +724,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   commits ahead of the baseline is `unknown_branch`; `--dry-run` must write nothing; nothing to fold is no rewrite and
   no token.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_folds_a_fixup_with_its_marker_after_the_prefix`)
 - Without `--expect-head` the fold must fold the fixups of HEAD as its squash finds it, also when another process moved
   HEAD after brd read its plan, and print what that squash folded: the targets with their fixups, the orphans, the head
   it folded from and an undo token back to it; a HEAD without fixups of the scope there is nothing to fold.
@@ -742,6 +743,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   the commits and the files the merge names, one that leaves a later commit empty `squash_empty` (exit 4); both fold
   nothing.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_prefixed_fixup_that_conflicts_is_refused_as_a_squash_conflict`)
 - Fixups that cancel their target must take it out of the history with them, HEAD's tree kept: its entry of `folded`
   says `"dropped": true` and has no `new_id`. `--dry-run` must build the fold and drop it, with no ref, note or
   temporary ref left, and say `dropped` as the fold would.

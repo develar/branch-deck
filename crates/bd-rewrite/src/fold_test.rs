@@ -104,6 +104,32 @@ fn a_fixup_that_cancels_its_target_drops_it_and_the_dry_run_says_so() {
 }
 
 #[test_log::test]
+fn fold_folds_a_fixup_with_its_marker_after_the_prefix() {
+  let target_subject = "(fixup-push) docs(agents): mention the issue tracker";
+  let (repo, [target, _, fixup]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new(target_subject, &[("agents.md", "before\n")]).at(1_700_000_000),
+      HistoryCommit::new("(other) Other work", &[("other.txt", "other\n")]).at(1_700_000_100),
+      HistoryCommit::new("(fixup-push) fixup! docs(agents): mention the issue tracker", &[("agents.md", "after\n")]).at(1_700_000_200),
+    ],
+  );
+  let head = repo.head();
+  let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
+
+  let (exit_code, output) = run_in(&repo, &["fold"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let folded = output["folded"].as_array().unwrap();
+  assert_eq!(folded.len(), 1, "{output}");
+  assert_eq!(folded[0]["commit"], json!(short_id(&target)));
+  assert_eq!(folded[0]["subject"], json!(target_subject));
+  assert_eq!(folded[0]["fixups"], json!([short_id(&fixup)]));
+  assert_eq!(subjects(&repo), format!("(other) Other work\n{target_subject}"));
+  assert_eq!(git(&repo, &["rev-parse", "HEAD^{tree}"]), tree);
+  assert_undo_restores(&repo, &output, &head);
+}
+
+#[test_log::test]
 fn fold_is_refused_on_another_head_or_while_the_lock_is_held() {
   let (repo, ids) = repo_with_fixups();
   let head = repo.head();
@@ -154,6 +180,25 @@ fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
       HistoryCommit::new("(auth) Add a", &[("a.txt", "1\n")]).at(1_700_000_000),
       HistoryCommit::new("(ui) Change a", &[("a.txt", "2\n")]).at(1_700_000_100),
       HistoryCommit::new("fixup! (auth) Add a", &[("a.txt", "3\n")]).at(1_700_000_200),
+    ],
+  );
+  let head = repo.head();
+
+  let (exit_code, output) = run_in(&repo, &["fold"]);
+  assert_error(&output, exit_code, (4, "squash_conflict"));
+  assert_eq!(output["error"]["commits"], json!([fixup, target]), "{output}");
+  assert_eq!(output["error"]["paths"], json!(["a.txt"]), "{output}");
+  assert_eq!(repo.head(), head);
+}
+
+#[test_log::test]
+fn a_prefixed_fixup_that_conflicts_is_refused_as_a_squash_conflict() {
+  let (repo, [target, _, fixup]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(auth) Add a", &[("a.txt", "1\n")]).at(1_700_000_000),
+      HistoryCommit::new("(ui) Change a", &[("a.txt", "2\n")]).at(1_700_000_100),
+      HistoryCommit::new("(auth) fixup! Add a", &[("a.txt", "3\n")]).at(1_700_000_200),
     ],
   );
   let head = repo.head();
