@@ -1,27 +1,30 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { CodeText } from "@/components/shared/CodeText"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { BreakableCode, CodeGlue, CodeText } from "@/components/shared/CodeText"
+import { InlineCode } from "@/components/shared/InlineCode"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { CodeSpan, ProseDeletion, TextRange } from "@/lib/bindings"
+import { glueAfter, glueBefore, isCodeChip } from "@/lib/inline-code"
 import type { ContractParagraph, ProseLinkView } from "@/presenters/review-story"
 
-/** A run of a paragraph between two places where its marks change: a span of code whole, never split */
+/** A run of a paragraph between two places where its marks change */
 interface Run {
   readonly start: number
   readonly end: number
   readonly code: CodeSpan | null
   readonly link: ProseLinkView | null
   readonly inserted: boolean
+  readonly substitution: ContractParagraph["substitutions"][number] | null
 }
 
 /**
- * The runs of `paragraph` in `from..to`: cut where a span of code, a link or a range the change wrote starts or ends and
- * where it removed words, a span of code one run (written by the change when any of it is)
+ * The runs of `paragraph` in `from..to`: cut where a span of code, a link, a change or a substitution starts or ends
  */
 function runsOf(paragraph: ContractParagraph, inserted: readonly TextRange[], deleted: readonly ProseDeletion[], from: number, to: number): Run[] {
   const cuts = new Set<number>([from, to, ...deleted.map(deletion => deletion.at)])
-  for (const range of [...paragraph.code, ...paragraph.links, ...inserted]) {
+  for (const range of [...paragraph.code, ...paragraph.links, ...inserted, ...paragraph.substitutions]) {
     cuts.add(range.start)
     cuts.add(range.end)
   }
@@ -30,14 +33,14 @@ function runsOf(paragraph: ContractParagraph, inserted: readonly TextRange[], de
   let at = from
   while (at < to) {
     const code = paragraph.code.find(span => span.start <= at && at < span.end) ?? null
-    const end = code === null ? (sorted.find(cut => cut > at) ?? to) : Math.min(code.end, to)
-    const within = (range: { start: number; end: number }) => range.start < end && at < range.end
+    const end = Math.min(code?.end ?? to, sorted.find(cut => cut > at) ?? to)
     runs.push({
       start: at,
       end,
       code,
       link: paragraph.links.find(link => link.start <= at && at < link.end) ?? null,
-      inserted: code === null ? inserted.some(range => range.start <= at && at < range.end) : inserted.some(within),
+      inserted: inserted.some(range => range.start <= at && at < range.end),
+      substitution: paragraph.substitutions.find(mark => mark.start <= at && at < mark.end) ?? null,
     })
     at = end
   }
@@ -78,66 +81,175 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
   const { change, excerpt, text } = paragraph
   const inserted = change?.kind === "changed" ? change.inserted : []
   const deleted = change?.kind === "changed" ? change.deleted : []
-  const from = whole || excerpt === null ? 0 : excerpt.start
-  const to = whole || excerpt === null ? text.length : excerpt.end
+  let from = whole || excerpt === null ? 0 : excerpt.start
+  let to = whole || excerpt === null ? text.length : excerpt.end
+  for (const code of paragraph.code) {
+    if (code.start < from && from < code.end) {
+      from = code.start
+    }
+    if (code.start < to && to < code.end) {
+      to = code.end
+    }
+  }
   const runs = runsOf(paragraph, inserted, deleted, from, to)
-  // the words the change removed, each before the run it stood before (a span of code whole), the rest at the end
   const removed = new Map<number, ProseDeletion[]>()
   for (const deletion of deleted.filter(it => it.at >= from && it.at <= to)) {
-    const run = runs.find(it => it.start <= deletion.at && deletion.at < it.end)
-    const at = run?.start ?? to
-    removed.set(at, [...(removed.get(at) ?? []), deletion])
+    removed.set(deletion.at, [...(removed.get(deletion.at) ?? []), deletion])
   }
-  const removedAt = (at: number) =>
-    (removed.get(at) ?? []).map(deletion => (
+  const removedAt = (at: number) => {
+    const deletions = removed.get(at) ?? []
+    removed.delete(at)
+    return deletions.map(deletion => (
       // a hair apart from the words written in their place: "drops the layouts of takes", never "oftakes"
       <del key={`del:${deletion.at}`} className="me-0.5 text-muted-foreground decoration-destructive/70" data-testid="review-brief-deleted">
         {deletion.text}
       </del>
     ))
+  }
+  const hiddenLines = text.slice(0, from).split("\n").length - 1 + (to < text.length ? text.slice(to).split("\n").length : 0)
   const more = (
-    <button
-      type="button"
-      aria-label="Show the whole paragraph"
-      className="rounded-sm px-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:bd-focus"
-      data-testid="review-brief-more"
-      onClick={() => setWhole(true)}
-    >
-      …
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Show the whole paragraph"
+            className="rounded-sm px-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:bd-focus"
+            data-testid="review-brief-more"
+            onClick={() => setWhole(true)}
+          />
+        }
+      >
+        {paragraph.form.kind === "code" ? `⋯ ${hiddenLines} more lines` : "…"}
+      </TooltipTrigger>
+      <TooltipContent>Show the whole paragraph</TooltipContent>
+    </Tooltip>
   )
+  const codeGlue = new Map<number, { readonly before: string; readonly after: string }>()
+  paragraph.code.forEach((code, index) => {
+    const previousEnd = Math.max(from, paragraph.code[index - 1]?.end ?? from)
+    const nextStart = Math.min(to, paragraph.code[index + 1]?.start ?? to)
+    codeGlue.set(code.start, {
+      before: glueBefore(text.slice(previousEnd, code.start)),
+      after: glueAfter(text.slice(code.end, nextStart)),
+    })
+  })
+  const renderRun = (run: Run, raw = false): ReactNode => {
+    let piece = text.slice(run.start, run.end)
+    if (run.code?.explicit === true) {
+      if (run.start === run.code.start) {
+        piece = piece.slice(1)
+      }
+      if (run.end === run.code.end) {
+        piece = piece.slice(0, -1)
+      }
+    }
+    let node: ReactNode = raw ? <span>{piece}</span> : run.code !== null ? <BreakableCode text={piece} /> : <CodeText text={piece} spans={[]} />
+    if (run.inserted) {
+      node = (
+        <ins className="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
+          {node}
+        </ins>
+      )
+    }
+    if (run.substitution !== null) {
+      node = (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="inline rounded-sm bg-transparent p-0 text-inherit underline decoration-dotted underline-offset-2 outline-none focus-visible:bd-focus"
+                data-testid="review-brief-substitution-word"
+              />
+            }
+          >
+            {node}
+            <span className="sr-only"> (was {run.substitution.from})</span>
+          </TooltipTrigger>
+          <TooltipContent>was {run.substitution.from}</TooltipContent>
+        </Tooltip>
+      )
+    }
+    if (run.link !== null) {
+      node = <LinkRun link={run.link}>{node}</LinkRun>
+    }
+    return node
+  }
+  const rendered: ReactNode[] = []
+  for (let index = 0; index < runs.length;) {
+    const run = runs[index]!
+    if (run.code === null) {
+      const previousCode = paragraph.code.find(code => code.end === run.start)
+      const nextCode = paragraph.code.find(code => code.start === run.end)
+      const before = previousCode === undefined ? "" : (codeGlue.get(previousCode.start)?.after ?? "")
+      const after = nextCode === undefined ? "" : (codeGlue.get(nextCode.start)?.before ?? "")
+      const adjusted = { ...run, start: run.start + before.length, end: Math.max(run.start + before.length, run.end - after.length) }
+      rendered.push(
+        <Fragment key={run.start}>
+          {removedAt(run.start)}
+          {renderRun(adjusted, paragraph.form.kind === "code")}
+        </Fragment>,
+      )
+      index += 1
+      continue
+    }
+    const code = run.code
+    const segments: ReactNode[] = []
+    let last = run
+    while (index < runs.length && runs[index]?.code?.start === code.start && runs[index]?.code?.end === code.end) {
+      const segment = runs[index]!
+      segments.push(
+        <Fragment key={segment.start}>
+          {removedAt(segment.start)}
+          {renderRun(segment)}
+        </Fragment>,
+      )
+      last = segment
+      index += 1
+    }
+    segments.push(removedAt(last.end))
+    const glue = codeGlue.get(code.start)
+    rendered.push(
+      <CodeGlue key={`code:${code.start}`} before={glue?.before} after={glue?.after}>
+        <InlineCode plain={!isCodeChip(code)} data-explicit={code.explicit ? "" : undefined} data-testid="review-brief-code-chip">
+          {segments}
+        </InlineCode>
+      </CodeGlue>,
+    )
+  }
   const content = (
     <>
       {from > 0 && more}
-      {runs.map(run => {
-        const piece = text.slice(run.start, run.end)
-        const code = run.code === null ? [] : [{ ...run.code, start: 0, end: piece.length }]
-        let node: ReactNode = <CodeText text={piece} spans={code} />
-        if (run.inserted) {
-          node = (
-            <ins className="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
-              {node}
-            </ins>
-          )
-        }
-        if (run.link !== null) {
-          node = <LinkRun link={run.link}>{node}</LinkRun>
-        }
-        return (
-          <span key={run.start}>
-            {removedAt(run.start)}
-            {node}
-          </span>
-        )
-      })}
+      {rendered}
       {removedAt(to)}
       {to < text.length && more}
     </>
   )
+  if (paragraph.form.kind === "code") {
+    const added = change?.kind === "added"
+    const removedParagraph = change?.kind === "removed"
+    const pre = (
+      <pre
+        className={cn(
+          "rounded-md bg-muted px-3 py-2 font-mono text-sm [overflow-wrap:anywhere] whitespace-pre-wrap",
+          removedParagraph && "text-muted-foreground line-through decoration-muted-foreground/70",
+          change?.kind === "substituted" && "text-muted-foreground",
+        )}
+        data-testid="review-brief-code-block"
+        data-change={change?.kind}
+      >
+        {added && <span className="sr-only">Added: </span>}
+        {removedParagraph && <span className="sr-only">Removed: </span>}
+        {content}
+      </pre>
+    )
+    return added || removedParagraph ? <div className={cn("-ml-[14px] border-l-2 pl-3", added ? "border-success" : "border-destructive/70")}>{pre}</div> : pre
+  }
   switch (change?.kind) {
     case "added":
       return (
-        <p className="-ml-3 border-l-2 border-success pl-2.5" data-testid="review-brief-paragraph" data-change="added">
+        <p className="-ml-[14px] border-l-2 border-success pl-3" data-testid="review-brief-paragraph" data-change="added">
           <span className="sr-only">Added: </span>
           {content}
         </p>
@@ -145,7 +257,7 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
     case "removed":
       return (
         <p
-          className="-ml-3 border-l-2 border-destructive/70 pl-2.5 text-muted-foreground line-through decoration-muted-foreground/70"
+          className="-ml-[14px] border-l-2 border-destructive/70 pl-3 text-muted-foreground line-through decoration-muted-foreground/70"
           data-testid="review-brief-paragraph"
           data-change="removed"
         >
@@ -156,6 +268,12 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
     case "changed":
       return (
         <p data-testid="review-brief-paragraph" data-change="changed">
+          {content}
+        </p>
+      )
+    case "substituted":
+      return (
+        <p className="text-muted-foreground" data-testid="review-brief-paragraph" data-change="substituted">
           {content}
         </p>
       )

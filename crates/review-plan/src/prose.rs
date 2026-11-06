@@ -23,6 +23,8 @@ pub struct ProseParagraph {
   /// Its text after the commits, its lines joined, without the marker of its item, a link as its text; of a removed
   /// paragraph its text before them
   pub text: String,
+  /// Whether this paragraph is prose or the contents of a fenced code block
+  pub form: ProseForm,
   /// Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by
   pub code: Vec<CodeSpan>,
   /// Its links of Markdown (`[text](target)`), each the range of its text in `text`
@@ -31,6 +33,34 @@ pub struct ProseParagraph {
   /// Of a long paragraph changed in a few places, the range of `text` of the sentences that hold its changes, which the
   /// page shows until the reader opens the paragraph whole; `None` shows it whole
   pub excerpt: Option<TextRange>,
+}
+
+/// The form of a paragraph of the brief
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProseForm {
+  /// Markdown prose, with inline code spans
+  Prose,
+  /// The lines inside a fenced code block
+  Code { language: Option<String> },
+}
+
+/// A paragraph parsed from Markdown, before its word changes are computed
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParagraphText {
+  pub text: String,
+  pub form: ProseForm,
+}
+
+fn flush_prose(paragraphs: &mut Vec<ParagraphText>, current: &mut String) {
+  if !current.is_empty() {
+    paragraphs.push(ParagraphText {
+      text: std::mem::take(current),
+      form: ProseForm::Prose,
+    });
+  }
 }
 
 /// What the commits did to a paragraph
@@ -45,7 +75,25 @@ pub enum ProseChange {
   Removed,
   /// A paragraph the commits change in places, the rest of its words kept: the ranges of `text` they wrote and the
   /// words they removed, each at the offset of `text` it stood before
-  Changed { inserted: Vec<TextRange>, deleted: Vec<ProseDeletion> },
+  Changed {
+    inserted: Vec<TextRange>,
+    deleted: Vec<ProseDeletion>,
+    /// The inserted ranges that are part of a repeated replacement in the brief
+    substitutions: Vec<SubstitutionMark>,
+  },
+  /// A paragraph changed only by the repeated replacements of the brief
+  Substituted { substitutions: Vec<SubstitutionMark> },
+}
+
+/// A repeated replacement at its new word in `ProseParagraph::text`, referring to `ReviewBrief::substitutions`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SubstitutionMark {
+  pub start: u32,
+  pub end: u32,
+  pub substitution: u32,
 }
 
 /// Words the commits removed from a changed paragraph
@@ -67,6 +115,28 @@ pub struct ProseDeletion {
 pub struct TextRange {
   pub start: u32,
   pub end: u32,
+}
+
+/// A slice of `text` at a range measured in UTF-16 code units
+pub(crate) fn utf16_slice(text: &str, range: TextRange) -> Option<&str> {
+  fn byte_offset(text: &str, offset: u32) -> Option<usize> {
+    if offset == 0 {
+      return Some(0);
+    }
+    let mut units = 0;
+    for (byte, character) in text.char_indices() {
+      units += u32::try_from(character.len_utf16()).ok()?;
+      if units == offset {
+        return Some(byte + character.len_utf8());
+      }
+      if units > offset {
+        return None;
+      }
+    }
+    (units == offset).then_some(text.len())
+  }
+
+  text.get(byte_offset(text, range.start)?..byte_offset(text, range.end)?)
 }
 
 /// A link of Markdown in a paragraph: the range of its text and its target, a path of the repository resolved against
@@ -144,6 +214,26 @@ fn reach_down(lines: &[&str], range: &Range<usize>) -> usize {
   at - end
 }
 
+/// Extends a change within a fenced code block through its delimiters, so the paragraph parser sees the code form
+fn include_fenced_block(lines: &[&str], range: &mut Range<usize>) {
+  let mut opening = None;
+  for (index, line) in lines.iter().enumerate().take(range.start) {
+    if line.trim().starts_with("```") {
+      opening = if opening.is_some() { None } else { Some(index) };
+    }
+  }
+  let Some(opening) = opening else {
+    return;
+  };
+  let closing = lines
+    .iter()
+    .enumerate()
+    .skip(opening + 1)
+    .find_map(|(index, line)| line.trim().starts_with("```").then_some(index));
+  range.start = range.start.min(opening);
+  range.end = range.end.max(closing.map_or(lines.len(), |closing| closing + 1));
+}
+
 /// The changed blocks of a file of prose widened to whole paragraphs on both sides, the blocks whose paragraphs meet
 /// joined into one: each its lines before and after the commits and the indexes of its blocks. The lines around a block are
 /// the same on both sides, so a paragraph one side reaches into widens the other side by as many lines
@@ -152,6 +242,8 @@ pub(crate) fn paragraph_spans(old: &[&str], new: &[&str], blocks: &[UnitBlock]) 
   for block in blocks {
     let mut old_range = block.old_start as usize..block.old_end as usize;
     let mut new_range = block.new_start as usize..block.new_end as usize;
+    include_fenced_block(old, &mut old_range);
+    include_fenced_block(new, &mut new_range);
     let mut indexes = vec![block.index];
     loop {
       // a paragraph that reaches the span before: one span, the lines between them the same on both sides
@@ -179,18 +271,36 @@ pub(crate) fn paragraph_spans(old: &[&str], new: &[&str], blocks: &[UnitBlock]) 
   spans
 }
 
-/// The paragraphs of `lines`: a break and the start of an item of a list end one; each its lines joined by a space,
-/// without the marker of its item; the `[@test]` lines apart, as the paths they name
-pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
+/// The paragraphs of `lines`: a break and the start of an item of a list end one; each prose paragraph's lines are
+/// joined by a space, code fence contents keep their line breaks; the `[@test]` lines apart, as the paths they name
+pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<ParagraphText>, Vec<String>) {
   let (mut paragraphs, mut proven_by) = (Vec::new(), Vec::new());
   let mut current = String::new();
-  let mut flush = |current: &mut String| {
-    if !current.is_empty() {
-      paragraphs.push(std::mem::take(current));
-    }
-  };
+  let mut code_lines: Vec<&str> = Vec::new();
+  let mut code_language = None;
+  let mut in_code = false;
   for line in lines {
     let trimmed = line.trim();
+    if in_code {
+      if trimmed.starts_with("```") {
+        paragraphs.push(ParagraphText {
+          text: code_lines.join("\n"),
+          form: ProseForm::Code { language: code_language.take() },
+        });
+        code_lines.clear();
+        in_code = false;
+      } else {
+        code_lines.push(line);
+      }
+      continue;
+    }
+    if let Some(fence) = trimmed.strip_prefix("```") {
+      flush_prose(&mut paragraphs, &mut current);
+      let language = fence.trim();
+      code_language = (!language.is_empty()).then(|| language.to_string());
+      in_code = true;
+      continue;
+    }
     if let Some(test) = trimmed.strip_prefix("[@test]") {
       if let Some(path) = test.split_whitespace().next() {
         proven_by.push(path.trim_start_matches("../").to_string());
@@ -199,7 +309,7 @@ pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
     }
     let item = item_text(trimmed);
     if is_break(line) || item.is_some() {
-      flush(&mut current);
+      flush_prose(&mut paragraphs, &mut current);
     }
     if is_break(line) {
       continue;
@@ -209,7 +319,13 @@ pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
     }
     current.push_str(item.unwrap_or(trimmed));
   }
-  flush(&mut current);
+  flush_prose(&mut paragraphs, &mut current);
+  if in_code {
+    paragraphs.push(ParagraphText {
+      text: code_lines.join("\n"),
+      form: ProseForm::Code { language: code_language },
+    });
+  }
   (paragraphs, proven_by)
 }
 
@@ -218,12 +334,28 @@ pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
 /// word, the rest added or removed.
 /// `path` is the file of the paragraphs, the base of the paths their links name; `keep` filters the paragraphs by
 /// their text
-pub(crate) fn prose_changes(old: &[String], new: &[String], path: &str, keep: impl Fn(&str) -> bool) -> Vec<ProseParagraph> {
+pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: &str, keep: impl Fn(&ProseParagraph) -> bool) -> Vec<ProseParagraph> {
   let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
-  let old: Vec<(String, Vec<ProseLink>)> = old.iter().map(|text| strip_links(text, directory)).collect();
-  let new: Vec<(String, Vec<ProseLink>)> = new.iter().map(|text| strip_links(text, directory)).collect();
-  let old_texts: Vec<&str> = old.iter().map(|(text, _)| text.as_str()).collect();
-  let new_texts: Vec<&str> = new.iter().map(|(text, _)| text.as_str()).collect();
+  let prepare = |paragraph: &ParagraphText| {
+    let (text, links) = if matches!(&paragraph.form, ProseForm::Code { .. }) {
+      (paragraph.text.clone(), Vec::new())
+    } else {
+      strip_links(&paragraph.text, directory)
+    };
+    (text, links, paragraph.form.clone())
+  };
+  let old: Vec<(String, Vec<ProseLink>, ProseForm)> = old.iter().map(&prepare).collect();
+  let new: Vec<(String, Vec<ProseLink>, ProseForm)> = new.iter().map(&prepare).collect();
+  let old_keys: Vec<String> = old
+    .iter()
+    .map(|(text, _, form)| format!("{}{}", if matches!(form, ProseForm::Code { .. }) { "\0code\0" } else { "\0prose\0" }, text))
+    .collect();
+  let new_keys: Vec<String> = new
+    .iter()
+    .map(|(text, _, form)| format!("{}{}", if matches!(form, ProseForm::Code { .. }) { "\0code\0" } else { "\0prose\0" }, text))
+    .collect();
+  let old_texts: Vec<&str> = old_keys.iter().map(String::as_str).collect();
+  let new_texts: Vec<&str> = new_keys.iter().map(String::as_str).collect();
   let changes = build_changes(&old_texts, &new_texts).unwrap_or_else(|_| {
     vec![text_diff::lcs::diff::Change {
       line0: 0,
@@ -239,33 +371,115 @@ pub(crate) fn prose_changes(old: &[String], new: &[String], path: &str, keep: im
     // each removed paragraph pairs with the first similar added one after the last pair: the added ones it skips are
     // new, a removed one without a pair is gone
     let mut next = 0;
-    for (before, before_links) in removed {
-      let pair = (next..added.len()).find_map(|at| word_change(before, &added[at].0).map(|change| (at, change)));
+    for (before, before_links, before_form) in removed {
+      let pair = (next..added.len()).find_map(|at| {
+        if same_form_kind(before_form, &added[at].2) {
+          word_change(before, &added[at].0).map(|change| (at, change))
+        } else {
+          None
+        }
+      });
       let Some((at, (inserted, deleted))) = pair else {
-        result.push(paragraph(before, before_links, ProseChange::Removed, None));
+        result.push(paragraph(before, before_form.clone(), before_links, ProseChange::Removed, None));
         continue;
       };
-      for (text, links) in &added[next..at] {
-        result.push(paragraph(text, links, ProseChange::Added, None));
+      for (text, links, form) in &added[next..at] {
+        result.push(paragraph(text, form.clone(), links, ProseChange::Added, None));
       }
-      let (after, links) = &added[at];
-      let excerpt = excerpt(after, &inserted, &deleted);
-      result.push(paragraph(after, links, ProseChange::Changed { inserted, deleted }, excerpt));
+      let (after, links, after_form) = &added[at];
+      let excerpt = if matches!(after_form, ProseForm::Code { .. }) {
+        code_excerpt(after, &inserted, &deleted)
+      } else {
+        excerpt(after, &inserted, &deleted)
+      };
+      result.push(paragraph(
+        after,
+        after_form.clone(),
+        links,
+        ProseChange::Changed {
+          inserted,
+          deleted,
+          substitutions: Vec::new(),
+        },
+        excerpt,
+      ));
       next = at + 1;
     }
-    for (text, links) in &added[next..] {
-      result.push(paragraph(text, links, ProseChange::Added, None));
+    for (text, links, form) in &added[next..] {
+      result.push(paragraph(text, form.clone(), links, ProseChange::Added, None));
     }
   }
-  result.retain(|paragraph| keep(&paragraph.text));
+  result.retain(keep);
   result
 }
 
-fn paragraph(text: &str, links: &[ProseLink], change: ProseChange, excerpt: Option<TextRange>) -> ProseParagraph {
+const fn same_form_kind(left: &ProseForm, right: &ProseForm) -> bool {
+  matches!((left, right), (ProseForm::Prose, ProseForm::Prose) | (ProseForm::Code { .. }, ProseForm::Code { .. }))
+}
+
+/// Moves repeated replacement pairs out of the word diff and marks their new words
+pub(crate) fn apply_substitutions(paragraphs: &mut [ProseParagraph], table: &[crate::brief::Substitution]) {
+  for paragraph in paragraphs {
+    let updated = match &mut paragraph.change {
+      ProseChange::Changed { inserted, deleted, substitutions } => {
+        let mut used_deletions = vec![false; deleted.len()];
+        let mut kept_insertions = Vec::new();
+        for inserted_range in inserted.iter() {
+          let same_position: Vec<usize> = deleted
+            .iter()
+            .enumerate()
+            .filter_map(|(index, deletion)| (deletion.at == inserted_range.start).then_some(index))
+            .collect();
+          let same_inserted_position = inserted.iter().filter(|range| range.start == inserted_range.start).count();
+          let substitution = if same_position.len() == 1 && same_inserted_position == 1 {
+            let deletion_index = same_position[0];
+            let deletion = &deleted[deletion_index];
+            utf16_slice(&paragraph.text, *inserted_range)
+              .and_then(|to| table.iter().position(|substitution| substitution.from == deletion.text && substitution.to == to))
+              .map(|index| (deletion_index, index))
+          } else {
+            None
+          };
+          if let Some((deletion_index, substitution)) = substitution {
+            let Ok(substitution) = u32::try_from(substitution) else {
+              kept_insertions.push(*inserted_range);
+              continue;
+            };
+            used_deletions[deletion_index] = true;
+            substitutions.push(SubstitutionMark {
+              start: inserted_range.start,
+              end: inserted_range.end,
+              substitution,
+            });
+          } else {
+            kept_insertions.push(*inserted_range);
+          }
+        }
+        *inserted = kept_insertions;
+        *deleted = std::mem::take(deleted)
+          .into_iter()
+          .enumerate()
+          .filter_map(|(index, deletion)| (!used_deletions[index]).then_some(deletion))
+          .collect();
+        (inserted.is_empty() && deleted.is_empty() && !substitutions.is_empty()).then(|| ProseChange::Substituted {
+          substitutions: std::mem::take(substitutions),
+        })
+      }
+      _ => None,
+    };
+    if let Some(change) = updated {
+      paragraph.change = change;
+    }
+  }
+}
+
+fn paragraph(text: &str, form: ProseForm, links: &[ProseLink], change: ProseChange, excerpt: Option<TextRange>) -> ProseParagraph {
+  let is_code = matches!(&form, ProseForm::Code { .. });
   ProseParagraph {
     text: text.to_string(),
-    code: code_spans(text),
-    links: links.to_vec(),
+    form,
+    code: if is_code { Vec::new() } else { code_spans(text) },
+    links: if is_code { Vec::new() } else { links.to_vec() },
     change,
     excerpt,
   }
@@ -436,4 +650,42 @@ fn excerpt(text: &str, inserted: &[TextRange], deleted: &[ProseDeletion]) -> Opt
     start: u32::try_from(range.start).unwrap_or(u32::MAX),
     end: u32::try_from(range.end).unwrap_or(u32::MAX),
   })
+}
+
+/// Of a long fenced block changed on multiple lines, the changed lines and one line of context on either side
+fn code_excerpt(text: &str, inserted: &[TextRange], deleted: &[ProseDeletion]) -> Option<TextRange> {
+  let lines: Vec<&str> = text.split('\n').collect();
+  if lines.len() <= 8 {
+    return None;
+  }
+  let mut starts = Vec::with_capacity(lines.len());
+  let mut offset = 0;
+  for (index, line) in lines.iter().enumerate() {
+    starts.push(offset);
+    offset += utf16(line);
+    if index + 1 < lines.len() {
+      offset += 1;
+    }
+  }
+  let line_of = |at: u32| starts.iter().take_while(|&&start| start <= at).count().saturating_sub(1);
+  let mut changed_lines = Vec::new();
+  for range in inserted {
+    let first = line_of(range.start);
+    let last = line_of(range.end.saturating_sub(1).max(range.start));
+    changed_lines.extend(first..=last);
+  }
+  changed_lines.extend(deleted.iter().map(|deletion| line_of(deletion.at)));
+  changed_lines.sort_unstable();
+  changed_lines.dedup();
+  if changed_lines.len() <= 1 {
+    return None;
+  }
+  let first = changed_lines[0].saturating_sub(1);
+  let last = (changed_lines[changed_lines.len() - 1] + 1).min(lines.len() - 1);
+  let start = starts[first];
+  let mut end = starts[last] + utf16(lines[last]);
+  if last + 1 < lines.len() {
+    end += 1;
+  }
+  (start > 0 || end < offset).then_some(TextRange { start, end })
 }

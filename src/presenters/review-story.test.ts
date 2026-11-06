@@ -77,7 +77,7 @@ function textOf(view: StoryView): { lead: string | null; shown: string[][]; fold
 
 /** A paragraph of prose the commits add whole, as Rust reads it (`review_plan::prose`) */
 function prose(text: string, change: ProseParagraph["change"] = { kind: "added" }, links: ProseParagraph["links"] = []): ProseParagraph {
-  return { text, code: [], links, change, excerpt: null }
+  return { text, form: { kind: "prose" }, code: [], links, change, excerpt: null }
 }
 
 function contract(path: string, heading: string | null, added: (string | ProseParagraph)[], provenBy: string[] = [], block = 0): ContractEntry {
@@ -96,7 +96,7 @@ function contract(path: string, heading: string | null, added: (string | ProsePa
 
 describe("the document of a review", () => {
   it("words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page", () => {
-    const changed = prose("The store keeps at most 500 projects and their focus.", { kind: "changed", inserted: [{ start: 37, end: 53 }], deleted: [] }, [
+    const changed = prose("The store keeps at most 500 projects and their focus.", { kind: "changed", inserted: [{ start: 37, end: 53 }], deleted: [], substitutions: [] }, [
       { start: 4, end: 9, target: "spec/store.spec.md" },
       { start: 10, end: 15, target: "https://example.com/keeps" },
       { start: 16, end: 18, target: "spec/elsewhere.spec.md" },
@@ -107,6 +107,7 @@ describe("the document of a review", () => {
         files: [file("spec/a.spec.md"), file("spec/store.spec.md")],
         brief: {
           issue: null,
+          substitutions: [],
           contract: [
             // two places of one section, which Rust tells apart by their blocks: one section, its tests once
             contract("spec/a.spec.md", "Storage", [changed], ["tests/restart.json"], 0),
@@ -154,6 +155,42 @@ describe("the document of a review", () => {
       { start: 4, end: 9, place: { path: "spec/store.spec.md", side: "new", line: null, name: null }, href: null },
       { start: 10, end: 15, place: null, href: "https://example.com/keeps" },
       { start: 16, end: 18, place: null, href: null },
+    ])
+  })
+
+  it("passes paragraph forms and resolves substitution marks to their original words", () => {
+    const paths = ["spec/a.spec.md", "spec/b.spec.md", "spec/c.spec.md", "spec/d.spec.md", "spec/e.spec.md"]
+    const form: ProseParagraph["form"] = { kind: "code", language: "sh" }
+    const paragraph: ProseParagraph = {
+      text: "brd",
+      form,
+      code: [],
+      links: [],
+      change: { kind: "substituted", substitutions: [{ start: 0, end: 3, substitution: 0 }] },
+      excerpt: null,
+    }
+    const view = presentPrologue(
+      plan([], [], {
+        files: paths.map(path => ({ path, oldPath: null }) as FileFacts),
+        brief: {
+          issue: null,
+          substitutions: [{ from: "bd", to: "brd", places: 3, paths }],
+          contract: [contract("spec/a.spec.md", null, [paragraph])],
+        },
+      }),
+      false,
+    )
+    const presented = view.contract[0]!.entries[0]!.paragraphs[0]!
+    expect([presented.form, presented.substitutions]).toEqual([form, [{ start: 0, end: 3, from: "bd" }]])
+    expect(view.substitutions).toEqual([
+      {
+        key: "0:bd:brd",
+        from: "bd",
+        to: "brd",
+        summary: "3 places in 5 files",
+        files: paths.map(path => ({ path, name: path.slice(path.lastIndexOf("/") + 1), place: { path, side: "new", line: null, name: null } })),
+        allFiles: paths.join("\n"),
+      },
     ])
   })
 
@@ -221,6 +258,7 @@ describe("the document of a review", () => {
         {
           brief: {
             issue: null,
+            substitutions: [],
             contract: [
               contract("spec/a.spec.md", "Startup", ["The window keeps its layout."], ["tests/restart.json"]),
               contract("spec/a.spec.md", "Restart", ["The restart keeps it."]),
@@ -381,7 +419,7 @@ describe("the document of a review", () => {
         branch: null,
         title: "11111111..22222222",
         concerns: [rest],
-        brief: { issue: "IJAI-1", contract: [] },
+        brief: { issue: "IJAI-1", substitutions: [], contract: [] },
         steps: {
           source: { kind: "concerns", reason: "noStory" },
           told: true,
@@ -563,7 +601,7 @@ describe("the document of a review", () => {
         ],
         [story("the rule", [paragraph("One rule decides.")]), story("the rule again", [paragraph("Renamed it.")])],
         {
-          brief: { issue: "IJAI-1", contract: [] },
+          brief: { issue: "IJAI-1", substitutions: [], contract: [] },
           api: [
             { path: "src/a/Cache.kt", line: 3, name: "Cache", key: "a.Cache", kind: "added", changes: [], before: null, after: "class Cache", usages: null },
             { path: "src/a/Store.kt", line: 4, name: "Store", key: "a.Store", kind: "changed", changes: [], before: null, after: null, usages: null },
@@ -627,7 +665,7 @@ describe("the document of a review", () => {
     ]
     const whole = plan(steps, [one], {
       concerns,
-      brief: { issue: "IJAI-1", contract: [] },
+      brief: { issue: "IJAI-1", substitutions: [], contract: [] },
       steps: { source: { kind: "concerns", reason: "oneCommit" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
     })
     const openings = presentOpenings(whole)

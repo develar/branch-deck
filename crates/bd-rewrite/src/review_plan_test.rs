@@ -146,6 +146,7 @@ fn prints_the_api_and_the_files_of_a_range() {
 
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["schema"], json!(19), "{output}");
   assert_eq!(
     (&output["api"], &output["files"]),
     (
@@ -194,7 +195,7 @@ fn prints_the_api_and_the_files_of_a_range() {
     (
       &json!({ "kind": "concerns", "reason": "oneCommit" }),
       &json!({ "blocks": 2, "inStops": 2, "mechanical": 0, "missing": 0, "twice": 0 }),
-      &json!({ "issue": null, "contract": [] })
+      &json!({ "issue": null, "substitutions": [], "contract": [] })
     ),
     "{output}"
   );

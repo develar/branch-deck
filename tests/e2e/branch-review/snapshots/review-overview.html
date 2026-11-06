@@ -5,44 +5,47 @@
     </h2>
   </div>
   <div class="flex flex-col gap-2" data-testid="review-brief-contract">
-    <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+    <div class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
       <span class="truncate">
         What Changes
       </span>
     </div>
     <ul class="flex flex-col gap-5">
       <li class="flex min-w-0 flex-col gap-3" data-path="spec/window.spec.md" data-testid="review-brief-contract-entry">
-        <span class="flex min-w-0 items-center gap-2 text-xs">
+        <span class="flex min-w-0 items-center gap-2 text-sm">
           <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
             Spec rule
           </span>
-          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-path="spec/window.spec.md" data-testid="review-brief-contract-file" title="spec/window.spec.md" type="button">
-            <span class="min-w-0 truncate text-muted-foreground" dir="rtl">
-              <bdi dir="ltr">
-                spec/window.spec.md
-              </bdi>
+          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="spec/window.spec.md" data-slot="tooltip-trigger" data-testid="review-brief-contract-file" id="base-ui-[ID]" type="button">
+            <span class="min-w-0">
+              <span class="text-muted-foreground">
+                spec/
+              </span>
+              <span class="font-semibold text-foreground">
+                window.spec.md
+              </span>
             </span>
           </button>
         </span>
-        <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-          <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-            <h3 class="min-w-0 font-semibold">
-              Requirements
-            </h3>
-            <span class="text-xs text-muted-foreground">
-              Proven by restart.json
-            </span>
-          </div>
-          <p class="-ml-3 border-l-2 border-success pl-2.5" data-change="added" data-testid="review-brief-paragraph">
-            <span class="sr-only">
-              Added:
-            </span>
-            <span>
+        <div class="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
+          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              <h3 class="min-w-0 text-sm font-semibold">
+                Requirements
+              </h3>
+              <span class="text-xs text-muted-foreground">
+                Proven by restart.json
+              </span>
+            </div>
+            <p class="-ml-[14px] border-l-2 border-success pl-3" data-change="added" data-testid="review-brief-paragraph">
+              <span class="sr-only">
+                Added:
+              </span>
               <span>
                 The window keeps its stored layout across a restart, and the project view does not take the place of another tool window.
               </span>
-            </span>
-          </p>
+            </p>
+          </div>
         </div>
       </li>
     </ul>

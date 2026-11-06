@@ -1,9 +1,9 @@
 use crate::ReviewPlan;
-use crate::brief::{ContractKind, contract_kind, shared_issue};
+use crate::brief::{ContractKind, Substitution, contract_kind, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
-use crate::prose::ProseChange;
+use crate::prose::{ProseChange, ProseForm, utf16_slice};
 use crate::steps::{
   CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ShownElsewhere, StepSource, StepStop, StepTest, TestWay, commit_title, join_units, tells_a_story,
 };
@@ -50,6 +50,26 @@ fn commits(of: &[(&str, CommitRole)]) -> Vec<(String, CommitRole)> {
 
 fn names(of: &[&str]) -> Vec<String> {
   of.iter().map(|name| (*name).to_string()).collect()
+}
+
+fn prose_plan(old_spec: &str, new_spec: &str, old_guide: &str, new_guide: &str) -> ReviewPlan {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add prose", &[("spec/commands.spec.md", old_spec), ("docs/guide.md", old_guide)]);
+  let head = repo.create_commit_with_files("Rewrite prose", &[("spec/commands.spec.md", new_spec), ("docs/guide.md", new_guide)]);
+  plan_of_range(&repo, &base, &head)
+}
+
+fn deleted_word_count(plan: &ReviewPlan, word: &str) -> usize {
+  plan
+    .brief
+    .contract
+    .iter()
+    .flat_map(|entry| &entry.paragraphs)
+    .map(|paragraph| match &paragraph.change {
+      ProseChange::Changed { deleted, .. } => deleted.iter().filter(|deletion| deletion.text == word).count(),
+      _ => 0,
+    })
+    .sum()
 }
 
 const API: &str = "package a\n\nfun open(path: String): Int = 1\n\nfun close(): Int = 2\n";
@@ -632,6 +652,87 @@ fn the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests() {
       ["tests/restart.json".to_string()].as_slice()
     )
   );
+}
+
+/// A replacement repeated across the spec and guide is named once and taken out of its paragraph diffs
+#[test]
+fn a_substitution_repeated_across_paragraphs_is_named_once_and_marked_in_place() {
+  let old_cli = concat!("b", "d");
+  let old_spec = format!("# Commands\n\n## Requirements\n\n🧪 Run {old_cli} for local work.\n\nUse {old_cli} and {old_cli} output; check the status.\n");
+  let new_spec = "# Commands\n\n## Requirements\n\n🧪 Run brd for local work.\n\nUse brd and brd output; review the status.\n";
+  let old_guide = format!("# Agent guide\n\nThe {old_cli} command opens a workspace.\n");
+  let new_guide = "# Agent guide\n\nThe brd command opens a workspace.\n";
+  let plan = prose_plan(&old_spec, new_spec, &old_guide, new_guide);
+  assert_eq!(
+    plan.brief.substitutions,
+    [Substitution {
+      from: "bd".to_string(),
+      to: "brd".to_string(),
+      places: 4,
+      paths: names(&["spec/commands.spec.md", "docs/guide.md"]),
+    }]
+  );
+  let repeated = deleted_word_count(&plan, "bd");
+  assert_eq!(repeated, 0, "the repeated `bd` → `brd` edit should be carried by the substitution summary");
+  let paragraphs: Vec<_> = plan.brief.contract.iter().flat_map(|entry| &entry.paragraphs).collect();
+  let quiet: Vec<_> = paragraphs.iter().filter(|paragraph| matches!(&paragraph.change, ProseChange::Substituted { .. })).collect();
+  assert_eq!(quiet.len(), 2);
+  let unicode = quiet.iter().find(|paragraph| paragraph.text.starts_with("🧪")).unwrap();
+  let ProseChange::Substituted { substitutions } = &unicode.change else {
+    panic!("the paragraph changed only by the substitution is quiet");
+  };
+  assert_eq!(
+    substitutions,
+    &[crate::prose::SubstitutionMark {
+      start: 7,
+      end: 10,
+      substitution: 0
+    }]
+  );
+
+  let mixed = paragraphs.iter().find(|paragraph| paragraph.text.starts_with("Use brd and brd")).unwrap();
+  let ProseChange::Changed { inserted, deleted, substitutions } = &mixed.change else {
+    panic!("the paragraph with another edit stays changed");
+  };
+  assert_eq!(substitutions.len(), 2);
+  assert_eq!(inserted.iter().filter_map(|range| utf16_slice(&mixed.text, *range)).collect::<Vec<_>>(), ["review"]);
+  assert_eq!(deleted.iter().map(|deletion| deletion.text.as_str()).collect::<Vec<_>>(), ["check"]);
+}
+
+/// A word pair seen twice remains an ordinary paragraph change
+#[test]
+fn a_pair_seen_twice_is_no_substitution() {
+  let old_cli = concat!("b", "d");
+  let unchanged_guide = "# Agent guide\n\nThe guide remains unchanged.\n";
+  let old_spec = format!("# Commands\n\nUse {old_cli} to open work.\n\nUse {old_cli} to close work.\n");
+  let new_spec = "# Commands\n\nUse brd to open work.\n\nUse brd to close work.\n";
+  let plan = prose_plan(&old_spec, new_spec, unchanged_guide, unchanged_guide);
+  assert_eq!(plan.brief.substitutions, Vec::new());
+  let remaining = deleted_word_count(&plan, "bd");
+  assert_eq!(remaining, 2);
+}
+
+/// A diff inside a fenced block widens to its fences before the brief parses it
+#[test]
+fn a_fenced_code_change_in_the_brief_keeps_its_code_form_and_lines() {
+  let old_cli = concat!("b", "d");
+  let old_spec = format!("# Commands\n\n## Requirements\n\nRun the `{old_cli}` command.\n");
+  let old_guide = format!("# Guide\n\n```sh\n{old_cli} workspace -C <repo>\nprintf 'ready'\n```\n");
+  let new_spec = "# Commands\n\n## Requirements\n\nRun the `brd` command.\n";
+  let new_guide = "# Guide\n\n```sh\nbrd workspace -C <repo>\nprintf 'ready'\n```\n";
+  let plan = prose_plan(&old_spec, new_spec, &old_guide, new_guide);
+  let code: Vec<_> = plan
+    .brief
+    .contract
+    .iter()
+    .flat_map(|entry| &entry.paragraphs)
+    .filter(|paragraph| matches!(&paragraph.form, ProseForm::Code { .. }))
+    .collect();
+  assert_eq!(code.len(), 1, "the changed code block is not prose");
+  assert_eq!(code[0].text, "brd workspace -C <repo>\nprintf 'ready'");
+  assert_eq!(code[0].form, ProseForm::Code { language: Some("sh".to_string()) });
+  assert_eq!(code[0].code, Vec::new());
+  assert_eq!(code[0].links, Vec::new());
 }
 
 /// Of a doc the brief keeps only prose: a changed line of a value (`dark: #88aaff`) says nothing, the heading of its

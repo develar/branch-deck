@@ -267,11 +267,12 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   `bg-muted` whose halo (`ring-2 ring-muted`) takes no width, so the punctuation around it keeps its place; at
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code: a code name in a row of `text-sm` is `text-sm` too. Code
-  breaks only at its own boundaries (`/`, a non-final `.`; `BreakableCode`; a name set apart, too long for its line,
-  at its camelCase humps), never inside a word, and the punctuation
+  breaks only after `/` (not inside `//`) and before dotted names, except a chain of short final extensions such as
+  `.spec.md` or `.tar.gz` (`BreakableCode`; a name set apart, too long for its line, at its camelCase humps), never
+  inside a word, and the punctuation
   that touches it stays on its line (`CodeGlue`: a link of code is a button, an atomic inline a line breaks around).
-  A command on its own line is a `pre` block,
-  `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
+  A command on its own line is a `pre` block (`rounded-md bg-muted px-3 py-2 font-mono text-sm`), which preserves its
+  lines and shows word changes in the review.
 - **The focus is one look, the `bd-focus` token** (`src/index.css`): a solid 2px outline of the ring colour, 2px off
   the box, in every window and on every focusable element, so "where the keys are" reads the same in the main window,
   a review and Settings. It is drawn under the state variant of the caller (`focus-visible:bd-focus`,
@@ -359,17 +360,19 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
     never `text-lg`.
   - `text-lg` (18/28px) only for the headline of the document of a review and the subject of the commit a review shows
-    alone (`CommitHeader` `document`): one step above the titles of its openings (`text-base font-semibold`); its
-    headings of What Changes, its open parts and labels are `font-semibold` and the steps of its contents
-    `font-medium`, at the `text-md` of its prose, never smaller than the text under them; its facts and meta lines
-    `text-xs` muted.
+    alone (`CommitHeader` `document`): one step above the titles of its openings (`text-base font-semibold`); What
+    Changes, its file names and its section headings are `text-sm font-semibold`, never weaker or larger inside a file;
+    the directory of a file is muted. Its open parts and labels are `font-semibold`, and the steps of its contents
+    `font-medium`, at the `text-md` of its prose; its facts and meta lines are `text-xs` muted.
 - **Reading column**: prose a person reads in a wide pane (the overview of a review, the opening of a step, the
   overview of a pull request) is a `ReadingColumn` (`src/components/shared/ReadingColumn.tsx`): one measure,
   `max-w-measure` (`--container-measure`, 65ch of `text-md`, about 80 characters), in the middle of its pane, its
   lines wrapped to avoid a short last one (`text-pretty`). Every block in it fills it and sets no width of its own,
   so headings, paragraphs and their facts end at one edge; a number or a bar hangs in the gutter (`-ml-*`), so the
   text keeps the edge. A column pressed to the left of a wide card with a second, narrower measure inside it reads
-  as a third of the screen with ragged edges. Dialogs, popovers and cards measure themselves.
+  as a third of the screen with ragged edges. In What Changes, file sections sit behind a muted quote line
+  (`border-l-2 border-border pl-3`), with addition and removal bars on that same line. Dialogs, popovers and cards
+  measure themselves.
   - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour
     and drops it next to `text-foreground` (`src/lib/type-scale.test.ts`). A size outside the scale is a `bd-` utility
     (`bd-window-control-glyph`, the 10px Windows caption glyph; `bd-avatar-initials`, the initials in a 20px avatar

@@ -1084,6 +1084,60 @@ test.describe("Review tour", () => {
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "spec/focus.spec.md", exact: true })).toHaveAttribute("aria-selected", "true")
     await captureHtmlSnapshot(overview.getByTestId("review-brief-contract"), "review-brief-prose")
   })
+
+  test("should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("review_prose"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
+    const overview = window.getByTestId("review-overview")
+    const contract = overview.getByTestId("review-brief-contract")
+    const substitution = contract.getByTestId("review-brief-substitution")
+    await expect(substitution).toContainText("Renames bd → brd · 9 places in 5 files")
+    await expect(substitution.getByTestId("review-brief-substitution-file")).toHaveCount(3)
+    const moreFiles = substitution.getByTestId("review-brief-substitution-more")
+    await expect(moreFiles).toHaveText("and 2 more")
+    await captureHtmlSnapshot(contract, "review-brief-substitutions")
+    await moreFiles.hover()
+    const tooltip = window.getByRole("tooltip")
+    await expect(tooltip).toContainText("spec/terminal.spec.md")
+    await expect(tooltip).toContainText("docs/agent-guide.md")
+
+    const summaryFile = substitution.getByTestId("review-brief-substitution-file").first()
+    const path = await summaryFile.getAttribute("data-path")
+    if (path === null) {
+      throw new Error("The substitution file button must identify its file")
+    }
+    await summaryFile.click()
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: path, exact: true })).toHaveAttribute("aria-selected", "true")
+
+    const commands = overview.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Commands", exact: true }) })
+    const quiet = commands.getByTestId("review-brief-paragraph").filter({ hasText: "to read the whole change." })
+    await expect(quiet).toHaveAttribute("data-change", "substituted")
+    const quietWord = quiet.getByTestId("review-brief-substitution-word")
+    await quietWord.hover()
+    await expect(window.getByRole("tooltip").filter({ hasText: "was bd" })).toHaveText("was bd")
+
+    const mixed = commands.getByTestId("review-brief-paragraph").filter({ hasText: "Verify the status." })
+    const chip = mixed.getByTestId("review-brief-code-chip")
+    await expect(mixed).toHaveAttribute("data-change", "changed")
+    await expect(chip).toHaveCount(1)
+    await expect(chip.getByTestId("review-brief-deleted")).toHaveText("short")
+    await expect(chip.getByTestId("review-brief-inserted")).toHaveText("compact")
+    await expect(chip.getByTestId("review-brief-substitution-word")).toContainText("brd")
+
+    const code = commands.getByTestId("review-brief-code-block")
+    await expect(code).toHaveAttribute("data-change", "substituted")
+    await expect(code.getByTestId("review-brief-substitution-word")).toHaveCount(3)
+    const expand = code.getByRole("button", { name: "Show the whole paragraph" })
+    await expect(expand).toHaveText(/⋯ \d+ more lines/)
+    await expand.hover()
+    await expect(window.getByRole("tooltip").filter({ hasText: "Show the whole paragraph" })).toHaveText("Show the whole paragraph")
+    await expand.click()
+    await expect(code).toContainText("printf 'complete'")
+  })
 })
 
 /** What the first commit of `review_prose` writes and removes in the long paragraph, as the word diff reads it */

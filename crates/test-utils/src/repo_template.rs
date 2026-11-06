@@ -462,38 +462,72 @@ pub mod templates {
   }
 
   /// The prose of What Changes (spec/branch/review-tour.spec.md, "Brief"): the branch `prose` of two commits of the issue
-  /// `IJAI-5640`, the second subject starting with two keys. The first rewrites a word of a long hard-wrapped paragraph
-  /// of the Storage section of `spec/window.spec.md` (its second sentence) and adds a paragraph that links
-  /// `spec/focus.spec.md`, which it changes too; the second appends words to the next paragraph
+  /// `IJAI-5640`, the second subject starting with two keys. It rewrites a word of a long hard-wrapped paragraph of the
+  /// Storage section, adds a linked paragraph and a fenced command block, and repeats `bd` → `brd` across five prose files;
+  /// the second commit appends words to the next paragraph
   pub fn review_prose() -> RepoTemplate {
-    let storage = |order: &str, bound: &str, focus: &str| {
+    let old_cli = concat!("b", "d");
+    let storage = |order: &str, bound: &str, focus: &str, commands: &str| {
       format!(
-        "---\nname: Window\n---\n\n# Window\n\n## Storage\n\nThe window keeps its layout in a file of the IDE in the config directory, not in the project, so a checkout of\nanother branch never changes it. The file holds the tool windows of each project: their side, their size{order}.\nIt is written when the window closes, and read once when it opens. A file that cannot be read is renamed aside, and\nthe window opens with the default layout.\n\nThe store keeps at most 500 projects. A write above the bound drops the layouts of the projects with the oldest\nopen{bound}.\n{focus}\n## Requirements\n\n- The window opens on its last project.\n"
+        "---\nname: Window\n---\n\n# Window\n\n## Storage\n\nThe window keeps its layout in a file of the IDE in the config directory, not in the project, so a checkout of\nanother branch never changes it. The file holds the tool windows of each project: their side, their size{order}.\nIt is written when the window closes, and read once when it opens. A file that cannot be read is renamed aside, and\nthe window opens with the default layout.\n\nThe store keeps at most 500 projects. A write above the bound drops the layouts of the projects with the oldest\nopen{bound}.\n{focus}\n## Requirements\n\n- The window opens on its last project.\n{commands}"
       )
     };
+    let commands = |cli: &str, workspace: &str, flag: &str, added: &str| {
+      format!(
+        "\n## Commands\n\n- Run `{cli} {workspace} {flag} -C <repo>` from the project root.{added}\n\n- Use `{cli} review-plan` to read the whole change.\n\n```sh\npwd\n{cli} workspace -C <repo>\nprintf 'checking'\n{cli} review-plan\nprintf 'ready'\n{cli} report --json\ngit status\nprintf 'done'\nprintf 'ok'\nprintf 'complete'\n```\n"
+      )
+    };
+    let substitution_spec = |name: &str, command: &str| format!("---\nname: {name}\n---\n\n# {name}\n\n## Requirements\n\n- Use `{command}` to open the project.\n");
+    let guide = |command: &str| format!("# Agent Guide\n\nUse `{command}` to open the project.\n");
     let focus_spec = |more: &str| format!("---\nname: Focus\n---\n\n# Focus\n\n## Requirements\n\n- The focus follows the last click.\n{more}");
+    let old_focus = format!("- Use `{old_cli} review-plan` to read focus.\n");
     let linked = "\nThe focus of a tool window is a fact the window derives from the last click. [Window Focus](focus.spec.md) owns its\nrules.\n";
     RepoTemplate::new("review_prose")
       .branch_prefix("user-name")
       .commit_with_timestamp(
         "Initial project setup",
         &[
-          ("spec/window.spec.md", &storage(" and their order", "", "")),
-          ("spec/focus.spec.md", &focus_spec("")),
+          ("spec/window.spec.md", &storage(" and their order", "", "", &commands(old_cli, "workspace", "--short", ""))),
+          ("spec/focus.spec.md", &focus_spec(&old_focus)),
+          ("spec/cli.spec.md", &substitution_spec("CLI", old_cli)),
+          ("spec/terminal.spec.md", &substitution_spec("Terminal", old_cli)),
+          ("docs/agent-guide.md", &guide(old_cli)),
         ],
         Some(1704117600),
       )
       .commit_with_timestamp(
         "(prose) IJAI-5640 the layout file keeps the tool window in focus\n\nThe layout file holds the tool window in focus, and the focus spec says how the window derives it.",
         &[
-          ("spec/window.spec.md", &storage(", their order and the tool window in focus", "", linked)),
-          ("spec/focus.spec.md", &focus_spec("- The focus survives a restart.\n")),
+          (
+            "spec/window.spec.md",
+            &storage(
+              ", their order and the tool window in focus",
+              "",
+              linked,
+              &commands("brd", "workspace", "--compact", " Verify the status."),
+            ),
+          ),
+          (
+            "spec/focus.spec.md",
+            &focus_spec("- The focus survives a restart.\n- Use `brd review-plan` to read focus.\n"),
+          ),
+          ("spec/cli.spec.md", &substitution_spec("CLI", "brd")),
+          ("spec/terminal.spec.md", &substitution_spec("Terminal", "brd")),
+          ("docs/agent-guide.md", &guide("brd")),
         ],
         Some(1704118200),
       )
       .commit_with_timestamp(
         "(prose) IJAI-1184 IJAI-5640 the store drops only the layouts no pinned tool window holds\n\nA pinned tool window is a choice of the user: the store keeps its layout past the bound.",
-        &[("spec/window.spec.md", &storage(", their order and the tool window in focus", " that pin no tool window", linked))],
+        &[(
+          "spec/window.spec.md",
+          &storage(
+            ", their order and the tool window in focus",
+            " that pin no tool window",
+            linked,
+            &commands("brd", "workspace", "--compact", " Verify the status."),
+          ),
+        )],
         Some(1704118800),
       )
   }

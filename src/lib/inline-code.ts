@@ -11,9 +11,9 @@ export function isCodeChip(span: CodeSpan): boolean {
   return span.explicit || span.joined
 }
 
-// break opportunities in long paths and dotted names: before a `/` or `.` that follows a name character (not inside
-// `//`, `./` or Bazel's `...`), and not before a short final extension (`Foo` / `.kt`); CONSTANT_CASE names stay whole
-const CODE_BREAK = /(?<=[^/.])(?=\/)|(?<=[^.])(?=\.(?![./]|\w{1,4}$))/
+// break after `/` (not inside `//`) and before dotted names; a chain of short final extensions (`.spec.md`, `.tar.gz`)
+// stays whole; CONSTANT_CASE names stay whole
+const CODE_BREAK = /(?<=\/)(?!\/)|(?<=[^/.])(?=\.(?![./]))(?!(?:\.\w{1,4})+$)/
 
 /** Splits a code token at its line-break opportunities: `src/lib/commit.ts` → `src/`, `lib/`, `commit.ts`. */
 export function splitCodeAtBreaks(content: string): string[] {

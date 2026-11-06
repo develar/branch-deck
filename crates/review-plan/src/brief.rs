@@ -4,7 +4,7 @@
 //! process: the texts of these files are in the memory of the plan.
 
 use crate::files::{ChangedFile, blob_lines, lines_in};
-use crate::prose::{ProseParagraph, paragraph_spans, paragraphs, prose_changes};
+use crate::prose::{ProseChange, ProseForm, ProseParagraph, apply_substitutions, paragraph_spans, paragraphs, prose_changes, utf16_slice};
 use crate::units::{OtherReason, ReviewUnit, UnitKind};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -18,8 +18,23 @@ use sync_utils::issue_pattern::leading_issue_keys;
 pub struct ReviewBrief {
   /// The issue key the commits name in their subjects: one key, named by half of them at least and contradicted by none
   pub issue: Option<String>,
+  /// The repeated replacements the changed paragraphs share, by the number of places
+  pub substitutions: Vec<Substitution>,
   /// The prose the change adds, removes or changes, by the rank of its kind, then in the order of the story
   pub contract: Vec<ContractEntry>,
+}
+
+/// A repeated word replacement the paragraphs of the brief share
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct Substitution {
+  pub from: String,
+  pub to: String,
+  pub places: u32,
+  /// The distinct paths with a paragraph that has this replacement
+  pub paths: Vec<String>,
 }
 
 /// What a file of prose is to the change
@@ -176,7 +191,9 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
             } else {
               heading_above(&old, u32::try_from(old_range.start).unwrap_or(u32::MAX))
             };
-            changed.paragraphs = prose_changes(&before, &after, &slice.path, |text| !doc || reads_as_prose(text));
+            changed.paragraphs = prose_changes(&before, &after, &slice.path, |paragraph| {
+              matches!(&paragraph.form, ProseForm::Code { .. }) || !doc || reads_as_prose(&paragraph.text)
+            });
             // the tests of the `[@test]` lines the blocks add, not of the ones the widened paragraphs kept
             changed.proven_by = slice
               .blocks
@@ -194,10 +211,70 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
   }
   // by rank; the order of the units, the story, within one
   contract.sort_by_key(|entry| entry.kind);
+  let substitutions = repeated_substitutions(&mut contract);
   ReviewBrief {
     issue: shared_issue(messages),
+    substitutions,
     contract,
   }
+}
+
+/// Names repeated word replacements once, then takes their pairs out of each paragraph diff
+fn repeated_substitutions(contract: &mut [ContractEntry]) -> Vec<Substitution> {
+  let mut indexes: HashMap<(String, String), usize> = HashMap::new();
+  let mut substitutions = Vec::new();
+  for entry in contract.iter() {
+    for paragraph in &entry.paragraphs {
+      let ProseChange::Changed { inserted, deleted, .. } = &paragraph.change else {
+        continue;
+      };
+      for inserted_range in inserted {
+        let same_position: Vec<&_> = deleted.iter().filter(|deletion| deletion.at == inserted_range.start).collect();
+        let same_inserted_position = inserted.iter().filter(|range| range.start == inserted_range.start).count();
+        if same_position.len() != 1 || same_inserted_position != 1 {
+          continue;
+        }
+        let deletion = same_position[0];
+        let Some(to) = utf16_slice(&paragraph.text, *inserted_range) else {
+          continue;
+        };
+        if !is_substitution_word(&deletion.text) || !is_substitution_word(to) {
+          continue;
+        }
+        let pair = (deletion.text.clone(), to.to_string());
+        let index = if let Some(index) = indexes.get(&pair) {
+          *index
+        } else {
+          let index = substitutions.len();
+          indexes.insert(pair.clone(), index);
+          substitutions.push(Substitution {
+            from: pair.0,
+            to: pair.1,
+            places: 0,
+            paths: Vec::new(),
+          });
+          index
+        };
+        let substitution = &mut substitutions[index];
+        substitution.places = substitution.places.saturating_add(1);
+        if !substitution.paths.iter().any(|path| path == &entry.path) {
+          substitution.paths.push(entry.path.clone());
+        }
+      }
+    }
+  }
+  substitutions.retain(|substitution| substitution.places >= 3);
+  substitutions.sort_by(|left, right| right.places.cmp(&left.places).then_with(|| left.from.cmp(&right.from)).then_with(|| left.to.cmp(&right.to)));
+  for entry in contract {
+    apply_substitutions(&mut entry.paragraphs, &substitutions);
+  }
+  substitutions
+}
+
+/// A replacement's words are non-whitespace tokens between 2 and 40 characters
+fn is_substitution_word(text: &str) -> bool {
+  let length = text.chars().count();
+  (2..=40).contains(&length) && !text.chars().any(char::is_whitespace)
 }
 
 /// The nearest heading (`#`) above line `line` (from 0) of `lines`, without its marks

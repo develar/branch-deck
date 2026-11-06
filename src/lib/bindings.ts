@@ -5616,7 +5616,11 @@ export type ProseChange =
  *  A paragraph the commits change in places, the rest of its words kept: the ranges of `text` they wrote and the
  *  words they removed, each at the offset of `text` it stood before
  */
-{ kind: "changed"; inserted: TextRange[]; deleted: ProseDeletion[] };
+{ kind: "changed"; inserted: TextRange[]; deleted: ProseDeletion[]; 
+/**  The inserted ranges that are part of a repeated replacement in the brief */
+substitutions: SubstitutionMark[] } | 
+/**  A paragraph changed only by the repeated replacements of the brief */
+{ kind: "substituted"; substitutions: SubstitutionMark[] };
 
 /**  Words the commits removed from a changed paragraph */
 export type ProseDeletion = {
@@ -5624,6 +5628,13 @@ export type ProseDeletion = {
 	at: number,
 	text: string,
 };
+
+/**  The form of a paragraph of the brief */
+export type ProseForm = 
+/**  Markdown prose, with inline code spans */
+{ kind: "prose" } | 
+/**  The lines inside a fenced code block */
+{ kind: "code"; language: string | null };
 
 /**
  *  A link of Markdown in a paragraph: the range of its text and its target, a path of the repository resolved against
@@ -5642,6 +5653,8 @@ export type ProseParagraph = {
 	 *  paragraph its text before them
 	 */
 	text: string,
+	/**  Whether this paragraph is prose or the contents of a fenced code block */
+	form: ProseForm,
 	/**  Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by */
 	code: CodeSpan[],
 	/**  Its links of Markdown (`[text](target)`), each the range of its text in `text` */
@@ -6531,6 +6544,8 @@ export type Retry =
 export type ReviewBrief = {
 	/**  The issue key the commits name in their subjects: one key, named by half of them at least and contradicted by none */
 	issue: string | null,
+	/**  The repeated replacements the changed paragraphs share, by the number of places */
+	substitutions: Substitution[],
 	/**  The prose the change adds, removes or changes, by the rank of its kind, then in the order of the story */
 	contract: ContractEntry[],
 };
@@ -8568,6 +8583,22 @@ export type SubjectReadiness = {
 export type SubscribeViewParams = {
 	repositoryPath: string,
 	have?: Version | null,
+};
+
+/**  A repeated word replacement the paragraphs of the brief share */
+export type Substitution = {
+	from: string,
+	to: string,
+	places: number,
+	/**  The distinct paths with a paragraph that has this replacement */
+	paths: string[],
+};
+
+/**  A repeated replacement at its new word in `ProseParagraph::text`, referring to `ReviewBrief::substitutions` */
+export type SubstitutionMark = {
+	start: number,
+	end: number,
+	substitution: number,
 };
 
 export type SuggestBranchNamesParams = {

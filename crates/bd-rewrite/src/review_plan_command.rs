@@ -33,6 +33,8 @@
 //! `added`, `removed` or `changed` by word with its `inserted` and `deleted` words, its `code`, its `links` and the
 //! `excerpt` of a long one) in place of its `added`, `addedCode`, `removed` and `removedCode`, and its `blocks` in place
 //! of its `block`
+//! version 19 added the repeated word replacements of the brief (`brief.substitutions`) and their marks in the changed
+//! paragraphs, including paragraphs changed only by those replacements
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;

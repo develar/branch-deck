@@ -8,6 +8,7 @@ import type {
   MentionTarget,
   MessageChange,
   ProseChange,
+  ProseForm,
   ReviewPlan,
   ReviewStep,
   ReviewUnit,
@@ -489,10 +490,22 @@ export interface ContractFile {
 export interface ContractParagraph {
   readonly key: string
   readonly text: string
+  readonly form: ProseForm
   readonly code: readonly CodeSpan[]
   readonly links: readonly ProseLinkView[]
+  readonly substitutions: readonly { readonly start: number; readonly end: number; readonly from: string }[]
   readonly change: ProseChange | null
   readonly excerpt: TextRange | null
+}
+
+/** A repeated word replacement named once above What Changes, with its files and their places when the review has them */
+export interface SubstitutionView {
+  readonly key: string
+  readonly from: string
+  readonly to: string
+  readonly summary: string
+  readonly files: readonly { readonly path: string; readonly name: string; readonly place: ReviewPlace | null }[]
+  readonly allFiles: string
 }
 
 /**
@@ -529,6 +542,8 @@ export interface PrologueView {
    */
   readonly untold: { readonly subject: string; readonly story: StoryView } | null
   readonly contract: readonly ContractFile[]
+  /** The mechanical replacements shared by the paragraphs of What Changes */
+  readonly substitutions: readonly SubstitutionView[]
   /** The contents: the steps of the story; none when the only step is what no evidence joined */
   readonly steps: readonly ContentsStep[]
   /** Why the tasks of the range are its steps, a muted line under the label of the steps: "One commit: the steps are its tasks" */
@@ -606,6 +621,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   })
   const since = plan.interdiff === null ? null : formatSinceReview(plan.interdiff)
   const contract = presentContract(plan)
+  const substitutions = presentSubstitutions(plan)
   const breakage = presentBreakage(plan.api, pending)
   return {
     issue: plan.brief.issue,
@@ -613,6 +629,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     // without a step of a task the diffs have no opening: the whole story is told here
     untold: one === null ? null : { subject: one.title, story: presentStory(one, part => part.told.kind === "overview", words) },
     contract,
+    substitutions,
     steps,
     source: told ? formatStepSource(plan.steps.source) : null,
     facts: told ? null : rangeFacts(plan),
@@ -638,7 +655,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
 
 /** A note of the brief in place of paragraphs: of a spec the commits add, of a file they delete */
 function contractNote(key: string, text: string): ContractParagraph {
-  return { key, text, code: [], links: [], change: null, excerpt: null }
+  return { key, text, form: { kind: "prose" }, code: [], links: [], substitutions: [], change: null, excerpt: null }
 }
 
 /**
@@ -663,6 +680,7 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">): ContractFil
           : entry.paragraphs.map((paragraph, at): ContractParagraph => ({
               key: `${key}:${at}`,
               text: paragraph.text,
+              form: paragraph.form,
               code: paragraph.code,
               links: paragraph.links.map(link => ({
                 start: link.start,
@@ -670,6 +688,13 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">): ContractFil
                 place: shown.has(link.target) ? fileTop(link.target) : null,
                 href: link.target.includes("://") || link.target.startsWith("mailto:") ? link.target : null,
               })),
+              substitutions:
+                paragraph.change.kind === "changed" || paragraph.change.kind === "substituted"
+                  ? paragraph.change.substitutions.flatMap(mark => {
+                      const substitution = plan.brief.substitutions[mark.substitution]
+                      return substitution === undefined ? [] : [{ start: mark.start, end: mark.end, from: substitution.from }]
+                    })
+                  : [],
               change: paragraph.change,
               excerpt: paragraph.excerpt,
             }))
@@ -690,6 +715,33 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">): ContractFil
     ...file,
     entries: file.entries.map(entry => ({ ...entry, provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}` })),
   }))
+}
+
+/** The repeated replacements the changed paragraphs share, with names for the row and places only for changed files */
+function presentSubstitutions(plan: Pick<ReviewPlan, "brief" | "files">): SubstitutionView[] {
+  const changedPaths = new Map<string, string>()
+  for (const file of plan.files) {
+    changedPaths.set(file.path, file.path)
+    if (file.oldPath !== null) {
+      changedPaths.set(file.oldPath, file.path)
+    }
+  }
+  return plan.brief.substitutions.map((substitution, index) => {
+    const files = substitution.paths.map(path => {
+      const target = changedPaths.get(path)
+      return { path, name: fileName(path), place: target === undefined ? null : fileTop(target) }
+    })
+    const places = `${substitution.places} ${substitution.places === 1 ? "place" : "places"}`
+    const count = `${files.length} ${files.length === 1 ? "file" : "files"}`
+    return {
+      key: `${index}:${substitution.from}:${substitution.to}`,
+      from: substitution.from,
+      to: substitution.to,
+      summary: `${places} in ${count}`,
+      files,
+      allFiles: substitution.paths.join("\n"),
+    }
+  })
 }
 
 /** The facts of every step of `plan` as one: of a range whose contents list no step; null without a fact */

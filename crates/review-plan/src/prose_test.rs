@@ -1,7 +1,14 @@
-use crate::prose::{ProseChange, ProseLink, ProseParagraph, TextRange, paragraph_spans, paragraphs, prose_changes, strip_links};
+use crate::prose::{ParagraphText, ProseChange, ProseForm, ProseLink, ProseParagraph, TextRange, paragraph_spans, paragraphs, prose_changes, strip_links};
 use crate::units::UnitBlock;
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
+
+fn prose_text(text: &str) -> ParagraphText {
+  ParagraphText {
+    text: text.to_string(),
+    form: ProseForm::Prose,
+  }
+}
 
 fn block(index: u32, old: (u32, u32), new: (u32, u32)) -> UnitBlock {
   UnitBlock {
@@ -19,7 +26,7 @@ fn render(paragraph: &ProseParagraph) -> String {
   match &paragraph.change {
     ProseChange::Added => format!("+ {}", paragraph.text),
     ProseChange::Removed => format!("- {}", paragraph.text),
-    ProseChange::Changed { inserted, deleted } => {
+    ProseChange::Changed { inserted, deleted, .. } => {
       let units: Vec<u16> = paragraph.text.encode_utf16().collect();
       let mut out = String::from("~ ");
       for at in 0..=units.len() {
@@ -39,6 +46,7 @@ fn render(paragraph: &ProseParagraph) -> String {
       }
       out.replace("+}{+", "")
     }
+    ProseChange::Substituted { .. } => format!("~ {}", paragraph.text),
   }
 }
 
@@ -119,13 +127,13 @@ fn a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_ar
 #[test]
 fn a_paragraph_added_before_a_changed_one_leaves_it_its_pair() {
   let old = [
-    "The store keeps at most 500 projects.".to_string(),
-    "An older build ignores the order of the tool windows.".to_string(),
+    prose_text("The store keeps at most 500 projects."),
+    prose_text("An older build ignores the order of the tool windows."),
   ];
   let new = [
-    "The store keeps at most 500 projects.".to_string(),
-    "The focus is a fact the window derives, and `FocusRecorder` writes it.".to_string(),
-    "An older build ignores the order and the focus of the tool windows.".to_string(),
+    prose_text("The store keeps at most 500 projects."),
+    prose_text("The focus is a fact the window derives, and `FocusRecorder` writes it."),
+    prose_text("An older build ignores the order and the focus of the tool windows."),
   ];
   let changes = prose_changes(&old, &new, "spec/a.spec.md", |_| true);
   assert_eq!(
@@ -149,9 +157,56 @@ fn the_test_lines_of_an_item_name_its_tests() {
   assert_eq!(
     (texts, tests),
     (
-      vec!["The window keeps its layout across a restart, and the project view does not take its place.".to_string()],
+      vec![prose_text("The window keeps its layout across a restart, and the project view does not take its place.")],
       vec!["tests/restart.json".to_string()]
     )
+  );
+}
+
+#[test]
+fn a_fenced_block_is_one_paragraph_with_its_lines_preserved() {
+  let old_cli = concat!("b", "d");
+  let before_markdown = format!("```sh\n{old_cli} workspace -C <repo>\necho [@test] not-a-test\n```");
+  let after_markdown = "```sh\nbrd workspace -C <repo>\necho [@test] not-a-test\n```";
+  let before_lines: Vec<&str> = before_markdown.lines().collect();
+  let after_lines: Vec<&str> = after_markdown.lines().collect();
+  let (before, before_proven_by) = paragraphs(&before_lines);
+  let (after, after_proven_by) = paragraphs(&after_lines);
+  assert_eq!(before_proven_by, Vec::<String>::new());
+  assert_eq!(after_proven_by, Vec::<String>::new());
+  assert_eq!(before[0].text, format!("{old_cli} workspace -C <repo>\necho [@test] not-a-test"));
+  assert_eq!(before[0].form, ProseForm::Code { language: Some("sh".to_string()) });
+
+  let changed = prose_changes(&before, &after, "docs/guide.md", |paragraph| matches!(&paragraph.form, ProseForm::Code { .. }));
+  assert_eq!(changed.len(), 1, "code paragraphs bypass the prose filter");
+  assert_eq!(changed[0].form, ProseForm::Code { language: Some("sh".to_string()) });
+  assert_eq!(changed[0].code, Vec::new());
+  assert_eq!(changed[0].links, Vec::new());
+  let ProseChange::Changed { inserted, deleted, .. } = &changed[0].change else {
+    panic!("the command change is word-diffed");
+  };
+  assert_eq!(
+    inserted.iter().map(|range| &changed[0].text[range.start as usize..range.end as usize]).collect::<Vec<_>>(),
+    ["brd"]
+  );
+  assert_eq!(deleted.iter().map(|deletion| deletion.text.as_str()).collect::<Vec<_>>(), [old_cli]);
+}
+
+#[test]
+fn a_long_code_block_shows_changed_lines_with_one_line_of_context() {
+  let before: Vec<String> = (0..12).map(|index| format!("command-{index} --old")).collect();
+  let mut after = before.clone();
+  after[3] = after[3].replace("old", "new");
+  after[8] = after[8].replace("old", "new");
+  let paragraph = |lines: &[String]| ParagraphText {
+    text: lines.join("\n"),
+    form: ProseForm::Code { language: Some("sh".to_string()) },
+  };
+  let changed = prose_changes(&[paragraph(&before)], &[paragraph(&after)], "docs/guide.md", |_| true);
+  let excerpt = changed[0].excerpt.expect("multiple changed lines in a long code block have an excerpt");
+  assert_eq!(
+    &changed[0].text[excerpt.start as usize..excerpt.end as usize],
+    "command-2 --old\ncommand-3 --new\ncommand-4 --old\ncommand-5 --old\ncommand-6 --old\ncommand-7 --old\ncommand-8 --new\ncommand-9 --old\n"
   );
 }
 
@@ -189,7 +244,7 @@ fn a_long_paragraph_changed_in_one_sentence_shows_it_first() {
   let before: Vec<String> = (0..6).map(sentence).collect();
   let mut after = before.clone();
   after[3] = after[3].replace("one more thing", "one other thing");
-  let excerpt_of = |before: &[String], after: &[String]| prose_changes(&[before.join(" ")], &[after.join(" ")], "a.md", |_| true)[0].excerpt;
+  let excerpt_of = |before: &[String], after: &[String]| prose_changes(&[prose_text(&before.join(" "))], &[prose_text(&after.join(" "))], "a.md", |_| true)[0].excerpt;
   let text = after.join(" ");
   let start = u32::try_from(text.find("Sentence 3").unwrap()).unwrap();
   assert_eq!(

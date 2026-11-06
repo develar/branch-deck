@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
@@ -200,34 +201,81 @@ function PrologueSections({ view }: { view: PrologueView }) {
     <>
       {view.contract.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="review-brief-contract">
-          <SectionLabel title="What Changes" />
+          <SectionLabel title="What Changes" className="text-sm font-semibold text-foreground" />
+          {view.substitutions.map(substitution => (
+            <div key={substitution.key} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm" data-testid="review-brief-substitution">
+              <span>
+                Renames <code>{substitution.from}</code> → <code>{substitution.to}</code> · {substitution.summary}
+              </span>
+              {substitution.files.length > 0 && (
+                <span className="flex flex-wrap items-baseline gap-x-1.5">
+                  <span aria-hidden="true">·</span>
+                  {substitution.files.slice(0, 3).map(file =>
+                    file.place === null ? (
+                      <span key={file.path} className="text-muted-foreground">
+                        {file.name}
+                      </span>
+                    ) : (
+                      <FileButton key={file.path} place={file.place} title={file.path} testId="review-brief-substitution-file">
+                        <span className="text-foreground">{file.name}</span>
+                      </FileButton>
+                    ),
+                  )}
+                  {substitution.files.length > 3 && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            className="rounded-sm px-1 text-muted-foreground underline decoration-dotted underline-offset-2 outline-none hover:bg-muted hover:text-foreground focus-visible:bd-focus"
+                            aria-label={`Show ${substitution.files.length - 3} more files`}
+                            data-testid="review-brief-substitution-more"
+                          />
+                        }
+                      >
+                        and {substitution.files.length - 3} more
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-sm whitespace-pre-line">{substitution.allFiles}</TooltipContent>
+                    </Tooltip>
+                  )}
+                </span>
+              )}
+            </div>
+          ))}
           <ul className="flex flex-col gap-5">
             {view.contract.map(file => (
               <li key={file.key} className="flex min-w-0 flex-col gap-3" data-testid="review-brief-contract-entry" data-path={file.path}>
-                <span className="flex min-w-0 items-center gap-2 text-xs">
+                <span className="flex min-w-0 items-center gap-2 text-sm">
                   <Badge variant="secondary">{file.kind}</Badge>
                   <FileButton place={fileTop(file.path)} title={file.path} testId="review-brief-contract-file">
-                    {/* a long path loses its start, never its name */}
-                    <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
-                      <bdi dir="ltr">{file.path}</bdi>
+                    <span className="min-w-0">
+                      {file.path.includes("/") && (
+                        <span className="text-muted-foreground">
+                          <BreakableCode text={file.path.slice(0, file.path.lastIndexOf("/") + 1)} />
+                        </span>
+                      )}
+                      <span className="font-semibold text-foreground">
+                        <BreakableCode text={file.path.slice(file.path.lastIndexOf("/") + 1)} />
+                      </span>
                     </span>
                   </FileButton>
                 </span>
-                {file.entries.map(entry => (
-                  // under the chip of the kind, at its left edge: the heading of the section once, its tests, then its
-                  // paragraphs whole, half a line apart
-                  <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-                    {(entry.heading !== null || entry.provenBy !== null) && (
-                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                        {entry.heading !== null && <h3 className="min-w-0 font-semibold">{entry.heading}</h3>}
-                        {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
-                      </div>
-                    )}
-                    {entry.paragraphs.map(paragraph => (
-                      <ContractParagraphView key={paragraph.key} paragraph={paragraph} />
-                    ))}
-                  </div>
-                ))}
+                <div className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
+                  {file.entries.map(entry => (
+                    // the heading of the section once, its tests, then its paragraphs whole, half a line apart
+                    <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+                      {(entry.heading !== null || entry.provenBy !== null) && (
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                          {entry.heading !== null && <h3 className="min-w-0 text-sm font-semibold">{entry.heading}</h3>}
+                          {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
+                        </div>
+                      )}
+                      {entry.paragraphs.map(paragraph => (
+                        <ContractParagraphView key={paragraph.key} paragraph={paragraph} />
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </li>
             ))}
           </ul>
@@ -449,16 +497,22 @@ function EntryForm({ sign, form, testId }: { sign: string; form: string; testId:
 function FileButton({ place, title, testId = "review-plan-file", children }: { place: ReviewPlace; title: string; testId?: string; children: ReactNode }) {
   const navigator = useSelectReviewFile()
   return (
-    <button
-      type="button"
-      className="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
-      title={title}
-      disabled={navigator === null}
-      data-testid={testId}
-      data-path={place.path}
-      onClick={() => navigator?.show(place)}
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
+            disabled={navigator === null}
+            data-testid={testId}
+            data-path={place.path}
+            onClick={() => navigator?.show(place)}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
   )
 }
