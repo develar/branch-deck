@@ -65,6 +65,27 @@ fn pushes_with_a_lease_and_prints_the_pull_request() {
   assert_pushes_up_to_date_on_the_seen_head(&repo);
 }
 
+#[test_log::test]
+fn the_printed_body_keeps_angle_brackets_literal() {
+  let (repo, _remote) = repo_with_remote(&[]);
+  write(&repo, "first.txt", "first\n");
+  commit_all(
+    &repo,
+    "(body) Preserve literal Markdown\n\nKeep `(branch) fixup! <subject>` and `brd push <branch>` literal.\nBare List<String> stays a type.",
+    1_700_000_100,
+  );
+  write(&repo, "second.txt", "second\n");
+  commit_all(&repo, "(body) Repeat the type\n\nAnother commit also has bare List<String>.", 1_700_000_200);
+
+  let (exit_code, output) = run_in(&repo, &["push", "body", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let body = branch(&output, "body")["pull_request"]["body"].as_str().unwrap();
+  assert!(body.contains("`(branch) fixup! <subject>`"), "{body}");
+  assert!(body.contains("`brd push <branch>`"), "{body}");
+  assert!(body.contains("`List<String>`"), "{body}");
+  assert!(!body.contains("&lt;") && !body.contains("&gt;"), "{body}");
+}
+
 /// A GitHub repository that `origin` doesn't push to (`branchdeck.githubRepository`, a mirror) is named with `--repo`:
 /// `gh` finds it among no remote. The sync read the setting; the push URL of `origin` tells the mirror apart
 #[test_log::test]

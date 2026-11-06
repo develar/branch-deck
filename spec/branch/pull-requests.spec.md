@@ -416,6 +416,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   quote after it keeps its first line. The trailers are left out, a one-word `Note:` alone is prose. Outside code spans, a
   word GitHub would read as a mention (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) goes into a code span.
   [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`each_commit_is_an_item_with_its_body_reflowed`, `trailers_and_autosquash_commits_are_left_out`, `mentions_and_angle_brackets_stay_literal`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`the_printed_body_keeps_angle_brackets_literal`)
 - A stacked branch's pull request holds the commits of the branches it is built on: its title and items come from its
   own commits, and a last section says "Built on auth, then login: their commits are in this pull request too." with
   the subjects of each ("Built on auth: its commits …" for one). The app sends the chain of the row

@@ -2475,7 +2475,7 @@ export type ErrorCode =
 "lease_follows_home" | 
 /**
  *  `brd drop` in a lease of the pool of a commit its home branch has: the pick landed it there, so the drop runs in the
- *  shared checkout (`next_steps`: `bd -C <checkout> drop …`, then `brd lease pick`, which moves the lease onto the new
+ *  shared checkout (`next_steps`: `brd -C <checkout> drop …`, then `brd lease pick`, which moves the lease onto the new
  *  tip); nothing was changed
  */
 "drop_in_home" | 
