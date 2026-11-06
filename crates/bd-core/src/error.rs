@@ -53,6 +53,39 @@ pub struct ErrorExtra {
   pub rename_pairs: Vec<ErrorRenamePair>,
   /// The operation of another process that makes the command `busy`
   pub holder: Option<OperationHolder>,
+  /// The commits of `message_format` with the hint and the documentation of the commit rules
+  pub message_format: Option<MessageFormatOutput>,
+}
+
+/// Why the commit rules of the repository refuse a pick (`message_format`)
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MessageFormatOutput {
+  /// Every picked commit whose message the rules reject, the WARNING ones too
+  pub commits: Vec<MessageVerdictOutput>,
+  /// What a message must look like, in the words of the rules (`hintMessage` of Patronus)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub hint: Option<String>,
+  /// Where the form is documented (`documentationLink`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub documentation: Option<String>,
+}
+
+/// A commit whose message the commit rules of the repository reject
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MessageVerdictOutput {
+  /// The commit where it was made
+  pub commit: String,
+  pub subject: String,
+  /// `strict`: nothing lands with it; `warning`: it lands
+  pub severity: MessageSeverity,
+}
+
+/// How much a violation of the commit rules counts
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageSeverity {
+  Strict,
+  Warning,
 }
 
 impl CliError {
@@ -105,6 +138,7 @@ impl CliError {
         processes: self.extra.as_ref().map_or_default(|extra| extra.processes.clone()),
         next_steps: self.next_steps().to_vec(),
         holder: self.extra.as_ref().and_then(|extra| extra.holder.clone()),
+        message_format: self.extra.as_ref().and_then(|extra| extra.message_format.clone()),
         retryable: self.code.retryable(),
         ask_user: self.code.asks_user(),
       },
@@ -210,6 +244,10 @@ pub struct ErrorBody {
   /// omitted when the registry is of another Branch Deck, whose operations can't be read, and for any other code
   #[serde(skip_serializing_if = "Option::is_none")]
   pub holder: Option<OperationHolder>,
+  /// The commits of `message_format`, each with its `subject` and `severity`, and the `hint` and the `documentation`
+  /// of the commit rules (`[commit] check` of `.branchdeck.toml`); omitted for any other code
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message_format: Option<MessageFormatOutput>,
   /// Whether the same command may succeed when retried
   pub retryable: bool,
   /// The user decides: show `message` (with `paths`) to the user and ask before you go on (`uncommitted_overlap`,

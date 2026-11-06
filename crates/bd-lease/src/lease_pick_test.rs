@@ -337,3 +337,37 @@ fn an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree() {
   assert_eq!((&output["state"], state), (&json!("picked"), json!("ok")), "{output}");
   fixture.give_back(&path);
 }
+
+/// `[commit] check` of the home checkout: `brd lease pick` of a message that the rules reject lands nothing
+/// (`message_format`) and names the reword in the lease; the rules see the subject after its `(branch)` prefix; that reword moves the detached lease, and the pick lands it.
+/// `--allow-message-format` lands one as it is
+#[test_log::test]
+fn a_lease_pick_refuses_a_rejected_message_until_the_reword_in_the_lease() {
+  let fixture = Fixture::new();
+  fixture
+    .repo
+    .create_commit("Check the commit rules", ".branchdeck.toml", "[commit]\ncheck = [\"(feat|fix|docs)(\\\\(.+\\\\))?: .+\"]\n");
+  let path = path_of(&fixture.get(&[]));
+  let home = fixture.repo.head();
+  commit_in(&path, "(lane) add the date", "lane-a.txt");
+  let own = slot_git(&path, &["rev-parse", "HEAD"]);
+
+  let (exit_code, refused) = lease_pick(&fixture, &path, &[]);
+  assert_error(&refused, exit_code, (4, "message_format"));
+  let message = refused["error"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with("brd lease pick: ") && message.contains(&format!("-C {} reword {}", shell_word(&path), &own[..8])) && message.contains("lease pick --allow-message-format"),
+    "{message}"
+  );
+  assert_eq!(fixture.repo.head(), home, "nothing landed");
+
+  let (exit_code, reworded) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "reword", &own, "--subject", "(lane) feat(date): add the date"]);
+  assert_eq!(exit_code, 0, "{reworded}");
+  let (exit_code, picked) = lease_pick(&fixture, &path, &[]);
+  assert_eq!((exit_code, &picked["state"]), (0, &json!("picked")), "{picked}");
+  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), "(lane) feat(date): add the date");
+
+  commit_in(&path, "(lane) add more", "lane-b.txt");
+  let (exit_code, picked) = lease_pick(&fixture, &path, &["--allow-message-format", "the user agreed"]);
+  assert_eq!((exit_code, &picked["message_format_allowed"]), (0, &json!("the user agreed")), "{picked}");
+}

@@ -1,0 +1,26 @@
+[package]
+name = "commit-rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The commit rules of a repository: `[commit]` of .branchdeck.toml, the commitMessageFormat of Patronus, and the check of a message by them"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+# the rules of Patronus use lookbehind and lookahead, which the `regex` crate lacks
+fancy-regex = "0.20.0"
+# the paths of a severity rule (`/fleet/**`)
+glob = "0.3.4"
+# the commitMessageFormat block of .patronus/config.yaml
+serde.workspace = true
+serde-saphyr = "2.1.1"
+# `[commit]` of .branchdeck.toml
+toml = "1.2"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -446,6 +446,7 @@ fn lease_pick_in(
     follow: true,
     dry_run: args.dry_run,
     allow_unchecked: args.allow_unchecked.clone(),
+    allow_message_format: args.allow_message_format.clone(),
     ..PickArgs::default()
   };
   let home = HomePick {

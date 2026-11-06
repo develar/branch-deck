@@ -1,0 +1,48 @@
+# The tail of .patronus/config.yaml of the IntelliJ monorepo (2026-11-06), verbatim from mergeCommitPolicy on: the
+# commitMessageFormat block that the rules read, and the keys before it
+version: "1.0"
+mergeCommitPolicy:
+  allowedPaths:
+  - "!*"
+youTrackIntegration:
+  enabled: true
+  fieldsValidation:
+  - project: "LLM"
+    fieldName: "Verified"
+    regex: "^(?!(?:No|In Progress)$).+$"
+    message: "'Verified' field should be updated. Use 'Later' if changes should be\
+      \ tested after the merge."
+    extractTicketFrom: "SUBJECT"
+commitMessageFormat:
+  rules:
+  - regex: ".*(?<=[^-A-Za-z0-9_]|^)((R|[A-Z]{2,8})-[0-9]+)(?=[^-A-Za-z0-9_]|$).*"
+  - regex: "(?i)(test|tests|testFramework|test framework|cleanup|clean up|typo|refactor|refactoring|docs|doc|format|style|setup|misc)\
+      \ [^:]+:?.+"
+  - regex: "(?i)Revert [\"'].*"
+  - regex: "(?i)Rename \\.java to \\.kt.*"
+  negativeRules:
+  - regex: "fixup!.*"
+  - regex: "squash!.*"
+  - regex: "amend!.*"
+  - regex: "(?i)WIP.*"
+  documentationLink: "https://youtrack.jetbrains.com/articles/IJPL-A-217/Commits"
+  hintMessage: "Commit messages should contain a YouTrack ticket: \n```\n<youtrack\
+    \ ticket id> <subsystem>: <subject>\n```\nFor *non-production* changes the ticket\
+    \ can be omitted, but a label is required: \n```\n<non-production change label>\
+    \ <subsystem>: <subject>\n```\nSupported labels: `clean up`, `cleanup`, `doc`,\
+    \ `docs`, `format`, `misc`, `refactor`, `refactoring`, `setup`, `style`, `test`,\
+    \ `test framework`, `testFramework`, `tests`, `typo`\n\nExamples:\n- `IJPL-179\
+    \ IJPL-199 editor: markup cache enhancements`\n- `cleanup webstorm: remove old\
+    \ test code`\n \nCommits starting with `WIP`, `fixup!`, `squash!` or `amend!`\
+    \ are not allowed."
+  severityDefault: "STRICT"
+  severityRules:
+  - paths:
+    - "/dotnet/**"
+    - "/vscode/**"
+    - "/toolbox/**"
+    severity: "WARNING"
+  - paths:
+    - "/.air/**"
+    - "/fleet/**"
+    severity: "IGNORE"

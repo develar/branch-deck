@@ -311,7 +311,7 @@ taken and deletes it before the release), then runs the real git.
 | The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
 | `brd update --continue` (`continue_resolve`; a `--dry-run` takes no lock) | `cat-file`, `config`, `diff-tree`, `fast-import`, `read-tree`, `replay`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`: the whole round and the finish, an exception (below) | `a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish`, `the_landed_report_of_a_finished_session_runs_after_the_lock` (`crates/bd-update/src/resolve_test.rs`) |
 | `brd update --abort` (`abort_resolve`; the removal of its copies after the lock) | `cat-file`, `for-each-ref`, `update-ref` (the session, its CAS delete, the sweep of stale temporary refs) | `an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_delete` (`resolve_test.rs`) |
-| `brd pick --from --follow` (`pick_core`) | `cat-file` 1, `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 4, `update-index` 2, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write, the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
+| `brd pick --from --follow` (`pick_core`; the `log` of the messages of the commit rules before the lock) | `cat-file` 1, `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 4, `update-index` 2, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write, the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
 | `brd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
 | The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
 | A start of the app and of `brd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
@@ -2254,6 +2254,17 @@ The gate stops a stale claim: a green run that ended before the last edit. It do
 onto a tip that moved since the check, without a conflict, lands the lease's commits on a tree that no record saw.
 It does not judge coverage either: a test of one class counts as much as a build of the whole tree, and the record
 names what ran so that a person can judge it.
+
+A repository can also make the pick check the message of each commit it lands: `[commit] check` of its
+`.branchdeck.toml` (`"patronus"` or regexes of its own, `commit_rules`). An agent landed a subject in the IntelliJ
+monorepo that the rule of Patronus rejects, and only CI found it (2026-11-06). The pick reads the file of the target
+checkout without git, as the gate above. Of `.patronus/config.yaml` it parses only the top-level
+`commitMessageFormat` block, and that content fails open with the cause in `message_check_skipped`. The check of the
+pick (`MessageGate` in `PickParams`, `update_core::pick`) reads the messages and the changed paths of all picked
+commits with one `log --no-walk=unsorted --stdin -z --name-only --no-renames` (`git_ops::commit_list::read_messages_and_paths`),
+before the lock, and keeps them for a check made again on the same commits. Each message is the one the baseline gets
+(`git_ops::copy_commit::virtual_message_of`, the `(branch)` prefix stripped), the autosquash markers cut. A STRICT
+one is `message_format` before the lock, nothing written; `--allow-message-format <reason>` lands it anyway.
 
 Which processes keep a slot busy was learned from 27 sessions of idea-1 (2026-10-19 to 24) whose returns were
 refused: mostly the Bazel server of the slot, then git's maintenance, the `caffeinate` of Claude Code and the `jq` of

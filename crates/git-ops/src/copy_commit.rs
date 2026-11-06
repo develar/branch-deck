@@ -160,9 +160,15 @@ pub struct CopiedCommit {
 
 /// The message of the copy: the subject without the grouping prefix, then the body
 fn virtual_message(commit: &Commit) -> String {
-  match commit.message.find('\n') {
-    Some(body_start) => format!("{}{}", commit.stripped_subject, &commit.message[body_start..]),
-    None => commit.stripped_subject.clone(),
+  virtual_message_of(&commit.stripped_subject, &commit.message)
+}
+
+/// The message that a virtual branch carries for a commit of `message`, the one Patronus sees: `stripped_subject` (the
+/// subject without the grouping prefix, `sync_utils::commit_subject::stripped_subject`), then the body of `message`
+pub fn virtual_message_of(stripped_subject: &str, message: &str) -> String {
+  match message.find('\n') {
+    Some(body_start) => format!("{stripped_subject}{}", &message[body_start..]),
+    None => stripped_subject.to_string(),
   }
 }
 

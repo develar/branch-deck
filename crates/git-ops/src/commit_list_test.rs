@@ -422,3 +422,30 @@ fn a_baseline_is_never_read_as_an_option() {
   assert!(!test_repo.path().join("written..HEAD").exists());
   assert_subjects(&commits_ahead(&test_repo, "origin/master"), &["(auth) Add login"]);
 }
+
+/// One `log` gives the whole message and the changed paths of each commit, in the order asked, a root commit with its
+/// paths and an empty commit with none
+#[test]
+fn messages_and_paths_of_commits_come_from_one_log() {
+  let repo = TestRepo::new();
+  let root = repo.create_commit("Initial commit", "README.md", "# Test");
+  let second = repo.create_commit_with_files("(auth) Add login\n\nThe body\nwith \u{1} in it", &[("src/a.rs", "a"), ("b c.txt", "b")]);
+  let empty = repo.commit_with(&["--allow-empty", "-m", "Nothing"], &[]);
+  let path = repo.path_str();
+
+  let read = read_messages_and_paths(repo.git_executor(), path, &[&empty, &root, &second]).unwrap();
+
+  let shape: Vec<(&str, &str, Vec<&str>)> = read
+    .iter()
+    .map(|commit| (commit.id.as_str(), commit.message.as_str(), commit.paths.iter().map(String::as_str).collect()))
+    .collect();
+  assert_eq!(
+    shape,
+    [
+      (empty.as_str(), "Nothing", vec![]),
+      (root.as_str(), "Initial commit", vec!["README.md"]),
+      (second.as_str(), "(auth) Add login\n\nThe body\nwith \u{1} in it", vec!["b c.txt", "src/a.rs"]),
+    ]
+  );
+  assert_eq!(read_messages_and_paths(repo.git_executor(), path, &[]).unwrap(), []);
+}

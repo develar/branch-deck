@@ -312,6 +312,12 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
      them. `--dry-run` shows `check` (`ok`, `stale`, `missing`). `brd lease pick --allow-unchecked '<reason>'`
      (`brd pick --from <worktree> --allow-unchecked '<reason>'`) lands without a check: only when the user agreed or
      the change cannot break a build (docs only), and the reason says which.
+   - `message_format` (exit 4), of `brd lease pick` and `brd pick` alike: the repository sets `[commit] check` in
+     `.branchdeck.toml`, and its commit rules reject the message of a picked commit after its `(branch)` prefix;
+     nothing landed. `error.message_format` names the `commits`, the `hint` and the `documentation`. Reword each one
+     where it was made (`brd reword <id> --subject '(branch) <subject>'` in your lease), then pick again.
+     `brd lease pick --allow-message-format '<reason>'` (`brd pick --allow-message-format '<reason>'`) lands them as
+     they are: only once the user agreed. A WARNING one lands and is named in `message_warnings`.
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
    - `brd undo <undo_token>` moves the branch and your worktree back.
@@ -480,6 +486,7 @@ Outputs and refusals: `brd help worktrees` for the pick of a worktree or of revi
 - --expect-remote <id>: only from the remote head the user saw; another one is `lease_rejected` (exit 4), nothing
   picked: show what the remote has now and ask again. --dry-run fetches the branch and writes nothing else.
 - `nothing_to_pick` (exit 4): the remote branch has no commit the branch lacks.
+- `message_format` (exit 4): the commit rules of `[commit] check` reject a picked message; `brd help worktrees`.
 - `state: conflict` (exit 1): nothing changed; resolve it in a lease cut from HEAD (cherry-pick the commits there),
   then `brd lease pick`, or ask the user whether a force push may drop them. `brd undo <undo_token>` takes a pick back.
 ";

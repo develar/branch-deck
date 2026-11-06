@@ -17,6 +17,8 @@ sync-utils = { path = "../sync-utils" }
 object-cache = { path = "../object-cache" }
 # only the `FileDiffs` parameter of `pick`
 file-diffs = { path = "../file-diffs" }
+# the commit rules a pick checks the messages it lands by
+commit-rules = { path = "../commit-rules" }
 anyhow.workspace = true
 tracing.workspace = true
 thiserror.workspace = true

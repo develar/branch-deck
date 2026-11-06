@@ -14,6 +14,8 @@ history-rewrite = { path = "../history-rewrite" }
 lease-pool = { path = "../lease-pool" }
 sync-core = { path = "../sync-core" }
 update-core = { path = "../update-core" }
+# `[commit] check` of .branchdeck.toml and the rules it names
+commit-rules = { path = "../commit-rules" }
 domain-types = { path = "../domain-types" }
 sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true

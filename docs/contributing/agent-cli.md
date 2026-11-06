@@ -107,7 +107,8 @@ these rules:
 - **A preview is `--dry-run`**: it writes at most git objects, after the sync its command runs first. Never `--check`
   (that is the command `brd check`, and next to "checks" of CI it reads as their opposite).
 - **A flag that accepts a refusal is `--allow-<what refused>`**, after the error code it lifts when it lifts one:
-  `--allow-unchecked` (`unchecked_tree`), `--allow-checks-not-passed`, `--allow-dangling`, `--allow-live-session`.
+  `--allow-unchecked` (`unchecked_tree`), `--allow-message-format` (`message_format`), `--allow-checks-not-passed`,
+  `--allow-dangling`, `--allow-live-session`.
   Its help says it runs only once the user agreed, and the refusal's `message` names it with its condition (never a
   `next_steps` entry).
 - **An act is its own verb**: `--force` of a push, `--cancel-running`, `--overwrite-edited`. One flag has one sense:
@@ -198,7 +199,7 @@ branch whose commit conflicts; `stack_not_built` `brd sync`. `NextStep` is in `c
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked`, `no_identity` (git cannot form the identity of the user: set `user.name` and `user.email`) |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `locked`, `busy` (an operation of another process, the app or another `brd`, runs what the command needs: `error.holder`; nothing was done) |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `message_format`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -1055,6 +1056,13 @@ pool, `brd lease pick` is this pick, run in the checkout the lease was cut from 
   "dependencies":[{"commit":"9d0e1f2a","subject":"(base/teamcity) Watch the monitor","prefix_branch":"teamcity",
    "depends_on":["hang"],"plan":{"branches":{"hang":["9d0e1f2a"]},"unassign":[]}}]
   ```
+- With `[commit] check` in `.branchdeck.toml` of `-C`, each picked message without its `(branch)` prefix must pass the
+  commit rules of the repository (`"patronus"`: the `commitMessageFormat` of `.patronus/config.yaml`; or regexes of
+  its own). A STRICT one is `message_format` (exit 4), nothing landed: `error.message_format` has the `commits` with
+  `subject` and `severity`, the `hint` and the `documentation`, and the message names the reword where each commit was
+  made. A WARNING one lands, named in `message_warnings`, which `--dry-run` fills with both kinds. `--allow-message-format
+  '<reason>'` lands a STRICT one (`message_format_allowed`). A `.patronus/config.yaml` that gives no rules skips the
+  check, and `message_check_skipped` says why.
 - `reparented` (`{"leaf": "parent"}`): a `(parent/leaf)` prefix of a picked commit stacked a branch the branch had
   already, a root or on another parent before: the whole branch is built on `parent` now (a bare `(leaf)` declares
   no parent). Two parents for one branch are conflicting parents, which name the commits of each and the

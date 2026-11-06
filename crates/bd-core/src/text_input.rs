@@ -59,6 +59,18 @@ pub fn reason_text(value: &str) -> Result<String, String> {
   Ok(value.to_string())
 }
 
+/// The reason of `--allow-message-format`: not empty, trimmed
+///
+/// # Errors
+/// An empty reason
+pub fn message_reason_text(value: &str) -> Result<String, String> {
+  let value = value.trim();
+  if value.is_empty() {
+    return Err("say why the messages land as they are".to_string());
+  }
+  Ok(value.to_string())
+}
+
 fn invalid(message: String) -> CliError {
   CliError::new(ErrorCode::InvalidArguments, message)
 }

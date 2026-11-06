@@ -235,6 +235,59 @@ fn timezone_of(iso_date: &str) -> String {
   }
 }
 
+/// The full message of a commit and the paths it changes against its first parent
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitMessage {
+  pub id: String,
+  /// As `%B` gives it, the trailing newline cut
+  pub message: String,
+  /// Relative to the root, as git stores them (lossy UTF-8); a rename is a delete and an add
+  pub paths: Vec<String>,
+}
+
+/// The messages and the changed paths of `commits` (full ids), in their order: one `log --no-walk=unsorted --stdin -z
+/// --name-only --no-renames`, whatever their number. A root commit names every path of its tree, a commit without
+/// changes none
+pub fn read_messages_and_paths(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[&str]) -> Result<Vec<CommitMessage>> {
+  if commits.is_empty() {
+    return Ok(Vec::new());
+  }
+  let mut input = commits.join("\n");
+  input.push('\n');
+  let output = git_executor
+    .cmd(
+      &["log", "--no-walk=unsorted", "--stdin", "-z", "--name-only", "--no-renames", "--format=%x01%H%x00%B"],
+      repo_path,
+    )
+    .stdin(input.as_bytes())
+    .bytes()?;
+  let output = String::from_utf8_lossy(&output);
+  // `\x01<id>`, `<message>`, then `\n<path>` and `<path>` per path, each field ended by NUL: a field that is `\x01` and
+  // an id of the input starts a commit, so a message with `\x01` in it stays whole
+  let mut read: Vec<CommitMessage> = Vec::with_capacity(commits.len());
+  let mut fields = output.split('\0');
+  while let Some(field) = fields.next() {
+    if let Some(id) = field.strip_prefix('\x01').filter(|id| commits.contains(id)) {
+      let message = fields.next().unwrap_or_default().trim_end_matches('\n').to_string();
+      read.push(CommitMessage {
+        id: id.to_string(),
+        message,
+        paths: Vec::new(),
+      });
+    } else if let Some(commit) = read.last_mut() {
+      let path = field.trim_start_matches('\n');
+      if !path.is_empty() {
+        commit.paths.push(path.to_string());
+      }
+    }
+  }
+  if let Some(missing) = commits.iter().find(|id| !read.iter().any(|commit| commit.id == **id)) {
+    return Err(anyhow!("git log did not read commit {missing}"));
+  }
+  debug!(count = read.len(), "read the messages and the paths of commits");
+  Ok(read)
+}
+
 #[cfg(test)]
 #[path = "commit_list_test.rs"]
 mod tests;

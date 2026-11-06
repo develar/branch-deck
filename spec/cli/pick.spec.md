@@ -5,6 +5,9 @@ style: plain-1
 targets:
   - ../../crates/bd-update/src/pick_command.rs
   - ../../crates/lease-pool/src/check_record.rs
+  - ../../crates/commit-rules/src/lib.rs
+  - ../../crates/git-ops/src/commit_list.rs
+  - ../../crates/git-ops/src/copy_commit.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-rewrite/src/rewrite.rs
@@ -194,6 +197,52 @@ lease](lease.spec.md#pick)) is a gate of the pick, not of the lease: an agent th
   either.
   [@test] ../../crates/bd-update/src/pick_test.rs (`allow_unchecked_lands_a_pick_without_a_check_and_says_why`)
 
+### The commit rules
+
+`[commit] check` of the committed `.branchdeck.toml` names the rules a message must pass (`commit_rules`): `"patronus"`,
+the `commitMessageFormat` of `.patronus/config.yaml`, or `["<regex>", ...]`, one of which must match. An agent landed a
+subject that Patronus rejects later, on CI; the pick is where every agent lands, so the pick checks it first.
+
+- With `[commit] check` in the checkout the pick runs in (`-C`), `brd pick` of a worktree or of revisions and `brd lease
+  pick` must check the message of each picked commit before anything lands: the message that the baseline gets, without
+  its `(branch)` prefix (`virtual_message_of`) and without the leading `fixup! `, `squash! ` and `amend! `, which `brd
+  fold` removes before a push. A rule matches the whole message, as the safe-push plugin of the IntelliJ monorepo
+  matches (`(?ms)\A(?:<rule>)\z`): one of `rules` must match, none of `negativeRules` may.
+  [@test] ../../crates/commit-rules/src/lib_test.rs (`the_rules_of_the_monorepo_refuse_a_subject_without_a_ticket_or_a_label`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_rejected_message_until_the_reword_in_the_lease`)
+- The severity of a rejected message must follow `severityRules`: a rule applies when every path the commit changes
+  matches one of its globs (`/fleet/**`), the strictest of those wins, else `severityDefault`; `warningOnly` makes every
+  one a warning at most. `IGNORE` passes.
+  [@test] ../../crates/commit-rules/src/lib_test.rs (`the_paths_of_a_commit_decide_its_severity`, `only_the_top_level_block_of_the_format_is_read`)
+- A STRICT one must land nothing: `message_format` (exit 4), its `commits` the ids, `message_format` the commits with
+  their `subject` and `severity`, the `hint` and the `documentation` of the rules. The message names the reword where
+  each commit was made (in the lease `brd -C <lease> reword <id> --subject '<subject>'`, for `--from` in that worktree,
+  for revisions where they live), the pick again, and `--allow-message-format`. A WARNING one lands, named in
+  `message_warnings`. `--dry-run` reports both in `message_warnings` and never refuses.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_refuses_a_message_that_the_commit_rules_reject`, `allow_message_format_lands_a_rejected_message_and_a_warning_lands_with_it`)
+- `--allow-message-format <reason>` of `brd pick` and `brd lease pick` must land a STRICT one: the reason is required
+  (a blank one is `invalid_arguments`) and the output repeats it (`message_format_allowed`). So a gap between brd and
+  Patronus never blocks an agent. `--allow-unchecked` does not skip this check. `--remote` is not checked, as for the
+  check of the tree.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`allow_message_format_lands_a_rejected_message_and_a_warning_lands_with_it`)
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_rejected_message_until_the_reword_in_the_lease`)
+- A bad `[commit]` (`check = 5`, an unknown key, a regex that does not compile, an empty array) must be an error of the
+  file (`invalid_arguments`): its owner wrote it, and a typo must not drop the check without a word. The content of
+  `.patronus/config.yaml` belongs to another team and fails open: a missing file, no `commitMessageFormat`, a block
+  that does not parse, a rule that does not compile or an unknown severity skips the check, `message_check_skipped`
+  and stderr say why, and Patronus still checks the push.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_bad_commit_table_is_an_error_and_missing_rules_skip_the_check`)
+  [@test] ../../crates/commit-rules/src/lib_test.rs (`the_commit_table_names_the_rules_and_a_bad_value_is_an_error`, `a_patronus_config_that_cannot_give_rules_skips_the_check_with_its_cause`, `the_own_regexes_of_a_repository_are_strict`)
+- The check must read only the top-level `commitMessageFormat` block of `.patronus/config.yaml` (the file of the
+  IntelliJ monorepo has 750 KB of other checks), and the messages and the paths of all picked commits with one `log
+  --no-walk=unsorted --stdin -z --name-only`, before the lock; a check made again on the same commits reads no git.
+  [@test] ../../crates/commit-rules/src/lib_test.rs (`only_the_top_level_block_of_the_format_is_read`)
+  [@test] ../../crates/git-ops/src/commit_list_test.rs (`messages_and_paths_of_commits_come_from_one_log`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_pick_with_the_commit_rules`)
+- The `.branchdeck.toml` of Branch Deck must name the conventional form of its `git log` (`feat(scope): …`, `Revert "…`),
+  which release-please reads.
+  [@test] ../../crates/commit-rules/src/lib_test.rs (`the_rules_of_this_repository_take_its_conventional_subjects`)
+
 ### Remote commits
 
 Someone else pushed to the remote branch of a virtual branch (a fix of a reviewer, a commit of a colleague): a push
@@ -286,7 +335,7 @@ would drop it. `brd pick --remote <branch>` takes it into the checked out branch
 | 1 | a commit conflicts (`state: "conflict"`): an output, not an error |
 | 2 | `invalid_arguments` |
 | 3 | `head_moved`, `locked` (retryable) |
-| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`; with --remote `lease_rejected`, `nothing_to_pick` |
+| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`, `unchecked_tree`, `message_format`; with --remote `lease_rejected`, `nothing_to_pick` |
 
 - The outputs must match `brd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)

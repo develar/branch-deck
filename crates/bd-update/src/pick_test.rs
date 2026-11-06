@@ -709,3 +709,127 @@ fn allow_unchecked_lands_a_pick_without_a_check_and_says_why() {
   let (exit_code, output) = run_in(&repo, &["pick", "--remote", "lane", "--allow-unchecked", "docs only"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 }
+
+/// The `commitMessageFormat` of the IntelliJ monorepo, the fixture of the commit rules
+const PATRONUS_CONFIG: &str = include_str!("../../commit-rules/src/fixtures/patronus-config.yaml");
+
+/// A repository whose checkout commits `[commit] check = "patronus"` with the rules of the monorepo, and a worktree
+fn message_gated_repo() -> (TestRepo, TestWorktree) {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  repo.create_commit_with_files(
+    "setup build: check the commit rules",
+    &[(".branchdeck.toml", "[commit]\ncheck = \"patronus\"\n"), (".patronus/config.yaml", PATRONUS_CONFIG)],
+  );
+  let lane = TestWorktree::detached(&repo);
+  (repo, lane)
+}
+
+/// With `[commit] check` a pick checks the message of each commit after its `(branch)` prefix: a STRICT violation lands
+/// nothing (`message_format`, the commits, the hint and the documentation of the rules, the reword where they were
+/// made); `--dry-run` reports it and never refuses; a reword in the worktree lets it land; a marker passes
+#[test_log::test]
+fn a_pick_refuses_a_message_that_the_commit_rules_reject() {
+  let (repo, lane) = message_gated_repo();
+  // a worktree on a branch: outside a lease, a rewrite of a detached HEAD is `detached_head`
+  lane.git(&["switch", "-q", "-c", "lane"]);
+  let home = repo.head();
+  lane.commit("(lane) setup build: write the date", "b.txt", "b\n");
+  let bad = lane.commit("(lane) write the pinned Qodana date", "c.txt", "c\n");
+
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "pick", "--from", &lane.path, "--follow"]);
+  assert_error(&output, exit_code, (4, "message_format"));
+  let error = &output["error"];
+  assert_eq!(error["commits"], json!([bad]));
+  assert_eq!(
+    error["message_format"]["commits"],
+    json!([{"commit": bad, "subject": "(lane) write the pinned Qodana date", "severity": "strict"}])
+  );
+  assert!(
+    error["message_format"]["hint"]
+      .as_str()
+      .unwrap()
+      .starts_with("Commit messages should contain a YouTrack ticket"),
+    "{output}"
+  );
+  assert_eq!(
+    error["message_format"]["documentation"],
+    json!("https://youtrack.jetbrains.com/articles/IJPL-A-217/Commits")
+  );
+  let message = error["message"].as_str().unwrap();
+  assert!(
+    message.contains(&format!("-C {} reword {bad} --subject '<subject>'", lane.path)) && message.contains("pick --from") && message.contains("--allow-message-format '<reason>'"),
+    "{message}"
+  );
+  assert_eq!(repo.head(), home, "nothing landed");
+
+  let (exit_code, dry) = run_in(&repo, &["--full-ids", "pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!((exit_code, &dry["state"]), (0, &json!("picked")), "{dry}");
+  assert_eq!(
+    dry["message_warnings"],
+    json!([{"commit": bad, "subject": "(lane) write the pinned Qodana date", "severity": "strict"}])
+  );
+  assert_pick_schema(&repo, &dry, "pick with message warnings");
+
+  let (exit_code, reworded) = run_in(&repo, &["-C", &lane.path, "reword", &bad, "--subject", "(lane) setup build: write the pinned Qodana date"]);
+  assert_eq!(exit_code, 0, "{reworded}");
+  lane.commit("(lane) fixup! setup build: write the date", "b.txt", "b2\n");
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!((exit_code, &output["state"], output.get("message_warnings")), (0, &json!("picked"), None), "{output}");
+  assert_eq!(git(&repo, &["log", "-1", "--format=%s", "HEAD~1"]), "(lane) setup build: write the pinned Qodana date");
+}
+
+/// `--allow-message-format` lands a STRICT message and says why; a WARNING of the paths lands with `message_warnings`; a
+/// pick of revisions names the reword where they live; a blank reason is refused
+#[test_log::test]
+fn allow_message_format_lands_a_rejected_message_and_a_warning_lands_with_it() {
+  let (repo, lane) = message_gated_repo();
+  let bad = lane.commit("(lane) write the date", "b.txt", "b\n");
+
+  let (exit_code, output) = run_in(&repo, &["pick", &bad]);
+  assert_error(&output, exit_code, (4, "message_format"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains("in the worktree that has it") && message.contains(&format!("pick {bad} --allow-message-format")),
+    "{message}"
+  );
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow", "--allow-message-format", " "]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow", "--allow-message-format", "the user agreed"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["message_warnings"][0]["severity"], &output["message_format_allowed"]),
+    (&json!("strict"), &json!("the user agreed"))
+  );
+
+  std::fs::create_dir_all(std::path::Path::new(&lane.path).join("dotnet")).unwrap();
+  lane.commit("(lane) write the rider part", "dotnet/a.cs", "a\n");
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["message_warnings"][0]["severity"], output.get("message_format_allowed")),
+    (&json!("warning"), None),
+    "{output}"
+  );
+  assert_pick_schema(&repo, &output, "pick with a warning");
+}
+
+/// A bad `[commit]` is an error of the file; a `.patronus/config.yaml` without rules skips the check and says why
+#[test_log::test]
+fn a_bad_commit_table_is_an_error_and_missing_rules_skip_the_check() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  repo.create_commit("Check the rules", ".branchdeck.toml", "[commit]\ncheck = 5\n");
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(lane) write the date", "b.txt", "b\n");
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("commit.check"), "{output}");
+
+  repo.create_commit("Check Patronus", ".branchdeck.toml", "[commit]\ncheck = \"patronus\"\n");
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  assert!(
+    output["message_check_skipped"].as_str().unwrap().contains(".patronus/config.yaml cannot be read"),
+    "{output}"
+  );
+}

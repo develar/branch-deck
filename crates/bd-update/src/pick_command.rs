@@ -3,17 +3,19 @@
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing. A pick that writes is
 //! recorded in the operations registry of the repository first (`Intent::Pick`, of `--remote` the rewrite `PickRemote`,
-//! `bd_core::operation_record`)
+//! `bd_core::operation_record`). With `[commit] check` of `.branchdeck.toml` of the target, the core checks the
+//! message of each picked commit by the commit rules (`commit_rules`) and refuses a STRICT one (`message_format`)
 
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
 use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CONFLICT_EXIT, CliError};
+use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput};
 use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
 use bd_core::sync_command::sync;
-use bd_core::text_input::reason_text;
+use bd_core::text_input::{message_reason_text, reason_text};
+use commit_rules::{Severity, load_rules, read_commit_check};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::operation::Intent;
@@ -31,7 +33,10 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use sync_utils::timestamp::format_utc_timestamp;
-use update_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick, UndonePick, pick_core, undo_pick_core};
+use update_core::pick::{
+  DependencyFix, GroupedBy, MessageFormatRefused, MessageGate, MessageVerdict, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick, UndonePick, pick_core,
+  undo_pick_core,
+};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct PickArgs {
@@ -62,6 +67,10 @@ pub struct PickArgs {
   /// the output repeats it (`unchecked`). Only once the user agreed or the change cannot break a build (docs only)
   #[arg(long, value_name = "REASON", alias = "unchecked", value_parser = reason_text, conflicts_with = "remote")]
   pub allow_unchecked: Option<String>,
+  /// Land commits whose message the commit rules of `[commit] check` of `.branchdeck.toml` reject as STRICT: say why,
+  /// the output repeats it (`message_format_allowed`). Only once the user agreed, or when brd and the rules disagree
+  #[arg(long, value_name = "REASON", value_parser = message_reason_text, conflicts_with = "remote")]
+  pub allow_message_format: Option<String>,
 }
 
 /// `brd pick`
@@ -113,6 +122,17 @@ pub struct PickOutput {
   /// `--allow-unchecked <reason>`: the reason the pick did not ask for a check
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unchecked: Option<String>,
+  /// The picked commits whose message the commit rules of `[commit] check` reject but that land (with --dry-run: would
+  /// land or refuse): `warning` ones, and `strict` ones of --dry-run or of --allow-message-format
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub message_warnings: Vec<MessageVerdictOutput>,
+  /// `--allow-message-format <reason>`: why the STRICT ones land as they are
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message_format_allowed: Option<String>,
+  /// Why the commit rules of `[commit] check` were not checked: `.patronus/config.yaml` is missing, has no
+  /// `commitMessageFormat`, does not parse, or has a rule that does not compile. Patronus still checks the push
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message_check_skipped: Option<String>,
   /// `pick:<previous_head>..<new_head>` with full ids, `+follow:<worktree>:<previous>..<new>` when the worktree moved:
   /// `brd undo` moves both back; omitted when nothing moved
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -487,6 +507,7 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     }
   };
   let gate = gate(context, &from, args, home)?;
+  let (messages, message_check_skipped) = message_gate(context, &from, args)?;
   if let Some(reason) = &args.allow_unchecked
     && !args.dry_run
   {
@@ -500,17 +521,111 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     dry_run: args.dry_run,
     expect_branch: home.map(|home| home.branch.clone()),
     expect_source_head: gate.expect_source_head,
+    messages,
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
-  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(pick_error)?;
+  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(|error| match error.downcast_ref::<MessageFormatRefused>() {
+    Some(refused) => message_format(context, &params.from, refused, home),
+    None => pick_error(error),
+  })?;
   let mut output = output(context, &result, args.dry_run, home)?;
   output.check = gate.check.as_ref().map(tree_check_output);
   output.unchecked.clone_from(&args.allow_unchecked);
+  output.message_format_allowed = args
+    .allow_message_format
+    .clone()
+    .filter(|_| result.messages.iter().any(|verdict| verdict.severity == Severity::Strict));
+  output.message_check_skipped = message_check_skipped;
   Ok(output)
+}
+
+/// The commit rules of `[commit] check` of `.branchdeck.toml` in the target checkout, the file of the branch the
+/// commits land on (as `pick_requires_check`), and why they are not checked when its `.patronus/config.yaml` gives
+/// none: that content fails open, Patronus checks the push anyway. `--remote` picks the commits someone else pushed,
+/// which no gate checks. A `.branchdeck.toml` that does not parse or a bad `[commit]` is `invalid_arguments`
+fn message_gate(context: &RepoContext, from: &PickFrom, args: &PickArgs) -> Result<(Option<MessageGate>, Option<String>), CliError> {
+  if matches!(from, PickFrom::Remote(_)) {
+    return Ok((None, None));
+  }
+  let checkout = Path::new(&context.repository);
+  let Some(check) = read_commit_check(checkout).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))? else {
+    return Ok((None, None));
+  };
+  match load_rules(checkout, &check) {
+    Ok(rules) => Ok((
+      Some(MessageGate {
+        rules,
+        refuse: args.allow_message_format.is_none(),
+      }),
+      None,
+    )),
+    Err(skipped) => {
+      let _ = writeln!(std::io::stderr().lock(), "brd pick: the commit rules are not checked: {skipped}");
+      Ok((None, Some(skipped)))
+    }
+  }
+}
+
+/// A verdict as the output names it, by the short id of its commit
+fn verdict_output(verdict: &MessageVerdict, short: &ShortIds) -> MessageVerdictOutput {
+  MessageVerdictOutput {
+    commit: short.get(&verdict.commit).to_string(),
+    subject: verdict.subject.clone(),
+    severity: if verdict.severity == Severity::Strict {
+      MessageSeverity::Strict
+    } else {
+      MessageSeverity::Warning
+    },
+  }
+}
+
+/// `message_format`: the commit rules reject the message of a picked commit as STRICT, nothing landed. The message names
+/// the reword of each such commit where it was made: in the lease (`brd -C <lease> reword`), in the worktree of --from,
+/// or, for revisions, where they live; then the pick again, and `--allow-message-format` to land them as they are
+fn message_format(context: &RepoContext, from: &PickFrom, refused: &MessageFormatRefused, home: Option<&HomePick>) -> CliError {
+  let short = context.short_ids(refused.verdicts.iter().map(|verdict| verdict.commit.as_str()));
+  let strict: Vec<&MessageVerdict> = refused.verdicts.iter().filter(|verdict| verdict.severity == Severity::Strict).collect();
+  let named = strict
+    .iter()
+    .map(|verdict| format!("{} ({})", short.get(&verdict.commit), verdict.subject))
+    .collect::<Vec<_>>()
+    .join(", ");
+  // the commands of a worktree name it with `-C`, as `unchecked_tree` does: `context.bd` names the target already
+  let (command, reword_in, again) = match (from, home) {
+    (PickFrom::Worktree(dir), Some(_)) => ("brd lease pick", Some(dir.as_str()), format!("{CLI_NAME} -C {} lease pick", shell_word(dir))),
+    (PickFrom::Worktree(dir), None) => ("brd pick", Some(dir.as_str()), format!("{} pick --from {} --follow", context.bd, shell_word(dir))),
+    (PickFrom::Revisions(revisions), _) => ("brd pick", None, format!("{} pick {}", context.bd, shell_word(revisions))),
+    // a remote pick has no gate of messages
+    (PickFrom::Remote(_), _) => ("brd pick", None, format!("{} pick", context.bd)),
+  };
+  let rewords = strict
+    .iter()
+    .map(|verdict| {
+      let id = short.get(&verdict.commit);
+      match reword_in {
+        Some(dir) => format!("`{CLI_NAME} -C {} reword {id} --subject '<subject>'`", shell_word(dir)),
+        None => format!("`{CLI_NAME} reword {id} --subject '<subject>'` in the worktree that has it"),
+      }
+    })
+    .collect::<Vec<_>>()
+    .join(", ");
+  let message = format!(
+    "{command}: the commit rules of the repository (`[commit] check` of .branchdeck.toml) reject the message of {named}; nothing landed. Write each \
+     subject after its `(branch)` prefix in the form of the repository (`hint`), reword it where it was made ({rewords}), then run `{again}` again. To \
+     land them as they are: `{again} --allow-message-format '<reason>'`, only once the user agreed or when brd and the rules disagree."
+  );
+  let mut error = CliError::new(ErrorCode::MessageFormat, message);
+  error.commits = strict.iter().map(|verdict| short.get(&verdict.commit).to_string()).collect();
+  error.extra.get_or_insert_default().message_format = Some(MessageFormatOutput {
+    commits: refused.verdicts.iter().map(|verdict| verdict_output(verdict, &short)).collect(),
+    hint: refused.hint.clone(),
+    documentation: refused.documentation.clone(),
+  });
+  error
 }
 
 /// The branch of `brd pick --remote` as the sync places it: its full name, the branch it is built on and its author. The
@@ -563,6 +678,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool, home: Optio
   ids.extend(check.present.iter().flat_map(|commit| std::iter::once(commit.commit.as_str()).chain(commit.on.as_deref())));
   ids.extend(check.follow.iter().map(|follow| follow.head.as_str()));
   ids.extend(result.dependencies.iter().map(|dependency| dependency.commit.as_str()));
+  ids.extend(result.messages.iter().map(|verdict| verdict.commit.as_str()));
   if let PickState::Conflict(conflict) = &check.state {
     ids.extend(std::iter::once(conflict.commit.id.as_str()).chain(conflict.clean.iter().map(|commit| commit.id.as_str())));
   }
@@ -639,6 +755,9 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool, home: Optio
     conflict,
     check: None,
     unchecked: None,
+    message_warnings: result.messages.iter().map(|verdict| verdict_output(verdict, &short)).collect(),
+    message_format_allowed: None,
+    message_check_skipped: None,
     undo_token: result.undo_token().map(|token| token.to_string()),
   })
 }

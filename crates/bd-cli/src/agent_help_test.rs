@@ -246,6 +246,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::DropInHome => &["drop", "help worktrees"],
     ErrorCode::UncommittedOverlap => &["help agent", "help update", "help worktrees"],
     ErrorCode::NothingToPick => &["pick"],
+    ErrorCode::MessageFormat => &["pick", "help worktrees"],
     ErrorCode::OperationInProgress
     | ErrorCode::RangeUnknown
     | ErrorCode::SourceOnNewerBaseline

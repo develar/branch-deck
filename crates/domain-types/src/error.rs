@@ -123,6 +123,10 @@ pub enum ErrorCode {
   /// recorded the tree of the lease's HEAD (`bd-checks.jsonl` of its git dir); nothing landed. Build and test that
   /// tree, then pick again
   UncheckedTree,
+  /// `brd lease pick` and `brd pick` in a repository whose `.branchdeck.toml` sets `[commit] check`: the commit rules
+  /// reject the message of a picked commit as STRICT (`message_format`: the commits, the hint and the documentation of
+  /// the rules); nothing landed. Reword the commits where they were made, then pick again
+  MessageFormat,
   /// `brd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `brd lease
   /// pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
   LeaseFollowsHome,
@@ -361,6 +365,7 @@ impl ErrorCode {
       | Self::HomeBranchSwitched
       | Self::NoHomeBranch
       | Self::UncheckedTree
+      | Self::MessageFormat
       | Self::LeaseFollowsHome
       | Self::ResolveInProgress
       | Self::UncommittedOverlap

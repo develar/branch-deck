@@ -974,6 +974,12 @@ fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut Pick
 /// Two commits picked onto a branch one commit ahead and the worktree followed, with the processes of `a_pick`
 #[track_caller]
 fn assert_followed_pick(context: &RepoContext, output: &PickOutput) {
+  assert_followed_pick_with(context, output, 0);
+}
+
+/// `assert_followed_pick` with `more_logs` more `log` processes
+#[track_caller]
+fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_logs: u32) {
   assert_eq!(
     (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
     (2, Some(bd_update::pick_command::FollowedState::Moved))
@@ -985,7 +991,7 @@ fn assert_followed_pick(context: &RepoContext, output: &PickOutput) {
       ("config", 1),
       ("diff-tree", 2),
       ("for-each-ref", 1),
-      ("log", 4),
+      ("log", 4 + more_logs),
       ("merge-base", 4),
       ("read-tree", 4),
       ("remote", 1),
@@ -1014,6 +1020,21 @@ fn a_pick() {
   commit_subjects(&repo, &["(own) Add c"]);
   let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
   assert_followed_pick(&context, &output);
+}
+
+/// `brd pick --from <worktree> --follow` with `[commit] check` of `.branchdeck.toml`: the processes of `a_pick` and
+/// one `log --no-walk --stdin` of the messages and the paths of the picked commits, before the lock; the file is read
+/// without git
+#[test]
+fn a_pick_with_the_commit_rules() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(lane) feat: add a", "a.txt", "a\n");
+  lane.commit("(lane) fix: add b", "b.txt", "b\n");
+  repo.create_commit(".branchdeck.toml", ".branchdeck.toml", "[commit]\ncheck = [\"(feat|fix|docs): .+\"]\n");
+  let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
+  assert!(output.message_warnings.is_empty());
+  assert_followed_pick_with(&context, &output, 1);
 }
 
 /// `brd pick --remote auth` of a commit someone else pushed: the sync of `brd sync` first, then the fetch of the branch

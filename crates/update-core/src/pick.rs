@@ -2,15 +2,18 @@
 //! `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. The check runs before the repository lock,
 //! the witness and the moves under it. After the moves, one read of how the branch groups tells the group of each
 //! picked commit, the branches whose stack parent a `(parent/leaf)` prefix changes, and the picked commits whose branch
-//! is not built on the branches they need.
+//! is not built on the branches they need. With the commit rules of the repository (`MessageGate`), the check reads
+//! the message and the paths of each picked commit once and refuses a STRICT violation before the lock.
 
 use anyhow::{Result, anyhow};
+use commit_rules::{MessageRules, Severity};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::{Commit, SubjectParts};
 use domain_types::rewrite::PickRemoteCommitsResult;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::get_commit_list_at;
+use git_ops::commit_list::{get_commit_list_at, read_messages_and_paths};
+use git_ops::copy_commit::virtual_message_of;
 use git_ops::pick::{
   AppliedPick, PickCheck, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PickedCommit, SubjectPrefix, apply_pick, check_pick, check_pick_undo, recheck_pick,
 };
@@ -28,7 +31,7 @@ use std::time::Duration;
 use sync_core::baseline::baseline_tracking_ref;
 use sync_core::push_lease::fetch_remote_branches;
 use sync_core::remote_status::{AncestorCommits, StackParent, StatusBranch, dropped_commits};
-use sync_utils::commit_subject::parse_subject;
+use sync_utils::commit_subject::{parse_subject, stripped_subject};
 use tracing::{debug, info, instrument, warn};
 use trial_check::dependencies::compute_dependencies;
 use trial_check::diff_scan::read_commit_diffs_cached;
@@ -75,6 +78,101 @@ pub struct PickParams {
   pub expect_branch: Option<String>,
   /// The commit the HEAD of the source worktree must be (`brd lease pick`), else `PickRefusal::SourceMoved`
   pub expect_source_head: Option<String>,
+  /// The commit rules of the target that the message of each picked commit must pass; `None` checks none
+  pub messages: Option<MessageGate>,
+}
+
+/// The commit rules of a pick (`[commit] check` of `.branchdeck.toml`, `commit_rules`): the message each picked commit
+/// lands with on the baseline (`virtual_message_of`: without its `(branch)` prefix) and the paths it changes give its
+/// severity
+#[derive(Debug, Clone)]
+pub struct MessageGate {
+  pub rules: MessageRules,
+  /// Refuse a STRICT violation (`MessageFormatRefused`), nothing landed; `false` for `--allow-message-format`. A dry run
+  /// never refuses
+  pub refuse: bool,
+}
+
+/// A picked commit whose message the commit rules reject
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageVerdict {
+  /// The commit in the source, its full id
+  pub commit: String,
+  pub subject: String,
+  /// `Warning` or `Strict`; an ignored one is no verdict
+  pub severity: Severity,
+}
+
+/// The commit rules reject the message of a picked commit as STRICT: nothing landed
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("the commit rules of the repository reject the message of {}", .verdicts.iter().map(|verdict| format!("{} ({})", short_id(&verdict.commit), verdict.subject)).collect::<Vec<_>>().join(", "))]
+pub struct MessageFormatRefused {
+  /// Every commit the rules reject, the WARNING ones too
+  pub verdicts: Vec<MessageVerdict>,
+  /// What a message must look like
+  pub hint: Option<String>,
+  /// Where the form is documented
+  pub documentation: Option<String>,
+}
+
+/// The verdicts of the commit rules on the picked commits of a check, read once per set of commits: a check made again
+/// with the same commits (the target moved meanwhile) reads no git
+struct MessageCheck<'a> {
+  gate: Option<&'a MessageGate>,
+  /// The picked commits and their verdicts, of the last check
+  last: Option<(Vec<String>, Vec<MessageVerdict>)>,
+}
+
+impl MessageCheck<'_> {
+  /// The verdicts on the picked commits of `plan` (one `log` for all of them when they are new), and with `refuse` the
+  /// refusal of a STRICT one. A plan that lands nothing has none
+  fn verify(&mut self, git_executor: &GitCommandExecutor, target: &str, plan: &PickPlan, refuse: bool) -> Result<()> {
+    let Some(gate) = self.gate else { return Ok(()) };
+    if plan.check.state != PickState::Clean || plan.check.picked.is_empty() {
+      self.last = None;
+      return Ok(());
+    }
+    let ids: Vec<String> = plan.check.picked.iter().map(|commit| commit.commit.clone()).collect();
+    if self.last.as_ref().is_none_or(|(last, _)| *last != ids) {
+      let verdicts = message_verdicts(git_executor, target, &gate.rules, &plan.check.picked)?;
+      self.last = Some((ids, verdicts));
+    }
+    let verdicts = self.last.as_ref().map_or(&[][..], |(_, verdicts)| verdicts.as_slice());
+    if refuse && gate.refuse && verdicts.iter().any(|verdict| verdict.severity == Severity::Strict) {
+      return Err(anyhow::Error::new(MessageFormatRefused {
+        verdicts: verdicts.to_vec(),
+        hint: gate.rules.hint.clone(),
+        documentation: gate.rules.documentation.clone(),
+      }));
+    }
+    Ok(())
+  }
+
+  fn verdicts(self) -> Vec<MessageVerdict> {
+    self.last.map_or_else(Vec::new, |(_, verdicts)| verdicts)
+  }
+}
+
+/// The verdicts of `rules` on `picked`: the messages and the paths of all of them from one `log`
+fn message_verdicts(git_executor: &GitCommandExecutor, target: &str, rules: &MessageRules, picked: &[PickedCommit]) -> Result<Vec<MessageVerdict>> {
+  let ids: Vec<&str> = picked.iter().map(|commit| commit.commit.as_str()).collect();
+  let read = read_messages_and_paths(git_executor, target, &ids)?;
+  Ok(
+    read
+      .iter()
+      .zip(picked)
+      .filter_map(|(commit, picked)| {
+        let subject = commit.message.lines().next().unwrap_or_default();
+        let message = virtual_message_of(&stripped_subject(subject), &commit.message);
+        let severity = rules.check(&message, &commit.paths)?;
+        Some(MessageVerdict {
+          commit: commit.id.clone(),
+          subject: picked.subject.clone(),
+          severity,
+        })
+      })
+      .collect(),
+  )
 }
 
 /// What groups a picked commit on the target, by its subject
@@ -135,6 +233,9 @@ pub struct PickResult {
   pub reparented: BTreeMap<String, String>,
   /// `None` for a dry run and for a pick that is not clean
   pub applied: Option<AppliedPick>,
+  /// The picked commits whose message the commit rules reject, in their order: WARNING ones, and STRICT ones of a dry
+  /// run or of a gate that does not refuse
+  pub messages: Vec<MessageVerdict>,
 }
 
 impl PickResult {
@@ -199,16 +300,21 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
       _ => None,
     },
   };
+  let mut messages = MessageCheck {
+    gate: params.messages.as_ref(),
+    last: None,
+  };
   let (plan, applied) = if params.dry_run {
     let plan = check_pick(git_executor, target, &request)?;
     options.ensure_head(git_executor, target, &plan.check.head)?;
+    messages.verify(git_executor, target, &plan, false)?;
     (plan, None)
   } else {
     let mut worktrees = vec![target];
     if let (true, PickFrom::Worktree(source)) = (params.follow, &params.from) {
       worktrees.push(source);
     }
-    land(git_executor, &worktrees, &request, options)?
+    land(git_executor, &worktrees, &request, options, &mut messages)?
   };
   let landing = if plan.check.picked.is_empty() {
     Landing::default()
@@ -230,6 +336,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     dependencies: landing.dependencies,
     reparented: landing.reparented,
     applied,
+    messages: messages.verdicts(),
   })
 }
 
@@ -286,6 +393,7 @@ pub fn pick_remote_commits_core(
     dry_run: false,
     expect_branch: None,
     expect_source_head: None,
+    messages: None,
   };
   let result = pick_core(git_executor, &pick, options, cache, file_diffs)?;
   match &result.check.state {
@@ -381,7 +489,13 @@ fn remote_commits(git_executor: &GitCommandExecutor, target: &str, baseline: Opt
 /// (`PickPlan::index_held`), sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
 /// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
 /// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock
-fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickRequest<'_>, options: &RewriteOptions<'_>) -> Result<(PickPlan, Option<AppliedPick>)> {
+fn land(
+  git_executor: &GitCommandExecutor,
+  worktrees: &[&str],
+  request: &PickRequest<'_>,
+  options: &RewriteOptions<'_>,
+  messages: &mut MessageCheck<'_>,
+) -> Result<(PickPlan, Option<AppliedPick>)> {
   let target = worktrees[0];
   let apply = |plan: &PickPlan| (plan.check.state == PickState::Clean).then(|| apply_pick(git_executor, target, plan)).transpose();
   for _ in 0..CHECKS_WITHOUT_THE_LOCK {
@@ -390,6 +504,7 @@ fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickReq
     }
     let mut plan = check_pick(git_executor, target, request)?;
     options.ensure_head(git_executor, target, &plan.check.head)?;
+    messages.verify(git_executor, target, &plan, true)?;
     if plan.check.state != PickState::Clean || !plan.moves_anything() {
       let applied = apply(&plan)?;
       return Ok((plan, applied));
@@ -413,6 +528,8 @@ fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickReq
   finish_pending(git_executor, worktrees)?;
   let plan = check_pick(git_executor, target, request)?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
+  // a check under the lock: new picked commits are read here, the same ones not again
+  messages.verify(git_executor, target, &plan, true)?;
   let applied = apply(&plan)?;
   Ok((plan, applied))
 }

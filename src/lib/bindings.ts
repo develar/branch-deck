@@ -2469,6 +2469,12 @@ export type ErrorCode =
  */
 "unchecked_tree" | 
 /**
+ *  `brd lease pick` and `brd pick` in a repository whose `.branchdeck.toml` sets `[commit] check`: the commit rules
+ *  reject the message of a picked commit as STRICT (`message_format`: the commits, the hint and the documentation of
+ *  the rules); nothing landed. Reword the commits where they were made, then pick again
+ */
+"message_format" | 
+/**
  *  `brd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `brd lease
  *  pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
  */

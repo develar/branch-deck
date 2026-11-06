@@ -26,3 +26,12 @@ name = "pnpm install"
 run = ["pnpm", "install", "--frozen-lockfile", "--config.confirm-modules-purge=false"]
 inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
 creates = ["node_modules"]
+
+# The commit rules of this repository: `brd pick` and `brd lease pick` refuse a message whose subject, after the
+# `(branch)` prefix, is not a conventional commit (`message_format`, spec/cli/pick.spec.md "The commit rules").
+# release-please reads these subjects.
+[commit]
+check = [
+  '(feat|fix|docs|refactor|perf|test|chore|style|build|ci|revert)(\([^)]+\))?!?: .+',
+  'Revert ".+',
+]

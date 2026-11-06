@@ -6,7 +6,7 @@ use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, counted_git};
 use bd_core::error::{CliError, ErrorExtra, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
-use bd_core::text_input::reason_text;
+use bd_core::text_input::{message_reason_text, reason_text};
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
@@ -112,6 +112,10 @@ pub struct LeasePickArgs {
   /// the output repeats it (`unchecked`). Only once the user agreed or the change cannot break a build (docs only)
   #[arg(long, value_name = "REASON", alias = "unchecked", value_parser = reason_text)]
   pub allow_unchecked: Option<String>,
+  /// Land commits whose message the commit rules of `[commit] check` of `.branchdeck.toml` reject as STRICT: say why,
+  /// the output repeats it (`message_format_allowed`). Only once the user agreed, or when brd and the rules disagree
+  #[arg(long, value_name = "REASON", value_parser = message_reason_text)]
+  pub allow_message_format: Option<String>,
 }
 
 #[derive(Debug, Default, clap::Args)]
