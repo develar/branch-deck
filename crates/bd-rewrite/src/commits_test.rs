@@ -105,6 +105,25 @@ fn entries_groups_and_fixups() {
 }
 
 #[test_log::test]
+fn entries_name_a_prefixed_fixup_target_with_its_prefix() {
+  let (repo, [login, fixup]) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[
+      HistoryCommit::new("(auth) Add login", &[("auth.rs", "fn login() {}\n")]).at(1_700_000_100),
+      HistoryCommit::new("(auth) fixup! Add login", &[("auth.rs", "fn login() { check() }\n")]).at(1_700_000_200),
+    ],
+  );
+
+  let (exit_code, output) = run_in(&repo, &["commits"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    by_subject(&output, "(auth) fixup! Add login")["fixup"],
+    json!({ "kind": "fixup", "target": short_id(&login), "target_subject": "(auth) Add login" })
+  );
+  assert_eq!(output["head"], json!(short_id(&fixup)));
+}
+
+#[test_log::test]
 fn dependency_edges_and_cluster_overlap() {
   let repo = repo_with_baseline(&[("shared.txt", &numbered_lines(30))]);
   // a: adds lines after line 2; b: replaces a line `a` added (overlap); c: changes line 25, far from both

@@ -111,6 +111,34 @@ fn matches_the_subject_without_the_prefix() {
 }
 
 #[test]
+fn a_fixup_marker_after_the_prefix_names_the_prefixed_subject() {
+  assert_eq!(plan(&["(b) Add b", "(other) Other work", "(b) fixup! Add b"]), (groups(&["c0 <- c2"]), vec![]));
+}
+
+#[test]
+fn a_prefixed_fixup_strips_every_marker_and_takes_the_first_kind() {
+  let plan = plan_autosquash(
+    "head".to_string(),
+    &commits(&["(b) Add b", "(other) Other work", "(b) squash! amend! Add b"]),
+    &GroupingInputs::with_stacks(false),
+  );
+  assert_eq!(summary(&plan), (groups(&["c0 <- c2"]), vec![]));
+  assert_eq!(plan.groups[0].folded[0].kind, FixupKind::Squash);
+}
+
+#[test]
+fn a_prefixed_fixup_names_a_hash_prefix_by_id() {
+  let commits = vec![commit("abcd1234", "(b) Add b"), commit("ffff0000", "(b) fixup! ABCD1")];
+  let plan = plan_autosquash("head".to_string(), &commits, &GroupingInputs::with_stacks(false));
+  assert_eq!(summary(&plan), (groups(&["abcd1234 <- ffff0000"]), vec![]));
+}
+
+#[test]
+fn a_prefixed_fixup_is_not_a_subject_match_target() {
+  assert_eq!(plan(&["(b) Add b", "(b) fixup! Add b", "fixup! (b) fixup! Add b"]), (groups(&["c0 <- c1, c2"]), vec![]));
+}
+
+#[test]
 fn matches_a_unique_hash_prefix() {
   let commits = vec![
     commit("abcd1234", "Add a"),
@@ -414,8 +442,14 @@ fn stacked_plan(messages: &[&str]) -> AutosquashPlan {
 
 #[test]
 fn with_stacks_a_fixup_names_the_leaf_of_its_target() {
-  let plan = stacked_plan(&["(auth/login) Add form", "(docs) Add form", "fixup! (login) Add form", "fixup! (login) Add f"]);
-  assert_eq!(summary(&plan), (groups(&["c0 <- c2, c3"]), vec![]));
+  let plan = stacked_plan(&[
+    "(auth/login) Add form",
+    "(docs) Add form",
+    "fixup! (login) Add form",
+    "fixup! (login) Add f",
+    "(login) fixup! Add form",
+  ]);
+  assert_eq!(summary(&plan), (groups(&["c0 <- c2, c3, c4"]), vec![]));
   assert_eq!(plan.groups[0].branch.as_deref(), Some("login"));
 
   // the full stack prefix and a deeper declaration of the same leaf agree too

@@ -667,8 +667,9 @@ why robots of the last 14 days failed and which checks passed only on a retry (`
 
 /// `brd fold --help`: folding the fixups
 pub const FOLD_HELP: &str = "\
-`brd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
-targets and keeps HEAD's tree. Fixups that cancel their target take it out of the history with them (`dropped: true`,
+`brd fold` (--branch, --expect-head, --dry-run) folds fixup!, squash! and amend! commits into their targets, whether
+the marker starts the subject or follows its `(prefix)` (`(b) fixup! X` names `(b) X`), and keeps HEAD's tree. Fixups
+that cancel their target take it out of the history with them (`dropped: true`,
 no `new_id`; --dry-run says it too). A fold whose fixup conflicts with a commit in between or after it
 (`squash_conflict`, `commits`, `paths`) or that would leave a later commit empty (`squash_empty`) folds nothing: tell
 the user.

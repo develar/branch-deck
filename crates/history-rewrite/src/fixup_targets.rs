@@ -11,7 +11,7 @@ use crate::snapshot::Snapshot;
 use domain_types::commit::Commit;
 use git_ops::revs::short_id;
 use std::collections::HashMap;
-use sync_utils::commit_subject::parse_subject;
+use sync_utils::commit_subject::autosquash_subject;
 
 /// Refuses `regrouped` (the commits of `snapshot` with their new messages, by position) when a fixup would fold into
 /// another target than in `before` (the plan of the messages now) or into none, when a rewrite adds or removes a marker,
@@ -108,8 +108,11 @@ fn fixup_targets(plan: &AutosquashPlan) -> HashMap<&str, &str> {
 /// Whether a fixup's subject names `target` by an abbreviation of its id rather than by its subject (rule 2 of
 /// `plan_autosquash`)
 fn names_by_id(fixup_subject: &str, target: &str, target_subject: &str) -> bool {
-  let wanted = &fixup_subject[parse_subject(fixup_subject).autosquash.len()..];
-  wanted != target_subject && wanted.len() >= 4 && wanted.bytes().all(|byte| byte.is_ascii_hexdigit()) && target.starts_with(&wanted.to_ascii_lowercase())
+  let Some(fixup) = autosquash_subject(fixup_subject) else { return false };
+  fixup.names != target_subject
+    && fixup.after_markers.len() >= 4
+    && fixup.after_markers.bytes().all(|byte| byte.is_ascii_hexdigit())
+    && target.starts_with(&fixup.after_markers.to_ascii_lowercase())
 }
 
 /// Whether a message has more than its subject line: the body an `amend!` puts in place of its target's message

@@ -10,10 +10,78 @@ use std::borrow::Cow;
 /// Git's autosquash markers; each needs the space, `fixup!X` is an ordinary subject (`git help rebase`, `--autosquash`)
 pub const AUTOSQUASH_MARKERS: [&str; 3] = ["fixup! ", "squash! ", "amend! "];
 
-/// The index in `AUTOSQUASH_MARKERS` of the marker the subject starts with: the first one decides (`fixup! squash! X`
-/// is a fixup)
+/// A subject read as git's autosquash reads it, including a marker immediately after a branch prefix
+#[derive(Debug, PartialEq, Eq)]
+pub struct AutosquashSubject<'a> {
+  /// Index in `AUTOSQUASH_MARKERS` of the first marker: the kind
+  pub marker: usize,
+  /// The subject the fixup names, with its prefix kept
+  pub names: Cow<'a, str>,
+  /// The subject after the markers and without its prefix, used by the hash rule
+  pub after_markers: &'a str,
+}
+
+/// The autosquash subject and the first marker that decides its kind, whether before or after a prefix
+pub fn autosquash_subject(subject: &str) -> Option<AutosquashSubject<'_>> {
+  if let Some((marker, names)) = marker_chain(subject) {
+    let parsed = parse_subject(names);
+    if let Some(prefix) = parsed.prefix {
+      if let Some((_, after_markers)) = marker_chain(parsed.rest) {
+        return Some(AutosquashSubject {
+          marker,
+          names: prefixed_subject(prefix, after_markers),
+          after_markers,
+        });
+      }
+      return Some(AutosquashSubject {
+        marker,
+        names: Cow::Borrowed(names),
+        after_markers: parsed.rest,
+      });
+    }
+    return Some(AutosquashSubject {
+      marker,
+      names: Cow::Borrowed(names),
+      after_markers: names,
+    });
+  }
+
+  let parsed = parse_subject(subject);
+  let prefix = parsed.prefix?;
+  let close = subject.find(')')?;
+  if subject[close + 1..].trim_start().len() == subject[close + 1..].len() {
+    return None;
+  }
+  let (marker, after_markers) = marker_chain(parsed.rest)?;
+  Some(AutosquashSubject {
+    marker,
+    names: prefixed_subject(prefix, after_markers),
+    after_markers,
+  })
+}
+
+/// The index in `AUTOSQUASH_MARKERS` of the first autosquash marker, before or after a prefix
 pub fn first_marker(subject: &str) -> Option<usize> {
-  AUTOSQUASH_MARKERS.iter().position(|marker| subject.starts_with(marker))
+  autosquash_subject(subject).map(|parsed| parsed.marker)
+}
+
+fn marker_chain(subject: &str) -> Option<(usize, &str)> {
+  let mut rest = subject;
+  let mut first = None;
+  while let Some((index, marker)) = AUTOSQUASH_MARKERS.iter().enumerate().find(|(_, marker)| rest.starts_with(**marker)) {
+    first.get_or_insert(index);
+    rest = rest[marker.len()..].trim_start();
+  }
+  first.map(|marker| (marker, rest))
+}
+
+fn prefixed_subject<'a>(prefix: &str, rest: &str) -> Cow<'a, str> {
+  let mut subject = format!("({prefix})");
+  if !rest.is_empty() {
+    subject.push(' ');
+    subject.push_str(rest);
+  }
+  Cow::Owned(subject)
 }
 
 /// A commit subject split into the parts that decide its group
@@ -122,6 +190,28 @@ mod tests {
   use super::*;
   use domain_types::commit::IssueLead;
   use pretty_assertions::assert_eq;
+
+  #[test]
+  fn autosquash_subject_reads_markers_before_or_after_a_prefix() {
+    let marker_first = autosquash_subject("fixup! (b) X").unwrap();
+    assert_eq!((marker_first.marker, marker_first.names.as_ref(), marker_first.after_markers), (0, "(b) X", "X"));
+    assert_eq!(first_marker("fixup! (b) X"), Some(0));
+
+    let prefix_first = autosquash_subject("(b) fixup! X").unwrap();
+    assert_eq!((prefix_first.marker, prefix_first.names.as_ref(), prefix_first.after_markers), (0, "(b) X", "X"));
+    assert_eq!(first_marker("(b) fixup! X"), Some(0));
+
+    let chained = autosquash_subject("(b) squash! amend! X").unwrap();
+    assert_eq!((chained.marker, chained.names.as_ref(), chained.after_markers), (1, "(b) X", "X"));
+  }
+
+  #[test]
+  fn autosquash_subject_requires_the_space_after_the_marker_and_prefix() {
+    assert!(autosquash_subject("fixup!X").is_none());
+    assert!(autosquash_subject("(b) fixup!X").is_none());
+    assert!(autosquash_subject("fixup!(b) X").is_none());
+    assert!(autosquash_subject("(b)fixup! X").is_none());
+  }
 
   #[test]
   fn the_parts_of_a_subject_are_its_markers_its_prefix_its_rest_and_the_key_a_row_shows_it_led_by() {

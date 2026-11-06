@@ -18,7 +18,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_core::config_snapshot::SymbolMode;
 use sync_core::grouping::BranchGrouping;
-use sync_utils::commit_subject::{AUTOSQUASH_MARKERS, parse_subject};
+use sync_utils::commit_subject::{AUTOSQUASH_MARKERS, autosquash_subject, parse_subject};
 use sync_utils::issue_pattern::find_issue_number;
 use trial_check::dependencies::{Dependency, compute_dependencies, connected_components, with_symbols};
 use trial_check::diff_scan::{CommitDiff, read_commit_diffs_cached};
@@ -481,7 +481,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
         fixup: reading.fixup_kind_and_target(commit, &short).map(|(kind, target)| FixupTarget {
           kind,
           target,
-          target_subject: commit.subject[parsed.autosquash.len()..].to_string(),
+          target_subject: autosquash_subject(&commit.subject).expect("fixup has an autosquash subject").names.into_owned(),
         }),
         files: args.files.then(|| {
           diff_of.get(commit.id.as_str()).map_or_else(Vec::new, |diff| {

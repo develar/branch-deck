@@ -5,7 +5,7 @@
 use domain_types::commit::Commit;
 use domain_types::stack::leaf_of;
 use std::collections::HashMap;
-use sync_utils::commit_subject::{first_marker, parse_subject};
+use sync_utils::commit_subject::{autosquash_subject, first_marker, parse_subject};
 
 /// How a commit of the range resolved, by position
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,15 +18,16 @@ pub enum FixupTarget {
   Orphan,
 }
 
-/// The target of each commit of `commits` (oldest first), by position: all leading markers are stripped, then the
-/// target is the oldest older commit with
+/// The target of each commit of `commits` (oldest first), by position: markers at the start or after a `(prefix)` are
+/// stripped, then the target is the oldest older commit with
 ///   1. exactly that subject;
 ///   2. an id starting with it, if it is a hash prefix of at least 4 hex digits that matches one commit;
 ///   3. the same subject without the `(prefix)`, if the prefixes agree when the fixup names one;
 ///   4. a subject (or, prefixes agreeing, a subject without the `(prefix)`) starting with it.
 ///
 /// A fixup of a fixup (by hash) goes to the final target. A fixup without a target is an orphan. With stacked branches
-/// on (`stacks`), prefixes agree when they name the same branch, so `fixup! (login) X` finds `(auth/login) X`.
+/// on (`stacks`), prefixes agree when they name the same branch, so `fixup! (login) X` and `(login) fixup! X` find
+/// `(auth/login) X`.
 #[must_use]
 pub fn fixup_targets(commits: &[Commit], stacks: bool) -> Vec<FixupTarget> {
   let mut resolutions: Vec<FixupTarget> = Vec::with_capacity(commits.len());
@@ -65,8 +66,9 @@ pub fn target_of_each_fixup(commits: &[Commit], stacks: bool) -> HashMap<String,
 
 /// The position of the target of the fixup at `index`, among the older commits
 fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usize, stacks: bool) -> Option<usize> {
-  let parsed = parse_subject(&commits[index].subject);
-  let wanted = &commits[index].subject[parsed.autosquash.len()..];
+  let fixup = autosquash_subject(&commits[index].subject)?;
+  let wanted = fixup.names.as_ref();
+  let parsed = parse_subject(wanted);
   if wanted.is_empty() {
     return None;
   }
@@ -75,21 +77,21 @@ fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usi
   }
 
   let older = &commits[..index];
-  if wanted.len() >= 4 && wanted.bytes().all(|b| b.is_ascii_hexdigit()) {
-    let wanted = wanted.to_ascii_lowercase();
-    let mut matches = older.iter().enumerate().filter(|(_, commit)| commit.id.starts_with(&wanted));
+  if fixup.after_markers.len() >= 4 && fixup.after_markers.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let wanted_id = fixup.after_markers.to_ascii_lowercase();
+    let mut matches = older.iter().enumerate().filter(|(_, commit)| commit.id.starts_with(&wanted_id));
     if let (Some((target, _)), None) = (matches.next(), matches.next()) {
       return Some(target);
     }
   }
 
-  // fixups are not targets of a subject match: their own subjects start with a marker
+  // fixups are not targets of a subject match, whether their marker is before or after the prefix
   let candidates = || {
     older
       .iter()
       .enumerate()
       .map(|(position, commit)| (position, parse_subject(&commit.subject)))
-      .filter(|(_, candidate)| candidate.autosquash.is_empty())
+      .filter(|(position, _)| autosquash_subject(&older[*position].subject).is_none())
   };
   let prefixes_agree = |candidate: Option<&str>| {
     parsed.prefix.is_none_or(|prefix| match candidate {

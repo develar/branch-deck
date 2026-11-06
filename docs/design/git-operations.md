@@ -1081,13 +1081,14 @@ Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.r
 one squash rewrite with a group per target. The plan (`plan_autosquash`) is pure, over the commits ahead of the
 baseline, oldest first, and follows git's `todo_list_rearrange_squash`:
 
-1. A subject is a fixup if it starts with `fixup! `, `squash! ` or `amend! `; the space is required. All leading
-   markers are stripped (`fixup! squash! X` targets `X`); the first one gives the kind. The grouper strips them the same
-   way, so `fixup! (auth) X` stays in `auth`.
+1. A subject is a fixup if it starts with `fixup! `, `squash! ` or `amend! `, or its `(prefix)` is followed by those
+   markers; the space after each marker is required. All markers are stripped (`fixup! squash! X` targets `X`); the
+   first one gives the kind. The grouper strips leading markers the same way, so `fixup! (auth) X` stays in `auth`.
 2. The target is the oldest older commit that matches, in this order: the exact subject; a hash prefix of 4 or more hex
-   digits that matches one commit of the range; the subject without the `(prefix)`, the prefixes agreeing if the fixup
-   has one (Branch Deck's addition: `fixup! X` finds `(auth) X`); a subject, or a subject without the `(prefix)`,
-   starting with the text. Fixups are never matched by subject.
+   digits after all markers, without a `(prefix)`, that matches one commit of the range; the subject without the
+   `(prefix)`, the prefixes agreeing if the fixup has one (Branch Deck's addition: `fixup! X` finds `(auth) X`); a
+   subject, or a subject without the `(prefix)`, starting with the text. `(auth) fixup! X` names `(auth) X`; fixups are
+   never matched by subject.
 3. A fixup of a fixup (by hash) goes to the final target. Anything unmatched, a newer target included, is an orphan:
    reported, not squashed.
 
@@ -1121,7 +1122,7 @@ nothing to fold, and `check_fold` its `--dry-run` with fixups; a `NothingToSquas
 them) is nothing to fold too.
 
 Code: `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/autosquash_targets.rs` (the target of each
-fixup), `crates/sync-utils/src/commit_subject.rs` (`parse_subject`), `crates/history-rewrite/src/commit_grouper.rs`
+fixup), `crates/sync-utils/src/commit_subject.rs` (`autosquash_subject`, `parse_subject`), `crates/history-rewrite/src/commit_grouper.rs`
 (`GroupingInputs::branch_of`).
 
 #### Move a hunk

@@ -4,13 +4,16 @@ description: Requirements for squashing fixup!, squash! and amend! commits into 
 style: plain-1
 targets:
   - ../../crates/history-rewrite/src/autosquash.rs
+  - ../../crates/history-rewrite/src/fixup_targets.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../crates/sync-utils/src/commit_subject.rs
   - ../../crates/git-ops/src/autosquash_targets.rs
+  - ../../crates/bd-rewrite/src/commits.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/git-ops/src/squash_commits.rs
   - ../../crates/bd-rewrite/src/fold_command.rs
+  - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/app-api/src/reads/commits.rs
   - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/autosquash.ts
@@ -51,19 +54,24 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 
 ### Target resolution
 
-- A subject is a fixup if it starts with `fixup! `, `squash! ` or `amend! `; the space is required, as in git
-  (`fixup!X` is an ordinary subject). All leading markers are stripped; the first one gives the kind. A subject without
-  a marker is never a fixup, also when it starts with an issue key (`ABC-1 Fix x`) or a prefix and an older commit has
-  the same subject; a prefixed commit stays the target of a fixup that names it.
+- A subject is a fixup if it starts with `fixup! `, `squash! ` or `amend! `, or if its `(prefix)` is followed by one or
+  more of those markers; the space after each marker is required, as in git (`fixup!X` and `(b) fixup!X` are ordinary
+  subjects). All markers are stripped; the first one gives the kind. `(b) fixup! X` names `(b) X`. A subject without a
+  marker is never a fixup, also when it starts with an issue key (`ABC-1 Fix x`) or a prefix and an older commit has the
+  same subject; a prefixed fixup is never itself a subject-match target.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`strips_every_marker_and_takes_the_kind_from_the_first`, `needs_the_space_after_the_marker`, `a_subject_without_a_marker_is_never_a_fixup`)
+  [@test] ../../crates/sync-utils/src/commit_subject.rs (`autosquash_subject_reads_markers_before_or_after_a_prefix`, `autosquash_subject_requires_the_space_after_the_marker_and_prefix`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_fixup_marker_after_the_prefix_names_the_prefixed_subject`, `a_prefixed_fixup_strips_every_marker_and_takes_the_first_kind`, `a_prefixed_fixup_is_not_a_subject_match_target`)
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`test_autosquash_commits_edge_cases`)
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`)
 - The target is the oldest older commit of the range that matches, in this order:
   1. the exact subject;
-  2. a unique hash prefix of at least 4 hex digits;
+  2. a unique hash prefix of at least 4 hex digits after all markers, without a `(prefix)`;
   3. the subject without the `(prefix)`, the prefixes agreeing if the fixup names one;
   4. a subject (or, prefixes agreeing, a subject without the `(prefix)`) starting with the text.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`matches_the_exact_subject_and_keeps_the_details`, `matches_the_subject_without_the_prefix`, `matches_a_unique_hash_prefix`, `falls_back_to_a_subject_starting_with_the_text`, `picks_the_oldest_of_duplicate_subjects`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_prefixed_fixup_names_a_hash_prefix_by_id`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`entries_name_a_prefixed_fixup_target_with_its_prefix`)
 - Prefixes agree when their text is the same. With [stacked branches](../branch/stacked-branches.spec.md) on, they agree
   when they name the same leaf (`(login)` and `(auth/login)`), and the branch of a group is the leaf.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`without_stacks_prefixes_are_compared_as_text`, `with_stacks_a_fixup_names_the_leaf_of_its_target`)
