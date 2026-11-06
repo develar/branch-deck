@@ -152,7 +152,11 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   assert_eq!((fixture.repo.head(), slot_git(&path, &["rev-parse", "HEAD"])), (home.clone(), lease), "nothing moved");
   assert_eq!(output["update"]["upstream"], json!("master"));
   let next = output["conflict"]["next"].as_str().unwrap();
-  assert!(next.contains("update --continue") && next.contains("lease pick` again"), "{next}");
+  // both commands run in the lease, where the resolve session is: one `-C`, the lease, never the home checkout
+  let lease_bd = format!("brd -C {}", shell_word(&path));
+  assert!(next.contains(&format!("`{lease_bd} update --continue`")), "{next}");
+  assert!(next.contains(&format!("`{lease_bd} lease pick` again")), "{next}");
+  assert_eq!(next.matches(" -C ").count(), 2, "{next}");
 
   let (exit_code, refused) = fixture.run_in(Path::new(&path), &["lease", "return"]);
   assert_error(&refused, exit_code, (4, "resolve_in_progress"));

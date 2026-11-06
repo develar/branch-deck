@@ -344,8 +344,9 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
 pub struct HomePick {
   /// The branch the target must have checked out, else `home_branch_switched`
   pub branch: String,
-  /// `brd -C <lease> lease pick`: what a conflict's `next` runs again
-  pub again: String,
+  /// `brd -C <lease>`: the brd of the lease, which the `next` of a conflict runs `update --continue` and `lease pick`
+  /// with. `RepoContext::bd` names the home checkout, where neither belongs
+  pub lease_bd: String,
   /// The check of the lease's tree that `brd lease pick` made already, after the update of a conflict: the gate reads
   /// it instead of asking git again
   pub check: Option<TreeCheck>,
@@ -796,9 +797,8 @@ fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds, home:
   match (&check.follow, home) {
     (Some(_), Some(home)) => format!(
       "Nothing landed. The lease is updated onto {onto} (`update`): resolve the conflict of its session there ({resolve}), `{bd} update --continue`, \
-       build and test, then run `{again}` again. {no_cherry_pick}",
-      bd = context.bd,
-      again = home.again,
+       build and test, then run `{bd} lease pick` again. {no_cherry_pick}",
+      bd = home.lease_bd,
     ),
     (Some(follow), None) => format!(
       "Move the worktree onto {onto} (`git -C {worktree} rebase --onto {onto} {base}`), {resolve}, then run `{bd} pick --from {worktree} --follow` \

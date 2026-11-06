@@ -451,7 +451,7 @@ fn lease_pick_in(
   };
   let home = HomePick {
     branch,
-    again: format!("{} -C {} lease pick", context.bd, bd_core::bd_command::shell_word(lease_dir)),
+    lease_bd: format!("{} -C {}", bd_core::bd_command::CLI_NAME, bd_core::bd_command::shell_word(lease_dir)),
     check,
   };
   pick_into(context, &pick_args, environment, Some(&home))
