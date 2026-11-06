@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.2.0](https://github.com/develar/branch-deck/compare/v1.1.0...v1.2.0) (2026-11-06)
+
+
+### Features
+
+* **bd:** present What Changes as a readable history ([8682a7f](https://github.com/develar/branch-deck/commit/8682a7fdb3b793c3d0cff11f31e4b49075c2ebfc))
+* **bd:** search review story text ([393b278](https://github.com/develar/branch-deck/commit/393b278f1c97e586934601d3cde6c5115ac4f0da))
+* **brd:** a pick refuses a message that the commit rules of the repository reject ([568bac2](https://github.com/develar/branch-deck/commit/568bac2dcc520f7a336733cc4bbdd6a6f74e4137))
+* **brd:** brd reword changes the message of an unlanded commit in a lease ([41e4e0a](https://github.com/develar/branch-deck/commit/41e4e0a05370c8b4d7f10c4f3731138a724a5be8))
+* **git:** honor commit.gpgsign for branch writes ([7ac4c29](https://github.com/develar/branch-deck/commit/7ac4c297629618f134f8067de908cc11f67180a1))
+* **review:** a step is proven by the given tests of the change ([158ce9e](https://github.com/develar/branch-deck/commit/158ce9ee012e66a85e1e163f0b897c54c1a85c38)), closes [#179](https://github.com/develar/branch-deck/issues/179)
+
+
+### Bug Fixes
+
+* **bd:** the skill lands by the route of the repository, a pick is local ([4fc3d1c](https://github.com/develar/branch-deck/commit/4fc3d1ce2fc8ba5169ce6f6b56001218bc607e3b))
+* **brd:** an unknown table of .branchdeck.toml leaves the lease rules in force ([6174533](https://github.com/develar/branch-deck/commit/6174533d46b1e13d2b1fd8429b1f14e9a5e1f199))
+* **brd:** the conflict of a lease pick names the brd of the lease once, for both of its commands ([4451bc7](https://github.com/develar/branch-deck/commit/4451bc7683d2203843e8adf99b400503c79fe2f9))
+* **ci:** format .branchdeck.toml, move the Patronus fixture to testdata ([3c652cd](https://github.com/develar/branch-deck/commit/3c652cda262e6635734bbb27c95274bf2ee439e5))
+* **review:** a commit with a unit of its own starts its step, not a follow-up ([#166](https://github.com/develar/branch-deck/issues/166)) ([3ba220b](https://github.com/develar/branch-deck/commit/3ba220bbee64b2b2301084c91f16a5fcffeb4020))
+* **review:** correct overview and file tree ([4cd79a3](https://github.com/develar/branch-deck/commit/4cd79a389e29d02fc75e65b679d37b8d9f6c3b41))
+* **sync:** refuse a sync and Update Project on a checked out branch under the prefix ([32d8057](https://github.com/develar/branch-deck/commit/32d8057f0719f77bab1b4e2c36dbfe0f6d5b2f5a))
+
 ## [1.1.0](https://github.com/develar/branch-deck/compare/v1.0.0...v1.1.0) (2026-11-06)
 
 
