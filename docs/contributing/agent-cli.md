@@ -16,6 +16,7 @@ starts a Patronus Safe Push with `safe-push` and reads its robot, and why it fai
 Pushes of the repository went with `robot-stats`. `group --sync`
 applies a plan, its pull request texts and a sync in one call. `update` brings the checked out branch onto its
 baseline as the app's Update Project does, and resolves a conflict in a resolve session outside the working tree;
+rename/rename 1→2 conflicts can keep either side or write the checked merge with `--rename-to` (see `brd help update`);
 `pick` lands the commits of another worktree on the checked out branch, `unapply` takes a branch and its files out of
 it and `reapply` puts it back, `lease` keeps the pool of worktrees that
 agent sessions work in, and `workspace` tells an agent before its first edit whether to lease one and how to write a

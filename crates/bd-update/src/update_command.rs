@@ -9,7 +9,7 @@
 
 use bd_core::bd_command::shell_word;
 use bd_core::context::RepoContext;
-use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ProcessKind, ProcessOutput};
+use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ErrorRenamePair, ProcessKind, ProcessOutput};
 use bd_core::operation_record::recorded_unless;
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
@@ -26,12 +26,14 @@ use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, MAX_BLOCKED_PATHS, NotAnUpdate, PendingUpdate, RefLocked, pending_update};
 use git_ops::update_resolve::{ConflictKind, LandedInput, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use history_rewrite::baseline::detect_baseline_branch;
-use history_rewrite::repository_lock::{LockWait, RepositoryLocked};
+use history_rewrite::repository_lock::{LockWait, RepositoryLocked, RewriteOptions};
+use history_rewrite::snapshot::read_grouping_inputs;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use sync_core::baseline::check_baseline_update;
+use sync_core::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use sync_utils::list_cut::kept;
 use sync_utils::paths::display_path;
 use update_core::resolve_copies::Materialize;
@@ -64,6 +66,9 @@ pub struct UpdateArgs {
   /// With --continue: resolve a file by deleting it; repeatable
   #[arg(long, value_name = "PATH", requires = "resume")]
   pub delete: Vec<String>,
+  /// With --continue: write a rename/rename edit copy at a new path; repeatable
+  #[arg(long, num_args = 2, value_names = ["PATH", "NEW_PATH"], action = clap::ArgAction::Append, requires = "resume")]
+  pub rename_to: Vec<String>,
   /// With --continue: keep the round's commit as an empty commit when its resolution changes nothing
   #[arg(long, requires = "resume", conflicts_with = "drop_empty")]
   pub allow_empty: bool,
@@ -72,7 +77,7 @@ pub struct UpdateArgs {
   pub drop_empty: Option<String>,
   /// With --continue: drop the round's commit (this id, at least 4 characters) as landed: its twin in the baseline
   /// (`session.commit.landed_as`) has its change. Takes `onto` for every file
-  #[arg(long, value_name = "COMMIT", requires = "resume", conflicts_with_all = ["take", "delete", "allow_empty", "drop_empty"])]
+  #[arg(long, value_name = "COMMIT", requires = "resume", conflicts_with_all = ["take", "delete", "rename_to", "allow_empty", "drop_empty"])]
   pub landed: Option<String>,
   /// With --landed: the user decided the drop, so a commit that changes lines its twin lacks (`landed_as.local_only`) is
   /// dropped too. Only once the user said yes
@@ -395,11 +400,15 @@ pub struct SessionFile {
   /// The path in the repository
   pub path: String,
   /// `content` (both sides changed the text: `edit` has zdiff3 markers), `modify_delete` (one side deleted it: `edit` is
-  /// the changed version) or `rename_delete` (one side renamed it from `renamed_from`, the other deleted it)
+  /// the changed version), `rename_delete` (one side renamed it from `renamed_from`, the other deleted it), or
+  /// `rename_rename` (both sides renamed it: `onto` to `path`, the commit to `commit_path`)
   pub kind: String,
   /// The path before the rename of a `rename_delete`; `--take` and `--delete` take either path
   #[serde(skip_serializing_if = "Option::is_none")]
   pub renamed_from: Option<String>,
+  /// The commit's path of a `rename_rename`; `--take` and `--delete` also take this path
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub commit_path: Option<String>,
   /// The `edit` copy differs from bd's merge result: your resolution is there (a refused --continue keeps it); absent
   /// without a regular file there
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -454,6 +463,9 @@ pub struct ResolvedFile {
   pub path: String,
   /// `edited`, `onto`, `commit`, `deleted` or `words` (the round resolved itself by words)
   pub how: String,
+  /// The result path when an edited copy or side take has a different name
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub renamed_to: Option<String>,
   /// With `words`: the conflicts of git in the file that the words resolved
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflicts: Option<u32>,
@@ -605,6 +617,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
       round: args.round,
       takes: args.take.iter().map(|take| parse_take(take)).collect::<Result<_, _>>()?,
       deletes: args.delete.clone(),
+      renames: args.rename_to.as_chunks::<2>().0.iter().map(|[path, new_path]| (path.clone(), new_path.clone())).collect(),
       dry_run: args.dry_run,
       allow_empty: args.allow_empty,
       drop_empty: args.drop_empty.clone(),
@@ -613,7 +626,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
         user: args.user,
       }),
     };
-    let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(core_error)?;
+    let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(|error| update_core_error(context, error))?;
     return session_output(context, outcome, args.dry_run, &bd).map(|output| UpdateCommandOutput::Update(Box::new(output)));
   }
   if args.dry_run {
@@ -638,7 +651,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
 
 /// `update_and_resolve` and its output: an update, or the round of the resolve session its conflict started
 fn update_or_resolve(context: &RepoContext, options: UpdateOptions<'_>, dir: Option<&std::path::Path>) -> Result<UpdateOutput, CliError> {
-  match update_and_resolve(&context.git, &context.repository, options, dir).map_err(core_error)? {
+  match update_and_resolve(&context.git, &context.repository, options, dir).map_err(|error| update_core_error(context, error))? {
     BdUpdate::Update { result, dropped } => {
       let applied = result.applied.as_ref().map(|applied| (applied.new_head.as_str(), applied.replayed));
       output(context, &result.check, applied, (result.landed, &dropped), false)
@@ -775,9 +788,11 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
         ConflictKind::Content => "content",
         ConflictKind::ModifyDelete => "modify_delete",
         ConflictKind::RenameDelete => "rename_delete",
+        ConflictKind::RenameRename => "rename_rename",
       }
       .to_string(),
       renamed_from: file.renamed_from.clone(),
+      commit_path: file.commit_path.clone(),
       edited: file.edited,
       edit: display_path(&file.edit),
       before: file.before.as_deref().map(display_path),
@@ -787,10 +802,10 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
       hint: if twin.is_some() {
         format!(
           "`session.commit.landed_as`: see `session.commit.hint` first. {}",
-          file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref())
+          file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref(), file.commit_path.as_deref())
         )
       } else {
-        file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref())
+        file_hint(file.kind, file.onto.is_some(), &file.path, file.renamed_from.as_deref(), file.commit_path.as_deref())
       },
       upstream_commits: conflict_commits(&file.upstream_commits, short),
     })
@@ -920,9 +935,15 @@ fn ask_reasons(view: &SessionView) -> Vec<AskReason> {
   reasons
 }
 
-fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Option<&str>) -> String {
+fn file_hint(kind: ConflictKind, onto_has_it: bool, path: &str, renamed_from: Option<&str>, commit_path: Option<&str>) -> String {
   let from = renamed_from.unwrap_or(path);
   match kind {
+    ConflictKind::RenameRename => {
+      let commit = commit_path.unwrap_or(path);
+      format!(
+        "Both sides renamed {from}: `onto` to {path}, the commit to {commit}; --take onto:<name> keeps {path}, --take commit:<name> keeps {commit}, --delete <name> removes both, or edit `edit` and use --rename-to <path> <new-path>"
+      )
+    }
     ConflictKind::RenameDelete if onto_has_it => {
       format!("`onto` renamed {from} to {path} and the commit deletes it: --delete {path} keeps the delete, --take onto:{path} keeps the renamed file, or edit `edit`")
     }
@@ -957,6 +978,7 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
         .iter()
         .map(|path| ResolvedFile {
           path: path.path.clone(),
+          renamed_to: path.renamed_to.clone(),
           how: match path.outcome {
             Outcome::Edited => "edited",
             Outcome::Onto => "onto",
@@ -984,7 +1006,7 @@ fn verify_paths(resolutions: &[Resolution], resolved: &[UpdateResolvedCommit]) -
     .filter(|resolution| !resolution.dropped())
     .flat_map(|resolution| &resolution.paths)
     .filter(|path| path.outcome != Outcome::Onto)
-    .map(|path| path.path.as_str());
+    .map(|path| path.renamed_to.as_deref().unwrap_or(&path.path));
   for path in rounds.chain(resolved.iter().flat_map(|commit| commit.files.iter().map(|file| file.path.as_str()))) {
     if !paths.iter().any(|known| known == path) {
       paths.push(path.to_string());
@@ -1131,6 +1153,49 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
 /// (check again)
 pub(crate) fn core_error(error: anyhow::Error) -> CliError {
   classified(error, false)
+}
+
+/// A refused update conflict names an unapply only when its dry run proves that branch is supported
+fn update_core_error(context: &RepoContext, error: anyhow::Error) -> CliError {
+  let unsupported = error.downcast_ref::<ResolveError>().and_then(|error| match error {
+    ResolveError::Unsupported { commit, rename_pairs, .. } => Some((commit.clone(), rename_pairs.clone())),
+    _ => None,
+  });
+  let mut output = core_error(error);
+  if let Some((commit, rename_pairs)) = unsupported {
+    output.extra.get_or_insert_default().rename_pairs = rename_pairs
+      .into_iter()
+      .map(|pair| ErrorRenamePair {
+        from: pair.from,
+        onto: pair.onto,
+        commit: pair.commit,
+      })
+      .collect();
+    let next = commit.as_deref().and_then(|commit| unapply_branch_suggestion(context, commit)).map_or_else(
+      || "`brd update --abort` and ask the user".to_string(),
+      |branch| format!("`brd update --abort`, then `brd unapply {}`", shell_word(&branch)),
+    );
+    let _ = write!(output.message, ". Next: {next}");
+  }
+  output
+}
+
+fn unapply_branch_suggestion(context: &RepoContext, commit: &str) -> Option<String> {
+  let subject = context.git.execute_command(&["log", "-1", "--format=%s", commit], &context.repository).ok()?;
+  let branch = read_grouping_inputs(&context.git, &context.repository).ok()?.branch_of(subject.trim())?;
+  let params = UnapplyBranchParams {
+    repository_path: context.repository.clone(),
+    branch_name: branch.clone(),
+    original_commit_ids: None,
+    dry_run: true,
+  };
+  let options = RewriteOptions {
+    expect_head: None,
+    lock_wait: LockWait::Bounded(context.lock_timeout),
+    held_lock: None,
+  };
+  unapply_branch_core(&context.git, params, &context.prefix, &options).ok()?;
+  Some(branch)
 }
 
 /// The code of a failed undo of an update, a pick, an unapply or a reapply: as for an update, with the code `in_undo`

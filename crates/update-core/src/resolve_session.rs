@@ -118,6 +118,8 @@ pub struct FileView {
   pub edited: Option<bool>,
   /// The path before the rename of a rename/delete
   pub renamed_from: Option<String>,
+  /// The commit's path of a rename/rename
+  pub commit_path: Option<String>,
   /// The upstream commits since the merge base that changed the file, newest first
   pub upstream_commits: Vec<UpdateCommit>,
 }
@@ -270,6 +272,7 @@ fn view_state(
         markers,
         edited,
         renamed_from: file.renamed_from.clone(),
+        commit_path: file.commit_path.clone(),
         upstream_commits: upstream.remove(&file.path).unwrap_or_default(),
       }
     })
@@ -480,6 +483,7 @@ pub struct ContinueOptions {
   pub round: Option<u32>,
   pub takes: Vec<(Side, String)>,
   pub deletes: Vec<String>,
+  pub renames: Vec<(String, String)>,
   pub dry_run: bool,
   /// `--allow-empty`: keep a resolution without changes as an empty commit
   pub allow_empty: bool,
@@ -509,7 +513,7 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     && options.landed.is_none()
   {
     for file in &conflict.files {
-      let decided = options.deletes.contains(&file.path) || options.takes.iter().any(|(_, path)| *path == file.path);
+      let decided = options.deletes.iter().any(|path| file.is_named(path)) || options.takes.iter().any(|(_, path)| file.is_named(path));
       if !decided {
         edits.insert(file.path.clone(), read_edit_copy(&previous, file)?);
       }
@@ -518,6 +522,7 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
   let input = RoundInput {
     takes: options.takes.clone(),
     deletes: options.deletes.clone(),
+    renames: options.renames.clone(),
     edits,
     allow_empty: options.allow_empty,
     drop_empty: options.drop_empty.clone(),

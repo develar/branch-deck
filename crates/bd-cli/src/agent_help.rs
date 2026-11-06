@@ -173,6 +173,8 @@ A round (`state: conflict`, `session`):
 - `session.files[]`: `path`, `kind`, and absolute paths: `edit` (the merge result with zdiff3 markers, the file to
   edit), `before` (the commit's parent), `onto` (the new parent: the baseline and the commits replayed so far),
   `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
+  `rename_rename` has `renamed_from` (the base name) and `commit_path` (the commit's name); `--take` and `--delete`
+  accept any of the three names.
   `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
   finish (the first 100, all 101 rather than one left out; `blocked_paths_omitted` counts the rest). `session.next`
   is the command that continues. A round prints only its own files; `brd update --status` adds the rounds resolved so
@@ -185,12 +187,15 @@ A round (`state: conflict`, `session`):
   `[IO.File]::WriteAllText(<edit>, $text)`, because `Set-Content` and `Out-File` add a BOM or write UTF-16.
 - `kind` content: edit `edit`. `kind` modify_delete or rename_delete (one side deleted the file; `renamed_from`
   names its path before a rename): `--take onto:<path>`,
-  `--take commit:<path>` or `--delete <path>` on the --continue command, or edit `edit`. Every file needs a
-  resolution: a missing file is never a delete.
+  `--take commit:<path>` or `--delete <path>` on the --continue command, or edit `edit`. `kind` rename_rename: those
+  takes keep the selected side's name and delete the other, while `--delete` removes both names; use
+  `--rename-to <path> <new-path>` to write the checked `edit` copy under a new name. Every file needs a resolution:
+  a missing file is never a delete.
 
 `brd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
-or applies the update (exit 0). --take and --delete resolve a file without an edit (repeatable). --landed <commit>
-takes `onto` for every file and drops the commit as landed; --user adds the user's yes.
+or applies the update (exit 0). --take, --delete and --rename-to resolve files without editing the working tree
+(repeatable); --rename-to takes the file's any name and the new path. --landed <commit> takes `onto` for every file and
+drops the commit as landed; --user adds the user's yes.
 `brd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
 `unresolved_markers`, `resolution_outside_conflict` (a line outside the blocks changed) or `missing_resolution`, with
 `paths` and the copies in the message: fix those copies and run it again. A refusal changes nothing: the round stays
@@ -205,15 +210,17 @@ for an empty commit) and per file `how` (edited, onto, commit, deleted; words fo
 with `words` on the round) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's change
 that the result lost; a round of --landed has `landed_as` and `local_only` instead. Report each resolution to the
 user, these lines first. `verify.paths` names the files whose result no side had as it is (edited, commit, deleted,
-words): build, and run the tests of these files; without `verify`, the build is enough. On a failure commit the fix
+words): build, and run the tests of these files; a rename_to resolution names its written path. Without `verify`, the build is enough. On a failure commit the fix
 as `fixup! <subject>` and run `brd fold`, or take the update back with `brd undo <undo_token>`.
 
 `uncommitted_overlap` at the finish (exit 4) keeps the session: once the user moved those files, run
 `brd update --continue` again. `finish_pending` (exit 4): the branch moved, but its files did not follow; the message
 says what is left.
-`session_stale` (exit 4): the branch was rewritten or HEAD left it; `unsupported_conflict` (exit 4): a binary,
-file/directory, rename, mode, symlink or submodule conflict, or an invalid path. Both: stop and show the user. `brd update --abort` removes the session
-and its copies (nothing else changed); --worktree <id> removes an orphaned session of another worktree, a live one
+`session_stale` (exit 4): the branch was rewritten or HEAD left it; `unsupported_conflict` (exit 4): each refused path
+is listed with its conflict type, and an unsupported rename/rename is shown as `from → onto / commit`. Stop and read
+the paths. The message names `brd update --abort`, then `brd unapply <branch>` only when that branch's dry run
+succeeds; otherwise abort and ask the user. `brd update --abort` removes the session and its copies (nothing else
+changed); --worktree <id> removes an orphaned session of another worktree, a live one
 only with --allow-live-session, once the user approved.
 `brd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
 changes nothing; --materialize writes the missing copies, with --overwrite-edited all of them. --dir <path> puts the copies of a

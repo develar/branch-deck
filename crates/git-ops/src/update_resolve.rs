@@ -39,9 +39,9 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 /// The audit record of a session: a note per resolved commit, written only by the finish
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
-/// The version of `state.json`: 2 since a round can resolve itself by words (`Outcome::Words`, `Resolution::words`).
+/// The version of `state.json`: 3 since a file of a round can have two new names (`ConflictFile::commit_path`).
 /// brd is one binary for every session of a machine, so a brd of another version refuses a session by this number
-const STATE_VERSION: u32 = 2;
+const STATE_VERSION: u32 = 3;
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
@@ -74,6 +74,16 @@ pub enum ConflictKind {
   ModifyDelete,
   /// One side renamed the file (`renamed_from` to `path`) and the other deleted it: `edit` is the renamed version
   RenameDelete,
+  /// Both sides renamed the file (`renamed_from` to `path` and `commit_path`)
+  RenameRename,
+}
+
+/// A rename/rename message that remains unsupported, in merge-ort's path order
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamePair {
+  pub from: String,
+  pub onto: String,
+  pub commit: String,
 }
 
 impl ConflictKind {
@@ -109,17 +119,20 @@ pub struct ConflictFile {
   /// The path before the rename of a `RenameDelete`
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub renamed_from: Option<String>,
+  /// The commit's path of a `RenameRename`
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub commit_path: Option<String>,
 }
 
 impl ConflictFile {
-  /// Whether `path` names this file: its path, or the path before its rename
+  /// Whether `path` names this file: its path, or either path of its rename
   pub fn is_named(&self, path: &str) -> bool {
-    self.path == path || self.renamed_from.as_deref() == Some(path)
+    self.path == path || self.renamed_from.as_deref() == Some(path) || self.commit_path.as_deref() == Some(path)
   }
 
-  /// The names of this file: its path, then the path before its rename
+  /// The names of this file: its path, then the paths before and after the other side's rename
   fn names(&self) -> impl Iterator<Item = &str> {
-    std::iter::once(self.path.as_str()).chain(self.renamed_from.as_deref())
+    std::iter::once(self.path.as_str()).chain(self.renamed_from.as_deref()).chain(self.commit_path.as_deref())
   }
 }
 
@@ -219,6 +232,9 @@ impl Outcome {
 pub struct ResolvedPath {
   pub path: String,
   pub outcome: Outcome,
+  /// The result path when an edit or side take writes this file under a different name
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub renamed_to: Option<String>,
   /// Lines of the new parent's change (`before` to `onto`) that the result has neither as they are nor rewritten
   /// (report only)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -523,8 +539,13 @@ pub enum ResolveError {
     upstream: String,
     paths: Vec<String>,
   },
-  /// The conflict is of a type a round can't resolve (binary, file/directory, rename, mode, submodule, symlink)
-  Unsupported { paths: Vec<String>, message: String },
+  /// The conflict is of a type a round can't resolve (binary, file/directory, unsupported rename shape, mode, submodule, symlink)
+  Unsupported {
+    paths: Vec<String>,
+    message: String,
+    commit: Option<String>,
+    rename_pairs: Vec<RenamePair>,
+  },
   /// The branch was rewritten, HEAD left the branch, or the session belongs to another worktree; `--abort` removes it
   Stale { message: String },
   /// `--round` names another round than the open one
@@ -619,6 +640,7 @@ impl ResolveError {
     match self {
       Self::Refused(refusal) => Some(&refusal.commit),
       Self::EmptyResolution { commit, .. } | Self::NotLandedRound { commit, .. } | Self::LandedDiffers { commit, .. } | Self::LandedNotEmpty { commit, .. } => Some(commit),
+      Self::Unsupported { commit, .. } => commit.as_deref(),
       _ => None,
     }
   }
@@ -869,6 +891,8 @@ pub enum Side {
 pub struct RoundInput {
   pub takes: Vec<(Side, String)>,
   pub deletes: Vec<String>,
+  /// The new path per rename/rename file, named by any of its paths
+  pub renames: Vec<(String, String)>,
   /// The `edit` copy per path, read by the caller (without filters, never through a symlink)
   pub edits: HashMap<String, EditCopy>,
   /// A result without changes is kept as an empty commit
@@ -1291,6 +1315,80 @@ impl PathEdit {
   }
 }
 
+/// Validate the new paths of a round in one object batch, not one process per edited file
+fn rename_targets(git_executor: &GitCommandExecutor, repo_path: &str, round: u32, conflict: &RoundConflict, renames: &[(String, String)]) -> Result<HashMap<usize, String>> {
+  let overlaps = |left: &str, right: &str| {
+    left == right || left.strip_prefix(right).is_some_and(|suffix| suffix.starts_with('/')) || right.strip_prefix(left).is_some_and(|suffix| suffix.starts_with('/'))
+  };
+  let mut targets = HashMap::new();
+  let mut ordered = Vec::new();
+  let mut destinations = HashSet::new();
+  for (name, new_path) in renames {
+    let Some(file) = conflict.files.iter().find(|file| file.is_named(name)) else {
+      return Err(invalid_input(&format!("{name} is not a conflicting file of round {round}")));
+    };
+    if file.kind != ConflictKind::RenameRename {
+      return Err(invalid_input(&format!("--rename-to applies only to rename_rename files, not {}", file.path)));
+    }
+    if !is_valid_tree_path(new_path) {
+      return Err(invalid_input(&format!("{new_path} is not a valid tree path")));
+    }
+    if targets.insert(file.key, new_path.clone()).is_some() {
+      return Err(invalid_input(&format!("{} has more than one resolution", file.path)));
+    }
+    if !destinations.insert(new_path.as_str()) {
+      return Err(invalid_input(&format!("{new_path} is used by more than one rename_to resolution")));
+    }
+    ordered.push((file.key, new_path.clone()));
+  }
+  for (index, (_, path)) in ordered.iter().enumerate() {
+    if ordered.iter().skip(index + 1).any(|(_, other)| overlaps(path, other)) {
+      return Err(invalid_input(&format!("{path} overlaps another rename_to result path")));
+    }
+    for file in &conflict.files {
+      let own = ordered[index].0 == file.key;
+      if !own && file.names().any(|name| overlaps(path, name)) {
+        return Err(invalid_input(&format!("{path} overlaps another conflicting file's path")));
+      }
+    }
+  }
+  if ordered.is_empty() {
+    return Ok(targets);
+  }
+
+  let mut queries = Vec::new();
+  let mut prefixes = Vec::new();
+  for (key, path) in &ordered {
+    let mut prefix = String::new();
+    let mut names = Vec::new();
+    for component in path.split('/') {
+      if !prefix.is_empty() {
+        prefix.push('/');
+      }
+      prefix.push_str(component);
+      names.push(prefix.clone());
+      queries.push(format!("{}:{prefix}", conflict.merge_tree));
+    }
+    prefixes.push((*key, path.as_str(), names));
+  }
+  let mut objects = read_batch(git_executor, repo_path, &queries)?.into_iter();
+  for (key, path, names) in prefixes {
+    let file = conflict.files.iter().find(|file| file.key == key).expect("rename target came from a conflict file");
+    let is_side_name = path == file.path || file.commit_path.as_deref() == Some(path);
+    for (index, name) in names.iter().enumerate() {
+      let object = objects.next().flatten();
+      if index + 1 == names.len() {
+        if object.is_some() && !is_side_name {
+          return Err(invalid_input(&format!("{path} already exists in the result tree of round {round}")));
+        }
+      } else if object.is_some_and(|object| object.kind != "tree") {
+        return Err(invalid_input(&format!("{name} is a file in the result tree of round {round}")));
+      }
+    }
+  }
+  Ok(targets)
+}
+
 /// Check the input of a round: every conflicting path needs exactly one resolution, an edit passes the marker checks.
 /// Returns the resolution (without the resolved commit), the tree edits, and the objects of the round, read with one
 /// `cat-file --batch -Z`
@@ -1303,9 +1401,17 @@ fn check_round(
 ) -> Result<(Resolution, Vec<PathEdit>, RoundObjects)> {
   // by name: a round can have thousands of files, and an agent may take or delete each of them
   let known: HashSet<&str> = conflict.files.iter().flat_map(ConflictFile::names).collect();
-  if let Some(path) = input.takes.iter().map(|(_, path)| path).chain(&input.deletes).find(|path| !known.contains(path.as_str())) {
+  if let Some(path) = input
+    .takes
+    .iter()
+    .map(|(_, path)| path)
+    .chain(&input.deletes)
+    .chain(input.renames.iter().map(|(path, _)| path))
+    .find(|path| !known.contains(path.as_str()))
+  {
     return Err(invalid_input(&format!("{path} is not a conflicting file of round {}", state.round)));
   }
+  let rename_targets = rename_targets(git_executor, repo_path, state.round, conflict, &input.renames)?;
   let mut takes: HashMap<&str, Vec<Side>> = HashMap::new();
   for (side, path) in &input.takes {
     takes.entry(path).or_default().push(*side);
@@ -1321,33 +1427,97 @@ fn check_round(
   for file in &conflict.files {
     let sides: Vec<Side> = file.names().filter_map(|name| takes.get(name)).flatten().copied().collect();
     let delete = file.names().any(|name| deletes.contains(name));
+    let rename_to = rename_targets.get(&file.key);
+    if rename_to.is_some() && (!sides.is_empty() || delete) {
+      return Err(invalid_input(&format!("{} has more than one resolution", file.path)));
+    }
     if !sides.is_empty() && delete || sides.len() > 1 {
       return Err(invalid_input(&format!("{} has more than one resolution", file.path)));
     }
     let take = sides.first().copied();
     let path = file.path.clone();
     let taken = match (take, delete) {
-      (Some(Side::Onto), _) => Some((Outcome::Onto, &file.onto)),
-      (Some(Side::Commit), _) => Some((Outcome::Commit, &file.commit)),
-      (None, true) => Some((Outcome::Deleted, &None)),
+      (Some(Side::Onto), _) => Some((Outcome::Onto, &file.onto, file.path.clone())),
+      (Some(Side::Commit), _) => Some((Outcome::Commit, &file.commit, file.commit_path.clone().unwrap_or_else(|| file.path.clone()))),
+      (None, true) => Some((Outcome::Deleted, &None, file.path.clone())),
       (None, false) => None,
     };
     // the lines of an edit that replaced the conflict blocks: where the dropped lines are looked for
     let mut replaced: Option<Vec<&[u8]>> = None;
-    let (outcome, edit, result): (Outcome, PathEdit, &[u8]) = if let Some((outcome, stage)) = taken {
-      match stage {
-        Some(stage) => (
-          outcome,
-          PathEdit::Blob {
-            path: path.clone(),
-            mode: stage.mode.clone(),
-            id: stage.id.clone(),
-          },
-          objects.blobs.get(&stage.id).map_or(&[][..], Vec::as_slice),
-        ),
-        None => (Outcome::Deleted, PathEdit::Delete { path: path.clone() }, &[]),
+    let mut file_edits = Vec::new();
+    let mut renamed_to = None;
+    let (outcome, result): (Outcome, &[u8]) = if let Some(new_path) = rename_to {
+      let Some(EditCopy::Content(content)) = input.edits.get(&file.path) else {
+        refused.push((RefusalKind::MissingResolution, path));
+        continue;
+      };
+      let merged = objects.merged.get(&file.path).map_or(&[][..], Vec::as_slice);
+      let lines = match check_resolution(merged, content, labels) {
+        Ok(lines) => lines,
+        Err(failure) => {
+          let kind = match failure {
+            CheckFailure::OutsideConflict => RefusalKind::OutsideConflict,
+            CheckFailure::LineEnds => RefusalKind::LineEnds,
+            CheckFailure::Encoding => RefusalKind::Encoding,
+            CheckFailure::UnresolvedMarkers => RefusalKind::UnresolvedMarkers,
+          };
+          refused.push((kind, path));
+          continue;
+        }
+      };
+      replaced = Some(lines);
+      file_edits.push(PathEdit::Content {
+        path: new_path.clone(),
+        mode: file.mode().to_string(),
+        content: content.clone(),
+      });
+      for old_path in [file.path.as_str(), file.commit_path.as_deref().expect("rename/rename has the commit path")] {
+        if old_path != new_path {
+          file_edits.push(PathEdit::Delete { path: old_path.to_string() });
+        }
+      }
+      if new_path != &file.path {
+        renamed_to = Some(new_path.clone());
+      }
+      (Outcome::Edited, content.as_slice())
+    } else if let Some((outcome, stage, write_path)) = taken {
+      if let Some(stage) = stage {
+        file_edits.push(PathEdit::Blob {
+          path: write_path.clone(),
+          mode: stage.mode.clone(),
+          id: stage.id.clone(),
+        });
+        if file.kind == ConflictKind::RenameRename {
+          let other = if outcome == Outcome::Onto {
+            file.commit_path.as_deref().expect("rename/rename has the commit path")
+          } else {
+            &file.path
+          };
+          if other != write_path {
+            file_edits.push(PathEdit::Delete { path: other.to_string() });
+          }
+        }
+        if write_path != file.path {
+          renamed_to = Some(write_path);
+        }
+        (outcome, objects.blobs.get(&stage.id).map_or(&[][..], Vec::as_slice))
+      } else {
+        if file.kind == ConflictKind::RenameRename {
+          file_edits.push(PathEdit::Delete { path: file.path.clone() });
+          let other = file.commit_path.as_deref().expect("rename/rename has the commit path");
+          if other != file.path {
+            file_edits.push(PathEdit::Delete { path: other.to_string() });
+          }
+        } else {
+          file_edits.push(PathEdit::Delete { path: path.clone() });
+        }
+        (Outcome::Deleted, &[])
       }
     } else {
+      if file.kind == ConflictKind::RenameRename {
+        refused.push((RefusalKind::MissingResolution, path));
+        continue;
+      }
       let Some(EditCopy::Content(content)) = input.edits.get(&file.path) else {
         refused.push((RefusalKind::MissingResolution, path));
         continue;
@@ -1379,23 +1549,24 @@ fn check_round(
         refused.push((kind, path));
         continue;
       }
-      let edit = PathEdit::Content {
+      file_edits.push(PathEdit::Content {
         path: path.clone(),
         mode: file.mode().to_string(),
         content: content.clone(),
-      };
-      (Outcome::Edited, edit, content.as_slice())
+      });
+      (Outcome::Edited, content.as_slice())
     };
     let before = blob(&file.before).unwrap_or_default();
     let dropped = |side: &Option<Stage>| blob(side).map_or_else(Vec::new, |side| dropped_lines(before, side, result, replaced.as_deref()));
     paths.push(ResolvedPath {
       path,
       outcome,
+      renamed_to,
       dropped_upstream_lines: dropped(&file.onto),
       dropped_commit_lines: dropped(&file.commit),
       conflicts: None,
     });
-    edits.push(edit);
+    edits.extend(file_edits);
   }
   // one kind at a time, the one the agent fixes first
   for kind in [
@@ -1593,6 +1764,7 @@ fn advance_resolving(
           .map(|file| ResolvedPath {
             path: file.path.clone(),
             outcome: Outcome::Words,
+            renamed_to: None,
             dropped_upstream_lines: Vec::new(),
             dropped_commit_lines: Vec::new(),
             conflicts: Some(file.conflicts),
@@ -1652,7 +1824,33 @@ fn round_merge(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessi
 /// refused too: its markers can't be checked
 fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, merge: MergeTreeOutput) -> Result<(RoundConflict, RoundObjects)> {
   let commit = &state.local[state.replayed];
-  let files = conflict_files(&merge).map_err(|e| name_the_commit(git_executor, repo_path, state, e))?;
+  let mut files = conflict_files(&merge).map_err(|e| name_the_commit(git_executor, repo_path, state, e))?;
+  let side_names: Vec<String> = files
+    .iter()
+    .filter(|file| file.kind == ConflictKind::RenameRename)
+    .flat_map(|file| {
+      [
+        format!("{}:{}", state.tip, file.path),
+        format!("{commit}:{}", file.commit_path.as_deref().expect("rename/rename has the commit path")),
+      ]
+    })
+    .collect();
+  let mut side_objects = read_batch(git_executor, repo_path, &side_names)?.into_iter();
+  for file in files.iter_mut().filter(|file| file.kind == ConflictKind::RenameRename) {
+    for (stage, path) in [
+      (file.onto.as_mut().expect("rename/rename has the onto stage"), file.path.as_str()),
+      (
+        file.commit.as_mut().expect("rename/rename has the commit stage"),
+        file.commit_path.as_deref().expect("rename/rename has the commit path"),
+      ),
+    ] {
+      let object = side_objects.next().flatten().ok_or_else(|| anyhow!("could not read rename/rename side {path}"))?;
+      if object.kind != "blob" {
+        bail!("rename/rename side {path} is a {}, not a blob", object.kind);
+      }
+      stage.id = object.id;
+    }
+  }
   let conflict = RoundConflict {
     commit: commit.clone(),
     onto: state.tip.clone(),
@@ -1669,11 +1867,14 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     .map(|file| file.path.clone())
     .collect();
   if !unreadable.is_empty() {
-    let message = format!(
-      "The conflict can't be resolved in a round of brd update: brd finds no conflict block it wrote in {}. `brd update --abort`, then update in a terminal",
-      unreadable.join(", ")
-    );
-    let error = anyhow::Error::new(ResolveError::Unsupported { paths: unreadable, message });
+    let paths_with_types = unreadable.iter().map(|path| format!("{path} (CONFLICT (contents))")).collect::<Vec<_>>().join(", ");
+    let message = format!("The conflict can't be resolved in a round of brd update: brd finds no conflict block it wrote in {paths_with_types}");
+    let error = anyhow::Error::new(ResolveError::Unsupported {
+      paths: unreadable,
+      message,
+      commit: None,
+      rename_pairs: Vec::new(),
+    });
     return Err(name_the_commit(git_executor, repo_path, state, error));
   }
   Ok((conflict, objects))
@@ -1681,7 +1882,7 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
 
 /// An `Unsupported` refusal of the round of `state` with the round and the commit (id and subject) in front
 fn name_the_commit(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, error: anyhow::Error) -> anyhow::Error {
-  let Some(ResolveError::Unsupported { paths, message }) = error.downcast_ref::<ResolveError>() else {
+  let Some(ResolveError::Unsupported { paths, message, rename_pairs, .. }) = error.downcast_ref::<ResolveError>() else {
     return error;
   };
   let commit = &state.local[state.replayed];
@@ -1690,13 +1891,44 @@ fn name_the_commit(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
   if !state.resolutions.is_empty() {
     message.push_str(". The rounds resolved so far are lost with --abort");
   }
-  anyhow::Error::new(ResolveError::Unsupported { paths: paths.clone(), message })
+  anyhow::Error::new(ResolveError::Unsupported {
+    paths: paths.clone(),
+    message,
+    commit: Some(commit.clone()),
+    rename_pairs: rename_pairs.clone(),
+  })
 }
 
 /// The conflicting paths of a merge, each a supported type; any other type refuses the whole round
 pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile>> {
   let mut unsupported: Vec<(String, String)> = Vec::new();
-  let supported_kind = |kind: &str| matches!(kind, "CONFLICT (contents)" | "CONFLICT (modify/delete)" | "CONFLICT (add/add)" | "CONFLICT (rename/delete)");
+  let supported_message = |message: &&crate::merge_tree_output::MergeMessage| {
+    matches!(
+      message.kind.as_str(),
+      "CONFLICT (contents)" | "CONFLICT (modify/delete)" | "CONFLICT (add/add)" | "CONFLICT (rename/delete)"
+    ) || message.kind == "CONFLICT (rename/rename)"
+      && message.paths.len() == 3
+      && message.paths[0] != message.paths[1]
+      && message.paths[0] != message.paths[2]
+      && message.paths[1] != message.paths[2]
+  };
+  // `CONFLICT (rename/rename)` names the base path, then the path on `onto`, then the path of the commit
+  let rename_pairs: Vec<[&[u8]; 3]> = merge
+    .messages
+    .iter()
+    .filter(|message| message.kind == "CONFLICT (rename/rename)" && supported_message(message))
+    .map(|message| [&message.paths[0][..], &message.paths[1][..], &message.paths[2][..]])
+    .collect();
+  let rename_pairs_for_error: Vec<RenamePair> = merge
+    .messages
+    .iter()
+    .filter(|message| message.kind == "CONFLICT (rename/rename)" && message.paths.len() == 3)
+    .map(|message| RenamePair {
+      from: String::from_utf8_lossy(&message.paths[0]).into_owned(),
+      onto: String::from_utf8_lossy(&message.paths[1]).into_owned(),
+      commit: String::from_utf8_lossy(&message.paths[2]).into_owned(),
+    })
+    .collect();
   // `<new path>` -> `<old path>` of each rename/delete, the first message of a path
   let mut renamed: HashMap<&[u8], &[u8]> = HashMap::new();
   for message in merge.messages.iter().filter(|message| message.kind == "CONFLICT (rename/delete)") {
@@ -1706,21 +1938,43 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
   }
   // the paths of the messages of an unsupported type: a monorepo update can conflict in thousands of paths
   let mut refused: HashSet<&[u8]> = HashSet::new();
-  for message in merge
-    .messages
-    .iter()
-    .filter(|message| message.kind.starts_with("CONFLICT") && !supported_kind(&message.kind))
-  {
+  for message in merge.messages.iter().filter(|message| message.kind.starts_with("CONFLICT") && !supported_message(message)) {
+    if message.paths.is_empty() {
+      unsupported.push(("<unknown>".to_string(), message.kind.clone()));
+    }
     for path in &message.paths {
       refused.insert(path);
       unsupported.push((String::from_utf8_lossy(path).into_owned(), message.kind.clone()));
     }
   }
+  let rename_paths: HashSet<&[u8]> = rename_pairs.iter().flat_map(|pair| pair.iter().copied()).collect();
+  // A rename pair is atomic: an unsupported message about any of its paths refuses the pair too
+  let refused_pairs: HashSet<[&[u8]; 3]> = rename_pairs.iter().copied().filter(|pair| pair.iter().any(|path| refused.contains(path))).collect();
+  for pair in &refused_pairs {
+    for path in pair {
+      refused.insert(path);
+      unsupported.push((String::from_utf8_lossy(path).into_owned(), "CONFLICT (rename/rename)".to_string()));
+    }
+  }
+  let entries_by_path: HashMap<&[u8], &[crate::merge_tree_output::StageEntry]> =
+    merge.entries.chunk_by(|a, b| a.path == b.path).map(|stages| (stages[0].path.as_slice(), stages)).collect();
+  let stage_at = |path: &[u8], number: u8| {
+    entries_by_path.get(path).and_then(|stages| {
+      if stages.len() != 1 || stages[0].stage != number {
+        return None;
+      }
+      let entry = &stages[0];
+      Some(Stage {
+        mode: entry.mode.clone(),
+        id: entry.id.clone(),
+      })
+    })
+  };
   let mut files = Vec::new();
   // the stages of a path are consecutive, in git's order
   for stages in merge.entries.chunk_by(|a, b| a.path == b.path) {
     let path = stages[0].path.as_slice();
-    if refused.contains(path) {
+    if refused.contains(path) || rename_paths.contains(path) {
       continue;
     }
     let Some(path) = std::str::from_utf8(path).ok().filter(|path| is_valid_tree_path(path)) else {
@@ -1770,17 +2024,86 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
       commit,
       mode,
       renamed_from,
+      commit_path: None,
+    });
+  }
+  for [from, onto_path, commit_path] in rename_pairs {
+    if refused_pairs.contains(&[from, onto_path, commit_path]) {
+      continue;
+    }
+    let names = [from, onto_path, commit_path];
+    let mut invalid = false;
+    for path in names {
+      if std::str::from_utf8(path).ok().is_none_or(|path| !is_valid_tree_path(path)) {
+        unsupported.push((String::from_utf8_lossy(path).into_owned(), "an invalid path".to_string()));
+        invalid = true;
+      }
+    }
+    if invalid {
+      continue;
+    }
+    let (Some(before), Some(onto), Some(commit)) = (stage_at(from, 1), stage_at(onto_path, 2), stage_at(commit_path, 3)) else {
+      for path in names {
+        unsupported.push((String::from_utf8_lossy(path).into_owned(), "an unknown rename/rename stage set".to_string()));
+      }
+      continue;
+    };
+    let stages = [&before, &onto, &commit];
+    if let Some((path, mode)) = names
+      .iter()
+      .zip(stages)
+      .find_map(|(path, stage)| (!FILE_MODES.contains(&stage.mode.as_str())).then_some((*path, stage.mode.as_str())))
+    {
+      unsupported.push((String::from_utf8_lossy(path).into_owned(), format!("mode {mode} (a symlink or a submodule)")));
+      continue;
+    }
+    let mode = if onto.mode == commit.mode {
+      onto.mode.clone()
+    } else if before.mode == onto.mode {
+      commit.mode.clone()
+    } else if before.mode == commit.mode {
+      onto.mode.clone()
+    } else {
+      unsupported.push((String::from_utf8_lossy(onto_path).into_owned(), "distinct modes".to_string()));
+      continue;
+    };
+    files.push(ConflictFile {
+      key: 0,
+      path: String::from_utf8(onto_path.to_vec())?,
+      kind: ConflictKind::RenameRename,
+      before: Some(before),
+      onto: Some(onto),
+      commit: Some(commit),
+      mode,
+      renamed_from: Some(String::from_utf8(from.to_vec())?),
+      commit_path: Some(String::from_utf8(commit_path.to_vec())?),
     });
   }
   if !unsupported.is_empty() {
     unsupported.dedup();
-    let message = format!(
-      "The conflict can't be resolved in a round of brd update: {}. Only text conflicts, modify/delete and rename/delete are supported; `brd update --abort`, then update in a terminal",
-      unsupported.iter().map(|(path, kind)| format!("{path} ({kind})")).collect::<Vec<_>>().join(", ")
-    );
+    let paths_with_types = unsupported.iter().map(|(path, kind)| format!("{path} ({kind})")).collect::<Vec<_>>().join(", ");
+    let mut message =
+      format!("The conflict can't be resolved in a round of brd update: {paths_with_types}. Supported types are text, modify/delete, rename/delete and rename/rename 1→2");
+    if !rename_pairs_for_error.is_empty() {
+      let pairs = rename_pairs_for_error
+        .iter()
+        .map(|pair| format!("{} → {} / {}", pair.from, pair.onto, pair.commit))
+        .collect::<Vec<_>>()
+        .join(", ");
+      let _ = write!(message, ". Unsupported rename/rename pairs: {pairs}");
+    }
     let mut paths: Vec<String> = unsupported.into_iter().map(|(path, _)| path).collect();
-    paths.dedup();
-    return Err(anyhow::Error::new(ResolveError::Unsupported { paths, message }));
+    let mut seen = HashSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
+    return Err(anyhow::Error::new(ResolveError::Unsupported {
+      paths,
+      message,
+      commit: None,
+      rename_pairs: rename_pairs_for_error,
+    }));
+  }
+  for (key, file) in files.iter_mut().enumerate() {
+    file.key = key + 1;
   }
   Ok(files)
 }
@@ -1851,6 +2174,9 @@ fn note_of(state: &SessionState, resolution: &Resolution) -> String {
   }
   for path in &resolution.paths {
     let _ = writeln!(note, "{}\t{}", path.outcome.as_str(), path.path);
+    if let Some(renamed_to) = &path.renamed_to {
+      let _ = writeln!(note, "renamed-to\t{}\t{renamed_to}", path.path);
+    }
   }
   note
 }

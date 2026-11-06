@@ -1524,10 +1524,12 @@ session opens on the HEAD it left. `--continue` and `--abort` hold it from their
   linked worktree. It is a shared ref, not a `refs/worktree/` ref: a probe showed that a `gc --prune=now` in another
   worktree prunes the objects of a `refs/worktree/` ref, because the gc of one worktree does not see the per-worktree
   refs of another.
-- The ref points at a state commit. Its tree holds `state.json` (version 2 since a round can resolve itself by words;
+- The ref points at a state commit. Its tree holds `state.json` (version 3 since a `rename_rename` file has the
+  commit-side path as well as `path` and `renamed_from`;
   the only file that readers parse, its `version` first, so a brd of another version refuses it by that number),
   `round/merge` (a `040000` entry of the round's merge tree, which keeps the `edit` copies rebuildable) and
-  `round/{before,onto,commit}/<path>` (the stage blobs, by id). Its parents are the previous state, the replayed tip
+  `round/{before,onto,commit}/<path>` (the stage blobs, by id; for rename/rename, the onto and commit entries hold
+  their original side blobs, not merge-ort's merged stage blobs). Its parents are the previous state, the replayed tip
   and HEAD as the session knows it. The tip keeps the replayed commits reachable, and HEAD keeps the original local
   commits reachable, which `--status --materialize` needs. Reachability goes through commit parents only, never a
   gitlink, so every git command, a gc included, follows it.
@@ -1566,7 +1568,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 | Start | the check of "Update project" conflicted before the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer). Everything up to the state runs before the lock, on the HEAD and the upstream of the check (`prepare_session_start`, a `PreparedStart`); under it the mark and the witness of the update (`recheck_update`), then the state and the copies (`PreparedStart::start`); a witness that missed checks and opens the round once more under the lock. The view of the round is read after the release |
 | Find the conflict | at the start, the first conflict of the check: one `replay` per run of the commits before it, and its round opens without a search (a commit before it that the words resolve conflicts on the way and is searched). After a resolution, one `replay` per run of the rest, and in the first that conflicts a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`, each probe from the longest clean prefix: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
 | Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
-| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
+| Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`), the stage blobs and the original side blobs of rename/rename pairs, which also writes the copies |
 | The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
 | The state | one `fast-import` of the state commit on a temporary ref, one `update-ref --stdin` (create or CAS, the temporary ref deleted) |
 | `--continue` | one `cat-file --batch` of HEAD and the session, the guards (2); one `cat-file --batch -Z` of the round's objects for the checks; one `fast-import` writes the resolved commit (`M 040000 <merge tree> ""`, then `M`/`D` per path, author and message of `c`, the fixed committer) and `ls`s its tree and its parent's; one `replay` of the rest, a binary search only when it exits with 1; then the next round as above, or the finish |
@@ -1586,14 +1588,26 @@ check for `blocked_paths` is the largest share.
   landed report only when an upstream commit has its key (a candidate, `landed_candidates`): the user took the
   upstream's side. The message of a round with a twin names `--landed` instead.
 - **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
-  without `before`), `CONFLICT (modify/delete)` and `CONFLICT (rename/delete)` (the stages are at the new path; the
-  message gives the old one, so `--take` and `--delete` take either), on regular files (`100644`, `100755`). The mode is merged as git
-  does: the side that changed it wins, and only two different modes on both sides are `distinct modes`. Any other
-  conflict type of the `-z` messages (binary, file/directory, rename/*, distinct modes), a symlink (`120000`) or a
-  gitlink (`160000`) stage, an invalid path, and a content file whose merge result has no block of brd's labels refuse
-  the whole round with `unsupported_conflict`, with the paths. A file/directory conflict names its moved side file
-  (`df~<id>`) too. At the start no session is created. Every refusal names the round and its commit (id and
-  subject), and a refused `--continue` says that the round stays open and the copies keep the agent's edits.
+  without `before`), `CONFLICT (modify/delete)`, `CONFLICT (rename/delete)` (the stages are at the new path; the message
+  gives the old one, so `--take` and `--delete` take either), and rename/rename 1→2. The latter is one file: `path` is
+  the onto name, `commit_path` is the commit name and `renamed_from` is the base name; the stage 1/2/3 entries provide
+  the base/onto/commit blobs, except that merge-ort's stage 2/3 ids are replaced with the original side blobs read in one
+  batch. Its `--take` and `--delete` accept any of the three names: taking a side keeps that side's name and deletes the
+  other new name, and delete removes both. `--rename-to <path> <new-path>` accepts any pair name and writes the checked
+  `edit` copy under the new path, deleting both new names unless either is the destination. An unchanged edit is valid;
+  without a take, delete or `--rename-to`, the file is `missing_resolution` because brd never guesses its name. The new
+  path must be valid, free in the result tree other than the pair's two new names, and not overlap another conflicting
+  file; an edit with blocks has the same checks as a content file. When written under a new name, `renamed_to` is in the
+  resolution and note, and `verify.paths` names the result. If any pair path also appears in another unsupported
+  message, the whole round is refused. These types support regular files (`100644`, `100755`). The mode is merged as git does: the side that changed it wins, and
+  only two different modes on both sides are `distinct modes`. Any other conflict type of the `-z` messages (binary,
+  file/directory, other rename shapes, distinct modes), a symlink (`120000`) or a gitlink (`160000`) stage, an invalid
+  path, and a content file whose merge result has no block of brd's labels refuse the whole round with
+  `unsupported_conflict`, with each path and type. A file/directory conflict names its moved side file (`df~<id>`) too.
+  An unsupported rename/rename message also lists `from → onto / commit` and the structured `rename_pairs`. At the start
+  no session is created. Every refusal names the round and its commit (id and subject); it suggests `brd update --abort`,
+  then `brd unapply <branch>` only when that branch's dry run succeeds, and otherwise asks the user. A refused
+  `--continue` says that the round stays open and the copies keep the agent's edits.
 - **Landed commits.** The session takes the local commits that the check proved landed from its `ReplayPlan` and
   pairs nothing again ("Landed commits left out" of "Update project"). A proven commit is left out of the replay, as
   `git rebase` leaves out a commit of the same patch id (in `dropped`, with its upstream commit and its proof):

@@ -15,6 +15,14 @@ use sync_core::sync::SyncDeferred;
 /// never an error object
 pub const CONFLICT_EXIT: i32 = 1;
 
+/// A rename/rename pair included in an unsupported update conflict
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct ErrorRenamePair {
+  pub from: String,
+  pub onto: String,
+  pub commit: String,
+}
+
 /// A failed command, printed as [`ErrorOutput`]
 #[derive(Debug)]
 pub struct CliError {
@@ -41,6 +49,8 @@ pub struct ErrorExtra {
   pub processes: Vec<ProcessOutput>,
   /// The commands that act on the refusal, in `ErrorBody::next_steps`; here, as most errors name none
   pub next_steps: Vec<NextStep>,
+  /// The rename/rename pairs of an unsupported update conflict, when present
+  pub rename_pairs: Vec<ErrorRenamePair>,
   /// The operation of another process that makes the command `busy`
   pub holder: Option<OperationHolder>,
 }
@@ -89,6 +99,7 @@ impl CliError {
         commits: self.commits.clone(),
         branches: self.branches.clone(),
         paths: self.paths.clone(),
+        rename_pairs: self.extra.as_ref().map_or_default(|extra| extra.rename_pairs.clone()),
         blocks: self.extra.as_ref().map_or_default(|extra| extra.blocks.clone()),
         review: self.review.as_deref().cloned(),
         processes: self.extra.as_ref().map_or_default(|extra| extra.processes.clone()),
@@ -174,6 +185,9 @@ pub struct ErrorBody {
   /// conflicting files of a refused resolution
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
+  /// The rename/rename pairs of an unsupported update conflict, when present
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub rename_pairs: Vec<ErrorRenamePair>,
   /// The ids of the blocks the file has now, for `block_not_found`: pass one of them to `brd move-hunk --block`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub blocks: Vec<String>,

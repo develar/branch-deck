@@ -48,7 +48,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ## Non-goals
 
-- Binary, file/directory, rename, mode, symlink and submodule conflicts: a round refuses them.
+- Binary, file/directory, rename shapes other than rename/rename 1→2, mode, symlink and submodule conflicts: a round refuses them.
 - A partial `--continue`: a round needs a resolution for every conflicting file.
 - Skipping a commit that the baseline likely has by its author, author time and subject only: brd offers `--landed`
   in its round. Only a proof (spec/repository/landed-commits.spec.md, "The proof") shows that the baseline has the
@@ -244,15 +244,27 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   (`landed_differs`, exit 2, `ask_user`), and a commit that still changes files with `onto` for every conflicting file
   (`landed_not_empty`, exit 2, with `paths`). Without `local_only` it needs no `--user` and no question.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`, `landed_refuses_a_round_without_a_twin_and_a_commit_that_keeps_a_change`)
-- Only text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`),
-  modify/delete and rename/delete (kind `rename_delete`, with `renamed_from`; `--take` and `--delete` take either path)
-  must be supported. A mode that one side changed must be merged as git does; two modes that differ on
-  both sides are `distinct modes`. Any other type (binary, file/directory, rename, distinct modes, a symlink or a
-  submodule, an invalid path), and a `content` file whose merge result has no block of brd's labels, must refuse the
-  whole round with `unsupported_conflict` (exit 4) and its `paths`; at the start no session is created.
-  The same rename on both sides merges cleanly and opens no round.
-  [@test] ../../crates/bd-update/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `a_rename_and_a_delete_resolve_with_a_take`)
-  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`only_text_and_modify_delete_conflicts_are_supported`)
+- Text conflicts (`CONFLICT (contents)`, an add on both sides as a `content` conflict without `before`), modify/delete,
+  rename/delete (kind `rename_delete`, with `renamed_from`; `--take` and `--delete` take either name), and rename/rename
+  (kind `rename_rename`) of one base path to two different names must open a round. A rename/rename file has `path` as
+  the onto name, `commit_path` as the commit name and `renamed_from` as the base name; its before/onto/commit copies
+  are the original blobs from those three paths. `--take onto:<name>` keeps the onto name and deletes the commit name,
+  `--take commit:<name>` does the reverse, and `--delete <name>` deletes both; each accepts any of the three names.
+  An edited copy alone is `missing_resolution` until it has a chosen name. `--rename-to <path> <new-path>` accepts any
+  of the three names and writes the checked `edit` copy to `new-path`, deleting both renamed paths unless either is the
+  new path; a clean, unchanged edit is valid because the name is the decision. A destination must be a valid tree path,
+  free in the result tree other than the pair's two new names, and not overlap another conflicting file; otherwise the
+  flag is `invalid_arguments`. It cannot resolve a non-rename/rename file or be combined with a take or delete for the
+  same file. An edited `rename_rename` copy goes through the content checks (markers, outside-conflict, encoding and
+  line ends); dropped-line reports still compare the result with all three copies. When the written path differs from
+  `path`, `resolutions[].files[].renamed_to` and the resolve note name it, and `verify.paths` uses the written path.
+  A mode that one side changed must be merged as git does; two modes that differ on both sides are `distinct modes`.
+  Any other type (binary, file/directory, other rename shapes, distinct modes, a symlink or a submodule, an invalid
+  path), and a `content` file whose merge result has no block of brd's labels, must refuse the whole round with
+  `unsupported_conflict` (exit 4) and its `paths`; at the start no session is created. The same rename on both sides
+  merges cleanly and opens no round.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `a_rename_and_a_delete_resolve_with_a_take`, `a_rename_rename_resolves_with_takes_and_delete`, `a_rename_rename_writes_the_checked_merge_to_a_third_name`, `an_overlapping_rename_rename_edit_checks_markers_before_writing_the_new_name`, `three_rename_rename_files_can_be_written_to_three_new_names`, `rename_to_rejects_non_rename_files_invalid_names_collisions_and_multiple_resolutions`, `rename_to_accepts_either_new_side_name`, `a_rename_rename_session_matches_the_output_schema`)
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`only_text_and_modify_delete_conflicts_are_supported`, `a_rename_rename_conflict_is_one_file_with_all_three_names`, `a_rename_rename_path_in_an_unsupported_message_refuses_the_round`, `a_rename_rename_round_round_trips_in_state_version_three`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_tree_the_stages_and_the_messages`, `a_clean_merge_has_only_the_tree`)
 - With `branchdeck.resolveByWords` on, a conflicting commit whose conflict of git its words resolve must be a round
   that resolves itself: it counts in `round`, and the agent gets the next round that does not resolve. Every round
@@ -301,11 +313,16 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   copies keep the agent's edits; `--status` then shows `edited` per file, whether its copy differs from brd's merge
   result.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `a_refusal_names_the_commit_and_keeps_the_round`)
-- A resolution must be an edited `edit` copy, `--take onto:<path>`, `--take commit:<path>` or `--delete <path>`; a
+- A resolution must be an edited `edit` copy, `--take onto:<path>`, `--take commit:<path>`, `--delete <path>` or
+  `--rename-to <path> <new-path>`; a
   missing file is never a delete. No resolution is `missing_resolution`; an unchanged modify/delete copy is no
-  resolution either. A take of a side without the file deletes it. A `--take` or `--delete` of a path the round does
-  not have, or a side other than `onto` and `commit`, is `invalid_arguments`.
-  [@test] ../../crates/bd-update/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`)
+  resolution either. A take of a side without the file deletes it. For `rename_rename`, `--take` and `--delete` accept
+  the base, onto or commit name and the delete removes both renamed paths; an edited copy without a take, delete or
+  `--rename-to` is `missing_resolution` because it has no chosen path. `--rename-to` checks the same content rules as an
+  edited `content` file and may write the unchanged clean merge under a new name. A `--rename-to` on any other kind, to
+  an invalid or occupied path, or combined with another resolution of the same file is `invalid_arguments`. A `--take`
+  or `--delete` of a path the round does not have, or a side other than `onto` and `commit`, is `invalid_arguments`.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`, `a_rename_rename_resolves_with_takes_and_delete`, `a_rename_rename_writes_the_checked_merge_to_a_third_name`, `an_overlapping_rename_rename_edit_checks_markers_before_writing_the_new_name`, `rename_to_rejects_non_rename_files_invalid_names_collisions_and_multiple_resolutions`)
 - A block must be recognised only by the labels brd passed to the merge (`<<<<<<< <onto>`, `||||||| <commit>^`,
   `>>>>>>> <commit>`), at any marker length (`conflict-marker-size`), with the separator of the same length only
   between the base section and the end. With a rename, merge-ort adds `:<path>` after a label, and the block counts
@@ -410,8 +427,11 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 | 3 | `head_moved`, `round_moved`, `locked` (retryable) |
 | 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending`, `lease_follows_home` |
 
-- The refusals of a resolution and `unsupported_conflict` must list the files in `paths`.
-  [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `binary_and_file_directory_conflicts_are_refused_and_start_no_session`)
+- The refusals of a resolution and `unsupported_conflict` must list the files in `paths`, with each unsupported path's
+  conflict type in the message. An unsupported rename/rename message also lists `from → onto / commit` and the error
+  output includes `rename_pairs`. It offers `brd update --abort`, then `brd unapply <branch>` only when the unapply
+  dry run succeeds; otherwise it says to abort and ask the user. It never tells the agent to update in a terminal.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `an_unsupported_mixed_rename_and_binary_conflict_names_the_pair`, `an_unsupported_conflict_asks_the_user_when_unapply_dry_run_refuses`)
 
 ### `brd help update`
 

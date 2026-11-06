@@ -17,6 +17,15 @@ fn conflicting_clone() -> (TestRepo, TestRepo) {
   (upstream, clone)
 }
 
+fn rename_rename_clone(base_path: &str, onto_path: &str, commit_path: &str, base: &str, onto: &str, commit: &str) -> (TestRepo, TestRepo) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[(base_path, base), ("other.txt", "other\n")]);
+  git(&upstream, &["mv", base_path, onto_path]);
+  upstream.create_commit("Rename and change upstream", onto_path, onto);
+  git(&clone, &["mv", base_path, commit_path]);
+  clone.create_commit("(auth) Rename and change locally", commit_path, commit);
+  (upstream, clone)
+}
+
 fn read(path: &str) -> String {
   std::fs::read_to_string(path).unwrap()
 }
@@ -393,20 +402,72 @@ fn binary_and_file_directory_conflicts_are_refused_and_start_no_session() {
   let (upstream, clone) = TestRepo::upstream_and_clone(&[("bin.dat", "\0one"), ("df", "file\n")]);
   clone.create_commit("(auth) Change the binary", "bin.dat", "\0mine");
   upstream.create_commit("Change the binary upstream", "bin.dat", "\0theirs");
+  let (sync_code, synced) = run_in(&clone, &["sync"]);
+  assert_eq!(sync_code, 0, "{synced}");
   let (exit_code, output) = run_in(&clone, &["update"]);
   assert_error(&output, exit_code, (4, "unsupported_conflict"));
   assert_eq!(output["error"]["paths"], json!(["bin.dat"]));
   // the refusal names the commit
   assert!(output["error"]["message"].as_str().unwrap().contains("(auth) Change the binary"), "{output}");
+  assert!(!output["error"]["message"].as_str().unwrap().contains("terminal"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("brd update --abort"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("brd unapply auth"), "{output}");
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
 
   git(&clone, &["reset", "-q", "--hard", "origin/master"]);
   clone.create_commit("(auth) Change df", "df", "mine\n");
   git(&upstream, &["rm", "-q", "df"]);
   upstream.create_commit("df becomes a directory", "df/inner.txt", "inner\n");
+  let (sync_code, synced) = run_in(&clone, &["sync"]);
+  assert_eq!(sync_code, 0, "{synced}");
   let (exit_code, output) = run_in(&clone, &["update"]);
   assert_error(&output, exit_code, (4, "unsupported_conflict"));
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
+}
+
+#[test_log::test]
+fn an_unsupported_mixed_rename_and_binary_conflict_names_the_pair() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("x.txt", SHARED), ("bin.dat", "\0base"), ("other.txt", "other\n")]);
+  git(&upstream, &["mv", "x.txt", "y.txt"]);
+  upstream.create_commit("Change the binary upstream", "bin.dat", "\0upstream");
+  git(&clone, &["mv", "x.txt", "z.txt"]);
+  clone.create_commit("(auth) Change the binary locally", "bin.dat", "\0local");
+  let (sync_code, synced) = run_in(&clone, &["sync"]);
+  assert_eq!(sync_code, 0, "{synced}");
+
+  let (_, schema) = bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(clone.path()), &["schema", "--all"]);
+  let (exit_code, output) = run_in(&clone, &["update"]);
+  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  bd_cli::fixture_test::assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &output, "unsupported rename conflict");
+  assert_eq!(
+    output["error"]["rename_pairs"],
+    json!([{ "from": "x.txt", "onto": "y.txt", "commit": "z.txt" }]),
+    "{output}"
+  );
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(message.contains("x.txt → y.txt / z.txt"), "{message}");
+  assert!(message.contains("bin.dat (CONFLICT (binary))"), "{message}");
+  assert!(!message.contains("terminal"), "{message}");
+  assert!(message.contains("brd unapply auth"), "{message}");
+}
+
+#[test_log::test]
+fn an_unsupported_conflict_asks_the_user_when_unapply_dry_run_refuses() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("bin.dat", "\0base"), ("other.txt", "other\n")]);
+  clone.create_commit("(auth) Change the binary", "bin.dat", "\0auth");
+  clone.create_commit("(other) Rewrite the binary", "bin.dat", "\0later");
+  upstream.create_commit("Change the binary upstream", "bin.dat", "\0upstream");
+  let (sync_code, synced) = run_in(&clone, &["sync"]);
+  assert!(matches!(sync_code, 0 | 1), "{synced}");
+  let (unapply_code, unapply) = run_in(&clone, &["unapply", "auth", "--dry-run"]);
+  assert_error(&unapply, unapply_code, (4, "drop_conflict"));
+
+  let (exit_code, output) = run_in(&clone, &["update"]);
+  assert_error(&output, exit_code, (4, "unsupported_conflict"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(!message.contains("terminal"), "{message}");
+  assert!(message.contains("`brd update --abort` and ask the user"), "{message}");
+  assert!(!message.contains("brd unapply auth"), "{message}");
 }
 
 #[test_log::test]
@@ -858,6 +919,14 @@ fn session_outputs_match_the_schema() {
   bd_cli::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &done, "finish");
 }
 
+#[test_log::test]
+fn a_rename_rename_session_matches_the_output_schema() {
+  let (_upstream, clone) = rename_rename_clone("x.txt", "y.txt", "z.txt", SHARED, "one\ntheirs\nthree\n", "one\nmine\nthree\n");
+  let (_, schema) = bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(clone.path()), &["schema", "--all"]);
+  let (_, round) = run_in(&clone, &["update"]);
+  bd_cli::fixture_test::assert_covered(&schema["outputs"]["update"], &schema["outputs"]["update"], &round, "rename_rename round");
+}
+
 /// The finish dies before it deletes the session ref (step 4): the branch moved and the files followed. A peer's commit
 /// on top must not strand the session: `--abort` and `--continue` both end it
 #[cfg(unix)]
@@ -1202,6 +1271,223 @@ fn a_rename_and_a_delete_resolve_with_a_take() {
     assert_eq!(exit_code, 0, "{take}: {done}");
     assert_eq!(clone.path().join("y.txt").exists(), kept, "{take}");
     assert!(!clone.path().join("x.txt").exists(), "{take}");
+  }
+}
+
+#[test_log::test]
+fn a_rename_rename_resolves_with_takes_and_delete() {
+  for (resolution, onto_kept, commit_kept) in [
+    (&["--take", "onto:x.txt", "--allow-empty"][..], true, false),
+    (&["--take", "commit:z.txt"][..], false, true),
+    (&["--delete", "x.txt"][..], false, false),
+  ] {
+    let (upstream, clone) = TestRepo::upstream_and_clone(&[("x.txt", SHARED), ("other.txt", "other\n")]);
+    git(&upstream, &["mv", "x.txt", "y.txt"]);
+    upstream.create_commit("Rename x upstream", "y.txt", "one\nupstream\nthree\n");
+    git(&clone, &["mv", "x.txt", "z.txt"]);
+    clone.create_commit("(auth) Rename x locally", "z.txt", "one\nlocal\nthree\n");
+
+    let (exit_code, round) = run_in(&clone, &["update"]);
+    assert_eq!(exit_code, 1, "{round}");
+    let file = file_of(&round, "y.txt");
+    assert_eq!(
+      (&file["kind"], &file["renamed_from"], &file["commit_path"]),
+      (&json!("rename_rename"), &json!("x.txt"), &json!("z.txt")),
+      "{round}"
+    );
+    assert_eq!(read(file["onto"].as_str().unwrap()), "one\nupstream\nthree\n");
+    assert_eq!(read(file["commit"].as_str().unwrap()), "one\nlocal\nthree\n");
+    assert_eq!(read(file["before"].as_str().unwrap()), SHARED);
+
+    let mut args = vec!["update", "--continue"];
+    args.extend_from_slice(resolution);
+    let (exit_code, done) = run_in(&clone, &args);
+    assert_eq!(exit_code, 0, "{resolution:?}: {done}");
+    assert_eq!(clone.path().join("y.txt").exists(), onto_kept, "{resolution:?}: {done}");
+    assert_eq!(clone.path().join("z.txt").exists(), commit_kept, "{resolution:?}: {done}");
+    assert!(!clone.path().join("x.txt").exists(), "{resolution:?}: {done}");
+    if onto_kept {
+      assert_eq!(read(clone.path().join("y.txt").to_str().unwrap()), "one\nupstream\nthree\n");
+    }
+    if commit_kept {
+      assert_eq!(read(clone.path().join("z.txt").to_str().unwrap()), "one\nlocal\nthree\n");
+    }
+    assert_eq!(worktree_status(&clone), "");
+  }
+}
+
+#[test_log::test]
+fn a_rename_rename_writes_the_checked_merge_to_a_third_name() {
+  let (upstream, clone) = rename_rename_clone(
+    "tests/snapshots/s-v1.1.txt",
+    "tests/snapshots/s-v1.2.txt",
+    "tests/snapshots/s-v2.1.txt",
+    "one\ntwo\nthree\n",
+    "one\ntwo\nTHREE\n",
+    "ONE\ntwo\nthree\n",
+  );
+  let before = clone.head();
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  let file = file_of(&round, "tests/snapshots/s-v1.2.txt");
+  assert_eq!((&file["kind"], &file["markers"]), (&json!("rename_rename"), &json!(0)), "{round}");
+  assert_eq!(
+    read(file["edit"].as_str().unwrap()),
+    "ONE\ntwo\nTHREE\n",
+    "the clean merge is already the checked edit copy"
+  );
+  let (exit_code, missing) = run_in(&clone, &["update", "--continue"]);
+  assert_error(&missing, exit_code, (2, "missing_resolution"));
+
+  let rename_args = ["--rename-to", "tests/snapshots/s-v1.2.txt", "tests/snapshots/s-v2.2.txt"];
+  let (dry_code, dry) = run_in(&clone, &["--full-ids", "update", "--continue", "--dry-run", rename_args[0], rename_args[1], rename_args[2]]);
+  assert_eq!(dry_code, 0, "{dry}");
+  assert_eq!(clone.head(), before, "a dry run doesn't move HEAD");
+  let (_, still_open) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(still_open["session"]["round"], json!(1));
+
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", rename_args[0], rename_args[1], rename_args[2]]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(
+    dry["resolutions"][0]["new_id"], done["resolutions"][0]["new_id"],
+    "dry and real updates write the same commit"
+  );
+  assert_eq!(done["resolutions"][0]["files"][0]["renamed_to"], json!("tests/snapshots/s-v2.2.txt"), "{done}");
+  assert_eq!(done["verify"]["paths"], json!(["tests/snapshots/s-v2.2.txt"]), "{done}");
+  assert_eq!(read(clone.path().join("tests/snapshots/s-v2.2.txt").to_str().unwrap()), "ONE\ntwo\nTHREE\n");
+  for old in ["tests/snapshots/s-v1.1.txt", "tests/snapshots/s-v1.2.txt", "tests/snapshots/s-v2.1.txt"] {
+    assert!(!clone.path().join(old).exists(), "{old} remains in the result");
+  }
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+  let note = git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]);
+  assert!(note.contains("renamed-to\ttests/snapshots/s-v1.2.txt\ttests/snapshots/s-v2.2.txt"), "{note}");
+  assert_eq!(worktree_status(&clone), "");
+}
+
+#[test_log::test]
+fn an_overlapping_rename_rename_edit_checks_markers_before_writing_the_new_name() {
+  let (upstream, clone) = rename_rename_clone("x.txt", "y.txt", "z.txt", SHARED, "one\nupstream\nthree\n", "one\nlocal\nthree\n");
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  let file = file_of(&round, "y.txt");
+  assert_eq!(file["markers"], json!(1), "{round}");
+  let edit_path = file["edit"].as_str().unwrap();
+  let edit = read(edit_path);
+  assert!(edit.contains(":y.txt") && edit.contains(":z.txt"), "{edit}");
+  let args = ["update", "--continue", "--rename-to", "y.txt", "result.txt"];
+  let (exit_code, output) = run_in(&clone, &args);
+  assert_error(&output, exit_code, (2, "unresolved_markers"));
+  std::fs::write(edit_path, "one\nupstream and local\nthree\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &args);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(read(clone.path().join("result.txt").to_str().unwrap()), "one\nupstream and local\nthree\n");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+}
+
+#[test_log::test]
+fn three_rename_rename_files_can_be_written_to_three_new_names() {
+  let files = [("one.txt", "one\ntwo\nthree\n"), ("two.txt", "four\nfive\nsix\n"), ("three.txt", "seven\neight\nnine\n")];
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[files[0], files[1], files[2], ("other.txt", "other\n")]);
+  for (base, onto, _) in [
+    ("one.txt", "one-up.txt", "one-result.txt"),
+    ("two.txt", "two-up.txt", "two-result.txt"),
+    ("three.txt", "three-up.txt", "three-result.txt"),
+  ] {
+    git(&upstream, &["mv", base, onto]);
+  }
+  upstream.create_commit("Rename three files upstream", "one-up.txt", "one\ntwo\nTHREE\n");
+  for (base, _, commit) in [
+    ("one.txt", "one-up.txt", "one-local.txt"),
+    ("two.txt", "two-up.txt", "two-local.txt"),
+    ("three.txt", "three-up.txt", "three-local.txt"),
+  ] {
+    git(&clone, &["mv", base, commit]);
+  }
+  clone.create_commit("(auth) Rename three files locally", "one-local.txt", "ONE\ntwo\nthree\n");
+
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(round["session"]["files"].as_array().unwrap().len(), 3, "{round}");
+  let args = [
+    "update",
+    "--continue",
+    "--rename-to",
+    "one-up.txt",
+    "one-result.txt",
+    "--rename-to",
+    "two-up.txt",
+    "two-result.txt",
+    "--rename-to",
+    "three-up.txt",
+    "three-result.txt",
+  ];
+  let (exit_code, done) = run_in(&clone, &args);
+  assert_eq!(exit_code, 0, "{done}");
+  for (path, expected) in [
+    ("one-result.txt", "ONE\ntwo\nTHREE\n"),
+    ("two-result.txt", "four\nfive\nsix\n"),
+    ("three-result.txt", "seven\neight\nnine\n"),
+  ] {
+    assert_eq!(read(clone.path().join(path).to_str().unwrap()), expected);
+  }
+  assert_eq!(done["verify"]["paths"].as_array().unwrap().len(), 3, "{done}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+}
+
+#[test_log::test]
+fn rename_to_rejects_non_rename_files_invalid_names_collisions_and_multiple_resolutions() {
+  let (_upstream, clone) = conflicting_clone();
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  for new_path in ["../bad.txt", ".git/config", "other.txt"] {
+    let args = ["update", "--continue", "--rename-to", "shared.txt", new_path];
+    let (exit_code, output) = run_in(&clone, &args);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+  }
+  let (_upstream, clone) = rename_rename_clone("x.txt", "y.txt", "z.txt", SHARED, "one\ntheirs\nthree\n", "one\nmine\nthree\n");
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  for new_path in ["../bad.txt", ".git/config", "other.txt"] {
+    let args = ["update", "--continue", "--rename-to", "x.txt", new_path];
+    let (exit_code, output) = run_in(&clone, &args);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+  }
+  for other_resolution in [&["--take", "onto:x.txt"][..], &["--delete", "x.txt"][..]] {
+    let mut args = vec!["update", "--continue", "--rename-to", "x.txt", "result.txt"];
+    args.extend_from_slice(other_resolution);
+    let (exit_code, output) = run_in(&clone, &args);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+    assert!(output["error"]["message"].as_str().unwrap().contains("more than one resolution"), "{output}");
+  }
+
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("x.txt", SHARED), ("a.txt", "four\nfive\nsix\n"), ("other.txt", "other\n")]);
+  git(&upstream, &["mv", "x.txt", "y.txt"]);
+  git(&upstream, &["mv", "a.txt", "b.txt"]);
+  upstream.create_commit("Rename two files upstream", "y.txt", "one\ntheirs\nthree\n");
+  git(&clone, &["mv", "x.txt", "z.txt"]);
+  git(&clone, &["mv", "a.txt", "c.txt"]);
+  clone.create_commit("(auth) Rename two files locally", "z.txt", "one\nmine\nthree\n");
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  let args = ["update", "--continue", "--rename-to", "x.txt", "b.txt"];
+  let (exit_code, output) = run_in(&clone, &args);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let (_, still_open) = run_in(&clone, &["update", "--status"]);
+  assert_eq!(still_open["session"]["round"], json!(1));
+}
+
+#[test_log::test]
+fn rename_to_accepts_either_new_side_name() {
+  for (path, exists, deleted) in [("y.txt", true, "z.txt"), ("z.txt", true, "y.txt")] {
+    let (_upstream, clone) = rename_rename_clone("x.txt", "y.txt", "z.txt", SHARED, "one\ntheirs\nthree\n", "one\nmine\nthree\n");
+    let (exit_code, round) = run_in(&clone, &["update"]);
+    assert_eq!(exit_code, 1, "{round}");
+    std::fs::write(edit_of(&round, "y.txt"), "one\ntheirs and mine\nthree\n").unwrap();
+    let args = ["update", "--continue", "--rename-to", "x.txt", path];
+    let (exit_code, done) = run_in(&clone, &args);
+    assert_eq!(exit_code, 0, "{done}");
+    assert_eq!(clone.path().join(path).exists(), exists, "{done}");
+    assert!(!clone.path().join(deleted).exists(), "{done}");
   }
 }
 

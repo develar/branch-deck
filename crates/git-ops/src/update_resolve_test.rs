@@ -2,8 +2,8 @@ use crate::merge_tree_output::parse_merge_tree_output;
 use crate::revs::current_worktree;
 use crate::update_branch::{CheckPurpose, LandedLookup, UpstreamRef, apply_update, check_update};
 use crate::update_resolve::{
-  ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundInput, STATE_FILE, STATE_VERSION, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files,
-  continue_session, discard, follow_head, is_valid_tree_path, read_session, start_session, write_state,
+  ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundConflict, RoundInput, STATE_FILE, STATE_VERSION, SessionStart, SessionState, SessionStatus, Side, Step,
+  conflict_files, continue_session, discard, follow_head, is_valid_tree_path, read_session, start_session, write_state,
 };
 use crate::word_resolve::ResolveMode;
 use domain_types::update_project::{UpdateKind, UpdateState};
@@ -54,6 +54,7 @@ fn file(key: usize, path: &str) -> ConflictFile {
     commit: None,
     mode: String::new(),
     renamed_from: None,
+    commit_path: None,
   }
 }
 
@@ -129,6 +130,59 @@ fn only_text_and_modify_delete_conflicts_are_supported() {
     refused(b"tree\x00100644 r1 1\tr~x\x00100644 r3 3\tr~x\0\x00002\0r~x\0r\0CONFLICT (file/directory)\0x\n\x00001\0r~x\0CONFLICT (modify/delete)\0x\n\0"),
     ["r~x", "r"]
   );
+}
+
+#[test]
+fn a_rename_rename_conflict_is_one_file_with_all_three_names() {
+  let merge = parse_merge_tree_output(
+    b"tree\0\
+100644 b1 1\tbase.txt\0\
+100644 o2 2\tonto.txt\0\
+100644 c3 3\tcommit.txt\0\0\
+3\0base.txt\0onto.txt\0commit.txt\0CONFLICT (rename/rename)\0x\n\0",
+  )
+  .unwrap();
+  let files = conflict_files(&merge).unwrap();
+  assert_eq!(files.len(), 1);
+  let file = &files[0];
+  assert_eq!((file.kind, file.path.as_str()), (ConflictKind::RenameRename, "onto.txt"));
+  assert_eq!((file.renamed_from.as_deref(), file.commit_path.as_deref()), (Some("base.txt"), Some("commit.txt")));
+  assert_eq!(
+    (
+      file.before.as_ref().map(|stage| stage.id.as_str()),
+      file.onto.as_ref().map(|stage| stage.id.as_str()),
+      file.commit.as_ref().map(|stage| stage.id.as_str())
+    ),
+    (Some("b1"), Some("o2"), Some("c3"))
+  );
+  assert!(file.is_named("base.txt"));
+  assert!(file.is_named("commit.txt"));
+}
+
+#[test]
+fn a_rename_rename_path_in_an_unsupported_message_refuses_the_round() {
+  let merge = parse_merge_tree_output(
+    b"tree\0\
+100644 b1 1\tbase.txt\0\
+100644 o2 2\tonto.txt\0\
+100644 c3 3\tcommit.txt\0\0\
+3\0base.txt\0onto.txt\0commit.txt\0CONFLICT (rename/rename)\0x\n\0\
+1\0onto.txt\0CONFLICT (binary)\0x\n\0",
+  )
+  .unwrap();
+  let error = conflict_files(&merge).unwrap_err();
+  let ResolveError::Unsupported { paths, message, rename_pairs, .. } = error.downcast::<ResolveError>().unwrap() else {
+    panic!("the overlapping unsupported conflict must refuse the round")
+  };
+  assert!(paths.iter().any(|path| path == "onto.txt"));
+  assert_eq!(paths.iter().filter(|path| path.as_str() == "onto.txt").count(), 1);
+  assert_eq!(rename_pairs.len(), 1);
+  assert_eq!(
+    (rename_pairs[0].from.as_str(), rename_pairs[0].onto.as_str(), rename_pairs[0].commit.as_str()),
+    ("base.txt", "onto.txt", "commit.txt")
+  );
+  assert!(message.contains("onto.txt (CONFLICT (rename/rename))"), "{message}");
+  assert!(message.contains("base.txt → onto.txt / commit.txt"), "{message}");
 }
 
 /// A session of `master` in `repo` that knows HEAD as `head`, before its first round
@@ -420,4 +474,42 @@ fn a_state_of_another_version_is_refused_by_its_version_before_its_fields_are_re
   state["resolutions"] = serde_json::json!([]);
   store_state_json(&repo, &state);
   assert_eq!(read_session(git, path, "main").unwrap().unwrap().state().version, STATE_VERSION);
+}
+
+#[test]
+fn a_rename_rename_round_round_trips_in_state_version_three() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("one", "a.txt", "a\n");
+  let mut state = session_state(&repo, &head);
+  state.conflict = Some(RoundConflict {
+    commit: head.clone(),
+    onto: head.clone(),
+    merge_tree: head,
+    files: vec![ConflictFile {
+      key: 1,
+      path: "onto.txt".to_string(),
+      kind: ConflictKind::RenameRename,
+      before: Some(crate::update_resolve::Stage {
+        mode: "100644".to_string(),
+        id: "before".to_string(),
+      }),
+      onto: Some(crate::update_resolve::Stage {
+        mode: "100644".to_string(),
+        id: "onto".to_string(),
+      }),
+      commit: Some(crate::update_resolve::Stage {
+        mode: "100644".to_string(),
+        id: "commit".to_string(),
+      }),
+      mode: "100644".to_string(),
+      renamed_from: Some("base.txt".to_string()),
+      commit_path: Some("commit.txt".to_string()),
+    }],
+  });
+  let encoded = serde_json::to_value(&state).unwrap();
+  let decoded: SessionState = serde_json::from_value(encoded).unwrap();
+  assert_eq!(decoded.version, 3);
+  let file = &decoded.conflict.unwrap().files[0];
+  assert_eq!((file.kind, file.path.as_str()), (ConflictKind::RenameRename, "onto.txt"));
+  assert_eq!((file.renamed_from.as_deref(), file.commit_path.as_deref()), (Some("base.txt"), Some("commit.txt")));
 }
