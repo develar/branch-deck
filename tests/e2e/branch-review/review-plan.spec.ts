@@ -710,9 +710,15 @@ test.describe("The review plan in the branch review", () => {
     // the brief above the diffs and every card of the story on screen: the view renders the cards it shows
     await window.setViewportSize({ width: 1280, height: 1200 })
     const tree = window.getByRole("tree", { name: "Changed files" })
+    const overview = window.getByTestId("review-overview")
     const row = (name: string) => tree.getByRole("treeitem", { name, exact: true })
     const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))
     const position = window.getByTestId("review-position")
+    await expect(window.getByTestId("review-step-bar")).toHaveText("Overview·2 steps")
+    const otherContentsStep = overview.getByTestId("review-contents-step").filter({ hasText: "Other changes" })
+    await expect(otherContentsStep.getByTestId("review-contents-step-title")).toHaveText("Other changes")
+    await expect(otherContentsStep.getByTestId("review-contents-step-number")).toHaveCount(0)
+    await captureHtmlSnapshot(overview, "review-plan-concerns-overview")
 
     // a concern per task, its files by their path; the guide's own row in the concern of most of its lines, a row
     // "also in" the other; the generated AGENTS.md folded into the concern of its source; then the rest and Mechanical
@@ -733,6 +739,7 @@ test.describe("The review plan in the branch review", () => {
         "App.kt",
         "Mechanical (1)",
       ])
+    await expect(row("src").getByTestId("review-directory-path")).toHaveAttribute("dir", "rtl")
     await expect(row("1 · ijproxy")).toHaveAttribute("aria-description", "3 files, +0 −10")
     await captureHtmlSnapshot(tree, "review-plan-concerns-tree")
     await row("Generated (1)").click()
@@ -743,7 +750,7 @@ test.describe("The review plan in the branch review", () => {
     await expect
       .poll(() => reviewedPaths(window))
       .toEqual([".codex/config.toml", "docs/guide.md", "tools/codex/config.toml", ".mcp.json", "docs/guide.md", "docs/tools.md", "AGENTS.md", "src/App.kt", "pnpm-lock.yaml"])
-    await expect(window.getByTestId("review-concern-heading")).toHaveText(["Step 1 · ijproxy", "Step 2 · grep → accio", "Step 3 · Other changes"])
+    await expect(window.getByTestId("review-concern-heading")).toHaveText(["Step 1 · ijproxy", "Step 2 · grep → accio", "Other changes"])
     const agents = window.locator('[data-testid="review-file-header"][data-path="AGENTS.md"]')
     await expect(agents.getByTestId("review-file-folded")).toHaveText("Generated from docs/guide.md by tools/render.mjs")
     await expect(agents.getByRole("button", { name: "Expand AGENTS.md" })).toHaveAttribute("aria-expanded", "false")

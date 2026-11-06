@@ -433,6 +433,33 @@ describe("the document of a review", () => {
     expect([untold.steps, untold.source, untold.issue, untold.title]).toEqual([[], null, "IJAI-1", "11111111..22222222"])
   })
 
+  it("does not give Other changes a number in the overview", () => {
+    const task: Concern = {
+      id: "task",
+      name: { source: "declaration", name: "aFunction" },
+      parts: [],
+      paths: [],
+      elsewhere: [],
+      evidence: [],
+      fingerprint: "task",
+    }
+    const rest: Concern = { ...task, id: "rest", name: { source: "rest" }, fingerprint: "rest" }
+    const review = plan(
+      [
+        { ...step("task", [commit("task")], []), concern: "task" },
+        { ...step("rest", [], []), concern: "rest" },
+      ],
+      [],
+      { concerns: [task, rest] },
+    )
+    const view = presentPrologue(review, false)
+    expect(view.steps.map(({ number, title }) => [number, title])).toEqual([
+      [1, "aFunction"],
+      [null, "Other changes"],
+    ])
+    expect(presentOpenings(review).get("rest")?.number).toBeNull()
+  })
+
   it("shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline", () => {
     const body = [
       paragraph("The open keeps the stored layout."),

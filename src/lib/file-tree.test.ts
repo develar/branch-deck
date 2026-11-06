@@ -349,6 +349,14 @@ describe("the concerns in the tree of a review", () => {
     const rest = concern("r", { source: "rest" }, ["src/App.kt", "docs/tools.md"], ["docs/tools.md"])
     const tree = buildReviewTree(files, mechanical, concernChapters([concerns[0]!, concerns[1]!, rest]))
     expect(outline(tree).slice(10, 15)).toEqual(["Other changes/", "  docs/", "    tools.md, also in Other changes", "  src/", "    App.kt"])
+    const other = tree.find(node => node.key === OTHER_CHANGES_KEY) as FileTreeDirectory
+    const docs = other.children[0] as FileTreeDirectory
+    expect([docs.fileCount, docs.additions, docs.deletions]).toEqual([0, 0, 0])
+
+    const mixedTree = buildReviewTree([...files, file("docs/own.md", 4, 2)], mechanical, concernChapters([concerns[0]!, concerns[1]!, rest]))
+    const mixedOther = mixedTree.find(node => node.key === OTHER_CHANGES_KEY) as FileTreeDirectory
+    const mixedDocs = mixedOther.children[0] as FileTreeDirectory
+    expect([mixedDocs.fileCount, mixedDocs.additions, mixedDocs.deletions]).toEqual([1, 4, 2])
   })
 
   it("is the tree without concerns while the plan has none but the rest, and leaves out a concern the filter empties", () => {

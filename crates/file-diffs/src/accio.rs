@@ -223,8 +223,8 @@ pub trait SymbolIndex: Send + Sync {
   fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> Result<Option<Vec<TestReach>>>;
 }
 
-/// accio has no usable index of the repository (`--no-build` answered `available: false`): why, as accio words it. A
-/// lookup through `Lenient` answers it as no index, and keeps the reason
+/// accio has no usable index of the repository (`--no-build` answered `available: false`): why, with a format mismatch
+/// phrased as a version and an action. A lookup through `Lenient` answers it as no index, and keeps the reason
 #[derive(Debug)]
 pub struct IndexUnavailable(pub String);
 
@@ -287,6 +287,24 @@ impl AccioCli {
   }
 }
 
+fn index_unavailable_note(note: &str, executable: &Path) -> String {
+  let Some((_, versions)) = note.rsplit_once(" has format ") else {
+    return note.to_string();
+  };
+  let Some((index, expected)) = versions.split_once(", expected ") else {
+    return note.to_string();
+  };
+  let (Ok(index), Ok(expected)) = (index.parse::<u32>(), expected.parse::<u32>()) else {
+    return note.to_string();
+  };
+  let (article, version, action) = match index.cmp(&expected) {
+    std::cmp::Ordering::Greater => ("a", "newer", "update accio"),
+    std::cmp::Ordering::Less => ("an", "older", "run accio index"),
+    std::cmp::Ordering::Equal => return note.to_string(),
+  };
+  format!("the index of this repository is from {article} {version} accio than {}: {action}", executable.display())
+}
+
 /// accio on `path`, else in the directories it installs to
 fn find_accio(home: Option<&Path>, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
   if let Some(found) = path.and_then(|path| find_executable("accio", path)) {
@@ -347,7 +365,7 @@ impl AccioSearch<'_> {
         .get("note")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("accio has no index of this repository");
-      return Err(IndexUnavailable(note.to_string()).into());
+      return Err(IndexUnavailable(index_unavailable_note(note, &self.accio.executable)).into());
     }
     if entries.len() != asked {
       bail!("accio answered {} entries for {asked} targets", entries.len());

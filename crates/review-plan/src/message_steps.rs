@@ -26,7 +26,7 @@
 //! - **Where the body is told**: each telling in its step, a Look closely in the step of the telling before it; the
 //!   rest of the body as of the concerns (`story::told_in`).
 
-use crate::concerns::{Concern, ConcernName};
+use crate::concerns::{Concern, ConcernName, unquoted};
 use crate::files::test_subject;
 use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, TitleSource, split_message, step_commit};
 use crate::story::{Mention, MentionTarget, unit_mentions};
@@ -84,7 +84,7 @@ pub(crate) fn message_steps(input: &StepsInput<'_>) -> Option<MessageSteps> {
     telling.title = mentions
       .iter()
       .find(|mention| blocks.contains(&(mention.block as usize)) && mention.target.is_some())
-      .map(|mention| (mention.text.clone(), TitleSource::Name));
+      .map(|mention| (unquoted(&mention.text).to_string(), TitleSource::Name));
   }
   let seeds = seeds_of(input, &mentions, &tellings);
   let story: BTreeSet<usize> = seeds.values().copied().filter(|&telling| tellings[telling].rank != Rank::Tests).collect();

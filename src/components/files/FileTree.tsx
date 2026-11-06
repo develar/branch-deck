@@ -666,6 +666,8 @@ function DirectoryRowContent({
   // commit that commit
   const Icon =
     node.commit !== undefined ? GitCommitHorizontalIcon : node.group === "concern" ? TargetIcon : node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
+  const path = node.group === undefined && node.commit === undefined && node.lead === undefined
+  const name = node.name.slice(node.lead?.length ?? 0)
   return (
     <>
       <Icon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -679,13 +681,15 @@ function DirectoryRowContent({
           // a code name at the size of the row: JetBrains Mono has the x-height of Inter (docs/design/ui-theme.md)
           node.code === true && "font-mono",
         )}
+        dir={path ? "rtl" : undefined}
+        data-testid={path ? "review-directory-path" : undefined}
         // the card of a commit says its subject and hash: no native hover over it
         title={titleHover === undefined ? groupTitle(node) : undefined}
         data-group={node.group}
         {...titleHover}
       >
         {/* a code name wraps at its dots, never inside a word but one wider than the row */}
-        {node.code === true ? <BreakableCode text={node.name.slice(node.lead?.length ?? 0)} humps /> : node.name.slice(node.lead?.length ?? 0)}
+        {node.code === true ? <BreakableCode text={name} humps /> : path ? <bdi dir="ltr">{name}</bdi> : name}
       </span>
       {ownerMark !== null && (
         <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">

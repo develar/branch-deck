@@ -115,6 +115,9 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   named, in the name and in its evidence, as the changed lines of the concern write it most often
   (`activatesProjectViewOnStartup`).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`, `a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
+- A declaration name wrapped in Kotlin backticks must be shown without one surrounding pair; the unit's source name is
+  unchanged.
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_concern_name_from_a_backticked_kotlin_function_is_unquoted`)
 
 ### In `brd`
 - `brd review-plan` must print `concerns` (`"schema": 19`): per concern its `id`, `name` (`source` `token` with
@@ -145,7 +148,8 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   no step by its name), in its place among the files (in the directory tree of Other
   changes for `rest`), its main concern in its hover. That row selects the file and shows its part of that concern;
   it counts as no file: "File 4 / 8" is the place of the file, and the line counts of a concern are those of its own
-  rows.
+  rows; the line counts of a directory under "Other changes" exclude also rows, and a directory with only those rows
+  has no line-count badge.
   [@test] ../../src/lib/file-tree.test.ts (`lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical`, `shows a file of what no evidence joined that is also in a concern in its place under Other changes`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 - The story must follow the concerns (`presentNarrative`): the parts of each concern together, in its order, its

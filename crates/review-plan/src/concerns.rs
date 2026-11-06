@@ -1025,7 +1025,9 @@ fn assemble(
           .map(|&node| &units[nodes[node].unit])
           .find(|unit| matches!(unit.kind, UnitKind::Shape { .. } | UnitKind::Added | UnitKind::Removed | UnitKind::Behaviour))
           .and_then(|unit| unit.name.clone())
-          .map(|name| ConcernName::Declaration { name })
+          .map(|name| ConcernName::Declaration {
+            name: unquoted(&name).to_string(),
+          })
       })
       .unwrap_or_else(|| {
         // a source with its generated copies is named by its file, more than one file by the directory they share
@@ -1052,6 +1054,10 @@ fn assemble(
   }
   mark_elsewhere(nodes, &mut concerns);
   concerns.into_iter().map(|(_, concern, _)| concern).collect()
+}
+
+pub(crate) fn unquoted(name: &str) -> &str {
+  name.strip_prefix('`').and_then(|name| name.strip_suffix('`')).unwrap_or(name)
 }
 
 /// The `elsewhere` of each concern (with its nodes): a file of several concerns has its main row in the one whose nodes

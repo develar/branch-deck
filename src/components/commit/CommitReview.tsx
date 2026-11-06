@@ -994,7 +994,7 @@ function ReviewLayout({
   const topStep = useMemo(() => {
     const chapter = topOpening ?? narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
     const index = chapters.findIndex(it => it.id === chapter)
-    return index < 0 ? null : { chapter: chapters[index]!, count: chapters.length }
+    return index < 0 ? null : { chapter: chapters[index]!, count: chapters.filter(it => !it.rest).length }
   }, [narrative, topSection, topOpening, chapters])
 
   // the badges of the review plan

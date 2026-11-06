@@ -108,7 +108,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
         hover: null,
         rest: false,
         told: plan.steps.told,
-        code: step.titleSource === "name",
+        code: step.titleSource === "name" && !label.includes(" "),
         titleInBody: step.titleSource === "sentence",
         parts,
         paths: step.paths,
@@ -293,7 +293,7 @@ const NO_MARKS: readonly StoryRef[] = []
 
 /** Whether the name of a concern is an identifier the code spells: a token, a declaration, a replacement, a file or a directory */
 function isCodeName(name: ConcernName): boolean {
-  return name.source !== "rest" && !(name.source === "directory" && name.directory === "")
+  return name.source !== "rest" && !(name.source === "directory" && name.directory === "") && !(name.source === "declaration" && name.name.includes(" "))
 }
 
 /** The words of a step in the diffs, in the hover of the map of the files: "Step 2 · The open keeps a stored layout" */

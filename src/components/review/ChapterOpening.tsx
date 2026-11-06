@@ -29,11 +29,13 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         className="flex min-w-0 flex-col items-start gap-0.5 self-start rounded-sm text-left outline-none focus-visible:bd-focus [&:hover>span:last-child]:underline"
         onClick={() => onShowStep?.(opening.id)}
       >
-        <span className="text-xs font-medium text-muted-foreground" data-testid="review-opening-number">
-          {opening.number}
-        </span>
+        {opening.number !== null && (
+          <span className="text-xs font-medium text-muted-foreground" data-testid="review-opening-number">
+            {opening.number}
+          </span>
+        )}
         {/* the name of the button and its text: "Step 2 · The open keeps a stored layout" */}
-        <span className="sr-only"> · </span>
+        {opening.number !== null && <span className="sr-only"> · </span>}
         {/* a title that is the first sentence of the paragraph below is read there, a step larger, not twice */}
         <span
           className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium", opening.titleInBody && "sr-only")}

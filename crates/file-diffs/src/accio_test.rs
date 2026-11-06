@@ -99,6 +99,25 @@ fn an_index_accio_cannot_use_answers_no_index_with_its_reason() {
   assert_eq!(lenient.error(), None);
 }
 
+#[test]
+fn an_index_format_mismatch_says_which_accio_version_to_run() {
+  let dir = tempfile::tempdir().unwrap();
+  let canceled = || false;
+  for (note, version, action) in [
+    ("archive /Users/develar/.cache/accio/index.shard has format 34, expected 32", "a newer", "update accio"),
+    ("archive /Users/develar/.cache/accio/index.shard has format 30, expected 32", "an older", "run accio index"),
+  ] {
+    let unavailable = format!(r#"[{{"available":false,"note":"{note}","target":"helper"}}]"#);
+    let executable = fake_executable(dir.path(), "accio", &format!("printf '%s' '{unavailable}'"));
+    let accio = AccioCli::at(executable.clone());
+    let search = accio.search(&canceled);
+    let lenient = Lenient::new(&search);
+    assert_eq!(lenient.indexed_references(ROOT, "helper", Some("HEAD")).unwrap(), None);
+    let expected = format!("the index of this repository is from {version} accio than {}: {action}", executable.display());
+    assert_eq!(lenient.unavailable().as_deref(), Some(expected.as_str()));
+  }
+}
+
 /// The places of a plan are asked in one process, `--at` each, at the revision of the answer: one entry per place in
 /// their order, each hit with what ties it to the declaration, and a call with its last line, its arguments, the
 /// parameter each binds and whether it fits

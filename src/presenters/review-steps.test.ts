@@ -105,6 +105,36 @@ describe("review steps", () => {
     ])
   })
 
+  it("sets names with spaces as phrases, not code", () => {
+    const phrase: Concern = {
+      id: "phrase",
+      name: { source: "declaration", name: "a b c" },
+      parts: [{ unit: "u:phrase", path: "src/Api.kt", blocks: null }],
+      paths: ["src/Api.kt"],
+      elsewhere: [],
+      evidence: [],
+      fingerprint: "phrase",
+    }
+    const identifier: Concern = { ...phrase, id: "identifier", name: { source: "declaration", name: "isMacBinary" }, fingerprint: "identifier" }
+    const chapters = presentChapters(
+      plan(
+        [
+          { ...step("phrase", [commit("one")], [["u:phrase", "src/Api.kt"]]), concern: "phrase" },
+          { ...step("identifier", [commit("one")], [["u:identifier", "src/Other.kt"]]), concern: "identifier" },
+        ],
+        [phrase, identifier],
+      ),
+    )
+    expect(chapters.map(chapter => [chapter.label, chapter.code])).toEqual([
+      ["a b c", false],
+      ["isMacBinary", true],
+    ])
+
+    const message = plan([step("message", [commit("one")], [], {}, { title: "a b c", titleSource: "name" })])
+    const messagePlan: Pick<ReviewPlan, "steps" | "concerns"> = { ...message, steps: { ...message.steps, source: { kind: "message" } } }
+    expect(presentChapters(messagePlan)[0]?.code).toBe(false)
+  })
+
   it("counts the files of the chosen owner each step shows, 0 for a step without one", () => {
     const chapters = presentChapters(
       plan([

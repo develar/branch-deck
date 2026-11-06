@@ -273,6 +273,27 @@ export function buildReviewTree(
       ? alsoNode(rest, node.file, { name: node.name, depth: node.depth, parentKey: node.parentKey, inGroup: false })
       : node
   }
+  const recount = (node: FileTreeNode): FileTreeNode => {
+    if (node.kind !== "directory") {
+      return node
+    }
+    const children = node.children.map(recount)
+    let fileCount = 0
+    let additions = 0
+    let deletions = 0
+    for (const child of children) {
+      if (child.kind === "file") {
+        fileCount++
+        additions += child.file.additions
+        deletions += child.file.deletions
+      } else if (child.kind === "directory") {
+        fileCount += child.fileCount
+        additions += child.additions
+        deletions += child.deletions
+      }
+    }
+    return { ...node, children, fileCount, additions, deletions }
+  }
   // the paths whose main row a chapter holds
   const held = new Set<string>()
   // the chapters with a group, which lists their commits
@@ -317,7 +338,7 @@ export function buildReviewTree(
   const restElsewhere = new Set(rest?.elsewhere ?? [])
   const other = files.filter(file => restElsewhere.has(file.path) || (!held.has(file.path) && !mechanical.has(file.path)))
   if (other.length > 0) {
-    const children = buildFileTree(other, { key: OTHER_CHANGES_KEY, depth: 1 }).map(node => (rest === undefined ? node : asAlso(node, rest, restElsewhere)))
+    const children = buildFileTree(other, { key: OTHER_CHANGES_KEY, depth: 1 }).map(node => recount(rest === undefined ? node : asAlso(node, rest, restElsewhere)))
     nodes.push(groupNode(OTHER_CHANGES_KEY, OTHER_CHANGES, 0, undefined, children, "other"))
   }
   return withOtherCommits(withMechanicalGroup(nodes, files, mechanical, held), otherCommits, grouped, OTHER_COMMITS)

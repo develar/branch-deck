@@ -1,0 +1,198 @@
+<section aria-label="Overview" class="mx-auto flex w-full max-w-measure min-w-0 flex-col text-md text-pretty gap-6 px-1 pt-3 pb-1" data-testid="review-overview">
+  <div aria-label="drop ijproxy, search with accio" class="-m-1.5 flex min-w-0 flex-col rounded-md p-1.5 outline-none focus-visible:bd-focus" data-testid="range-review-commit-header" role="group">
+    <div class="flex min-w-0 flex-col gap-2">
+      <div data-commit-row="">
+        <div class="flex min-w-0 flex-col gap-1">
+          <div class="flex items-start gap-2">
+            <span class="text-pretty text-foreground text-lg font-semibold">
+              <span>
+                drop ijproxy, search with accio
+              </span>
+            </span>
+          </div>
+          <div class="flex min-w-0 items-center gap-1" data-testid="commit-header-meta">
+            <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+              <span class="font-mono">
+                [SHA]
+              </span>
+              <span>
+                ·
+              </span>
+              <span>
+                Test User
+              </span>
+              <span>
+                ·
+              </span>
+              <span>
+                Yesterday 3:30 PM
+              </span>
+            </div>
+            <span class="-my-1 shrink-0">
+              <button aria-disabled="false" aria-expanded="false" aria-haspopup="menu" aria-label="More actions for e00db4de" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 text-muted-foreground aria-disabled:opacity-50" data-slot="tooltip-trigger" tabindex="0" type="button">
+                <svg aria-hidden="true" class="lucide lucide-ellipsis" />
+              </button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="flex flex-col gap-2" data-testid="review-brief-contract">
+    <div class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
+      <span class="truncate">
+        What Changes
+      </span>
+    </div>
+    <ul class="flex flex-col gap-5">
+      <li class="flex min-w-0 flex-col gap-3" data-path="docs/guide.md" data-testid="review-brief-contract-entry">
+        <span class="flex min-w-0 items-center gap-2 text-sm">
+          <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
+            Doc
+          </span>
+          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="docs/guide.md" data-slot="tooltip-trigger" data-testid="review-brief-contract-file" id="base-ui-[ID]" type="button">
+            <span class="min-w-0">
+              <span class="text-muted-foreground">
+                docs/
+              </span>
+              <span class="font-semibold text-foreground">
+                guide.md
+              </span>
+            </span>
+          </button>
+        </span>
+        <div class="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
+          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              <h3 class="min-w-0 text-sm font-semibold">
+                Guide
+              </h3>
+            </div>
+            <p data-change="changed" data-testid="review-brief-paragraph">
+              <span>
+                Search the source with
+              </span>
+              <span class="whitespace-nowrap [&_*]:whitespace-normal">
+                <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-explicit="" data-slot="inline-code" data-testid="review-brief-code-chip">
+                  <del class="me-0.5 text-muted-foreground decoration-destructive/70" data-testid="review-brief-deleted">
+                    grep
+                  </del>
+                  <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
+                    accio
+                  </ins>
+                </code>
+                .
+              </span>
+              <span />
+            </p>
+          </div>
+          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              <h3 class="min-w-0 text-sm font-semibold">
+                Servers
+              </h3>
+            </div>
+          </div>
+        </div>
+      </li>
+      <li class="flex min-w-0 flex-col gap-3" data-path="docs/tools.md" data-testid="review-brief-contract-entry">
+        <span class="flex min-w-0 items-center gap-2 text-sm">
+          <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
+            Doc
+          </span>
+          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="docs/tools.md" data-slot="tooltip-trigger" data-testid="review-brief-contract-file" id="base-ui-[ID]" type="button">
+            <span class="min-w-0">
+              <span class="text-muted-foreground">
+                docs/
+              </span>
+              <span class="font-semibold text-foreground">
+                tools.md
+              </span>
+            </span>
+          </button>
+        </span>
+        <div class="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
+          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              <h3 class="min-w-0 text-sm font-semibold">
+                Tools
+              </h3>
+            </div>
+            <p data-change="changed" data-testid="review-brief-paragraph">
+              <span class="whitespace-nowrap [&_*]:whitespace-normal">
+                <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-explicit="" data-slot="inline-code" data-testid="review-brief-code-chip">
+                  <del class="me-0.5 text-muted-foreground decoration-destructive/70" data-testid="review-brief-deleted">
+                    grep
+                  </del>
+                  <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
+                    accio
+                  </ins>
+                </code>
+                :
+              </span>
+              <span>
+                the text of the source
+              </span>
+            </p>
+          </div>
+        </div>
+      </li>
+    </ul>
+  </div>
+  <div class="flex flex-col gap-2" data-testid="review-contents">
+    <div class="flex flex-col gap-0.5">
+      <div class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
+        <span class="truncate">
+          Steps
+        </span>
+        <span class="tabular-nums">
+          2
+        </span>
+      </div>
+      <p class="text-xs text-muted-foreground" data-testid="review-contents-source">
+        One commit: the steps are its tasks
+      </p>
+    </div>
+    <ol class="flex flex-col gap-3">
+      <li class="flex min-w-0 flex-col gap-1" data-step="366202d274e7db75e978b9257b248a54" data-testid="review-contents-step">
+        <span class="-ml-6 flex min-w-0 items-baseline gap-2">
+          <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums" data-testid="review-contents-step-number">
+            1
+          </span>
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:bd-focus disabled:no-underline font-mono" data-testid="review-contents-step-title" type="button">
+            ijproxy
+          </button>
+        </span>
+        <div class="flex min-w-0 flex-col gap-1" />
+      </li>
+      <li class="flex min-w-0 flex-col gap-1" data-step="8a2d2121ea1ae26f788d1a6cd2f92a54" data-testid="review-contents-step">
+        <span class="-ml-6 flex min-w-0 items-baseline gap-2">
+          <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums" data-testid="review-contents-step-number">
+            2
+          </span>
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:bd-focus disabled:no-underline font-mono" data-testid="review-contents-step-title" type="button">
+            grep → accio
+          </button>
+        </span>
+        <div class="flex min-w-0 flex-col gap-1" />
+      </li>
+      <li class="flex min-w-0 flex-col gap-1" data-step="2a7d56db836e0ec7f1dc4f02dae0c32f" data-testid="review-contents-step">
+        <span class="flex min-w-0 items-baseline gap-2">
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-testid="review-contents-step-title" type="button">
+            Other changes
+          </button>
+        </span>
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-xs text-warning" data-testid="review-contents-step-unproven">
+            <span>
+              No test of the change reaches
+              <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/App.kt" data-testid="review-step-unreached" type="button">
+                version
+              </button>
+            </span>
+          </span>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>

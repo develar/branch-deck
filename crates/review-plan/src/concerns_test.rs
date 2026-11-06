@@ -91,6 +91,22 @@ fn a_changed_declaration_and_the_changes_of_its_uses_are_one_concern() {
   );
 }
 
+/// A concern named by a Kotlin declaration keeps its words but not the backticks needed to spell it in source
+#[test]
+fn a_concern_name_from_a_backticked_kotlin_function_is_unquoted() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("src/Api.kt", "package api\n\nfun `a b c`() = 1\n\nfun invoke() = `a b c`()\n")]);
+  let head = repo.create_commit_with_files(
+    "Change",
+    &[(
+      "src/Api.kt",
+      "package api\n\nfun `a b c`(flag: Boolean) = if (flag) 1 else 0\n\nfun invoke() = `a b c`(true)\n",
+    )],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(concerns(&plan), [(declaration("a b c"), vec!["src/Api.kt"])], "{:#?}", plan.concerns);
+}
+
 /// A declaration that more than six changes name is a hub: it joins none of them
 #[test]
 fn a_declaration_named_by_many_changes_joins_none() {

@@ -450,7 +450,7 @@ function takenOutOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps">): StepFact
 /** A step in the contents of the overview */
 export interface ContentsStep {
   readonly id: string
-  readonly number: number
+  readonly number: number | null
   /** Its full title: the subject of the commit that starts it without the issue key, a concern by its name */
   readonly title: string
   /** Its title is an identifier: set as code */
@@ -610,7 +610,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     const toldHere = one === null || !byParts ? null : presentStory(one, part => toldInStep(part, index), words)
     return {
       id: step.id,
-      number: chapter.number,
+      number: chapter.rest ? null : chapter.number,
       title: chapter.label,
       code: chapter.code,
       lead: view?.lead == null ? null : { story: view, block: view.lead },
@@ -776,8 +776,8 @@ export interface OpeningCommit {
 /** The opening of a step above the card of its first section, worded */
 export interface OpeningView {
   readonly id: string
-  /** "Step 2" */
-  readonly number: string
+  /** "Step 2", null for "Other changes" */
+  readonly number: string | null
   /** Its full title, which wraps */
   readonly title: string
   /** Its title is an identifier: set as code */
@@ -825,7 +825,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
         step.id,
         {
           id: step.id,
-          number: formatStepNumber(chapter.number),
+          number: chapter.rest ? null : formatStepNumber(chapter.number),
           title: chapter.label,
           code: chapter.code,
           titleInBody: chapter.titleInBody && story?.lead != null,

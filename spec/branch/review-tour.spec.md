@@ -145,9 +145,11 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   section (`label`, told once, as its title); else the first sentence of its paragraph, up to a `.`, `?` or `!` outside
   backticks before a space or the end of the line, not after an abbreviation (`e.g.`), a single letter or a digit,
   when it is 100 characters or fewer, its backticks aside (`sentence`); else the first code name of the paragraph
-  that resolves, set as code (`name`). Its id must be the fingerprint of its first part (its unit and file), so a
-  reword that names more of its code keeps it.
+  that resolves, set as code when it is an identifier (`name`). A name with spaces is a phrase, not code, whether it
+  names a declaration concern or titles a step of the message. Its id must be the fingerprint of its first part (its
+  unit and file), so a reword that names more of its code keeps it.
   [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`, `a_long_first_sentence_titles_its_step_by_the_first_name_it_resolves_and_a_list_under_a_paragraph_is_one_part`, `a_step_of_the_message_keeps_its_id_when_its_paragraph_names_more`)
+  [@test] ../../src/presenters/review-steps.test.ts (`sets names with spaces as phrases, not code`)
 - Of the steps of the message, each part that tells a step must be told in its opening, never folded there; a Look
   closely in the step of the part before it; the lead, and the parts no step tells, by the rule of the concerns of one
   commit ([The Story of a Commit](#the-story-of-a-commit)).
@@ -339,7 +341,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   "⋯ N more lines" that opens the whole paragraph and has the tooltip "Show the whole paragraph". A link shows the
   file it names at its header when the review shows that file, opens a page, else stays text; then the Steps, each its number and its full
   title (the title Rust gives the commit that starts it; a step of the concerns
-  its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one short line: the
+  its concern), wrapping, never cut, which shows its opening; "Other changes" remains as a rest item without a number
+  and is excluded from the count beside Steps and the step count in the bar; the lead of its body; its facts in one short line: the
   files of the tests of the change that reach its code ("Tested by ManagerTest.kt", each showing its first test, its
   tests in its hover; the opening tells the rest), the code no test of the change reaches beside a scenario ("No test
   of the change reaches load"),
@@ -364,17 +367,18 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   one), every block ending at its edge and none setting a width of its own; the number of a step hangs in the gutter,
   so its title and its lead stand at that edge. The type of the document is one scale: its prose `text-md`, its
   headline (and the subject of a commit shown alone) `text-lg font-semibold`, the title of an opening `text-base
-  font-semibold`, the What Changes label, file header and section headings `text-sm font-semibold` (the filename
+  font-semibold`, the What Changes and Steps labels both `text-sm font-semibold text-foreground`, file headers and
+  section headings `text-sm font-semibold` (the filename
   foreground, its directory muted, and no section heading larger than its file header), an open part `font-semibold`,
   a step of the contents `font-medium`, its facts `text-xs` muted (docs/design/ui-theme.md). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`, `should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
-  [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `passes paragraph forms and resolves substitution marks to their original words`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`, `should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+  [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `passes paragraph forms and resolves substitution marks to their original words`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `does not give Other changes a number in the overview`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - The opening of a step (`ChapterOpening`) must be a card of prose a gap above the card of its first section (each
   opening of a layer its own card), as tall as its words (the diffs measure it), its words in the reading column of
-  the overview (`ReadingColumn`) in the middle of the card: "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
+  the overview (`ReadingColumn`) in the middle of the card: "Step 2" muted for a numbered step, none for "Other changes", then its full title in `text-base`, wrapping, which a click shows
   at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
   body](../commit/commit-row.spec.md)) in `text-md`: its lead a step larger (`text-base`), its paragraphs, lists, labels as the captions of their
   blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no
@@ -398,6 +402,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   of a task what joins its parts, its names code), the warning of a step no test reaches, its names code too, and the
   group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - ⌘F (Ctrl+F off macOS) searches the review document from its overview through the openings and diff rows to the
   epilogue. Story text is matched ignoring case, one block at a time, with `.sr-only`, `[aria-hidden=true]` and
@@ -444,7 +449,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   repeats the title); under it the rows of the commits that follow it up and of those without a story, each by its
   title, which gets the width of the row: the indent says what it is, the
   description of the row says it in words ("follows up", "no story"), no word on the row; then its files, a file
-  of a group its directory after its name whole or not at all, never cut to its last letters. A group of a step of the
+  of a group its directory after its name whole or not at all, never cut to its last letters. A normal directory label
+  is truncated from the beginning so its deepest path segments stay visible; group titles and step names are unchanged.
+  A group of a step of the
   concerns lists its commit rows as they are, the most lines first. A commit several concerns list is listed once, in
   the one that lists it first, the first of equal ones; a step that lands nothing keeps its group for its commits; the
   commits no group lists (of no step, of what no evidence joined) close the tree in "Other commits" ("Commits" when the

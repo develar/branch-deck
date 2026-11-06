@@ -329,10 +329,12 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
 - Without accio, or without a usable index of the repository, the `usages` must be `null` and `index_note` must say
   why: "accio is not installed", else the reason accio gives ("no index of this repository", "accio is building the
-  index of this repository", "the index was written by another version of accio"). A plan never builds, waits for or
+  index of this repository"), or explain a format mismatch without the shard path: an index from a newer accio than
+  `<executable>` says "the index of this repository is from a newer accio than <executable>: update accio", and an
+  older one says "the index of this repository is from an older accio than <executable>: run accio index". A plan never builds, waits for or
   refreshes an index: every query runs with `--no-build`.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`without_an_index_the_usages_are_missing_and_the_note_says_why`)
-  [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`, `an_index_format_mismatch_says_which_accio_version_to_run`)
 - A failing query must fail no plan: the entries keep no `usages` and `index_note` gives the failure; only a cancel
   of the caller (a newer request of the window) cancels the plan.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_failing_index_keeps_the_api`, `a_canceled_query_cancels_the_plan`)

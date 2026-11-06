@@ -284,7 +284,7 @@ function PrologueSections({ view }: { view: PrologueView }) {
       {view.steps.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="review-contents">
           <div className="flex flex-col gap-0.5">
-            <SectionLabel title="Steps" count={view.steps.length} />
+            <SectionLabel title="Steps" count={view.steps.filter(step => step.number !== null).length} className="text-sm font-semibold text-foreground" />
             {/* why the steps are tasks, right under their count, not at the far end of the column */}
             {view.source !== null && (
               <p className="text-xs text-muted-foreground" data-testid="review-contents-source">
@@ -365,15 +365,19 @@ function PrologueSections({ view }: { view: PrologueView }) {
 }
 
 /**
- * A step of the contents: its number hanging in the gutter, so its full title, which shows its opening, and the lead of
- * its body stand at the edge of the column; its facts; the Look closely of its author, the one view of that part of a
- * body (`StoryPart`)
+ * A step of the contents: its number, when any, hanging in the gutter, so its full title, which shows its opening, and
+ * the lead of its body stand at the edge of the column; its facts; the Look closely of its author, the one view of that
+ * part of a body (`StoryPart`)
  */
 function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => void) | null }) {
   return (
     <li className="flex min-w-0 flex-col gap-1" data-testid="review-contents-step" data-step={step.id}>
-      <span className="-ml-6 flex min-w-0 items-baseline gap-2">
-        <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{step.number}</span>
+      <span className={cn(step.number !== null && "-ml-6", "flex min-w-0 items-baseline gap-2")}>
+        {step.number !== null && (
+          <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums" data-testid="review-contents-step-number">
+            {step.number}
+          </span>
+        )}
         <button
           type="button"
           className={cn("min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:bd-focus disabled:no-underline", step.code && "font-mono")}
