@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
-import { THEME_ITEM, commitTwoTasks, expectHeadingCard, openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { THEME_ITEM, commitTwoTasks, cutTreeTitles, expectHeadingCard, openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 
@@ -686,6 +686,43 @@ test.describe("Review tour", () => {
     await expect(window.locator("[data-story-block][data-highlight]")).toHaveText("Frame.paint asks Manager.passes for its count.")
   })
 
+  test("should show every step and commit title of the tree whole at the default width, its files one line each", async ({ page, setupRepo, syncAndWaitForBranches }, testInfo) => {
+    const repo = await setupRepo("review_long_titles")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "long")
+    const { tree } = reviewSidebar(window)
+    const longTitle = tree.locator("[data-group=concern]").first()
+    await window.setViewportSize({ width: 1440, height: 900 })
+
+    await expect(longTitle).toHaveText("fix(review): explain how the review opening prepares readers for careful review of changed source files")
+    const longTitleLines = await longTitle.evaluate(element => {
+      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight)
+      return element.getBoundingClientRect().height / lineHeight
+    })
+    expect(longTitleLines).toBeGreaterThanOrEqual(3)
+
+    const followUpTitle = tree.getByTestId("review-commit-subject").filter({ hasText: "clarify which review chapter owns the updated file content" })
+    await expect(followUpTitle).toHaveText("fix(review): clarify which review chapter owns the updated file content after a later refinement was reviewed")
+
+    const fileTitle = tree.getByText("Plan.kt", { exact: true })
+    const fileTitleLines = await fileTitle.evaluate(element => {
+      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight)
+      return element.getBoundingClientRect().height / lineHeight
+    })
+    expect(fileTitleLines).toBeCloseTo(1, 0)
+    const longStep = tree.getByRole("treeitem", { name: /^1 · fix\(review\): explain/ })
+    await captureHtmlSnapshot(longStep, "review-tree-long-title")
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1024, height: 768 },
+    ]) {
+      await window.setViewportSize(viewport)
+      await expect.poll(() => cutTreeTitles(tree)).toBe(0)
+      await testInfo.attach(`review-tree-long-title-${viewport.width}`, { body: await window.screenshot(), contentType: "image/png" })
+    }
+  })
+
   test("should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New", async ({
     page,
     setupRepo,
@@ -721,17 +758,13 @@ test.describe("Review tour", () => {
     })
     expect(titleRoom.sameLine).toBe(true)
     expect(titleRoom.gap).toBeLessThan(12)
-    // no title of a step or a commit is cut by the width: a title wraps to a second line, at 1440 and at 1024
-    const cutTitles = () =>
-      tree
-        .locator("[data-group=concern], [data-testid=review-commit-subject]")
-        .evaluateAll(titles => titles.filter(title => title.scrollWidth > title.clientWidth + 1 || title.scrollHeight > title.clientHeight + 1).length)
+    // no title of a step or a commit is cut by the width: a title wraps as many lines as needed at 1440 and 1024
     await window.setViewportSize({ width: 1440, height: 900 })
-    await expect.poll(cutTitles).toBe(0)
+    await expect.poll(() => cutTreeTitles(tree)).toBe(0)
     // a narrow window: the directory after the name of a file shows whole or not at all, never cut to its last letters
     const wide = window.viewportSize()!
     await window.setViewportSize({ width: 1024, height: 768 })
-    await expect.poll(cutTitles).toBe(0)
+    await expect.poll(() => cutTreeTitles(tree)).toBe(0)
     const cut = () =>
       tree.getByTestId("file-label-directory").evaluateAll(
         directories =>

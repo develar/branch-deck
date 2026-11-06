@@ -27,6 +27,30 @@ export function reviewSidebar(window: Page) {
   }
 }
 
+/** The titles of a step or commit in the tree that are cut by their row or their own box */
+export function cutTreeTitles(tree: Locator): Promise<number> {
+  return tree.locator("[data-group=concern], [data-testid=review-commit-subject]").evaluateAll(
+    titles =>
+      titles.filter(title => {
+        const row = title.closest('[role="treeitem"]')
+        if (row === null) {
+          return true
+        }
+        const clamp = getComputedStyle(title).getPropertyValue("-webkit-line-clamp")
+        const titleRect = title.getBoundingClientRect()
+        const rowRect = row.getBoundingClientRect()
+        return (
+          (clamp !== "none" && title.scrollHeight > title.clientHeight) ||
+          title.scrollWidth > title.clientWidth ||
+          titleRect.top < rowRect.top - 1 ||
+          titleRect.right > rowRect.right + 1 ||
+          titleRect.bottom > rowRect.bottom + 1 ||
+          titleRect.left < rowRect.left - 1
+        )
+      }).length,
+  )
+}
+
 /** The paths of the diffs the review shows of its files, in their order: no use left outside */
 export async function reviewedPaths(page: Page): Promise<string[]> {
   return page

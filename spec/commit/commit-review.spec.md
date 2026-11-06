@@ -162,8 +162,8 @@ where a dialog would cover it.
   files", or what the surface puts there: the owner chips of a branch review); then the tree of the Files section, in
   the order of the tree, a file row selecting the file. The selection follows the focus.
 - The sidebar must be resizable (24rem at first, what the names of a tree need, not a share of the window: a title of
-  a step of a story up to about 40 characters fits one line, a longer one wraps to two; never
-  narrower than 16rem, at most 50%) and keep its width (`review-sidebar`, one width for every review). F and the
+  a step, task or commit in the tree wraps as many lines as needed; a file row stays one line; never narrower than 16rem,
+  at most 50%) and keep its width (`review-sidebar`, one width for every review). F and the
   sidebar button of the title bar must hide and show it, so the diffs take the whole window; the footer names F, and
   the choice is kept for every review and never changes by itself.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept`)

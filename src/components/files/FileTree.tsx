@@ -495,7 +495,7 @@ const FileTreeRow = memo(function FileTreeRow({
         render={
           <div
             className={cn(
-              // a title of a step or a commit wraps to a second line: the row grows, its chevron, icon and end stay on the first
+              // a title of a step or a commit wraps as needed: the row grows, its chevron, icon and end stay on the first
               "group/row relative flex min-h-6 cursor-default items-start gap-1.5 rounded-md py-0.5 pr-1 text-sm transition-colors select-none bd-focus-inset group-focus-visible/tree-item:bd-focus hover:bg-muted",
               isSelected && "bg-primary/15 hover:bg-primary/15",
               // its parts fade, not the row: the selection and the hover keep their colour
@@ -630,7 +630,7 @@ function CommitRowContent({ node, card }: { node: FileTreeCommit; card: Componen
     <>
       <GitCommitHorizontalIcon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
       <span className="flex min-w-0 flex-1 flex-col">
-        <CommitRow subject={node.commit.subject} title={node.name} hash={node.commit.id} facts={factsOf(node)} card={card} subjectTestId="review-commit-subject" />
+        <CommitRow subject={node.commit.subject} title={node.name} hash={node.commit.id} facts={factsOf(node)} card={card} wholeSubject subjectTestId="review-commit-subject" />
       </span>
     </>
   )
@@ -676,8 +676,8 @@ function DirectoryRowContent({
       <span
         className={cn(
           "min-w-0 flex-1",
-          // the title of a step or a task wraps to a second line, never cut at the width of the sidebar; a path is cut
-          node.group === "concern" ? "line-clamp-2 font-medium [overflow-wrap:anywhere]" : "truncate",
+          // the title of a step or a task wraps as many lines as needed; a path is cut
+          node.group === "concern" ? "font-medium [overflow-wrap:anywhere]" : "truncate",
           // a code name at the size of the row: JetBrains Mono has the x-height of Inter (docs/design/ui-theme.md)
           node.code === true && "font-mono",
         )}

@@ -26,6 +26,7 @@ targets:
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/review/RangeReview.tsx
   - ../../src/components/files/FileTree.tsx
+  - ../../src/components/commit/CommitRow.tsx
   - ../../src/lib/file-tree.ts
   - ../../src/lib/range-review.ts
   - ../../src/presenters/review-units.ts
@@ -464,9 +465,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   column: the commits after it are those of Since Your Review), its branch (of the whole stack, and of a part of
   several branches, which the column heads by branch); the row of a step and a commit row their subject whole and
   their hash in their card (a commit without a body in the native hover of its title), never a box on the row that
-  takes the width of the title; a title of a step,
-  of a task or of a commit wraps to a second line (its chevron, icon, mark and line counts on its first line), cut
-  only past two at the width of the sidebar (24rem at first); a row of a file whose own row is in another step says
+  takes the width of the title; a title of a step, a task or a commit wraps as many lines as needed at the width of the
+  sidebar (24rem at first), its chevron, icon, mark and line counts on its first line; a file row stays one line. A row
+  of a file whose own row is in another step says
   where after its name ("in step 2", a task of no number by its name, cut at half the row), its hover in words; either, of a
   commit with a body, the mark of its card, which its hover and `I` on the focused row open as in the main window
   ([Commit Row](../commit/commit-row.spec.md#commit-card)), Escape giving the focus back to the row; a commit row is
@@ -474,6 +475,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   then lists only the scopes; without the plan, for a range of one commit and for a commit shown alone the column
   lists every commit as before.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should show every step and commit title of the tree whole at the default width, its files one line each`)
   [@test] ../../src/lib/file-tree.test.ts (`names the step of the own row of a file shown in another step after its name`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`, `should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)

@@ -8,7 +8,7 @@ import { CommitSubject } from "@/components/commit/CommitSubject"
 /**
  * Where a header shows its commit:
  * - `compact`: a row of a sidebar (`CommitRow`: the commit column of a review, the commits of a pull request, a commit
- *   row of the tree of a review), the subject clamped to two lines, no meta line;
+ *   row of the tree of a review), the subject clamped to two lines except in the tree, no meta line;
  * - `row`: a row of a list, the subject in `text-sm` clamped to two lines, the line counts muted;
  * - `card`: the card of a row's mark, the subject whole in `text-sm font-medium`;
  * - `heading`: a commit above what follows it (a commit of the preview of a branch), the subject whole in
@@ -24,6 +24,8 @@ export type CommitHeaderVariant = "compact" | "row" | "card" | "heading" | "docu
 export interface CommitHeaderProps extends Omit<CommitMetadataProps, "coloredLineCounts"> {
   subject: string
   variant?: CommitHeaderVariant
+  /** Whether to clamp a row or compact subject to two lines; defaults to whether its variant is a row or compact */
+  clampSubject?: boolean
   /** Rendered before the subject on its line (the marker of a fixup) */
   subjectPrefix?: ReactNode
   /** Rendered after the subject on its line (the mark of its card, an exception badge, a review button) */
@@ -47,12 +49,12 @@ const SUBJECT_CLASS: Record<Exclude<CommitHeaderVariant, "row" | "compact">, str
  * The subject line over the meta line: the one header of a commit wherever one is shown (rows, the card of a row, the
  * previews, the review), in the size of its place (`CommitHeaderVariant`); a compact one its subject line alone
  */
-export function CommitHeader({ subject, variant = "row", subjectPrefix, subjectAddon, subjectProps, menu, actions, ...metadata }: CommitHeaderProps) {
+export function CommitHeader({ subject, variant = "row", clampSubject, subjectPrefix, subjectAddon, subjectProps, menu, actions, ...metadata }: CommitHeaderProps) {
   const isRow = variant === "row" || variant === "compact"
   const subjectElement = (
     <CommitSubject
       subject={subject}
-      clamp={isRow}
+      clamp={clampSubject ?? isRow}
       className={variant === "compact" ? "min-w-0 flex-1 [overflow-wrap:anywhere]" : isRow ? undefined : SUBJECT_CLASS[variant]}
       {...subjectProps}
     />
