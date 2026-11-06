@@ -109,6 +109,10 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - A rebase, merge, cherry-pick or revert in progress must be `operation_in_progress` (exit 4) for the update and its
   dry run, moving neither the branch nor the files.
   [@test] ../../crates/bd-update/src/update_test.rs (`update_and_its_dry_run_are_refused_during_a_cherry_pick`)
+- A checked out branch under the prefix (a virtual, unapplied, archived or stack branch) must be `managed_branch`
+  (exit 4), before the fetch, moving neither the branch nor the tracking ref: the update would rebase a copy of one
+  group instead of the user's branch.
+  [@test] ../../crates/update-core/src/update_project_test.rs (`an_update_of_a_branch_under_the_prefix_is_refused_before_the_fetch`)
 - A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
   the undo.
   [@test] ../../crates/bd-update/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`, `a_switch_during_the_move_fails_on_the_head_lock`)

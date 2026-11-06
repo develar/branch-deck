@@ -162,7 +162,7 @@ export const commands = {
 	/**
 	 *  Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
 	 *  the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
-	 *  `ApiError` (`operation_in_progress`, `detached_head`)
+	 *  `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`)
 	 */
 	sync: (params: SyncParams) => typedError<SyncAnswer, ApiError>(__TAURI_INVOKE("sync", { params })),
 	/**
@@ -2433,6 +2433,12 @@ export type ErrorCode =
 "operation_in_progress" | 
 /**  HEAD is detached */
 "detached_head" | 
+/**
+ *  The checked out branch is one Branch Deck writes, under the branch prefix (`{prefix}/virtual/…`, `archived`,
+ *  `unapplied`, `stack`): a sync and an update would group and rebase its history, not the user's branch. Nothing was
+ *  changed; check out the baseline's branch (ask the user)
+ */
+"managed_branch" | 
 /**
  *  `brd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
  *  commit, another rewrite, a switch. The token can never succeed again
@@ -8667,8 +8673,9 @@ export type SyncState = { kind: "idle" } | { kind: "running"; step: SyncStep } |
 { kind: "failed"; error: ApiError } | 
 /**
  *  Git refused the last sync before it built anything: a rebase, merge, cherry-pick or revert in progress
- *  (`operation_in_progress`), or a detached HEAD (`detached_head`). Nothing failed; the table is the one of the sync
- *  before, and the next sync starts once git finished (a focus sees the change)
+ *  (`operation_in_progress`), a detached HEAD (`detached_head`), or a checked out branch under the prefix
+ *  (`managed_branch`). Nothing failed; the table is the one of the sync before, and the next sync starts once git
+ *  finished or the user checked out their branch (a focus sees the change)
  */
 { kind: "deferred"; error: ApiError };
 

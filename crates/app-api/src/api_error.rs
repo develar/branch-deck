@@ -354,6 +354,7 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
     ("internal", anyhow!("git cat-file exited with 128").context("Cannot read the commits ahead of the baseline")),
     ("operation_in_progress", SyncDeferred::OperationInProgress("a rebase").into()),
     ("detached_head", SyncDeferred::DetachedHead.into()),
+    ("managed_branch", SyncDeferred::ManagedBranch("jane/virtual/auth".to_string()).into()),
     ("no_baseline", NoBaseline::NoCommits.into()),
     (
       "head_moved",

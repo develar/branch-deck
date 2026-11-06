@@ -6,14 +6,15 @@ use crate::update_project::{
   FetchFailed, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateUndoToken, undo_update_core, update_project_core, update_project_with,
 };
 use domain_types::SyncEvent;
+use domain_types::error::ErrorCode;
 use domain_types::update_project::{FirstConflict, UpdateCommit, UpdateKind, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::HeadMoved;
-use git_ops::update_branch::UndoBlocked;
 use git_ops::update_branch::{
   BranchSwitched, CheckPurpose, HeadAttached, LandedLookup, NotAnUpdate, PENDING_UPDATE_PREFIX, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, blocked_state,
   check_update, check_update_undo,
 };
+use git_ops::update_branch::{GuardRefusal, UndoBlocked};
 use git_ops::word_resolve::ResolveMode;
 #[cfg(unix)]
 use history_rewrite::regroup::{RegroupOptions, rename_branch_core};
@@ -525,6 +526,30 @@ async fn sync_reports_the_baseline_status() -> anyhow::Result<()> {
     "{state:?}"
   );
   Ok(())
+}
+
+/// A virtual branch checked out by hand (`git switch test/virtual/auth`): Update Project refuses it before the fetch,
+/// typed, and moves nothing, neither the branch nor the tracking ref of the baseline
+#[test]
+fn an_update_of_a_branch_under_the_prefix_is_refused_before_the_fetch() {
+  let Setup { upstream, clone } = setup();
+  append_config(clone.path(), &[("branchdeck.branchPrefix", "test")]);
+  let tip = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  git(&clone, &["branch", "test/virtual/auth", &tip]);
+  git(&clone, &["symbolic-ref", "HEAD", "refs/heads/test/virtual/auth"]);
+  let tracking = git(&clone, &["rev-parse", "refs/remotes/origin/master"]);
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+
+  let error = update(&clone).unwrap_err();
+  assert_eq!(
+    error.downcast_ref::<GuardRefusal>(),
+    Some(&GuardRefusal::ManagedBranch("test/virtual/auth".to_string())),
+    "{error:#}"
+  );
+  assert_eq!(error.downcast_ref::<GuardRefusal>().map(GuardRefusal::code), Some(ErrorCode::ManagedBranch));
+  assert_eq!(git(&clone, &["rev-parse", "refs/heads/test/virtual/auth"]).trim(), tip);
+  assert_eq!(git(&clone, &["symbolic-ref", "HEAD"]).trim(), "refs/heads/test/virtual/auth");
+  assert_eq!(git(&clone, &["rev-parse", "refs/remotes/origin/master"]), tracking, "nothing fetched");
 }
 
 #[tokio::test(flavor = "multi_thread")]

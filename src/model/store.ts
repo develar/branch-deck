@@ -1202,13 +1202,13 @@ async function settle(
 }
 
 /**
- * A request of `target` the session refused. A deferred sync (a rebase in progress, a detached HEAD) is no failure: the
- * user's own (`manual`) says so in an `info` toast, any other waits; the view says why it waits (`deferred`), which the
- * page shows where it has no table. Nor is a sync of a session whose prefix the git config no longer names
- * (`prefix_changed`: a `git config` in a terminal): the run read the prefix again, and the window subscribes again
- * (`resubscribeSession`), so the session of the new prefix answers, which syncs as it opens for a repository synced
- * before. Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is asked again once
- * the window holds that session: it serves it
+ * A request of `target` the session refused. A deferred sync (a rebase in progress, a detached HEAD, a checked out branch
+ * under the prefix) is no failure: the user's own (`manual`) says so in an `info` toast, any other waits; the view says
+ * why it waits (`deferred`), which the page shows where it has no table. Nor is a sync of a session whose prefix the git
+ * config no longer names (`prefix_changed`: a `git config` in a terminal): the run read the prefix again, and the window
+ * subscribes again (`resubscribeSession`), so the session of the new prefix answers, which syncs as it opens for a
+ * repository synced before. Nothing syncs a repository never synced then, so the user's own sync of it (`askAgain`) is
+ * asked again once the window holds that session: it serves it
  */
 async function refused(target: Session, reason: SyncReason, error: ApiError, askAgain: (() => Promise<SyncAnswer | null>) | null): Promise<SyncAnswer | null> {
   const { code, message } = error
@@ -1227,7 +1227,7 @@ async function refused(target: Session, reason: SyncReason, error: ApiError, ask
     const asksAgain = held?.repositoryPath === repositoryPath && held.failure === null && getRepositoryState(repositoryPath)?.lastSyncTime === undefined
     return asksAgain ? askAgain() : null
   }
-  if (code === "operation_in_progress" || code === "detached_head") {
+  if (code === "operation_in_progress" || code === "detached_head" || code === "managed_branch") {
     if (reason === "manual") {
       showToast({ type: "info", ...describeSyncDeferral(error) })
     }

@@ -85,7 +85,7 @@ fn paths() -> Vec<String> {
 /// A move of HEAD the files follow: an update, a pick, the finish of a resolve session, an unapply, a reapply
 fn move_cases() -> Vec<ErrorCase> {
   use CaseOf::Move;
-  use ErrorCode::{DetachedHead, FinishPending, HeadMoved, InvalidArguments, Locked, NetworkError, NoBaseline, OperationInProgress, UncommittedOverlap, UndoStale};
+  use ErrorCode::{DetachedHead, FinishPending, HeadMoved, InvalidArguments, Locked, ManagedBranch, NetworkError, NoBaseline, OperationInProgress, UncommittedOverlap, UndoStale};
   vec![
     case("head_moved", Move, || head_moved().into(), HeadMoved, Some(UndoStale)),
     case(
@@ -122,6 +122,13 @@ fn move_cases() -> Vec<ErrorCase> {
       || GuardRefusal::DetachedHead("HEAD is detached".to_string()).into(),
       DetachedHead,
       Some(DetachedHead),
+    ),
+    case(
+      "managed_branch",
+      Move,
+      || GuardRefusal::ManagedBranch("jane/virtual/auth".to_string()).into(),
+      ManagedBranch,
+      Some(ManagedBranch),
     ),
     case(
       "ref_locked",

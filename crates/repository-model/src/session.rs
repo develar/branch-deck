@@ -164,7 +164,8 @@ pub trait SessionHost: Send + Sync + 'static {
   fn inputs(&self, key: &SessionKey) -> Option<SyncInputs>;
 
   /// One sync of the session; its events go to `reporter`, the session's mailbox. A deferred sync (a rebase in
-  /// progress, a detached HEAD) answers its `ApiError` code (`operation_in_progress`, `detached_head`)
+  /// progress, a detached HEAD, a branch under the prefix) answers its `ApiError` code (`operation_in_progress`,
+  /// `detached_head`, `managed_branch`)
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun;
 
   /// Whether a window of `key` that gains focus syncs (the app's `autoSyncOnFocus`)

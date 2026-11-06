@@ -1218,7 +1218,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 
 | Step | Command | On failure |
 |---|---|---|
-| 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD` | error: an operation in progress, a detached HEAD |
+| 0. Guards | `rev-parse --git-path` for the operation markers, `symbolic-ref HEAD`; for a branch with a `/`, `config --get branchdeck.branchPrefix` | error: an operation in progress, a detached HEAD, a branch under the prefix (`managed_branch`: a virtual branch checked out by hand would be rebased instead of the user's) |
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `brd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: its operation fetched first as the `FetchBaseline` of its session, the same fetch); under the fetch lock, none when another fetch of the tracking ref ran meanwhile ("Fetch lock" below) | error (`FetchFailed`), nothing changed |
 | 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `WaitingForLock` of the app's operation (`brd`: the phase `waiting`) | `locked` after 10 s (the app: only a holder no record names), nothing changed |
@@ -2602,9 +2602,12 @@ A sync reads the directories of the repository once (`with_dirs_of`: one `rev-pa
 read them), then the guards of a rewrite without the merge check (`check_sync_guards`: the operation markers in the
 git directory it read and one `symbolic-ref HEAD`): while git is in the middle of a rebase, merge, cherry-pick or
 revert, or HEAD is detached, the history of HEAD is not the branch the user works on, and a sync would archive the
-virtual branches of the groups the half-done history lacks. It is refused before any event as `SyncDeferred`: the app
-names it by the code of its `ApiError` (`operation_in_progress`, `detached_head`, `SyncDeferred::code`) and shows an `info` toast for a sync the user
-asked for, nothing for one it started itself; `brd sync` answers `operation_in_progress` or `detached_head` (exit 4).
+virtual branches of the groups the half-done history lacks. So is a checked out branch under the prefix (a virtual,
+unapplied, archived or stack branch, `managed_branch_kind`): its history holds the commits of one group, and a sync
+from it would archive every other branch. It is refused before any event as `SyncDeferred`: the app names it by the
+code of its `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`, `SyncDeferred::code`) and shows an
+`info` toast for a sync the user asked for, nothing for one it started itself; `brd sync` answers the same codes
+(exit 4).
 
 **What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
 needs it: `remote -v` (the remotes in the order of `git remote`, each with its first push URL, `pushInsteadOf`

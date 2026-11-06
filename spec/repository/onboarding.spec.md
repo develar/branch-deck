@@ -341,6 +341,14 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in the body that a sync waits for git while there is no table, and syncs once git finished`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_failed_sync_keeps_the_table`)
+- A sync while a branch under the prefix is checked out (`git switch jane/virtual/auth` by hand: a virtual, unapplied,
+  archived or stack branch) is refused the same way, before any event, and moves no ref under the prefix
+  (`managed_branch`): its history holds the commits of one group, and the sync would archive every other branch. The
+  toast of a sync the user asked for and the alert say "Not synced: jane/virtual/auth is a branch Branch Deck manages" /
+  "Check out your main branch to sync its commits"; checking out the baseline's branch syncs again as before.
+  [@test] ../../crates/sync-core/src/sync_test.rs (`sync_waits_while_a_branch_under_the_prefix_is_checked_out`)
+  [@test] ../../crates/domain-types/src/branch_names_test.rs (`a_branch_under_a_namespace_of_the_prefix_is_managed_and_any_other_is_not`)
+  [@test] ../../src/model/store.test.ts (`is no failure on a checked out branch under the prefix: an info toast that names the branch and says to check out the main branch`)
 - A switch to another repository forgets the branches of the previous one at once, also while its sync runs: the
   window ends its subscription to the session of that repository and subscribes to the session of the next, so a late
   patch of the old one never shows under the name of another repository, and Sync of the next is not busy for it.

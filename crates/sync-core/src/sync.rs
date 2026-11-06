@@ -20,7 +20,7 @@ use branch_integration::common::ListedBranch;
 use branch_integration::detection_notes::STACK_NOTES_REF;
 use branch_integration::detector::{archive_and_clean_up_listed, detect_archived_branches};
 use branch_integration::strategy::DetectionStrategy;
-use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
+use domain_types::branch_names::{BranchKind, managed_branch_kind, strip_branch_namespace, to_final_branch_name};
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
 use domain_types::issue_navigation::IssueNavigationConfig;
@@ -345,14 +345,18 @@ struct RemoteTips {
 }
 
 /// A sync waits while HEAD is not the branch the user works on: git in the middle of a rebase, merge, cherry-pick or
-/// revert, or a detached HEAD. The history of HEAD then lacks the commits of groups, and the sync would archive their
-/// virtual branches (docs/design/git-operations.md, "Guards"). Nothing is changed.
+/// revert, a detached HEAD, or a checked out branch that Branch Deck writes itself (under the prefix: a virtual, an
+/// archived, an unapplied or a stack branch). The history of HEAD then lacks the commits of groups, and the sync would
+/// archive their virtual branches (docs/design/git-operations.md, "Guards"). Nothing is changed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SyncDeferred {
   #[error("Not synced: {0} is in progress")]
   OperationInProgress(&'static str),
   #[error("Not synced: HEAD is detached")]
   DetachedHead,
+  /// The checked out branch, by its full name
+  #[error("Not synced: {0} is a branch Branch Deck manages")]
+  ManagedBranch(String),
 }
 
 impl SyncDeferred {
@@ -361,18 +365,20 @@ impl SyncDeferred {
     match self {
       Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
       Self::DetachedHead => ErrorCode::DetachedHead,
+      Self::ManagedBranch(_) => ErrorCode::ManagedBranch,
     }
   }
 }
 
-/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on; returns the branch. One
-/// `symbolic-ref`, and a `rev-parse` when the operation knows no directories (`with_dirs_of`)
-pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<String> {
-  check_sync_guards_on(git_executor, repository_path, None)
+/// Refuses a sync with `SyncDeferred` while HEAD is not on a branch the user works on, a branch under `branch_prefix`
+/// included; returns the branch. One `symbolic-ref`, and a `rev-parse` when the operation knows no directories
+/// (`with_dirs_of`)
+pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<String> {
+  check_sync_guards_on(git_executor, repository_path, branch_prefix, None)
 }
 
 /// `check_sync_guards` with HEAD's branch of the facts the caller read (`known`): no `symbolic-ref` then
-fn check_sync_guards_on(git_executor: &GitCommandExecutor, repository_path: &str, known: Option<&CommandFacts>) -> Result<String> {
+fn check_sync_guards_on(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, known: Option<&CommandFacts>) -> Result<String> {
   if let Some(operation) = find_operation_in_progress(git_executor, repository_path)? {
     return Err(SyncDeferred::OperationInProgress(operation).into());
   }
@@ -381,7 +387,11 @@ fn check_sync_guards_on(git_executor: &GitCommandExecutor, repository_path: &str
   } else {
     current_branch(git_executor, repository_path)?
   };
-  branch.ok_or_else(|| SyncDeferred::DetachedHead.into())
+  let branch = branch.ok_or(SyncDeferred::DetachedHead)?;
+  if managed_branch_kind(&branch, branch_prefix).is_some() {
+    return Err(SyncDeferred::ManagedBranch(branch).into());
+  }
+  Ok(branch)
 }
 
 /// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
@@ -407,7 +417,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // landed state in them
   let git_executor = &with_dirs_of(git_executor, repository_path)?;
   // before any event: a deferred sync reports nothing
-  let current_branch = check_sync_guards_on(git_executor, repository_path, command_facts.as_ref())?;
+  let current_branch = check_sync_guards_on(git_executor, repository_path, branch_prefix, command_facts.as_ref())?;
   let known_remotes = command_facts.map(|facts| facts.remotes);
   // Use cached issue config if available (including a cached "none"), otherwise load it
   let issue_config = match issue_config {

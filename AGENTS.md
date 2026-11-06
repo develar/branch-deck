@@ -193,10 +193,9 @@ How agents commit to this repository; "Git Operations" below is about the git th
 - Once per clone: `git config core.hooksPath .githooks && git config merge.ff only && git config rerere.enabled false`.
 
 ### Git Operations
-Hard rules of the git the app and `brd` run. Each rule in full, with its exceptions and its test, is the section of the
-same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reasons are
-[Git Operations](docs/design/git-operations.md).
-- **Git 2.54+** (`MIN_VERSION`, `crates/git-executor/src/git_info.rs`).
+Hard rules of the git the app and `brd` run. Each rule in full, with its exceptions and test, is its section in
+[Git Rules](docs/contributing/git-rules.md); the flows and reasons are [Git Operations](docs/design/git-operations.md).
+- **Git 2.54+** (`MIN_VERSION` of `git_info.rs`).
 - **Executor**: all git runs through `GitCommandExecutor` (`git.cmd(&args, repo)` and one finisher); a rev or ref fact
   is a git-ops function; test fixtures run `test_utils::git_test_utils::git_command()`.
 - **Scan tests** (`git_usage_scan_test.rs`): no `--no-pager`, no `credential.helper=`; `update-ref` only in
@@ -221,7 +220,8 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
 - **Operations registry**: only `operations::registry_file` touches `operations.json` and `operations.lock`, only
   `operations::journal` the journal; a start whose answer was lost is `Unknown`, never sent again.
 - **Guards** (`History::check_rewrite`): no rebase/merge/cherry-pick in progress, HEAD not detached (but `brd reword`
-  in a lease and an undo), no merges in the range; a sync under the first two is `SyncDeferred`.
+  in a lease, an undo), no merges in range; a sync under the first two is `SyncDeferred`, a sync or update on
+  `{prefix}/…` `managed_branch`.
 - **Metadata**: rewrites keep authors (and message-only committers); strip old signatures, sign branch rewrites per
   `commit.gpgsign`.
 - **Batch**: one process per phase, never per item; never parse translated text (exit codes, `--porcelain`, `-z`).

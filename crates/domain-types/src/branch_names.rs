@@ -73,6 +73,14 @@ pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str
     .strip_prefix('/')
 }
 
+/// The kind of a branch Branch Deck writes under `branch_prefix`, by its full name (without `refs/heads/`):
+/// `jane/virtual/auth` is `Virtual`, `jane/archived/2026-10-01/auth` `Archived`; `None` for any other branch
+pub fn managed_branch_kind(full_branch_name: &str, branch_prefix: &str) -> Option<BranchKind> {
+  [BranchKind::Virtual, BranchKind::Unapplied, BranchKind::Archived, BranchKind::Stack]
+    .into_iter()
+    .find(|&kind| strip_branch_namespace(full_branch_name, branch_prefix, kind).is_some_and(|name| !name.is_empty()))
+}
+
 /// The branch a kept branch was, by its full name: `docs` of `jane/unapplied/docs` and of `jane/archived/2026-10-01/docs`
 /// (the date of the archive comes first); `None` outside the kept namespaces of the prefix
 pub fn kept_branch_name<'a>(full_branch_name: &'a str, branch_prefix: &str) -> Option<&'a str> {

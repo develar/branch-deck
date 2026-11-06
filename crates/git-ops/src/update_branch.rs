@@ -1369,6 +1369,10 @@ pub enum GuardRefusal {
   /// HEAD is detached
   #[error("{0}")]
   DetachedHead(String),
+  /// The checked out branch, by its full name, is one Branch Deck writes under the branch prefix (a virtual, an archived,
+  /// an unapplied or a stack branch): an update would rebase a copy, not the user's branch
+  #[error("Not updated: {0} is a branch Branch Deck manages; check out the baseline's branch")]
+  ManagedBranch(String),
 }
 
 impl GuardRefusal {
@@ -1377,6 +1381,7 @@ impl GuardRefusal {
     match self {
       Self::OperationInProgress(_) => ErrorCode::OperationInProgress,
       Self::DetachedHead(_) => ErrorCode::DetachedHead,
+      Self::ManagedBranch(_) => ErrorCode::ManagedBranch,
     }
   }
 }

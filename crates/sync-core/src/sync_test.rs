@@ -1,5 +1,6 @@
 use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branches};
 use domain_types::commit::Commit;
+use domain_types::error::ErrorCode;
 use domain_types::stack::BlockReason;
 use domain_types::{BranchSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -792,6 +793,44 @@ async fn sync_waits_while_a_rebase_is_in_progress_or_head_is_detached() -> anyho
   assert_eq!(error.downcast_ref::<SyncDeferred>(), Some(&SyncDeferred::DetachedHead));
   // the virtual branch of the commit HEAD left behind is still there, not archived
   assert!(test_repo.branch_exists("test/virtual/feature-cache"));
+  Ok(())
+}
+
+/// A virtual branch checked out by hand (`git switch user/virtual/x`) has only the commits of its group: a sync from it
+/// would archive every other virtual branch. It is refused, typed, before it reports or moves any ref under the prefix
+#[tokio::test]
+async fn sync_waits_while_a_branch_under_the_prefix_is_checked_out() -> anyhow::Result<()> {
+  let test_repo = repo_with_initial_commit();
+  let git_executor = GitCommandExecutor::new();
+  let repo = test_repo.path().to_str().unwrap();
+  test_repo.commits_on(
+    "refs/heads/master",
+    &one_file_each([
+      ("(feature-auth) Add authentication", "auth/auth.txt", "auth content"),
+      ("(feature-cache) Add caching", "cache/cache.txt", "cache content"),
+    ]),
+  );
+  sync_events(&git_executor, &test_repo).await?;
+  let refs_under_prefix = || git_executor.execute_command(&["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/test/"], repo);
+  let before = refs_under_prefix()?;
+  assert!(before.contains("refs/heads/test/virtual/feature-auth"), "{before}");
+
+  git_executor.execute_command(&["symbolic-ref", "HEAD", "refs/heads/test/virtual/feature-cache"], repo)?;
+  let progress = TestReporter::new();
+  let error = sync_branches(&git_executor, repo, "test", progress.clone(), SyncOptions::default()).await.unwrap_err();
+  assert_eq!(
+    error.downcast_ref::<SyncDeferred>(),
+    Some(&SyncDeferred::ManagedBranch("test/virtual/feature-cache".to_string()))
+  );
+  assert_eq!(error.downcast_ref::<SyncDeferred>().map(SyncDeferred::code), Some(ErrorCode::ManagedBranch));
+  assert_eq!(error.to_string(), "Not synced: test/virtual/feature-cache is a branch Branch Deck manages");
+  assert!(progress.get_events().is_empty(), "nothing is reported");
+  assert_eq!(refs_under_prefix()?, before, "no virtual branch is archived or rebuilt");
+
+  // back on master, the sync runs and groups the same commits
+  git_executor.execute_command(&["symbolic-ref", "HEAD", "refs/heads/master"], repo)?;
+  sync_events(&git_executor, &test_repo).await?;
+  assert_eq!(refs_under_prefix()?, before);
   Ok(())
 }
 

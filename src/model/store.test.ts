@@ -541,6 +541,25 @@ describe("a sync of the session", () => {
     expect(branchSyncStore.getState().syncDeferred).toEqual({ title: "Not synced: HEAD is detached", description: "Check out a branch to sync its commits" })
   })
 
+  it("is no failure on a checked out branch under the prefix: an info toast that names the branch and says to check out the main branch", async () => {
+    await open()
+    await send(grouping("a"))
+    const managed = { ...internalError("Not synced: jane/virtual/a is a branch Branch Deck manages"), code: "managed_branch" } as const
+    const words = { title: "Not synced: jane/virtual/a is a branch Branch Deck manages", description: "Check out your main branch to sync its commits" }
+    const quiet = requestSessionSync("focus")
+    ;(await nextSync(1)).fail(managed)
+    expect(await quiet).toBeNull()
+    expect(toasts).toEqual([])
+    const manual = requestSessionSync("manual")
+    ;(await nextSync(2)).fail(managed)
+    await manual
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, branchOrder: ["a"], isSyncing: false })
+    expect(toasts).toEqual([{ type: "info", ...words }])
+
+    await send({ sync: { kind: "deferred", error: managed } })
+    expect(branchSyncStore.getState()).toMatchObject({ syncError: null, syncDeferred: words })
+  })
+
   it("names the step of the running sync, and none once it ended", async () => {
     await open()
     expect(branchSyncStore.getState().syncStep).toBeNull()

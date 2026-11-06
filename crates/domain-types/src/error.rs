@@ -100,6 +100,10 @@ pub enum ErrorCode {
   OperationInProgress,
   /// HEAD is detached
   DetachedHead,
+  /// The checked out branch is one Branch Deck writes, under the branch prefix (`{prefix}/virtual/…`, `archived`,
+  /// `unapplied`, `stack`): a sync and an update would group and rebase its history, not the user's branch. Nothing was
+  /// changed; check out the baseline's branch (ask the user)
+  ManagedBranch,
   /// `brd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
   /// commit, another rewrite, a switch. The token can never succeed again
   UndoStale,
@@ -355,6 +359,7 @@ impl ErrorCode {
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
+      | Self::ManagedBranch
       | Self::UndoStale
       | Self::LeaseRejected
       | Self::StackConflict

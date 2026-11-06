@@ -8,6 +8,13 @@
   },
   "operation_in_progress": { "code": "operation_in_progress", "message": "Not synced: a rebase is in progress", "details": null, "retry": "no", "operation_id": null },
   "detached_head": { "code": "detached_head", "message": "Not synced: HEAD is detached", "details": null, "retry": "no", "operation_id": null },
+  "managed_branch": {
+    "code": "managed_branch",
+    "message": "Not synced: jane/virtual/auth is a branch Branch Deck manages",
+    "details": null,
+    "retry": "no",
+    "operation_id": null
+  },
   "no_baseline": {
     "code": "no_baseline",
     "message": "The repository has no commits yet: commit to the main branch, then sync",

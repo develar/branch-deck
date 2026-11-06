@@ -5,6 +5,7 @@
 use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{DroppedCommit, SessionOutcome, ViewDetail, own_session, start_resolve, view_session, with_empty_drops, with_subjects};
 use anyhow::{Result, anyhow, bail};
+use domain_types::branch_names::managed_branch_kind;
 use domain_types::landed::LandedBranch;
 use domain_types::update_project::{UpdateCheck, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -12,8 +13,8 @@ use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::landed_pairing::{LandedDrop, LandedReads};
 use git_ops::revs::{Worktree, current_worktree, is_object_id, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
-  LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update_before_lock_with_signing, check_update_guards_on, check_update_undo,
-  finish_pending_update, pending_update, recheck_update,
+  GuardRefusal, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update_before_lock_with_signing, check_update_guards_on,
+  check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
 use git_ops::update_resolve::{PreparedStart, prepare_session_start};
 use git_ops::word_resolve::ResolveMode;
@@ -22,6 +23,7 @@ use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, lock_c
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
+use sync_core::branch_prefix::get_branch_prefix_from_git_config_sync;
 use sync_core::landed::{LandedQuery, find_landed, local_revs, record_update, remaining_revs, restore_before_update};
 use sync_core::repo_facts::{Baseline, read_baseline};
 use sync_core::transfer_progress::TransferProgress;
@@ -160,6 +162,20 @@ pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, op
   update_project_impl(git_executor, repo_path, options, &|_| {}, Resolve::Yes { dir, worktree: &worktree })
 }
 
+/// Refuses an update of a branch Branch Deck writes, under the branch prefix of the git config (`GuardRefusal::ManagedBranch`):
+/// checked out by hand, a virtual branch would be rebased instead of the user's branch, and the next sync would archive
+/// the others. A branch without `/` is never one, and costs no `git config`
+fn refuse_managed_branch(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str) -> Result<()> {
+  if !branch.contains('/') {
+    return Ok(());
+  }
+  let prefix = get_branch_prefix_from_git_config_sync(git_executor, repo_path)?.prefix;
+  if managed_branch_kind(branch, &prefix).is_some() {
+    return Err(GuardRefusal::ManagedBranch(branch.to_string()).into());
+  }
+  Ok(())
+}
+
 /// `update_project_with`; with `Resolve::Yes`, a conflict starts a resolve session
 fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, on_progress: &dyn Fn(UpdateProgress), resolve: Resolve<'_>) -> Result<BdUpdate> {
   let signing = commit_signing(git_executor, repo_path)?;
@@ -170,7 +186,8 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     let Baseline { name, upstream, branch } = read_baseline(git_executor, repo_path)?;
     let upstream = upstream.ok_or_else(|| anyhow::Error::new(NoUpstream { baseline: name }))?;
     // refuse before the network: the check would refuse after it anyway; the branch is the one the baseline read found
-    check_update_guards_on(git_executor, repo_path, branch.as_deref())?;
+    let branch = check_update_guards_on(git_executor, repo_path, branch.as_deref())?;
+    refuse_managed_branch(git_executor, repo_path, &branch)?;
     upstream
   };
   let local = options.onto.is_some();

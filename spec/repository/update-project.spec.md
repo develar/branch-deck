@@ -138,8 +138,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/update-core/src/update_project_test.rs (`upstream_force_push_does_not_replay_the_removed_commits`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`check_after_a_forced_fetch_elsewhere_uses_the_fork_point`)
 - Every sync must run the check and report it once, beside the rest of the sync (the event can come at any point);
-  a failed check is reported with its reason and must not fail the sync. A sync deferred for a detached HEAD or an
-  operation in progress (`SyncDeferred`, [Onboarding](onboarding.spec.md)) runs no check and reports nothing.
+  a failed check is reported with its reason and must not fail the sync. A sync deferred for a detached HEAD, an
+  operation in progress or a checked out branch under the prefix (`SyncDeferred`, [Onboarding](onboarding.spec.md))
+  runs no check and reports nothing.
   [@test] ../../crates/update-core/src/update_project_test.rs (`sync_reports_the_baseline_status`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`sync_on_a_detached_head_is_deferred_before_the_update_check`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`test_branches_grouped_precedes_per_branch_events`)
@@ -175,6 +176,10 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/update-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`a_failed_fetch_is_not_repeated`)
+- With a branch under the prefix checked out (a virtual, unapplied, archived or stack branch, switched to by hand), the
+  update must refuse before the fetch (`managed_branch`) and move neither the branch nor the tracking ref: it would
+  rebase a copy of one group instead of the user's branch. Only a branch with a `/` costs the read of the prefix.
+  [@test] ../../crates/update-core/src/update_project_test.rs (`an_update_of_a_branch_under_the_prefix_is_refused_before_the_fetch`)
 - A fetch beside another fetch of the same tracking ref, of any process (`brd update` in a lease while the app updates
   or fetches: one common dir), must wait for it while its process lives and take its result once it ended well,
   also when the remote had nothing new, or once the ref moved: one transfer, both succeed, and a forced update gives

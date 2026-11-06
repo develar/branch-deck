@@ -159,7 +159,7 @@ macro_rules! for_each_command {
 
       /// Asks the repository's session for a sync, opening it, and answers when the run that serves the request ended (never
       /// the follow-ups after it), with the version its last patch brought the view to; a failed or deferred sync answers its
-      /// `ApiError` (`operation_in_progress`, `detached_head`)
+      /// `ApiError` (`operation_in_progress`, `detached_head`, `managed_branch`)
       app(SessionTickets) session(reason = ?params.reason) sync(params: $crate::session::view::SyncParams) -> domain_types::session::SyncAnswer = $crate::session::view::sync;
 
       /// Asks the repository's session to read a fact again: the refresh button, or an action that needs it now (the robot a

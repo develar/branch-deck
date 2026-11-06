@@ -1028,8 +1028,10 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   compare-and-swap (below), so it never waits for a rewrite or Update Project, and a rewrite of the app or of `brd`
   never waits for it. It must print per branch its `state` (`created`, `updated`, `unchanged`, `error`, `conflict`, `blocked`),
   the commit count, the new tip and the remote state, plus the unassigned count. It must refuse, changing nothing,
-  while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
-  (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
+  while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`), HEAD is detached
+  (`detached_head`) or a branch under the prefix is checked out (`managed_branch`; exit 4 all three): the sync would
+  archive the branches the half-done history, or the history of one group, lacks.
+  [@test] ../../crates/sync-core/src/sync_test.rs (`sync_waits_while_a_branch_under_the_prefix_is_checked_out`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `syncs_while_another_process_holds_the_lock`, `a_rewrite_beside_a_running_sync_does_not_wait_for_it`, `waits_while_a_rebase_is_in_progress`)
 - The message of `locked` must name the holder of the lock, its command line, pid and how long it holds it, from the
   record (`<lock>.holder`) a holder writes once it has the lock and deletes before it releases it; a record of a

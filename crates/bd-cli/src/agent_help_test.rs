@@ -191,6 +191,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::PrefixChanged
     | ErrorCode::NotParked
     | ErrorCode::DetachedHead
+    | ErrorCode::ManagedBranch
     | ErrorCode::NoSession
     | ErrorCode::NoRemote
     | ErrorCode::InstallRefused

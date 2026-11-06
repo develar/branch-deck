@@ -1,11 +1,31 @@
 use crate::branch_names::{
-  BranchKind, BranchNameCheck, BranchNameRules, BranchNameState, baseline_on_remote, check_branch_name, is_sanitized, is_valid_branch_prefix, normalize_branch_prefix,
-  qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
+  BranchKind, BranchNameCheck, BranchNameRules, BranchNameState, baseline_on_remote, check_branch_name, is_sanitized, is_valid_branch_prefix, managed_branch_kind,
+  normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
 };
 
 const FLAT: BranchNameRules = BranchNameRules { stacks: false, leaf_only: false };
 const STACKS: BranchNameRules = BranchNameRules { stacks: true, leaf_only: false };
 const LEAF: BranchNameRules = BranchNameRules { stacks: true, leaf_only: true };
+
+#[test]
+fn a_branch_under_a_namespace_of_the_prefix_is_managed_and_any_other_is_not() {
+  assert_eq!(managed_branch_kind("jane/virtual/auth", "jane"), Some(BranchKind::Virtual));
+  assert_eq!(managed_branch_kind("jane/virtual/auth", "jane/"), Some(BranchKind::Virtual));
+  assert_eq!(managed_branch_kind("jane/unapplied/docs", "jane"), Some(BranchKind::Unapplied));
+  assert_eq!(managed_branch_kind("jane/archived/2026-10-01/auth", "jane"), Some(BranchKind::Archived));
+  assert_eq!(managed_branch_kind("jane/stack/core", "jane"), Some(BranchKind::Stack));
+  for branch in [
+    "master",
+    "feature/x",
+    "jane/feature",
+    "jane/virtual",
+    "jane/virtual/",
+    "john/virtual/auth",
+    "jane-virtual/auth",
+  ] {
+    assert_eq!(managed_branch_kind(branch, "jane"), None, "{branch}");
+  }
+}
 
 #[test]
 fn test_to_final_branch_name_valid_inputs() {
