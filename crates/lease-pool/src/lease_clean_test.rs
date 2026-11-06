@@ -49,11 +49,19 @@ fn the_host_table_of_the_remote_runs_stays_unread() {
   assert!(crate::lease_clean::parse_pick_requires_check(text).unwrap());
 }
 
+/// A table that a later version adds (`[commit]`, `[other]`) leaves the rules of `[lease]` in force
+#[test]
+fn an_unknown_table_leaves_the_lease_rules_in_force() {
+  let text = "[other]\nkey = 1\n\n[lease]\npick_requires_check = true\nclean = [{ delete = \"out\" }]\n\n[commit]\ncheck = 5\n";
+  assert_eq!(parse_clean_rules(text).unwrap().len(), 1);
+  assert!(crate::lease_clean::parse_pick_requires_check(text).unwrap());
+  assert_eq!(parse_clean_rules("[other]\n").unwrap(), []);
+}
+
 /// An unknown key or kind, a wrong type and a bad age are errors of the whole file
 #[test]
 fn unknown_keys_and_kinds_are_errors() {
   for (text, says) in [
-    ("[other]\n", "unknown key \"other\""),
     ("[lease]\nprune = []\n", "unknown key lease.prune"),
     ("[lease]\nclean = [{ command = \"rm -rf x\" }]\n", "unknown kind"),
     ("[lease]\nclean = [{ delete = \"x\", force = true }]\n", "unknown key \"force\""),

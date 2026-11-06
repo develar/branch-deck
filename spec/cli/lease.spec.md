@@ -628,9 +628,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - The table `[host]` belongs to the remote runs of `brd-host` (spec/cli/host.spec.md), which checks its keys. The rules
-  and `pick_requires_check` must read past it, whatever it holds. A brd before this rule refuses a file with `[host]`
-  and then applies no clean rule.
+  and `pick_requires_check` must read past it, whatever it holds.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_host_table_of_the_remote_runs_stays_unread`)
+- The rules and `pick_requires_check` must read past every other top-level table too (a table of another reader or of
+  a later version): its reader checks it, and a new table must not turn off the rules of an older brd. An unknown key
+  inside `[lease]` stays an error of the file.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unknown_table_leaves_the_lease_rules_in_force`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
   `..`, names `.git`, names the checkout itself, has a symlink on its way (a `cargo` dir that is one too), holds a file
   that git tracks (one `ls-files -z` of the paths of all rules), or has an `except` entry that is no name of an entry;
