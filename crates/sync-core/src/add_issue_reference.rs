@@ -107,7 +107,7 @@ pub fn add_issue_reference_to_commits_core(git_executor: &GitCommandExecutor, pa
   // another HEAD than the expected one is refused before anything is written (`prepare_reword` compares the full id)
   let prepare = || -> Result<PreparedReword> {
     let expected_head = options.expected_full_head(git_executor, repository_path)?;
-    prepare_reword(git_executor, repository_path, &baseline_branch, rewrites.clone(), expected_head.as_deref(), &[]).context("Failed to add issue reference")
+    prepare_reword(git_executor, repository_path, (&baseline_branch, false), rewrites.clone(), expected_head.as_deref(), &[]).context("Failed to add issue reference")
   };
   let (prepared, _lock) = options.lock_prepared(git_executor, repository_path, prepare(), prepare)?;
   prepared

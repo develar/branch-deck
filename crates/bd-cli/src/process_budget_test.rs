@@ -541,7 +541,7 @@ fn a_reword() {
     plan: None,
     rewrite: RewriteArgs::default(),
   };
-  let output = reword(&context, &args).unwrap();
+  let output = reword(&context, &args, None).unwrap();
   assert_eq!(output.rewritten, 1);
   assert_processes(
     &context,
@@ -553,6 +553,39 @@ fn a_reword() {
       ("log", 2),
       ("remote", 1),
       ("rev-parse", 4),
+      ("update-ref", 1),
+    ],
+  );
+}
+
+/// `brd reword` in a lease of the pool, on its detached HEAD: the commits ahead of its home branch come from one `log`
+/// of that ref, with no baseline to look for (`remote`, `@{u}`, `for-each-ref`), and the move of HEAD itself is the one
+/// ref transaction
+#[test]
+fn a_reword_in_a_lease() {
+  let (repo, ids) = repo_with_subjects(&[("README.md", "readme\n")], &["Landed", "Add a with a subject that is far too long", "Add b"]);
+  repo.git(&["branch", "home", &ids[0]]);
+  repo.git(&["checkout", "-q", "--detach"]);
+  let context = context(&repo);
+  let args = RewordArgs {
+    commit: Some(ids[1].clone()),
+    message: None,
+    message_file: None,
+    subject: Some("Add a".to_string()),
+    plan: None,
+    rewrite: RewriteArgs::default(),
+  };
+  let output = reword(&context, &args, Some("refs/heads/home".to_string())).unwrap();
+  assert_eq!(output.rewritten, 1);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("fast-import", 1),
+      ("for-each-ref", 1),
+      ("log", 2),
+      ("rev-parse", 3),
       ("update-ref", 1),
     ],
   );

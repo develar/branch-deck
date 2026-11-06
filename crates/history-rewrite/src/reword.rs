@@ -168,13 +168,13 @@ fn following_fixups(snapshot: &Snapshot, messages: &HashMap<String, String>) -> 
 }
 
 /// The reword of `(commit id, whole new message)` pairs of `commits` (the regroup's snapshot), computed from the history
-/// at `expected_head` ahead of `baseline` (`git_ops::reword_commits::prepare_reword`), with the commits of `stores` in
-/// the same run: the new commits on temporary refs, before the repository lock, no ref moved; `None` when no message
-/// changes once cleaned up
+/// at `expected_head` ahead of `baseline` (`git_ops::reword_commits::prepare_reword`; `detached`: of a detached HEAD),
+/// with the commits of `stores` in the same run: the new commits on temporary refs, before the repository lock, no ref
+/// moved; `None` when no message changes once cleaned up
 pub(crate) fn prepare_reword_at<'a>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
-  baseline: &str,
+  baseline: (&str, bool),
   commits: &HashMap<String, Commit>,
   rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
   expected_head: &str,

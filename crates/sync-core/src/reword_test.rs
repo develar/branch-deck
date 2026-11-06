@@ -268,6 +268,42 @@ fn rewrite_refused_on_detached_head() {
   assert_eq!(repo.head(), ids[0]);
 }
 
+/// Whether HEAD names no branch
+fn is_detached(repo: &TestRepo) -> bool {
+  let (_, exit_code) = repo.git_executor().execute_command_with_status(&["symbolic-ref", "-q", "HEAD"], path(repo)).unwrap();
+  exit_code == 1
+}
+
+/// In a lease (`lease_home`) the reword reads the commits that its home branch lacks and moves the detached HEAD with
+/// compare-and-swap; a commit the home branch has is not ahead of it; the undo moves the detached HEAD back
+#[test]
+fn a_reword_in_a_lease_moves_its_detached_head() {
+  let repo = baseline_repo(false);
+  let ids = commits(&repo, &["Landed", "Add login with a subject that is far too long", "Add form"]);
+  repo.create_branch_at("home", &ids[0]).unwrap();
+  repo.checkout(&ids[2]).unwrap();
+  let options = RegroupOptions {
+    lease_home: Some("refs/heads/home".to_string()),
+    ..RegroupOptions::default()
+  };
+
+  let outcome = reword_core(repo.git_executor(), path(&repo), &[subject(&ids[1], "Add login")], &options).unwrap();
+
+  assert_eq!(subjects(&repo, 3), ["Landed", "Add login", "Add form"]);
+  assert!(is_detached(&repo), "HEAD stays detached");
+  assert_eq!(outcome.new_head, repo.head());
+  assert_eq!(repo.git(&["rev-parse", "home"]), ids[0], "the home branch stays");
+  assert_eq!(outcome.commits.len(), 2, "only the commits home lacks");
+
+  let error = reword_core(repo.git_executor(), path(&repo), &[subject(&ids[0], "Landed here")], &options).unwrap_err();
+  assert!(matches!(&error, RegroupError::NotAheadOfBaseline { commits } if commits == &[ids[0].clone()]), "{error}");
+
+  let token = UndoToken::of(&outcome).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
+  assert_eq!(repo.head(), ids[2]);
+  assert!(is_detached(&repo), "HEAD stays detached");
+}
+
 /// The app's list was read before the commit was reworded or dropped in a terminal: the app says to sync
 #[test]
 fn refuses_a_commit_that_left_the_current_branch() {

@@ -177,11 +177,26 @@ pub fn read_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<O
   Err(anyhow!("Cannot read HEAD: {output}"))
 }
 
+/// The name of a detached HEAD where a branch name stands (`RewriteTarget`, the witness of the repository lock): git
+/// refuses a branch of that name
+pub const DETACHED: &str = "HEAD";
+
+/// The full ref of the checked out `branch`: `refs/heads/<branch>`, or `HEAD` itself for [`DETACHED`]
+pub fn checked_out_ref(branch: &str) -> String {
+  if branch == DETACHED { DETACHED.to_string() } else { format!("refs/heads/{branch}") }
+}
+
 /// The branch HEAD is on and its commit, from one `rev-parse` (`read_head`): the target of a rewrite of the checked out
 /// branch. A detached HEAD is the error `DetachedHead`, a branch without commits an error too
 pub fn checked_out_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(String, String)> {
+  checked_out_target(git_executor, repo_path, false)
+}
+
+/// `checked_out_head`; with `detached`, a detached HEAD is the branch [`DETACHED`] instead of the error
+pub fn checked_out_target(git_executor: &GitCommandExecutor, repo_path: &str, detached: bool) -> Result<(String, String)> {
   match read_head(git_executor, repo_path)? {
     Some((head, Some(branch))) => Ok((branch, head)),
+    Some((head, None)) if detached => Ok((DETACHED.to_string(), head)),
     Some((_, None)) => Err(DetachedHead.into()),
     None => Err(anyhow!("The checked out branch has no commits yet")),
   }

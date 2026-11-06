@@ -221,8 +221,8 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
   fetch never wait for it.
 - **Operations registry**: only `operations::registry_file` touches `operations.json` and `operations.lock`, only
   `operations::journal` the journal; a start whose answer was lost is `Unknown`, never sent again.
-- **Guards** (`History::check_rewrite`): no rebase/merge/cherry-pick in progress, HEAD not detached, no merges in the
-  range; a sync under the first two is `SyncDeferred`.
+- **Guards** (`History::check_rewrite`): no rebase/merge/cherry-pick in progress, HEAD not detached (but `brd reword`
+  in a lease and an undo), no merges in the range; a sync under the first two is `SyncDeferred`.
 - **Metadata**: message-only rewrites keep author and committer byte for byte, content rewrites keep the author;
   signatures are stripped.
 - **Batch**: one process per phase, never per item; never parse translated text (exit codes, `--porcelain`, `-z`).

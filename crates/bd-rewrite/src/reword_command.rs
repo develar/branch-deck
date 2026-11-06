@@ -1,6 +1,7 @@
 //! `brd reword`: new messages of commits ahead of the baseline through `history_rewrite::reword`, with the contract of
 //! `brd group` (`rewrite.rs`): the record in the operations registry, the repository lock over the rewrite and, with
-//! --sync, the sync, `--expect-head`, the undo token, `--dry-run`
+//! --sync, the sync, `--expect-head`, the undo token, `--dry-run`. In a lease of the pool, of the commits its home
+//! branch lacks, on its detached HEAD too
 
 use crate::rewrite::{RewriteArgs, RewriteOutput, rewrite};
 use bd_core::context::RepoContext;
@@ -9,6 +10,7 @@ use bd_core::operation_record::asked_on;
 use bd_core::text_input::read_text;
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::{CommitReword, RewordText, RewriteIntent};
+use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::reword::reword_core;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -17,7 +19,8 @@ use std::path::PathBuf;
 #[derive(Debug, clap::Args)]
 #[command(group(clap::ArgGroup::new("text").args(["message", "message_file", "subject"]).multiple(false)))]
 pub struct RewordArgs {
-  /// The commit ahead of the baseline, by the id `brd status` printed (abbreviated or full)
+  /// The commit ahead of the baseline, by the id `brd status` printed (abbreviated or full); in a lease, a commit that
+  /// its home branch lacks, on its detached HEAD too
   #[arg(required_unless_present = "plan", requires = "text", conflicts_with = "plan")]
   pub commit: Option<String>,
   /// The whole new message, the `(prefix)` of its subject included
@@ -82,7 +85,9 @@ pub fn parse_reword_plan(text: &str) -> Result<Vec<CommitReword>, CliError> {
     .collect()
 }
 
-pub fn reword(context: &RepoContext, args: &RewordArgs) -> Result<RewriteOutput, CliError> {
+/// `brd reword`; `lease_home` in a lease of the pool (`RegroupOptions::lease_home`): the commits ahead of that branch,
+/// on a detached HEAD too
+pub fn reword(context: &RepoContext, args: &RewordArgs, lease_home: Option<String>) -> Result<RewriteOutput, CliError> {
   let rewords = match (&args.plan, &args.commit) {
     (Some(plan), _) => parse_reword_plan(&read_text(plan, "the plan")?)?,
     (None, Some(commit)) => {
@@ -117,6 +122,7 @@ pub fn reword(context: &RepoContext, args: &RewordArgs) -> Result<RewriteOutput,
     witness: asked_on(args.rewrite.expect_head.as_deref()),
   };
   rewrite(context, ("reword", intent), &args.rewrite, &BTreeMap::new(), |options| {
-    reword_core(&context.git, &context.repository, &rewords, options)
+    let options = RegroupOptions { lease_home, ..options.clone() };
+    reword_core(&context.git, &context.repository, &rewords, &options)
   })
 }

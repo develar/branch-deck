@@ -675,6 +675,13 @@ plan's prefixes apply; a message equal to the old one after the cleanup changes 
 commit as a plan would, with step 4's check, and the fixups of a target whose prefix changes follow it. The mapping
 note of a commit whose text (not only its prefix) changed is not carried: its copy must be rebuilt with the message.
 
+In a lease of the pool, `brd reword` passes the home branch of the lease (`RegroupOptions::lease_home`,
+`reword_home_ref` of `bd-lease`, which reads the lease file and runs no git). The snapshot then lists the commits
+ahead of that ref with one `log`, and looks for no baseline (`Snapshot::read_for`). A detached HEAD is the branch
+`HEAD` (`revs::DETACHED`) of the snapshot, the witness and the `RewriteTarget`, so the move is `option no-deref` of
+`HEAD` with compare-and-swap (`RewriteTarget::add_move`), and HEAD stays detached. The undo of a rewrite
+(`check_restore`) moves a detached HEAD back the same way.
+
 The app's edit of a message (the rewrite `Reword` of the engine, `reword_request_core` in `reword.rs`) is the same
 reword: whole messages by full id, the `RegroupOptions` of every rewrite of the app (the HEAD of its witness expected,
 the lock waited for while its holder lives), and the answer carries the new ids, `previousHead`, `newHead` and the undo

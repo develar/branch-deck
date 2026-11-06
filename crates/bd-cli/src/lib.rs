@@ -21,7 +21,7 @@ use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
   LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_reclaim, lease_return, lease_status,
-  refuse_drop_of_home_commits, refuse_reclaimed, refuse_update_in_lease,
+  refuse_drop_of_home_commits, refuse_reclaimed, refuse_update_in_lease, reword_home_ref,
 };
 use bd_lease::workspace_command::workspace;
 use bd_remote::land_command::{LandArgs, land};
@@ -532,7 +532,13 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Restack(args) => print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
     Command::Unstack(args) => print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
     Command::StackTogether(args) => print_summary(out, context().and_then(|context| stack_together(&context, args)), RewriteOutput::exit_code),
-    Command::Reword(args) => print_summary(out, context().and_then(|context| reword(&context, args)), RewriteOutput::exit_code),
+    Command::Reword(args) => {
+      let run = |context: RepoContext| {
+        let lease_home = reword_home_ref(&context.git_common_dir, &context.repository)?;
+        reword(&context, args, lease_home)
+      };
+      print_summary(out, context().and_then(run), RewriteOutput::exit_code)
+    }
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| printed(out, &output)),
     Command::Update(args) => {
       let run = |context: RepoContext| {

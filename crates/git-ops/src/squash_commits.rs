@@ -151,7 +151,8 @@ impl CheckedRestore {
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, operation: &str, also: &RefTransaction) -> Result<(), CopyCommitError> {
     let expected_head = &self.target.head;
     let mut transaction = RefTransaction::new();
-    transaction.update(&self.target.full_ref(), &self.previous_head, Some(expected_head)).extend(also);
+    self.target.add_move(&mut transaction, &self.previous_head);
+    transaction.extend(also);
     transaction.commit(git_executor, repo_path, operation).map_err(|e| {
       // a branch that moved between the check and the transaction is `HeadMoved` too
       match git_executor.execute_command(&["rev-parse", "--verify", "--end-of-options", &self.target.full_ref()], repo_path) {
@@ -171,7 +172,9 @@ pub fn check_restore(git_executor: &GitCommandExecutor, repo_path: &str, expecte
   if let Some(id) = [expected_head, previous_head].into_iter().find(|id| !is_object_id(id)) {
     return Err(refusal(format!("{id:?} is not a full commit id")));
   }
-  let target = check_rewrite_range(git_executor, repo_path, &[previous_head]).map_err(|e| refusal(format!("{e:#}")))?;
+  // a detached HEAD moves back too: only a reword in a lease of the pool moves one (`History::check_rewrite_of`), and
+  // the check of `expected_head` holds for it as for a branch
+  let target = check_rewrite_range(git_executor, repo_path, &[previous_head], true).map_err(|e| refusal(format!("{e:#}")))?;
   if target.head != expected_head {
     return Err(moved(&target.branch, expected_head, target.head));
   }

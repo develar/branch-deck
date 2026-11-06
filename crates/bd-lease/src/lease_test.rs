@@ -994,6 +994,32 @@ fn a_session_drops_its_landed_commit_in_the_shared_checkout_and_its_lease_follow
   assert_eq!(returned.get("given_up"), None, "{returned}");
 }
 
+/// A session rewords its own commit in the lease before the pick: `brd reword` moves the detached HEAD of the lease, which
+/// stays detached, and the pick lands the new message; a commit the home branch has is `not_ahead_of_baseline`
+#[test_log::test]
+fn a_session_rewords_its_unlanded_commit_in_the_detached_lease() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let landed = fixture.repo.head();
+  let own = commit_in(&path, "(lane) write the date", "lane-a.txt");
+
+  let reword = |commit: &str, subject: &str| fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "reword", commit, "--subject", subject]);
+  let (exit_code, reworded) = reword(&own, "(lane) setup build: write the date");
+  assert_eq!((exit_code, &reworded["rewritten"]), (0, &json!(1)), "{reworded}");
+  assert_eq!(slot_git(&path, &["log", "-1", "--format=%s"]), "(lane) setup build: write the date");
+  assert_eq!(slot_git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD", "the lease stays detached");
+  assert_eq!(fixture.repo.head(), landed, "the home branch stays");
+
+  let (exit_code, refused) = reword(&landed, "Something else");
+  assert_error(&refused, exit_code, (2, "not_ahead_of_baseline"));
+
+  let (exit_code, picked) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "lease", "pick"]);
+  assert_eq!(exit_code, 0, "{picked}");
+  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), "(lane) setup build: write the date");
+  let returned = fixture.give_back(&path);
+  assert_eq!(returned.get("given_up"), None, "{returned}");
+}
+
 /// A worktree that did not follow its pick still has its own commit: after a reword of the copy on the shared branch,
 /// a pick finds it present by its patch, never an empty commit, and the return passes by content
 #[test_log::test]

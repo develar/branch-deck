@@ -58,7 +58,7 @@ pub fn reword_commits_batch_at(
     };
   }
   let store_commits: Vec<StoreCommit<'_>> = stores.iter().map(|store| store.commit.clone()).collect();
-  let prepared = prepare_reword(git_executor, repo_path, baseline_branch, rewrites, expected_head, &store_commits)?;
+  let prepared = prepare_reword(git_executor, repo_path, (baseline_branch, false), rewrites, expected_head, &store_commits)?;
   let mut also = RefTransaction::new();
   for (store, store_commit) in stores.iter().zip(prepared.store_commits()) {
     store.add_to(&mut also, store_commit);
@@ -116,7 +116,7 @@ impl PreparedReword {
   /// compare-and-swap) in one transaction, deleting the temporary refs; a commit made meanwhile (e.g. in a terminal)
   /// is not dropped: the transaction fails, the temporary refs go, and a branch that moved is `HeadMoved`
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, mut also: RefTransaction) -> Result<()> {
-    also.update(&self.target.full_ref(), self.new_head(), Some(&self.target.head));
+    self.target.add_move(&mut also, self.new_head());
     self.written.delete_temp_refs(&mut also);
     if let Err(e) = also.commit(git_executor, repo_path, &format!("reword {} commits", self.reworded)) {
       self.discard(git_executor, repo_path);
@@ -144,13 +144,14 @@ impl PreparedReword {
 }
 
 /// Write the commits of a reword of the checked out branch (`reword_commits_batch_at`), computed from the history at
-/// `expected_head`, with the commits of `stores` in the same `fast-import` run, all on temporary refs: no branch moves.
-/// The guards and the checks of `reword_commits_batch_at` hold; `rewrites` is not empty
+/// `expected_head` ahead of `baseline_branch`, with the commits of `stores` in the same `fast-import` run, all on
+/// temporary refs: no branch moves. The guards and the checks of `reword_commits_batch_at` hold, but that `detached`
+/// lets a detached HEAD be the target (`History::check_rewrite_of`); `rewrites` is not empty
 #[instrument(skip(git_executor, rewrites, stores), fields(count = rewrites.len()))]
 pub fn prepare_reword(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
-  baseline_branch: &str,
+  (baseline_branch, detached): (&str, bool),
   rewrites: Vec<RewordCommitParams>,
   expected_head: Option<&str>,
   stores: &[StoreCommit<'_>],
@@ -182,7 +183,9 @@ pub fn prepare_reword(
     let Some(index) = history.find(commit_id) else {
       // a rebase in progress or a detached HEAD explains it better
       ensure_no_operation_in_progress(git_executor, repo_path)?;
-      checked_out_branch(git_executor, repo_path)?;
+      if !detached {
+        checked_out_branch(git_executor, repo_path)?;
+      }
       // a commit git can't find left the branch too
       if let Some(baseline) = history.baseline()
         && is_ancestor(git_executor, repo_path, commit_id, "HEAD").unwrap_or(false)
@@ -195,7 +198,7 @@ pub fn prepare_reword(
     oldest_index = oldest_index.max(index);
   }
 
-  let target = history.check_rewrite(git_executor, repo_path, oldest_index)?;
+  let target = history.check_rewrite_of(git_executor, repo_path, oldest_index, detached)?;
 
   // oldest first
   let to_recreate: Vec<&str> = history.commits()[..=oldest_index].iter().rev().map(|commit| commit.id.as_str()).collect();

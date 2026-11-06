@@ -883,6 +883,8 @@ A new message for commits ahead of the baseline, as a regroup (`history_rewrite:
   "<id>", "message": "…"}]}`, each entry with exactly one of the two.
 - The commit is an id that `brd status` printed (abbreviated or full); a revision such as `HEAD~1` is
   `invalid_arguments`, a commit on the baseline or unknown `not_ahead_of_baseline`.
+- In a lease, the commits that its home branch lacks are the ones it rewords, on the detached HEAD of the lease too,
+  which stays detached; a commit the pick landed is `not_ahead_of_baseline`.
 - Every tree stays, so the index and the working tree do; the older commits keep their ids, the later ones are
   recreated with their author and committer, and their mapping notes follow them. The note of a commit whose text
   changed is dropped: the next sync copies it anew, with the new message, so the branch needs a push

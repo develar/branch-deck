@@ -11,7 +11,7 @@
 
 use crate::commit_list::is_on_local_baseline;
 use crate::notes::mapping_lines;
-use crate::revs::{checked_out_head, short_id};
+use crate::revs::{checked_out_target, short_id};
 use crate::rewrite_guard::{HeadMoved, RewriteTarget, ensure_no_operation_in_progress, merge_refusal};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -201,8 +201,17 @@ impl History {
   /// moved HEAD is everywhere else: a regroup computes once more under the repository lock (`regroup_accepted`)
   #[instrument(skip(self, git_executor))]
   pub fn check_rewrite(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize) -> Result<RewriteTarget> {
+    self.check_rewrite_of(git_executor, repo_path, oldest_position, false)
+  }
+
+  /// `check_rewrite`; with `detached`, a detached HEAD is the target [`DETACHED`](crate::revs::DETACHED) instead of a
+  /// refusal (a reword in a lease of the pool)
+  ///
+  /// # Errors
+  /// As `check_rewrite`
+  pub fn check_rewrite_of(&self, git_executor: &GitCommandExecutor, repo_path: &str, oldest_position: usize, detached: bool) -> Result<RewriteTarget> {
     ensure_no_operation_in_progress(git_executor, repo_path)?;
-    let (branch, head) = checked_out_head(git_executor, repo_path)?;
+    let (branch, head) = checked_out_target(git_executor, repo_path, detached)?;
     if let Some(read) = self.head()
       && read != head
     {

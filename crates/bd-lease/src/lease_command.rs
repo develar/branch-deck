@@ -411,6 +411,15 @@ pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<
   ))
 }
 
+/// `brd reword` in the worktree at `top_level`: in a lease of the pool, the full ref of the branch its commits land on
+/// (`refs/heads/master`, `RegroupOptions::lease_home`). The reword then reads only the commits that branch lacks, so a
+/// commit the pick landed there is `not_ahead_of_baseline`, and it moves the detached HEAD of the lease. `None` outside a
+/// lease, for a host slot of `bd-host` and for a lease cut from a detached HEAD. No git process
+pub fn reword_home_ref(git_common_dir: &Path, top_level: &str) -> Result<Option<String>, CliError> {
+  let lease = session_lease_at(git_common_dir, top_level)?;
+  Ok(lease.and_then(|lease| lease.home().branch).map(|branch| format!("refs/heads/{branch}")))
+}
+
 /// `brd drop` in the worktree at `top_level`: in a lease of the pool, a commit that its home branch has already (a pick
 /// landed it) is refused as `drop_in_home`: a drop in the lease would come back with the next pick, which moves the lease
 /// onto the tip of that branch. The drop runs in the shared checkout, then `brd lease pick` moves the lease past it

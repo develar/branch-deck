@@ -3,7 +3,8 @@
 //! tree of HEAD changes, keeping whatever is staged on paths the rewrite does not touch.
 
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
-use crate::revs::{checked_out_head, known_dirs};
+use crate::ref_transaction::RefTransaction;
+use crate::revs::{DETACHED, checked_out_ref, checked_out_target, known_dirs};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -13,26 +14,39 @@ use tracing::{debug, instrument};
 /// The checked out branch about to be rewritten, read once: the branch is moved only if it still points at `head`
 #[derive(Debug, Clone)]
 pub struct RewriteTarget {
-  /// Short branch name, e.g. `main`
+  /// Short branch name, e.g. `main`; [`DETACHED`] for a detached HEAD, which only a caller that allows it gets (a
+  /// reword in a lease of the pool)
   pub branch: String,
   pub head: String,
 }
 
 impl RewriteTarget {
+  /// The ref the rewrite moves: `refs/heads/<branch>`, or `HEAD` itself when it is detached
   #[must_use]
   pub fn full_ref(&self) -> String {
-    format!("refs/heads/{}", self.branch)
+    checked_out_ref(&self.branch)
+  }
+
+  /// Add the move of the target from `head` to `new_head` to `transaction`, with compare-and-swap: a detached HEAD moves
+  /// itself (`option no-deref`), so it stays detached even when a `git switch` attached it meanwhile
+  pub fn add_move(&self, transaction: &mut RefTransaction, new_head: &str) {
+    if self.branch == DETACHED {
+      transaction.update_no_deref(DETACHED, new_head, Some(&self.head));
+    } else {
+      transaction.update(&self.full_ref(), new_head, Some(&self.head));
+    }
   }
 }
 
 /// Check that the commits of `HEAD ^exclude...` on the checked out branch can be rewritten:
-/// no rebase, merge, cherry-pick or revert in progress, HEAD on a branch and no merge commit in the range.
-/// Merges are refused rather than flattened: neither `git replay` nor our commit writer recreate them. A rewrite of
-/// commits it read checks them with `History::check_rewrite`, which needs no process for the merges
+/// no rebase, merge, cherry-pick or revert in progress, HEAD on a branch (or, with `detached`, a detached HEAD) and no
+/// merge commit in the range. Merges are refused rather than flattened: neither `git replay` nor our commit writer
+/// recreate them. A rewrite of commits it read checks them with `History::check_rewrite`, which needs no process for
+/// the merges
 #[instrument(skip(git_executor))]
-pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, exclude: &[&str]) -> Result<RewriteTarget> {
+pub fn check_rewrite_range(git_executor: &GitCommandExecutor, repo_path: &str, exclude: &[&str], detached: bool) -> Result<RewriteTarget> {
   ensure_no_operation_in_progress(git_executor, repo_path)?;
-  let (branch, head) = checked_out_head(git_executor, repo_path)?;
+  let (branch, head) = checked_out_target(git_executor, repo_path, detached)?;
   ensure_no_merges(git_executor, repo_path, &head, exclude)?;
   Ok(RewriteTarget { branch, head })
 }

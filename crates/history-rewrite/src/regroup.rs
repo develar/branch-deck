@@ -28,7 +28,7 @@ use domain_types::stack::{StackProblem, StackProblemView, stack_path};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{StoreCommit, WrittenCommits, WrittenStore, write_commits_with_notes, write_store_commits};
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::{checked_out_branch, is_object_id, read_head, short_id, with_dirs_of};
+use git_ops::revs::{DETACHED, checked_out_branch, checked_out_ref, is_object_id, read_head, short_id, with_dirs_of};
 use git_ops::reword_commits::PreparedReword;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::squash_commits::{CheckedRestore, check_restore};
@@ -52,6 +52,10 @@ pub struct RegroupOptions<'a> {
   /// The repository lock the caller holds, so that it can write more under it (`brd group --sync`); `None` takes the
   /// lock for the regroup only
   pub held_lock: Option<&'a RepositoryLock>,
+  /// In a lease of the pool, the full ref of the branch its commits land on (`refs/heads/master`): the regroup reads the
+  /// commits ahead of it instead of the ones ahead of the baseline, and a detached HEAD, as a lease has, is its target
+  /// (`brd reword`). `None` elsewhere: a detached HEAD is `DetachedHead`
+  pub lease_home: Option<String>,
 }
 
 impl<'a> RegroupOptions<'a> {
@@ -1036,7 +1040,7 @@ fn prepare_regroup(
   assign: &mut impl FnMut(&Snapshot) -> Result<Change, RegroupError>,
   accept: &mut impl FnMut(&RegroupOutcome) -> Result<(), RegroupError>,
 ) -> Result<PreparedRegroup, RegroupError> {
-  let snapshot = Snapshot::read(git_executor, repository_path)?;
+  let snapshot = Snapshot::read_for(git_executor, repository_path, options.lease_home.as_deref())?;
   let appended = match ensure_expected_head(options.expect_head.as_deref(), &snapshot.head, || snapshot.branch.clone()) {
     Ok(()) => Vec::new(),
     Err(moved) => {
@@ -1092,7 +1096,8 @@ fn prepare_regroup(
       .iter()
       .filter(|commit| commit.changed)
       .map(|commit| (commit.id.as_str(), commit.message.as_str()));
-    prepare_reword_at(git_executor, repository_path, &snapshot.baseline, &commits, rewrites, &snapshot.head, &stores)?
+    let detached = snapshot.branch == DETACHED;
+    prepare_reword_at(git_executor, repository_path, (&snapshot.baseline, detached), &commits, rewrites, &snapshot.head, &stores)?
   } else {
     None
   };
@@ -1124,7 +1129,7 @@ impl PreparedRegroup {
     let written = match &write {
       RegroupWrite::Reword(prepared) => prepared.apply(git_executor, repository_path, transaction),
       RegroupWrite::Stores(written) => {
-        transaction.verify(&format!("refs/heads/{}", self.branch), &self.head);
+        transaction.verify(&checked_out_ref(&self.branch), &self.head);
         written.delete_temp_refs(&mut transaction);
         transaction
           .commit(git_executor, repository_path, "regroup")

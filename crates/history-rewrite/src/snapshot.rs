@@ -13,7 +13,7 @@ use anyhow::Result;
 use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::get_commit_list;
-use git_ops::revs::{DetachedHead, read_head};
+use git_ops::revs::{DETACHED, DetachedHead, read_head};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
 use std::collections::HashMap;
 use tracing::instrument;
@@ -57,7 +57,23 @@ pub struct Snapshot {
 impl Snapshot {
   /// The snapshot after the guards every regroup, dry run included, passes: no operation in progress, HEAD on a branch
   pub fn read(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<Self, RegroupError> {
-    let (snapshot, ()) = Self::read_with(git_executor, repository_path, None, |_, _| Ok((CommitsAhead::read(git_executor, repository_path)?, ())))?;
+    Self::read_for(git_executor, repository_path, None)
+  }
+
+  /// `read`; with `lease_home` (`RegroupOptions::lease_home`), the commits ahead of that ref instead of the baseline,
+  /// and a detached HEAD is the branch [`DETACHED`] instead of `DetachedHead`
+  pub fn read_for(git_executor: &GitCommandExecutor, repository_path: &str, lease_home: Option<&str>) -> Result<Self, RegroupError> {
+    let commits_ahead = |_: &str, _: &str| {
+      let ahead = match lease_home {
+        Some(home) => CommitsAhead {
+          baseline: home.to_string(),
+          commits: get_commit_list(git_executor, repository_path, home)?,
+        },
+        None => CommitsAhead::read(git_executor, repository_path)?,
+      };
+      Ok((ahead, ()))
+    };
+    let (snapshot, ()) = Self::read_guarded(git_executor, repository_path, (None, lease_home.is_some()), commits_ahead)?;
     Ok(snapshot)
   }
 
@@ -69,9 +85,23 @@ impl Snapshot {
     stacks: Option<bool>,
     commits_ahead: impl FnOnce(&str, &str) -> Result<(CommitsAhead, T), RegroupError>,
   ) -> Result<(Self, T), RegroupError> {
+    Self::read_guarded(git_executor, repository_path, (stacks, false), commits_ahead)
+  }
+
+  /// `read_with`; with `detached`, a detached HEAD is the branch [`DETACHED`]
+  fn read_guarded<T>(
+    git_executor: &GitCommandExecutor,
+    repository_path: &str,
+    (stacks, detached): (Option<bool>, bool),
+    commits_ahead: impl FnOnce(&str, &str) -> Result<(CommitsAhead, T), RegroupError>,
+  ) -> Result<(Self, T), RegroupError> {
     ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
     let (head, branch) = read_head(git_executor, repository_path)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?;
-    let branch = branch.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
+    let branch = match branch {
+      Some(branch) => branch,
+      None if detached => DETACHED.to_string(),
+      None => return Err(RegroupError::DetachedHead(DetachedHead.to_string())),
+    };
     let grouping = match stacks {
       Some(stacks) => read_grouping_inputs_with(git_executor, repository_path, stacks)?,
       None => read_grouping_inputs(git_executor, repository_path)?,

@@ -225,6 +225,8 @@ Clear Log (`clear`); Activity reads them, no window keeps a log ([Journal](../de
 The guards (`History::check_rewrite`, `check_rewrite_range`, `check_rewrite_on`) before rewriting the checked-out
 branch, with the rest of the computation before the repository lock, whose witness checks what they read: no
 rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
+Two exceptions move a detached HEAD itself (`option no-deref`, compare-and-swap): `brd reword` in a lease of the pool
+(`RegroupOptions::lease_home`, `History::check_rewrite_of`), and the undo of a rewrite (`check_restore`).
 A sync (the app's and `brd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
 history would archive the branches it lacks.
 

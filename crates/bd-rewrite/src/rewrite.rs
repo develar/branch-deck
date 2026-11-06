@@ -340,6 +340,7 @@ fn regroup_and_describe(
     dry_run: args.dry_run,
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
+    lease_home: None,
   };
   let outcome = regroup(&options).map_err(regroup_error)?;
   let mut output = rewrite_output(context, operation, args, &outcome);

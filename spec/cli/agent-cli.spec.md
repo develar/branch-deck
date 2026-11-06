@@ -604,7 +604,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_with_allow_append_lists_the_appended_commits`)
 - Rewrites must hold `$GIT_COMMON_DIR/branch-deck.lock`, wait a bounded time for another holder, then fail with
   `locked` (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, also for
-  `--dry-run`, and a detached HEAD `detached_head` (exit 4).
+  `--dry-run`, and a detached HEAD `detached_head` (exit 4), but for `brd reword` in a lease (`brd reword` below).
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
 - A rewrite without `--expect-head` (`brd group`, `brd reword`, `brd squash`, `brd fold`, `brd unapply`, `brd move-hunk`) whose
@@ -662,6 +662,14 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `invalid_plan`.
   [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_of_a_commit_not_ahead_of_the_baseline_is_refused`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`refuses_ids_and_texts_it_cannot_reword`)
+- In a lease of the pool, the commits ahead of its home branch (`refs/heads/<home>`) must take the place of the
+  commits ahead of the baseline: a commit that the home branch has (a pick landed it) is `not_ahead_of_baseline`. The
+  reword must move the detached HEAD of the lease itself, with compare-and-swap and `option no-deref`, and leave it
+  detached; its undo moves it back. Every other rewrite stays `detached_head` there. So the agent fixes the message of
+  an unlanded commit before `brd lease pick`, in the lease.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_session_rewords_its_unlanded_commit_in_the_detached_lease`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_in_a_lease_moves_its_detached_head`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_reword_in_a_lease`)
 - A new `(prefix)` must move the commit to that branch as `brd group` does, its fixups with it, with the validation of a
   plan: a stack problem it introduces is `invalid_plan`. A fixup that would fold into another target or none, a
   `fixup!`, `squash!` or `amend!` marker added or removed, a target a fixup names by its id, and a new text of a commit
