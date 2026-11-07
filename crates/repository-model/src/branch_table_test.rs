@@ -11,7 +11,7 @@ pub(crate) fn placed(name: &str, effective_base: Option<&str>) -> GroupedBranchI
   placed_branch(name, effective_base, effective_base)
 }
 
-/// Stacked branches on, with a bare `origin` that has the baseline: (the repository, the remote)
+/// With a bare `origin` that has the baseline: (the repository, the remote)
 fn stacked_repo_with_remote() -> (TestRepo, TestRepo) {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");

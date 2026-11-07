@@ -20,8 +20,8 @@ pub struct BranchTable {
   pub prefix: String,
   /// The baseline as the sync named it (`origin/master`)
   pub baseline: String,
-  /// In the order of the table, as `BranchesGrouped` sends them: newest first, each with its commits (newest first) and,
-  /// with stacked branches on, its placement
+  /// In the order of the table, as `BranchesGrouped` sends them: newest first, each with its commits (newest first) and its
+  /// placement
   pub branches: Vec<GroupedBranchInfo>,
   /// Full name (`<prefix>/virtual/<branch>`) -> tip of the virtual branch
   pub tips: HashMap<String, String>,

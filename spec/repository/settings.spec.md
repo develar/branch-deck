@@ -379,9 +379,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   "Select a repository to see its settings"; a failed read is a `destructive` callout "Cannot read the settings of
   <repository>" with the reason and Retry.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should say what to do without a repository`, `should write nothing when the repository is switched while a field holds typing`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
-- Four rows, each with its git key (muted `InlineCode`) after what it does, one line each: Stacked branches (a switch,
-  "(auth/login) in a commit builds login on top of auth", `branchdeck.stacks`,
-  [Stacked Branches](../branch/stacked-branches.spec.md)), Symbol dependencies (Off · Report Only · On, `aria-pressed`
+- Three rows, each with its git key (muted `InlineCode`) after what it does, one line each: Symbol dependencies
+  (Off · Report Only · On, `aria-pressed`
   buttons, the sentence of the mode chosen: "Commits depend only on the lines they change", "Shown by brd commits,
   never used for the branches", "Commits also depend on the commits that add the
   symbols they use"; `branchdeck.symbols`, [Symbol Dependencies](../commit/symbol-dependencies.spec.md)), GitHub
@@ -404,7 +403,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   from ("Detected from origin", "Detected from the Space mirror", "None detected: neither origin nor its Space mirror
   is on GitHub"), the branch prefix the prefix of General below. While `.git/config` sets the key, "Use Default" (or
   "Use Global", when a global or system value applies then) unsets it there, its tooltip the result ("Removes it from
-  .git/config: back to Off, the default", "… back to On, set in your global Git config", "… back to acme/app, detected
+  .git/config: back to On, the default", "… back to On, set in your global Git config", "… back to acme/app, detected
   from origin", "… back to no GitHub repository"; `fallbackValue`, `fallbackScope` of the read). A value of the
   worktree config or of `git -c` and `GIT_CONFIG_*` wins over `.git/config`: its control is disabled with that reason
   ("Set in config.worktree, which overrides .git/config: change it there", "Set by git -c or GIT_CONFIG_*, which
@@ -414,7 +413,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `says where the GitHub repository comes from while no config sets it`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_fallback_is_the_last_global_or_system_value_parsed`, `a_value_of_the_worktree_config_refuses_the_write`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`a_boolean_is_what_git_makes_of_it`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the symbol dependencies off, and back to the default, the main window syncing each change`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`)
 - The branch prefix row follows the [Branch prefix order](#branch-prefix-order): with a prefix in General, a global or
   system `branchdeck.branchPrefix` is not the row's value (the field stays empty, General's prefix its placeholder),
   the row says "Set in General" ("Set in General, which overrides your global Git config" when a global or system one
@@ -437,33 +436,25 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`two_writes_at_once_both_succeed`, `a_write_waits_for_a_config_lock_another_process_holds`, `a_write_fails_on_a_config_lock_that_stays`)
 - Answers in order: every answer of the settings, of a read and of a write, counts the config writes of the app before
   its read (`seq`, one counter of the process for the local and the global config), and the page shows an answer only
-  if it counts as many as the settings shown or more (`newer`). So a prefix saved while a switch's write runs is not
-  taken back when the switch answers last, with the prefix it read before, nor by a read a focus started before a
+  if it counts as many as the settings shown or more (`newer`). So a prefix saved while a mode's write runs is not
+  taken back when the mode answers last, with the prefix it read before, nor by a read a focus started before a
   write; a read again of as many writes is taken, with what a `git config` or `brd` changed meanwhile. A failed write
   changes nothing shown, and an answer for another repository is dropped.
   [@test] ../../src/lib/repository-config.test.ts (`keeps the newest of answers that arrive in reverse order`, `takes an answer of as many writes: a read again finds a git config of meanwhile`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should keep a prefix saved while a switch's write runs, when the switch's older answer comes last`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should keep a prefix saved while a mode's write runs, when the mode's older answer comes last`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`two_writes_at_once_both_succeed`)
-- A failed write is a toast in the words of the change (`notifyError`): "Cannot turn on stacked branches in app",
-  "Cannot turn off …", "Cannot change the symbol dependencies of app", "Cannot change the GitHub repository of app",
-  "Cannot change the branch prefix of app".
+- A failed write is a toast in the words of the change (`notifyError`): "Cannot change the symbol dependencies of app",
+  "Cannot change the GitHub repository of app", "Cannot change the branch prefix of app".
   [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should tell a failed write in a toast`)
 - After a write the backend tells the main window (`repository_config_changed` `{ repositoryPath, key }`), which acts
   for the selected repository only: the branch prefix loads again, and a changed one is another session, which the
-  window opens and syncs for a repository synced before ([Onboarding](onboarding.spec.md)); stacked branches a sync; the symbol
-  mode a sync, and the stack-independence checks of the Safe Push popover ask again; the GitHub repository a sync and the
+  window opens and syncs for a repository synced before ([Onboarding](onboarding.spec.md)); the symbol mode a sync, and
+  the stack-independence checks of the Safe Push popover ask again; the GitHub repository a sync and the
   pull requests (`refreshPullRequests("manual")`). A repository never synced only loads its prefix: its first sync is
   the user's. A write waits for no sync: during one it is written at once, and the sync it asks for runs once after
   that one.
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should write stacked branches turned off during a held sync at once, the main window syncing it once after that sync`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
-- Stacked branches are not offered off while `stacks_off_clashes` names flat branches git cannot keep beside another
-  one (`auth/login` beside `auth`); the read leaves it empty, since stacked branches are always on. The switch is
-  disabled with what to do: "Turning this off renames login and session to names like auth/login, which git cannot keep
-  next to auth. Unstack them first" (one: "Turning this off makes login the branch auth/login, which git cannot keep
-  next to auth. Unstack login first").
-  [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the symbol dependencies off, and back to the default, the main window syncing each change`, `should write the symbol dependencies during a held sync at once, the main window syncing it once after that sync`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
 
 ### Landing
 
@@ -626,8 +617,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   the app).
   [@test] ../../crates/app-api/src/events_test.rs (`a_config_write_goes_to_the_main_window_and_a_journal_change_to_every_window`)
 - By hand: `pnpm tauri dev`; ⌘, from the menu, from a review window and again with the window open (it comes to the
-  front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: stacks
-  on syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.
+  front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: a symbol
+  mode syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.
 
 ## References
 

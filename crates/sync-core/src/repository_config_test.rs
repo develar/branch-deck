@@ -31,12 +31,12 @@ fn unset<T: Clone>(value: T) -> ConfigSetting<T> {
 
 #[test]
 fn parses_the_scoped_entries_of_get_regexp() {
-  let output = "global\0branchdeck.branchprefix\njane\0local\0branchdeck.stacks\0local\0branchdeck.githubrepository\n\0worktree\0branchdeck.symbols\nreport\nmore\0";
+  let output = "global\0branchdeck.branchprefix\njane\0local\0branchdeck.reviewexperimental\0local\0branchdeck.githubrepository\n\0worktree\0branchdeck.symbols\nreport\nmore\0";
   assert_eq!(
     parse_config_entries(output),
     [
       entry(ConfigScope::Global, "branchdeck.branchprefix", Some("jane")),
-      entry(ConfigScope::Local, "branchdeck.stacks", None),
+      entry(ConfigScope::Local, "branchdeck.reviewexperimental", None),
       entry(ConfigScope::Local, "branchdeck.githubrepository", Some("")),
       entry(ConfigScope::Worktree, "branchdeck.symbols", Some("report\nmore")),
     ]
@@ -47,7 +47,6 @@ fn parses_the_scoped_entries_of_get_regexp() {
 #[test]
 fn nothing_set_is_the_defaults() {
   let config = repository_config_from_entries(&[], OriginFacts::default());
-  assert_eq!(config.stacks, unset(false));
   assert_eq!(config.symbols, unset(SymbolMode::On));
   assert_eq!(config.github_repository, unset(None));
   assert_eq!(config.branch_prefix, unset(None));
@@ -70,8 +69,8 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
   };
   let config = repository_config_from_entries(
     &[
-      entry(ConfigScope::Global, "branchdeck.stacks", Some("true")),
-      entry(ConfigScope::Local, "BranchDeck.Stacks", Some("off")),
+      entry(ConfigScope::Global, "branchdeck.reviewexperimental", Some("true")),
+      entry(ConfigScope::Local, "BranchDeck.ReviewExperimental", Some("off")),
       entry(ConfigScope::Local, "branchdeck.branchprefix", Some("local/")),
       entry(ConfigScope::Command, "branchdeck.branchprefix", Some(" cli ")),
       entry(ConfigScope::System, "branchdeck.githubrepository", Some("acme/fork")),
@@ -82,7 +81,7 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
     },
   );
   assert_eq!(
-    config.stacks,
+    config.review_experimental,
     ConfigSetting {
       value: false,
       scope: Some(ConfigScope::Local),
@@ -122,7 +121,7 @@ fn the_last_scope_wins_and_keys_are_case_insensitive() {
 fn invalid_values_fall_back_to_the_default_and_say_why() {
   let config = repository_config_from_entries(
     &[
-      entry(ConfigScope::Local, "branchdeck.stacks", Some("maybe")),
+      entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("maybe")),
       entry(ConfigScope::Local, "branchdeck.symbols", Some("sometimes")),
       entry(ConfigScope::Local, "branchdeck.githubrepository", Some("acme")),
       entry(ConfigScope::Local, "branchdeck.branchprefix", Some("jane doe")),
@@ -130,7 +129,7 @@ fn invalid_values_fall_back_to_the_default_and_say_why() {
     OriginFacts::default(),
   );
   assert_eq!(
-    (config.stacks.value, config.stacks.invalid.as_deref()),
+    (config.review_experimental.value, config.review_experimental.invalid.as_deref()),
     (false, Some("maybe is not a boolean (true or false)"))
   );
   assert_eq!(
@@ -143,10 +142,13 @@ fn invalid_values_fall_back_to_the_default_and_say_why() {
   assert!(config.branch_prefix.invalid.is_some());
   // a key without a value is a `true` for git, but not a symbol mode
   let config = repository_config_from_entries(
-    &[entry(ConfigScope::Local, "branchdeck.stacks", None), entry(ConfigScope::Local, "branchdeck.symbols", None)],
+    &[
+      entry(ConfigScope::Local, "branchdeck.reviewexperimental", None),
+      entry(ConfigScope::Local, "branchdeck.symbols", None),
+    ],
     OriginFacts::default(),
   );
-  assert_eq!((config.stacks.value, config.stacks.invalid), (true, None));
+  assert_eq!((config.review_experimental.value, config.review_experimental.invalid), (true, None));
   assert!(config.symbols.invalid.is_some());
 }
 
@@ -199,12 +201,13 @@ fn local_entries(test_repo: &TestRepo) -> Vec<ConfigEntry> {
 #[test]
 fn a_write_goes_to_the_local_config_and_reads_back() {
   let test_repo = TestRepo::new();
-  let git = test_repo.git_executor();
+  let (_global, git) = with_own_global_config(&test_repo);
+  let git = &git;
   let path = test_repo.path_str();
 
-  let config = set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(true))).unwrap();
+  let config = set_repository_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(true))).unwrap();
   assert_eq!(
-    config.stacks,
+    config.review_experimental,
     ConfigSetting {
       value: true,
       scope: Some(ConfigScope::Local),
@@ -227,7 +230,7 @@ fn a_write_goes_to_the_local_config_and_reads_back() {
   assert_eq!(
     local_entries(&test_repo),
     [
-      entry(ConfigScope::Local, "branchdeck.stacks", Some("true")),
+      entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("true")),
       entry(ConfigScope::Local, "branchdeck.symbols", Some("report")),
       entry(ConfigScope::Local, "branchdeck.githubrepository", Some("acme/app")),
       entry(ConfigScope::Local, "branchdeck.branchprefix", Some("jane")),
@@ -239,14 +242,17 @@ fn a_write_goes_to_the_local_config_and_reads_back() {
 #[test]
 fn a_false_is_written_explicitly_and_wins_over_a_set_value() {
   let test_repo = TestRepo::new();
-  test_repo.set_config("branchdeck.stacks", "yes").unwrap();
+  test_repo.set_config("branchdeck.reviewexperimental", "yes").unwrap();
   // a second line: `--replace-all` replaces both
-  test_repo.git(&["config", "--add", "BranchDeck.Stacks", "on"]);
+  test_repo.git(&["config", "--add", "BranchDeck.ReviewExperimental", "on"]);
 
-  let config = set_repository_config(test_repo.git_executor(), test_repo.path_str(), &RepositoryConfigChange::Stacks(Some(false))).unwrap();
+  let config = set_repository_config(test_repo.git_executor(), test_repo.path_str(), &RepositoryConfigChange::ReviewExperimental(Some(false))).unwrap();
 
-  assert_eq!((config.stacks.value, config.stacks.scope, config.stacks.local_set), (false, Some(ConfigScope::Local), true));
-  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.stacks", Some("false"))]);
+  assert_eq!(
+    (config.review_experimental.value, config.review_experimental.scope, config.review_experimental.local_set),
+    (false, Some(ConfigScope::Local), true)
+  );
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("false"))]);
 }
 
 #[test]
@@ -284,7 +290,7 @@ fn invalid_values_are_refused_before_git_runs() {
     set_repository_config(git, path, &change).expect_err(&format!("{change:?}"));
   }
   assert_eq!(local_entries(&test_repo), []);
-  set_repository_config(git, "", &RepositoryConfigChange::Stacks(Some(true))).expect_err("no repository");
+  set_repository_config(git, "", &RepositoryConfigChange::ReviewExperimental(Some(true))).expect_err("no repository");
 }
 
 /// The push size limit is written as set, trimmed, a size or off; a value git holds that is neither keeps its text and
@@ -313,31 +319,36 @@ fn a_linked_worktree_writes_the_common_config() {
   let linked_path = linked.path().join("linked");
   test_repo.git(&["worktree", "add", "-q", "-b", "other", linked_path.to_str().unwrap()]);
 
-  let config = set_repository_config(test_repo.git_executor(), linked_path.to_str().unwrap(), &RepositoryConfigChange::Stacks(Some(true))).unwrap();
+  let config = set_repository_config(
+    test_repo.git_executor(),
+    linked_path.to_str().unwrap(),
+    &RepositoryConfigChange::ReviewExperimental(Some(true)),
+  )
+  .unwrap();
 
-  assert_eq!(config.stacks.scope, Some(ConfigScope::Local));
-  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.stacks", Some("true"))]);
+  assert_eq!(config.review_experimental.scope, Some(ConfigScope::Local));
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("true"))]);
 }
 
 #[test]
 fn a_value_of_the_worktree_config_refuses_the_write() {
   let test_repo = TestRepo::new();
   test_repo.git(&["config", "extensions.worktreeConfig", "true"]);
-  test_repo.git(&["config", "--worktree", "branchdeck.stacks", "true"]);
+  test_repo.git(&["config", "--worktree", "branchdeck.reviewexperimental", "true"]);
   let (git, path) = (test_repo.git_executor(), test_repo.path_str());
 
   let config = read_repository_config(git, path).unwrap();
   assert_eq!(
-    (config.stacks.value, config.stacks.scope, config.stacks.local_set),
+    (config.review_experimental.value, config.review_experimental.scope, config.review_experimental.local_set),
     (true, Some(ConfigScope::Worktree), false)
   );
 
-  let error = set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(false))).unwrap_err();
+  let error = set_repository_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(false))).unwrap_err();
   assert_eq!(
     error.to_string(),
-    "branchdeck.stacks is set in config.worktree, which overrides .git/config: change it there"
+    "branchdeck.reviewExperimental is set in config.worktree, which overrides .git/config: change it there"
   );
-  assert_eq!(local_entries(&test_repo).iter().filter(|entry| entry.key == "branchdeck.stacks").count(), 0);
+  assert_eq!(local_entries(&test_repo).iter().filter(|entry| entry.key == "branchdeck.reviewexperimental").count(), 0);
 }
 
 #[test]
@@ -394,7 +405,7 @@ fn the_fallback_is_the_last_global_or_system_value_parsed() {
       entry(ConfigScope::System, "branchdeck.symbols", Some("off")),
       entry(ConfigScope::Global, "branchdeck.symbols", Some("report")),
       entry(ConfigScope::Local, "branchdeck.symbols", Some("on")),
-      entry(ConfigScope::Global, "branchdeck.stacks", Some("maybe")),
+      entry(ConfigScope::Global, "branchdeck.reviewexperimental", Some("maybe")),
     ],
     OriginFacts::default(),
   );
@@ -403,7 +414,10 @@ fn the_fallback_is_the_last_global_or_system_value_parsed() {
     (SymbolMode::On, SymbolMode::Report, Some(ConfigScope::Global))
   );
   // an invalid global value falls back to the default, as the effective one would
-  assert_eq!((config.stacks.fallback_value, config.stacks.fallback_scope), (false, Some(ConfigScope::Global)));
+  assert_eq!(
+    (config.review_experimental.fallback_value, config.review_experimental.fallback_scope),
+    (false, Some(ConfigScope::Global))
+  );
 }
 
 /// The git of `test_repo` with a global config of the test alone, never the developer's
@@ -504,7 +518,11 @@ fn two_writes_at_once_both_succeed() {
   let (switches, prefixes) = std::thread::scope(|scope| {
     let switches = scope.spawn(|| {
       (0..50)
-        .map(|round| set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(round % 2 == 0))).unwrap().seq)
+        .map(|round| {
+          set_repository_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(round % 2 == 0)))
+            .unwrap()
+            .seq
+        })
         .collect::<Vec<_>>()
     });
     let prefixes = scope.spawn(|| {
@@ -526,7 +544,7 @@ fn two_writes_at_once_both_succeed() {
     );
   }
   let config = read_repository_config(git, path).unwrap();
-  assert_eq!((config.stacks.value, config.branch_prefix.value.as_deref()), (false, Some("jane49")));
+  assert_eq!((config.review_experimental.value, config.branch_prefix.value.as_deref()), (false, Some("jane49")));
   let newest = switches.iter().chain(&prefixes).max().copied();
   assert_eq!(
     (Some(config.seq), config.seq),
@@ -558,8 +576,8 @@ fn a_write_waits_for_a_config_lock_another_process_holds() {
       }
       std::fs::remove_file(&lock).unwrap();
     });
-    let config = set_repository_config(&git, path, &RepositoryConfigChange::Stacks(Some(true))).unwrap();
-    assert!(config.stacks.value);
+    let config = set_repository_config(&git, path, &RepositoryConfigChange::ReviewExperimental(Some(true))).unwrap();
+    assert!(config.review_experimental.value);
     release.join().unwrap();
   });
 }
@@ -569,8 +587,8 @@ fn a_write_waits_for_a_config_lock_another_process_holds() {
 fn a_write_fails_on_a_config_lock_that_stays() {
   let test_repo = TestRepo::new();
   std::fs::write(test_repo.path().join(".git").join("config.lock"), "").unwrap();
-  let error = set_repository_config(test_repo.git_executor(), test_repo.path_str(), &RepositoryConfigChange::Stacks(Some(true))).unwrap_err();
-  assert!(error.to_string().starts_with("git config branchdeck.stacks failed"), "{error}");
+  let error = set_repository_config(test_repo.git_executor(), test_repo.path_str(), &RepositoryConfigChange::ReviewExperimental(Some(true))).unwrap_err();
+  assert!(error.to_string().starts_with("git config branchdeck.reviewExperimental failed"), "{error}");
 }
 
 // ---- the route into master ----

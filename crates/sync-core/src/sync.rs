@@ -564,7 +564,6 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
     baseline_branch,
-    stacks: true,
     head: facts.head.clone(),
     branch: current_branch,
     store_tips: StoreTips {

@@ -48,7 +48,6 @@ export interface HeldSync {
 const EMPTY_HEADER: TableHeader = {
   prefix: "user",
   baselineBranch: "",
-  stacksEnabled: false,
   issueGroups: {},
   stackParents: {},
   parked: {},

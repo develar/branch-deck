@@ -41,7 +41,7 @@ pub fn build_parent<'a>(repo: &Repository<'a>, name: &str) -> Option<&'a str> {
 }
 
 /// The branches `name` is built on, root first: the chain of its effective bases, of the branches of the table only (a
-/// base the table lacks, a cycle or the branch itself ends it); empty for a root or with stacked branches off
+/// base the table lacks, a cycle or the branch itself ends it); empty for a root
 #[must_use]
 pub fn build_ancestors<'a>(repo: &Repository<'a>, name: &str) -> Vec<&'a str> {
   let base_of = |name: &str| repo.stack(name).and_then(|stack| stack.effective_base.as_deref());

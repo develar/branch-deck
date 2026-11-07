@@ -559,7 +559,7 @@ const STACK_TARGET_LIMIT = 20
 /**
  * "Stack On…" (any other branch that isn't stacked on this one; of a branch with a stack problem, the parents its fixes
  * name) and "Unstack from ‹parent›" ("Unstack" where a stack problem offers it to a branch without a parent), as Rust
- * offers them (stacked branches on, the fixes of a problem running while it blocks the rest): the rewrites of the shape
+ * offers them (the fixes of a problem running while it blocks the rest): the rewrites of the shape
  * group. A "Stack On…" with no branch to list is disabled
  */
 function getStackShapeItems(branch: Branch): (MenuItem | null)[] {

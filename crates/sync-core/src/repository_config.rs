@@ -25,12 +25,8 @@ use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The key of the setting Settings still shows; no operation reads it, stacked branches are always on
-const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
-
-/// The ten keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str =
-  r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$";
+/// The nine keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$";
 
 /// Why a `push` route of the global or the system config is taken as unset: a push into master of every repository of
 /// the user that names no route of its own would be a trap
@@ -138,8 +134,6 @@ pub struct DetectedGitHubRepository {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryConfig {
-  /// `branchdeck.stacks`: read by no operation, stacked branches are always on
-  pub stacks: ConfigSetting<bool>,
   /// `branchdeck.symbols`, on by default
   pub symbols: ConfigSetting<SymbolMode>,
   /// `branchdeck.githubRepository` (`owner/name`)
@@ -163,8 +157,6 @@ pub struct RepositoryConfig {
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`)
   pub landing_default: LandingDefault,
-  /// Always empty: stacked branches can't be turned off
-  pub stacks_off_clashes: Vec<FlatNameClash>,
   /// The config writes this process had made when the read began (`config_writes`): an answer with a larger one holds
   /// more writes, so the page keeps it over a smaller one that arrives later. 0 outside `read_repository_config`; `bd`
   /// ignores it
@@ -200,24 +192,11 @@ pub struct OriginFacts {
   pub on_space: bool,
 }
 
-/// A branch whose ref git cannot hold beside another one: `<prefix>/virtual/auth/login` needs a directory where
-/// `<prefix>/virtual/auth` is a file, so a sync fails on it
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct FlatNameClash {
-  /// The flat name, `auth/login`
-  pub branch: String,
-  /// The branch whose name is a directory of it, `auth`
-  pub beside: String,
-}
-
 /// A key of `RepositoryConfig`, as the change event names it
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum RepositoryConfigKey {
-  Stacks,
   Symbols,
   GithubRepository,
   BranchPrefix,
@@ -233,7 +212,6 @@ impl RepositoryConfigKey {
   /// The git config key, in the case Branch Deck writes it
   pub const fn config_key(self) -> &'static str {
     match self {
-      Self::Stacks => STACKS_CONFIG_KEY,
       Self::Symbols => SYMBOLS_CONFIG_KEY,
       Self::GithubRepository => GITHUB_REPOSITORY_CONFIG,
       Self::BranchPrefix => BRANCH_PREFIX_CONFIG_KEY,
@@ -248,7 +226,6 @@ impl RepositoryConfigKey {
 
   fn of_entry_key(key: &str) -> Option<Self> {
     [
-      Self::Stacks,
       Self::Symbols,
       Self::GithubRepository,
       Self::BranchPrefix,
@@ -281,7 +258,6 @@ pub enum WriteScope {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "key", content = "value", rename_all = "camelCase")]
 pub enum RepositoryConfigChange {
-  Stacks(Option<bool>),
   Symbols(Option<SymbolMode>),
   GithubRepository(Option<String>),
   BranchPrefix(Option<String>),
@@ -296,7 +272,6 @@ pub enum RepositoryConfigChange {
 impl RepositoryConfigChange {
   pub const fn key(&self) -> RepositoryConfigKey {
     match self {
-      Self::Stacks(_) => RepositoryConfigKey::Stacks,
       Self::Symbols(_) => RepositoryConfigKey::Symbols,
       Self::GithubRepository(_) => RepositoryConfigKey::GithubRepository,
       Self::BranchPrefix(_) => RepositoryConfigKey::BranchPrefix,
@@ -312,9 +287,7 @@ impl RepositoryConfigChange {
   /// The value to write, validated as the reader takes it; None to unset. An empty text unsets too
   fn config_value(&self) -> Result<Option<String>> {
     Ok(match self {
-      Self::Stacks(value) | Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) | Self::ReviewExperimental(value) => {
-        value.map(|value| value.to_string())
-      }
+      Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) | Self::ReviewExperimental(value) => value.map(|value| value.to_string()),
       Self::Symbols(value) => value.map(|mode| symbol_mode_name(mode).to_string()),
       Self::Landing(value) => value.map(|setting| setting.config_value().to_string()),
       Self::GithubRepository(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
@@ -367,7 +340,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The ten keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The nine keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -406,7 +379,6 @@ pub fn parse_config_entries(output: &str) -> Vec<ConfigEntry> {
 /// repository and the default route
 pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFacts) -> RepositoryConfig {
   RepositoryConfig {
-    stacks: resolve_setting(entries, RepositoryConfigKey::Stacks, false, |value| bool_setting(value, false)),
     symbols: resolve_setting(entries, RepositoryConfigKey::Symbols, SymbolMode::default(), |value| {
       match SymbolMode::parse(value.unwrap_or_default()) {
         Some(mode) => (mode, None),
@@ -429,7 +401,6 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, false, |value| bool_setting(value, false)),
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
-    stacks_off_clashes: Vec::new(),
     seq: 0,
   }
 }

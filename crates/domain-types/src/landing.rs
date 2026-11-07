@@ -162,8 +162,8 @@ pub enum ReferenceKind {
 pub enum LandingFix {
   /// Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too
   Restack { branch: String, onto: String },
-  /// Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, stacked branches are off,
-  /// or its branch is built on what lands, so a restack would close a cycle
+  /// Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, or its branch is built
+  /// on what lands, so a restack would close a cycle
   MoveCommit { commit: StackCommit, into: String },
 }
 

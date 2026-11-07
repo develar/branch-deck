@@ -45,13 +45,11 @@ fn on(name: &str, parent: Option<&str>) -> GroupedBranchInfo {
 fn grouping(branches: Vec<GroupedBranchInfo>, parked: &[(&str, &str)], stack_branches: &[&str]) -> SyncEvent {
   let mut grouping = branches_grouped(branches);
   if let SyncEvent::BranchesGrouped {
-    stacks,
     parked: lines,
     stack_branches: roots,
     ..
   } = &mut grouping
   {
-    *stacks = true;
     *lines = parked.iter().map(|(name, note)| ((*name).to_string(), (*note).to_string())).collect();
     *roots = stack_branches.iter().map(ToString::to_string).collect();
   }

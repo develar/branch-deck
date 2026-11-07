@@ -10,17 +10,6 @@ import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { holdNextAnswer, recordCommand, routeCommandError } from "../helpers/wait-helpers"
 
-/** docs stacks on ABC-1 (a level below it), or is a branch of its own */
-async function expectDocsStacked(page: Page, stacked: boolean): Promise<void> {
-  const docs = findBranchRow(page, "docs")
-  if (stacked) {
-    await expect(docs).toHaveAttribute("data-depth", "1")
-  } else {
-    await expect(docs).toBeVisible()
-    await expect(docs).not.toHaveAttribute("data-depth", "1")
-  }
-}
-
 /** The repository's name, as the page and its errors say it */
 function nameOf(path: string): string {
   return path.split("/").at(-1)!
@@ -29,7 +18,7 @@ function nameOf(path: string): string {
 /** Opens Settings → Repository and waits for the settings of the repository */
 async function openRepositorySettings(page: Page, focus?: string): Promise<Page> {
   const window = await openSettingsWindow(page, focus === undefined ? { page: "repository" } : { page: "repository", focus })
-  await expect(window.getByTestId("repository-setting-stacks")).toBeVisible()
+  await expect(window.getByTestId("repository-setting-symbols")).toBeVisible()
   return window
 }
 
@@ -48,82 +37,56 @@ function row(window: Page, key: string): Locator {
 }
 
 test.describe("Settings → Repository", () => {
-  test("should turn stacked branches off and on, and back to the default, the main window syncing each change", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // stacked branches on in .git/config: docs stacks on ABC-1 by the stack parents
-    const repo = await setupRepo("stacked_issues")
+  test("should turn the symbol dependencies off, and back to the default, the main window syncing each change", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple")
     await syncAndWaitForBranches()
-    await expectDocsStacked(page, true)
 
     const window = await openRepositorySettings(page)
     await expect(window.getByTestId("repository-settings")).toContainText(`Saved in .git/config of ${nameOf(repo.path)}, which bd reads too`)
-    const stacks = row(window, "stacks")
-    const toggle = stacks.getByRole("switch", { name: "Stacked branches" })
-    await expect(toggle).toBeChecked()
-    await expect(stacks.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
+    const symbols = row(window, "symbols")
+    const on = symbols.getByRole("button", { name: "On", exact: true })
+    const off = symbols.getByRole("button", { name: "Off", exact: true })
+    await expect(on).toHaveAttribute("aria-pressed", "true")
+    await expect(symbols.getByRole("button", { name: "Use Default" })).toHaveCount(0)
 
-    // off: the main window syncs, docs is a branch of its own
+    // off: the main window syncs
     let syncs = await finishedSyncCount(page)
-    await toggle.click()
-    await expect(toggle).not.toBeChecked()
+    await off.click()
+    await expect(off).toHaveAttribute("aria-pressed", "true")
+    await expect(symbols.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
     await waitForSyncComplete(page, syncs)
-    await expectDocsStacked(page, false)
 
-    // on again: stacked again
-    syncs = await finishedSyncCount(page)
-    await toggle.click()
-    await expect(toggle).toBeChecked()
-    await waitForSyncComplete(page, syncs)
-    await expectDocsStacked(page, true)
-
-    // Use Default removes the line of .git/config: off, the default, and no source to name
-    const reset = stacks.getByRole("button", { name: "Use Default" })
+    // Use Default removes the line of .git/config: On, the default, and no source to name; the main window syncs again
+    const reset = symbols.getByRole("button", { name: "Use Default" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Off, the default")
+    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to On, the default")
     syncs = await finishedSyncCount(page)
     await reset.click()
-    await expect(toggle).not.toBeChecked()
+    await expect(on).toHaveAttribute("aria-pressed", "true")
     await expect(reset).toHaveCount(0)
-    await expect(stacks.getByTestId("repository-setting-source")).toHaveCount(0)
+    await expect(symbols.getByTestId("repository-setting-source")).toHaveCount(0)
     await waitForSyncComplete(page, syncs)
-    await expectDocsStacked(page, false)
   })
 
-  test("should write stacked branches turned off during a held sync at once, the main window syncing it once after that sync", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupRepo("stacked_issues")
+  test("should write the symbol dependencies during a held sync at once, the main window syncing it once after that sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple")
     await syncAndWaitForBranches()
-    await expectDocsStacked(page, true)
     const window = await openRepositorySettings(page)
-    const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
-    await expect(toggle).toBeChecked()
+    const off = row(window, "symbols").getByRole("button", { name: "Off", exact: true })
+    await expect(off).toHaveAttribute("aria-pressed", "false")
 
     // the write waits for no sync: .git/config has it while the sync of the main window is held
     const syncs = await pressSyncHeld(page, repo)
     const written = nextAnswer(window, "set_repository_config")
-    await toggle.click()
+    await off.click()
     await written
-    await expect(toggle).not.toBeChecked()
+    await expect(off).toHaveAttribute("aria-pressed", "true")
     await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
     await expect(window.locator("[data-slot=toast]")).toHaveCount(0)
 
-    // the held sync ends, then the one sync of the change: docs is a branch of its own
+    // the held sync ends, then the one sync of the change
     await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect.poll(() => finishedSyncCount(page)).toBe(syncs + 2)
-    await expectDocsStacked(page, false)
-  })
-
-  test("should not offer to turn stacked branches off while their flat names would clash, and say what to do", async ({ page, setupRepo }) => {
-    await setupRepo("stacked_branches")
-    const window = await openRepositorySettings(page)
-    const stacks = row(window, "stacks")
-    await expect(stacks.getByRole("switch", { name: "Stacked branches" })).toBeChecked()
-    await expect(stacks.getByRole("switch", { name: "Stacked branches" })).toBeDisabled()
-    await expect(stacks.getByTestId("repository-setting-reason")).toHaveText(
-      "Turning this off renames login and session to names like auth/login, which git cannot keep next to auth. Unstack them first",
-    )
   })
 
   test("should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus", async ({
@@ -185,28 +148,29 @@ test.describe("Settings → Repository", () => {
     const repo = await setupRepo("simple")
     const window = await openRepositorySettings(page)
     await routeCommandError(window, "set_repository_config", { code: "internal", message: "could not lock config file .git/config: File exists" })
-    const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
-    await toggle.click()
-    const toast = window.locator("[data-slot=toast]").filter({ hasText: `Cannot turn on stacked branches in ${nameOf(repo.path)}` })
+    const symbols = row(window, "symbols")
+    await symbols.getByRole("button", { name: "Report Only" }).click()
+    const toast = window.locator("[data-slot=toast]").filter({ hasText: `Cannot change the symbol dependencies of ${nameOf(repo.path)}` })
     await expect(toast).toContainText("could not lock config file .git/config: File exists")
-    await expect(toggle).not.toBeChecked()
+    await expect(symbols.getByRole("button", { name: "Report Only" })).toHaveAttribute("aria-pressed", "false")
+    await expect(symbols.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "true")
   })
 
-  test("should keep a prefix saved while a switch's write runs, when the switch's older answer comes last", async ({ page, setupRepo }) => {
-    // the template sets branchdeck.branchPrefix user-name in .git/config, stacked branches off
+  test("should keep a prefix saved while a mode's write runs, when the mode's older answer comes last", async ({ page, setupRepo }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config, no symbol dependencies mode
     const repo = await setupRepo("simple")
     const window = await openRepositorySettings(page)
-    const toggle = row(window, "stacks").getByRole("switch", { name: "Stacked branches" })
+    const reportOnly = row(window, "symbols").getByRole("button", { name: "Report Only" })
     const field = row(window, "branchPrefix").getByRole("textbox", { name: "Branch prefix" })
     await expect(field).toHaveValue("user-name")
-    await expect(toggle).not.toBeChecked()
+    await expect(reportOnly).toHaveAttribute("aria-pressed", "false")
 
-    // the switch is written and read again on the server, with the old prefix; its answer waits
-    const switchWrite = await holdNextAnswer(window, "set_repository_config")
-    await toggle.click()
-    await switchWrite.ran
+    // the mode is written and read again on the server, with the old prefix; its answer waits
+    const modeWrite = await holdNextAnswer(window, "set_repository_config")
+    await reportOnly.click()
+    await modeWrite.ran
 
-    // the prefix is saved meanwhile, and answered first: read after both writes, it holds the switch too
+    // the prefix is saved meanwhile, and answered first: read after both writes, it holds the mode too
     const prefixWrite = window.waitForResponse(response => response.url().endsWith("/invoke/set_repository_config"))
     await field.click()
     await expect(field).toBeFocused()
@@ -214,20 +178,20 @@ test.describe("Settings → Repository", () => {
     await field.press("Enter")
     await prefixWrite
     await expect(field).toHaveValue("team")
-    await expect(toggle).toBeChecked()
+    await expect(reportOnly).toHaveAttribute("aria-pressed", "true")
 
-    // the switch's answer comes last, with the old prefix and one write fewer: the page has read it, and keeps the prefix
-    switchWrite.release()
+    // the mode's answer comes last, with the old prefix and one write fewer: the page has read it, and keeps the prefix
+    modeWrite.release()
     await settledIpc(window)
     await expect(field).toHaveValue("team")
-    await expect(toggle).toBeChecked()
+    await expect(reportOnly).toHaveAttribute("aria-pressed", "true")
 
     // a read again counts as many writes or more (the server writes for other tests too) and is taken: the focus finds
     // a prefix set in a terminal meanwhile, which no write of the app counts
     await repo.setBranchPrefixInTerminal("terminal")
     await emitTauriEvent(window, "tauri://focus")
     await expect(field).toHaveValue("terminal")
-    await expect(toggle).toBeChecked()
+    await expect(reportOnly).toHaveAttribute("aria-pressed", "true")
   })
 
   test("should name the branches by the repository's own prefix over the app's, in the main window too", async ({ page, setupRepo }) => {

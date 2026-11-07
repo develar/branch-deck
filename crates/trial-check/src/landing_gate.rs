@@ -230,9 +230,8 @@ impl Landing<'_> {
     dangling.chain(missing).collect()
   }
 
-  /// A restack of the root onto the branch of `needed`, the commit the start needs, unless stacked branches are off, that
-  /// branch is built on what lands (a cycle) or the commit is unassigned: then the move of the commit into `into`, the
-  /// branch that needs it
+  /// A restack of the root onto the branch of `needed`, the commit the start needs, unless that branch is built on
+  /// what lands (a cycle) or the commit is unassigned: then the move of the commit into `into`, the branch that needs it
   fn fix_of(&self, needed: &StackCommit, into: &str) -> LandingFix {
     let built_on_lands = |branch: &str| {
       self

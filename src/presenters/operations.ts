@@ -177,7 +177,7 @@ function rewriteRows(rewrite: RewriteIntent, lookup: RowLookup): readonly string
     case "squashFixups":
       return rewrite.scope.type === "branch" ? [rewrite.scope.value] : []
     case "group":
-      // a branch of the plan by its path, `parent/leaf` with stacked branches: its leaf is the row
+      // a branch of the plan by its path, `parent/leaf`: its leaf is the row
       return [...Object.keys(rewrite.plan.branches ?? {}).map(path => path.slice(path.lastIndexOf("/") + 1)), ...(rewrite.plan.unstack ?? [])]
     case "moveHunk":
       return lookup.branchesOf([rewrite.from, rewrite.to])

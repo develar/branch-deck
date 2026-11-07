@@ -96,7 +96,6 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     links_stack: false,
     repository: true,
     comment_route: None,
-    stacks_enabled: true,
     push_route: false,
     merge_route: false,
     cached: false,
@@ -135,7 +134,6 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
   );
   let off_space = BranchFacts {
     patronus: PatronusAnswer::NotOnSpace,
-    stacks_enabled: false,
     ..facts(&step, &status)
   };
   assert_eq!(
@@ -146,6 +144,7 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
       CreatePullRequest,
       Rename,
       MoveTo,
+      StackOn,
       Ungroup,
       AmendChanges,
       AddIssueReference,

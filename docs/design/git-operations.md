@@ -4426,14 +4426,13 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 
 #### Repository settings
 
-Settings → Repository shows and writes four keys of the repository's git config, Settings → Diffs & Merge the
-fifth, `branchdeck.resolveByWords`, Settings → Landing the sixth, `branchdeck.pushSizeLimit` (a size, `50M` when
+Settings → Repository shows and writes three keys of the repository's git config, Settings → Diffs & Merge the
+fourth, `branchdeck.resolveByWords`, Settings → Landing the fifth, `branchdeck.pushSizeLimit` (a size, `50M` when
 unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
 `resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, no row yet,
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the two rules of coding agents
 (`crates/sync-core/src/repository_config.rs`):
-`branchdeck.stacks` (read by no operation: stacked branches are always on), `branchdeck.symbols`,
-`branchdeck.githubRepository`, `branchdeck.branchPrefix`,
+`branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
 lands each commit with `brd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
@@ -4446,7 +4445,7 @@ two agent keys only `brd workspace` reads ([brd workspace](../../spec/cli/worksp
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `brd install` and the app's Install Agent CLI: no sync,
 no operation.
 
-- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$'`
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
@@ -4460,7 +4459,7 @@ no operation.
   unset (`fallback_value`, `fallback_scope`: the last system or global entry, else the default), for "Use Default" or
   "Use Global".
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not `branchdeck.stacks`, not the agent keys) and every `branch.<name>.description` (the branch name
+  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `symbol_mode`,
   `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental` and `descriptions`. A sync reads it once for the
   route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`; `brd status`

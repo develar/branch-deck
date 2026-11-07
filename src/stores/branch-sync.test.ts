@@ -56,13 +56,13 @@ describe("a push in flight", () => {
 
 describe("the whole stack a Safe Push of a branch can land instead", () => {
   afterEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackBranches: {} })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stackBranches: {} })
   })
 
   it("is the stack that forks and holds the branch, else the straight chain the branch heads", () => {
     const branches = [testBranch("auth", null), testBranch("login", "auth"), testBranch("oauth", "login"), testBranch("session", "auth"), testBranch("docs", null)]
     const branchOrder = branches.map(branch => branch.name)
-    branchSyncStore.setState({ ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }), branchOrder, stacksEnabled: true })
+    branchSyncStore.setState({ ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }), branchOrder })
     // the stack forks: without its stack branch it heads no whole stack yet, the sync builds it; docs heads no stack
     expect(["auth", "login", "oauth", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual([null, null, null, null])
     const stack = {

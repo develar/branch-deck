@@ -763,8 +763,6 @@ pub struct TableHeader {
   pub prefix: String,
   /// The baseline the sync compared with (`origin/master`); empty before the first grouping
   pub baseline_branch: String,
-  /// Stacked branches are on (`branchdeck.stacks`)
-  pub stacks_enabled: bool,
   /// Issue key -> branch name: the issue groups the commits were grouped with
   pub issue_groups: BTreeMap<String, String>,
   /// Child -> parent: the stack parents the branches were placed with
@@ -1081,7 +1079,7 @@ pub struct BranchHead {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub issue_key: Option<String>,
-  /// Where the branch sits in its stack; `None` without stacked branches
+  /// Where the branch sits in its stack; `None` for a branch the sync did not place
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack: Option<BranchStack>,

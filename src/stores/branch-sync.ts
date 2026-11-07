@@ -133,7 +133,7 @@ export interface Branch {
   readonly origin: BranchOrigin
   /** The issue the branch belongs to: its own name for an issue branch, the key all commits carry for a prefix branch */
   readonly issueKey: string | null
-  /** Where the branch sits in its stack; null without stacked branches */
+  /** Where the branch sits in its stack; null for a branch the sync did not place */
   readonly stack: BranchStack | null
   /** Where the branch is among the others, as Rust placed it (`BranchView.structure`) */
   readonly structure: BranchStructure
@@ -259,8 +259,6 @@ export interface BranchSyncState {
   baselineStatus: BaselineStatus | null
   /** The run of the session (`nextRunNumber`) whose grouping `branches` holds: their counts tell how far it is; 0 before one */
   groupedRun: number
-  /** Stacked branches are on for the repository (`branchdeck.stacks`), as the last grouping read it */
-  stacksEnabled: boolean
   /**
    * The review windows show the review plan (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md), as the
    * last grouping read it
@@ -268,7 +266,7 @@ export interface BranchSyncState {
   reviewExperimental: boolean
   /** Issue key -> branch name: the issue groups the last grouping read (`refs/branch-deck/issue-groups`) */
   issueGroups: Readonly<Record<string, string>>
-  /** Child -> parent: the stack parents the last grouping read (`refs/branch-deck/stack-parents`); empty with stacks off */
+  /** Child -> parent: the stack parents the last grouping read (`refs/branch-deck/stack-parents`) */
   stackParents: Readonly<Record<string, string>>
   /**
    * Branch -> note: the parked branches the last grouping read (`refs/branch-deck/parked`), kept local, never pushed;
@@ -389,7 +387,6 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   autosquashPlan: null,
   baselineStatus: null,
   groupedRun: 0,
-  stacksEnabled: false,
   reviewExperimental: false,
   issueGroups: {},
   stackParents: {},
@@ -928,15 +925,6 @@ export function getStackDescendants(name: string): readonly string[] {
 export function getUnparkedStackDescendants(name: string): string[] {
   const state = branchSyncStore.getState()
   return structureIn(state, name).descendants.filter(it => structureIn(state, it).parked === null)
-}
-
-/** Whether the last grouping read prefixes as stacked branches */
-export function useStacksEnabled(): boolean {
-  return useBranchSyncField("stacksEnabled", enabled => enabled)
-}
-
-export function isStacksEnabled(): boolean {
-  return branchSyncStore.getState().stacksEnabled
 }
 
 /** The issue groups of the last grouping: issue key -> branch name */

@@ -47,9 +47,9 @@ in the session wins over both.
 ## Requirements
 
 - `brd workspace` (`-C <dir>`, else the current directory) must print `{"schema":2,"kind","lease","subject_branch",
-  "stacks","top_level","subdir","shared_checkout","home","lease_id","holder","local_changes","active_leases","next"}`; each
-  rule is `{on, source, invalid, reason}`, `source` the config scope that sets it (`local`, `worktree`, `command`,
-  `global`, `system`) or `default`. By default both are on.
+  "top_level","subdir","shared_checkout","home","lease_id","holder","local_changes","active_leases","next"}`; each rule
+  is `{on, source, invalid, reason}`, `source` the config scope that sets it (`local`, `worktree`, `command`, `global`,
+  `system`) or `default`. By default both are on.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`nothing_set_is_the_defaults`)
 - In the main worktree (`kind: main`) with the lease on, `next` must be `brd lease get --holder <your name> -C

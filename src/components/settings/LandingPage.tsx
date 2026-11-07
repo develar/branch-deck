@@ -82,7 +82,7 @@ function LandingRouteRow({ path, config, showWritten }: { path: string; config: 
   const { write, writing } = useConfigWrite(path, showWritten)
   const setting = config.landing
   const route = effectiveRoute(config)
-  const set = (value: LandingSetting | null) => void write({ key: "landing", value }, "local", writeErrorTitle({ key: "landing", value }, false, path))
+  const set = (value: LandingSetting | null) => void write({ key: "landing", value }, "local", writeErrorTitle({ key: "landing", value }, path))
   return (
     <ConfigRow
       configKey="landing"

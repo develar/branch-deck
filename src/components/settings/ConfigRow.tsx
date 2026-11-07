@@ -21,7 +21,6 @@ export function ConfigRow({
   onReset,
   description,
   unsetSource = null,
-  reason = null,
   error = null,
   control,
 }: {
@@ -35,8 +34,6 @@ export function ConfigRow({
   description: string
   /** Where the value comes from while no config sets it: the detected GitHub repository, the prefix of General */
   unsetSource?: string | null
-  /** Why the control is disabled, besides the worktree config or the command line */
-  reason?: string | null
   /** The typing the backend would refuse */
   error?: string | null
   control: (labelId: string) => ReactNode
@@ -45,7 +42,6 @@ export function ConfigRow({
   const overridden = overriddenReason(setting)
   // a value the page can't change says where it comes from in its reason
   const source = overridden === null ? (describeSource(setting) ?? unsetSource) : null
-  const shownReason = overridden ?? reason
   return (
     <div className="flex flex-col gap-1" data-testid={`repository-setting-${configKey}`}>
       <div className="flex min-h-7 items-center gap-3">
@@ -69,9 +65,9 @@ export function ConfigRow({
         </p>
         {source !== null && <p data-testid="repository-setting-source">{source}</p>}
         {setting.invalid !== null && <p className="text-warning">{setting.invalid}</p>}
-        {shownReason !== null && (
+        {overridden !== null && (
           <p className="text-warning" data-testid="repository-setting-reason">
-            {shownReason}
+            {overridden}
           </p>
         )}
         {error !== null && (

@@ -29,8 +29,8 @@ function stored(branch: string, parent: string): CommitGroup {
   return { branch, origin: "prefix", parent, parentSource: "Store", invalid: false }
 }
 
-function change(from: CommitGroup | null, to: CommitGroup | null, stacks = true, stackParents: Readonly<Record<string, string>> = {}) {
-  return describePrefixChange(from, to, "Saving", stacks, "master", name => table[name], stackParents)
+function change(from: CommitGroup | null, to: CommitGroup | null, stackParents: Readonly<Record<string, string>> = {}) {
+  return describePrefixChange(from, to, "Saving", "master", name => table[name], stackParents)
 }
 
 describe("describePrefixChange", () => {
@@ -70,18 +70,13 @@ describe("describePrefixChange", () => {
 
   it("warns about a parent level that differs from the stored parent", () => {
     const parents = { login: "auth" }
-    expect(change(stored("login", "auth"), prefix("login", "docs"), true, parents)).toEqual({
+    expect(change(stored("login", "auth"), prefix("login", "docs"), parents)).toEqual({
       text: "login is stacked on auth in the stack parents: the prefix would conflict with it",
       warning: true,
     })
     // dropping a parent level that the stack parents repeat keeps the branch where it is
-    expect(change(prefix("login", "auth"), stored("login", "auth"), true, parents)).toEqual({ text: "The first line is the subject", warning: false })
-    expect(change(stored("login", "auth"), prefix("login", "auth"), true, parents).warning).toBe(false)
-  })
-
-  it("compares the whole prefix without stacked branches", () => {
-    expect(change(prefix("docs"), prefix("auth/login"), false).text).toBe("Saving moves the commit to the branch auth/login")
-    expect(change(prefix("auth/login"), prefix("auth/login"), false).warning).toBe(false)
+    expect(change(prefix("login", "auth"), stored("login", "auth"), parents)).toEqual({ text: "The first line is the subject", warning: false })
+    expect(change(stored("login", "auth"), prefix("login", "auth"), parents).warning).toBe(false)
   })
 })
 

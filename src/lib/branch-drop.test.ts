@@ -58,7 +58,6 @@ function facts(patch: Partial<Omit<BranchDropFacts, "blocker">> & { readonly rus
     parked: name => parked[name] ?? null,
     blocker: (name, id) => rust[name]?.[id],
     descendants: name => descendants[name] ?? [],
-    stacksEnabled: true,
     ...rest,
   }
 }
@@ -99,10 +98,9 @@ describe("branch drop", () => {
     expect(stackOnDrop(["login"], "auth", facts())).toEqual({ refusal: "Cannot stack login on auth: It is stacked on auth already" })
     expect(stackOnDrop(["auth"], "oauth", facts())).toEqual({ refusal: "Cannot stack auth on oauth: oauth is stacked on it" })
     expect(stackOnDrop(["docs"], "auth", facts({ rust: UNSTACKING }))).toEqual({ names: ["docs"] })
-    // no chip: its own row, two branches, stacked branches off
+    // no chip: its own row, two branches
     expect(stackOnDrop(["docs"], "docs", facts())).toBeNull()
     expect(stackOnDrop(["docs", "auth"], "oauth", facts())).toBeNull()
-    expect(stackOnDrop(["docs"], "auth", facts({ stacksEnabled: false }))).toBeNull()
   })
 
   it("stacks two or more selected branches together when Stack On is available for each", () => {
@@ -111,7 +109,6 @@ describe("branch drop", () => {
       refusal: "Cannot stack docs: A Safe Push of docs is running",
     })
     expect(stackTogetherDrop(["docs"], facts())).toBeNull()
-    expect(stackTogetherDrop(["docs", "oauth"], facts({ stacksEnabled: false }))).toBeNull()
   })
 
   it("blocks the rewrites of a branch with a stack problem by the reason Rust gives, and runs the fixes it offers", () => {
@@ -126,7 +123,6 @@ describe("branch drop", () => {
     expect(unstackDrop(["login"], facts())).toEqual({ names: ["login"] })
     expect(unstackDrop(["docs"], facts())).toBeNull()
     expect(unstackDrop(["login", "oauth"], facts())).toBeNull()
-    expect(unstackDrop(["login"], facts({ stacksEnabled: false }))).toBeNull()
     // Rust offers no Unstack of the branch: no zone
     expect(unstackDrop(["login"], facts({ rust: { login: {} } }))).toBeNull()
     // its own unstack runs in the session: as the menu says it

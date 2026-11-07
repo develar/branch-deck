@@ -100,7 +100,6 @@ pub struct BranchFacts<'a> {
   pub repository: bool,
   /// The pull request whose comment starts its Safe Push (`StartRoute::Comment`)
   pub comment_route: Option<u32>,
-  pub stacks_enabled: bool,
   /// The repository lands by a push of the copy into the target (`LandingRoute::Push`): its push is the start
   pub push_route: bool,
   /// The repository lands by a merge of the pull request on GitHub (`land::merges_on_github`): its merge is the start
@@ -181,11 +180,9 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   };
   offer(ActionId::Rename, fix(&|fix| *fix == StackFix::Rename));
   offer(ActionId::MoveTo, rewrite.clone());
-  if facts.stacks_enabled {
-    offer(ActionId::StackOn, fix(&|fix| matches!(fix, StackFix::StackOn(_))));
-    if row.declared_parent.is_some() || row.problem.is_some_and(|problem| problem.fixes.contains(&StackFix::Unstack)) {
-      offer(ActionId::Unstack, fix(&|fix| *fix == StackFix::Unstack));
-    }
+  offer(ActionId::StackOn, fix(&|fix| matches!(fix, StackFix::StackOn(_))));
+  if row.declared_parent.is_some() || row.problem.is_some_and(|problem| problem.fixes.contains(&StackFix::Unstack)) {
+    offer(ActionId::Unstack, fix(&|fix| *fix == StackFix::Unstack));
   }
   offer(ActionId::Ungroup, rewrite.clone());
   offer(ActionId::AmendChanges, rewrite.clone());

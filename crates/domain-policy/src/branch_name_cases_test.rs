@@ -16,32 +16,30 @@ struct NameCase {
   check: BranchNameCheck,
 }
 
-const FLAT: BranchNameRules = BranchNameRules { stacks: false, leaf_only: false };
-const STACKS: BranchNameRules = BranchNameRules { stacks: true, leaf_only: false };
-const LEAF: BranchNameRules = BranchNameRules { stacks: true, leaf_only: true };
+const ANY: BranchNameRules = BranchNameRules { leaf_only: false };
+const LEAF: BranchNameRules = BranchNameRules { leaf_only: true };
 
 /// Each state of a typed name, with the rules that decide it
 const NAME_CASES: &[(&str, BranchNameRules)] = &[
-  ("", FLAT),
-  ("feature-auth", FLAT),
-  ("  feature   auth  ", FLAT),
-  ("a", FLAT),
-  (" a ", FLAT),
-  ("invalid@branch#name", FLAT),
-  ("invalid@branch", STACKS),
-  (".hidden", FLAT),
-  ("auth/login", FLAT),
-  ("auth/login", STACKS),
+  ("", ANY),
+  ("feature-auth", ANY),
+  ("  feature   auth  ", ANY),
+  ("a", ANY),
+  (" a ", ANY),
+  ("invalid@branch#name", ANY),
+  ("invalid@branch", ANY),
+  (".hidden", ANY),
+  ("auth/login", ANY),
   ("auth/login", LEAF),
   ("login", LEAF),
-  ("feature-", FLAT),
-  ("-feature", FLAT),
-  ("feature--auth", FLAT),
-  ("feature..auth", FLAT),
-  ("auth//login", STACKS),
-  ("auth/", STACKS),
-  ("v1.2", FLAT),
-  ("snake_case", FLAT),
+  ("feature-", ANY),
+  ("-feature", ANY),
+  ("feature--auth", ANY),
+  ("feature..auth", ANY),
+  ("auth//login", ANY),
+  ("auth/", ANY),
+  ("v1.2", ANY),
+  ("snake_case", ANY),
 ];
 
 /// `UPDATE_BRANCH_NAME_CASES=1 cargo nextest run -p domain-policy -E 'test(/branch_name_cases/)'` writes it; without

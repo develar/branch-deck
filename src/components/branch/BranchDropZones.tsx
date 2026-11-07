@@ -69,7 +69,7 @@ export function UnstackDropZone() {
 }
 
 /**
- * "Stack on ‹name›" over the Actions cell of the row under a dragged branch, with stacked branches on: a drop there
+ * "Stack on ‹name›" over the Actions cell of the row under a dragged branch: a drop there
  * stacks the branch on the row's branch instead of moving its commits into it. Shown while the row or the chip itself
  * is under the pointer; a refusal shows its reason in the chip and in the drag bar.
  */

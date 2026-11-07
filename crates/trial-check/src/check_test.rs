@@ -251,7 +251,7 @@ fn a_session_checks_many_plans_as_check_plan_does() {
   assert_eq!(repository_state(&repo), before, "a session writes objects only");
 }
 
-/// Stacked branches on, `shared.txt` of eight lines added by `(a)`, its first line changed by `(a/b)`; `extra` adds
+/// `shared.txt` of eight lines added by `(a)`, its first line changed by `(a/b)`; `extra` adds
 /// commits after them. Returns the commits
 fn stacked_repo(extra: &[(&str, &str, &str)]) -> (TestRepo, Vec<String>) {
   let repo = TestRepo::new();

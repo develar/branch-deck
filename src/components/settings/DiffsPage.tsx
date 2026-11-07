@@ -143,7 +143,7 @@ function EveryRepositorySwitch({ path, read, config, configKey, label, descripti
 
   const write = (value: boolean | null, scope: WriteScope) => {
     const change: RepositoryConfigChange = { key: configKey, value }
-    void config.write(change, scope, scope === "global" ? globalErrorTitle : writeErrorTitle(change, false, path))
+    void config.write(change, scope, scope === "global" ? globalErrorTitle : writeErrorTitle(change, path))
   }
 
   return (

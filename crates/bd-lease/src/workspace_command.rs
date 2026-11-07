@@ -28,8 +28,6 @@ pub struct WorkspaceOutput {
   /// Start each commit subject with `(branch)` (`branchdeck.agentSubjectBranch`, off by default); off: write the
   /// subject as the repository does
   pub subject_branch: AgentRule,
-  /// Stacked branches (`branchdeck.stacks`): a new stack is declared with `(parent/leaf)`
-  pub stacks: bool,
   /// The top level of the working tree
   #[serde(skip_serializing_if = "Option::is_none")]
   pub top_level: Option<String>,
@@ -154,7 +152,6 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
     kind,
     lease,
     subject_branch,
-    stacks: answer.stacks,
     top_level: answer.top_level,
     subdir: answer.subdir,
     shared_checkout: answer.shared_checkout,

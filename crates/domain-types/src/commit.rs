@@ -103,15 +103,14 @@ pub struct IssueLead {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct CommitGroup {
-  /// The branch; with stacked branches the leaf of `(parent/leaf)`
+  /// The branch: the leaf of `(parent/leaf)`
   pub branch: String,
   pub origin: GroupOrigin,
-  /// With stacked branches: the parent the prefix declares, else the stack parent of the branch; `None` for none and
-  /// without stacked branches
+  /// The parent the prefix declares, else the stack parent of the branch; `None` for none
   pub parent: Option<String>,
-  /// With stacked branches and a parent: where it comes from
+  /// With a parent: where it comes from
   pub parent_source: Option<ParentSource>,
-  /// With stacked branches: the prefix has an empty level (`(a//b)`), so the branch reports an error
+  /// The prefix has an empty level (`(a//b)`), so the branch reports an error
   pub invalid: bool,
 }
 

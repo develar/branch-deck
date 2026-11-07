@@ -445,7 +445,6 @@ impl TableState {
       SyncEvent::BranchesGrouped {
         branches,
         baseline_branch,
-        stacks,
         issue_groups,
         stack_parents,
         parked,
@@ -468,7 +467,6 @@ impl TableState {
         header.head = head;
         header.branch = branch;
         header.store_tips = store_tips;
-        header.stacks_enabled = stacks;
         header.review_experimental = review_experimental;
         header.issue_groups = issue_groups;
         header.stack_parents = stack_parents;

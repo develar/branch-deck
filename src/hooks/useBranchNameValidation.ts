@@ -21,11 +21,11 @@ export interface BranchNameValidation extends CheckedBranchName {
 
 const NOTHING_TYPED: CheckedBranchName = { sanitizedBranchName: "", validationState: presentBranchNameState("empty"), isValid: false }
 
-function checked(check: BranchNameCheck | undefined, rules: BranchNameRules): CheckedBranchName {
+function checked(check: BranchNameCheck | undefined): CheckedBranchName {
   if (check === undefined) {
     return NOTHING_TYPED
   }
-  const validationState = presentBranchNameState(check.state, rules)
+  const validationState = presentBranchNameState(check.state)
   return { sanitizedBranchName: check.sanitized, validationState, isValid: validationState.isValid }
 }
 
@@ -34,16 +34,15 @@ function checked(check: BranchNameCheck | undefined, rules: BranchNameRules): Ch
  * kept, so typing back shows it at once
  */
 export function useBranchNameValidation(branchName: string, rules: BranchNameRules = {}): BranchNameValidation {
-  const stacks = rules.stacks === true
   const leafOnly = rules.leafOnly === true
-  const ask = (name: string) => commands.validateBranchName({ name, rules: { stacks, leafOnly } })
-  const read = useDebouncedRead(branchName === "" ? null : branchName, ask, `${stacks}\n${leafOnly}`)
-  const shown = branchName === "" ? NOTHING_TYPED : checked(read.answer, rules)
+  const ask = (name: string) => commands.validateBranchName({ name, rules: { leafOnly } })
+  const read = useDebouncedRead(branchName === "" ? null : branchName, ask, `${leafOnly}`)
+  const shown = branchName === "" ? NOTHING_TYPED : checked(read.answer)
   return {
     ...shown,
     // a name the answer is not for yet is no name to submit
     isValid: shown.isValid && !read.pending,
     pending: read.pending,
-    settled: async () => (branchName === "" ? NOTHING_TYPED : checked(await read.settled(), rules)),
+    settled: async () => (branchName === "" ? NOTHING_TYPED : checked(await read.settled())),
   }
 }

@@ -1,7 +1,7 @@
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { usePreviewGroup } from "@/hooks/usePreviewGroup"
 import { describePrefixChange } from "@/lib/stack"
-import { getBranch, useStackParents, useStacksEnabled } from "@/stores/branch-sync"
+import { getBranch, useStackParents } from "@/stores/branch-sync"
 
 export interface PrefixChangeHintProps {
   before: string
@@ -13,13 +13,12 @@ export interface PrefixChangeHintProps {
 }
 
 /**
- * Warns that a changed subject moves the commit to another branch (or out of every branch); with stacked branches also
- * that it restacks the branch, or would make a parent conflict or name a parent without commits (built on the baseline).
+ * Warns that a changed subject moves the commit to another branch (or out of every branch), restacks the branch, or
+ * would make a parent conflict or name a parent without commits (built on the baseline).
  * A stack problem that the core of the action refuses (`refusesStackProblems`) is said to be refused. Rust groups both
  * messages (`preview_group`), the typed one once the typing pauses: until it answered, the hint of the last answer stays
  */
 export function PrefixChangeHint({ before, after, action, refusesStackProblems = false }: PrefixChangeHintProps) {
-  const stacks = useStacksEnabled()
   const stackParents = useStackParents()
   const baseline = useBaselineOnRemote()
   const from = usePreviewGroup(before).answer
@@ -31,7 +30,6 @@ export function PrefixChangeHint({ before, after, action, refusesStackProblems =
     from,
     to,
     action,
-    stacks,
     baseline,
     name => {
       const branch = getBranch(name)

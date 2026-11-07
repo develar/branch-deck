@@ -1039,7 +1039,7 @@ export type BranchHead = {
 	origin: BranchOrigin,
 	/**  The issue the branch belongs to */
 	issueKey?: string | null,
-	/**  Where the branch sits in its stack; `None` without stacked branches */
+	/**  Where the branch sits in its stack; `None` for a branch the sync did not place */
 	stack?: BranchStack | null,
 };
 
@@ -1084,9 +1084,7 @@ export type BranchNameCheck = {
 
 /**  What a typed branch name may be */
 export type BranchNameRules = {
-	/**  Stacked branches are on: a `/` separates a parent from its branch */
-	stacks?: boolean,
-	/**  Only a branch name, not `parent/branch` (with stacked branches on: a rename) */
+	/**  Only a branch name, not `parent/branch` (a rename) */
 	leafOnly?: boolean,
 };
 
@@ -1214,7 +1212,7 @@ export type BranchRules = {
 /**  The table a branch is a row of: the main one, or the Parked card of the branches kept local */
 export type BranchSection = "main" | "parked";
 
-/**  Where a virtual branch sits in its stack; sent only with stacked branches on */
+/**  Where a virtual branch sits in its stack */
 export type BranchStack = {
 	declaredParent: string | null,
 	/**  Where `declared_parent` comes from */
@@ -1669,17 +1667,14 @@ export type CommitFiles = {
  *  message or a branch name preview it (`preview_group`)
  */
 export type CommitGroup = {
-	/**  The branch; with stacked branches the leaf of `(parent/leaf)` */
+	/**  The branch: the leaf of `(parent/leaf)` */
 	branch: string,
 	origin: GroupOrigin,
-	/**
-	 *  With stacked branches: the parent the prefix declares, else the stack parent of the branch; `None` for none and
-	 *  without stacked branches
-	 */
+	/**  The parent the prefix declares, else the stack parent of the branch; `None` for none */
 	parent: string | null,
-	/**  With stacked branches and a parent: where it comes from */
+	/**  With a parent: where it comes from */
 	parentSource: ParentSource | null,
-	/**  With stacked branches: the prefix has an empty level (`(a//b)`), so the branch reports an error */
+	/**  The prefix has an empty level (`(a//b)`), so the branch reports an error */
 	invalid: boolean,
 };
 
@@ -3252,17 +3247,6 @@ export type FlakyCheck = {
 	robot_url: string,
 };
 
-/**
- *  A branch whose ref git cannot hold beside another one: `<prefix>/virtual/auth/login` needs a directory where
- *  `<prefix>/virtual/auth` is a file, so a sync fails on it
- */
-export type FlatNameClash = {
-	/**  The flat name, `auth/login` */
-	branch: string,
-	/**  The branch whose name is a directory of it, `auth` */
-	beside: string,
-};
-
 /**  The part of the form of a declaration that changed */
 export type FormChange = 
 /**  The tokens before the body: `suspend`, the return type, the receiver, the parameters outside the JVM */
@@ -4002,8 +3986,8 @@ export type LandingFix =
 /**  Stack `branch`, the root of what lands, on `onto`, the branch of the commit it needs: the start lands it too */
 { kind: "restack"; branch: string; onto: string } | 
 /**
- *  Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, stacked branches are off,
- *  or its branch is built on what lands, so a restack would close a cycle
+ *  Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, or its branch is built
+ *  on what lands, so a restack would close a cycle
  */
 { kind: "moveCommit"; commit: StackCommit; into: string };
 
@@ -4518,13 +4502,13 @@ export type MoveCommitsResult = {
 	groupedIssues: string[],
 	/**  The issue keys whose issue group was removed: their commits are in the issue branch of the key again */
 	ungroupedIssues: string[],
-	/**  The branch the commits are in afterwards (the leaf with stacked branches on); `None` for a move back */
+	/**  The branch the commits are in afterwards (the leaf); `None` for a move back */
 	target?: string | null,
 	/**  HEAD afterwards */
 	head: string,
 	/**
-	 *  With stacked branches on, the branches whose parent the operation emptied: they stay stacked on it and are built on
-	 *  the nearest ancestor with commits, or the baseline, until it has commits again
+	 *  The branches whose parent the operation emptied: they stay stacked on it and are built on the nearest
+	 *  ancestor with commits, or the baseline, until it has commits again
 	 */
 	orphanedChildren: string[],
 	/**  What `undo_regroup` moves back; `None` for a dry run and when nothing changed */
@@ -5064,7 +5048,7 @@ export type ParentState =
 
 /**  A branch to park and its note */
 export type ParkBranchLine = {
-	/**  The branch (a leaf with stacked branches on) */
+	/**  The branch (a leaf) */
 	branchName: string,
 	/**  Why it is parked, one line; empty for none. Parking a parked branch changes its note */
 	note: string,
@@ -6209,10 +6193,7 @@ export type RefusedReviewer = {
  *  "ungroup_issues": [keys], "unstack": [branches]}`
  */
 export type RegroupPlan = {
-	/**
-	 *  Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on, which stacks `leaf` on `parent` in
-	 *  the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated
-	 */
+	/**  Branch path -> commits: a name, or `parent/leaf`, which stacks `leaf` on `parent` in the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated */
 	branches?: { [key in string]: string[] },
 	/**  Commits whose prefix is removed: they fall back to their issue group or issue branch, or become unassigned */
 	unassign?: string[],
@@ -6225,7 +6206,7 @@ export type RegroupPlan = {
 	ungroup_issues?: string[],
 	/**
 	 *  Branches made roots: their stack parent is removed, and their commits whose prefix declares a parent get the bare
-	 *  `(leaf)`. Needs stacked branches on
+	 *  `(leaf)`
 	 */
 	unstack?: string[],
 };
@@ -6324,8 +6305,6 @@ export type RepeatedEditGroup = {
 
 /**  The settings of Settings → Repository */
 export type RepositoryConfig = {
-	/**  `branchdeck.stacks`: read by no operation, stacked branches are always on */
-	stacks: ConfigSetting<boolean>,
 	/**  `branchdeck.symbols`, on by default */
 	symbols: ConfigSetting<SymbolMode>,
 	/**  `branchdeck.githubRepository` (`owner/name`) */
@@ -6351,8 +6330,6 @@ export type RepositoryConfig = {
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**  The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`) */
 	landingDefault: LandingDefault,
-	/**  Always empty: stacked branches can't be turned off */
-	stacksOffClashes: FlatNameClash[],
 	/**
 	 *  The config writes this process had made when the read began (`config_writes`): an answer with a larger one holds
 	 *  more writes, so the page keeps it over a smaller one that arrives later. 0 outside `read_repository_config`; `bd`
@@ -6362,7 +6339,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value?: boolean | null } | { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null } | { key: "reviewExperimental"; value?: boolean | null };
+export type RepositoryConfigChange = { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null } | { key: "reviewExperimental"; value?: boolean | null };
 
 /**  The journal of the repository of one or more recent projects (the worktrees of one repository share it) */
 export type RepositoryJournal = {
@@ -8749,8 +8726,6 @@ export type TableHeader = {
 	prefix: string,
 	/**  The baseline the sync compared with (`origin/master`); empty before the first grouping */
 	baselineBranch: string,
-	/**  Stacked branches are on (`branchdeck.stacks`) */
-	stacksEnabled: boolean,
 	/**  Issue key -> branch name: the issue groups the commits were grouped with */
 	issueGroups: { [key in string]: string },
 	/**  Child -> parent: the stack parents the branches were placed with */

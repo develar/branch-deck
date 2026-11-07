@@ -154,7 +154,7 @@ function AgentRuleSetting({
                     onClick={() => {
                       if (!pressed) {
                         const change = { key: configKey, value: choice.value }
-                        void write(change, "local", writeErrorTitle(change, false, path))
+                        void write(change, "local", writeErrorTitle(change, path))
                       }
                     }}
                   >

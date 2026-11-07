@@ -31,7 +31,6 @@ function setBranches(...branches: Branch[]): void {
   branchSyncStore.setState({
     ...placed({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder }),
     branchOrder,
-    stacksEnabled: true,
     pushes: {},
     actions: Object.fromEntries(branches.map(branch => [branch.name, enabled(...LANDING_BRANCH)])),
   })
@@ -75,7 +74,7 @@ function itemOf(name: string, id: string): MenuItem | undefined {
 }
 
 afterEach(() => {
-  branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, nextSteps: {}, actions: {}, isSyncing: false, operations: {}, stackBranches: {}, pushes: {} })
+  branchSyncStore.setState({ branches: {}, branchOrder: [], nextSteps: {}, actions: {}, isSyncing: false, operations: {}, stackBranches: {}, pushes: {} })
 })
 
 /** The push of the stack started from `startedFrom` of the branches `names` runs, an operation of the session */

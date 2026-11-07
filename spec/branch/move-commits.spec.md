@@ -323,8 +323,8 @@ Renaming and ungrouping a branch are moves of all its commits.
     commit rows and of parked branches as any row.
   - The unpark zone of the drag bar unparks the dragged parked branches; a branch parked with its parent goes along
     with the parent; those that land stay as they are.
-  - With stacked branches on, a "Stack on ‹name›" chip over the Actions cell of the row under one dragged branch
-    stacks it there instead of moving its commits; the unstack zone of the drag bar makes a stacked branch a root
+  - A "Stack on ‹name›" chip over the Actions cell of the row under one dragged branch stacks it there instead of
+    moving its commits; the unstack zone of the drag bar makes a stacked branch a root
     ([Stack Parents](stack-parents.spec.md#app)).
   - After the drop the row is scrolled into view where it went (the Parked card, the table).
   [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and never waits for a sync`)

@@ -264,14 +264,10 @@ pub enum SyncEvent {
     branches: Vec<GroupedBranchInfo>,
     /// Repository's baseline branch (e.g., "origin/master", "master")
     baseline_branch: String,
-    /// Stacked branches are on (`branchdeck.stacks`): prefixes are read as `(parent/leaf)`
-    #[cfg_attr(feature = "specta", specta(optional))]
-    stacks: bool,
     /// Issue key -> branch name: the issue groups (`refs/branch-deck/issue-groups`) the commits were grouped with
     #[cfg_attr(feature = "specta", specta(optional))]
     issue_groups: BTreeMap<String, String>,
-    /// Child -> parent: the stack parents (`refs/branch-deck/stack-parents`) the branches were placed with; empty with
-    /// stacked branches off
+    /// Child -> parent: the stack parents (`refs/branch-deck/stack-parents`) the branches were placed with
     #[cfg_attr(feature = "specta", specta(optional))]
     stack_parents: BTreeMap<String, String>,
     /// Branch -> note: the parked branches (`refs/branch-deck/parked`), kept local and never pushed; also the lines of
@@ -390,8 +386,8 @@ pub struct GroupedBranchInfo {
   pub origin: BranchOrigin,
   /// The issue the branch belongs to: the name of an issue branch, or the key every commit of a prefix branch carries
   pub issue_key: Option<String>,
-  /// Where the branch sits in its stack; `None` without stacked branches (`branchdeck.stacks`). Optional in TypeScript, so
-  /// code that builds a `GroupedBranchInfo` needn't know about stacks
+  /// Where the branch sits in its stack; `None` for a branch no sync placed. Optional in TypeScript, so code that builds a
+  /// `GroupedBranchInfo` needn't know about stacks
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack: Option<stack::BranchStack>,
 }

@@ -14,7 +14,7 @@ use test_utils::process_budget::repo_on_origin;
 
 const PREFIX: &str = "test";
 
-/// Stacked branches on `origin/master`: `util` adds `controlUrl`, `flow` uses it, `flow/ui` is stacked on `flow`;
+/// On `origin/master`: `util` adds `controlUrl`, `flow` uses it, `flow/ui` is stacked on `flow`;
 /// returns the repository and the commit of `util`
 pub(crate) fn repo() -> (TestRepo, String) {
   let repo = repo_on_origin();

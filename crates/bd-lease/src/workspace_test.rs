@@ -27,12 +27,12 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
 
   let output = workspace_in(&fixture, &fixture.repo.path().join("crates/x"));
   assert_eq!(
-    (&output["kind"], &output["lease"], &output["subject_branch"], &output["stacks"]),
+    (&output["kind"], &output["lease"], &output["subject_branch"], output.get("stacks")),
     (
       &json!("main"),
       &json!({ "on": true, "source": "default" }),
       &json!({ "on": true, "source": "default" }),
-      &json!(true)
+      None
     )
   );
   assert_eq!(
@@ -89,11 +89,10 @@ fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
   fixture.repo.set_config("branchdeck.agentSubjectBranch", "maybe").unwrap();
   let output = workspace_in(&fixture, fixture.repo.path());
   assert_eq!(
-    (&output["lease"], &output["subject_branch"], &output["stacks"]),
+    (&output["lease"], &output["subject_branch"]),
     (
       &json!({ "on": true, "source": "local" }),
-      &json!({ "on": true, "source": "local", "invalid": "maybe is not a boolean (true or false)" }),
-      &json!(true)
+      &json!({ "on": true, "source": "local", "invalid": "maybe is not a boolean (true or false)" })
     )
   );
 }

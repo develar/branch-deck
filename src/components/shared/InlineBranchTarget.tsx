@@ -15,7 +15,7 @@ import { usePreviewGroup } from "@/hooks/usePreviewGroup"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
-import { useBranchSync, useMoveTargets, useStacksEnabled } from "@/stores/branch-sync"
+import { useBranchSync, useMoveTargets } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { useIndicatorClaim, useSurfaceBusy } from "@/stores/indicators"
 import { useSelectedProjectPath } from "@/stores/repository"
@@ -35,7 +35,7 @@ export interface InlineBranchTargetProps {
 /**
  * Inline "Move to…" form: one name input; an existing branch name moves the commits there, a new name creates the
  * branch. Existing branches (the same stack and the same issue first) and AI suggestions are offered below the input.
- * With stacked branches on, `auth/login` names the branch `login` on `auth`, and a branch is looked up by its leaf.
+ * `auth/login` names the branch `login` on `auth`, and a branch is looked up by its leaf.
  * A dry run of the move says what it does: the issues that go there by their key, without a rewrite, and the commits
  * that get the prefix; a source branch already pushed keeps its remote branch.
  */
@@ -51,11 +51,10 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   const isMoving = useSurfaceBusy(MOVE_TARGET_SURFACE) !== null
 
   const [branchName, setBranchName] = useState("")
-  const stacks = useStacksEnabled()
-  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(branchName, { stacks })
-  // with stacked branches the name may carry a parent: `auth/login` is the branch `login`; a bare name takes its
-  // stack parent, as Rust groups the prefix `(<name>)`
-  const target = usePreviewGroup(stacks && sanitizedBranchName !== "" ? `(${sanitizedBranchName})` : null).answer ?? null
+  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(branchName)
+  // the name may carry a parent: `auth/login` is the branch `login`; a bare name takes its stack parent, as Rust
+  // groups the prefix `(<name>)`
+  const target = usePreviewGroup(sanitizedBranchName !== "" ? `(${sanitizedBranchName})` : null).answer ?? null
   const leaf = target?.branch ?? sanitizedBranchName
   const parent = target?.parent ?? null
   const branches = useBranchSync(state => state.branches)
@@ -119,20 +118,16 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   const commitCount = formatCommitCount(commits.length)
   let helpText: string | undefined
   if (isValid && !isSource) {
-    if (!stacks) {
-      helpText = existing ? `Moves ${commitCount} to the existing branch ${sanitizedBranchName}` : `Creates the branch ${sanitizedBranchName} with ${commitCount}`
+    const existingParent = existingBranch?.stack?.declaredParent ?? null
+    const onParent = parent ?? existingParent
+    const on = onParent === null ? "" : ` (on ${onParent})`
+    if (!existing) {
+      helpText = parent === null ? `Creates ${leaf} with ${commitCount}` : `Creates ${leaf} on ${parent} with ${commitCount}`
+    } else if (parent !== null && existingParent !== parent) {
+      // the path writes the stack parent: the whole branch moves onto the new parent
+      helpText = `Moves ${commitCount} to ${leaf} and stacks it on ${parent}${existingParent === null ? "" : ` instead of ${existingParent}`}`
     } else {
-      const existingParent = existingBranch?.stack?.declaredParent ?? null
-      const onParent = parent ?? existingParent
-      const on = onParent === null ? "" : ` (on ${onParent})`
-      if (!existing) {
-        helpText = parent === null ? `Creates ${leaf} with ${commitCount}` : `Creates ${leaf} on ${parent} with ${commitCount}`
-      } else if (parent !== null && existingParent !== parent) {
-        // the path writes the stack parent: the whole branch moves onto the new parent
-        helpText = `Moves ${commitCount} to ${leaf} and stacks it on ${parent}${existingParent === null ? "" : ` instead of ${existingParent}`}`
-      } else {
-        helpText = `Moves ${commitCount} to ${leaf}${on}`
-      }
+      helpText = `Moves ${commitCount} to ${leaf}${on}`
     }
     // the move rewrites commits only where it must: the help says what it does, not only the undo toast
     const effect = preview.result === null ? undefined : describeEffect(preview.result, leaf, commits.length)

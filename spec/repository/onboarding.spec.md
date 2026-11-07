@@ -391,7 +391,7 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should show empty state alert when only archived branches exist`)
 - One set of examples everywhere (empty state, guide, popover, README): `(auth) Add login form`, `ABC-123 Fix login
   bug`, `[threading] ABC-123 Fix login bug`.
-- Move to… says that it rewrites the commits: "Creates the branch auth with 2 commits: rewrites them to start with
+- Move to… says that it rewrites the commits: "Creates auth with 2 commits: rewrites them to start with
   (auth)".
 
 ### Agents

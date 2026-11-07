@@ -1,15 +1,4 @@
-import type {
-  ConfigScope,
-  ConfigSetting,
-  DetectedGitHubRepository,
-  FlatNameClash,
-  LandingDefault,
-  LandingSetting,
-  RepositoryConfig,
-  RepositoryConfigChange,
-  SymbolMode,
-} from "@/lib/bindings"
-import { joinNames } from "@/lib/text"
+import type { ConfigScope, ConfigSetting, DetectedGitHubRepository, LandingDefault, LandingSetting, RepositoryConfig, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
 
 /*
  * Settings → Repository (spec/repository/settings.spec.md#repository): the `branchdeck.*` git config of the selected
@@ -27,7 +16,6 @@ export interface RepositoryConfigChanged {
 
 /** The git config key of each setting, in the case Branch Deck writes it */
 export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
-  stacks: "branchdeck.stacks",
   symbols: "branchdeck.symbols",
   githubRepository: "branchdeck.githubRepository",
   branchPrefix: "branchdeck.branchPrefix",
@@ -254,29 +242,10 @@ export function describeAppPrefixSource(setting: ConfigSetting<string | null>, a
   }
 }
 
-/**
- * Why stacked branches can't be turned off: the flat names of the stacked branches would clash with their parents
- * (`stacks_off_clashes`), and the sync would fail. Null without a clash
- */
-export function stacksOffReason(clashes: readonly FlatNameClash[]): string | null {
-  const first = clashes[0]
-  if (first === undefined) {
-    return null
-  }
-  const leafOf = (clash: FlatNameClash): string => clash.branch.split("/").at(-1) ?? clash.branch
-  const leaf = leafOf(first)
-  if (clashes.length === 1) {
-    return `Turning this off makes ${leaf} the branch ${first.branch}, which git cannot keep next to ${first.beside}. Unstack ${leaf} first`
-  }
-  return `Turning this off renames ${joinNames(clashes.map(leafOf))} to names like ${first.branch}, which git cannot keep next to ${first.beside}. Unstack them first`
-}
-
 /** The title of a failed write, in the words of the change (ux-writing: "Cannot <verb> <object>") */
-export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: boolean, repositoryPath: string): string {
+export function writeErrorTitle(change: RepositoryConfigChange, repositoryPath: string): string {
   const name = repositoryName(repositoryPath)
   switch (change.key) {
-    case "stacks":
-      return `Cannot turn ${(change.value ?? fallbackStacks) ? "on" : "off"} stacked branches in ${name}`
     case "symbols":
       return `Cannot change the symbol dependencies of ${name}`
     case "githubRepository":

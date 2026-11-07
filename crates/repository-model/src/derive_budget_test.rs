@@ -115,7 +115,6 @@ pub(crate) fn session() -> (TableState, FactStore) {
   let mut events = vec![SyncEvent::BranchesGrouped {
     branches: branches.clone(),
     baseline_branch: "origin/master".to_owned(),
-    stacks: true,
     issue_groups: BTreeMap::new(),
     stack_parents: BTreeMap::new(),
     parked: BTreeMap::new(),

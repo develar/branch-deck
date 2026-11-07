@@ -2136,7 +2136,7 @@ over from a dead holder, another session's `brd workspace` is `lease_reclaimed`;
 
 ```json
 {"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":true,"source":"default"},
- "stacks":false,"top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
+ "top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
  "active_leases":[],"next":["brd lease get --holder <your name> -C /work/app"]}
 ```
 

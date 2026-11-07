@@ -758,7 +758,6 @@ function headerFields(state: BranchSyncState, view: RepositoryView): Partial<Bra
   const { header } = view
   return {
     baselineBranch: header.baselineBranch === "" ? null : header.baselineBranch,
-    stacksEnabled: header.stacksEnabled,
     reviewExperimental: header.reviewExperimental,
     issueGroups: sameFields(header.issueGroups, state.issueGroups) ? state.issueGroups : header.issueGroups,
     stackParents: sameFields(header.stackParents, state.stackParents) ? state.stackParents : header.stackParents,
@@ -980,7 +979,6 @@ function resetTable(): void {
     unassignedCommits: [],
     autosquashPlan: null,
     baselineStatus: null,
-    stacksEnabled: false,
     reviewExperimental: false,
     issueGroups: {},
     stackParents: {},

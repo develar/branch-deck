@@ -108,7 +108,7 @@ pub struct StackBlock {
   pub reason: BlockReason,
 }
 
-/// Where a virtual branch sits in its stack; sent only with stacked branches on
+/// Where a virtual branch sits in its stack
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

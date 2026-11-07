@@ -39,7 +39,7 @@ export function PushSizeLimitSetting({ path }: { path: string }) {
 
   const write = (value: string | null, scope: WriteScope): Promise<boolean> => {
     const change: RepositoryConfigChange = { key: "pushSizeLimit", value }
-    return config.write(change, scope, scope === "global" ? "Cannot change the push size limit of every repository" : writeErrorTitle(change, false, path))
+    return config.write(change, scope, scope === "global" ? "Cannot change the push size limit of every repository" : writeErrorTitle(change, path))
   }
 
   /** Writes valid typing that changes the value where it comes from: `.git/config` when it sets the key, else the global config */

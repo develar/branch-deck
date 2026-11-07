@@ -135,9 +135,6 @@ menu stacks, unstacks and renames branches.
   without a setting. A set `branchdeck.stacks` must be ignored; branches an older version grouped under a flat name with
   a `/` are not migrated.
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`a_slash_in_a_prefix_stacks_without_any_config`)
-- Settings → Repository doesn't offer stacks off while it would fail so: it names the stacked branches whose flat
-  names clash and says to unstack them first ([Settings](../repository/settings.spec.md#repository)).
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
 
 ### Prefix syntax
 
@@ -621,8 +618,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
 - Issue families must be formed from the stack roots only; a family member and the stack on it are indented one
   level (`familyIndent`), and the stack keeps its lanes inside it: lanes mean "built on", the indent "belongs to the
   issue". A stacked branch of another issue than its parent shows its issue as a chip, unless the branch is named
-  after it. Without stacked branches the table has no lanes; a stack and an issue family each read as one block
-  ([Branch Row](branch-row.spec.md#tree), the dividers).
+  after it. A stack and an issue family each read as one block ([Branch Row](branch-row.spec.md#tree), the dividers).
   [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`, `indents a family member and the stack on it one level, with the lanes of the stack inside`, `shows no chip for a stacked branch named after its issue`)
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`)
 - Under the filter of the table ([Branch Filter](branch-filter.spec.md)), the rows of the matches only
@@ -674,8 +670,8 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   on oauth".
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`, `should stack an issue branch without a rewrite and undo it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restack_writes_the_store_and_rewrites_only_differing_parent_levels`, `unstack_removes_the_line_and_the_parent_levels`, `renaming_a_parent_renames_it_in_its_children`)
-- With stacked branches on, selecting two or more branches must show "Stack Together" on the selection bar. It stacks
-  them oldest-first (the oldest commit at the bottom), keeps an existing ancestor edge and a moved branch's children,
+- Selecting two or more branches must show "Stack Together" on the selection bar. It stacks them oldest-first (the
+  oldest commit at the bottom), keeps an existing ancestor edge and a moved branch's children,
   and uses the `stack-on` blocker for every selected branch. Its tooltip says "Stacks the selected branches, the oldest
   at the bottom"; a successful click clears the selection, shows one toast with one Undo and one Activity entry, and the
   table shows the new chain after its sync.

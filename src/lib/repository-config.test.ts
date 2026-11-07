@@ -13,7 +13,6 @@ import {
   overriddenReason,
   repositoryName,
   resetLabel,
-  stacksOffReason,
   withAppPrefix,
   writeErrorTitle,
   describeGlobalSource,
@@ -112,30 +111,13 @@ describe("the rows of Settings → Repository", () => {
     expect(overriddenReason(setting({ scope: "command" }))).toBe("Set by git -c or GIT_CONFIG_*, which overrides .git/config")
   })
 
-  it("says why stacked branches can't be turned off, and what to do", () => {
-    expect(stacksOffReason([])).toBeNull()
-    expect(stacksOffReason([{ branch: "auth/login", beside: "auth" }])).toBe(
-      "Turning this off makes login the branch auth/login, which git cannot keep next to auth. Unstack login first",
-    )
-    expect(
-      stacksOffReason([
-        { branch: "auth/login", beside: "auth" },
-        { branch: "auth/session", beside: "auth" },
-      ]),
-    ).toBe("Turning this off renames login and session to names like auth/login, which git cannot keep next to auth. Unstack them first")
-  })
-
   it("titles a failed write by what it changes", () => {
     expect(repositoryName("/home/jane/app/")).toBe("app")
-    expect(writeErrorTitle({ key: "stacks", value: true }, false, "/repo/app")).toBe("Cannot turn on stacked branches in app")
-    expect(writeErrorTitle({ key: "stacks", value: false }, false, "/repo/app")).toBe("Cannot turn off stacked branches in app")
-    // an unset turns them as the global value or the default says
-    expect(writeErrorTitle({ key: "stacks", value: null }, true, "/repo/app")).toBe("Cannot turn on stacked branches in app")
-    expect(writeErrorTitle({ key: "githubRepository", value: "acme/app" }, false, "C:\\repo\\app")).toBe("Cannot change the GitHub repository of app")
-    expect(writeErrorTitle({ key: "pushSizeLimit", value: "200M" }, false, "/repo/app")).toBe("Cannot change the push size limit of app")
-    expect(writeErrorTitle({ key: "agentLease", value: null }, false, "/repo/app")).toBe("Cannot change where agents work in app")
-    expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, false, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
-    expect(writeErrorTitle({ key: "landing", value: "push" }, false, "/repo/app")).toBe("Cannot change how app lands into master")
+    expect(writeErrorTitle({ key: "githubRepository", value: "acme/app" }, "C:\\repo\\app")).toBe("Cannot change the GitHub repository of app")
+    expect(writeErrorTitle({ key: "pushSizeLimit", value: "200M" }, "/repo/app")).toBe("Cannot change the push size limit of app")
+    expect(writeErrorTitle({ key: "agentLease", value: null }, "/repo/app")).toBe("Cannot change where agents work in app")
+    expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
+    expect(writeErrorTitle({ key: "landing", value: "push" }, "/repo/app")).toBe("Cannot change how app lands into master")
   })
 })
 
@@ -158,20 +140,18 @@ describe("newer", () => {
     fallbackScope: null,
   })
   /** The settings an answer read after `seq` writes of the backend */
-  const config = (seq: number, stacks: boolean, prefix: string | null): RepositoryConfig => ({
-    stacks: setting({ value: stacks, scope: "local", localSet: true }),
+  const config = (seq: number, resolveByWords: boolean, prefix: string | null): RepositoryConfig => ({
     symbols: { value: "on", scope: null, localSet: false, invalid: null, fallbackValue: "on", fallbackScope: null },
     githubRepository: text(null),
     branchPrefix: text(prefix),
     pushSizeLimit: text(null),
-    resolveByWords: setting({}),
+    resolveByWords: setting({ value: resolveByWords, scope: "local", localSet: true }),
     landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
     reviewExperimental: setting({}),
     detectedGithubRepository: null,
     landingDefault: { route: "pullRequest", onSpace: false },
-    stacksOffClashes: [],
     seq,
   })
   /** What the page shows once the answers arrived in this order */

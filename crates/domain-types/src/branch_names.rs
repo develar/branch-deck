@@ -147,10 +147,7 @@ pub fn sanitize_branch_name(name: &str) -> String {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct BranchNameRules {
-  /// Stacked branches are on: a `/` separates a parent from its branch
-  #[serde(default)]
-  pub stacks: bool,
-  /// Only a branch name, not `parent/branch` (with stacked branches on: a rename)
+  /// Only a branch name, not `parent/branch` (a rename)
   #[serde(default)]
   pub leaf_only: bool,
 }
@@ -200,7 +197,7 @@ pub fn check_branch_name(name: &str, rules: BranchNameRules) -> BranchNameCheck 
   let sanitized = name.split_whitespace().collect::<Vec<_>>().join("-");
   let state = if name.is_empty() {
     BranchNameState::Empty
-  } else if rules.stacks && rules.leaf_only && name.contains('/') {
+  } else if rules.leaf_only && name.contains('/') {
     BranchNameState::LeafOnly
   } else if sanitized.chars().count() < 2 {
     BranchNameState::TooShort

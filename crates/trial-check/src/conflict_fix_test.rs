@@ -11,7 +11,7 @@ use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 const PREFIX: &str = "test-prefix";
 
-/// Stacked branches on: `base` adds a file and `feature`, stacked on it, changes its second line, which `other` (a
+/// `base` adds a file and `feature`, stacked on it, changes its second line, which `other` (a
 /// root) changes again in its last commit `(other) Change lib again`
 fn other_needs_feature(other_commits: &[(&str, &str, &str)]) -> (TestRepo, String) {
   let repo = baseline_repo();

@@ -4,7 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { ConfigRow } from "@/components/settings/ConfigRow"
 import { ReadFailure } from "@/components/settings/SettingRow"
@@ -26,7 +25,6 @@ import {
   isValidGitHubRepository,
   overriddenReason,
   repositoryName,
-  stacksOffReason,
   symbolModeLabel,
   withAppPrefix,
   writeErrorTitle,
@@ -89,7 +87,7 @@ function ConfigRows({ path, config, showWritten }: { path: string; config: Repos
 
   /** Writes one key; true once the backend answered the settings read again */
   const write = (change: RepositoryConfigChange): Promise<boolean> => {
-    const title = writeErrorTitle(change, config.stacks.fallbackValue, path)
+    const title = writeErrorTitle(change, path)
     setWriting(change.key)
     return writeRepositoryConfig(path, change, undefined, title, showWritten).finally(() => setWriting(null))
   }
@@ -187,30 +185,10 @@ function ConfigRows({ path, config, showWritten }: { path: string; config: Repos
   // the prefix of General wins over a global or system one: the row shows the prefix the branches are named by
   const branchPrefix = withAppPrefix(config.branchPrefix, appPrefix)
   const prefix = textField("branchPrefix", branchPrefix, "Branch prefix", appPrefix || config.branchPrefix.fallbackValue || "your-name")
-  const stacksOff = config.stacks.value ? stacksOffReason(config.stacksOffClashes) : null
   const currentMode = SYMBOL_MODES.find(it => it.mode === config.symbols.value)
 
   return (
     <>
-      <ConfigRow
-        configKey="stacks"
-        label="Stacked branches"
-        setting={config.stacks}
-        fallback={describeFallback(config.stacks, config.stacks.fallbackValue ? "On" : "Off")}
-        busy={writing === "stacks"}
-        onReset={() => void write({ key: "stacks", value: null })}
-        description="(auth/login) in a commit builds login on top of auth"
-        reason={stacksOff}
-        control={labelId => (
-          <Switch
-            size="sm"
-            checked={config.stacks.value}
-            disabled={overriddenReason(config.stacks) !== null || stacksOff !== null || writing === "stacks"}
-            onCheckedChange={checked => void write({ key: "stacks", value: checked })}
-            aria-labelledby={labelId}
-          />
-        )}
-      />
       <ConfigRow
         configKey="symbols"
         label="Symbol dependencies"

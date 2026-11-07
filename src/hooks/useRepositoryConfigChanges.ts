@@ -30,9 +30,6 @@ export function useRepositoryConfigChanges(): void {
         // session, which syncs as it opens, the same one again changes nothing
         void resubscribeSession()
         break
-      case "stacks":
-        resync()
-        break
       case "symbols":
         // the mode On orders and stacks the branches, and decides what a stacked branch needs of its parent
         resetStackIndependence()

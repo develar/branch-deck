@@ -3,23 +3,22 @@ import { PencilIcon } from "lucide-react"
 import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { renameBranch } from "@/hooks/useStackActions"
-import { getBranch, getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
+import { getBranch, getStackDescendants, useBranch } from "@/stores/branch-sync"
 import { closeInline, inlineSurface, withRowProgress } from "@/stores/inline-row-action"
 
 /**
  * Renames a branch (the rewrite `rename`): a prefix branch in the prefixes of its commits; an issue branch and an issue
  * group in the issue groups, without a rewrite (a stacked one by a prefix), and so are the issue groups of a prefix
- * branch. An existing name merges the branches. With stacked branches on, the branches stacked on it follow: the name
- * changes in their prefixes too.
+ * branch. An existing name merges the branches. The branches stacked on it follow: the name changes in their prefixes
+ * too.
  */
 export function InlineRenameBranchInput({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
   const isIssueBranch = branch?.origin === "Issue"
   const isIssueGroup = branch?.origin === "IssueGroup"
   const [name, setName] = useState(isIssueBranch ? "" : branchName)
-  const stacks = useStacksEnabled()
-  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(name, { stacks, leafOnly: true })
-  const followers = stacks ? getStackDescendants(branchName) : []
+  const { sanitizedBranchName, validationState, isValid, pending, settled } = useBranchNameValidation(name, { leafOnly: true })
+  const followers = getStackDescendants(branchName)
   // the answer of an earlier name says nothing of the name as typed now
   const isUnchanged = !pending && sanitizedBranchName === branchName
   const existing = useBranch(sanitizedBranchName) !== undefined && !isUnchanged

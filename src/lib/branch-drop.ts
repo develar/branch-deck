@@ -21,7 +21,6 @@ export interface BranchDropFacts {
   blocker: (name: string, id: ActionId) => string | null | undefined
   /** The branches stacked on `name`, directly or further down */
   descendants: (name: string) => readonly string[]
-  stacksEnabled: boolean
 }
 
 /** A drop target's answer: the branches it acts on, or why it refuses the drag ("Cannot park auth: …") */
@@ -100,9 +99,6 @@ export function unparkDrop(names: readonly string[], facts: BranchDropFacts): Br
 
 /** The Stack On blocker common to a stack drop and Stack Together; undefined means its action is not available */
 function stackBlocker(names: readonly string[], facts: BranchDropFacts): { readonly name: string; readonly reason: string } | null | undefined {
-  if (!facts.stacksEnabled) {
-    return undefined
-  }
   for (const name of names) {
     if (facts.branch(name) === undefined) {
       return undefined
@@ -120,7 +116,7 @@ function stackBlocker(names: readonly string[], facts: BranchDropFacts): { reado
 
 /**
  * The stack of the one dragged branch `name` on `target`, as "Stack On…" of its menu: null where the chip doesn't show
- * (stacked branches off, more than one branch dragged, the row of the branch itself); refused on a branch stacked on it
+ * (more than one branch dragged, the row of the branch itself); refused on a branch stacked on it
  * (a cycle), on its parent already, or while Stack On… of its menu can't run (`blocker`: a stack problem lets its fixes
  * run)
  */
@@ -160,12 +156,12 @@ export function stackTogetherDrop(names: readonly string[], facts: BranchDropFac
 
 /**
  * The unstack of the one dragged branch: null where the zone doesn't show (more than one branch dragged, a branch whose
- * menu offers no Unstack: stacked on none and no stack problem offers it, stacked branches off); refused while it can't
+ * menu offers no Unstack: stacked on none and no stack problem offers it); refused while it can't
  * run, as its menu says (`blocker`)
  */
 export function unstackDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop | null {
   const [name] = names
-  if (!facts.stacksEnabled || names.length !== 1 || name === undefined) {
+  if (names.length !== 1 || name === undefined) {
     return null
   }
   const branch = facts.branch(name)

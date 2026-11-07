@@ -53,11 +53,10 @@ pub(crate) fn grouping(branches: Vec<GroupedBranchInfo>) -> SyncEvent {
   branches_grouped(branches)
 }
 
-/// A grouping of no branch with stacked branches on, which announces the stack branches of `roots`
+/// A grouping of no branch, which announces the stack branches of `roots`
 fn stack_grouping(roots: &[&str]) -> SyncEvent {
   let mut grouping = grouping(Vec::new());
-  if let SyncEvent::BranchesGrouped { stacks, stack_branches, .. } = &mut grouping {
-    *stacks = true;
+  if let SyncEvent::BranchesGrouped { stack_branches, .. } = &mut grouping {
     *stack_branches = roots.iter().map(ToString::to_string).collect();
   }
   grouping
@@ -346,7 +345,6 @@ fn the_grouping_keeps_the_announced_stack_branches_and_the_baseline_status_fills
   state.apply(SyncEvent::StackBranchUpdate(Box::new(stack("core"))));
   state.apply(stack_grouping(&["auth"]));
   assert_eq!((state.stack("auth"), state.stack("core")), (Some(&stack("auth")), None));
-  assert!(state.header().stacks_enabled);
 
   state.apply(SyncEvent::BaselineStatus {
     baseline_branch: "origin/master".to_string(),

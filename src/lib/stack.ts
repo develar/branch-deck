@@ -45,17 +45,16 @@ export interface PrefixChange {
 
 /**
  * What saving a message that groups into `to` instead of one that groups into `from` does to the commit's place (both
- * as Rust groups them, `preview_group`; null: unassigned): same branch, another branch, another parent. With `stacks`,
- * it also warns about a parent that has no commits (the branch is built on `baseline` then, the baseline as the remote
- * names it, likely a typo), about a parent level that differs from the stack parent of the branch, and about a parent
- * that differs from the one the other commits of the branch declare. `branchOf` looks a branch up in the branch table;
+ * as Rust groups them, `preview_group`; null: unassigned): same branch, another branch, another parent. It also warns
+ * about a parent that has no commits (the branch is built on `baseline` then, the baseline as the remote names it,
+ * likely a typo), about a parent level that differs from the stack parent of the branch, and about a parent that
+ * differs from the one the other commits of the branch declare. `branchOf` looks a branch up in the branch table;
  * `stackParents` is the map of the last grouping.
  */
 export function describePrefixChange(
   from: CommitGroup | null,
   to: CommitGroup | null,
   action: string,
-  stacks: boolean,
   baseline: string,
   branchOf: (name: string) => StackBranchInfo | undefined,
   stackParents: Readonly<Record<string, string>> = {},
@@ -65,7 +64,7 @@ export function describePrefixChange(
   }
   const sameBranch = (to?.branch ?? null) === (from?.branch ?? null)
   const parent = to?.parent ?? null
-  if (sameBranch && (!stacks || parent === (from?.parent ?? null))) {
+  if (sameBranch && parent === (from?.parent ?? null)) {
     return { text: "The first line is the subject", warning: false }
   }
   if (to === null) {
@@ -73,13 +72,13 @@ export function describePrefixChange(
   }
 
   const stored = stackParents[to.branch]
-  if (stacks && to.parentSource === "Prefix" && stored !== undefined && stored !== parent) {
+  if (to.parentSource === "Prefix" && stored !== undefined && stored !== parent) {
     return { text: `${to.branch} is stacked on ${stored} in the stack parents: the prefix would conflict with it`, warning: true }
   }
   const target = branchOf(to.branch)
   // the other commits of the target branch keep declaring their parent
   const othersInTarget = (target?.commitCount ?? 0) - (sameBranch ? 1 : 0)
-  if (stacks && to.origin === "prefix" && othersInTarget > 0 && (target?.declaredParent ?? null) !== parent) {
+  if (to.origin === "prefix" && othersInTarget > 0 && (target?.declaredParent ?? null) !== parent) {
     const declared = target?.declaredParent ?? null
     const others = `of ${to.branch} ${declared === null ? "declare no parent" : `declare ${declared}`}`
     return {
@@ -88,10 +87,10 @@ export function describePrefixChange(
       refused: `${action} is refused: the other commits ${others}, its parents would conflict`,
     }
   }
-  if (stacks && parent !== null && branchOf(parent) === undefined) {
+  if (parent !== null && branchOf(parent) === undefined) {
     return { text: `${parent} has no commits: ${to.branch} is built on ${baseline} until it has`, warning: true }
   }
-  const onParent = stacks && parent !== null ? ` on ${parent}` : ""
+  const onParent = parent !== null ? ` on ${parent}` : ""
   if (sameBranch) {
     return { text: parent === null ? `${action} unstacks ${to.branch}` : `${action} stacks ${to.branch}${onParent}`, warning: true }
   }

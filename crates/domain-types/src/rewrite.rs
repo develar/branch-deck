@@ -379,8 +379,7 @@ pub struct CommitReword {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(deny_unknown_fields)]
 pub struct RegroupPlan {
-  /// Branch path -> commits: a flat name, or `parent/leaf` with stacked branches on, which stacks `leaf` on `parent` in
-  /// the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated
+  /// Branch path -> commits: a name, or `parent/leaf`, which stacks `leaf` on `parent` in the stack parents and gives a commit that needs a prefix the bare `(leaf)`. Ids may be abbreviated
   #[serde(default)]
   pub branches: BTreeMap<String, Vec<String>>,
   /// Commits whose prefix is removed: they fall back to their issue group or issue branch, or become unassigned
@@ -394,7 +393,7 @@ pub struct RegroupPlan {
   #[serde(default)]
   pub ungroup_issues: Vec<String>,
   /// Branches made roots: their stack parent is removed, and their commits whose prefix declares a parent get the bare
-  /// `(leaf)`. Needs stacked branches on
+  /// `(leaf)`
   #[serde(default)]
   pub unstack: Vec<String>,
 }
@@ -418,7 +417,7 @@ pub enum AutosquashScope {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ParkBranchLine {
-  /// The branch (a leaf with stacked branches on)
+  /// The branch (a leaf)
   pub branch_name: String,
   /// Why it is parked, one line; empty for none. Parking a parked branch changes its note
   pub note: String,
@@ -460,13 +459,13 @@ pub struct MoveCommitsResult {
   pub grouped_issues: Vec<String>,
   /// The issue keys whose issue group was removed: their commits are in the issue branch of the key again
   pub ungrouped_issues: Vec<String>,
-  /// The branch the commits are in afterwards (the leaf with stacked branches on); `None` for a move back
+  /// The branch the commits are in afterwards (the leaf); `None` for a move back
   #[cfg_attr(feature = "specta", specta(optional))]
   pub target: Option<String>,
   /// HEAD afterwards
   pub head: String,
-  /// With stacked branches on, the branches whose parent the operation emptied: they stay stacked on it and are built on
-  /// the nearest ancestor with commits, or the baseline, until it has commits again
+  /// The branches whose parent the operation emptied: they stay stacked on it and are built on the nearest
+  /// ancestor with commits, or the baseline, until it has commits again
   pub orphaned_children: Vec<String>,
   /// What `undo_regroup` moves back; `None` for a dry run and when nothing changed
   #[cfg_attr(feature = "specta", specta(optional))]

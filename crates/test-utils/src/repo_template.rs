@@ -892,7 +892,7 @@ pub mod templates {
       .commit_with_timestamp("Bump the version", &[("version.txt", "2\n")], Some(1704126600))
   }
 
-  /// Stacked branches on: `auth` begins first and has the newest commit but one, a fixup of its oldest commit, `session`
+  /// `auth` begins first and has the newest commit but one, a fixup of its oldest commit, `session`
   /// stacks on `auth`, `docs` and `search` begin after them; a squash of the fixup gives every commit above the oldest a
   /// new committer time
   pub fn fixup_order() -> RepoTemplate {
@@ -930,7 +930,7 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
   }
 
-  /// Stacked branches on, a straight chain: `oauth` on `login` on `auth`, one commit each, and `docs` alone; a stack of
+  /// A straight chain: `oauth` on `login` on `auth`, one commit each, and `docs` alone; a stack of
   /// GitHub on a route without Patronus (docs/design/github-stacks.md)
   pub fn stacked_chain() -> RepoTemplate {
     stacked_auth("stacked_chain")
@@ -947,7 +947,7 @@ pub mod templates {
       .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(1704119400))
   }
 
-  /// Stacked branches on, a big stack: `air` heads a chain of five branches with a side chain of two off `bazel`, two
+  /// A big stack: `air` heads a chain of five branches with a side chain of two off `bazel`, two
   /// commits each, so it is an island of its own below the table; `docs` and the small stack `auth/login` stay in the
   /// table
   pub fn stack_island() -> RepoTemplate {
@@ -1091,7 +1091,7 @@ pub mod templates {
     template
   }
 
-  /// Stacked branches on, a big stack whose stack branch conflicts: `air` heads the main line `bazel`, `bridge`,
+  /// A big stack whose stack branch conflicts: `air` heads the main line `bazel`, `bridge`,
   /// `runtime`, `deploy`, and `side-fix` off `bazel` changes a file only an unassigned commit creates, so its copy
   /// conflicts, and so does the stack branch `user-name/stack/air`; the main line builds
   pub fn stack_side_conflict() -> RepoTemplate {
@@ -1121,7 +1121,7 @@ pub mod templates {
     )
   }
 
-  /// Stacked branches on, with code owners: `OWNERSHIP` files in the baseline name a team per directory; `login` stacks
+  /// With code owners: `OWNERSHIP` files in the baseline name a team per directory; `login` stacks
   /// on `auth` and changes files of both teams and of the root owner
   pub fn stacked_ownership() -> RepoTemplate {
     RepoTemplate::new("stacked_ownership")
@@ -1149,7 +1149,7 @@ pub mod templates {
       )
   }
 
-  /// Stacked branches on, the stack parents stack `perf-part-2` on `IJPL-257337`: the one commit of `perf-part-2`
+  /// The stack parents stack `perf-part-2` on `IJPL-257337`: the one commit of `perf-part-2`
   /// changes the file that the second commit of `IJPL-257337` creates, so it needs that commit only. `OWNERSHIP` files
   /// name a team for `icons/` and `ui/`
   pub fn stack_push_alone() -> RepoTemplate {
@@ -1194,7 +1194,7 @@ pub mod templates {
       )
   }
 
-  /// Stacked branches on (the symbols are on by default), the robot of 2026-10-22: `lane-run` imports a class that the
+  /// The symbols on by default, the robot of 2026-10-22: `lane-run` imports a class that the
   /// commit of `stills-codec`, a branch it is not built on, adds; `ui-perf-nightly` is built on `lane-run`. git merges
   /// either, the build of its Safe Push fails: both need `stills-codec` (the landing needs of the repository view)
   pub fn landing_needs() -> RepoTemplate {
@@ -1229,7 +1229,7 @@ pub mod templates {
     landing_needs_named("landing_needs_fork").commit_with_timestamp("(lane-run/lane-docs) Document the lanes", &[("docs/lanes.md", "# Lanes\n")], Some(1704124800))
   }
 
-  /// Stacked branches on, with a stack problem of each kind the app offers a fix for: `publish-viewer` declares
+  /// With a stack problem of each kind the app offers a fix for: `publish-viewer` declares
   /// `ci-traces` by its prefix and `trace-tools` by the stack parents (conflicting parents), with `viewer-docs` stacked
   /// on it (blocked); `lane-a` and `lane-b` declare each other (a cycle); `Notes` and `notes` differ only in case
   pub fn stack_problems() -> RepoTemplate {
@@ -1251,7 +1251,7 @@ pub mod templates {
       .commit_with_timestamp("(notes) Fix the notes", &[("notes/two.md", "two\n")], Some(1704132000))
   }
 
-  /// Stacked branches on, with a parent (`auth`) that changes a file only an unassigned commit creates: its copy
+  /// With a parent (`auth`) that changes a file only an unassigned commit creates: its copy
   /// conflicts, so its child (`login`) is blocked
   pub fn stacked_conflict() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
@@ -1295,7 +1295,7 @@ pub mod templates {
       )
   }
 
-  /// Stacked branches on: the last commit of `ui` changes a line of the settings that `api` (stacked on `core`) changed
+  /// The last commit of `ui` changes a line of the settings that `api` (stacked on `core`) changed
   /// first, so its copy conflicts with markers; the conflict fix moves it to `api`
   pub fn conflict_fix() -> RepoTemplate {
     let settings = |timeout: &str| {
@@ -1315,7 +1315,7 @@ pub mod templates {
       .commit_with_timestamp("(ui) Show the timeout in seconds", &[("settings.js", settings("30 // seconds").as_str())], Some(1704124800))
   }
 
-  /// Stacked branches on, eleven branches, enough for the filter of the branch table: the stack `core` → `api` → `web`
+  /// Eleven branches, enough for the filter of the branch table: the stack `core` → `api` → `web`
   /// with `cli` forked off `core`, two issue branches, a prefix branch of an issue (`search`, IJPL-200) and standalone
   /// branches; "the API" is in the subject of `docs` too
   pub fn branch_filter() -> RepoTemplate {

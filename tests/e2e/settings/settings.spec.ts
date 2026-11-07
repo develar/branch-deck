@@ -15,13 +15,11 @@ import { routeCommand } from "../helpers/wait-helpers"
 const WINDOW_SIZE = { width: 720, height: 540 }
 
 /**
- * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, the reason that
- * stacked branches can't be turned off, a value of the worktree config, an invalid value; on Diffs & Merge a value of
- * the repository with Use Global and an invalid one; on Agents a value of the worktree config and an invalid one of the
- * repository
+ * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, a value of the
+ * worktree config, an invalid value; on Diffs & Merge a value of the repository with Use Global and an invalid one; on
+ * Agents a value of the worktree config and an invalid one of the repository
  */
 const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
-  stacks: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: "global" },
   symbols: { value: "report", scope: "global", localSet: false, invalid: null, fallbackValue: "report", fallbackScope: "global" },
   githubRepository: { value: "acme/app-mirror", scope: "worktree", localSet: true, invalid: null, fallbackValue: null, fallbackScope: null },
   branchPrefix: {
@@ -55,10 +53,6 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   landingDefault: { route: "pullRequest", onSpace: false },
-  stacksOffClashes: [
-    { branch: "auth/login", beside: "auth" },
-    { branch: "auth/session", beside: "auth" },
-  ],
   seq: 0,
 }
 
@@ -144,8 +138,8 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
       await expect(window.getByTestId("cli-tool-youtrack").locator("pre")).toBeVisible()
     }
     if (name === "Repository") {
-      // the reason that stacked branches can't be turned off, a value from the global config with its button
-      await expect(window.getByTestId("repository-setting-reason")).toHaveCount(2)
+      // the GitHub repository the worktree config sets, which the page can't change
+      await expect(window.getByTestId("repository-setting-reason")).toHaveCount(1)
     }
     if (SCROLLING_PAGES.has(name)) {
       continue

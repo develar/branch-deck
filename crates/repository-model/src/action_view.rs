@@ -142,7 +142,6 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
         Some(StartRoute::Comment { number }) => Some(*number),
         _ => None,
       }),
-      stacks_enabled: parts.header.stacks_enabled,
       push_route,
       merge_route,
       cached,

@@ -30,7 +30,7 @@ function setBranches(...specs: [name: string, parent: string | null, issueKey?: 
     branches[name] = testBranch(name, parent, { issueKey, origin: issueKey === name ? "Issue" : "Prefix" })
   }
   const branchOrder = specs.map(([name]) => name)
-  branchSyncStore.setState({ ...placed({ branches, branchOrder }), branchOrder, stacksEnabled: true })
+  branchSyncStore.setState({ ...placed({ branches, branchOrder }), branchOrder })
 }
 
 /** The branches as they are with `parked`: Rust places them again (`placed`) */
@@ -61,7 +61,7 @@ function graph(visible: ReadonlySet<string> | null = null): string[] {
 
 describe("branch table rows with stacked branches", () => {
   beforeEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], rows: { main: [], parked: [] }, stacksEnabled: false, parked: {} })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], rows: { main: [], parked: [] }, parked: {} })
   })
 
   it("moves a parked branch and the branches built on it into the Parked card, a stack graph of their own", () => {

@@ -96,7 +96,6 @@ test.describe("Settings → Agents", () => {
 
 /** A repository without any `branchdeck.*` key */
 const EMPTY_CONFIG: RepositoryConfig = {
-  stacks: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
   symbols: { value: "on", scope: null, localSet: false, invalid: null, fallbackValue: "on", fallbackScope: null },
   githubRepository: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   branchPrefix: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
@@ -108,6 +107,5 @@ const EMPTY_CONFIG: RepositoryConfig = {
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   detectedGithubRepository: null,
   landingDefault: { route: "pullRequest", onSpace: false },
-  stacksOffClashes: [],
   seq: 0,
 }

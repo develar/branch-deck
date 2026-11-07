@@ -14,7 +14,7 @@ use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
 
-/// `origin/master` at the initial commit, stacked branches on
+/// `origin/master` at the initial commit
 pub(crate) fn repo() -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit("Initial commit", "README.md", "# Test\n");

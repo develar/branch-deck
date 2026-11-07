@@ -3,9 +3,8 @@ use crate::branch_names::{
   normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
 };
 
-const FLAT: BranchNameRules = BranchNameRules { stacks: false, leaf_only: false };
-const STACKS: BranchNameRules = BranchNameRules { stacks: true, leaf_only: false };
-const LEAF: BranchNameRules = BranchNameRules { stacks: true, leaf_only: true };
+const ANY: BranchNameRules = BranchNameRules { leaf_only: false };
+const LEAF: BranchNameRules = BranchNameRules { leaf_only: true };
 
 #[test]
 fn a_branch_under_a_namespace_of_the_prefix_is_managed_and_any_other_is_not() {
@@ -191,20 +190,20 @@ fn a_baseline_names_its_branch_on_the_remote() {
 #[test]
 fn a_typed_name_is_what_the_grouping_keeps_as_it_is() {
   let state = |name: &str, rules: BranchNameRules| check_branch_name(name, rules).state;
-  assert_eq!(state("", FLAT), BranchNameState::Empty);
+  assert_eq!(state("", ANY), BranchNameState::Empty);
   assert_eq!(
-    check_branch_name("  feature   auth  ", FLAT),
+    check_branch_name("  feature   auth  ", ANY),
     BranchNameCheck {
       state: BranchNameState::Valid,
       sanitized: "feature-auth".to_string()
     }
   );
-  assert_eq!(state(" a ", FLAT), BranchNameState::TooShort);
-  assert_eq!(state("invalid@branch#name", FLAT), BranchNameState::InvalidChars);
-  assert_eq!(state(".hidden", FLAT), BranchNameState::InvalidChars);
-  assert_eq!(state("auth/login", STACKS), BranchNameState::Valid);
+  assert_eq!(state(" a ", ANY), BranchNameState::TooShort);
+  assert_eq!(state("invalid@branch#name", ANY), BranchNameState::InvalidChars);
+  assert_eq!(state(".hidden", ANY), BranchNameState::InvalidChars);
+  assert_eq!(state("auth/login", ANY), BranchNameState::Valid);
   assert_eq!(state("auth/login", LEAF), BranchNameState::LeafOnly);
-  assert_eq!(state("feature-", FLAT), BranchNameState::InvalidRef);
-  assert_eq!(state("feature..auth", FLAT), BranchNameState::InvalidRef);
-  assert_eq!(state("auth//login", STACKS), BranchNameState::InvalidRef);
+  assert_eq!(state("feature-", ANY), BranchNameState::InvalidRef);
+  assert_eq!(state("feature..auth", ANY), BranchNameState::InvalidRef);
+  assert_eq!(state("auth//login", ANY), BranchNameState::InvalidRef);
 }

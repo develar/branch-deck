@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 #[derive(Clone, Copy, Debug)]
 pub struct Placed<'a> {
   pub name: &'a str,
-  /// `None` with stacked branches off
+  /// `None` for a branch the sync did not place
   pub stack: Option<&'a BranchStack>,
 }
 
@@ -90,7 +90,7 @@ impl<'a> Repository<'a> {
     self.index.contains_key(name)
   }
 
-  /// Where the sync placed `name`; `None` for a branch the table lacks, or with stacked branches off
+  /// Where the sync placed `name`; `None` for a branch the table lacks
   #[must_use]
   pub fn stack(&self, name: &str) -> Option<&'a BranchStack> {
     self.branch(name)?.stack
