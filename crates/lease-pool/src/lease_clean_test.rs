@@ -459,6 +459,53 @@ fn the_sweep_deletes_a_link_left_in_the_trash_of_a_gone_run() {
   assert_eq!(std::fs::read_to_string(output_base.path().join("execroot/_main/bazel-out/output")).unwrap(), "output");
 }
 
+/// Bazel takes the write bit from every directory of an output it wrote (`dr-xr-xr-x`), and without it no entry of
+/// such a directory goes ("Permission denied"), which left the trash of gone runs of a Bazel repository lying: the
+/// walk widens a directory it deletes and tries it again, and counts the bytes of what went before the refusal once
+#[cfg(unix)]
+#[test]
+fn a_read_only_directory_of_a_bazel_output_goes_with_the_bytes_it_freed() {
+  use std::io::Write;
+  use std::os::unix::fs::PermissionsExt;
+  let output_base = output_base(&["bazel-out"]);
+  let execroot = output_base.path().join("execroot");
+  let bin = execroot.join("_main/bazel-out/bin");
+  std::fs::create_dir_all(&bin).unwrap();
+  // on APFS the blocks of a file are its own only once it is on disk
+  let mut file = std::fs::File::create(bin.join("output")).unwrap();
+  file.write_all(&vec![1u8; 8192]).unwrap();
+  file.sync_all().unwrap();
+  drop(file);
+  for dir in [bin.as_path(), bin.parent().unwrap(), execroot.as_path()] {
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+  }
+  let on_disk = crate::lease_clean::disk_size(&execroot);
+  assert!(on_disk >= 8192, "the bytes of the tree: {on_disk}");
+
+  let freed = crate::lease_clean::remove_measured(&execroot).unwrap();
+
+  assert!(!execroot.exists(), "the read-only tree of the output base");
+  assert_eq!(freed, on_disk, "the bytes of the tree, those of the try before the widening counted once");
+}
+
+/// The same tree in the trash of a run that is gone: the sweep deletes it whole, where it reported "Permission denied"
+/// and kept it
+#[cfg(unix)]
+#[test]
+fn the_sweep_deletes_the_read_only_trash_of_a_gone_run() {
+  use std::os::unix::fs::PermissionsExt;
+  let trash_root = tempfile::tempdir().unwrap();
+  // the trash of a run that is gone: no process has the pid 0 with the start time 1
+  let output = trash_root.path().join("0-1-gone/0/execroot/_main/bazel-out");
+  std::fs::create_dir_all(&output).unwrap();
+  std::fs::write(output.join("output"), "output").unwrap();
+  std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+  Trash::new(trash_root.path()).sweep();
+
+  assert_eq!(std::fs::read_dir(trash_root.path()).unwrap().count(), 0, "the trash of the gone run");
+}
+
 /// A whitelist of a directory: `out` but for `dev-run` and a mark, and `out/dev-run` but for `jar-cache`, leave only
 /// those; a new entry of `out` goes without an edit of the rules
 #[cfg(unix)]

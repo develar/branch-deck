@@ -20,7 +20,8 @@
 //! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way
 //! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
 //! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink and
-//! removes a link, a junction of Windows too, as the link (`fs_retry::remove_entry`), never what it points to. A
+//! removes a link, a junction of Windows too, as the link (`fs_retry::remove_entry`), never what it points to, and
+//! widens a directory it deletes that the owner may not write, as Bazel leaves the directories of its outputs. A
 //! return and `brd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
 //! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`); a link they delete at once, which
 //! costs no more than its move, so the trash holds no links. What a process keeps (on Windows one that works in it or
@@ -587,7 +588,10 @@ fn held_note(error: &std::io::Error) -> &'static str {
 }
 
 /// Delete `path` and everything below it in one walk that counts the bytes on disk it freed. A link, a junction or a
-/// directory symlink of Windows too, is removed as the link (`fs_retry::remove_entry`): never followed, never gone into
+/// directory symlink of Windows too, is removed as the link (`fs_retry::remove_entry`): never followed, never gone into.
+/// A directory the owner may not read, write and search, as Bazel leaves every directory of an output it wrote,
+/// refuses the walk of it and the removal of what is in it: it is widened before the walk goes into it (`widen_dir`),
+/// which no directory that stays ever sees
 pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
   let metadata = match path.symlink_metadata() {
     Ok(metadata) => metadata,
@@ -599,6 +603,7 @@ pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
     fs_retry::remove_entry(path, &metadata.file_type())?;
     return Ok(own);
   }
+  widen_dir(path, &metadata);
   let mut freed = own;
   for entry in std::fs::read_dir(path)? {
     freed += remove_measured(&entry?.path())?;
@@ -606,6 +611,27 @@ pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
   fs_retry::remove_dir(path)?;
   Ok(freed)
 }
+
+/// Give the owner of the directory `path`, which is to be deleted, the rights to read, write and search it, the ones a
+/// removal of what is in it needs: Bazel takes them from every directory of an output it wrote (`dr-xr-xr-x`), and
+/// without them a trash of such a tree stays and grows. The mode as it is costs no call, and a failure is none: the
+/// caller reports the refusal of the removal, not of the mode
+#[cfg(unix)]
+fn widen_dir(path: &Path, metadata: &std::fs::Metadata) {
+  use std::os::unix::fs::PermissionsExt;
+  /// Read, write and search for the owner
+  const OWNER_RWX: u32 = 0o700;
+  let mode = metadata.permissions().mode();
+  if mode & OWNER_RWX != OWNER_RWX {
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode | OWNER_RWX));
+  }
+}
+
+/// Nothing on Windows: the read-only attribute of a directory refuses no removal of what is in it, and the one of the
+/// directory itself `fs_retry` clears
+#[cfg(not(unix))]
+#[expect(clippy::missing_const_for_fn, reason = "the signature of the Unix variant")]
+fn widen_dir(_path: &Path, _metadata: &std::fs::Metadata) {}
 
 /// The directory a return or a clean moves what it deletes into, one per run: `<root>/<pid>-<start>-<uuid>` on the
 /// volume of the repository. A rename there is instant, so the slot is freed before the long delete; `empty` deletes

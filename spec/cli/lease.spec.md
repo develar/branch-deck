@@ -668,6 +668,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_held_entry_of_a_free_slot_stays_whole_until_its_process_exits`)
   [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits`, `a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second`, `a_read_only_file_and_directory_are_renamed_and_removed_at_once`)
   [@test] ../../crates/git-executor/src/fs_retry_scan_test.rs (`every_removal_and_rename_waits_out_a_holder_on_windows`)
+- A directory the walk deletes that the owner may not read, write and search must be widened before it goes into it:
+  Bazel takes those rights from every directory of an output it wrote (`dr-xr-xr-x`), and without them no entry of it
+  goes ("Permission denied"), which left the trash of gone runs of such a repository growing unseen, a `WARN` its only
+  word. Only a directory that is to be deleted is widened, never one that stays, and the bytes it frees count once.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_read_only_directory_of_a_bazel_output_goes_with_the_bytes_it_freed`, `the_sweep_deletes_the_read_only_trash_of_a_gone_run`)
 - `brd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
   with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked. A free
