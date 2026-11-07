@@ -18,7 +18,7 @@ test.describe("One review window", () => {
     await syncAndWaitForBranches()
   })
 
-  test("should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back", async ({ page }) => {
+  test("should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back", { tag: "@webkit" }, async ({ page }) => {
     const window = await openLinkedSubWindow(page, await openReviewWindow(page, "feature"))
     const segments = window.getByTestId("branch-review-segment")
     await expect(segments).toHaveCount(1)

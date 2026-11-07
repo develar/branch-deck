@@ -412,31 +412,35 @@ test.describe("Review window", () => {
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
   })
 
-  test("should go back to the pull request with ⌘[ after the review of a branch in the same window, and fetch it again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    let fetches: Record<string, unknown>[] = []
-    const { window: reviewPage, review } = await openRequestReview(page, 101, {
-      beforeLoad: async window => {
-        fetches = await routeReviewFetch(window, { progress: [], release: Promise.resolve() })
-      },
-    })
-    await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    expect(fetches).toHaveLength(1)
+  test(
+    "should go back to the pull request with ⌘[ after the review of a branch in the same window, and fetch it again",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+      let fetches: Record<string, unknown>[] = []
+      const { window: reviewPage, review } = await openRequestReview(page, 101, {
+        beforeLoad: async window => {
+          fetches = await routeReviewFetch(window, { progress: [], release: Promise.resolve() })
+        },
+      })
+      await expect(review.getByTestId("review-commit").first()).toBeVisible()
+      expect(fetches).toHaveLength(1)
 
-    // the review of a branch of the main window: the same window, the pull request in its history
-    await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await reopenLinkedSubWindow(reviewPage, await openedReview(page, 2))
-    await expect(reviewPage.getByTestId("branch-review-segment")).toHaveCount(1)
+      // the review of a branch of the main window: the same window, the pull request in its history
+      await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Review Changes" }).click()
+      await reopenLinkedSubWindow(reviewPage, await openedReview(page, 2))
+      await expect(reviewPage.getByTestId("branch-review-segment")).toHaveCount(1)
 
-    // Back: the pull request again, fetched again
-    const mac = await reviewPage.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
-    await reviewPage.keyboard.press(mac ? "Meta+BracketLeft" : "Control+BracketLeft")
-    await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
-    await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    expect(fetches).toHaveLength(2)
-    await expect(reviewPage.getByTestId("review-back")).toHaveCount(0)
-  })
+      // Back: the pull request again, fetched again
+      const mac = await reviewPage.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
+      await reviewPage.keyboard.press(mac ? "Meta+BracketLeft" : "Control+BracketLeft")
+      await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+      await expect(review.getByTestId("review-commit").first()).toBeVisible()
+      expect(fetches).toHaveLength(2)
+      await expect(reviewPage.getByTestId("review-back")).toHaveCount(0)
+    },
+  )
 
   test("should review the changes of a row with D", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
@@ -486,25 +490,25 @@ test.describe("Review window", () => {
     await expect(column.filter({ hasText: subject })).toHaveAttribute("aria-selected", "true")
   })
 
-  test("should give the heading of the commit of a pull request of one commit the mark of its card, which the hover and I open, Escape giving the focus back", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupRepo("review_tour", { reviewRequests: availableReviewRequests([reviewRequest("story", 103, 30)]) })
-    turnOnReviewPlan(repo)
-    await commitTwoTasks(repo)
-    await syncAndWaitForBranches()
-    // D on the row reviews the changes: one commit, no column, its heading above the tasks of its tree
-    await getReviewRow(page, 103).focus()
-    await page.keyboard.press("d")
-    const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
-    const review = reviewPage.getByTestId("review-window")
-    await expect(review.getByTestId("range-review-commits")).toHaveCount(0)
-    const header = review.getByTestId("range-review-commit-header")
-    await expect(header).toContainText("the cold start paints a splash in the accent of the theme")
-    await expectHeadingCard(reviewPage, header, THEME_ITEM.replaceAll("`", ""))
-  })
+  test(
+    "should give the heading of the commit of a pull request of one commit the mark of its card, which the hover and I open, Escape giving the focus back",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_tour", { reviewRequests: availableReviewRequests([reviewRequest("story", 103, 30)]) })
+      turnOnReviewPlan(repo)
+      await commitTwoTasks(repo)
+      await syncAndWaitForBranches()
+      // D on the row reviews the changes: one commit, no column, its heading above the tasks of its tree
+      await getReviewRow(page, 103).focus()
+      await page.keyboard.press("d")
+      const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
+      const review = reviewPage.getByTestId("review-window")
+      await expect(review.getByTestId("range-review-commits")).toHaveCount(0)
+      const header = review.getByTestId("range-review-commit-header")
+      await expect(header).toContainText("the cold start paints a splash in the accent of the theme")
+      await expectHeadingCard(reviewPage, header, THEME_ITEM.replaceAll("`", ""))
+    },
+  )
 
   test("should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title", async ({
     page,
@@ -526,72 +530,72 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-commits").getByTestId("review-commit-subject")).toHaveCount(4)
   })
 
-  test("should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    // the branch `layout` of the `review_tour` template as a pull request, its plan on
-    const repo = await setupRepo("review_tour", { reviewRequests: availableReviewRequests([reviewRequest("layout", 201, 1, { title: "Keep the stored layout" })]) })
-    turnOnReviewPlan(repo)
-    await syncAndWaitForBranches()
-    const { window, review } = await openRequestReview(page, 201)
-    const overview = review.getByTestId("review-overview")
-    const tree = window.getByRole("tree", { name: "Changed files" })
-    const bar = window.getByTestId("review-step-bar")
+  test(
+    "should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the branch `layout` of the `review_tour` template as a pull request, its plan on
+      const repo = await setupRepo("review_tour", { reviewRequests: availableReviewRequests([reviewRequest("layout", 201, 1, { title: "Keep the stored layout" })]) })
+      turnOnReviewPlan(repo)
+      await syncAndWaitForBranches()
+      const { window, review } = await openRequestReview(page, 201)
+      const overview = review.getByTestId("review-overview")
+      const tree = window.getByRole("tree", { name: "Changed files" })
+      const bar = window.getByTestId("review-step-bar")
 
-    // a code name of the contents: the changes of all of it, its file selected, its name selected in the diffs
-    await overview.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" }).click()
-    await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
-    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
-    // the overview is no longer at the top
-    await expect(reviewPosition(window)).toHaveText(/^All Changes · Step \d · File \d \/ 6$/)
+      // a code name of the contents: the changes of all of it, its file selected, its name selected in the diffs
+      await overview.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" }).click()
+      await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
+      // the overview is no longer at the top
+      await expect(reviewPosition(window)).toHaveText(/^All Changes · Step \d · File \d \/ 6$/)
 
-    // back in the overview, the title of a step: its opening at the top of the changes, its place in the bar
-    await window.keyboard.press("Escape")
-    await overview.getByTestId("review-contents-step-title").filter({ hasText: "the restart story checks the layout" }).click()
-    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
-    await expect(tree.getByRole("treeitem", { name: "4 · the restart story checks the layout", exact: true })).toHaveAttribute("aria-selected", "true")
+      // back in the overview, the title of a step: its opening at the top of the changes, its place in the bar
+      await window.keyboard.press("Escape")
+      await overview.getByTestId("review-contents-step-title").filter({ hasText: "the restart story checks the layout" }).click()
+      await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
+      await expect(tree.getByRole("treeitem", { name: "4 · the restart story checks the layout", exact: true })).toHaveAttribute("aria-selected", "true")
 
-    // one commit is named alike in the rail, the commit column and the tree: the title Rust gives it
-    const title = "the rule names its flag again"
-    await expect(tree.getByRole("treeitem", { name: title, exact: true })).toBeVisible()
-    await window.keyboard.press("Escape")
-    const rail = review.getByTestId("review-commits").getByTestId("review-commit")
-    await expect(rail.getByTestId("review-commit-subject")).toHaveText([title, ...(await rail.getByTestId("review-commit-subject").allTextContents()).slice(1)])
-    // the commit of the rail opens its card on the hover of its subject and by I, the focus in it; Escape gives it back
-    const card = window.getByTestId("commit-card")
-    const railRow = rail.filter({ hasText: title })
-    await window.mouse.move(0, 0)
-    await railRow.getByTestId("review-commit-subject").hover()
-    await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
-    await window.mouse.move(0, 0)
-    await expect(card).toHaveCount(0)
-    await railRow.focus()
-    await window.keyboard.press("i")
-    await expect(card).toBeFocused()
-    await window.keyboard.press("Escape")
-    await expect(card).toHaveCount(0)
-    await expect(railRow).toBeFocused()
+      // one commit is named alike in the rail, the commit column and the tree: the title Rust gives it
+      const title = "the rule names its flag again"
+      await expect(tree.getByRole("treeitem", { name: title, exact: true })).toBeVisible()
+      await window.keyboard.press("Escape")
+      const rail = review.getByTestId("review-commits").getByTestId("review-commit")
+      await expect(rail.getByTestId("review-commit-subject")).toHaveText([title, ...(await rail.getByTestId("review-commit-subject").allTextContents()).slice(1)])
+      // the commit of the rail opens its card on the hover of its subject and by I, the focus in it; Escape gives it back
+      const card = window.getByTestId("commit-card")
+      const railRow = rail.filter({ hasText: title })
+      await window.mouse.move(0, 0)
+      await railRow.getByTestId("review-commit-subject").hover()
+      await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
+      await window.mouse.move(0, 0)
+      await expect(card).toHaveCount(0)
+      await railRow.focus()
+      await window.keyboard.press("i")
+      await expect(card).toBeFocused()
+      await window.keyboard.press("Escape")
+      await expect(card).toHaveCount(0)
+      await expect(railRow).toBeFocused()
 
-    await railRow.click()
-    const column = window.getByTestId("range-review-commits").getByTestId("range-review-commit")
-    await expect(column.filter({ hasText: title })).toHaveAttribute("aria-selected", "true")
-    await expect(column.filter({ hasText: title }).getByText(title, { exact: true })).toBeVisible()
-    // so does the commit of the column: the hover of its subject, I on the column, Escape back to the column
-    await window.mouse.move(0, 0)
-    await column.filter({ hasText: title }).getByText(title, { exact: true }).hover()
-    await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
-    await window.mouse.move(0, 0)
-    await expect(card).toHaveCount(0)
-    const listbox = window.getByTestId("range-review-commits")
-    await listbox.focus()
-    await window.keyboard.press("i")
-    await expect(card).toBeFocused()
-    await window.keyboard.press("Escape")
-    await expect(card).toHaveCount(0)
-    await expect(listbox).toBeFocused()
-  })
+      await railRow.click()
+      const column = window.getByTestId("range-review-commits").getByTestId("range-review-commit")
+      await expect(column.filter({ hasText: title })).toHaveAttribute("aria-selected", "true")
+      await expect(column.filter({ hasText: title }).getByText(title, { exact: true })).toBeVisible()
+      // so does the commit of the column: the hover of its subject, I on the column, Escape back to the column
+      await window.mouse.move(0, 0)
+      await column.filter({ hasText: title }).getByText(title, { exact: true }).hover()
+      await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
+      await window.mouse.move(0, 0)
+      await expect(card).toHaveCount(0)
+      const listbox = window.getByTestId("range-review-commits")
+      await listbox.focus()
+      await window.keyboard.press("i")
+      await expect(card).toBeFocused()
+      await window.keyboard.press("Escape")
+      await expect(card).toHaveCount(0)
+      await expect(listbox).toBeFocused()
+    },
+  )
 
   test("should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes", async ({
     page,
@@ -1255,60 +1259,60 @@ async function approveDescription(window: Page, review: ReturnType<Page["getByTe
 }
 
 test.describe("Owner part and Approve", () => {
-  test("should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
-    await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["ui/login.css", "ui/login.js"]) } })
-    const { window, review } = await openOwnedChanges(page)
-    await expect.poll(() => ownerChips(window)).toEqual(["All4", "Design· You2", "Auth Team1", "Monorepo1", "UI Team1"])
-    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+  test(
+    "should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+      await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["ui/login.css", "ui/login.js"]) } })
+      const { window, review } = await openOwnedChanges(page)
+      await expect.poll(() => ownerChips(window)).toEqual(["All4", "Design· You2", "Auth Team1", "Monorepo1", "UI Team1"])
+      await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
 
-    // the first file of the tree is Auth Team's: the footer counts Design's files, Approve names the group, none opened
-    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 2 files")
+      // the first file of the tree is Auth Team's: the footer counts Design's files, Approve names the group, none opened
+      await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
+      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 2 files")
 
-    // J moves through Design's files: the footer counts the place among them, Approve what the window showed
-    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 1 / 2")
-    await pressFileKey(window, "j", "All Changes · File 3 / 4 · Design 2 / 2")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
-    // All: no owner part
-    await ownerChip(window, "All").click()
-    await expect(reviewPosition(window)).toHaveText("All Changes · File 3 / 4")
+      // J moves through Design's files: the footer counts the place among them, Approve what the window showed
+      await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 1 / 2")
+      await pressFileKey(window, "j", "All Changes · File 3 / 4 · Design 2 / 2")
+      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
+      // All: no owner part
+      await ownerChip(window, "All").click()
+      await expect(reviewPosition(window)).toHaveText("All Changes · File 3 / 4")
 
-    // the confirmation of Approve and Safe Push says it too; Escape closes it
-    await pressDecisionKey(window, review, "m")
-    const form = window.getByTestId("review-safe-push-form")
-    await expect(form.getByTestId("review-safe-push-scope")).toHaveText("Counts for Design · You opened 2 of its 2 files")
-    await window.keyboard.press("Escape")
-    await expect(form).toBeHidden()
+      // the confirmation of Approve and Safe Push says it too; Escape closes it
+      await pressDecisionKey(window, review, "m")
+      const form = window.getByTestId("review-safe-push-form")
+      await expect(form.getByTestId("review-safe-push-scope")).toHaveText("Counts for Design · You opened 2 of its 2 files")
+      await window.keyboard.press("Escape")
+      await expect(form).toBeHidden()
 
-    // information only: Approve submits
-    await pressDecisionKey(window, review, "a")
-    await expect(review.getByTestId("review-approve")).toHaveText("Approved")
-    expect(await gitHubRequests(repo, "POST", "pulls", 7, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
-  })
+      // information only: Approve submits
+      await pressDecisionKey(window, review, "a")
+      await expect(review.getByTestId("review-approve")).toHaveText("Approved")
+      expect(await gitHubRequests(repo, "POST", "pulls", 7, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
+    },
+  )
 
-  test("should count no file for Approve while the overview of the plan is at the top of the changes, and the first file J shows", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
-    turnOnReviewPlan(repo)
-    await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["README.md", "auth/token.js", "ui/login.css", "ui/login.js"]) } })
-    const { window, review } = await openOwnedChanges(page)
-    await expect(window.getByTestId("review-overview")).toBeVisible()
-    // the overview at the top: no file is shown, none counts, though the tree keeps the first one for J
-    await expect(reviewPosition(window)).toHaveText("All Changes · Overview")
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 4 files")
-    await window.locator("[aria-label='Changes of the commit']").focus()
-    await window.keyboard.press("j")
-    await expect(reviewPosition(window)).toHaveText(/^All Changes · (Step \d+ · )?File \d \/ 4/)
-    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 4 files")
-  })
+  test(
+    "should count no file for Approve while the overview of the plan is at the top of the changes, and the first file J shows",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+      turnOnReviewPlan(repo)
+      await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["README.md", "auth/token.js", "ui/login.css", "ui/login.js"]) } })
+      const { window, review } = await openOwnedChanges(page)
+      await expect(window.getByTestId("review-overview")).toBeVisible()
+      // the overview at the top: no file is shown, none counts, though the tree keeps the first one for J
+      await expect(reviewPosition(window)).toHaveText("All Changes · Overview")
+      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 4 files")
+      await window.locator("[aria-label='Changes of the commit']").focus()
+      await window.keyboard.press("j")
+      await expect(reviewPosition(window)).toHaveText(/^All Changes · (Step \d+ · )?File \d \/ 4/)
+      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 4 files")
+    },
+  )
 
   test("should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one", async ({
     page,

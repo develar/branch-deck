@@ -1292,6 +1292,9 @@ export function DiffView({
     revealPlace(place)
   }
 
+  const canStepHistory = (direction: "back" | "forward") =>
+    direction === "back" ? history.current.back.length > 0 || onHistoryEnd !== undefined : history.current.forward.length > 0
+
   const onNavigationKeys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!navigates) {
       return
@@ -1304,11 +1307,17 @@ export function DiffView({
       event.preventDefault()
       goTo(word, rect === undefined ? (pointer.current ?? { x: 0, y: 0 }) : { x: rect.left, y: rect.bottom }, findsUsages ? onFindUsages : onGoToDeclaration)
     } else if (isMac && command && !event.altKey && (event.code === "BracketLeft" || event.code === "BracketRight")) {
-      event.preventDefault()
-      stepHistory(event.code === "BracketLeft" ? "back" : "forward")
+      const direction = event.code === "BracketLeft" ? "back" : "forward"
+      if (canStepHistory(direction)) {
+        event.preventDefault()
+        stepHistory(direction)
+      }
     } else if (!isMac && command && event.altKey && (event.code === "ArrowLeft" || event.code === "ArrowRight")) {
-      event.preventDefault()
-      stepHistory(event.code === "ArrowLeft" ? "back" : "forward")
+      const direction = event.code === "ArrowLeft" ? "back" : "forward"
+      if (canStepHistory(direction)) {
+        event.preventDefault()
+        stepHistory(direction)
+      }
     }
   }
 
