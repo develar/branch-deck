@@ -387,27 +387,52 @@ simpleTest.describe("Commit review", () => {
   simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
     const window = await openTreeReview(page)
+    const code = window.getByTestId("diff-view")
     await expect(window.locator(".dv-row[data-kind=changed]").first()).toBeVisible()
     // the painter paints a row anew when its texts arrive or the layout changes, so a handle of a row can be detached
-    // the moment after it was found: every look finds the row and measures it in one step of the page
+    // the moment after it was found: every look finds the row and measures it in one step of the page, and twice a
+    // frame apart, so it also tells whether the rows still move
     const firstRow = () =>
-      window.evaluate(review => {
-        const row = review.querySelector(".dv-row[data-kind=changed]")!
-        const [left, right] = [...row.children].map(half => half.getBoundingClientRect())
-        return { share: left!.width / row.getBoundingClientRect().width, divider: { x: right!.x, y: right!.y + right!.height / 2 } }
+      window.evaluate(async review => {
+        const measure = () => {
+          const row = review.querySelector(".dv-row[data-kind=changed]")!
+          const [left, right] = [...row.children].map(half => half.getBoundingClientRect())
+          return { share: left!.width / row.getBoundingClientRect().width, divider: { x: right!.x, y: right!.y + right!.height / 2 } }
+        }
+        const before = measure()
+        await new Promise(resolve => requestAnimationFrame(resolve))
+        const after = measure()
+        return { ...after, still: before.divider.x === after.divider.x && before.divider.y === after.divider.y }
       })
     const share = async () => (await firstRow()).share
     await expect.poll(share).toBeCloseTo(0.5, 2)
-    // the divider is the line between the halves of a row
-    const line = async () => (await firstRow()).divider
+    // the divider is the line between the halves of a row, taken once the rows have stopped moving: the font of the
+    // code has loaded, every diff is read, and two frames give one point, else the press misses the 4 px to each side
+    // of the line
+    const line = async () => {
+      await page.evaluate(() => document.fonts.ready.then(() => undefined))
+      await expect(code).not.toHaveAttribute("aria-busy", "true")
+      let at = { x: 0, y: 0 }
+      await expect
+        .poll(async () => {
+          const row = await firstRow()
+          at = row.divider
+          return row.still
+        })
+        .toBe(true)
+      return at
+    }
 
     const at = await line()
     await page.mouse.move(at.x, at.y)
     await page.mouse.down()
+    // the press took the divider, where a miss would show only as a share that never moved
+    await expect(code).toHaveAttribute("data-dragging")
     await page.mouse.move(at.x - 300, at.y, { steps: 5 })
     await page.mouse.up()
+    await expect(code).not.toHaveAttribute("data-dragging")
+    await expect.poll(share).toBeLessThan(0.35)
     const dragged = await share()
-    expect(dragged).toBeLessThan(0.35)
     await waitForStorePersistence(page, "diffView", settings => Math.abs(((settings as { splitRatio?: number } | undefined)?.splitRatio ?? 0.5) - dragged) < 0.01)
 
     // IntelliJ's DiffSplitter: a double click makes the sides equal

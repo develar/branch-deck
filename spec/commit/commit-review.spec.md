@@ -169,7 +169,9 @@ where a dialog would cover it.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept`)
 - In Split, the divider between the two sides must drag, as IntelliJ's DiffSplitter, between 15% and 85% of the
   row; a double click makes the sides equal. The share is one setting of every diff view (`splitRatio`), kept, and no
-  view changes it by itself.
+  view changes it by itself. While the press holds the divider, the diffs must say they are dragged: the cursor stays
+  the resize one over the whole view, where the pointer left the hit area of the line long ago, and the run over the
+  rows selects no code.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click`)
 - The split must be there in every state of the review: while another commit or filter loads, has no files or cannot be
   read, the diffs pane says so, and the commits and the header of the files stay where they are, with their focus.

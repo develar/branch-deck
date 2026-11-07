@@ -1498,6 +1498,9 @@ export function DiffView({
     const shareAt = (clientX: number) => Math.min(Math.max((clientX - start) / Math.max(width, 1), MIN_SPLIT_RATIO), 1 - MIN_SPLIT_RATIO)
     let share = split
     element.setPointerCapture(event.pointerId)
+    // the view says it drags the divider: the cursor keeps the resize one past the 8 px of the line, the code selects
+    // nothing on the way, and a test sees that the press took the divider (diff-view.css)
+    element.dataset.dragging = ""
     const move = (moved: PointerEvent) => {
       share = shareAt(moved.clientX)
       setDraggedSplit(share)
@@ -1506,6 +1509,7 @@ export function DiffView({
       element.removeEventListener("pointermove", move)
       element.removeEventListener("pointerup", end)
       element.removeEventListener("pointercancel", end)
+      delete element.dataset.dragging
       setDiffSplitRatio(share)
       setDraggedSplit(null)
     }

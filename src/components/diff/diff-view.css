@@ -334,6 +334,17 @@
   cursor: col-resize;
 }
 
+/*
+ * While the divider is dragged (DiffView's `dragSplit` marks the scroller): the cursor stays the resize one over the
+ * whole view, where the pointer left the 8 px of the line long ago, and the run over the rows selects no code
+ */
+.dv-scroller[data-dragging],
+/* the document of the code asks for the selection itself (`select-text`), so the drag takes it from it by name */
+.dv-scroller[data-dragging] .dv-document {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* the line numbers of IntelliJ: a point smaller than the editor font, LINE_NUMBERS_COLOR */
 .dv-num {
   flex: none;
