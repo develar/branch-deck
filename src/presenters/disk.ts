@@ -67,6 +67,32 @@ export function slotSizeDetail(slot: SlotDisk): string {
   return parts.filter(part => part !== null).join(", ")
 }
 
+/** When the bytes a slot shows were measured */
+export function measuredAge(measuredAt: number, now = Math.floor(Date.now() / 1000)): string {
+  if (measuredAt <= 0) {
+    return "Not measured"
+  }
+  const seconds = Math.max(0, now - measuredAt)
+  if (seconds < 60) {
+    return "Measured just now"
+  }
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) {
+    return `Measured ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`
+  }
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) {
+    return `Measured ${hours} ${hours === 1 ? "hour" : "hours"} ago`
+  }
+  const days = Math.floor(hours / 24)
+  return `Measured ${days} ${days === 1 ? "day" : "days"} ago`
+}
+
+/** The progress of a disk walk */
+export function diskProgress(measured: number, measuring: number): string {
+  return measuring === 0 ? "All slots are up to date" : `Measured ${measured} of ${measuring} slots`
+}
+
 /** The slots of a pool, the largest first */
 export function slotsBySize(pool: PoolDisk): SlotDisk[] {
   return [...pool.slots].sort((a, b) => b.mib - a.mib)

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vite-plus/test"
 import type { MachineDisk, PoolDisk, SlotDisk } from "@/lib/bindings"
 import {
   formatSize,
+  diskProgress,
   freeSpaceLine,
   isBelowMinimum,
   machineTitle,
+  measuredAge,
   poolLine,
   slotSizeDetail,
   slotsBySize,
@@ -15,7 +17,7 @@ import {
 } from "@/presenters/disk"
 
 function slot(name: string, mib: number, rest: Partial<SlotDisk> = {}): SlotDisk {
-  return { name, path: `/pool/${name}/repo`, state: "free", holder: null, mib, worktreeMib: 0, buildMib: mib, basesMib: 0, trimsNext: false, ...rest }
+  return { name, path: `/pool/${name}/repo`, state: "free", holder: null, mib, worktreeMib: 0, buildMib: mib, basesMib: 0, trimsNext: false, measuredAt: 0, cached: false, ...rest }
 }
 
 function pool(slots: SlotDisk[], rest: Partial<PoolDisk> = {}): PoolDisk {
@@ -47,6 +49,16 @@ describe("disk", () => {
     expect(slots.map(slotStateLabel)).toEqual(["Free", "Free", "Leased by lane-3"])
     expect(slotStateLabel(slot("4", 0, { state: "changing" }))).toBe("Busy")
     expect(slots.map(slotSizeDetail)).toEqual(["build 100 MiB", "worktree 1.0 GiB, build 2.0 GiB, Bazel 2.0 GiB", ""])
+  })
+
+  it("words when slot bytes were measured and disk progress", () => {
+    expect([measuredAge(0, 1000), measuredAge(1000, 1000), measuredAge(1000, 1060), measuredAge(1000, 8200)]).toEqual([
+      "Not measured",
+      "Measured just now",
+      "Measured 1 minute ago",
+      "Measured 2 hours ago",
+    ])
+    expect([diskProgress(7, 28), diskProgress(0, 0)]).toEqual(["Measured 7 of 28 slots", "All slots are up to date"])
   })
 
   it("says why Trim to Limit does nothing, else what it deletes", () => {

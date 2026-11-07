@@ -15,8 +15,11 @@ use serde::Serialize;
 #[derive(Debug, Default, clap::Args)]
 pub struct LeaseDiskArgs {
   /// Walk every slot again, whatever `disk.json` keeps
-  #[arg(long)]
+  #[arg(long, conflicts_with = "cached")]
   pub fresh: bool,
+  /// Read `disk.json` only, without measuring any path
+  #[arg(long, conflicts_with = "fresh")]
+  pub cached: bool,
 }
 
 /// `brd lease disk`
@@ -33,6 +36,7 @@ pub fn lease_disk(context: &LeaseContext, environment: &Environment, args: &Leas
     repository: &context.dirs,
     home: environment.home.as_deref(),
     fresh: args.fresh,
+    cached: args.cached,
     lock_timeout: context.lock_timeout,
   };
   let usage = disk_usage_core(&context.git, &params).map_err(lease_error)?;
@@ -40,4 +44,22 @@ pub fn lease_disk(context: &LeaseContext, environment: &Environment, args: &Leas
     schema: SchemaVersion,
     report: DiskReport::of(&usage),
   })
+}
+
+#[cfg(test)]
+#[test]
+fn cached_and_fresh_disk_flags_are_mutually_exclusive() {
+  use clap::Parser;
+
+  #[derive(Debug, clap::Parser)]
+  struct Args {
+    #[command(flatten)]
+    disk: LeaseDiskArgs,
+  }
+
+  let cached = Args::try_parse_from(["brd", "--cached"]).unwrap();
+  assert!(cached.disk.cached && !cached.disk.fresh);
+  let fresh = Args::try_parse_from(["brd", "--fresh"]).unwrap();
+  assert!(fresh.disk.fresh && !fresh.disk.cached);
+  Args::try_parse_from(["brd", "--cached", "--fresh"]).unwrap_err();
 }

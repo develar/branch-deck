@@ -6,15 +6,16 @@
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
+use crate::transport::Sink;
 use domain_types::error::ApiError;
 use git_ops::revs::repository_dirs;
 use lease_pool::lease::SlotState;
 use lease_pool::trim::{TrimParams, trim_core};
 use pool_disk::report::{DiskReport, PoolReport, SlotReport};
-use pool_disk::{DiskParams, disk_usage_core};
+use pool_disk::{DiskParams, DiskUsageProgress, disk_usage_core_with_progress};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 
@@ -48,6 +49,32 @@ pub struct DiskOverview {
   pub machines: Vec<MachineDisk>,
 }
 
+/// A report sent before and during a disk walk
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DiskUsageEvent {
+  Cached {
+    overview: DiskOverview,
+    measuring: u32,
+  },
+  Planning {
+    measuring: u32,
+  },
+  Slot {
+    machine: Option<String>,
+    pool: String,
+    slot: SlotDisk,
+    measured: u32,
+    measuring: u32,
+  },
+  Machine {
+    machine: MachineDisk,
+  },
+  Done {
+    ms: u32,
+  },
+}
+
 /// One machine and its pools
 #[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +98,7 @@ pub struct MachineDisk {
 }
 
 /// A pool of a machine
-#[derive(Debug, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolDisk {
   /// The name of the repository: the directory of its main worktree
@@ -87,7 +114,7 @@ pub struct PoolDisk {
 }
 
 /// A slot and the bytes its builds wrote
-#[derive(Debug, Serialize, specta::Type)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotDisk {
   /// The number of its directory in the pool (`<pool>/<n>/<name>`), else its worktree id
@@ -104,6 +131,10 @@ pub struct SlotDisk {
   pub bases_mib: u32,
   /// A trim deletes it now
   pub trims_next: bool,
+  /// Unix seconds of the measurement shown
+  pub measured_at: u32,
+  /// The values come from the saved disk report, not this walk
+  pub cached: bool,
 }
 
 /// What a slot is to the window
@@ -138,38 +169,69 @@ pub struct TrimSummary {
 }
 
 /// This Mac and the hosts of `bd-host`, side by side: the walk of this Mac's pools in process, the hosts by the host
-#[instrument(skip(ctx))]
-pub async fn disk_usage(ctx: &AppContext, params: DiskUsageParams) -> Result<DiskOverview, ApiError> {
+#[instrument(skip(ctx, events))]
+pub async fn disk_usage(ctx: &AppContext, params: DiskUsageParams, events: Sink<DiskUsageEvent>) -> Result<(), ApiError> {
   let (git, host, home) = (ctx.git.clone(), std::sync::Arc::clone(&ctx.host), ctx.host.tool_environment().home);
   run_blocking(move || {
+    let started = Instant::now();
     let dirs = repository_dirs(&git, &params.repository_path)?.ok_or_else(|| anyhow::anyhow!("{} is no git repository", params.repository_path))?;
-    let (this_mac, hosts) = std::thread::scope(|scope| {
-      let hosts = scope.spawn(in_current_span(|| host.host_disks(params.fresh)));
+    std::thread::scope(|scope| {
+      let (cached_tx, cached_rx) = std::sync::mpsc::channel();
+      let host_events = std::sync::Arc::clone(&events);
+      let fresh = params.fresh;
+      let hosts = scope.spawn(in_current_span(move || {
+        let hosts = host.host_disks(fresh);
+        let _ = cached_rx.recv();
+        for host in hosts {
+          let _ = host_events.send(DiskUsageEvent::Machine { machine: host_machine(host) });
+        }
+      }));
       let disk = DiskParams {
         repository: &dirs,
         home: home.as_deref(),
         fresh: params.fresh,
+        cached: false,
         lock_timeout: LOCK_TIMEOUT,
       };
-      let this_mac = disk_usage_core(&git, &disk).map(|usage| DiskReport::of(&usage));
-      (this_mac, hosts.join().unwrap_or_default())
-    });
-    let mut machines = vec![machine(None, &this_mac?)];
-    machines.extend(hosts.into_iter().map(|host| match host.report {
-      Ok(report) => machine(Some(host.alias), &report),
-      Err(error) => MachineDisk {
-        alias: Some(host.alias),
-        error: Some(error),
-        free_mib: None,
-        min_free_mib: None,
-        mib: 0,
-        pools: Vec::new(),
-        orphans: 0,
-        orphan_mib: 0,
-        past_limit: 0,
-      },
-    }));
-    Ok::<_, anyhow::Error>(DiskOverview { machines })
+      let result = disk_usage_core_with_progress(&git, &disk, |progress| match progress {
+        DiskUsageProgress::Cached { usage, measuring } => {
+          let overview = DiskOverview {
+            machines: vec![machine(None, &DiskReport::of(&usage))],
+          };
+          let _ = events.send(DiskUsageEvent::Cached { overview, measuring });
+          let _ = cached_tx.send(());
+        }
+        DiskUsageProgress::Planning { measuring } => {
+          let _ = events.send(DiskUsageEvent::Planning { measuring });
+        }
+        DiskUsageProgress::Slot {
+          usage,
+          pool_index,
+          slot_index,
+          measured,
+          measuring,
+        } => {
+          let local = machine(None, &DiskReport::of(&usage));
+          if let Some(pool) = local.pools.get(pool_index)
+            && let Some(slot) = pool.slots.get(slot_index)
+          {
+            let _ = events.send(DiskUsageEvent::Slot {
+              machine: None,
+              pool: pool.path.clone(),
+              slot: slot.clone(),
+              measured,
+              measuring,
+            });
+          }
+        }
+      });
+      let _ = cached_tx.send(());
+      result?;
+      let _ = hosts.join();
+      let ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+      let _ = events.send(DiskUsageEvent::Done { ms });
+      Ok::<_, anyhow::Error>(())
+    })
   })
   .await
 }
@@ -270,6 +332,23 @@ pub fn hosts_of(stdout: &[u8]) -> Result<Vec<HostDisk>, serde_json::Error> {
   )
 }
 
+fn host_machine(host: HostDisk) -> MachineDisk {
+  match host.report {
+    Ok(report) => machine(Some(host.alias), &report),
+    Err(error) => MachineDisk {
+      alias: Some(host.alias),
+      error: Some(error),
+      free_mib: None,
+      min_free_mib: None,
+      mib: 0,
+      pools: Vec::new(),
+      orphans: 0,
+      orphan_mib: 0,
+      past_limit: 0,
+    },
+  }
+}
+
 fn machine(alias: Option<String>, report: &DiskReport) -> MachineDisk {
   let pools: Vec<PoolDisk> = report.pools.iter().map(pool).collect();
   MachineDisk {
@@ -314,6 +393,8 @@ fn slot(slot: &SlotReport) -> SlotDisk {
     build_mib: mib(slot.build.iter().map(|dir| dir.bytes).sum()),
     bases_mib: mib(slot.output_bases.iter().map(|base| base.bytes).sum()),
     trims_next: slot.trims_next,
+    measured_at: u32::try_from(slot.measured_at).unwrap_or(u32::MAX),
+    cached: slot.cached,
   }
 }
 

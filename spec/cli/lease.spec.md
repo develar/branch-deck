@@ -34,6 +34,10 @@ targets:
   - ../../crates/bd-lease/src/trim_command.rs
   - ../../crates/bd-lease/src/disk_command.rs
   - ../../crates/pool-disk/src/lib.rs
+  - ../../crates/pool-disk/src/report.rs
+  - ../../crates/pool-disk/src/report_test.rs
+  - ../../crates/fs-walk/src/lib.rs
+  - ../../crates/fs-walk/src/changes.rs
   - ../../crates/bd-core/src/error.rs
   - ../../.branchdeck.toml
   - ../../crates/sync-utils/src/process_scan.rs
@@ -673,6 +677,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   goes ("Permission denied"), which left the trash of gone runs of such a repository growing unseen, a `WARN` its only
   word. Only a directory that is to be deleted is widened, never one that stays, and the bytes it frees count once.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_read_only_directory_of_a_bazel_output_goes_with_the_bytes_it_freed`, `the_sweep_deletes_the_read_only_trash_of_a_gone_run`)
+- If macOS refuses to remove a path inside a protected `.app` bundle with `EPERM`, the clean error and `trash_left` must
+  name the refused path and bundle, and tell the user to move the whole bundle to the Trash in Finder.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_eperm_in_an_app_bundle_names_finder_removal_in_trash_left`)
 - `brd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
   with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked. A free
@@ -681,6 +688,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   (exit 2).
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`, `a_bad_file_does_not_fail_the_return`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_slot_that_clean_cleans_is_reserved_against_a_get`)
+- `CleanMode::Measure` and `Pool::trash_bytes` use `fs_walk::tree_size`, the shared filesystem walk rather than a second
+  recursive size implementation; its result includes directory blocks and counts links as themselves.
+  [@test] ../../crates/fs-walk/src/walk_test.rs (`tree_size_uses_the_walk_and_counts_directory_bytes`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`trash_bytes_measure_each_run_with_the_shared_walk`, `the_cargo_rule_keeps_the_newest_and_the_young_units`)
 - The rules are configured on purpose, so they apply by default: the return and `brd lease clean` delete what they
   name, as the user decided. `brd lease return --no-clean` applies none. `--keep <n>` and `--age <duration>`, on both
   commands, set `keep` and `age` of every cargo rule for that call without an edit of the file; a bad `--age` is
@@ -749,7 +760,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Disk
 
-- `brd lease disk [--fresh]` must report every pool of this machine (as the trim finds them) without a `du` of a slot:
+- `brd lease disk [--cached] [--fresh]` must report every pool of this machine (as the trim finds them) without a `du` of a slot:
   per slot its `state`, `holder`, `returned` and the bytes its builds wrote, the directories its clean rules name (the
   outermost of nested ones, `build`) and its Bazel output bases (`output_bases`), each with its bytes, their sum
   (`bytes`), `measured_at` and `cached`; per pool `max_slots`, `past_limit` (the free slots a trim would delete now),
@@ -761,17 +772,26 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   in each slot of idea-1 on 2026-11-02. Every byte counted is what a delete frees: on macOS the private size of a file
   (`ATTR_CMNEXT_PRIVATESIZE` of `getattrlistbulk`, the blocks no APFS clone shares, one call per batch of entries),
   elsewhere its blocks (Linux) or its length (Windows). A file with several hard links counts once, a link as itself,
-  a directory nothing of its own; the walks of the call run side by side (`pool_disk::walk`, 8 threads over one queue
+  a directory nothing of its own; the walks of the call run side by side (`fs_walk::walk_bytes`, 8 threads over one queue
   of directories).
   [@test] ../../crates/bd-lease/src/trim_test.rs (`the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is_leased`)
   [@test] ../../crates/pool-disk/src/disk_test.rs (`the_build_dirs_of_a_slot_are_the_outermost_dirs_its_clean_rules_name`)
-  [@test] ../../crates/pool-disk/src/walk_test.rs (`a_walk_counts_each_root_side_by_side_skips_what_counts_apart_and_a_hard_linked_file_once`, `a_clone_counts_only_the_blocks_it_shares_with_no_other_file`)
-- The bytes of a slot must be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned` and whether it was
-  leased: those of a free slot hold until its `returned` or its lease changes, those of a leased slot and of the output
-  bases of the main worktree for 15 minutes; a slot that left the pool leaves the file. `--fresh` walks everything
-  again. On the user's Mac a report from the file takes half a second, a walk of every slot with its worktree (32
+  [@test] ../../crates/fs-walk/src/walk_test.rs (`a_walk_counts_each_root_side_by_side_skips_what_counts_apart_and_a_hard_linked_file_once`, `walk_tree_nodes_and_root_remainder_add_up_to_the_walk`)
+  [@test] ../../crates/pool-disk/src/walk_test.rs (`a_clone_counts_only_the_blocks_it_shares_with_no_other_file`)
+- The bytes of a slot must be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned`, whether it was
+  leased, its FSEvents mark and the sizes of disjoint nodes under its roots. On macOS the default refresh asks FSEvents
+  what changed since that mark: an unchanged slot stays cached regardless of its age or lease; a changed path walks its
+  nearest saved node. Missing or incomplete history, changed roots, another volume or `--fresh` walks the full slot;
+  Linux and Windows keep their returned/leased cache policy, with 15 minutes for a leased slot. Output bases of the main
+  worktree hold for 15 minutes on every platform; a slot that left the pool leaves the file. `--cached` reads the saved
+  slot, trash and orphan sizes without a walk and conflicts with `--fresh`; normal output names the cache source and
+  measurement age per slot and the elapsed milliseconds. On the user's Mac a report from the file takes half a second,
+  a walk of every slot with its worktree (32
   slots, 12 of them of idea-1 with 1.4M files each, 860 GB) five minutes. It
   writes nothing else, and counts as a read (`brd help`).
+  [@test] ../../crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`, `a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_root`)
+  [@test] ../../crates/pool-disk/src/report_test.rs (`lines_name_the_slot_cache_source_age_and_elapsed_time`)
+  [@test] ../../crates/bd-lease/src/disk_command.rs (`cached_and_fresh_disk_flags_are_mutually_exclusive`)
 
 ### Reclaimed
 

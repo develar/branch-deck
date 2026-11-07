@@ -537,7 +537,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
     })
   };
   let trash = match mode {
-    CleanMode::Measure => return Ok(paths.iter().map(|path| disk_size(path)).sum()),
+    CleanMode::Measure => return Ok(paths.iter().map(|path| fs_walk::tree_size(path)).sum()),
     CleanMode::Delete => return delete(),
     CleanMode::Trash(trash) => trash,
   };
@@ -558,6 +558,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
         return delete();
       }
       Err(error) => {
+        let error = removal_error(path, error);
         for (path, target) in moved.into_iter().rev() {
           if let Err(back) = fs_retry::rename(&target, path) {
             warn!(path = %path.display(), trash = %target.display(), error = %back, "cannot move a path back from the trash");
@@ -573,7 +574,10 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
     .try_fold(0, |freed, (path, metadata)| match fs_retry::remove_entry(path, &metadata.file_type()) {
       Ok(()) => Ok(freed + allocated(&metadata)),
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(freed),
-      Err(error) => Err(anyhow!("cannot remove the link {}: {error}{}", path.display(), held_note(&error))),
+      Err(error) => {
+        let error = removal_error(path, error);
+        Err(anyhow!("cannot remove the link {}: {error}{}", path.display(), held_note(&error)))
+      }
     })
 }
 
@@ -587,6 +591,61 @@ fn held_note(error: &std::io::Error) -> &'static str {
   }
 }
 
+#[cfg(target_os = "macos")]
+const EPERM: i32 = 1;
+
+#[derive(Debug)]
+struct ProtectedAppRemoval {
+  path: PathBuf,
+  bundle: PathBuf,
+  source: std::io::Error,
+}
+
+impl std::fmt::Display for ProtectedAppRemoval {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      formatter,
+      "macOS denied removal of {} inside app bundle {}; move the whole bundle to the Trash in Finder to remove it: {}",
+      self.path.display(),
+      self.bundle.display(),
+      self.source
+    )
+  }
+}
+
+impl std::error::Error for ProtectedAppRemoval {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    Some(&self.source)
+  }
+}
+
+fn removal_error(path: &Path, error: std::io::Error) -> std::io::Error {
+  #[cfg(target_os = "macos")]
+  if error.raw_os_error() == Some(EPERM)
+    && let Some(bundle) = path.ancestors().find(|ancestor| ancestor.extension() == Some(std::ffi::OsStr::new("app")))
+  {
+    return std::io::Error::new(
+      error.kind(),
+      ProtectedAppRemoval {
+        path: path.to_path_buf(),
+        bundle: bundle.to_path_buf(),
+        source: error,
+      },
+    );
+  }
+  #[cfg(not(target_os = "macos"))]
+  let _ = path;
+  error
+}
+
+fn trash_left_path(path: &Path, error: &std::io::Error) -> String {
+  if error.get_ref().and_then(|source| source.downcast_ref::<ProtectedAppRemoval>()).is_some() {
+    error.to_string()
+  } else {
+    path.display().to_string()
+  }
+}
+
 /// Delete `path` and everything below it in one walk that counts the bytes on disk it freed. A link, a junction or a
 /// directory symlink of Windows too, is removed as the link (`fs_retry::remove_entry`): never followed, never gone into.
 /// A directory the owner may not read, write and search, as Bazel leaves every directory of an output it wrote,
@@ -596,19 +655,20 @@ pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
   let metadata = match path.symlink_metadata() {
     Ok(metadata) => metadata,
     Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-    Err(error) => return Err(error),
+    Err(error) => return Err(removal_error(path, error)),
   };
   let own = allocated(&metadata);
   if !metadata.is_dir() {
-    fs_retry::remove_entry(path, &metadata.file_type())?;
+    fs_retry::remove_entry(path, &metadata.file_type()).map_err(|error| removal_error(path, error))?;
     return Ok(own);
   }
   widen_dir(path, &metadata);
   let mut freed = own;
-  for entry in std::fs::read_dir(path)? {
-    freed += remove_measured(&entry?.path())?;
+  for entry in std::fs::read_dir(path).map_err(|error| removal_error(path, error))? {
+    let entry = entry.map_err(|error| removal_error(path, error))?;
+    freed += remove_measured(&entry.path())?;
   }
-  fs_retry::remove_dir(path)?;
+  fs_retry::remove_dir(path).map_err(|error| removal_error(path, error))?;
   Ok(freed)
 }
 
@@ -688,7 +748,7 @@ impl Trash {
           Ok(freed) => rule.freed_bytes += freed,
           Err(error) => {
             rule.error.get_or_insert_with(|| format!("cannot delete {} in the trash: {error}", path.display()));
-            left.push(path.display().to_string());
+            left.push(trash_left_path(&path, &error));
           }
         }
       }
@@ -697,7 +757,7 @@ impl Trash {
     for path in adopted {
       if let Err(error) = remove_measured(&path) {
         warn!(path = %path.display(), error = %error, "cannot delete a path in the trash");
-        left.push(path.display().to_string());
+        left.push(trash_left_path(&path, &error));
       }
     }
     if left.is_empty() {
@@ -895,12 +955,7 @@ fn last_built(unit: &Path) -> SystemTime {
 
 /// The bytes on disk of `path` and of everything below it, symlinks counted as themselves
 pub fn disk_size(path: &Path) -> u64 {
-  let Ok(metadata) = path.symlink_metadata() else { return 0 };
-  let own = allocated(&metadata);
-  if !metadata.is_dir() {
-    return own;
-  }
-  own + std::fs::read_dir(path).map_or(0, |entries| entries.flatten().map(|entry| disk_size(&entry.path())).sum())
+  fs_walk::tree_size(path)
 }
 
 /// The bytes on disk of the entry of `metadata`: its blocks, where the system tells them, else its length

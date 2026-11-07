@@ -381,7 +381,7 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    `brd lease return --no-clean` applies none, and `brd lease return --keep <n> --age <duration>` changes every cargo
    rule for this call. `brd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
    --keep, --age as for the return). `brd lease trim` deletes the free slots past `branchdeck.leaseMaxSlots` (10; --max <n> for this call) of every pool of the
-   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` does it itself (`trimmed`), then deletes the build output of the free slots by their clean rules with keep 0, the ones returned longest ago first (`shrunk`), then free slots below the limit (`evicted`); `brd lease disk` (--fresh) says what each slot holds. The rules are the user's choice: pass `brd lease return --no-clean` only when
+   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` does it itself (`trimmed`), then deletes the build output of the free slots by their clean rules with keep 0, the ones returned longest ago first (`shrunk`), then free slots below the limit (`evicted`); `brd lease disk` says what each slot holds, `--fresh` measures it again, `--cached` reads saved sizes without a walk. The rules are the user's choice: pass `brd lease return --no-clean` only when
    the user asks. `brd lease adopt <dir>...` adds clean linked worktrees of the repository as
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
    `other_volume`).

@@ -12,7 +12,10 @@
   {
     "name": "disk_usage",
     "class": "read",
-    "transport": "json"
+    "transport": {
+      "channel": "events",
+      "open": false
+    }
   },
   {
     "name": "get_repository_config",

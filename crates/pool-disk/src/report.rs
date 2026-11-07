@@ -7,6 +7,7 @@ use lease_pool::lease::SlotState;
 use lease_pool::lease_clean::describe_size;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// What the pools of one machine hold on disk
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -137,11 +138,22 @@ impl DiskReport {
       if bases > 0 {
         lines.push(format!("    the Bazel output bases of the main worktree: {}", describe_size(bases)));
       }
+      for slot in &pool.slots {
+        let source = if slot.cached {
+          "cached"
+        } else if slot.measured_at == 0 {
+          "uncached"
+        } else {
+          "measured"
+        };
+        lines.push(format!("    {}: {} ({source}, {})", slot.slot, describe_size(slot.bytes), measured_age(slot.measured_at)));
+      }
     }
     if !self.orphans.is_empty() {
       let bytes: u64 = self.orphans.iter().map(|base| base.bytes).sum();
       lines.push(format!("  {} output base(s) of gone slots: {} (`bd-host trim`)", self.orphans.len(), describe_size(bytes)));
     }
+    lines.push(format!("  measured in {} ms", self.ms));
     lines
   }
 
@@ -188,3 +200,24 @@ impl DiskReport {
     }
   }
 }
+
+fn measured_age(measured_at: u64) -> String {
+  if measured_at == 0 {
+    return "not measured".to_owned();
+  }
+  let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |time| time.as_secs());
+  let seconds = now.saturating_sub(measured_at);
+  if seconds < 60 {
+    "just now".to_owned()
+  } else if seconds < 3600 {
+    format!("{}m ago", seconds / 60)
+  } else if seconds < 86400 {
+    format!("{}h ago", seconds / 3600)
+  } else {
+    format!("{}d ago", seconds / 86400)
+  }
+}
+
+#[cfg(test)]
+#[path = "report_test.rs"]
+mod report_test;

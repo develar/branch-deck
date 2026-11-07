@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 lease-pool = { path = "../lease-pool", features = ["schemars"] }
+fs-walk = { path = "../fs-walk" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 sync-utils = { path = "../sync-utils" }
@@ -16,14 +17,11 @@ schemars.workspace = true
 serde.workspace = true
 tracing.workspace = true
 
-# getattrlistbulk(2) of the walk (`walk`)
-[target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2.191"
-
 [dev-dependencies]
 pretty_assertions.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true

@@ -7,6 +7,9 @@ targets:
   - ../../crates/app-api/src/transport.rs
   - ../../crates/app-api/src/commands.rs
   - ../../crates/pool-disk/src/lib.rs
+  - ../../crates/pool-disk/src/disk_test.rs
+  - ../../crates/fs-walk/src/lib.rs
+  - ../../crates/fs-walk/src/changes.rs
   - ../../crates/pool-disk/src/report.rs
   - ../../crates/lease-pool/src/trim.rs
   - ../../crates/test-server/src/disk_fixtures.rs
@@ -68,6 +71,21 @@ palette opens it.
   [@test] ../../tests/e2e/disk/disk-usage.spec.ts (`should show the pools of this Mac and of the hosts, and trim the free slots of this Mac past the limit`)
   [@test] ../../src/presenters/disk.test.ts (`words a size in binary units, MiB below a GiB`, `names this Mac and a host, the free space against the minimum`, `words a pool, its slots largest first, and what a trim deletes`)
   [@test] ../../crates/app-api/src/app/disk_test.rs (`the_hosts_of_bd_host_disk_are_its_reports_and_its_refusals`)
+- The first `disk_usage` event must be `Cached`, carrying the full saved overview before any tree walk; it shows each
+  slot's `measuredAt` age and whether its bytes are cached. After FSEvents planning, `Planning` sets the exact number of
+  slots to walk; a `Slot` event replaces that slot as its walk completes and advances the measured count. Host answers
+  arrive as `Machine`, and `Done` ends progress. Measure Again always requests a full walk; closing the dialog does not
+  discard values already received.
+  [@test] ../../crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
+  [@test] ../../crates/app-api/src/app/disk_test.rs (`disk_usage_events_serialize_their_channel_type`)
+  [@test] ../../src/presenters/disk.test.ts (`words when slot bytes were measured and disk progress`)
+- On macOS, a slot whose saved volume mark has no changes stays cached regardless of its age or lease; a changed path
+  remeasures the nearest saved node (through depth 3), preserving the other node sizes. A node or root with hardlinks,
+  a newly created hardlink or directory, missing marks, a different root set or volume, incomplete FSEvents history,
+  and Measure Again require a full walk so a partial sum never double-counts a linked file. On other platforms, retain
+  the current returned/leased cache rules because there is no FSEvents history.
+  [@test] ../../crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`, `a_changed_file_selects_its_nearest_saved_node_and_uncached_paths_select_a_root`)
+  [@test] ../../crates/fs-walk/src/changes_test.rs (`canonical_path_keeps_the_nonexistent_suffix`, `changed_event_paths_are_filtered_to_requested_roots`, `fsevents_refuses_a_mark_from_the_future`, `fsevents_refuses_a_mark_from_another_device`, `a_new_hardlink_requires_a_full_slot_measurement`, `platforms_without_fsevents_always_require_a_full_walk`)
 - Sizes come in MiB (`u32`, up to 4 PiB: the bindings carry no `u64`, and an `f64` comes as `number | null`) and are
   worded binary, as the minimum of the git config counts them. Measure Again reads with `fresh`, every slot walked
   again; the answer shown stays until the new one comes, and a read that a later one overtook is dropped. A failed
@@ -101,6 +119,6 @@ palette opens it.
 ## Open Questions / Risks
 
 - A walk of every slot with its worktree takes minutes the first time (five on the user's Mac, 860 GB in 32 slots); the
-  report answers from `disk.json` after it, and a leased slot is walked again after 15 minutes. The dialog shows the
-  last answer while Measure Again walks.
+  dialog shows the last answer immediately and updates it with progress as each slot finishes. A refresh on macOS walks
+  only changed nodes, while other platforms keep their previous cache policy.
 - A host whose agent predates the feature `disk` shows only why; `brd-host upgrade <alias>` gives it the request.

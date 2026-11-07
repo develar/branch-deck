@@ -45,6 +45,7 @@ members = [
   "crates/host-client",
   "crates/host-agent",
   "crates/bd-host",
+  "crates/fs-walk",
 ]
 resolver = "2"
 

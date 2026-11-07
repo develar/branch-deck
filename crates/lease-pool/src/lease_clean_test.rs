@@ -1,3 +1,4 @@
+use crate::lease::Pool;
 use crate::lease_clean::{CleanMode, CleanRule, Trash, apply_clean_rules, describe_size, parse_clean_rules};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
@@ -459,6 +460,31 @@ fn the_sweep_deletes_a_link_left_in_the_trash_of_a_gone_run() {
   assert_eq!(std::fs::read_to_string(output_base.path().join("execroot/_main/bazel-out/output")).unwrap(), "output");
 }
 
+#[test]
+fn an_eperm_in_an_app_bundle_names_finder_removal_in_trash_left() {
+  let root = tempfile::tempdir().unwrap();
+  let bundle = root.path().join("cef_server.app");
+  let path = bundle.join("Contents/MacOS/cef_server");
+  std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+  std::fs::write(&path, "signed app binary").unwrap();
+  let error = crate::lease_clean::removal_error(&path, std::io::Error::from_raw_os_error(1));
+  let left = crate::lease_clean::trash_left_path(&path, &error);
+
+  if cfg!(target_os = "macos") {
+    let message = error.to_string();
+    assert!(message.contains(path.to_str().unwrap()), "{message}");
+    assert!(message.contains(bundle.to_str().unwrap()), "{message}");
+    assert!(message.contains("Finder"), "{message}");
+    assert_eq!(left, message);
+  } else {
+    assert_eq!(left, path.display().to_string());
+    assert!(!error.to_string().contains("Finder"));
+  }
+
+  let ordinary = crate::lease_clean::removal_error(&path, std::io::Error::from_raw_os_error(13));
+  assert_eq!(crate::lease_clean::trash_left_path(&path, &ordinary), path.display().to_string());
+}
+
 /// Bazel takes the write bit from every directory of an output it wrote (`dr-xr-xr-x`), and without it no entry of
 /// such a directory goes ("Permission denied"), which left the trash of gone runs of a Bazel repository lying: the
 /// walk widens a directory it deletes and tries it again, and counts the bytes of what went before the refusal once
@@ -504,6 +530,21 @@ fn the_sweep_deletes_the_read_only_trash_of_a_gone_run() {
   Trash::new(trash_root.path()).sweep();
 
   assert_eq!(std::fs::read_dir(trash_root.path()).unwrap().count(), 0, "the trash of the gone run");
+}
+
+#[test]
+fn trash_bytes_measure_each_run_with_the_shared_walk() {
+  let root = tempfile::tempdir().unwrap();
+  let trash = root.path().join("branch-deck/trash");
+  let first = trash.join("first");
+  let second = trash.join("second");
+  std::fs::create_dir_all(&first).unwrap();
+  std::fs::create_dir_all(&second).unwrap();
+  std::fs::write(first.join("output"), vec![1u8; 8192]).unwrap();
+  std::fs::write(second.join("output"), vec![2u8; 4096]).unwrap();
+  let expected = fs_walk::tree_size(&first) + fs_walk::tree_size(&second);
+
+  assert_eq!(Pool::new(root.path()).trash_bytes(), expected);
 }
 
 /// A whitelist of a directory: `out` but for `dev-run` and a mark, and `out/dev-run` but for `jar-cache`, leave only

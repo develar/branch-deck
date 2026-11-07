@@ -7,11 +7,17 @@
 //! A file with several hard links counts once per walk (cargo links `deps/` into the profile dir); a link counts as
 //! itself and is never followed; a directory counts nothing of its own.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, PoisonError};
 use sync_utils::span::in_current_span;
+
+pub mod changes;
+
+#[cfg(test)]
+#[path = "changes_test.rs"]
+mod changes_test;
 
 /// How many threads walk the directories
 const WALK_WORKERS: usize = 8;
@@ -22,6 +28,28 @@ const WALK_WORKERS: usize = 8;
 pub struct Walk {
   pub root: PathBuf,
   pub skip: Vec<PathBuf>,
+}
+
+/// The bytes of a walk and the disjoint subtrees at its frontier up to the requested depth
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeBytes {
+  pub bytes: u64,
+  pub nodes: Vec<NodeBytes>,
+  pub has_hardlinks: bool,
+}
+
+/// The bytes under a path relative to the walk root; nodes do not overlap, and bytes not in a node remain at the root
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeBytes {
+  pub path: String,
+  pub bytes: u64,
+  pub has_hardlinks: bool,
+}
+
+#[derive(Default)]
+struct NodeUsage {
+  bytes: u64,
+  has_hardlinks: bool,
 }
 
 impl Walk {
@@ -46,33 +74,101 @@ pub(crate) struct Entry {
 
 /// The work of the walk: the directories still to read, by the index of their walk, and how many threads read one now
 struct Queue {
-  dirs: Vec<(usize, PathBuf)>,
+  dirs: Vec<Directory>,
   active: usize,
+  pending: Vec<usize>,
+}
+
+type WalkCallback<'a> = Mutex<Box<dyn FnMut(usize, TreeBytes) + Send + 'a>>;
+
+struct Directory {
+  index: usize,
+  path: PathBuf,
+  relative: Option<PathBuf>,
+  depth: usize,
+  node: Option<String>,
 }
 
 /// The bytes of each of `walks`; a root that is gone or unreadable holds 0, a directory that can't be read counts
 /// nothing below it
 pub fn walk_bytes(walks: &[Walk]) -> Vec<u64> {
+  walk(walks, None, false, None).into_iter().map(|tree| tree.bytes).collect()
+}
+
+/// The same bytes, calling `on_walk` as each root has been completely read
+pub fn walk_bytes_with_callback<F>(walks: &[Walk], mut on_walk: F) -> Vec<u64>
+where
+  F: FnMut(usize, u64) + Send,
+{
+  let callback: WalkCallback<'_> = Mutex::new(Box::new(|index, tree| on_walk(index, tree.bytes)));
+  walk(walks, None, false, Some(&callback)).into_iter().map(|tree| tree.bytes).collect()
+}
+
+/// The bytes of each walk and a disjoint frontier of subtrees no deeper than `depth`; depth zero leaves all bytes at
+/// the root, while a shallow leaf directory is itself a node
+pub fn walk_tree(walks: &[Walk], depth: usize) -> Vec<TreeBytes> {
+  walk(walks, Some(depth), false, None)
+}
+
+/// Walk each tree and call `on_walk` with its bytes and nodes when it has been completely read
+pub fn walk_tree_with_callback<F>(walks: &[Walk], depth: usize, on_walk: F) -> Vec<TreeBytes>
+where
+  F: FnMut(usize, TreeBytes) + Send,
+{
+  let callback: WalkCallback<'_> = Mutex::new(Box::new(on_walk));
+  walk(walks, Some(depth), false, Some(&callback))
+}
+
+/// The bytes on disk of `path` and everything below it, with links counted as themselves; an absent or unreadable root
+/// holds zero
+pub fn tree_size(path: &Path) -> u64 {
+  walk(&[Walk::of(path)], None, true, None).into_iter().next().map_or(0, |tree| tree.bytes)
+}
+
+fn walk(walks: &[Walk], tree_depth: Option<usize>, include_directory_bytes: bool, callback: Option<&WalkCallback<'_>>) -> Vec<TreeBytes> {
+  if walks.is_empty() {
+    return Vec::new();
+  }
   let totals: Vec<AtomicU64> = walks.iter().map(|_| AtomicU64::new(0)).collect();
+  let node_bytes: Option<Vec<Mutex<BTreeMap<String, NodeUsage>>>> = tree_depth.map(|_| walks.iter().map(|_| Mutex::default()).collect());
   let linked: Mutex<HashSet<u64>> = Mutex::default();
+  let has_hardlinks: Vec<AtomicBool> = walks.iter().map(|_| AtomicBool::new(false)).collect();
   let skips: Vec<HashSet<&Path>> = walks.iter().map(|walk| walk.skip.iter().map(PathBuf::as_path).collect()).collect();
+  let mut pending = vec![0; walks.len()];
   let mut dirs = Vec::new();
   for (index, walk) in walks.iter().enumerate() {
     match walk.root.symlink_metadata() {
-      Ok(metadata) if metadata.is_dir() => dirs.push((index, walk.root.clone())),
-      Ok(metadata) if metadata.is_file() => {
+      Ok(metadata) if metadata.is_dir() => {
+        if include_directory_bytes {
+          totals[index].fetch_add(directory_bytes(&walk.root), Ordering::Relaxed);
+        }
+        pending[index] = 1;
+        dirs.push(Directory {
+          index,
+          path: walk.root.clone(),
+          relative: tree_depth.map(|_| PathBuf::new()),
+          depth: 0,
+          node: None,
+        });
+      }
+      Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
         totals[index].fetch_add(platform::file_bytes(&walk.root, &metadata), Ordering::Relaxed);
       }
       _ => {}
     }
   }
-  let queue = Mutex::new(Queue { dirs, active: 0 });
+  for index in 0..walks.len() {
+    if pending[index] == 0 {
+      notify_walk(callback, index, totals[index].load(Ordering::Relaxed), node_bytes.as_deref(), &has_hardlinks);
+    }
+  }
+  let queue = Mutex::new(Queue { dirs, active: 0, pending });
   let wake = Condvar::new();
   std::thread::scope(|scope| {
     for _ in 0..WALK_WORKERS {
       scope.spawn(in_current_span(|| {
         loop {
-          let (index, dir) = {
+          let dir = {
             let mut queue = queue.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
               if let Some(next) = queue.dirs.pop() {
@@ -87,26 +183,127 @@ pub fn walk_bytes(walks: &[Walk]) -> Vec<u64> {
           };
           let mut found = Vec::new();
           let mut bytes = 0;
-          for entry in platform::read_entries(&dir).unwrap_or_default() {
-            let path = dir.join(&entry.name);
+          let mut has_linked = false;
+          for entry in platform::read_entries(&dir.path).unwrap_or_default() {
+            let path = dir.path.join(&entry.name);
             if entry.dir {
-              if !skips[index].contains(path.as_path()) {
-                found.push((index, path));
+              if !skips[dir.index].contains(path.as_path()) {
+                if include_directory_bytes {
+                  bytes += directory_bytes(&path);
+                }
+                let relative = dir.relative.as_ref().map(|relative| relative.join(&entry.name));
+                let depth = dir.depth + 1;
+                let node = if tree_depth == Some(depth) {
+                  relative.as_deref().and_then(relative_name)
+                } else {
+                  dir.node.clone()
+                };
+                found.push(Directory {
+                  index: dir.index,
+                  path,
+                  relative,
+                  depth,
+                  node,
+                });
               }
-            } else if entry.linked.is_none_or(|id| linked.lock().unwrap_or_else(PoisonError::into_inner).insert(id)) {
+            } else {
+              if let Some(id) = entry.linked {
+                has_linked = true;
+                has_hardlinks[dir.index].store(true, Ordering::Relaxed);
+                if !linked.lock().unwrap_or_else(PoisonError::into_inner).insert(id) {
+                  continue;
+                }
+              }
               bytes += entry.bytes;
             }
           }
-          totals[index].fetch_add(bytes, Ordering::Relaxed);
+          totals[dir.index].fetch_add(bytes, Ordering::Relaxed);
+          if let Some(node_bytes) = &node_bytes {
+            let node = dir.node.clone().or_else(|| {
+              if tree_depth.is_some_and(|depth| depth > 0) && dir.depth > 0 && found.is_empty() {
+                dir.relative.as_deref().and_then(relative_name)
+              } else {
+                None
+              }
+            });
+            if let Some(node) = node {
+              let mut nodes = node_bytes[dir.index].lock().unwrap_or_else(PoisonError::into_inner);
+              let node = nodes.entry(node).or_default();
+              node.bytes += bytes;
+              node.has_hardlinks |= has_linked;
+            }
+          }
+          let index = dir.index;
           let mut queue = queue.lock().unwrap_or_else(PoisonError::into_inner);
+          queue.pending[index] += found.len();
+          queue.pending[index] -= 1;
+          let completed = queue.pending[index] == 0;
           queue.dirs.extend(found);
           queue.active -= 1;
           wake.notify_all();
+          drop(queue);
+          if completed {
+            notify_walk(callback, index, totals[index].load(Ordering::Relaxed), node_bytes.as_deref(), &has_hardlinks);
+          }
         }
       }));
     }
   });
-  totals.into_iter().map(AtomicU64::into_inner).collect()
+  totals
+    .into_iter()
+    .enumerate()
+    .map(|(index, bytes)| tree_at(index, bytes.into_inner(), node_bytes.as_deref(), &has_hardlinks))
+    .collect()
+}
+
+fn notify_walk(callback: Option<&WalkCallback<'_>>, index: usize, bytes: u64, node_bytes: Option<&[Mutex<BTreeMap<String, NodeUsage>>]>, has_hardlinks: &[AtomicBool]) {
+  if let Some(callback) = callback {
+    let mut callback = callback.lock().unwrap_or_else(PoisonError::into_inner);
+    callback(index, tree_at(index, bytes, node_bytes, has_hardlinks));
+  }
+}
+
+fn tree_at(index: usize, bytes: u64, node_bytes: Option<&[Mutex<BTreeMap<String, NodeUsage>>]>, has_hardlinks: &[AtomicBool]) -> TreeBytes {
+  TreeBytes {
+    bytes,
+    has_hardlinks: has_hardlinks[index].load(Ordering::Relaxed),
+    nodes: node_bytes.map_or_else(Vec::new, |nodes| {
+      nodes[index]
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|(path, usage)| NodeBytes {
+          path: path.clone(),
+          bytes: usage.bytes,
+          has_hardlinks: usage.has_hardlinks,
+        })
+        .collect()
+    }),
+  }
+}
+
+fn directory_bytes(path: &Path) -> u64 {
+  let Ok(metadata) = path.symlink_metadata() else { return 0 };
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::MetadataExt;
+    metadata.blocks() * 512
+  }
+  #[cfg(not(unix))]
+  {
+    metadata.len()
+  }
+}
+
+fn relative_name(path: &Path) -> Option<String> {
+  path
+    .components()
+    .map(|component| match component {
+      Component::Normal(name) => name.to_str(),
+      _ => None,
+    })
+    .collect::<Option<Vec<_>>>()
+    .map(|components| components.join("/"))
 }
 
 #[cfg(target_os = "macos")]

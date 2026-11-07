@@ -8,7 +8,20 @@ import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDial
 import { useDiskUsage } from "@/hooks/useDiskUsage"
 import { trimPools } from "@/hooks/useTrimPools"
 import type { MachineDisk, PoolDisk } from "@/lib/bindings"
-import { formatSize, freeSpaceLine, isBelowMinimum, machineTitle, poolLine, slotSizeDetail, slotsBySize, slotStateLabel, trimDisabledReason, trimWhat } from "@/presenters/disk"
+import {
+  diskProgress,
+  formatSize,
+  freeSpaceLine,
+  isBelowMinimum,
+  machineTitle,
+  measuredAge,
+  poolLine,
+  slotSizeDetail,
+  slotsBySize,
+  slotStateLabel,
+  trimDisabledReason,
+  trimWhat,
+} from "@/presenters/disk"
 import { closeDiskUsageDialog, useDiskUsageDialog } from "@/stores/disk-usage-dialog"
 
 /**
@@ -78,8 +91,13 @@ function DiskUsage({ repositoryPath, generation, bodyRef }: { repositoryPath: st
         )}
         {state.status === "loaded" && (
           <div className="flex flex-col gap-6">
+            {refreshing && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {diskProgress(state.measured, state.measuring)}
+              </p>
+            )}
             {state.overview.machines.map(machine => (
-              <Machine key={machine.alias ?? ""} machine={machine} />
+              <Machine key={machine.alias ?? ""} machine={machine} refreshing={refreshing} />
             ))}
           </div>
         )}
@@ -106,8 +124,9 @@ function DiskUsage({ repositoryPath, generation, bodyRef }: { repositoryPath: st
   )
 }
 
-function Machine({ machine }: { machine: MachineDisk }) {
+function Machine({ machine, refreshing }: { machine: MachineDisk; refreshing: boolean }) {
   const title = machineTitle(machine)
+  const measuring = refreshing && machine.alias === null
   return (
     <section aria-label={title} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -117,7 +136,7 @@ function Machine({ machine }: { machine: MachineDisk }) {
       {machine.error !== null && <p className="text-sm text-muted-foreground">{machine.error}</p>}
       {machine.error === null && machine.pools.length === 0 && <p className="text-sm text-muted-foreground">No lease pools</p>}
       {machine.pools.map(pool => (
-        <Pool key={pool.path} pool={pool} />
+        <Pool key={pool.path} pool={pool} refreshing={measuring} />
       ))}
       {machine.orphans > 0 && (
         <p className="text-sm text-muted-foreground">
@@ -128,7 +147,7 @@ function Machine({ machine }: { machine: MachineDisk }) {
   )
 }
 
-function Pool({ pool }: { pool: PoolDisk }) {
+function Pool({ pool, refreshing }: { pool: PoolDisk; refreshing: boolean }) {
   return (
     <div role="group" aria-label={pool.name} className="flex flex-col gap-1 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4">
@@ -140,9 +159,16 @@ function Pool({ pool }: { pool: PoolDisk }) {
       {pool.checkoutBasesMib > 0 && <span className="text-xs text-muted-foreground">Bazel output bases of the main checkout: {formatSize(pool.checkoutBasesMib)}</span>}
       <ul className="flex flex-col">
         {slotsBySize(pool).map(slot => (
-          <li key={slot.path} className="flex items-center gap-3 py-1 text-sm" title={slot.path}>
+          <li
+            key={slot.path}
+            aria-busy={refreshing && slot.cached}
+            className={`flex items-center gap-3 py-1 text-sm ${refreshing && slot.cached ? "bg-muted" : ""}`}
+            title={slot.path}
+          >
             <span className="w-8 shrink-0 text-muted-foreground tabular-nums">{slot.name}</span>
-            <span className="min-w-0 flex-1 truncate">{slotStateLabel(slot)}</span>
+            <span className="min-w-0 flex-1 truncate">
+              {slotStateLabel(slot)} · {measuredAge(slot.measuredAt)}
+            </span>
             {slot.trimsNext && <Badge variant="outline">Goes with a trim</Badge>}
             <span className="hidden text-xs text-muted-foreground sm:inline">{slotSizeDetail(slot)}</span>
             <span className="w-20 shrink-0 text-right tabular-nums">{formatSize(slot.mib)}</span>

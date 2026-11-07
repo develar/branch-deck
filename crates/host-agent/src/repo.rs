@@ -87,6 +87,7 @@ impl Repository {
       repository: &self.dirs,
       home: Some(&self.home),
       fresh,
+      cached: false,
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
     };
     let usage = disk_usage_core(&self.git, &params).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))?;

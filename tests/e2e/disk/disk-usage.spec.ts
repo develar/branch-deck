@@ -1,6 +1,6 @@
 // @spec spec/repository/disk-usage.spec.md
-import { existsSync } from "node:fs"
-import { dirname } from "node:path"
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { expect, test } from "../fixtures/test-fixtures"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 
@@ -32,6 +32,13 @@ test.describe("Disk usage", () => {
     // eleven free slots: one past the default limit of 10, the one returned first
     const slots = await repo.addLeaseSlots(11)
     const [first, last] = [slots[0] ?? "", slots[10] ?? ""]
+    const progressSlot = slots[1] ?? ""
+    appendFileSync(join(progressSlot, ".gitignore"), "\n.disk-progress/\n")
+    const progress = join(progressSlot, ".disk-progress")
+    mkdirSync(progress)
+    for (let index = 0; index < 80_000; index += 1) {
+      writeFileSync(join(progress, String(index)), "x")
+    }
     await repo.setHostDisks([
       { alias: "studio", report: STUDIO_REPORT },
       { alias: "mini", error: "the agent on mini has no feature disk: `brd-host upgrade mini` sends it this build" },
@@ -39,10 +46,12 @@ test.describe("Disk usage", () => {
     await openPalette(page)
     await runByKeyboard(page, "disk usage", "Show Disk Usage…")
     const dialog = page.getByTestId("disk-usage-dialog")
+    await expect(dialog.getByRole("status").filter({ hasText: "Measured" })).toContainText(/Measured \d+ of 11 slots/)
 
     const thisMac = dialog.getByRole("region", { name: "This Mac" })
     const pool = thisMac.getByRole("group")
     await expect(pool.getByRole("listitem")).toHaveCount(11)
+    await expect(pool.getByRole("listitem").first()).toContainText(/Measured (just now|[0-9]+ (minutes?|hours?|days?) ago)/)
     await expect(pool).toContainText("11 slots, limit 10, 1 goes with a trim")
     await expect(pool.getByRole("listitem").filter({ hasText: "Goes with a trim" })).toHaveCount(1)
     await expect(pool.getByRole("listitem").filter({ hasText: "Goes with a trim" })).toHaveAttribute("title", first)

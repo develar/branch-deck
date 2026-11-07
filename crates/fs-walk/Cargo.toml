@@ -1,0 +1,20 @@
+[package]
+name = "fs-walk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Fast walks of filesystem trees for lease disk usage and cleanup"
+publish = false
+
+[dependencies]
+sync-utils = { path = "../sync-utils" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2.191"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

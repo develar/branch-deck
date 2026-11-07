@@ -25,7 +25,7 @@ export const commands = {
 	 *  walked in process (the bytes of `disk.json` while they hold), the hosts answer through `bd-host disk`, side by
 	 *  side; a host that does not answer names why
 	 */
-	diskUsage: (params: DiskUsageParams) => typedError<DiskOverview, ApiError>(__TAURI_INVOKE("disk_usage", { params })),
+	diskUsage: (params: DiskUsageParams, events: Channel<DiskUsageEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("disk_usage", { params, events })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
 	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("get_repository_config", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
@@ -2228,6 +2228,9 @@ export type DiffSource =
 export type DiskOverview = {
 	machines: MachineDisk[],
 };
+
+/**  A report sent before and during a disk walk */
+export type DiskUsageEvent = { type: "cached"; overview: DiskOverview; measuring: number } | { type: "planning"; measuring: number } | { type: "slot"; machine: string | null; pool: string; slot: SlotDisk; measured: number; measuring: number } | { type: "machine"; machine: MachineDisk } | { type: "done"; ms: number };
 
 export type DiskUsageParams = {
 	/**  A checkout of a repository: its pool is reported wherever it lives, and its config gives the minimum */
@@ -7749,6 +7752,10 @@ export type SlotDisk = {
 	basesMib: number,
 	/**  A trim deletes it now */
 	trimsNext: boolean,
+	/**  Unix seconds of the measurement shown */
+	measuredAt: number,
+	/**  The values come from the saved disk report, not this walk */
+	cached: boolean,
 };
 
 /**  What a slot is to the window */

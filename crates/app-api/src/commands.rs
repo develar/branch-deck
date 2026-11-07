@@ -28,7 +28,7 @@ macro_rules! for_each_command {
       /// its builds wrote, which slots a trim deletes next, the free space and the minimum of each machine. This Mac is
       /// walked in process (the bytes of `disk.json` while they hold), the hosts answer through `bd-host disk`, side by
       /// side; a host that does not answer names why
-      read json disk_usage(params: $crate::app::disk::DiskUsageParams) -> $crate::app::disk::DiskOverview = $crate::app::disk::disk_usage;
+      read json disk_usage(params: $crate::app::disk::DiskUsageParams) [channel events: $crate::app::disk::DiskUsageEvent] -> () = $crate::app::disk::disk_usage;
 
       /// The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository
       read json get_repository_config(params: $crate::reads::repository::GetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::reads::repository::get_repository_config;

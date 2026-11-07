@@ -17,7 +17,7 @@ use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
+use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, holds_gone_runs, read_clean_rules, remove_together};
 use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
 use crate::state_file::StateFile;
 use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, trim_core};
@@ -765,7 +765,7 @@ impl Pool {
 
   /// The bytes on disk of what the trash holds: what a run killed before its delete left behind
   pub fn trash_bytes(&self) -> u64 {
-    std::fs::read_dir(self.trash_dir()).map_or(0, |entries| entries.flatten().map(|entry| disk_size(&entry.path())).sum())
+    std::fs::read_dir(self.trash_dir()).map_or(0, |entries| entries.flatten().map(|entry| fs_walk::tree_size(&entry.path())).sum())
   }
 
   /// Run `change` on the state under the pool lock and write the state it leaves; the lock is released at once

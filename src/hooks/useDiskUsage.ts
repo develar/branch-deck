@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react"
-import type { DiskOverview } from "@/lib/bindings"
+import { Channel } from "@tauri-apps/api/core"
+import type { DiskOverview, DiskUsageEvent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { getErrorDetails } from "@/lib/errors"
 
-export type DiskUsageState = { status: "loading" } | { status: "loaded"; overview: DiskOverview } | { status: "error"; message: string }
+export type DiskUsageState =
+  | { status: "loading" }
+  | { status: "loaded"; overview: DiskOverview; measured: number; measuring: number; done: boolean; ms: number | null }
+  | { status: "error"; message: string }
 
 export interface DiskUsageRead {
   state: DiskUsageState
@@ -25,14 +29,30 @@ export function useDiskUsage(repositoryPath: string, generation: number): DiskUs
 
   useEffect(() => {
     let current = true
-    const answered = (state: DiskUsageState) => {
+    const events = new Channel<DiskUsageEvent>()
+    events.onmessage = event => {
       if (current) {
-        setRead({ key, state, seq: request.seq })
+        setRead(previous => {
+          const state = previous?.key === key && previous.seq === request.seq ? previous.state : null
+          const next = receiveDiskEvent(state, event)
+          return next === null ? previous : { key, state: next, seq: request.seq }
+        })
       }
     }
-    commands.diskUsage({ repositoryPath, fresh: request.fresh }).then(
-      result => answered(result.status === "error" ? { status: "error", message: result.error.message } : { status: "loaded", overview: result.data }),
-      (error: unknown) => answered({ status: "error", message: getErrorDetails(error) }),
+    void commands.diskUsage({ repositoryPath, fresh: request.fresh }, events).then(
+      result => {
+        if (!current || (result.status === "error" && result.error.code === "canceled")) {
+          return
+        }
+        if (result.status === "error") {
+          setRead({ key, state: { status: "error", message: result.error.message }, seq: request.seq })
+        }
+      },
+      (error: unknown) => {
+        if (current) {
+          setRead({ key, state: { status: "error", message: getErrorDetails(error) }, seq: request.seq })
+        }
+      },
     )
     return () => {
       current = false
@@ -42,7 +62,51 @@ export function useDiskUsage(repositoryPath: string, generation: number): DiskUs
   const shown = read !== null && read.key === key ? read : null
   return {
     state: shown?.state ?? { status: "loading" },
-    refreshing: shown !== null && shown.seq !== request.seq,
+    refreshing: shown !== null && (shown.seq !== request.seq || (shown.state.status === "loaded" && !shown.state.done)),
     reload: fresh => setRequest(it => ({ seq: it.seq + 1, fresh })),
+  }
+}
+
+function receiveDiskEvent(previous: DiskUsageState | null, event: DiskUsageEvent): DiskUsageState | null {
+  switch (event.type) {
+    case "cached":
+      return { status: "loaded", overview: event.overview, measured: 0, measuring: event.measuring, done: false, ms: null }
+    case "slot":
+      if (previous?.status !== "loaded") {
+        return previous
+      }
+      return {
+        ...previous,
+        overview: {
+          machines: previous.overview.machines.map(machine =>
+            machine.alias === event.machine
+              ? {
+                  ...machine,
+                  pools: machine.pools.map(pool =>
+                    pool.path === event.pool ? { ...pool, slots: pool.slots.map(slot => (slot.path === event.slot.path ? event.slot : slot)) } : pool,
+                  ),
+                }
+              : machine,
+          ),
+        },
+        measured: event.measured,
+        measuring: event.measuring,
+      }
+    case "planning":
+      return previous?.status === "loaded" ? { ...previous, measured: 0, measuring: event.measuring } : previous
+    case "machine":
+      if (previous?.status !== "loaded") {
+        return previous
+      }
+      return {
+        ...previous,
+        overview: {
+          machines: previous.overview.machines.some(machine => machine.alias === event.machine.alias)
+            ? previous.overview.machines.map(machine => (machine.alias === event.machine.alias ? event.machine : machine))
+            : [...previous.overview.machines, event.machine],
+        },
+      }
+    case "done":
+      return previous?.status === "loaded" ? { ...previous, done: true, ms: event.ms } : previous
   }
 }
