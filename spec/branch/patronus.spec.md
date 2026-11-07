@@ -784,7 +784,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   lane-run on stills-codec to land it too." (one more refusal: "One more name breaks it too: brd check lists them."),
   with the fix as its action, "Stack lane-run on stills-codec", a restack of the root of what lands, so the next start
   lands that branch too, and "Start Anyway" below it, the same start with the override of what refused it (a name the
-  user knows is a false alarm), planned again. A commit unassigned, stacked branches off or a restack that would close
+  user knows is a false alarm), planned again. A commit unassigned or a restack that would close
   a cycle: the text names the move of the commit, and "Start Anyway" is the only action. A gate of a whole stack that
   can't run holds nothing back, and the start's toast says "Not checked whether the whole lane-run stack uses a name
   only another branch adds: …".

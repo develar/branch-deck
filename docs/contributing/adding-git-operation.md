@@ -164,7 +164,7 @@ Reuse one of these before writing a parser or a process of your own.
 | `read_commit_diffs_cached`, `read_commit_changes` | `trial_check::diff_scan` | the changes of many commits from one `log --raw -z`; only a trial check or a pick reads diffs, never a sync |
 | `plan_stack_branches`, `StackBuilds`, `read_stack_branches` | `sync_core::stack_branch` | the stack branch of a stack that forks: its members and commits, its remembered builds, its state without a sync |
 | `ConfigSnapshot` | `sync_core::config_snapshot` | the `branchdeck.*` settings and the descriptions from one `git config` |
-| `Snapshot`, `CommitsAhead`, `read_grouping_inputs` | `history_rewrite::snapshot` | the commits ahead of the baseline and what groups them, once per operation; `Snapshot::read_with` with the stack setting and the commits ahead a caller read |
+| `Snapshot`, `CommitsAhead`, `read_grouping_inputs` | `history_rewrite::snapshot` | the commits ahead of the baseline and what groups them, once per operation; `Snapshot::read_with` with the commits ahead a caller read |
 | `LineStore`; `ISSUE_GROUPS`, `STACK_PARENTS` | `history_rewrite::store_lines`; `issue_groups`, `stack_parents` | a `key<TAB>value` map in a ref of its own: read, CAS write |
 | `walk_commits`, `CommitKey`, `same_changes`, `pair_by_patch_id` | `git_ops::landed_pairing` | a `rev-list` walk matched across a rebase; the patch ids of commits, without context or with it |
 | `parse_subject`, `stripped_subject` | `sync_utils::commit_subject` | the autosquash markers and the `(prefix)` of a subject |

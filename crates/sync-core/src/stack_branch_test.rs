@@ -39,14 +39,13 @@ fn commit(index: usize, subject: &str, email: &str) -> Commit {
   }
 }
 
-/// The plans of `commits` grouped with stacked branches on, in this order of the history
+/// The plans of `commits` grouped, in this order of the history
 fn plans_of(commits: &[Commit]) -> Vec<StackBranchPlan> {
-  let mut grouper = CommitGrouper::new_with_stacks(true);
+  let mut grouper = CommitGrouper::new();
   for commit in commits {
     grouper.add_commit(commit.clone());
   }
   let (grouped, forest) = grouper.finish_with_stacks();
-  let forest = forest.expect("stacked branches are on");
   let placements = place_branches(&forest, &HashMap::new());
   let by_branch: HashMap<&str, &[Commit]> = grouped.branches.iter().map(|(name, commits)| (name.as_str(), commits.as_slice())).collect();
   let positions: HashMap<&str, usize> = commits.iter().enumerate().map(|(index, commit)| (commit.id.as_str(), index)).collect();

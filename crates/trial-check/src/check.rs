@@ -58,7 +58,6 @@ pub struct CheckReport {
   pub baseline_branch: String,
   /// The commit the branches without a parent are built on; `None` without commits ahead of the baseline
   pub base: Option<String>,
-  pub stacks: bool,
   /// The plan applied in memory; nothing changed without a plan
   pub regroup: RegroupOutcome,
   /// In build order: parents before their children
@@ -315,8 +314,7 @@ impl CheckSession {
   pub fn open_on(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache, config: &ConfigSnapshot) -> Result<Self, RegroupError> {
     let symbols = config.symbol_mode().map_err(RegroupError::from)?;
     let resolve = config.resolve_mode().map_err(RegroupError::from)?;
-    let stacks = config.stacks().map_err(RegroupError::from)?;
-    let (snapshot, baseline) = Snapshot::read_with(git_executor, repository_path, Some(stacks), |head, branch| {
+    let (snapshot, baseline) = Snapshot::read_with(git_executor, repository_path, |head, branch| {
       let baseline = read_listed_baseline(git_executor, repository_path, branch, Some(branch_prefix))?;
       let commits = get_frozen_commit_list(git_executor, repository_path, &baseline.commit, head, on_local_baseline(&baseline.name, branch))?;
       Ok((
@@ -588,20 +586,14 @@ impl CheckSession {
     let base = grouper.first_parent_id.take();
     let (GroupedCommits { branches, unassigned, .. }, forest) = grouper.finish_with_stacks();
 
-    let placements = match &forest {
-      Some(forest) => Some(place_branches(forest, &self.empty_parent_states(forest)?)),
-      None => None,
-    };
-    let order: Vec<String> = forest.as_ref().map_or_else(|| branches.keys().cloned().collect(), |forest| forest.order.clone());
+    let placements = place_branches(&forest, &self.empty_parent_states(&forest)?);
+    let order: Vec<String> = forest.order;
     // `only` and the branches it is built on
     let built: Option<HashSet<String>> = only.map(|name| {
       let mut built = HashSet::new();
       let mut current = Some(name.to_string());
       while let Some(name) = current.filter(|name| !built.contains(name)) {
-        current = placements
-          .as_ref()
-          .and_then(|placements| placements.get(&name))
-          .and_then(|stack| stack.effective_base.clone());
+        current = placements.get(&name).and_then(|stack| stack.effective_base.clone());
         built.insert(name);
       }
       built
@@ -650,7 +642,7 @@ impl CheckSession {
       if built.as_ref().is_some_and(|built| !built.contains(name)) {
         continue;
       }
-      let placement = placements.as_ref().and_then(|placements| placements.get(name));
+      let placement = placements.get(name);
       let built_on = placement.and_then(|stack| stack.effective_base.clone());
       let immediate = if let Some(stack) = placement.filter(|stack| !stack.problems.is_empty()) {
         Some(CheckOutcome::Problems(stack.problems.clone()))
@@ -718,7 +710,6 @@ impl CheckSession {
       head: regroup.previous_head.clone(),
       baseline_branch,
       base,
-      stacks: regroup.grouping.stacks,
       regroup,
       branches: checks,
       unassigned: unassigned.len(),
@@ -860,8 +851,7 @@ impl CheckSession {
   /// `stack_independence` of `branch` against the snapshot
   #[instrument(skip(self))]
   pub fn stack_independence(&self, branch: &str) -> Result<StackIndependence, RegroupError> {
-    let forest = self.snapshot.forest.as_ref();
-    let Some(parent) = forest.and_then(|forest| forest.declared_parent(branch)).map(str::to_string) else {
+    let Some(parent) = self.snapshot.forest.declared_parent(branch).map(str::to_string) else {
       return Err(RegroupError::InvalidPlan {
         message: format!("{branch} is not stacked"),
         commits: Vec::new(),
@@ -914,7 +904,7 @@ impl CheckSession {
   fn ancestor_uses(&self, branch: &str, graph: &SymbolGraph) -> Vec<StackUse> {
     let commits = &self.snapshot.commits;
     let group_of = |position: usize| commits.get(position).and_then(|commit| self.snapshot.groups.get(&commit.id)).and_then(Option::as_deref);
-    let ancestors = self.snapshot.forest.as_ref().map_or_default(|forest| ancestors_of(forest, branch));
+    let ancestors = ancestors_of(&self.snapshot.forest, branch);
     let named = |position: usize| self.stack_commit(position);
     let mut seen: BTreeSet<&str> = BTreeSet::new();
     graph
@@ -938,8 +928,8 @@ impl CheckSession {
     let commits = &self.snapshot.commits;
     let LineGraph { needs, unit } = self.line_graph()?;
     let group_of = |position: usize| self.snapshot.groups.get(&commits[position].id).and_then(Option::as_deref);
-    let forest = self.snapshot.forest.as_ref();
-    let ancestors = forest.map_or_default(|forest| ancestors_of(forest, branch));
+    let forest = &self.snapshot.forest;
+    let ancestors = ancestors_of(forest, branch);
 
     // from the commits of the branch through the commits of its ancestors, each with its fixup unit
     let in_ancestor = |position: usize| group_of(position).is_some_and(|group| ancestors.contains(&group));
@@ -955,7 +945,7 @@ impl CheckSession {
     // a commit left in a branch whose build holds a needed commit (an ancestor that owns one, and the branches built
     // on it) would need this branch after a move; the branches built on this one get the commits anyway, and the other
     // stacks never had them
-    let built_on = |group: &str, base: &str| group == base || forest.is_some_and(|forest| ancestors_of(forest, group).contains(&base));
+    let built_on = |group: &str, base: &str| group == base || ancestors_of(forest, group).contains(&base);
     let owners: BTreeSet<&str> = needed.iter().filter_map(|&position| group_of(position)).collect();
     let holds_needed = |group: &str| !built_on(group, branch) && owners.iter().any(|owner| built_on(group, owner));
     let movable = !needed.is_empty()

@@ -39,12 +39,12 @@ pub fn validate_issue_key(key: &str) -> Result<(), String> {
   }
 }
 
-/// The name of an issue group: a branch name without `/`, so that it is a leaf with stacked branches on and off
+/// The name of an issue group: a branch name without `/`, so that it is a leaf
 pub fn validate_issue_group_name(name: &str) -> Result<(), String> {
   validate_leaf_name(name, "issue group name")
 }
 
-/// A branch name without `/` (`what` names it in the message), so that it is a leaf with stacked branches on and off
+/// A branch name without `/` (`what` names it in the message), so that it is a leaf
 pub fn validate_leaf_name(name: &str, what: &str) -> Result<(), String> {
   validate_branch_name(name).map_err(|e| format!("{e:#}"))?;
   if name.contains('/') {

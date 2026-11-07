@@ -34,7 +34,7 @@ fn refusal(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> Unap
 
 /// `(feature) Add file0`, `(other) Add file1`, `(feature) Add file2`, `(different) Add file3`, synced; returns them
 fn synced_repo() -> (TestRepo, Vec<String>) {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(feature) Add file0", "(other) Add file1", "(feature) Add file2", "(different) Add file3"]);
   sync(&repo);
   (repo, ids)
@@ -83,7 +83,7 @@ fn unapply_takes_the_commits_of_the_branch_out_of_head_with_their_files() -> Res
 /// branch
 #[test]
 fn unapply_keeps_the_note_of_a_later_commit_whose_trees_stay_and_refuses_to_empty_one() -> Result<()> {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   repo.create_commit("(feature) Add x", "x.txt", "x\n");
   repo.git(&["rm", "-q", "x.txt"]);
   repo.git(&["commit", "-q", "-m", "(feature) Remove x"]);
@@ -97,7 +97,7 @@ fn unapply_keeps_the_note_of_a_later_commit_whose_trees_stay_and_refuses_to_empt
   assert_eq!(repo.git(&["notes", "--ref", &notes_ref, "show", "HEAD"]), note);
 
   // a commit of another branch that holds only the change of this one: replay would leave it out
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   repo.create_commit("(feature) Add x", "x.txt", "x\n");
   repo.create_commit("(other) Add y", "y.txt", "y\n");
   repo.git(&["rm", "-q", "x.txt"]);
@@ -196,22 +196,6 @@ fn test_unapply_avoids_a_ref_below_the_name() -> Result<()> {
 
   assert_eq!(result.unapplied_branch_name, "test-prefix/unapplied/feature-1");
   assert!(!repo.branch_exists(VIRTUAL));
-  Ok(())
-}
-
-#[test]
-fn test_unapply_avoids_a_ref_above_the_name() -> Result<()> {
-  let repo = baseline_repo(false);
-  // a flat name with a slash, as without stacked branches
-  commits(&repo, &["(feature/x) Add file1"]);
-  sync(&repo);
-  // `test-prefix/unapplied/feature` is a file, so `test-prefix/unapplied/feature/x` can't be created
-  repo.create_branch_at("test-prefix/unapplied/feature", &repo.head()).map_err(anyhow::Error::msg)?;
-
-  let result = unapply(&repo, "feature/x", None)?;
-
-  assert_eq!(result.unapplied_branch_name, "test-prefix/unapplied/feature-1/x");
-  assert!(!repo.branch_exists("test-prefix/virtual/feature/x"));
   Ok(())
 }
 

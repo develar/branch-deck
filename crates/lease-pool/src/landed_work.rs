@@ -35,7 +35,6 @@ use git_ops::lease_slot::{UnlandedCommit, commits_beyond_branch, commits_since, 
 use git_ops::object_texts::read_texts;
 use git_ops::pick::pick_dry_run;
 use git_ops::revs::{is_ancestor, merge_base, ref_exists, resolve_commit};
-use history_rewrite::stack::stacks_enabled;
 use std::collections::{HashMap, HashSet};
 use sync_core::baseline::baseline_tracking_ref;
 use sync_core::robot_commits::mapped_virtual;
@@ -283,9 +282,8 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
     return Ok(());
   }
   let upstream = read_upstream(git_executor, slot, &local, &merge_base, &tip)?;
-  let stacks = stacks_enabled(git_executor, slot)?;
   let reads = LandedReads { local, upstream };
-  for (commit, proof) in landed_by_pairing(git_executor, slot, &pair_twins(git_executor, slot, &reads, stacks)?)? {
+  for (commit, proof) in landed_by_pairing(git_executor, slot, &pair_twins(git_executor, slot, &reads)?)? {
     proofs.add(&commit, proof);
   }
   if proofs.is_done() {
@@ -293,7 +291,7 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
   }
 
   // 5. the same author and subject at another author time
-  for (commit, _) in landed_by_pairing(git_executor, slot, &subject_twins(&reads, stacks, proofs))? {
+  for (commit, _) in landed_by_pairing(git_executor, slot, &subject_twins(&reads, proofs))? {
     proofs.add(&commit, Proof::SubjectTwin);
   }
   if proofs.is_done() {
@@ -346,7 +344,7 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
     local: unproven.iter().filter_map(|copy| commits.get(*copy).cloned()).collect(),
     upstream: reads.upstream,
   };
-  for (copy, _) in landed_by_pairing(git_executor, slot, &pair_twins(git_executor, slot, &copy_reads, stacks)?)? {
+  for (copy, _) in landed_by_pairing(git_executor, slot, &pair_twins(git_executor, slot, &copy_reads)?)? {
     if let Some(original) = copies.get(copy.as_str()) {
       proofs.add(original, note(&copy));
     }
@@ -403,9 +401,9 @@ fn folded_fixups(git_executor: &GitCommandExecutor, slot: &str, tip: &str, base:
 /// The pairs of each commit no rung proved yet with the commits of the branch of its author and subject at another
 /// author time (the newest `SUBJECT_TWINS_PER_COMMIT`), each with the fixups of the commit still unproven: candidates
 /// for the twin check (`landed_by_pairing`), which decides by their content alone. A fixup is no commit of its own here
-fn subject_twins(reads: &LandedReads, stacks: bool, proofs: &Proofs<'_>) -> LandedPairing {
+fn subject_twins(reads: &LandedReads, proofs: &Proofs<'_>) -> LandedPairing {
   let left: HashSet<&str> = proofs.left().into_iter().collect();
-  let target_of = target_of_each_fixup(&reads.local, stacks);
+  let target_of = target_of_each_fixup(&reads.local);
   let mut fixups: HashMap<&str, Vec<String>> = HashMap::new();
   for commit in reads.local.iter().filter(|commit| left.contains(commit.id.as_str())) {
     if let Some(target) = target_of.get(&commit.id) {

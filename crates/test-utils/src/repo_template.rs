@@ -10,7 +10,7 @@ pub struct RepoTemplate {
   #[expect(dead_code, reason = "names the template where it is built, for the reader; nothing reads it")]
   name: String,
   branch_prefix: Option<String>,
-  /// Other git config, e.g. `branchdeck.stacks`
+  /// Other git config, e.g. `user.name`
   config: Vec<(String, String)>,
   commits: Vec<CommitSpec>,
   /// `KEY<TAB>name` lines of the issue groups (`refs/branch-deck/issue-groups`), written after the commits
@@ -819,13 +819,12 @@ pub mod templates {
       .issue_group("ABC-2", "parser")
   }
 
-  /// With stacked branches on: two issue branches and a prefix branch stacked on the first by the stack parents,
+  /// Two issue branches and a prefix branch stacked on the first by the stack parents,
   /// without a parent level in its prefix
   pub fn stacked_issues() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("stacked_issues")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Parser\n")], Some(1704117600))
       .commit_with_timestamp("ABC-1: Add parser", &[("parser.js", "export function parse() {}\n")], Some(1704119400))
       .commit_with_timestamp("ABC-2: Parse lists", &[("lists.js", "export function parseList() {}\n")], Some(1704121200))
@@ -900,7 +899,6 @@ pub mod templates {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("fixup_order")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Accounts\n")], Some(1704117600))
       .commit_with_timestamp("(auth) IJAI-101 Validate the password", &[("auth.js", "export function validate() {}\n")], Some(1704119400))
       .commit_with_timestamp("(auth/session) Keep the session", &[("session.js", "export const session = {}\n")], Some(1704121200))
@@ -913,7 +911,7 @@ pub mod templates {
       .commit_with_timestamp("(search) Index the names", &[("search.js", "export function index() {}\n")], Some(1704126600))
   }
 
-  /// Stacked branches on: `login` stacks on `auth` and edits its file, `oauth` stacks on `login`, `session` (an issue
+  /// `login` stacks on `auth` and edits its file, `oauth` stacks on `login`, `session` (an issue
   /// key in its subject) on `auth`, and `docs` stands alone
   pub fn stacked_branches() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
@@ -941,11 +939,10 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704126600))
   }
 
-  /// The start of the templates of the `auth` stack: stacked branches on, the setup and `auth`
+  /// The start of the templates of the `auth` stack: the setup and `auth`
   fn stacked_auth(name: &str) -> RepoTemplate {
     RepoTemplate::new(name)
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Auth\n")], Some(1704117600))
       .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(1704119400))
   }
@@ -956,7 +953,6 @@ pub mod templates {
   pub fn stack_island() -> RepoTemplate {
     let mut template = RepoTemplate::new("stack_island")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Air\n")], Some(1704117600));
     let mut time = 1704119400;
     for (prefix, subject) in STACK_ISLAND_BRANCHES {
@@ -974,7 +970,7 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the agent", &[("docs.md", "# Agent\n")], Some(time + 3600))
   }
 
-  /// The README images (`tests/screenshots/readme.shot.ts`): a notes app of `alex` with stacked branches on, the stack
+  /// The README images (`tests/screenshots/readme.shot.ts`): a notes app of `alex`, the stack
   /// `sync` of four branches of two commits, `conflicts/offline` and `presence` on `sync` (small enough to stay in the
   /// table), the issue branches `ABC-123` (two commits) and `ABC-131`, `search` and `docs`: eight branches, so the filter
   /// bar shows. Kotlin sources (`fixtures/readme`) for the colours of the review. The commits interleave the branches, as
@@ -1041,7 +1037,6 @@ pub mod templates {
     let mut time = 1704096000;
     let mut template = RepoTemplate::new("readme_showcase")
       .branch_prefix("alex")
-      .config("branchdeck.stacks", "true")
       .config("user.name", "Alex Morgan")
       .config("user.email", "alex@example.com")
       .commit_with_timestamp(
@@ -1061,7 +1056,7 @@ pub mod templates {
     template
   }
 
-  /// The branch view at scale, for `tests/perf/branch-table.perf.ts`: stacked branches on, 120 lone branches of one
+  /// The branch view at scale, for `tests/perf/branch-table.perf.ts`: 120 lone branches of one
   /// commit, their subjects of four lengths, then three stacks of `STACK_ISLAND_BRANCHES`, each an island of its own below
   /// the table
   pub fn branch_table_large() -> RepoTemplate {
@@ -1074,7 +1069,6 @@ pub mod templates {
     let mut time = 1704117600;
     let mut template = RepoTemplate::new("branch_table_large")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Large\n")], Some(time));
     for index in 0..120 {
       time += 600;
@@ -1103,7 +1097,6 @@ pub mod templates {
   pub fn stack_side_conflict() -> RepoTemplate {
     let mut template = RepoTemplate::new("stack_side_conflict")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Air\n")], Some(1704117600))
       .commit_with_timestamp("Add config", &[("config.js", "export const config = {}\n")], Some(1704119400));
     let branches = [
@@ -1133,7 +1126,6 @@ pub mod templates {
   pub fn stacked_ownership() -> RepoTemplate {
     RepoTemplate::new("stacked_ownership")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp(
         "Initial project setup",
         &[
@@ -1163,7 +1155,6 @@ pub mod templates {
   pub fn stack_push_alone() -> RepoTemplate {
     RepoTemplate::new("stack_push_alone")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .stack_parent("perf-part-2", "IJPL-257337")
       .commit_with_timestamp(
         "Initial project setup",
@@ -1189,7 +1180,6 @@ pub mod templates {
   pub fn stack_uses_parent() -> RepoTemplate {
     RepoTemplate::new("stack_uses_parent")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .stack_parent("lane-ui", "lane-core")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Lane\n")], Some(1704117600))
       .commit_with_timestamp(
@@ -1215,7 +1205,6 @@ pub mod templates {
   fn landing_needs_named(name: &str) -> RepoTemplate {
     RepoTemplate::new(name)
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Lanes\n")], Some(1704117600))
       .commit_with_timestamp(
         "(stills-codec) Name lossy stills",
@@ -1246,7 +1235,6 @@ pub mod templates {
   pub fn stack_problems() -> RepoTemplate {
     RepoTemplate::new("stack_problems")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .stack_parent("publish-viewer", "trace-tools")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Traces\n")], Some(1704117600))
       .commit_with_timestamp("(ci-traces) Collect the traces", &[("ci/traces.kt", "fun traces() {}\n")], Some(1704119400))
@@ -1269,7 +1257,6 @@ pub mod templates {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("stacked_conflict")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Auth\n")], Some(1704117600))
       .commit_with_timestamp("Add config", &[("config.js", "export const config = {}\n")], Some(1704119400))
       .commit_with_timestamp("(auth) Read the auth config", &[("config.js", "export const config = { auth: true }\n")], Some(1704121200))
@@ -1317,7 +1304,6 @@ pub mod templates {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("conflict_fix")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp(
         "Initial project setup",
         &[("README.md", "# Settings\n"), ("settings.js", settings("10").as_str())],
@@ -1336,7 +1322,6 @@ pub mod templates {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("branch_filter")
       .branch_prefix("user-name")
-      .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Filter\n")], Some(1704117600))
       .commit_with_timestamp("(core) Add the core module", &[("core.js", "export function core() {}\n")], Some(1704119400))
       .commit_with_timestamp("(core/api) Add the REST API", &[("api.js", "export function api() {}\n")], Some(1704121200))

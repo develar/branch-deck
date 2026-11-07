@@ -20,7 +20,6 @@ use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, problem_view};
 use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head, undo_over_drops};
-use domain_types::branch_names::sanitize_branch_name;
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
 use domain_types::rewrite::RegroupPlan;
@@ -79,7 +78,7 @@ pub struct RegroupedCommit {
   pub previous_message: String,
   pub message: String,
   pub changed: bool,
-  /// The branch the commit is grouped into afterwards (the leaf with stacked branches on); `None` if unassigned
+  /// The branch the commit is grouped into afterwards (the leaf); `None` if unassigned
   pub group: Option<String>,
   /// The branch the commit was grouped into before
   pub previous_group: Option<String>,
@@ -90,7 +89,7 @@ pub struct RegroupOutcome {
   pub previous_head: String,
   /// The HEAD after the rewrite; `previous_head` for a dry run or when no message changed
   pub new_head: String,
-  /// The stack setting, the issue groups and the stack parents afterwards
+  /// The issue groups and the stack parents afterwards
   pub grouping: GroupingInputs,
   /// How the issue groups change; `None` when they stay as they are
   pub issue_groups: Option<MapChange>,
@@ -100,12 +99,12 @@ pub struct RegroupOutcome {
   pub parked: Option<MapChange>,
   /// Every commit ahead of the baseline, oldest first
   pub commits: Vec<RegroupedCommit>,
-  /// How the branches stack afterwards; `None` with stacked branches off
-  pub forest: Option<StackForest>,
+  /// How the branches stack afterwards
+  pub forest: StackForest,
   /// Problems of the result that already existed before it: reported, not refused. `(branch, problem)`
   pub kept_problems: Vec<(String, StackProblemView)>,
-  /// With stacked branches on, the branches whose declared parent had commits before and has none afterwards: they stay
-  /// stacked on it and are built on the nearest ancestor with commits, or the baseline, until it has commits again
+  /// The branches whose declared parent had commits before and has none afterwards: they stay stacked on it and are
+  /// built on the nearest ancestor with commits, or the baseline, until it has commits again
   pub orphaned_children: Vec<String>,
   /// With `RegroupOptions::allow_append`: the commits on top of the expected HEAD, oldest first (ids before the rewrite)
   pub appended: Vec<String>,
@@ -428,8 +427,8 @@ pub fn regroup_planned(
 
 /// Rename branch `old_leaf` to `new_leaf` (a leaf, without `/`): every commit whose prefix path names `old_leaf` gets it
 /// replaced, its children included; the issue groups named `old_leaf` are renamed without a rewrite; an issue branch
-/// named `old_leaf` becomes the issue group `old_leaf -> new_leaf`, also without a rewrite. With stacked branches on,
-/// the stack parents rename `old_leaf` as a child, and as the parent of a child with commits on this HEAD: a child of
+/// named `old_leaf` becomes the issue group `old_leaf -> new_leaf`, also without a rewrite. The
+/// stack parents rename `old_leaf` as a child, and as the parent of a child with commits on this HEAD: a child of
 /// another worktree keeps its parent. A parked `old_leaf` parks `new_leaf` with its note (a parked `new_leaf` keeps its
 /// own). An existing name merges the branches
 #[instrument(skip(git_executor))]
@@ -451,8 +450,7 @@ pub fn rename_branch_core(
     for commit in &snapshot.commits {
       let parsed = parse_subject(&commit.subject);
       let path = match parsed.prefix {
-        Some(prefix) if snapshot.grouping.stacks => stack_path(prefix).ok(),
-        Some(prefix) => Some(vec![sanitize_branch_name(prefix.trim())]),
+        Some(prefix) => stack_path(prefix).ok(),
         // an issue group is renamed in the issue groups below
         None if issue_group_of(&commit.subject, entries).is_some() => None,
         // an issue branch becomes an issue group below
@@ -485,11 +483,7 @@ pub fn rename_branch_core(
     // a key renamed into its own name is its issue branch again
     renamed.retain(|key, name| key != name || name != new_leaf);
     let issue_groups = (renamed != *entries).then_some(renamed);
-    let stack_parents = if snapshot.grouping.stacks {
-      renamed_stack_parents(snapshot, old_leaf, new_leaf)?
-    } else {
-      None
-    };
+    let stack_parents = renamed_stack_parents(snapshot, old_leaf, new_leaf)?;
     let parked = renamed_parked(&snapshot.grouping.parked.entries, old_leaf, new_leaf);
     Ok(Change {
       assignment,
@@ -557,8 +551,7 @@ pub enum Restack<'a> {
 }
 
 /// Stack branches in the stack parents, or make a branch a root, without a rewrite: only commits whose prefix declares
-/// another parent get a bare `(leaf)`. Needs stacked branches on; an issue branch and an issue group are stacked like
-/// any branch
+/// another parent get a bare `(leaf)`. An issue branch and an issue group are stacked like any branch
 #[instrument(skip(git_executor))]
 pub fn restack_core(git_executor: &GitCommandExecutor, repository_path: &str, restack: &Restack<'_>, options: &RegroupOptions) -> Result<RegroupOutcome, RegroupError> {
   if let Restack::On { parent, .. } = restack {
@@ -570,7 +563,7 @@ pub fn restack_core(git_executor: &GitCommandExecutor, repository_path: &str, re
   regroup_with(git_executor, repository_path, options, |snapshot| {
     let (set, unstacked) = match restack {
       Restack::On { leaf, parent } => {
-        if snapshot.grouping.stacks && !has_commits(snapshot, leaf) {
+        if !has_commits(snapshot, leaf) {
           return Err(RegroupError::invalid(
             format!("No branch named {leaf:?} among the commits ahead of the baseline"),
             Vec::new(),
@@ -587,7 +580,6 @@ pub fn restack_core(git_executor: &GitCommandExecutor, repository_path: &str, re
 
 /// The edges that stack `names` oldest-first, leaving an existing ancestor edge alone
 fn together_chain(snapshot: &Snapshot, names: &[String]) -> Result<BTreeMap<String, String>, RegroupError> {
-  require_stacks_enabled(snapshot)?;
   if names.len() < 2 {
     return Err(RegroupError::invalid("Stack Together needs at least two branches", Vec::new()));
   }
@@ -618,11 +610,11 @@ fn together_chain(snapshot: &Snapshot, names: &[String]) -> Result<BTreeMap<Stri
   }
   ordered.sort_by_key(|(_, position)| *position);
 
-  let forest = snapshot.forest.as_ref();
+  let forest = &snapshot.forest;
   let mut set = BTreeMap::new();
   for pair in ordered.windows(2) {
     let (parent, child) = (pair[0].0, pair[1].0);
-    let already_ancestor = forest.is_some_and(|forest| forest.chain(child).into_iter().skip(1).any(|ancestor| ancestor == parent));
+    let already_ancestor = forest.chain(child).into_iter().skip(1).any(|ancestor| ancestor == parent);
     if !already_ancestor {
       set.insert(child.to_string(), parent.to_string());
     }
@@ -632,13 +624,11 @@ fn together_chain(snapshot: &Snapshot, names: &[String]) -> Result<BTreeMap<Stri
     return Err(RegroupError::invalid(format!("{names} are stacked together already"), Vec::new()));
   }
 
-  let mut parents: BTreeMap<String, String> = forest.map_or_else(BTreeMap::new, |forest| {
-    forest
-      .nodes
-      .iter()
-      .filter_map(|(name, node)| node.declared_parent.as_ref().map(|parent| (name.clone(), parent.clone())))
-      .collect()
-  });
+  let mut parents: BTreeMap<String, String> = forest
+    .nodes
+    .iter()
+    .filter_map(|(name, node)| node.declared_parent.as_ref().map(|parent| (name.clone(), parent.clone())))
+    .collect();
   parents.extend(set.iter().map(|(child, parent)| (child.clone(), parent.clone())));
   for child in set.keys() {
     let mut ancestors = BTreeSet::new();
@@ -657,27 +647,15 @@ fn together_chain(snapshot: &Snapshot, names: &[String]) -> Result<BTreeMap<Stri
   Ok(set)
 }
 
-fn require_stacks_enabled(snapshot: &Snapshot) -> Result<(), RegroupError> {
-  if snapshot.grouping.stacks {
-    Ok(())
-  } else {
-    Err(RegroupError::invalid(
-      "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first",
-      Vec::new(),
-    ))
-  }
-}
-
 /// `change` that also sets the stack parents `set` (child -> parent) and removes the lines of `unstacked`: a commit that
 /// `change` does not assign and whose prefix declares another parent for such a child (its own branch, or a deeper
 /// path such as `(a/login/oauth)`) loses the levels above the child, and those levels become stack parents, so that
 /// dropping them unstacks no other branch; so do the levels above the leaf of a commit that `change` gives the bare
-/// leaf of its path. Needs stacked branches on
+/// leaf of its path
 fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<String, String>, unstacked: BTreeSet<String>) -> Result<Change, RegroupError> {
   if set.is_empty() && unstacked.is_empty() {
     return Ok(change);
   }
-  require_stacks_enabled(snapshot)?;
   for (child, parent) in &set {
     if child == parent {
       return Err(RegroupError::invalid(format!("{child} can't be its own parent"), Vec::new()));
@@ -1252,26 +1230,24 @@ pub fn plan_in_memory(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Regroup
 /// Resolve the ids of a plan against the snapshot (full or abbreviated, each at most once) and apply its issue groups
 fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, RegroupError> {
   for path in plan.branches.keys() {
-    validate_path(path, snapshot.grouping.stacks)?;
+    validate_path(path)?;
   }
   let PlannedGroups {
     entries: issue_groups,
     grouped_keys,
     ungrouped_keys,
   } = plan_issue_groups(&snapshot.grouping.issue_groups, plan)?;
-  // with stacked branches on, the levels of a path are stack parents and a commit that needs a prefix gets the leaf
+  // the levels of a path are stack parents and a commit that needs a prefix gets the leaf
   let mut stack_lines: BTreeMap<String, String> = BTreeMap::new();
-  if snapshot.grouping.stacks {
-    for path in plan.branches.keys() {
-      let levels = stack_path(path).map_err(|e| RegroupError::invalid(e.to_string(), Vec::new()))?;
-      for pair in levels.windows(2) {
-        let (parent, child) = (&pair[0], &pair[1]);
-        if let Some(other) = stack_lines.insert(child.clone(), parent.clone()).filter(|other| other != parent) {
-          return Err(RegroupError::invalid(
-            format!("The paths of the plan give {child} two parents: {other}, {parent}"),
-            Vec::new(),
-          ));
-        }
+  for path in plan.branches.keys() {
+    let levels = stack_path(path).map_err(|e| RegroupError::invalid(e.to_string(), Vec::new()))?;
+    for pair in levels.windows(2) {
+      let (parent, child) = (&pair[0], &pair[1]);
+      if let Some(other) = stack_lines.insert(child.clone(), parent.clone()).filter(|other| other != parent) {
+        return Err(RegroupError::invalid(
+          format!("The paths of the plan give {child} two parents: {other}, {parent}"),
+          Vec::new(),
+        ));
       }
     }
   }
@@ -1291,21 +1267,13 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
       }
     }
   };
-  let subjects: HashMap<&str, &str> = if snapshot.grouping.stacks {
-    snapshot.commits.iter().map(|commit| (commit.id.as_str(), commit.subject.as_str())).collect()
-  } else {
-    HashMap::new()
-  };
+  let subjects: HashMap<&str, &str> = snapshot.commits.iter().map(|commit| (commit.id.as_str(), commit.subject.as_str())).collect();
   let mut assignment = Assignment::new();
   for (path, ids) in &plan.branches {
     let levels: Vec<&str> = path.split('/').collect();
     for id in ids {
       if let Some(full) = resolve(id) {
-        let target = if snapshot.grouping.stacks {
-          stacked_target(subjects.get(full.as_str()).copied(), &levels)
-        } else {
-          path.clone()
-        };
+        let target = stacked_target(subjects.get(full.as_str()).copied(), &levels);
         assignment.push((full, Some(target)));
       }
     }
@@ -1432,14 +1400,12 @@ fn join(keys: &BTreeSet<&str>) -> String {
   keys.iter().copied().collect::<Vec<_>>().join(", ")
 }
 
-/// A branch path a plan may name: Git-safe, and with stacked branches on, levels without empty ones
-fn validate_path(path: &str, stacks: bool) -> Result<(), RegroupError> {
+/// A branch path a plan may name: Git-safe, levels without empty ones
+fn validate_path(path: &str) -> Result<(), RegroupError> {
   validate_branch_name(path).map_err(|e| RegroupError::invalid(format!("{e:#}"), Vec::new()))?;
-  if stacks {
-    let levels = stack_path(path).map_err(|e| RegroupError::invalid(e.to_string(), Vec::new()))?;
-    if levels.join("/") != path {
-      return Err(RegroupError::invalid(format!("{path:?} is not a valid stack path"), Vec::new()));
-    }
+  let levels = stack_path(path).map_err(|e| RegroupError::invalid(e.to_string(), Vec::new()))?;
+  if levels.join("/") != path {
+    return Err(RegroupError::invalid(format!("{path:?} is not a valid stack path"), Vec::new()));
   }
   Ok(())
 }
@@ -1460,7 +1426,6 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
   let mut targets: HashMap<String, Option<String>> = assignment.into_iter().collect();
   let before = &snapshot.grouping;
   let mut after = GroupingInputs {
-    stacks: before.stacks,
     issue_groups: StoreLines {
       commit: before.issue_groups.commit.clone(),
       entries: issue_groups.clone().unwrap_or_else(|| before.issue_groups.entries.clone()),
@@ -1599,50 +1564,41 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     after.parked = before.parked.clone();
   }
 
-  let forest_before = snapshot.forest.as_ref();
+  let forest_before = &snapshot.forest;
   let mut kept_problems = Vec::new();
-  if let Some(after) = &forest {
-    let before: HashSet<(String, String)> = forest_before.map_or_else(HashSet::new, |forest| {
-      forest
-        .nodes
-        .iter()
-        .flat_map(|(name, node)| node.problems.iter().map(|problem| (name.clone(), problem_key(problem))))
-        .collect()
-    });
-    let mut introduced = Vec::new();
-    let mut commits = Vec::new();
-    for (name, node) in &after.nodes {
-      for problem in &node.problems {
-        if before.contains(&(name.clone(), problem_key(problem))) {
-          kept_problems.push((name.clone(), problem_view(after, name, problem)));
-        } else {
-          // the plan is refused, so nothing is to fix yet: the reason, without the fixes
-          introduced.push(problem_view(after, name, problem).reason);
-          commits.extend(problem_commits(problem).iter().map(|id| short_id(id).to_string()));
-        }
+  let problems_before: HashSet<(String, String)> = forest_before
+    .nodes
+    .iter()
+    .flat_map(|(name, node)| node.problems.iter().map(|problem| (name.clone(), problem_key(problem))))
+    .collect();
+  let mut introduced = Vec::new();
+  let mut problem_ids = Vec::new();
+  for (name, node) in &forest.nodes {
+    for problem in &node.problems {
+      if problems_before.contains(&(name.clone(), problem_key(problem))) {
+        kept_problems.push((name.clone(), problem_view(&forest, name, problem)));
+      } else {
+        // the plan is refused, so nothing is to fix yet: the reason, without the fixes
+        introduced.push(problem_view(&forest, name, problem).reason);
+        problem_ids.extend(problem_commits(problem).iter().map(|id| short_id(id).to_string()));
       }
     }
-    if !introduced.is_empty() {
-      commits.sort();
-      commits.dedup();
-      return Err(RegroupError::invalid(format!("The plan would break the stacks: {}", introduced.join("; ")), commits));
-    }
+  }
+  if !introduced.is_empty() {
+    problem_ids.sort();
+    problem_ids.dedup();
+    return Err(RegroupError::invalid(format!("The plan would break the stacks: {}", introduced.join("; ")), problem_ids));
   }
 
-  let orphaned_children = match (forest_before, &forest) {
-    (Some(before), Some(after)) => {
-      let has_commits = |forest: &StackForest, name: &str| forest.nodes.get(name).is_some_and(|node| node.has_commits);
-      after
-        .nodes
-        .iter()
-        .filter(|(_, node)| node.has_commits)
-        .filter_map(|(name, node)| node.declared_parent.as_deref().map(|parent| (name, parent)))
-        .filter(|(_, parent)| has_commits(before, parent) && !has_commits(after, parent))
-        .map(|(name, _)| name.clone())
-        .collect()
-    }
-    _ => Vec::new(),
-  };
+  let has_commits = |forest: &StackForest, name: &str| forest.nodes.get(name).is_some_and(|node| node.has_commits);
+  let orphaned_children = forest
+    .nodes
+    .iter()
+    .filter(|(_, node)| node.has_commits)
+    .filter_map(|(name, node)| node.declared_parent.as_deref().map(|parent| (name, parent)))
+    .filter(|(_, parent)| has_commits(forest_before, parent) && !has_commits(&forest, parent))
+    .map(|(name, _)| name.clone())
+    .collect();
 
   let commits = snapshot
     .commits

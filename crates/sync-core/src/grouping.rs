@@ -15,8 +15,8 @@ use git_ops::commit_list::get_commit_list;
 use git_ops::revs::{read_head, ref_tips, tips_under};
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
-use history_rewrite::snapshot::read_grouping_inputs_with;
-use history_rewrite::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
+use history_rewrite::snapshot::read_grouping_inputs;
+use history_rewrite::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use tracing::instrument;
@@ -44,17 +44,16 @@ pub struct BranchGrouping {
   pub commit_ids: Vec<String>,
   /// The parent of the oldest commit, which the virtual branches are rebuilt on; `None` without commits
   pub base: Option<String>,
-  /// The stack setting, the issue groups and the stack parents the commits were grouped with
+  /// The issue groups and the stack parents the commits were grouped with
   pub grouping: GroupingInputs,
   /// The keys of the issue groups that group no commit ahead of the baseline on this HEAD; they may group the commits
   /// of another branch or worktree
   pub idle_issue_groups: Vec<String>,
-  /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches; they may stack a
-  /// branch of another worktree
+  /// The children of the stack parents that no branch on this HEAD reaches; they may stack a branch of another worktree
   pub idle_stack_parents: Vec<String>,
-  /// How the branches stack; `None` with stacked branches off
-  pub forest: Option<StackForest>,
-  /// With stacked branches on, where each branch with commits goes, as a sync places it
+  /// How the branches stack
+  pub forest: StackForest,
+  /// Where each branch with commits goes, as a sync places it; `None` without branches
   pub placements: Option<IndexMap<String, BranchStack>>,
   /// What the route into master is decided on of git, from the push URLs of the listing (`landing_remote_of`), without
   /// the setting, which is the config of the caller's command
@@ -62,25 +61,23 @@ pub struct BranchGrouping {
 }
 
 /// Group the commits ahead of the baseline by prefix, issue group or issue key: the first phase of a sync without its
-/// events, six git processes: the stack setting, HEAD and its branch (`rev-parse`), the baseline and the branches under
-/// `branch_prefix` as a sync lists them (`remote`, one `for-each-ref`), one `log`, and one `cat-file` for the issue
-/// groups and the stack parents; with stacked branches one more for placing them (the detection notes of parents
-/// without commits). Integration detection runs only for a parent whose virtual branch the next sync archives, and
-/// writes no note. No update check, no network
+/// events, five git processes: HEAD and its branch (`rev-parse`), the baseline and the branches under `branch_prefix` as
+/// a sync lists them (`remote`, one `for-each-ref`), one `log`, and one `cat-file` for the issue groups and the stack
+/// parents; with branches one more for placing them (the detection notes of parents without commits). Integration
+/// detection runs only for a parent whose virtual branch the next sync archives, and writes no note. No update check, no
+/// network
 #[instrument(skip(git_executor))]
 pub fn group_commits_ahead_of_baseline(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Result<BranchGrouping> {
-  let stacks = stacks_enabled(git_executor, repository_path)?;
-  group_commits_ahead_of_baseline_with(git_executor, repository_path, branch_prefix, stacks, None)
+  group_commits_ahead_of_baseline_with(git_executor, repository_path, branch_prefix, None)
 }
 
-/// `group_commits_ahead_of_baseline` with the stack setting read already (`ConfigSnapshot::stacks`): one `git config`
-/// fewer; with the remotes the caller read (`known_remotes`, `RepoContext::remotes` of `bd`) one `remote -v` fewer
+/// `group_commits_ahead_of_baseline` with the remotes the caller read (`known_remotes`, `RepoContext::remotes` of `bd`):
+/// one `remote -v` fewer
 #[instrument(skip(git_executor, known_remotes))]
 pub fn group_commits_ahead_of_baseline_with(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   branch_prefix: &str,
-  stacks: bool,
   known_remotes: Option<Remotes>,
 ) -> Result<BranchGrouping> {
   let (head, head_branch) = read_head(git_executor, repository_path)?.ok_or(NoBaseline::NoCommits)?;
@@ -93,7 +90,7 @@ pub fn group_commits_ahead_of_baseline_with(
     ..
   } = read_baseline_listing(git_executor, repository_path, head_branch.as_deref(), Some(branch_prefix), false, known_remotes)?;
   let commits = get_commit_list(git_executor, repository_path, &baseline_branch)?;
-  let grouping = read_grouping_inputs_with(git_executor, repository_path, stacks)?;
+  let grouping = read_grouping_inputs(git_executor, repository_path)?;
   let mut grouper = CommitGrouper::new_with(&grouping);
   let commit_ids = commits.iter().map(|commit| commit.id.clone()).collect();
   for commit in commits {
@@ -111,12 +108,13 @@ pub fn group_commits_ahead_of_baseline_with(
     },
     forest,
   ) = grouper.finish_with_stacks();
-  let placements = match &forest {
-    Some(forest) if !branches.is_empty() => Some(place_branches(
-      forest,
-      &empty_parent_states_listed(git_executor, repository_path, branch_prefix, &listed, forest, read_only_detection(&baseline_branch))?,
-    )),
-    _ => None,
+  let placements = if branches.is_empty() {
+    None
+  } else {
+    Some(place_branches(
+      &forest,
+      &empty_parent_states_listed(git_executor, repository_path, branch_prefix, &listed, &forest, read_only_detection(&baseline_branch))?,
+    ))
   };
   let landing = landing_remote_of(&remotes.push_urls, upstream.as_ref(), None);
   Ok(BranchGrouping {

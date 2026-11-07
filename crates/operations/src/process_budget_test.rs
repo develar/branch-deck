@@ -53,7 +53,6 @@ async fn a_rewrite_costs_its_core_and_one_read_of_its_witness() {
     processes_of(&parked),
     [
       ("cat-file", 1),
-      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 1),

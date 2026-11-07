@@ -72,7 +72,6 @@ fn a_safe_push_is_journaled_under_the_operation_id_of_its_json() {
 #[test]
 fn a_rewrite_is_journaled_under_the_operation_id_of_its_json() {
   let repo = repo_with_baseline(&[("a.txt", "a")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.create_commit_with_files("(alpha) Alpha", &[("alpha.txt", "alpha")]);
   repo.create_commit_with_files("(alpha/beta) Beta", &[("beta.txt", "beta")]);
   let environment = environment(repo.path());

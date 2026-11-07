@@ -43,7 +43,7 @@ impl ProgressReporter for TestReporter {
   }
 }
 
-/// A grouped branch without commits, placed on `effective_base` (with stacked branches on) and declaring
+/// A grouped branch without commits, placed on `effective_base` and declaring
 /// `declared_parent`
 pub fn placed_branch(name: &str, effective_base: Option<&str>, declared_parent: Option<&str>) -> GroupedBranchInfo {
   GroupedBranchInfo {

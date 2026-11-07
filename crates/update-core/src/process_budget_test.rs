@@ -168,7 +168,6 @@ fn an_unapply_suggestion_reads_its_commit_once() {
     &git,
     &[
       ("cat-file", 2),
-      ("config", 2),
       ("for-each-ref", 1),
       ("log", 2),
       ("remote", 1),

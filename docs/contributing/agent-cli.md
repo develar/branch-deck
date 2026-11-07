@@ -292,14 +292,14 @@ what they listed.
   `issue_group_problems` (`{line, message}`) the lines of the store that are not used; both are left out when empty.
   The map is shared by every branch and worktree, so an idle key may group the commits of another one: leave it,
   unless you know that no branch needs it (then `ungroup_issues`).
-- With stacked branches on, `parent_source` says where `parent` comes from: `prefix` (a parent level of a prefix) or
+- `parent_source` says where `parent` comes from: `prefix` (a parent level of a prefix) or
   `store` (the stack parents, `refs/branch-deck/stack-parents`, see [Stack Parents](../../spec/branch/stack-parents.spec.md)).
   `idle_stack_parents` lists the children of the stack parents that stack no branch ahead of the baseline here, and
   `stack_parent_problems` the lines of that store that are not used. An idle child may stack a branch of another
   worktree; a sync drops its line once its branch is integrated, `brd group` with `unstack` drops it at once.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
-- With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
+- Each branch is placed as a sync places it (a `/` in a prefix always declares a stack):
   - `parent`, the parent its commits declare, and `parent_state`: `active` (it has commits), `integrated` (its branch
     is integrated), `unapplied` or `missing`. A parent without commits, in any of these states, doesn't block: the
     branch goes on the nearest active ancestor or the baseline and has `pr_base_changed: true` (it is not built on the
@@ -312,8 +312,8 @@ what they listed.
     auth`, `brd restack login docs` or `brd unstack login`` (`brd rename` for a case collision, `brd reword` of the
     commits for an empty level and for a self parent beside another parent).
 
-  The output has `forest`: the branches with commits, each after its parent.
-- With stacked branches on, `stacks` lists the stack branch of each stack that forks: one more virtual branch,
+  The output has `forest`: the branches with commits, each after its parent (left out only without branches).
+- `stacks` lists the stack branch of each stack that forks: one more virtual branch,
   `{prefix}/stack/<root>` (`branch`), of all the stack's commits in the order of the history (see `brd sync`), as the
   last sync left it; left out without one, and with `--branch` or `--unassigned`. Its `state` comes without a sync and
   without a git process: `blocked` (with `member` and `reason`) when a member has a stack problem or is blocked, else
@@ -386,7 +386,7 @@ what they listed.
   branches and 74 commits of a large monorepo branch, where `brd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
     of the newest commit, `issue_keys` of an issue group, `landed_by` as `{branch, whole_stack, after}`, `after`
-    the count of the commits left, and `parked`. With stacked branches on, it keeps `parent`,
+    the count of the commits left, and `parked`. It keeps `parent`,
     `parent_source`, `blocked_by`, `pr_base_changed`, `problems`, `forest` and `stacks`. It keeps `idle_issue_groups`,
     `issue_group_problems`, `idle_stack_parents` and `stack_parent_problems`.
   - `unassigned` lists the ids and subjects.
@@ -572,8 +572,8 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
  "descriptions": {"auth": {"title": "Add login", "body": "The login form."}}}
 ```
 
-- A path is a branch name, or `parent/leaf` with stacked branches on (`git config branchdeck.stacks true`). Ids may
-  be abbreviated. `unassign` removes the prefix: the commit falls back to its issue branch or becomes unassigned.
+- A path is a branch name, or `parent/leaf`. Ids may be abbreviated. `unassign` removes the prefix: the commit falls
+  back to its issue branch or becomes unassigned.
 - A path `parent/leaf` stacks `leaf` on `parent` in the stack parents (`refs/branch-deck/stack-parents`), not in the
   subjects: a commit that needs a prefix gets the bare `(leaf)`, and a commit already in `leaf` by its issue key or
   issue group keeps its subject. So stacking whole issue branches (`{"IJAI-3992/IJAI-4047": [ids]}`, or an empty list)
@@ -581,8 +581,8 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
   `unstack` makes branches roots: their line goes, and so do the parent levels of their commits; a bare path never
   unstacks.
 - A commit without a prefix that the plan puts into the branch of its own issue key keeps its subject: it is in that
-  branch already. So a plan that names the current branch of each commit (its stack path with stacked branches on, not
-  the leaf) rewrites no commit that has no prefix or a canonical one. A prefix the grouper sanitizes, such as
+  branch already. So a plan that names the current branch of each commit (its stack path, not the leaf) rewrites no
+  commit that has no prefix or a canonical one. A prefix the grouper sanitizes, such as
   `(Foo Bar)` in `Foo-Bar`, is rewritten to the name.
 - `issue_groups` maps an issue group name (a branch name without `/`) to issue keys: the commits without a prefix that
   carry one of the keys go into that branch, and no subject changes. `ungroup_issues` removes the issue group of a
@@ -599,7 +599,7 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
     no line of the store), an invalid key or name, a key that no commit without a prefix carries, and a fixup the issue
     groups would separate from its target (`fixup! <id>` has no issue key) are `invalid_plan` too;
   - a path whose leaf is its parent, two paths that give a branch two parents, a branch both in a path and in
-    `unstack`, and an `unstack` of a branch that is not stacked (or with stacked branches off) are `invalid_plan`.
+    `unstack`, and an `unstack` of a branch that is not stacked are `invalid_plan`.
 - `descriptions` maps a branch (the group name, as for `brd describe`: the leaf of a stacked branch) to its pull
   request text `{title, body}`. brd
   validates it with the plan: a title of one line that is not empty, and a branch that has commits after the plan (a
@@ -632,9 +632,8 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
   head>` for a rewrite, `groups:<previous>..<new>` (commits of the issue groups) and `stacks:<previous>..<new>`
   (commits of the stack parents). A previous store commit is zeros when there was no store before. Pass the token to
   `brd undo` as printed.
-- `--dry-run` writes nothing and adds `changes` (`{commit, old_subject, new_subject}`) and, with stacked branches on,
-  `forest` (`{name, parent, parent_source, has_commits, problems}` per branch). `--map` adds `map`, `{commit, new_id}`
-  of every commit.
+- `--dry-run` writes nothing and adds `changes` (`{commit, old_subject, new_subject}`) and `forest` (`{name, parent,
+  parent_source, has_commits, problems}` per branch). `--map` adds `map`, `{commit, new_id}` of every commit.
 - `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
   `replaced_descriptions` the texts they replaced, by branch. `brd undo` doesn't restore a description; `brd describe`
   can, with the replaced text.
@@ -657,8 +656,8 @@ Plans that `brd` computes, validated and written like `brd group`, with the same
   (as a child, and as the parent of a branch with commits here). The new name must not contain `/`. A name that exists
   merges the branches.
 - `restack` writes the stack parent of the branch, `unstack` removes it; both rewrite only the commits whose prefix
-  declares another parent. An issue branch and an issue group are stacked like any branch, without a rewrite. Both
-  need stacked branches on; `unstack` of a root is `invalid_plan`.
+  declares another parent. An issue branch and an issue group are stacked like any branch, without a rewrite.
+  `unstack` of a root is `invalid_plan`.
 
 ### `brd park <branch> [--note <why>]`, `brd unpark <branch>`
 
@@ -1429,18 +1428,17 @@ branch tips), their changes from the object cache without lock files, generated 
 (`read_linked_diffs`), the dependencies of `brd commits` and the fixup targets. The clustering
 (`crates/commit-clustering/src/clustering.rs`) runs no git:
 
-1. Hard units, joined with union-find: the dependency edges, a fixup and its target, the commits with the same
-   `(prefix)` or of the same issue group (an anchor), and the commits without a prefix that have the same issue key.
-   `--fresh` ignores the anchors. A dependency between two anchors joins nothing: it is an `anchor_dependency`
-   warning. With stacked branches (`branchdeck.stacks`), the anchor of a prefix is the leaf of its path, and a
-   dependency joins nothing either: it stays an edge between two units, for the stack (step 4). Only the edges of a
-   cycle of units join them (Kosaraju), because no stack builds a cycle. The commits without a prefix of an issue key
-   that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch. With `branchdeck.symbols on` (the
-   default), an edge by symbols only (a use of a name another commit adds, no line between them) joins nothing, ever: with stacked
-   branches it is an edge for the stack, outside the cycle join; without them it only links a follow-up (R, step 2);
-   a unit whose names three or more units use is a shared helper, and its edges order nothing.
+1. Hard units, joined with union-find: a fixup and its target, the commits with the same `(prefix)` or of the same
+   issue group (an anchor), and the commits without a prefix that have the same issue key. `--fresh` ignores the
+   anchors. The anchor of a prefix is the leaf of its path. A dependency joins nothing: it stays an edge between two
+   units, for the stack (step 4). Only the edges of a cycle of units join them (Kosaraju), because no stack builds a
+   cycle; a cycle between two anchors joins nothing and is an `anchor_dependency` warning. The commits without a
+   prefix of an issue key that a prefix names join that prefix: `(K-1) X` and `K-1 Y` are one branch. With
+   `branchdeck.symbols on` (the default), an edge by symbols only (a use of a name another commit adds, no line
+   between them) joins nothing, ever: it is an edge for the stack, outside the cycle join; a unit whose names three or
+   more units use is a shared helper, and its edges order nothing.
 2. A score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are exact:
-   - R, the links: with stacked branches, a dependency between the two sides when a side without an anchor has no
+   - R, the links: a dependency between the two sides when a side without an anchor has no
      issue key (0.95): a follow-up joins the branch it needs, and a commit with its own key stacks on it instead; a
      body names an issue key of the other side (0.9); both sides name a third key (0.7); the same conventional scope
      (0.8 without issue keys, 0.5 with them). A key that more than max(10, units / 3) units name links nothing: it is
@@ -1462,7 +1460,7 @@ branch tips), their changes from the object cache without lock files, generated 
    that all merge, 300 commits take 0.3 s and 1000 take 6.9 s in a debug build (1.1 s in a release build); commits
    that don't merge take 16 ms and 0.14 s.
 
-4. With stacked branches, `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
+4. `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
    ancestor (`stack_clusters`). The clusters go in a topological order of their dependencies and declared parents,
    the oldest first on a tie. Each takes the parent its prefixes declare when that parent covers what it needs, else
    the deepest cluster it needs that covers the others. When the clusters it needs lie on two stacks, those stacks
@@ -1491,7 +1489,7 @@ branches it is built on lack; to its `missing_commits` (every older commit there
 when the lines name none, else to the newest older commit outside its branch that changes a conflicting file. Then the
 clustering runs again, at most 5 times. An edge joins two hard units, also two of one cluster that build apart (an issue group,
 below): the joined unit then goes into the plan. A repair never joins two anchors, so a conflict between two prefixes
-stays. With stacked branches, a conflict on a commit of another cluster first stacks the two clusters; only when the
+stays. A conflict on a commit of another cluster first stacks the two clusters; only when the
 same conflict comes again does the next round join their units.
 
 ```json
@@ -1521,8 +1519,8 @@ same conflict comes again does the next round join their units.
   whole branch under another name; `merged`: two or more whole branches, or one with unassigned commits; `split`: a
   part of one branch; `new`: anything else), `why` (one line to
   quote to the user, with the repair rounds and a new parent), `weak` (a merge by paths near the threshold, or one
-  that adjacency decided: review these first), `issue_keys` and `areas` (as in `brd commits --brief`). With stacked
-  branches also `parent` (the branch it builds on) and `restacked` (the parent changes). `stacked_without_need`: the
+  that adjacency decided: review these first), `issue_keys` and `areas` (as in `brd commits --brief`), `parent` (the
+  branch it builds on) and `restacked` (the parent changes). `stacked_without_need`: the
   stack parents stack it on `parent`, a line with no prefix behind it, and it depends on no commit of `parent` or of
   its ancestors. The plan keeps the parent: the stack parents don't say why a branch is stacked, and "Stack On…"
   writes the same line. `brd unstack` makes it a root.
@@ -1532,7 +1530,7 @@ same conflict comes again does the next round join their units.
   its subjects keep their keys, and `rewritten` stays 0 for it. `--rewrite-issues` gives its commits a prefix instead.
   An issue group is an anchor, as a prefix is: it stays one branch unless `--fresh`.
 - `rewritten` counts the subjects the plan changes. `check` has the `brd check` result of each branch and the
-  `repair_rounds`. `warnings` lists `anchor_dependency` (with stacked branches only a cycle between two prefixes),
+  `repair_rounds`. `warnings` lists `anchor_dependency` (only a cycle between two prefixes),
   `unresolved_conflict` and, with `branchdeck.symbols on`, `symbol_dependency` (a branch uses a name another branch
   adds and the plan doesn't build it on that branch: git builds them apart, a build would fail), with the branches.
 - The exit code is 1 when a branch of the plan still conflicts, as for `brd check`.
@@ -1601,7 +1599,7 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
   landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with
   `commit`, `subject` and the baseline commit `upstream` (omitted when squashed upstream), and `remaining`, the commits
   that stay local.
-- With stacked branches on, `stacks` lists the stack branch of each stack that forks (a branch of it has two children
+- `stacks` lists the stack branch of each stack that forks (a branch of it has two children
   or more), then those kept for their remote branch: `{prefix}/stack/<root>` (`branch`), all the commits of the
   stack's branches (`members`, the root first, each after its parent; `commits` counts them) in the order of the
   history, on the base of the sync, as a flat virtual branch of them. It is what a Safe Push of the whole stack lands;

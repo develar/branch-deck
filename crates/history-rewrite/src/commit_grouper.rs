@@ -4,7 +4,7 @@
 
 use crate::stack::{StackDeclarations, StackForest};
 use crate::store_lines::StoreLines;
-use domain_types::branch_names::sanitize_branch_name;
+
 use domain_types::commit::{Commit, CommitGroup, GroupOrigin};
 use domain_types::stack::{ParentSource, leaf_of, stack_path};
 use indexmap::IndexMap;
@@ -62,64 +62,48 @@ pub struct GroupedCommits {
   /// The keys of the issue groups that group none of these commits, sorted: idle here, they may group the commits of
   /// another branch or worktree
   pub idle_issue_groups: Vec<String>,
-  /// With stacked branches on, the children of the stack parents that no branch here reaches, sorted: idle here, they
-  /// may stack a branch of another worktree
+  /// The children of the stack parents that no branch here reaches, sorted: idle here, they may stack a branch of
+  /// another worktree
   pub idle_stack_parents: Vec<String>,
 }
 
 /// What decides the group of a commit besides its subject (`snapshot::read_grouping_inputs`)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GroupingInputs {
-  /// Stacked branches are on (`stack::stacks_enabled`)
-  pub stacks: bool,
   /// Issue key -> branch name (`issue_groups::ISSUE_GROUPS`)
   pub issue_groups: StoreLines,
-  /// Child -> parent (`stack_parents::STACK_PARENTS`); read with stacked branches off too, and not used then
+  /// Child -> parent (`stack_parents::STACK_PARENTS`)
   pub stack_parents: StoreLines,
   /// Branch -> note (`parked::PARKED`): read with the other maps, decides no group
   pub parked: StoreLines,
 }
 
 impl GroupingInputs {
-  /// Without issue groups, stack parents and parked branches
-  pub fn with_stacks(stacks: bool) -> Self {
-    Self { stacks, ..Self::default() }
-  }
-
-  /// The branch a commit with this subject is grouped into: the prefix (its leaf with stacked branches on), else the
-  /// issue group of the subject's issue key, else the key; `None` for an unassigned commit
+  /// The branch a commit with this subject is grouped into: the leaf of the prefix, else the issue group of the
+  /// subject's issue key, else the key; `None` for an unassigned commit
   pub fn branch_of(&self, subject: &str) -> Option<String> {
-    let parsed = parse_subject(subject);
-    match parsed.prefix {
-      Some(prefix) if self.stacks => leaf_of(prefix),
-      _ => branch_of(&parsed, &self.issue_groups.entries),
-    }
+    branch_of(&parse_subject(subject), &self.issue_groups.entries)
   }
 }
 
-/// The virtual branch a commit with this subject is grouped into: its sanitized `(prefix)`, else the issue key of the
-/// subject; `None` for an unassigned commit
+/// The virtual branch a commit with this subject is grouped into: the leaf of its `(prefix)`, so `(auth/login) X` is
+/// in `login`, else the issue key of the subject; `None` for an unassigned commit
 pub fn branch_name_of(subject: &str) -> Option<String> {
   branch_of(&parse_subject(subject), &BTreeMap::new())
 }
 
-/// `branch_name_of` with stacked branches on: the leaf of a stack prefix, so `(auth/login) X` is in `login`
-pub fn stack_branch_name_of(subject: &str) -> Option<String> {
-  GroupingInputs::with_stacks(true).branch_of(subject)
-}
-
-/// The flat rule: the sanitized prefix, else the issue group of the issue key, else the key
+/// The leaf of the prefix, else the issue group of the issue key, else the key
 fn branch_of(parsed: &ParsedSubject<'_>, issue_groups: &BTreeMap<String, String>) -> Option<String> {
   match parsed.prefix {
-    Some(prefix) => Some(sanitize_branch_name(prefix.trim())),
+    Some(prefix) => leaf_of(prefix),
     None => find_issue_number(parsed.rest).map(|key| issue_groups.get(key).map_or(key, String::as_str).to_owned()),
   }
 }
 
 /// The group of a commit with this subject, as `CommitGrouper::add_commit` puts it, with where its parent comes from: the
-/// preview of a typed message or branch name (`preview_group`). With stacked branches, `(auth/login)` is `login` on
-/// `auth`, a branch whose prefix names no parent takes its stack parent, and an empty level (`(a//b)`) groups into its
-/// last level, `invalid`; `None` for an unassigned commit and for `(/)`
+/// preview of a typed message or branch name (`preview_group`). `(auth/login)` is `login` on `auth`, a branch whose
+/// prefix names no parent takes its stack parent, and an empty level (`(a//b)`) groups into its last level, `invalid`;
+/// `None` for an unassigned commit and for `(/)`
 pub fn group_of(subject: &str, inputs: &GroupingInputs) -> Option<CommitGroup> {
   let parsed = parse_subject(subject);
   let group = |branch: String, origin: GroupOrigin| CommitGroup {
@@ -136,33 +120,30 @@ pub fn group_of(subject: &str, inputs: &GroupingInputs) -> Option<CommitGroup> {
     }
     group
   };
-  match parsed.prefix {
-    Some(prefix) if inputs.stacks => match stack_path(prefix) {
-      Ok(mut path) => {
-        let leaf = path.pop()?;
-        match path.pop() {
-          Some(parent) => Some(CommitGroup {
-            parent: Some(parent),
-            parent_source: Some(ParentSource::Prefix),
-            ..group(leaf, GroupOrigin::Prefix)
-          }),
-          None => Some(stored(group(leaf, GroupOrigin::Prefix))),
-        }
+  let Some(prefix) = parsed.prefix else {
+    let key = find_issue_number(parsed.rest)?;
+    let found = match inputs.issue_groups.entries.get(key) {
+      Some(name) => group(name.clone(), GroupOrigin::IssueGroup),
+      None => group(key.to_owned(), GroupOrigin::Issue),
+    };
+    return Some(stored(found));
+  };
+  match stack_path(prefix) {
+    Ok(mut path) => {
+      let leaf = path.pop()?;
+      match path.pop() {
+        Some(parent) => Some(CommitGroup {
+          parent: Some(parent),
+          parent_source: Some(ParentSource::Prefix),
+          ..group(leaf, GroupOrigin::Prefix)
+        }),
+        None => Some(stored(group(leaf, GroupOrigin::Prefix))),
       }
-      Err(error) => error.leaf.map(|leaf| CommitGroup {
-        invalid: true,
-        ..group(leaf, GroupOrigin::Prefix)
-      }),
-    },
-    Some(prefix) => Some(group(sanitize_branch_name(prefix.trim()), GroupOrigin::Prefix)),
-    None => {
-      let key = find_issue_number(parsed.rest)?;
-      let found = match inputs.issue_groups.entries.get(key) {
-        Some(name) => group(name.clone(), GroupOrigin::IssueGroup),
-        None => group(key.to_owned(), GroupOrigin::Issue),
-      };
-      Some(if inputs.stacks { stored(found) } else { found })
     }
+    Err(error) => error.leaf.map(|leaf| CommitGroup {
+      invalid: true,
+      ..group(leaf, GroupOrigin::Prefix)
+    }),
   }
 }
 
@@ -181,8 +162,8 @@ pub struct CommitGrouper {
   /// Unified structure combining commits and author frequencies per branch
   branch_data: IndexMap<String, BranchData>,
   unassigned_commits: Vec<Commit>,
-  /// With stacked branches on, what the prefixes declare
-  stacks: Option<StackDeclarations>,
+  /// What the prefixes declare
+  stacks: StackDeclarations,
   /// Issue key -> branch name
   issue_groups: BTreeMap<String, String>,
   /// The keys of `issue_groups` that grouped a commit
@@ -199,22 +180,17 @@ impl Default for CommitGrouper {
 }
 
 impl CommitGrouper {
+  /// A grouper without issue groups and stack parents; it reads `(parent/child)` prefixes as stacked branches
   pub fn new() -> Self {
-    Self::new_with_stacks(false)
+    Self::new_with(&GroupingInputs::default())
   }
 
-  /// A grouper that reads `(parent/child)` prefixes as stacked branches if `stacks` is on (`stack::stacks_enabled`);
-  /// otherwise a `/` is part of a flat branch name
-  pub fn new_with_stacks(stacks: bool) -> Self {
-    Self::new_with(&GroupingInputs::with_stacks(stacks))
-  }
-
-  /// A grouper with the stack setting and the issue groups of `inputs`
+  /// A grouper with the issue groups and the stack parents of `inputs`
   pub fn new_with(inputs: &GroupingInputs) -> Self {
     Self {
       branch_data: IndexMap::new(),
       unassigned_commits: Vec::new(),
-      stacks: inputs.stacks.then(|| StackDeclarations::with_stored(inputs.stack_parents.entries.clone())),
+      stacks: StackDeclarations::with_stored(inputs.stack_parents.entries.clone()),
       issue_groups: inputs.issue_groups.entries.clone(),
       used_issue_groups: BTreeSet::new(),
       first_parent_id: None,
@@ -231,18 +207,17 @@ impl CommitGrouper {
     self.commit_count += 1;
 
     let parsed = parse_subject(&commit.subject);
-    let branch_name = if let (Some(declarations), Some(prefix)) = (&mut self.stacks, parsed.prefix) {
+    let branch_name = if let Some(prefix) = parsed.prefix {
       match stack_path(prefix) {
         Ok(path) => {
-          declarations.declare(&path, &commit.id);
+          self.stacks.declare(&path, &commit.id);
           path.last().cloned()
         }
         // grouped into its last level, which reports the problem; `(/)` names no branch
-        Err(error) => error.leaf.inspect(|leaf| declarations.syntax_error(leaf, &commit.id)),
+        Err(error) => error.leaf.inspect(|leaf| self.stacks.syntax_error(leaf, &commit.id)),
       }
     } else {
-      if parsed.prefix.is_none()
-        && let Some(key) = find_issue_number(parsed.rest)
+      if let Some(key) = find_issue_number(parsed.rest)
         && self.issue_groups.contains_key(key)
       {
         self.used_issue_groups.insert(key.to_string());
@@ -253,9 +228,7 @@ impl CommitGrouper {
       self.unassigned_commits.push(commit);
       return;
     };
-    if let Some(declarations) = &mut self.stacks {
-      declarations.note_branch(&branch_name);
-    }
+    self.stacks.note_branch(&branch_name);
     // an explicit prefix is stripped (`stripped_subject`); an issue-based subject stays as is
     if let Some(prefix) = parsed.prefix {
       commit.stripped_subject = subject_after_prefix(prefix, parsed.rest).into_owned();
@@ -267,16 +240,10 @@ impl CommitGrouper {
     self.finish_with_stacks().0
   }
 
-  /// The grouped commits and, with stacked branches on, how the branches stack
-  pub fn finish_with_stacks(self) -> (GroupedCommits, Option<StackForest>) {
-    let (stacks, idle_stack_parents) = self.stacks.map_or_else(
-      || (None, Vec::new()),
-      |declarations| {
-        let first_positions: HashMap<&str, usize> = self.branch_data.iter().map(|(name, data)| (name.as_str(), data.first_position)).collect();
-        let (forest, idle) = declarations.into_forest(&first_positions);
-        (Some(forest), idle)
-      },
-    );
+  /// The grouped commits and how the branches stack
+  pub fn finish_with_stacks(self) -> (GroupedCommits, StackForest) {
+    let first_positions: HashMap<&str, usize> = self.branch_data.iter().map(|(name, data)| (name.as_str(), data.first_position)).collect();
+    let (stacks, idle_stack_parents) = self.stacks.into_forest(&first_positions);
 
     // Extract commits and author emails from unified structure
     let mut grouped_commits = IndexMap::new();

@@ -123,7 +123,7 @@ Renaming and ungrouping a branch are moves of all its commits.
 - The fixups of a moved commit must move with it, and be listed after the requested commits for the undo.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`moves_the_fixups_with_their_target`)
 - A move is a regroup plan: it must be validated against every subject ahead of the baseline before anything is
-  written, and with stacked branches on, refused if it introduces a stack problem; also when it recreates a commit
+  written, and refused if it introduces a stack problem; also when it recreates a commit
   that a `fixup! <id>` names by its id, which would leave the fixup without a target.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `fixups_follow_their_targets`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
@@ -256,14 +256,14 @@ Renaming and ungrouping a branch are moves of all its commits.
 - The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch, through
   the rewrite `rename` of the engine; an existing name merges the branches. "Name This Branch…" and "Rename…" of an issue group change the
   issue groups only, without a rewrite, also when the issue branch is named after a stacked one.
-  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_flat_and_issue_branches`, `an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups`)
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_prefix_and_issue_branches`, `an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups`)
 - The branch menu of a prefix branch and of an issue group must offer "Ungroup": it moves all its commits back, the
   prefixes go and the issues leave the issue group.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
 - While a rename or an ungroup runs, its form must show the progress row ("Renaming docs to documentation…"); it closes
   when the commits moved. A failure must keep the form with the typed name (the error is a toast).
-- With [stacked branches](stacked-branches.spec.md) on, Rename must rename the branch in the prefixes of the branches
-  stacked on it too, and in the stack parents (`rename_branch_core`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
+- Rename must rename the branch in the prefixes of the branches [stacked](stacked-branches.spec.md) on it too, and in
+  the stack parents (`rename_branch_core`), and the new name must be a branch name without `/`. Ungroup and Unapply of a
   branch that others stack on must confirm and name them: they stay stacked on it and are built on the baseline until
   it has commits again. The
   confirmation focuses its button, so Enter confirms.
@@ -385,7 +385,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`, `heads the branches of an issue without a branch of its own with an issue row`, `shows a single branch of an issue without a branch of its own with a chip`)
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should rename a branch and name an issue branch`)
 - A prefix branch of an issue must show the issue summary: the subject after the issue key.
-- With stacked branches on, issue families are formed from the stack roots only; a stacked branch stays under its
+- Issue families are formed from the stack roots only; a stacked branch stays under its
   parent and shows its issue as a chip when the parent's issue is another one.
   [@test] ../../src/stores/branch-table-rows.test.ts (`forms issue families from the stack roots only and marks a child of another issue`)
 

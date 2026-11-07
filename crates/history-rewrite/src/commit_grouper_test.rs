@@ -1,5 +1,5 @@
-use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, branch_name_of, group_of, stack_branch_name_of};
-use crate::stack::{STACKS_CONFIG_KEY, StackForest, stacks_enabled};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, branch_name_of, group_of};
+use crate::stack::StackForest;
 use crate::store_lines::StoreLines;
 use domain_types::commit::{Commit, GroupOrigin};
 use domain_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
@@ -20,7 +20,7 @@ fn test_prefix_regex_patterns() {
     ("(with_underscores) message", Some("with_underscores"), "message"),
     ("(CamelCase) message", Some("CamelCase"), "message"),
     ("(numbers123) message", Some("numbers123"), "message"),
-    ("(feature/sub) message", Some("feature/sub"), "message"),
+    ("(feature/sub) message", Some("sub"), "message"),
     ("((nested)) message", Some("(nested"), ") message"),
     ("prefix (middle) suffix", None, "prefix (middle) suffix"),
     ("(empty-message)", Some("empty-message"), ""),
@@ -226,7 +226,7 @@ fn test_branch_name_sanitization() {
   assert!(grouped.contains_key("mockito-5.19"), "'mockito 5.19' should be sanitized to 'mockito-5.19'");
   assert!(grouped.contains_key("ui-dispatcher"), "'ui dispatcher' should be sanitized to 'ui-dispatcher'");
   assert!(grouped.contains_key("test-branch"), "'test~branch' should be sanitized to 'test-branch'");
-  assert!(grouped.contains_key("feature/sub-path"), "'feature/sub*path' should be sanitized to 'feature/sub-path'");
+  assert!(grouped.contains_key("sub-path"), "'feature/sub*path' should be the leaf 'sub-path'");
   assert!(grouped.contains_key("test"), "'---test---' should be sanitized to 'test'");
   assert!(grouped.contains_key("dots"), "'.dots.' should be sanitized to 'dots'");
 
@@ -529,14 +529,13 @@ fn names(list: &[&str]) -> Vec<String> {
   list.iter().map(|name| (*name).to_string()).collect()
 }
 
-/// Groups subjects with the ids `c0`, `c1`, … (oldest first), stacked branches on
+/// Groups subjects with the ids `c0`, `c1`, … (oldest first)
 fn group_stacked(subjects: &[&str]) -> (GroupedCommits, StackForest) {
-  let mut grouper = CommitGrouper::new_with_stacks(true);
+  let mut grouper = CommitGrouper::new();
   for (index, subject) in subjects.iter().enumerate() {
     grouper.add_commit(create_test_commit(&format!("c{index}"), subject));
   }
-  let (grouped, forest) = grouper.finish_with_stacks();
-  (grouped, forest.expect("stacks are on"))
+  grouper.finish_with_stacks()
 }
 
 fn ids(grouped: &GroupedCommits, branch: &str) -> Vec<String> {
@@ -544,14 +543,13 @@ fn ids(grouped: &GroupedCommits, branch: &str) -> Vec<String> {
 }
 
 #[test]
-fn without_stacks_a_slash_is_part_of_a_flat_name() {
+fn a_slash_in_a_prefix_stacks_without_any_config() {
   let mut grouper = CommitGrouper::new();
   grouper.add_commit(create_test_commit("c0", "(auth/login) Add form"));
-  grouper.add_commit(create_test_commit("c1", "(a//b) Odd"));
   let (grouped, forest) = grouper.finish_with_stacks();
-  assert!(forest.is_none());
-  assert_eq!(grouped.branches.keys().collect::<Vec<_>>(), ["auth/login", "a//b"]);
-  assert_eq!(grouped.branches["auth/login"][0].stripped_subject, "Add form");
+  assert_eq!(grouped.branches.keys().collect::<Vec<_>>(), ["login"]);
+  assert_eq!(grouped.branches["login"][0].stripped_subject, "Add form");
+  assert_eq!(forest.declared_parent("login"), Some("auth"));
 }
 
 #[test]
@@ -672,27 +670,11 @@ fn a_syntax_error_is_reported_on_the_last_level() {
 }
 
 #[test]
-fn stack_branch_names_are_leaves() {
-  assert_eq!(stack_branch_name_of("(auth/login) Add form").as_deref(), Some("login"));
-  assert_eq!(stack_branch_name_of("fixup! (auth/login) Add form").as_deref(), Some("login"));
-  assert_eq!(stack_branch_name_of("ABC-1 Fix bug").as_deref(), Some("ABC-1"));
-  assert_eq!(stack_branch_name_of("Plain"), None);
-  assert_eq!(branch_name_of("(auth/login) Add form").as_deref(), Some("auth/login"));
-}
-
-#[test]
-fn stacks_are_off_unless_configured() {
-  let test_repo = test_utils::git_test_utils::TestRepo::new();
-  let git_executor = test_repo.git_executor();
-  let repo_path = test_repo.path().to_str().unwrap();
-
-  assert!(!stacks_enabled(git_executor, repo_path).unwrap());
-  for (value, enabled) in [("true", true), ("yes", true), ("false", false), ("off", false)] {
-    test_repo.set_config(STACKS_CONFIG_KEY, value).unwrap();
-    assert_eq!(stacks_enabled(git_executor, repo_path).unwrap(), enabled, "{value}");
-  }
-  test_repo.set_config(STACKS_CONFIG_KEY, "maybe").unwrap();
-  stacks_enabled(git_executor, repo_path).unwrap_err();
+fn branch_names_are_leaves() {
+  assert_eq!(branch_name_of("(auth/login) Add form").as_deref(), Some("login"));
+  assert_eq!(branch_name_of("fixup! (auth/login) Add form").as_deref(), Some("login"));
+  assert_eq!(branch_name_of("ABC-1 Fix bug").as_deref(), Some("ABC-1"));
+  assert_eq!(branch_name_of("Plain"), None);
 }
 
 #[test]
@@ -710,14 +692,13 @@ fn a_tie_of_authors_takes_the_one_seen_first() {
   }
 }
 
-/// The inputs of the preview: stacked branches, issue groups and stack parents as the table header has them
-fn inputs(stacks: bool, issue_groups: &[(&str, &str)], stack_parents: &[(&str, &str)]) -> GroupingInputs {
+/// The inputs of the preview: issue groups and stack parents as the table header has them
+fn inputs(issue_groups: &[(&str, &str)], stack_parents: &[(&str, &str)]) -> GroupingInputs {
   let lines = |pairs: &[(&str, &str)]| StoreLines {
     entries: pairs.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect(),
     ..StoreLines::default()
   };
   GroupingInputs {
-    stacks,
     issue_groups: lines(issue_groups),
     stack_parents: lines(stack_parents),
     ..GroupingInputs::default()
@@ -734,8 +715,8 @@ fn group(subject: &str, inputs: &GroupingInputs) -> Option<GroupParts> {
 
 #[test]
 fn the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key() {
-  let flat = inputs(false, &[("ABC-1", "parser"), ("ABC-2", "parser")], &[]);
-  let named = |subject: &str| group(subject, &flat).map(|(branch, origin, ..)| (branch, origin));
+  let plain = inputs(&[("ABC-1", "parser"), ("ABC-2", "parser")], &[]);
+  let named = |subject: &str| group(subject, &plain).map(|(branch, origin, ..)| (branch, origin));
   for (subject, branch) in [
     ("(mockito 5.19) Update", "mockito-5.19"),
     ("(---test---) Update", "test"),
@@ -743,7 +724,7 @@ fn the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_t
     ("fixup! squash!  (feat) Fix", "feat"),
     ("((nested)) m", "(nested"),
     ("(lexer) ABC-1 Add tokens", "lexer"),
-    ("(auth/login) Add form", "auth/login"),
+    ("(auth/login) Add form", "login"),
   ] {
     assert_eq!(named(subject), Some((branch.to_string(), GroupOrigin::Prefix)), "{subject}");
   }
@@ -774,7 +755,7 @@ fn the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_t
 
 #[test]
 fn the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent() {
-  let stacked = inputs(true, &[("ABC-2", "parser")], &[("login", "auth"), ("ABC-1", "login"), ("parser", "auth")]);
+  let stacked = inputs(&[("ABC-2", "parser")], &[("login", "auth"), ("ABC-1", "login"), ("parser", "auth")]);
   let of = |subject: &str| group(subject, &stacked);
   let declared = |branch: &str, parent: &str| Some((branch.to_string(), GroupOrigin::Prefix, Some(parent.to_string()), Some(ParentSource::Prefix), false));
   let stored = |branch: &str, origin, parent: &str| Some((branch.to_string(), origin, Some(parent.to_string()), Some(ParentSource::Store), false));
@@ -788,7 +769,4 @@ fn the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_sta
   // an empty level groups into the last one, which reports the problem; no branch name groups nowhere
   assert_eq!(of("(a//b) Odd"), Some(("b".to_string(), GroupOrigin::Prefix, None, None, true)));
   assert_eq!(of("(/) Nothing"), None);
-  // without stacked branches the stack parents decide nothing
-  let flat = inputs(false, &[], &[("login", "auth")]);
-  assert_eq!(group("(login) Add form", &flat), Some(("login".to_string(), GroupOrigin::Prefix, None, None, false)));
 }

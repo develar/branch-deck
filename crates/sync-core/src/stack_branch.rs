@@ -651,12 +651,12 @@ fn delete_obsolete(git_executor: &GitCommandExecutor, repository_path: &str, obs
 /// remembered (the memory of the process, `cache`) and the ref is at it; else `Stale`, the ref is not known to be the
 /// build of these commits (or there is none). No git
 pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache: &ObjectCache, resolve: ResolveMode, signing: Signing) -> Vec<StackBranchUpdate> {
-  let (Some(forest), Some(placements), Some(base)) = (&grouping.forest, &grouping.placements, &grouping.base) else {
+  let (Some(placements), Some(base)) = (&grouping.placements, &grouping.base) else {
     return Vec::new();
   };
   let commits: HashMap<&str, &[Commit]> = grouping.branches.iter().map(|branch| (branch.name.as_str(), branch.commits.as_slice())).collect();
   let positions: HashMap<&str, usize> = grouping.commit_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
-  let plans = plan_stack_branches(branch_prefix, &forest.order, placements, &commits, &positions);
+  let plans = plan_stack_branches(branch_prefix, &grouping.forest.order, placements, &commits, &positions);
   let sync = StackBranchSync::new(plans, &grouping.listed, branch_prefix, &grouping.remote_tips);
   let builds = StackBuilds::new(cache.clone(), resolve, signing);
   let mut updates: Vec<StackBranchUpdate> = sync

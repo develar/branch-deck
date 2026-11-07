@@ -236,5 +236,5 @@ branch built on it carries its commits, so it is parked with it.
 
 - A park does not convert an open pull request into a draft: a merge on GitHub still lands the branch. The menu says
   so; GitHub has no draft conversion in `crates/github` yet.
-- The key of a line is the branch name as the grouping makes it: turning stacked branches on or off can change it, and
-  a renamed issue group is carried only by Rename.
+- The key of a line is the branch name as the grouping makes it (the leaf of a stacked branch): a renamed issue group
+  is carried only by Rename.

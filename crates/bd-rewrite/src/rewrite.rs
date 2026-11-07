@@ -131,7 +131,7 @@ pub struct RewriteOutput {
   /// With --dry-run, and always for `reword`: the commits whose message changes (or would change)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub changes: Option<Vec<SubjectChange>>,
-  /// With --dry-run and stacked branches on: every branch and its parent afterwards
+  /// With --dry-run: every branch and its parent afterwards
   #[serde(skip_serializing_if = "Option::is_none")]
   pub forest: Option<Vec<ForestBranch>>,
   /// With --map: old -> new id of every commit ahead of the baseline
@@ -435,7 +435,7 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
         })
         .collect()
     }),
-    forest: args.dry_run.then_some(outcome.forest.as_ref()).flatten().map(forest_branches),
+    forest: args.dry_run.then(|| forest_branches(&outcome.forest)),
     map: args.map.then(|| {
       outcome
         .commits

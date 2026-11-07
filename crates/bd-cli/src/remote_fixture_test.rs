@@ -228,9 +228,7 @@ pub const STACK: &str = "test-user/stack/auth";
 
 /// auth with login and session built on it: a stack that forks, whose stack branch has the commits of all three
 pub fn forking_stack() -> Space {
-  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
-  append_config(space.repo.path(), &[("branchdeck.stacks", "true")]);
-  space
+  Space::new(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"])
 }
 
 /// The stack branch of `forking_stack` pushed twice, then moved back on the remote to the older build (someone's push

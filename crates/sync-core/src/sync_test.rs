@@ -961,7 +961,6 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
   let mut names: Vec<&str> = report.branches.iter().map(|branch| branch.name.as_str()).collect();
   names.sort_unstable();
   assert_eq!(names, ["a", "b"]);
-  assert_eq!(report.forest, None, "stacked branches are off");
   assert_eq!(
     report.tips,
     HashMap::from([

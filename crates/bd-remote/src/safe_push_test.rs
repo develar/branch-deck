@@ -417,9 +417,7 @@ fn a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed() {
 
 /// login stacked on auth, each with one commit of its own file
 fn login_on_auth() -> Space {
-  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
-  space
+  Space::new(&["(auth) Add auth", "(auth/login) Add login"])
 }
 
 /// `brd safe-push login --dry-run`, which lands auth with login and refuses nothing; the output matches the schema
@@ -932,7 +930,6 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
 #[test_log::test]
 fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
   let space = Space::new(&[]);
-  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
   write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100);
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
@@ -971,7 +968,6 @@ fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
 #[test_log::test]
 fn a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack() {
   let space = Space::new(&["(auth) Add auth"]);
-  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
   write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let declares = commit_all(&space.repo, "(auth/login) Add controlUrl", 1_700_000_100);
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
@@ -1062,7 +1058,6 @@ fn commit_of(space: &Space, subject: &str) -> String {
 #[test_log::test]
 fn a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on() {
   let space = Space::new(&["(auth) Add auth"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&space.repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
   space.set_robots(vec![robot("auth-robot", "RUNNING", "auth", &space.local_tip(AUTH))]);
@@ -1228,7 +1223,6 @@ fn retargets_sent(github: &FakeGitHub) -> Vec<(String, Value)> {
 #[test_log::test]
 fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let pull_requests = [
     pull_request_of("auth", 7, "master", &[]),
     pull_request_of("login", 8, AUTH, &["alice"]),
@@ -1277,7 +1271,6 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
 #[test_log::test]
 fn push_names_a_pull_request_merged_into_another_branch_than_the_baseline() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let mut auth = pull_request_of("auth", 7, "master", &[]);
   auth["state"] = json!("MERGED");
   let mut login = pull_request_of("login", 8, AUTH, &[]);
@@ -1304,7 +1297,6 @@ fn push_names_a_pull_request_merged_into_another_branch_than_the_baseline() {
 #[test_log::test]
 fn push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let pull_requests = [pull_request_of("login", 8, AUTH, &[])];
   let (github, url) = fake_github(&space, &pull_requests);
   github.answer("PATCH", "/repos/acme/monorepo/pulls/8", FakeAnswer::ok(json!({"number": 8})));
@@ -1848,7 +1840,6 @@ fn assert_clean_on_the_last_fetched(output: &Value, baseline: &str) -> String {
 #[test_log::test]
 fn push_drafts_the_layers_of_a_stack_of_github_into_the_branches_below_them() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let (_github, url) = fake_github(&space, &[]);
   let environment = reviewed_on_github(&space, &url);
   let (exit_code, output) = bd_push(&environment, &["oauth"]);

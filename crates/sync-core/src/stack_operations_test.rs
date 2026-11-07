@@ -18,7 +18,6 @@ use test_utils::git_test_utils::TestRepo;
 fn stacked_repo() -> TestRepo {
   let test_repo = TestRepo::new();
   test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.set_config("branchdeck.stacks", "true").unwrap();
   test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
   test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
   test_repo.create_commit("(docs) Document", "docs.md", "docs");
@@ -124,7 +123,6 @@ fn unstack_removes_the_line_and_the_parent_levels() {
 fn repo_with(subjects: &[&str]) -> TestRepo {
   let test_repo = TestRepo::new();
   test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.set_config("branchdeck.stacks", "true").unwrap();
   for (index, subject) in subjects.iter().enumerate() {
     test_repo.create_commit(subject, &format!("file{index}.txt"), subject);
   }

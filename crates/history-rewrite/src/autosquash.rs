@@ -79,12 +79,12 @@ pub struct AutosquashPlan {
 }
 
 /// Plans squashing every fixup of `commits` (oldest first, ending at `head`) into its target, with git's rules
-/// (`git_ops::autosquash_targets::fixup_targets`). With stacked branches on (`grouping.stacks`), prefixes agree when
-/// they name the same branch, and the branches are the leaves. The branches follow the issue groups of `grouping` too.
+/// (`git_ops::autosquash_targets::fixup_targets`). Prefixes agree when they name the same branch, and the branches are
+/// the leaves. The branches follow the issue groups of `grouping` too.
 #[must_use]
 pub fn plan_autosquash(head: String, commits: &[Commit], grouping: &GroupingInputs) -> AutosquashPlan {
   let branch_of = |subject: &str| grouping.branch_of(subject);
-  let resolutions = fixup_targets(commits, grouping.stacks);
+  let resolutions = fixup_targets(commits);
 
   // by target position, so the groups come out oldest target first
   let mut groups: BTreeMap<usize, PlannedGroup> = BTreeMap::new();
@@ -194,8 +194,8 @@ fn without_target(orphans: &[OrphanFixup]) -> String {
   }
 }
 
-/// What a plan of a fold is made of: the commits ahead of the baseline (oldest first), HEAD, the stack setting and the
-/// issue groups, as the sync reads them
+/// What a plan of a fold is made of: the commits ahead of the baseline (oldest first), HEAD and the issue groups, as
+/// the sync reads them
 pub struct FoldRange {
   head: String,
   commits: Vec<Commit>,

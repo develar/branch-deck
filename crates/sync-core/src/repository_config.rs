@@ -17,18 +17,16 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
 use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_list::get_commit_list_with_handler;
-use history_rewrite::baseline::detect_baseline_branch;
-use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
-use history_rewrite::issue_groups::ISSUE_GROUPS;
-use history_rewrite::stack::STACKS_CONFIG_KEY;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
+
+/// The key of the setting Settings still shows; no operation reads it, stacked branches are always on
+const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
 
 /// The ten keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
 const CONFIG_KEYS_REGEXP: &str =
@@ -140,7 +138,7 @@ pub struct DetectedGitHubRepository {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryConfig {
-  /// `branchdeck.stacks`, off by default
+  /// `branchdeck.stacks`: read by no operation, stacked branches are always on
   pub stacks: ConfigSetting<bool>,
   /// `branchdeck.symbols`, on by default
   pub symbols: ConfigSetting<SymbolMode>,
@@ -165,8 +163,7 @@ pub struct RepositoryConfig {
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`)
   pub landing_default: LandingDefault,
-  /// With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
-  /// with (`with_stacks_off_clashes`); empty with stacked branches off
+  /// Always empty: stacked branches can't be turned off
   pub stacks_off_clashes: Vec<FlatNameClash>,
   /// The config writes this process had made when the read began (`config_writes`): an answer with a larger one holds
   /// more writes, so the page keeps it over a smaller one that arrives later. 0 outside `read_repository_config`; `bd`
@@ -506,8 +503,7 @@ fn text_setting(value: Option<&str>, validate: fn(&str) -> Result<&str, String>)
 }
 
 /// The settings of the repository: one `git config`, and for the detected GitHub repository one or two more (the
-/// push URL of `origin`, the Space settings), with stacked branches on the clashes of turning them off; the global
-/// config alone for an empty `repository_path`. `seq` is taken before the config is read, so the answer holds every
+/// push URL of `origin`, the Space settings); the global config alone for an empty `repository_path`. `seq` is taken before the config is read, so the answer holds every
 /// write it counts
 #[instrument(skip(git))]
 pub fn read_repository_config(git: &GitCommandExecutor, repository_path: &str) -> Result<RepositoryConfig> {
@@ -523,52 +519,7 @@ pub fn read_repository_config(git: &GitCommandExecutor, repository_path: &str) -
     seq,
     ..repository_config_from_entries(&entries, read_origin_facts(git, repository_path)?)
   };
-  Ok(with_stacks_off_clashes(git, repository_path, config))
-}
-
-/// `config` with `stacks_off_clashes`, read only while stacked branches are on (`flat_name_clashes`). A failed read (no
-/// baseline yet) is no clash: the sync says what fails
-pub fn with_stacks_off_clashes(git: &GitCommandExecutor, repository_path: &str, mut config: RepositoryConfig) -> RepositoryConfig {
-  if config.stacks.value {
-    config.stacks_off_clashes = flat_name_clashes(git, repository_path).unwrap_or_else(|error| {
-      warn!(repository_path, error = %error, "Cannot group the commits as with stacked branches off");
-      Vec::new()
-    });
-  }
-  config
-}
-
-/// The branches whose refs git cannot hold beside another one when the commits ahead of the baseline are grouped as
-/// with stacked branches off: `(auth/login)` is then the flat `auth/login`, beside the `auth` of `(auth)`, and a sync
-/// fails (`turning_stacks_off_fails_the_sync_on_the_flat_child` of `stack_sync_test.rs`). The grouping of a sync with
-/// the stack setting off: baseline detection, one `cat-file --batch` for the issue groups, one `log`
-#[instrument(skip(git))]
-pub fn flat_name_clashes(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<FlatNameClash>> {
-  let baseline_branch = detect_baseline_branch(git, repository_path)?;
-  let inputs = GroupingInputs {
-    stacks: false,
-    issue_groups: ISSUE_GROUPS.read(git, repository_path)?,
-    ..GroupingInputs::default()
-  };
-  let mut grouper = CommitGrouper::new_with(&inputs);
-  get_commit_list_with_handler(git, repository_path, &baseline_branch, |commit| {
-    grouper.add_commit(commit);
-    Ok(())
-  })?;
-  let names: BTreeSet<String> = grouper.finish().branches.into_keys().collect();
-  Ok(
-    names
-      .iter()
-      .filter_map(|name| {
-        // the shortest branch whose name is a directory of this one
-        let beside = name.match_indices('/').map(|(end, _)| &name[..end]).find(|directory| names.contains(*directory))?;
-        Some(FlatNameClash {
-          branch: name.clone(),
-          beside: beside.to_string(),
-        })
-      })
-      .collect(),
-  )
+  Ok(config)
 }
 
 /// What Settings shows of `origin` (`OriginFacts`): one read of its push URL for the detected GitHub repository

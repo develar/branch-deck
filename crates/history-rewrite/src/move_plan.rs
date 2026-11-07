@@ -1,8 +1,8 @@
 //! The plan of a move, "these commits go to branch X", as the smallest regroup (spec/branch/move-commits.spec.md). A
 //! whole issue, every commit of its key without a prefix, moves by the issue groups without a rewrite, so the next
 //! commit of the issue follows it, also into a stacked branch; a part of an issue and a commit without a key get the
-//! prefix `(X)`; a commit that lands in X without its prefix loses it. With stacked branches on, a path `P/X` stacks X
-//! on P in the stack parents (`regroup.rs`), so its prefix is the bare `(X)`.
+//! prefix `(X)`; a commit that lands in X without its prefix loses it. A path `P/X` stacks X on P in the stack parents
+//! (`regroup.rs`), so its prefix is the bare `(X)`.
 
 use crate::autosquash::plan_autosquash;
 use crate::commit_ids::{ResolvedIds, resolve_commit_ids};
@@ -18,19 +18,14 @@ use sync_utils::issue_pattern::find_issue_number;
 pub(crate) struct MoveTarget {
   /// The prefix path, as given
   pub path: String,
-  /// The branch afterwards: the leaf of the path with stacked branches on
+  /// The branch afterwards: the leaf of the path
   pub leaf: String,
-  /// Only a prefix puts commits there: a flat name with `/` with stacked branches off (an issue group name has none)
-  pub prefix_only: bool,
 }
 
-pub(crate) fn move_target(snapshot: &Snapshot, name: &str) -> MoveTarget {
-  let stacks = snapshot.grouping.stacks;
-  let leaf = if stacks { name.rsplit('/').next().unwrap_or(name) } else { name };
+pub(crate) fn move_target(name: &str) -> MoveTarget {
   MoveTarget {
     path: name.to_string(),
-    leaf: leaf.to_string(),
-    prefix_only: !stacks && name.contains('/'),
+    leaf: name.rsplit('/').next().unwrap_or(name).to_string(),
   }
 }
 
@@ -66,7 +61,7 @@ pub fn plan_move(snapshot: &Snapshot, ids: &[String], target: Option<&str>) -> R
   let entries = &snapshot.grouping.issue_groups.entries;
   let moved_commits = snapshot.commits.iter().filter(|commit| moved.contains(&commit.id));
   let mut plan = RegroupPlan::default();
-  let Some(target) = target.map(|name| move_target(snapshot, name)) else {
+  let Some(target) = target.map(move_target) else {
     for commit in moved_commits {
       let parsed = parse_subject(&commit.subject);
       let mapped = find_issue_number(parsed.rest).filter(|key| entries.contains_key(*key));
@@ -86,29 +81,27 @@ pub fn plan_move(snapshot: &Snapshot, ids: &[String], target: Option<&str>) -> R
   };
 
   let mut after: IssueGroupEntries = entries.clone();
-  if snapshot.grouping.stacks && target.path.contains('/') {
+  if target.path.contains('/') {
     // the path writes its stack parents, also when the issue groups move every commit
     plan.branches.entry(target.path.clone()).or_default();
   }
-  if !target.prefix_only {
-    for key in &whole {
-      if entries.get(*key).map_or(*key, String::as_str) == target.leaf {
-        continue;
-      }
-      if *key == target.leaf {
-        // back to its own issue branch
-        plan.ungroup_issues.push((*key).to_string());
-        after.remove(*key);
-      } else {
-        plan.issue_groups.entry(target.leaf.clone()).or_default().push((*key).to_string());
-        after.insert((*key).to_string(), target.leaf.clone());
-      }
+  for key in &whole {
+    if entries.get(*key).map_or(*key, String::as_str) == target.leaf {
+      continue;
+    }
+    if *key == target.leaf {
+      // back to its own issue branch
+      plan.ungroup_issues.push((*key).to_string());
+      after.remove(*key);
+    } else {
+      plan.issue_groups.entry(target.leaf.clone()).or_default().push((*key).to_string());
+      after.insert((*key).to_string(), target.leaf.clone());
     }
   }
   for commit in moved_commits {
     let parsed = parse_subject(&commit.subject);
     let lands = find_issue_number(parsed.rest).map(|key| after.get(key).map_or(key, String::as_str));
-    if !target.prefix_only && lands == Some(target.leaf.as_str()) {
+    if lands == Some(target.leaf.as_str()) {
       // its key puts it there, the prefix would only repeat it
       if parsed.prefix.is_some() {
         plan.unassign.push(commit.id.clone());

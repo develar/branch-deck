@@ -6,7 +6,7 @@ use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::env_vars::EnvVars;
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::TestRepo;
 use test_utils::history::HistoryCommit;
 
 /// Two prefixed commits, an issue-key commit and an unassigned one, at fixed times
@@ -20,13 +20,12 @@ fn grouped_repo() -> (TestRepo, Vec<String>) {
   repo_on_baseline(&[("README.md", "readme\n")], &commits, ".")
 }
 
-/// With stacked branches on: a parent and its child, a branch with conflicting parents and one with a missing parent
+/// A parent and its child, a branch with conflicting parents and one with a missing parent
 fn stacked_repo() -> (TestRepo, Vec<String>) {
   let (repo, ids) = repo_with_subjects(
     &[("README.md", "readme\n")],
     &["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "(ghost/oauth) Add oauth"],
   );
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   (repo, ids)
 }
 
@@ -58,6 +57,7 @@ fn status_shape() {
       "baseline": "origin/master",
       "branch_count": 2,
       "unassigned_count": 1,
+      "forest": ["auth", "ABC-12"],
       // newest first by the oldest commit: auth began first, though its commit is the newest
       "branches": [
         {
@@ -383,7 +383,6 @@ fn stacks_in_status() {
 #[test_log::test]
 fn a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   write(&repo, "auth.rs", "auth\n");
   let auth = commit_all(&repo, "(auth) Add auth", 1_700_000_000);
   // the last sync built `auth`; then upstream took its change, and the update dropped the commit
@@ -505,7 +504,6 @@ fn plant_stack_parents(repo: &TestRepo, text: &str) {
 #[test_log::test]
 fn stored_parents_in_status() {
   let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add auth", "ABC-1 Add login", "(auth/oauth) Add oauth"]);
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   plant_stack_parents(&repo, "ABC-1\tauth\nghost\tauth\nnot a line\n");
 
   let (exit_code, output) = run_in(&repo, &["status"]);
@@ -529,17 +527,11 @@ fn stored_parents_in_status() {
 
   let (_, brief) = run_in(&repo, &["status", "--brief"]);
   assert_eq!((&brief["branches"][1]["parent_source"], &brief["idle_stack_parents"]), (&json!("store"), &json!(["ghost"])));
-
-  // without stacked branches the map is not used
-  repo.set_config("branchdeck.stacks", "false").unwrap();
-  let (_, flat) = run_in(&repo, &["status"]);
-  assert_eq!((flat.get("idle_stack_parents"), flat["branches"][1].get("parent")), (None, None));
 }
 
 #[test_log::test]
 fn a_sync_drops_the_stack_parent_of_an_integrated_branch() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   write(&repo, "auth.rs", "auth\n");
   commit_all(&repo, "(auth) Add auth", 1_700_000_000);
   write(&repo, "login.rs", "login\n");
@@ -576,7 +568,6 @@ fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
     &[("README.md", "readme\n")],
     &["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs", "(auth/session) Add session"],
   );
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
 
   let (_, status) = run_in(&repo, &["status"]);
   let stale = json!({

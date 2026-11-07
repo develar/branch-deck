@@ -122,7 +122,6 @@ fn outputs_match_schema() {
   let (_, workspace) = run_in(&repo, &["workspace"]);
   assert_covered(&schema["outputs"]["workspace"], &schema["outputs"]["workspace"], &workspace, "workspace");
   // a dry run prints every optional part of a rewrite; then a real one and its undo
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (_, rewrite) = run_in(&repo, &["rename", "feature", "renamed", "--dry-run", "--map"]);
   assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &rewrite, "rewrite");
   let (_, rewrite) = run_in(&repo, &["restack", "feature", "PROJ-1"]);

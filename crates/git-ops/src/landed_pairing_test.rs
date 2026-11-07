@@ -66,9 +66,9 @@ fn sides() -> TestRepo {
 fn pairings(repo: &TestRepo) -> (LandedPairing, LandedPairing) {
   in_scope(repo, |scope| {
     let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
-    let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads, false).unwrap();
-    let all = with_patch_identical(repo.git_executor(), repo.path_str(), scope, &reads, before.clone(), false).unwrap();
-    assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope, false).unwrap());
+    let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
+    let all = with_patch_identical(repo.git_executor(), repo.path_str(), scope, &reads, before.clone()).unwrap();
+    assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
     (all, before)
   })
 }
@@ -238,7 +238,7 @@ fn the_same_patch_under_another_identity_of_its_author_is_proven_before_the_repl
     &[HistoryCommit::new("Change bin", &[("bin.dat", "\0two")]).at(250), at("Fix line 5", &[(5, "five")], 300)],
   );
   let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
-  let twins = pair_twins(repo.git_executor(), repo.path_str(), &reads, false).unwrap();
+  let twins = pair_twins(repo.git_executor(), repo.path_str(), &reads).unwrap();
   assert_eq!(twins, LandedPairing::unpaired(local.clone()));
   let (all, before) = pairings(&repo);
   assert_eq!(before.drops, [drop_of(&local[0], &upstream[1], LandedProof::PatchId)]);
@@ -266,7 +266,7 @@ fn the_same_patch_of_the_author_is_looked_for_only_among_its_sets_of_paths() {
   repo.commit_history("refs/heads/upstream", &[HistoryCommit::new("Change bin", &[("bin.dat", "\0two")]).at(250)]);
   let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
   let git = counting();
-  let before = pair_before_replay(&git, repo.path_str(), &reads, false).unwrap();
+  let before = pair_before_replay(&git, repo.path_str(), &reads).unwrap();
   assert_eq!(before, LandedPairing::unpaired(vec![repo.rev_parse("local").unwrap()]));
   assert_eq!(processes(&git), [("diff-tree".to_string(), 1)]);
 }
@@ -279,7 +279,7 @@ fn the_pairing_of_the_twins_runs_no_process_without_a_twin() {
   repo.commit_history("refs/heads/upstream", &[at("Other change", &[(2, "two")], 100)]);
   let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
   let git = counting();
-  let twins = pair_twins(&git, repo.path_str(), &reads, false).unwrap();
+  let twins = pair_twins(&git, repo.path_str(), &reads).unwrap();
   assert_eq!(twins, LandedPairing::unpaired(vec![repo.rev_parse("local").unwrap()]));
   assert_eq!(processes(&git), []);
 }

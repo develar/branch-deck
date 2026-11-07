@@ -369,7 +369,6 @@ async fn a_rewrite_during_the_check_of_an_update_waits_behind_it_and_runs_on_wha
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed() {
   let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.set_config("branchdeck.landing", "push").unwrap();
   let (registry, key) = registry_of(&repo, true).await;
   let sessions = registry.sessions();
@@ -447,7 +446,6 @@ async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_t
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_by_rebase_is_followed_by_an_update_that_drops_the_original_whose_copy_github_wrote_again() {
   let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (registry, key) = registry_of(&repo, true).await;
   let copy = repo.rev_parse("test/virtual/alpha").unwrap();
   // the head of the pull request, which the push of the branch sent

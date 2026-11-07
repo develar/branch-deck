@@ -7,7 +7,7 @@ use git_ops::revs::short_id;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::TestRepo;
 use test_utils::history::HistoryCommit;
 
 fn by_subject<'a>(output: &'a Value, subject: &str) -> &'a Value {
@@ -302,7 +302,6 @@ fn brief_keeps_a_prefix_that_says_more_than_the_group() {
     &[("README.md", "readme\n")],
     &["(auth) Add auth", "(auth/login) Add login", "(Foo Bar) Odd prefix", "(auth) ABC-1 Check the token"],
   );
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   let (exit_code, output) = run_in(&repo, &["commits", "--brief"]);
   assert_eq!(exit_code, 0, "{output}");
   let brief: Vec<(&Value, &Value, Option<&Value>)> = output["commits"]

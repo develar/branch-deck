@@ -112,7 +112,7 @@ publisher: choose More info → Run anyway.
   names for a new branch ([move](spec/branch/move-commits.spec.md), [names](spec/branch/branch-name-suggestions.spec.md)).
   A branch that conflicts says which branches have what it needs and offers the regroup a trial build verified, with
   Undo ([conflict fix](spec/branch/conflict-fix.spec.md)).
-- **Stacked branches** (`git config branchdeck.stacks true`): `(auth/login)` builds `login` on top of `auth`. The table
+- **Stacked branches**: `(auth/login)` builds `login` on top of `auth`. The table
   draws a stack as one line, as Sapling and jj do, headed by its root ("22 branches", which collapses the stack), and
   hovering a branch lights the path down to it, what its push sends; a push sends the parents first, and each pull
   request goes into master with what it lands, the commits of the branches below it

@@ -6324,7 +6324,7 @@ export type RepeatedEditGroup = {
 
 /**  The settings of Settings → Repository */
 export type RepositoryConfig = {
-	/**  `branchdeck.stacks`, off by default */
+	/**  `branchdeck.stacks`: read by no operation, stacked branches are always on */
 	stacks: ConfigSetting<boolean>,
 	/**  `branchdeck.symbols`, on by default */
 	symbols: ConfigSetting<SymbolMode>,
@@ -6351,10 +6351,7 @@ export type RepositoryConfig = {
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**  The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`) */
 	landingDefault: LandingDefault,
-	/**
-	 *  With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
-	 *  with (`with_stacks_off_clashes`); empty with stacked branches off
-	 */
+	/**  Always empty: stacked branches can't be turned off */
 	stacksOffClashes: FlatNameClash[],
 	/**
 	 *  The config writes this process had made when the read began (`config_writes`): an answer with a larger one holds

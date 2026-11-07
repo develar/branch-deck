@@ -389,7 +389,7 @@ struct Prepared {
 /// The inputs of the check, then the check of `upstream` for an apply
 fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, signing: Signing) -> Result<Prepared> {
   let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
-  let landed = LandedLookup::ByKey { stacks: grouping.stacks };
+  let landed = LandedLookup::ByKey;
   let plan = check_update_before_lock_with_signing(git_executor, repo_path, upstream, landed, resolve_mode, signing)?;
   Ok(Prepared { grouping, resolve_mode, plan })
 }

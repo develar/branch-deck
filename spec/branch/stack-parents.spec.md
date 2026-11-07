@@ -90,9 +90,9 @@ only the stack parents ref.
   ref, or a commit without the file, is an empty map. It is a ref of its own because a store commit replaces its whole
   tree (`deleteall`): a file next to `issue-groups` would be lost by every write of an older version.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`reads_nothing_without_the_file_and_the_written_commit_after_the_transaction`)
-- The `cat-file --batch` that reads the issue groups must read the map too: the stack setting, the issue groups and
-  the stack parents cost two git processes.
-  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`the_stack_setting_and_both_maps_cost_two_git_processes`)
+- The `cat-file --batch` that reads the issue groups must read the map too: the issue groups and the stack parents cost
+  one git process.
+  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`both_maps_cost_one_git_process`)
 - A line whose child or parent is not a branch name without `/`, whose child is its parent, or whose child is listed
   twice must be a problem: it is reported and never used. A write must keep it as it is, unless the write sets or
   removes its child.
@@ -100,9 +100,6 @@ only the stack parents ref.
 - The ref is shared by every branch and worktree. So a write must change only the children that it names. A child that
   no branch on this HEAD reaches must stay, and `brd status` lists it in `idle_stack_parents`.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_write_on_one_worktree_keeps_the_parents_of_another`)
-- Without `git config branchdeck.stacks`, the map must be read and not used: every branch stays a root, a `/` in a
-  plan path is part of a flat name, and a restack or an `unstack` is `invalid_plan`. A rename does not touch the map.
-  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`without_stacks_the_map_is_not_used_and_not_written`)
 
 ### Placement
 

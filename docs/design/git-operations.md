@@ -628,7 +628,7 @@ A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [i
 `brd reword` and the app's edit of a message all change the messages of commits, so they are one reword. `regroup_commits_core` decides the messages before it
 writes anything:
 
-1. Refuse while an operation is in progress or HEAD is detached, and read HEAD, the stack setting, the issue groups,
+1. Refuse while an operation is in progress or HEAD is detached, and read HEAD, the issue groups,
    the stack parents and the parked branches (one `cat-file --batch`) and the commits ahead of the baseline (one
    `log`): the `Snapshot` (`crates/history-rewrite/src/snapshot.rs`, which the check reads too; the reads that need
    less take its parts, `CommitsAhead` and `read_grouping_inputs`). An `expect_head` that isn't HEAD is
@@ -767,8 +767,8 @@ messages back.
 `parked` of sorted `branch<TAB>note` lines, the note one line, possibly empty. It decides no group: a sync builds a
 parked branch as any other, and only `brd push`, `brd safe-push` and the app's push surfaces leave it out, and a branch
 built on it, which carries its commits.
-- It is read in the same `cat-file --batch` as the other two maps (`GroupingInputs.parked`), so the stack setting and
-  the three maps still cost two processes, and a sync's budget is unchanged. The sync sends the whole map in
+- It is read in the same `cat-file --batch` as the other two maps (`GroupingInputs.parked`), so the three maps cost
+  one process, and a sync's budget is unchanged. The sync sends the whole map in
   `BranchesGrouped` (`parked`), the lines of branches without commits here too.
 - Park and unpark change no commit: `park_core` reads the grouping of the commits ahead (each branch must group one)
   and writes the store commit with one `fast-import` on a temporary ref, before the repository lock; under it one
@@ -2651,7 +2651,7 @@ status of one whose remote branch exists, from the same
 `RemoteStatusMemo` (the push times include them); one without a remote branch costs no process.
 
 **What a sync returns** (`SyncReport`): the baseline, its commit, HEAD and the checked out branch as it read them, the
-grouping inputs (the stack setting, the issue groups, the stack parents), the grouped branches as `BranchesGrouped`
+grouping inputs (the issue groups, the stack parents), the grouped branches as `BranchesGrouped`
 sent them (with their placements), the stack forest, the remote tips on `origin`, the descriptions, the tip of
 each grouped branch's virtual branch after it (the head it wrote or kept, another process's tip after
 a lost CAS, the old tip of a branch it could not rebuild), and the stack branches as their `StackBranchUpdate` events
@@ -2741,7 +2741,7 @@ The conflicting paths go to the log of the missing commits as names: `--literal-
 `ab.txt` and `:name` is no pathspec magic. `the_report_of_a_conflict_costs_four_processes` pins the count.
 
 Before the copies, a sync with branches takes their descriptions (`brd describe`) from its `ConfigSnapshot`, the one
-`git config` of the sync that also gives the stack setting (see "Repository settings"; `brd` reads them with
+`git config` of the sync that also gives its settings (see "Repository settings"; `brd` reads them with
 `crates/git-ops/src/branch_description.rs`), and sends the title of each with the grouped branches.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/notes.rs`,
@@ -2826,7 +2826,7 @@ In Update Project and `brd update`, with the same setting (`crates/git-ops/src/w
 
 #### Stack branch
 
-With stacked branches on, a stack that forks (a branch of it has two children or more) also builds as one more virtual
+A stack that forks (a branch of it has two children or more) also builds as one more virtual
 branch, `{prefix}/stack/<root>`: every commit of its branches, in the order of the checked out branch's history, on
 the base of the sync, as a flat virtual branch of those commits would be built. A Safe Push of the whole stack lands
 it in one robot ([Whole Stack](../../spec/branch/whole-stack.spec.md), [Landing](landing.md)); a straight chain has
@@ -2895,7 +2895,7 @@ page: the main window tells the session its focus (`set_window_focus`), and Rust
    review fetch writes there). `%(HEAD)` marks the branch HEAD is on, with its upstream, which `@{u}` makes the baseline.
 3. Only when that upstream is not in the listing (`origin/develop`): `for-each-ref --format=%(objectname) <upstream>`,
    so a fetch of it is a change too.
-4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
+4. The size and the modification time of `config`, `config.worktree` (descriptions, the `branchdeck.*` settings, the
    upstream configuration) and `.idea/vcs.xml` (issue links).
 5. Which of the files git keeps in the worktree's git directory during an operation exist (`OPERATION_MARKERS` of
    `rewrite_guard.rs`: `rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `sequencer`),
@@ -3481,7 +3481,7 @@ Code: `crates/review-plan/src/mark_reviewed.rs`, `crates/review-plan/src/interdi
    `gc` has not pruned it (see "Object cache"), or conflict, and a conflict is reported light (its files), without the
    conflict analysis.
 
-A `CheckSession` reads the config once (`ConfigSnapshot`: the stack setting, the symbol and resolve modes; `brd check`
+A `CheckSession` reads the config once (`ConfigSnapshot`: the symbol and resolve modes; `brd check`
 and `brd suggest` pass the one their context read, `open_on`), then the snapshot: the guards, HEAD, the stores of the grouping, the baseline with its commit and the branch tips from one
 listing (`read_listed_baseline`), and one `log` from that commit to HEAD (`Snapshot::read_with`); a regroup reads the
 baseline by `detect_baseline_branch` (`Snapshot::read`), which in `history-rewrite` cannot take the listing of
@@ -4294,7 +4294,7 @@ the branches it is built on (`CheckSession::check_landing`), every branch for a 
   branch of the landing stack is none, a sibling's of a whole stack that forks too: one robot lands both.
 
 The result is typed (`LandingRefusal`, with `LandingFix`: the restack of the root of what lands onto the branch that
-adds the name, else, with stacked branches off, an unassigned commit or a restack that would close a cycle, the move of
+adds the name, else, for an unassigned commit or a restack that would close a cycle, the move of
 the commit), and the overrides are the user's (`LandingAllowances`: `--allow-dangling`, `--allow-missing`, Start
 Anyway). It writes objects only, never a ref: the symbol graph costs one `log --raw` of the commit changes and one
 `cat-file --batch` of the source blobs whose summaries the cache lacks, once per session. `brd safe-push` runs it in the
@@ -4432,7 +4432,8 @@ unset, `0` or `off` for none: see [Push size](#push-size); one value for every r
 `resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, no row yet,
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the two rules of coding agents
 (`crates/sync-core/src/repository_config.rs`):
-`branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
+`branchdeck.stacks` (read by no operation: stacked branches are always on), `branchdeck.symbols`,
+`branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
 lands each commit with `brd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
@@ -4458,16 +4459,10 @@ no operation.
   costs one or two more processes, only for this read. Each setting also carries what applies once the local value is
   unset (`fallback_value`, `fallback_scope`: the last system or global entry, else the default), for "Use Default" or
   "Use Global".
-- **Stacks off**: with stacked branches on, the read groups the commits ahead of the baseline as a sync would with them
-  off (`flat_name_clashes`: baseline detection, one `cat-file --batch` for the issue groups, one `log`; stacked
-  branches off, nothing of this runs). A `(auth/login)` is then the flat branch `auth/login`, whose ref git cannot keep
-  beside the `auth` of `(auth)` (a directory/file conflict of refs), and the sync would fail
-  (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
-  (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the eight keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
-  keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
-  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental` and `descriptions`. A sync reads it once for the stack setting, the
+  `git config -z --show-scope --get-regexp` of the seven keys an operation reads (not `branchdeck.stacks`, not the agent keys) and every `branch.<name>.description` (the branch name
+  keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `symbol_mode`,
+  `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental` and `descriptions`. A sync reads it once for the
   route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`; `brd status`
   takes the same of the listing of its grouping, `BranchGrouping::landing`), the flag of the review windows (sent in
   `BranchesGrouped` too, into `TableHeader.review_experimental` of the view: a value git refuses is off, with a
@@ -4475,10 +4470,8 @@ no operation.
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `brd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `brd push` and `brd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
-  `brd commits` takes its stack and symbol settings from the same `RepoContext::config`. The configured GitHub
-  repository of the pull requests is one snapshot, for a caller that needs one key; `stacks_enabled` (`history_rewrite::stack`, which knows no `ConfigSnapshot`) is one
-  `git config -z --get-regexp` of `branchdeck.stacks` alone, the last entry read as `parse_git_bool` reads it
-  (`sync_utils::git_bool`), so it says what `ConfigSnapshot::stacks` says. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
+  `brd commits` takes its symbol setting from the same `RepoContext::config`. The configured GitHub
+  repository of the pull requests is one snapshot, for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
   errors (a repository that is not accessible).
 - **Write**: the local config (`.git/config`, shared by every linked worktree): `git config --local
   --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
@@ -5453,7 +5446,7 @@ The process budgets pin a small fixture; what a change saves on a real history i
 so two builds of `brd` see the same state:
 
 ```bash
-pnpm perf:monorepo pin --source <repo> --head <commit> --base <commit> --prefix <prefix> --stacks --dir <work>
+pnpm perf:monorepo pin --source <repo> --head <commit> --base <commit> --prefix <prefix> --dir <work>
 pnpm perf:monorepo measure --dir <work> --bd <release bd> --out <work>/after --push <branch>
 pnpm perf:monorepo measure --dir <work> --bd <release bd> --out <work>/after-count --push <branch> --count
 pnpm perf:monorepo summarize <work>/after <work>/after-count

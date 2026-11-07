@@ -18,7 +18,6 @@ const PREFIX: &str = "test";
 /// returns the repository and the commit of `util`
 pub(crate) fn repo() -> (TestRepo, String) {
   let repo = repo_on_origin();
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let declares = repo.create_commit_with_files("(util) Add controlUrl", &[("src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n")]);
   repo.create_commit_with_files(
     "(flow) Start with controlUrl",

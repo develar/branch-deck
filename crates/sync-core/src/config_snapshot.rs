@@ -16,7 +16,6 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::commit_signing::Signing;
 use git_ops::word_resolve::ResolveMode;
-use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
@@ -25,7 +24,7 @@ use tracing::{instrument, warn};
 /// Settings read), `commit.gpgsign`, and every `branch.<name>.description`, as `--get-regexp` matches them: the section
 /// and the key lowercase, the branch name as it is
 const SNAPSHOT_REGEXP: &str =
-  r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|commit\.gpgsign|branch\..+\.description)$";
+  r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|commit\.gpgsign|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -105,15 +104,6 @@ impl ConfigSnapshot {
     repository_config_from_entries(&self.entries, OriginFacts::default())
   }
 
-  /// `branchdeck.stacks`, a git boolean, off when unset; an error for a value git would refuse
-  pub fn stacks(&self) -> Result<bool> {
-    let stacks = self.settings().stacks;
-    match stacks.invalid {
-      None => Ok(stacks.value),
-      Some(_) => Err(anyhow!("{STACKS_CONFIG_KEY} is not a boolean (true or false)")),
-    }
-  }
-
   /// `branchdeck.resolveByWords`, a git boolean, on when unset; an error for a value git would refuse
   pub fn resolve_mode(&self) -> Result<ResolveMode> {
     let setting = self.settings().resolve_by_words;
@@ -147,7 +137,7 @@ impl ConfigSnapshot {
 
   /// `branchdeck.landing`, `None` when unset (the route is then Patronus on Space, the pull request elsewhere); a `push`
   /// of the global or the system config is unset (`GLOBAL_PUSH_ROUTE_REASON`); an error for another value than the
-  /// three, which refuses the sync as a wrong `branchdeck.stacks` does
+  /// three, which refuses the sync as a wrong `branchdeck.resolveByWords` does
   pub fn landing(&self) -> Result<Option<LandingSetting>> {
     let landing = self.settings().landing;
     match landing.invalid {

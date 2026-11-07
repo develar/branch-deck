@@ -76,7 +76,6 @@ pub(crate) struct Fixture {
 
 pub(crate) async fn fixture(synced: bool) -> Fixture {
   let repo = stack_ahead_of_bare_origin();
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (registry, key) = registry_of(&repo, synced).await;
   Fixture { repo, registry, key }
 }

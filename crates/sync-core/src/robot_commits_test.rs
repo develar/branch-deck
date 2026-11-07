@@ -191,11 +191,10 @@ async fn a_commit_in_the_baseline_landed() {
   );
 }
 
-/// `master` and the checked-out `feature` with stacked branches on
+/// `master` and the checked-out `feature`
 pub(crate) fn stacks_repo() -> TestRepo {
   let repo = TestRepo::new();
   commit(&repo, "Initial commit", "README.md", "# Test", 900);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.checkout_new_branch("feature").unwrap();
   repo
 }

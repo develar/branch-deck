@@ -97,24 +97,22 @@ fn undo(repo: &TestRepo, token: &UndoToken) -> Result<(), RegroupError> {
 
 #[test]
 fn the_rule_is_prefix_then_issue_group_then_issue_key() {
-  let inputs = |stacks| GroupingInputs {
-    stacks,
+  let inputs = GroupingInputs {
     issue_groups: StoreLines {
       entries: entries(&[("ABC-1", "parser"), ("ABC-9", "parser")]),
       ..StoreLines::default()
     },
     ..GroupingInputs::default()
   };
-  let flat = inputs(false);
-  assert_eq!(flat.branch_of("(lexer) ABC-1 Add tokens").as_deref(), Some("lexer"));
-  assert_eq!(flat.branch_of("ABC-1 Add grammar").as_deref(), Some("parser"));
-  assert_eq!(flat.branch_of("fix(api): ABC-1 Fix grammar").as_deref(), Some("parser"));
-  assert_eq!(flat.branch_of("fixup! ABC-1 Add grammar").as_deref(), Some("parser"));
-  assert_eq!(flat.branch_of("ABC-2 Other issue").as_deref(), Some("ABC-2"));
-  assert_eq!(flat.branch_of("Plain"), None);
-  assert_eq!(inputs(true).branch_of("(auth/login) ABC-1 Add form").as_deref(), Some("login"));
+  assert_eq!(inputs.branch_of("(lexer) ABC-1 Add tokens").as_deref(), Some("lexer"));
+  assert_eq!(inputs.branch_of("ABC-1 Add grammar").as_deref(), Some("parser"));
+  assert_eq!(inputs.branch_of("fix(api): ABC-1 Fix grammar").as_deref(), Some("parser"));
+  assert_eq!(inputs.branch_of("fixup! ABC-1 Add grammar").as_deref(), Some("parser"));
+  assert_eq!(inputs.branch_of("ABC-2 Other issue").as_deref(), Some("ABC-2"));
+  assert_eq!(inputs.branch_of("Plain"), None);
+  assert_eq!(inputs.branch_of("(auth/login) ABC-1 Add form").as_deref(), Some("login"));
 
-  let mut grouper = CommitGrouper::new_with(&flat);
+  let mut grouper = CommitGrouper::new_with(&inputs);
   for (index, subject) in ["ABC-1 Add grammar", "(lexer) ABC-1 Add tokens", "ABC-2 Other issue"].iter().enumerate() {
     grouper.add_commit(commit(&format!("c{index}"), subject));
   }
@@ -127,7 +125,7 @@ fn the_rule_is_prefix_then_issue_group_then_issue_key() {
 
 #[test]
 fn a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "XYZ-3 Three"]);
   let head = repo.head();
   let plan = group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[]);
@@ -182,7 +180,7 @@ fn a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store() {
 
 #[test]
 fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "Plain three"]);
   let mut plan = group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[]);
   plan.branches.insert("lexer".to_string(), vec![ids[2].clone()]);
@@ -220,7 +218,7 @@ fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
 
 #[test]
 fn unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["ABC-1 One", "(lexer) ABC-2 Two"]);
   plant(&repo, "ABC-1\tparser\nABC-2\tparser\nABC-9\tparser\nbad line\n");
   let before = store(&repo);
@@ -251,7 +249,7 @@ fn unassign_and_ungroup_fall_back_and_a_write_keeps_idle_keys_and_unused_lines()
 
 #[test]
 fn invalid_issue_group_plans_are_refused() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   let target = &ids[0][..10];
   repo.create_commit(&format!("fixup! {target}"), "file0.txt", "fixed");
@@ -281,7 +279,7 @@ fn invalid_issue_group_plans_are_refused() {
 
 #[test]
 fn rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
   let head = repo.head();
@@ -303,7 +301,7 @@ fn rename_changes_the_entries_of_an_issue_group_and_of_a_prefix_branch() {
 
 #[test]
 fn an_issue_group_is_restacked_and_can_be_a_parent() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
 
@@ -316,7 +314,7 @@ fn an_issue_group_is_restacked_and_can_be_a_parent() {
   .unwrap();
   assert_eq!((outcome.changed_count(), outcome.new_head == outcome.previous_head), (0, true));
   assert_eq!(groups(&outcome), [Some("parser"), Some("parser"), Some("auth")]);
-  let forest = outcome.forest.unwrap();
+  let forest = outcome.forest;
   assert_eq!(forest.nodes["parser"].declared_parent.as_deref(), Some("auth"));
   assert!(forest.nodes.values().all(|node| node.problems.is_empty()));
 
@@ -332,7 +330,7 @@ fn an_issue_group_is_restacked_and_can_be_a_parent() {
 
 #[test]
 fn a_write_on_one_worktree_keeps_the_groups_of_another() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let base = repo.head();
   commits(&repo, &["XA-1 One", "YB-2 Two"]);
   // a second worktree on another branch, with commits of other keys
@@ -354,7 +352,7 @@ fn a_write_on_one_worktree_keeps_the_groups_of_another() {
 
 #[test]
 fn an_issue_branch_with_a_fixup_is_an_issue_branch() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["XA-1: add XA-1", "fixup! XA-1: add XA-1"]);
   let grouping = group_commits_ahead_of_baseline(repo.git_executor(), path(&repo), "test-prefix").unwrap();
   let origins: Vec<(&str, BranchOrigin)> = grouping.branches.iter().map(|branch| (branch.name.as_str(), branch.origin)).collect();
@@ -363,7 +361,7 @@ fn an_issue_branch_with_a_fixup_is_an_issue_branch() {
 
 #[test]
 fn a_sync_reads_the_map_and_never_writes_it() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
   let before = (store(&repo), history(&repo));
@@ -412,7 +410,7 @@ fn an_undo_token_is_read_strictly() {
 
 #[test]
 fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["ABC-1 One", "ABC-2 Two"]);
   let first = UndoToken::of(&regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap()).unwrap();
   let second = UndoToken::of(&regroup(&repo, &group_plan(&[], &["ABC-2"])).unwrap()).unwrap();
@@ -435,12 +433,12 @@ fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
 
 #[test]
 fn a_plan_stacks_an_issue_group_without_a_prefix() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("pair", &["ABC-1", "ABC-2"])], &[])).unwrap();
   let outcome = regroup(&repo, &plan(&[("auth/pair", &[&ids[0]])], &[])).unwrap();
   // the commit is in the group already: only the stack parents move
   assert_eq!(outcome.changed_count(), 0);
   assert_eq!(outcome.stack_parents.unwrap().entries, entries(&[("pair", "auth")]));
-  assert_eq!(outcome.forest.unwrap().declared_parent("pair"), Some("auth"));
+  assert_eq!(outcome.forest.declared_parent("pair"), Some("auth"));
 }

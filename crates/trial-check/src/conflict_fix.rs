@@ -797,7 +797,7 @@ fn restack_on_owners(facts: &Facts, graph: &Graph, branch: &BranchCheck, owners:
     return None;
   }
   let mut change = Change::default();
-  if let Some(top) = stack_top(owners, true, |owner| facts.chain(owner)) {
+  if let Some(top) = stack_top(owners, |owner| facts.chain(owner)) {
     let moved = fork_child(facts, branch, top)?;
     restack(&mut change, &moved.name, top, moved.built_on.as_ref());
     return Some(change);
@@ -847,9 +847,6 @@ fn fork_child<'a>(facts: &Facts<'a>, branch: &'a BranchCheck, target: &str) -> O
 /// The direct answer for the conflict of `branch` at `commit`: the branch restacked on what holds the commits it needs,
 /// when every commit of it depends on `commit` (a move would take the whole branch) and an owner holds each of them
 fn whole_restack(facts: &Facts, branch: &BranchCheck, commit: &str, files: &[String], graph: &Graph, lines: &HashMap<String, Vec<FileLines>>) -> Option<Change> {
-  if !facts.report.stacks {
-    return None;
-  }
   let present: HashSet<&str> = facts.chain(&branch.name).into_iter().collect();
   let mut needed = needed_commits(facts, graph, commit, &present);
   if needed.is_empty() {
@@ -942,7 +939,6 @@ fn movable(facts: &Facts, graph: &Graph, lines: &HashMap<String, Vec<FileLines>>
 
 /// The candidates for the problem of `branch`, the one to try first last
 fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMap<String, Vec<FileLines>>, done: &Change) -> Vec<Change> {
-  let stacks = facts.report.stacks;
   let present: HashSet<&str> = facts.chain(&branch.name).into_iter().collect();
   let mut candidates: Vec<Change> = Vec::new();
   match &branch.outcome {
@@ -956,12 +952,11 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       }
       let owners: BTreeSet<&str> = needed.iter().filter_map(|id| facts.group(id)).collect();
       let unassigned: Vec<String> = needed.iter().filter(|id| facts.group(id).is_none()).cloned().collect();
-      let top = stack_top(&owners, stacks, |owner| facts.chain(owner));
+      let top = stack_top(&owners, |owner| facts.chain(owner));
 
       // restack the branch on the branch that has what it needs, or on a chain of the branches that do: no rewrite, but
       // the base of its pull request changes
-      if stacks
-        && unassigned.is_empty()
+      if unassigned.is_empty()
         && let Some(change) = restack_on_owners(facts, graph, branch, &owners)
       {
         candidates.push(change);
@@ -976,7 +971,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       // move the commit, and what of its branch depends on it, to that branch, the unassigned commits it needs too
       if let Some(top) = top.filter(|top| *top != branch.name) {
         let moved = dependents_in(graph, lines, branch, commit);
-        if moved.len() < branch.commits.len() || !stacks {
+        if moved.len() < branch.commits.len() {
           let mut change = Change::default();
           if !unassigned.is_empty() {
             change.add_move(FixStepKind::PullIn, unassigned, Vec::new(), top, &branch.name);
@@ -996,7 +991,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       // or the commits that remove the declarations go to the branch whose stack has the fixes
       let owners: BTreeSet<&str> = fixes.iter().filter_map(|id| facts.group(id)).collect();
       if fixes.iter().all(|id| facts.group(id).is_some())
-        && let Some(top) = stack_top(&owners, stacks, |owner| facts.chain(owner)).filter(|top| *top != branch.name)
+        && let Some(top) = stack_top(&owners, |owner| facts.chain(owner)).filter(|top| *top != branch.name)
       {
         let mut moved: BTreeSet<String> = BTreeSet::new();
         for (removed_by, _) in &references {

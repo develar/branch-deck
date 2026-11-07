@@ -526,8 +526,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   edge.
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_commit_needs_no_edge_to_itself_a_moved_declaration_is_no_addition_and_two_owners_are_ambiguous`, `a_use_its_own_commit_may_mean_is_no_edge`, `a_member_of_its_own_commit_is_no_origin_of_an_unqualified_use_outside_its_type`)
 - `brd commits` must name an override of another commit's overload as an edge by symbols, `brd check` as a missing
-  declaration with the evidence `override` and the branch that adds it, and `brd suggest` with stacked branches must
-  stack the branch of the override on that branch.
+  declaration with the evidence `override` and the branch that adds it, and `brd suggest` must stack the branch of the
+  override on that branch.
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`, `an_override_of_a_new_overload_is_an_edge_by_symbols`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`an_override_of_another_branchs_overload_is_a_missing_declaration`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_the_symbols_on_an_override_of_another_branch_stacks`)

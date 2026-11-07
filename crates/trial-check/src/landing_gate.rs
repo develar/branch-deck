@@ -125,13 +125,12 @@ fn refuses(missing: &MissingDeclaration, lands: &[String], landed: &HashSet<Stri
 
 /// Each branch of the snapshot and the branches it is declared on, nearest first
 fn chains_of(session: &CheckSession) -> Vec<(String, Vec<String>)> {
-  session.snapshot().forest.as_ref().map_or_default(|forest| {
-    forest
-      .order
-      .iter()
-      .map(|branch| (branch.clone(), forest.chain(branch).into_iter().skip(1).map(str::to_string).collect()))
-      .collect()
-  })
+  let forest = &session.snapshot().forest;
+  forest
+    .order
+    .iter()
+    .map(|branch| (branch.clone(), forest.chain(branch).into_iter().skip(1).map(str::to_string).collect()))
+    .collect()
 }
 
 /// What the Safe Push of `name` lands: the branches it is built on, root first, then the branch
@@ -243,7 +242,7 @@ impl Landing<'_> {
         .is_some_and(|(_, chain)| chain.iter().any(|parent| self.lands.contains(parent)))
     };
     let onto = needed.branch.as_str();
-    if !onto.is_empty() && self.report.stacks && !built_on_lands(onto) {
+    if !onto.is_empty() && !built_on_lands(onto) {
       LandingFix::Restack {
         branch: self.root.to_string(),
         onto: onto.to_string(),

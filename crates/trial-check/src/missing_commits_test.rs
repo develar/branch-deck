@@ -37,7 +37,6 @@ async fn missing_commits_of(test_repo: &TestRepo, branch: &str) -> Vec<(String, 
 async fn the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch() {
   let test_repo = TestRepo::new();
   test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.set_config("branchdeck.stacks", "true").unwrap();
   // login is built on auth, which has the first version of the file, but not on other, which changed it next
   test_repo.create_commit("(auth) Add config", "config.txt", "a");
   test_repo.create_commit("(other) Change config", "config.txt", "b");

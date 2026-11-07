@@ -9,7 +9,7 @@ use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::TestRepo;
 use test_utils::history::HistoryCommit;
 
 /// Commit each `(subject, [(path, content)])` on master with increasing times, as `commit_all` of each: one history
@@ -155,10 +155,10 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
 }
 
 #[test_log::test]
-fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
+fn a_conflict_in_a_lock_file_stacks_the_commits_and_fresh_ignores_prefixes() {
   let repo = repo_with_baseline(&[("README.md", "readme\n"), ("Cargo.lock", "line 1\nline 2\nline 3\n")]);
   // lock files link no commits, so only the check sees that the second needs the first
-  let ids = commits(
+  commits(
     &repo,
     &[
       ("XA-1 Add foo", &[("Cargo.lock", "line 1\nfoo\nline 2\nline 3\n"), ("a/foo.rs", "foo\n")]),
@@ -166,18 +166,20 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
     ],
   );
   let output = suggest_after_one_repair(&repo);
-  let cluster = &output["clusters"][0];
-  // two issue branches joined by the repair: an issue group builds them together
+  // the repair stacks the second issue branch on the first, without a rewrite
+  let cluster = &output["clusters"][1];
   assert_eq!(
-    (&cluster["commit_count"], &cluster["change"], cluster.get("via")),
-    (&json!(2), &json!("merged"), Some(&json!("issue_group")))
+    (&cluster["name"], &cluster["parent"], &cluster["change"], &cluster["why"]),
+    (
+      &json!("XA-1/YB-1"),
+      &json!("XA-1"),
+      &json!("kept"),
+      &json!("1 issue unit; area b; stacked on XA-1, whose commits it needs")
+    ),
+    "{output}"
   );
-  assert_eq!(cluster["why"], json!("1 unit; joined by repair round 1 after a conflict; area a"));
-  let name = cluster["name"].as_str().unwrap();
-  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [], "issue_groups": { name: ["XA-1", "YB-1"] } }));
+  assert_eq!(output["plan"], json!({ "branches": { "XA-1/YB-1": [] }, "unassign": [] }));
   assert_eq!((&output["check"]["ok"], &output["rewritten"]), (&json!(true), &json!(0)));
-  let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
-  assert_eq!(rewriting["plan"]["branches"][name], json!([short_id(&ids[0]), short_id(&ids[1])]));
 
   // with --fresh a prefix joins nothing: two prefixed commits with one key become its issue branch
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -191,10 +193,11 @@ fn a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes() {
 }
 
 /// A conflict needs only what the lines of the conflicting commit name: the third commit changes the lock file line the
-/// first added, so the repair joins the two; the second changes other lines of the same file and stays apart (by the
-/// files alone the repair would have joined all three, as it took 42 commits for one conflict on the IntelliJ checkout)
+/// first added, so the repair stacks it on the first; the second changes other lines of the same file and stays apart
+/// (by the files alone the repair would have taken all three, as it took 42 commits for one conflict on the IntelliJ
+/// checkout)
 #[test_log::test]
-fn a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file() {
+fn a_repair_stacks_on_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file() {
   let lock = numbered_lines(20);
   let repo = repo_with_baseline(&[("README.md", "readme\n"), ("Cargo.lock", &lock)]);
   let with = |changes: &[(&str, &str)]| changes.iter().fold(lock.clone(), |text, (from, to)| text.replace(from, to));
@@ -213,9 +216,17 @@ fn a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_fi
     ],
   );
   let output = suggest_after_one_repair(&repo);
-  let mut keys: Vec<&Value> = output["clusters"].as_array().unwrap().iter().map(|cluster| &cluster["issue_keys"]).collect();
-  keys.sort_by_key(ToString::to_string);
-  assert_eq!(keys, [&json!(["XA-1", "ZC-1"]), &json!(["YB-1"])], "{output}");
+  let parents: Vec<(&Value, Option<&Value>)> = output["clusters"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|cluster| (&cluster["issue_keys"], cluster.get("parent")))
+    .collect();
+  assert_eq!(
+    parents,
+    [(&json!(["XA-1"]), None), (&json!(["YB-1"]), None), (&json!(["ZC-1"]), Some(&json!("XA-1")))],
+    "{output}"
+  );
 }
 
 #[test_log::test]
@@ -286,7 +297,6 @@ fn stacked_branches_and_an_empty_range() {
     (&json!({ "branches": {}, "unassign": [] }), &json!([]), &json!(true))
   );
 
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   commits(&repo, &[("(a) Add x", &[("x/a.rs", "a\n")]), ("(a/b) Add y", &[("y/b.rs", "b\n")])]);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -300,29 +310,8 @@ fn stacked_branches_and_an_empty_range() {
 }
 
 #[test_log::test]
-fn prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1() {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  commits(&repo, &[("(a) Add shared", &[("shared.txt", "one\n")]), ("(b) Change shared", &[("shared.txt", "two\n")])]);
-  let (exit_code, output) = run_in(&repo, &["suggest"]);
-  assert_eq!(exit_code, 1, "{output}");
-  assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }));
-  assert_eq!(output["check"]["ok"], json!(false));
-  let warnings: Vec<(&str, &Value)> = output["warnings"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .map(|warning| (warning["kind"].as_str().unwrap(), &warning["branches"]))
-    .collect();
-  assert_eq!(warnings, [("anchor_dependency", &json!(["b", "a"])), ("unresolved_conflict", &json!(["b"]))]);
-  // without stacked branches the warning names the setting that stacks them
-  let message = output["warnings"][0]["message"].as_str().unwrap();
-  assert!(message.contains("git config branchdeck.stacks true"), "{message}");
-}
-
-#[test_log::test]
 fn with_stacked_branches_a_branch_stacks_on_the_branch_it_needs() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let ids = commits(
     &repo,
     &[
@@ -363,10 +352,9 @@ fn with_stacked_branches_a_branch_stacks_on_the_branch_it_needs() {
   assert!(again["clusters"].as_array().unwrap().iter().all(|cluster| cluster.get("restacked").is_none()), "{again}");
 }
 
-/// A repository with stacked branches on and these commits
+/// A repository with these commits
 fn stacked_repo(subjects: &[(&str, &[(&str, &str)])]) -> (TestRepo, Vec<String>) {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   let ids = commits(&repo, subjects);
   (repo, ids)
 }
@@ -578,11 +566,10 @@ fn an_issue_key_is_cut_where_it_is_not_inside_another_word() {
   assert_eq!(name_words("ABC-1 cache ABC-2"), name_words("cache"));
 }
 
-/// The commit that stops using a function another branch removes: with stacked branches the remover stacks on it
+/// The commit that stops using a function another branch removes: the remover stacks on it
 #[test_log::test]
 fn a_dangling_reference_stacks_the_branch_on_its_fix() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   write(&repo, "src/util/Util.kt", "package util\n\nfun controlUrl(): String = \"\"\n");
   write(&repo, "src/flow/Start.kt", "package flow\n\nimport util.controlUrl\n\nfun start() = controlUrl()\n");
   let base = commit_all(&repo, "Add util", 1_700_000_050);
@@ -604,7 +591,6 @@ fn a_dangling_reference_stacks_the_branch_on_its_fix() {
 #[test_log::test]
 fn a_changed_declaration_stacks_the_branch_on_its_fix() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   commit_changed_declaration(&repo);
   let (_, output) = run_in(&repo, &["check"]);
   assert_eq!(output["ok"], json!(false), "{output}");
@@ -617,7 +603,6 @@ fn a_changed_declaration_stacks_the_branch_on_its_fix() {
 #[test_log::test]
 fn a_mutual_dangling_reference_suggests_moving_the_change() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (_, fixed_by) = commit_dangling_reference(&repo);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 1, "{output}");
@@ -639,10 +624,9 @@ fn a_mutual_dangling_reference_suggests_moving_the_change() {
   assert_eq!(output["plan"], json!({ "branches": {}, "unassign": [] }), "{output}");
 }
 
-/// With the symbols on, `flow` uses a function `util` adds and no line links them: without stacked branches the plan
-/// keeps them apart and warns; with them it stacks `flow` on `util`
+/// With the symbols on, `flow` uses a function `util` adds and no line links them: the plan stacks `flow` on `util`
 #[test_log::test]
-fn with_the_symbols_on_a_use_of_another_branch_warns_or_stacks() {
+fn with_the_symbols_on_a_use_of_another_branch_stacks() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   commits(
     &repo,
@@ -654,21 +638,6 @@ fn with_the_symbols_on_a_use_of_another_branch_warns_or_stacks() {
       ),
     ],
   );
-  let (exit_code, output) = run_in(&repo, &["suggest"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let warning = output["warnings"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .find(|warning| warning["kind"] == json!("symbol_dependency"))
-    .unwrap();
-  assert_eq!(warning["branches"], json!(["flow", "util"]), "{output}");
-  assert!(
-    warning["message"].as_str().unwrap().starts_with("flow uses controlUrl, which util adds (src/b/Use.kt:3)"),
-    "{warning}"
-  );
-
-  git(&repo, &["config", "branchdeck.stacks", "true"]);
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
   let flow = output["clusters"].as_array().unwrap().iter().find(|cluster| cluster["name"] == json!("util/flow")).unwrap();
@@ -686,7 +655,6 @@ fn with_the_symbols_on_a_use_of_another_branch_warns_or_stacks() {
 #[test_log::test]
 fn with_the_symbols_on_an_override_of_another_branch_stacks() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   commit_override_of_overload(&repo);
   let suggest = || {
     let (exit_code, output) = run_in(&repo, &["suggest"]);

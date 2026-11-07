@@ -691,7 +691,6 @@ async fn an_amended_commit_is_amended_not_dropped() {
 /// the events of that sync
 async fn rebuilt_parent(scenario: &TestScenario, auth_subject: &str, auth_again: (&str, &str)) -> Vec<SyncEvent> {
   scenario.setup_development_branch();
-  append_config(scenario.local_repo.path(), &[("branchdeck.stacks", "true")]);
   let base = scenario.local_repo.head();
   let commit_both = |auth: (&str, &str)| {
     scenario.commit_on(
@@ -755,7 +754,6 @@ async fn a_child_of_an_amended_parent_is_restacked() {
 async fn pushed_stack() -> TestScenario {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
-  append_config(scenario.local_repo.path(), &[("branchdeck.stacks", "true")]);
   scenario.commit_on(
     "development",
     [

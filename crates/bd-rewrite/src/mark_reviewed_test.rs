@@ -45,7 +45,6 @@ fn marks_a_virtual_branch_reviewed_and_again_after_a_new_commit() {
 #[test_log::test]
 fn a_stacked_branch_is_marked_on_its_parent() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   commit_subjects(&repo, &["(auth) Add login", "(auth/ui) Add form"]);
   assert_eq!(run_in(&repo, &["sync"]).0, 0);
   let parent_tip = git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]);

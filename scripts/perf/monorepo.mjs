@@ -1,7 +1,7 @@
 // Measures the git processes and the wall time of `bd` on a large repository, pinned at two commits so the numbers of
 // two builds compare (docs/design/git-operations.md, "Measuring on a large repository").
 //
-//   pnpm perf:monorepo pin --source <repo> --head <commit> --base <commit> --prefix <prefix> [--stacks] --dir <work>
+//   pnpm perf:monorepo pin --source <repo> --head <commit> --base <commit> --prefix <prefix> --dir <work>
 //   pnpm perf:monorepo measure --dir <work> --bd <binary> --out <dir> [--runs 3] [--push <branch>] [--count]
 //   pnpm perf:monorepo summarize <out> [<count out>]
 //   pnpm perf:monorepo compare <out> <other out>
@@ -84,7 +84,7 @@ function work(dir) {
 }
 
 function pin(args) {
-  const { options } = parse(args, ["--stacks"])
+  const { options } = parse(args)
   const source = path.resolve(required(options, "--source"))
   const head = required(options, "--head")
   const base = required(options, "--base")
@@ -109,9 +109,6 @@ function pin(args) {
     git(clone, ["fetch", "--quiet", source, ...sourceRefs.map(ref => `${ref}:${ref}`)])
   }
   git(clone, ["config", "branchdeck.branchprefix", prefix])
-  if (options.get("--stacks")) {
-    git(clone, ["config", "branchdeck.stacks", "true"])
-  }
 
   // the push remote: the objects of the source through alternates, the branches the clone has as remote branches
   execFileSync("git", ["init", "--quiet", "--bare", paths.remote])

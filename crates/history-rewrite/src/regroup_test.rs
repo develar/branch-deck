@@ -23,11 +23,10 @@ use test_utils::wrapped_git::WrappedGit;
 /// The witness and the transaction: what a regroup runs under the lock
 const WITNESS_AND_WRITE: [&str; 2] = ["for-each-ref", "update-ref"];
 
-/// Three commits of `alpha` and three of `beta` ahead of `origin/master`, stacked branches on, and a git that logs the
+/// Three commits of `alpha` and three of `beta` ahead of `origin/master`, and a git that logs the
 /// state of its repository lock
 fn stacked() -> (TestRepo, Vec<String>, LockSpan) {
   let (repo, commits) = alpha_and_beta_on_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   let span = LockSpan::new(&repo.path().join(".git"));
   (repo, commits, span)
 }
@@ -149,7 +148,6 @@ fn a_restack_locks_only_the_witness_and_the_write() {
 fn stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite() {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   repo.create_commit("(alpha) Alpha", "alpha.rs", "alpha");
   repo.create_commit("(beta) Beta", "beta.rs", "beta");
   repo.create_commit("(gamma) Gamma", "gamma.rs", "gamma");
@@ -195,25 +193,8 @@ fn stack_together_refuses_invalid_or_already_stacked_branches_and_cycles() {
     "{already_stacked}"
   );
 
-  let disabled_repo = TestRepo::new();
-  disabled_repo.create_commit("Initial commit", "README.md", "# Test");
-  disabled_repo.create_commit("(alpha) Alpha", "alpha.rs", "alpha");
-  disabled_repo.create_commit("(beta) Beta", "beta.rs", "beta");
-  let disabled = restack_core(
-    disabled_repo.git_executor(),
-    disabled_repo.path_str(),
-    &Restack::Together { names: &names },
-    &RegroupOptions::default(),
-  )
-  .unwrap_err();
-  assert!(
-    matches!(&disabled, RegroupError::InvalidPlan { message, .. } if message == "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first"),
-    "{disabled}"
-  );
-
   let cycle_repo = TestRepo::new();
   cycle_repo.create_commit("Initial commit", "README.md", "# Test");
-  cycle_repo.git(&["config", "branchdeck.stacks", "true"]);
   cycle_repo.create_commit("(a/x) X", "x.rs", "x");
   cycle_repo.create_commit("(a) A", "a.rs", "a");
   let cycle_names = ["x".to_owned(), "a".to_owned()];
@@ -323,7 +304,6 @@ fn assert_no_temporary_refs(repo: &TestRepo) {
 #[test]
 fn a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more() {
   let (repo, _) = alpha_and_beta_on_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   let stores = store_with_a_drop(&repo, &STACK_PARENTS, "gone\talpha\n", STACK_PARENTS_DROP_MESSAGE);
   let wrapped = dropping_once("*\" fast-import \"*", STACK_PARENTS_REF, &stores);
 
@@ -361,7 +341,6 @@ fn a_park_over_a_drop_after_its_read_is_written_once_more_under_the_lock() {
 #[test]
 fn an_undo_over_a_drop_after_its_checks_is_checked_once_more_under_the_lock() {
   let (repo, _) = alpha_and_beta_on_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   write_store_updates(repo.git_executor(), repo.path_str(), &[STACK_PARENTS.update(None, "gone\talpha\n")], None, "test").unwrap();
   let restacked = restack_core(repo.git_executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   let written = restacked.stack_parents.as_ref().and_then(|change| change.new_commit.clone()).unwrap();

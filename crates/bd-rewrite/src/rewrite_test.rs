@@ -83,7 +83,6 @@ fn group_applies_a_plan() {
 #[test_log::test]
 fn dry_run_prints_the_changes_and_the_forest() {
   let (repo, ids) = repo_with(&["(auth) Add auth", "Add login", "Tidy up"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let head = repo.head();
   let (exit_code, output) = group(&repo, &json!({ "branches": { "auth/login": [ids[1]] } }), &["--dry-run", "--map"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -178,7 +177,6 @@ fn group_with_allow_append_lists_the_appended_commits() {
 #[test_log::test]
 fn rename_restack_unstack_and_undo() {
   let (repo, _) = repo_with(&["(auth) Add auth", "(login) Add login", "(auth/login/oauth) Add oauth"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let initial_head = repo.head();
 
   // the stack parents stack login: no rewrite, `(auth/login/oauth)` declares the same parent
@@ -239,7 +237,6 @@ fn rename_restack_unstack_and_undo() {
 #[test_log::test]
 fn stack_together_stacks_branches_oldest_first_and_undoes_once() {
   let (repo, _) = repo_with(&["(alpha) A", "(beta) B", "(gamma) C"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let head = repo.head();
 
   let (exit_code, output) = run_in(&repo, &["stack-together", "gamma", "alpha", "beta"]);
@@ -449,7 +446,6 @@ fn a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_toke
 #[test_log::test]
 fn a_stacked_branch_is_described_by_its_leaf() {
   let (repo, ids) = repo_with(&["(auth) Add auth", "Add login"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let branches = json!({ "auth/login": [short_id(&ids[1])] });
   let (exit_code, output) = group(
     &repo,
@@ -525,7 +521,6 @@ fn descriptions_are_validated_with_the_plan() {
 #[test_log::test]
 fn stack_parents_plan_and_undo() {
   let (repo, ids) = repo_with(&["IJAI-3992 Add the model", "IJAI-4047 Use the model", "Tidy up"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let head = repo.head();
 
   // whole issue branches stack without a rewrite: only the stack parents move

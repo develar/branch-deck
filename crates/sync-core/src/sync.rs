@@ -41,14 +41,14 @@ use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use history_rewrite::parked::parked_drop;
-use history_rewrite::snapshot::read_grouping_inputs_with;
+use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
 use history_rewrite::stack_parents::{integrated_children, stack_parents_drop};
 use history_rewrite::store_lines::drop_store_lines;
 use indexmap::IndexMap;
 use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use sync_utils::commit_subject::parse_subject;
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
@@ -171,7 +171,7 @@ fn branch_issue_key(branch_name: &str, origin: BranchOrigin, commits: &[Commit])
 /// oldest first). Not by a time: a rewrite keeps every commit it keeps in its place (a squash keeps the oldest commit, a
 /// fixup folds into an older target), but gives each commit above the oldest one it rewrites a new committer time,
 /// which would move the rows of the whole table (spec/branch/stacked-branches.spec.md, UI). `stacks` places the
-/// branches with stacked branches on, `description_titles` (branch -> title) are the titles of their descriptions
+/// branches, `description_titles` (branch -> title) are the titles of their descriptions
 pub(crate) fn prepare_branches_for_ui(
   grouped_commits: &IndexMap<String, Vec<Commit>>,
   branch_emails: &HashMap<String, Option<String>>,
@@ -250,13 +250,13 @@ pub struct SyncReport {
   pub head: String,
   /// The checked out branch
   pub branch: String,
-  /// The stack setting, the issue groups and the stack parents the sync grouped the commits with
+  /// The issue groups and the stack parents the sync grouped the commits with
   pub grouping: GroupingInputs,
-  /// The grouped branches as `BranchesGrouped` sent them: newest first, each with its commits and, with stacked
-  /// branches on, its placement (`GroupedBranchInfo.stack`)
+  /// The grouped branches as `BranchesGrouped` sent them: newest first, each with its commits and its placement
+  /// (`GroupedBranchInfo.stack`)
   pub branches: Vec<GroupedBranchInfo>,
-  /// With stacked branches on, how the branches stack: `StackForest::order` has the parents first
-  pub forest: Option<StackForest>,
+  /// How the branches stack: `StackForest::order` has the parents first
+  pub forest: StackForest,
   /// Full name (`<prefix>/virtual/<branch>`) -> tip of the virtual branch of each grouped branch after the sync: the
   /// head it wrote or kept, the tip another process moved it to, or for a branch not rebuilt (a conflict, a block) the
   /// tip it had; a branch without a virtual branch is absent. The tip of a branch of `not_built` is no build of its
@@ -320,10 +320,10 @@ struct PreparedSync {
   signing: Signing,
   /// The remote tips and the baseline commit for the remote statuses; `None` without branches
   remote_tips: Option<RemoteTips>,
-  /// With stacked branches on, where each branch goes
-  stacks: Option<IndexMap<String, BranchStack>>,
-  /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches: the detection of
-  /// the archived branches drops the lines of those that are integrated
+  /// Where each branch goes
+  stacks: IndexMap<String, BranchStack>,
+  /// The children of the stack parents that no branch on this HEAD reaches: the detection of the archived branches drops
+  /// the lines of those that are integrated
   idle_stack_parents: Vec<String>,
   /// The parked branches that group no commit on this HEAD: the detection of the archived branches drops the lines of
   /// those that are integrated
@@ -439,12 +439,12 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // objects alive; the listing found them, so the delete costs a process only when there are some
   delete_stale_temp_refs(git_executor, repository_path, &facts.stale_temp_refs);
   let baseline_branch = facts.baseline.clone();
-  // the stack setting and the descriptions, then the issue groups; the update check groups the landed commits with them
+  // the descriptions, then the issue groups; the update check groups the landed commits with them
   let config = match config {
     Some(config) => config,
     None => ConfigSnapshot::read(git_executor, repository_path)?,
   };
-  let grouping = read_grouping_inputs_with(git_executor, repository_path, config.stacks()?)?;
+  let grouping = read_grouping_inputs(git_executor, repository_path)?;
   let resolve = config.resolve_mode()?;
   let signing = config.signing()?;
   let landing = facts.landing_remote(config.landing()?);
@@ -466,15 +466,13 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &progress)
   }));
 
-  // Use streaming commit processing; with stacked branches the order of the history too, for the stack branches
+  // Use streaming commit processing, and the order of the history, for the stack branches
   let mut grouper = CommitGrouper::new_with(&grouping);
   let mut commit_ids = Vec::new();
   // the ids the facts froze, not the names: a fetch or a commit meanwhile changes nothing of what this sync groups
   let on_local_baseline = facts.is_on_local_baseline();
   get_frozen_commit_list_with_handler(git_executor, repository_path, &facts.baseline_commit, &facts.head, on_local_baseline, |commit| {
-    if grouping.stacks {
-      commit_ids.push(commit.id.clone());
-    }
+    commit_ids.push(commit.id.clone());
     grouper.add_commit(commit);
     Ok(())
   })?;
@@ -504,29 +502,19 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   } else {
     description_titles(config.descriptions(), branch_prefix)
   };
-  let stacks = match &forest {
-    Some(forest) => {
-      let detection = PendingDetection {
-        baseline_branch: &baseline_branch,
-        baseline_commit: Some(&facts.baseline_commit),
-        strategy: detection_strategy,
-        cache: true,
-        retention_days: archive_retention_days,
-      };
-      let empty_parents = empty_parent_states_listed(git_executor, repository_path, branch_prefix, &facts.branches, forest, detection)?;
-      Some(place_branches(forest, &empty_parents))
-    }
-    None => None,
+  let detection = PendingDetection {
+    baseline_branch: &baseline_branch,
+    baseline_commit: Some(&facts.baseline_commit),
+    strategy: detection_strategy,
+    cache: true,
+    retention_days: archive_retention_days,
   };
+  let empty_parents = empty_parent_states_listed(git_executor, repository_path, branch_prefix, &facts.branches, &forest, detection)?;
+  let stacks = place_branches(&forest, &empty_parents);
 
-  let plans = match (&forest, &stacks) {
-    (Some(forest), Some(placements)) => {
-      let commits: HashMap<&str, &[Commit]> = branches.iter().map(|(name, commits)| (name.as_str(), commits.as_slice())).collect();
-      let positions: HashMap<&str, usize> = commit_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
-      plan_stack_branches(branch_prefix, &forest.order, placements, &commits, &positions)
-    }
-    _ => Vec::new(),
-  };
+  let commits: HashMap<&str, &[Commit]> = branches.iter().map(|(name, commits)| (name.as_str(), commits.as_slice())).collect();
+  let positions: HashMap<&str, usize> = commit_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
+  let plans = plan_stack_branches(branch_prefix, &forest.order, &stacks, &commits, &positions);
   let stack_branches = StackBranchSync::new(plans, &facts.branches, branch_prefix, &facts.remote_tips);
   let unapplied: Vec<ListedBranch> = facts
     .branches
@@ -552,7 +540,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     })
   };
 
-  let grouped = prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref(), &description_titles);
+  let grouped = prepare_branches_for_ui(&branches, &branch_emails, Some(&stacks), &description_titles);
   let idle_parked: Vec<String> = grouping.parked.entries.keys().filter(|name| !branches.contains_key(*name)).cloned().collect();
   let mut report = SyncReport {
     baseline: baseline_branch.clone(),
@@ -576,7 +564,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
     baseline_branch,
-    stacks: stacks.is_some(),
+    stacks: true,
     head: facts.head.clone(),
     branch: current_branch,
     store_tips: StoreTips {
@@ -585,7 +573,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
       parked: grouping.parked.commit.clone(),
     },
     issue_groups: grouping.issue_groups.entries,
-    stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
+    stack_parents: grouping.stack_parents.entries,
     parked: grouping.parked.entries,
     stack_branches: stack_branches.reported_roots(),
     target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
@@ -691,8 +679,7 @@ impl Schedule {
 /// down to the baseline), for its remote status: a remote commit of the branch with one of them is an older version of
 /// an ancestor's commit, restacked, not dropped. Only branches with an effective base are in the map. From the commits
 /// the sync grouped, so no git process.
-fn ancestor_keys(branches: &IndexMap<String, Vec<Commit>>, stacks: Option<&IndexMap<String, BranchStack>>) -> HashMap<String, HashSet<CommitKey>> {
-  let Some(stacks) = stacks else { return HashMap::new() };
+fn ancestor_keys(branches: &IndexMap<String, Vec<Commit>>, stacks: &IndexMap<String, BranchStack>) -> HashMap<String, HashSet<CommitKey>> {
   let base_of = |name: &str| stacks.get(name).and_then(|stack| stack.effective_base.as_deref());
   let mut result = HashMap::new();
   for name in branches.keys() {
@@ -752,7 +739,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   branches: IndexMap<String, Vec<Commit>>,
   mut branch_emails: HashMap<String, Option<String>>,
   base_commit: String,
-  stacks: Option<IndexMap<String, BranchStack>>,
+  stacks: IndexMap<String, BranchStack>,
   permits: ProcessPermits,
 ) -> Result<ProcessedBranches> {
   let context = Arc::new(context);
@@ -773,7 +760,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
 
   let mut waiting_on: HashMap<usize, String> = HashMap::new();
   for (branch_idx, (branch_name, commits)) in branches.into_iter().enumerate() {
-    let stack = stacks.as_ref().and_then(|stacks| stacks.get(&branch_name));
+    let stack = stacks.get(&branch_name);
     let job = BranchJob {
       my_email: branch_emails.remove(&branch_name).flatten(),
       branch_name,
@@ -789,7 +776,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
         continue;
       }
       if let Some(block) = &stack.blocked_by {
-        let parent_problem = stacks.as_ref().and_then(|stacks| stacks.get(&block.parent)).and_then(|parent| parent.problems.first());
+        let parent_problem = stacks.get(&block.parent).and_then(|parent| parent.problems.first());
         report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(block, parent_problem));
         failed.insert(job.branch_name, BlockReason::Blocked);
         continue;
@@ -1164,12 +1151,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache, resolve)),
       resolve,
       conflict_tips,
-      ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
+      ancestor_keys: ancestor_keys(&branches, &stacks),
       verify_mapping_notes,
       signing,
-      owners: CommitOwners::new(&branches, |name| {
-        stacks.as_ref().and_then(|stacks| stacks.get(name)).and_then(|stack| stack.effective_base.as_deref())
-      }),
+      owners: CommitOwners::new(&branches, |name| stacks.get(name).and_then(|stack| stack.effective_base.as_deref())),
     };
     process_branches(context, branches, branch_emails, parent_commit_hash, stacks, permits.clone()).await
   };

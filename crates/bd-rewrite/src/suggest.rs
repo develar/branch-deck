@@ -1,6 +1,6 @@
 //! `brd suggest`: a grouping of the commits ahead of the baseline into branches, as a plan for `brd group`, already
-//! checked. It reads the commits once (`CheckSession`), clusters them (`clustering.rs`), with stacked branches stacks
-//! each cluster on the clusters it needs, and checks the plan with a trial sync; a conflict stacks on or joins the
+//! checked. It reads the commits once (`CheckSession`), clusters them (`clustering.rs`), stacks each cluster
+//! on the clusters it needs, and checks the plan with a trial sync; a conflict stacks on or joins the
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/contributing/agent-cli.md)
 
 use crate::check_command::{CheckedBranch, checked_branches};
@@ -18,12 +18,11 @@ use commit_clustering::clustering::{
   anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
 };
 use commit_clustering::hub_files::is_hub_file;
-use domain_types::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
+use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::commit::Commit;
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::stack_path;
 use history_rewrite::snapshot::Snapshot;
-use history_rewrite::stack::STACKS_CONFIG_KEY;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -101,7 +100,7 @@ pub struct SuggestedCluster {
   /// (`--rewrite-issues` gives them a prefix instead)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub via: Option<String>,
-  /// With stacked branches: the branch it builds on, so that every branch it needs is an ancestor
+  /// The branch it builds on, so that every branch it needs is an ancestor
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
   /// The parent changes: another one, a new one, or none any more
@@ -288,7 +287,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
     .collect();
   // the fixes are `brd check`'s: each costs a trial build of every branch
   let checked = checked_branches(&report, &files_of, &short, &mut |_, _| None);
-  let mut warnings = warnings_of(&repaired.clustering, input.stacks);
+  let mut warnings = warnings_of(&repaired.clustering);
   for (branch, result) in report.branches.iter().zip(&checked).filter(|(_, checked)| checked.result != "ok") {
     let conflict = match &branch.outcome {
       CheckOutcome::Conflict { commit, .. } => position_of
@@ -320,8 +319,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       }
       Some(conflict) if conflict.needs.is_empty() => "no older commit ahead of the baseline changes the conflicting files".to_string(),
       Some(_) if repaired.rounds == MAX_REPAIR_ROUNDS => format!("the {MAX_REPAIR_ROUNDS} repair rounds ran out"),
-      Some(_) if input.stacks => "it still conflicts on the branch of the commits it needs, and two prefixes never join: move the commits".to_string(),
-      Some(_) => format!("the commits it needs have another prefix: turn on stacked branches (`git config {STACKS_CONFIG_KEY} true`) to stack the branch on theirs, or move them"),
+      Some(_) => "it still conflicts on the branch of the commits it needs, and two prefixes never join: move the commits".to_string(),
       None => format!("the repair joins only conflicting commits, and the branch is {}", result.result),
     };
     warnings.push(SuggestWarning {
@@ -413,11 +411,7 @@ fn symbol_dependency_warnings(graph: &SymbolGraph, input: &ClusterInput, cluster
     }
     let Some(link) = edge.links.first() else { continue };
     let (user_name, owner_name) = (leaf_of_path(&placements[user].path), leaf_of_path(&placements[owner].path));
-    let how = if input.stacks {
-      format!("stack {user_name} on {owner_name}, or Safe Push {owner_name} first")
-    } else {
-      format!("Safe Push {owner_name} first, or turn on stacked branches (`git config {STACKS_CONFIG_KEY} true`) to stack {user_name} on it")
-    };
+    let how = format!("stack {user_name} on {owner_name}, or Safe Push {owner_name} first");
     warnings.push(SuggestWarning {
       kind: "symbol_dependency".to_string(),
       branches: vec![user_name.to_string(), owner_name.to_string()],
@@ -447,11 +441,7 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs, symbols: Option<&Symb
     .map(|(position, &(commit, group))| {
       let parsed = parse_subject(&commit.subject);
       let prefix = parsed.prefix.and_then(|prefix| {
-        let path = if snapshot.grouping.stacks {
-          stack_path(prefix).ok().map(|levels| levels.join("/"))
-        } else {
-          Some(sanitize_branch_name(prefix.trim()))
-        };
+        let path = stack_path(prefix).ok().map(|levels| levels.join("/"));
         path.filter(|path| !path.is_empty())
       });
       let semantic = parse_semantic_prefix(parsed.rest);
@@ -498,12 +488,7 @@ fn cluster_input(snapshot: &Snapshot, diffs: &LinkedDiffs, symbols: Option<&Symb
     commits,
     dependencies,
     symbol_dependencies,
-    stacks: snapshot.grouping.stacks,
-    stack_parents: if snapshot.grouping.stacks {
-      snapshot.grouping.stack_parents.entries.clone()
-    } else {
-      BTreeMap::new()
-    },
+    stack_parents: snapshot.grouping.stack_parents.entries.clone(),
   }
 }
 
@@ -712,7 +697,7 @@ fn needed_by_lines(needs_by_lines: &[Vec<usize>], start: usize, present: &HashSe
   needed.into_iter().collect()
 }
 
-fn warnings_of(clustering: &Clustering, stacks: bool) -> Vec<SuggestWarning> {
+fn warnings_of(clustering: &Clustering) -> Vec<SuggestWarning> {
   clustering
     .warnings
     .iter()
@@ -721,12 +706,8 @@ fn warnings_of(clustering: &Clustering, stacks: bool) -> Vec<SuggestWarning> {
         let [first, second] = anchors;
         let message = if *fixup {
           format!("A commit of {first} is a fixup of a commit of {second}, but commits with different prefixes stay in their branches: move one")
-        } else if stacks {
-          format!("A commit of {first} depends on a commit of {second}, and {second} depends on {first}: no stack builds both, and prefixes stay apart: move one")
         } else {
-          format!(
-            "A commit of {first} depends on a commit of {second}, but commits with different prefixes stay in their branches: turn on stacked branches (`git config {STACKS_CONFIG_KEY} true`) to stack them, or move one"
-          )
+          format!("A commit of {first} depends on a commit of {second}, and {second} depends on {first}: no stack builds both, and prefixes stay apart: move one")
         };
         SuggestWarning {
           kind: "anchor_dependency".to_string(),

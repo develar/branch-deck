@@ -104,17 +104,11 @@ fn quoted(text: &str) -> String {
   text.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// A repository whose initial commit is the baseline; `stacks` turns on stacked branches
-///
-/// # Panics
-/// When git cannot write the config
+/// A repository whose initial commit is the baseline
 #[must_use]
-pub fn baseline_repo(stacks: bool) -> TestRepo {
+pub fn baseline_repo() -> TestRepo {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
-  if stacks {
-    repo.set_config("branchdeck.stacks", "true").unwrap();
-  }
   repo
 }
 

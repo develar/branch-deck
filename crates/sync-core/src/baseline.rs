@@ -19,7 +19,7 @@ use git_ops::update_branch::{CheckPurpose, CheckedHead, LandedLookup, UpdatePlan
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::snapshot::read_grouping_inputs_with;
+use history_rewrite::snapshot::read_grouping_inputs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use tracing::{instrument, warn};
@@ -191,14 +191,13 @@ pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str,
   check_baseline_update_with(git_executor, repo_path, baseline_branch, &grouping, resolve)
 }
 
-/// The inputs of an update check from one read of the config: the stack setting with the issue groups, and the resolve
-/// by words (`branchdeck.resolveByWords`)
+/// The inputs of an update check from one read of the config: the issue groups, and the resolve by words (`branchdeck.resolveByWords`)
 pub fn read_check_inputs(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(GroupingInputs, ResolveMode)> {
   let config = ConfigSnapshot::read(git_executor, repo_path)?;
-  Ok((read_grouping_inputs_with(git_executor, repo_path, config.stacks()?)?, config.resolve_mode()?))
+  Ok((read_grouping_inputs(git_executor, repo_path)?, config.resolve_mode()?))
 }
 
-/// `check_baseline_update` with the stack setting, the issue groups and the resolve mode already read
+/// `check_baseline_update` with the issue groups and the resolve mode already read
 #[instrument(skip(git_executor, grouping))]
 pub fn check_baseline_update_with(
   git_executor: &GitCommandExecutor,
@@ -216,7 +215,7 @@ pub fn check_baseline_update_with(
     previous: None,
     local: false,
   };
-  let landed = LandedLookup::ByKey { stacks: grouping.stacks };
+  let landed = LandedLookup::ByKey;
   let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
   Ok(Some(with_landing(git_executor, repo_path, plan, grouping)))
@@ -256,7 +255,7 @@ pub fn check_known_baseline_update(
     head: &known.head,
     upstream_head: &known.upstream_head,
   };
-  let landed = LandedLookup::ByKey { stacks: grouping.stacks };
+  let landed = LandedLookup::ByKey;
   let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, landed, resolve)?;
   plan.check.fetched_at = known.fetched_at;
   Ok(with_landing(git_executor, repo_path, plan, grouping))

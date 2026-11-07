@@ -170,7 +170,6 @@ fn a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot() {
 #[test_log::test]
 fn a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add form"]);
-  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
   space.sync();
   let login = "test-user/virtual/login";
   let pull_request = |number: u32, branch: &str| {
@@ -243,7 +242,6 @@ fn robot_without_a_token_or_space_asks_nothing() {
 #[test_log::test]
 fn a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_whole_stack() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add form"]);
-  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
   space.sync();
   space.add_robot("finished-own", "FAILURE", "auth", &space.local_tip(AUTH));
   // the Safe Push of the child built the parent too, an hour later

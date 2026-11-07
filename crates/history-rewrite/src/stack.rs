@@ -1,9 +1,8 @@
 //! Stacked branches: `(auth/login) X` puts the commit into `login` and declares `auth` as the parent of `login`;
 //! `(auth/login/oauth) X` also declares `auth` as the parent of `login`. A branch whose prefixes declare no parent takes
-//! its stack parent (`stack_parents.rs`). Opt-in per repository (`git config branchdeck.stacks true`), because without
-//! it a `/` in a prefix is part of a flat branch name.
+//! its stack parent (`stack_parents.rs`). Always on: a `/` in a prefix always declares a stack.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::common::ListedBranch;
 use branch_integration::detection_notes::{CachedDetection, NOTES_REF, deserialize_from_cache};
@@ -17,32 +16,6 @@ use git_ops::notes::read_noted_commits;
 use git_ops::revs::short_id;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use sync_utils::git_bool::parse_git_bool;
-
-pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
-
-/// Whether stacked branches are on for the repository (`branchdeck.stacks`, a git boolean; off when unset; the last
-/// entry wins): one `git config`; an operation that reads more of the config takes `ConfigSnapshot::stacks` of its
-/// snapshot (sync-core)
-pub fn stacks_enabled(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<bool> {
-  let (output, exit_code) = git_executor.execute_command_with_status(&["config", "-z", "--get-regexp", r"^branchdeck\.stacks$"], repo_path)?;
-  match exit_code {
-    // `<key>\n<value>\0` per entry, `<key>\0` for a key without a value
-    0 => {
-      let value = output
-        .split('\0')
-        .rfind(|entry| !entry.is_empty())
-        .map(|entry| entry.split_once('\n').map(|(_, value)| value));
-      match value {
-        None => Ok(false),
-        Some(value) => parse_git_bool(value).ok_or_else(|| anyhow!("{STACKS_CONFIG_KEY} is not a boolean (true or false)")),
-      }
-    }
-    // not set
-    1 => Ok(false),
-    _ => Err(anyhow!("Cannot read the git config of {repo_path}: {}", output.trim())),
-  }
-}
 
 /// A branch of the stack forest: one with commits, or an ancestor that only prefixes or stack parents declare
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -100,14 +73,8 @@ impl StackForest {
 }
 
 /// The branch whose stack holds every owner: an owner built on all the others, the deepest, by `chain` (a branch and
-/// the branches it is built on, nearest first); with stacked branches off only a single owner
-pub fn stack_top<'a>(owners: &BTreeSet<&'a str>, stacks: bool, chain: impl Fn(&'a str) -> Vec<&'a str>) -> Option<&'a str> {
-  if owners.is_empty() {
-    return None;
-  }
-  if !stacks {
-    return (owners.len() == 1).then(|| *owners.iter().next().unwrap_or(&""));
-  }
+/// the branches it is built on, nearest first)
+pub fn stack_top<'a>(owners: &BTreeSet<&'a str>, chain: impl Fn(&'a str) -> Vec<&'a str>) -> Option<&'a str> {
   owners
     .iter()
     .copied()

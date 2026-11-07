@@ -13,11 +13,11 @@ use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 fn forest(subjects: &[&str]) -> StackForest {
-  let mut grouper = CommitGrouper::new_with_stacks(true);
+  let mut grouper = CommitGrouper::new();
   for (index, subject) in subjects.iter().enumerate() {
     grouper.add_commit(commit(&format!("c{index}"), subject));
   }
-  grouper.finish_with_stacks().1.expect("stacks are on")
+  grouper.finish_with_stacks().1
 }
 
 fn place(subjects: &[&str], empty_parents: &[(&str, ParentState)]) -> IndexMap<String, BranchStack> {

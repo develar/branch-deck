@@ -580,11 +580,9 @@ fn subjects(space: &Space) -> Vec<String> {
   space.repo.git(&["log", "--format=%s", "origin/master..HEAD"]).lines().map(str::to_owned).collect()
 }
 
-/// alpha, and beta stacked on it, with stacked branches on
+/// alpha, and beta stacked on it
 fn stacked_space() -> Space {
-  let space = Space::new(&["(alpha) Alpha", "(alpha/beta) Beta"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
-  space
+  Space::new(&["(alpha) Alpha", "(alpha/beta) Beta"])
 }
 
 /// The triple Unstack of beta (docs/design/rust-domain-authority.md, s11-engine-rewrites): two Unstacks of the app join,

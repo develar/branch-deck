@@ -43,7 +43,7 @@ impl SyncInputs {
 ///   elsewhere), and every remote branch of the prefix (a push from elsewhere), listed apart: the remote status of the
 ///   virtual branches, the stack branches (`brd safe-push` of a whole stack) and the unapplied ones (`brd push --unapplied`);
 /// - the issue groups, the stack parents and the parked branches;
-/// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
+/// - the size and the time of `config` and `config.worktree` (descriptions, the `branchdeck.*` settings) and of `.idea/vcs.xml`
 ///   (issue links);
 /// - which of the files of an operation in progress exist (`OPERATION_MARKERS`): a sync git deferred while a rebase or
 ///   a merge was in progress syncs once it ended, also by an abort, which moves no ref.

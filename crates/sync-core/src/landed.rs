@@ -52,7 +52,7 @@ pub struct LandedQuery<'a> {
   /// after a replay onto `upstream_head`, which drops a commit only if the upstream has its change; elsewhere a commit
   /// can be gone because the user squashed, reworded or dropped it.
   pub gone_is_landed: bool,
-  /// The stack setting and the issue groups: a commit belongs to the leaf of its stack prefix or to its issue group
+  /// The issue groups: a commit belongs to the leaf of its stack prefix or to its issue group
   pub grouping: &'a GroupingInputs,
   /// The local commits a replay left out because the upstream proves it has them, with their upstream commit
   /// (`landed_pairing::LandedDrop`): they landed as that commit, also when the upstream reworded it
@@ -123,7 +123,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   }
   if !unmatched.is_empty() {
     // a fixup folded upstream (Safe Push autosquashes) landed with its target
-    let target_of = target_of_each_fixup(local, query.grouping.stacks);
+    let target_of = target_of_each_fixup(local);
     for commit in unmatched {
       let target_upstream = target_of.get(commit.id.as_str()).and_then(|target| landed.get(target.as_str())).cloned().flatten();
       if target_upstream.is_some() || query.gone_is_landed {

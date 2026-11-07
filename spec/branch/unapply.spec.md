@@ -88,10 +88,9 @@ puts its commits back on top of the current branch, their files and their groupi
   leave it, and `git status` shows nothing of them.
   [@test] ../../crates/git-ops/src/unapply_test.rs (`the_files_follow_the_unapply_and_the_virtual_branch_moves_in_the_same_transaction`)
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should unapply a branch from its menus: its commits and their files leave HEAD, the branch is kept`)
-- The virtual branch must move to the unapplied namespace, under a name that no ref takes, lies below or lies above
-  (git refuses `a` next to `a/b`); a conflicting level gets the `-N` suffix (`feature-1/x`). A later sync leaves it as
-  it is.
-  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`test_unapply_avoids_a_ref_below_the_name`, `test_unapply_avoids_a_ref_above_the_name`, `unapply_takes_the_commits_of_the_branch_out_of_head_with_their_files`)
+- The virtual branch must move to the unapplied namespace, under a name that no ref takes or lies below (git refuses
+  `a` next to `a/b`); a conflicting name gets the `-N` suffix. A later sync leaves it as it is.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`test_unapply_avoids_a_ref_below_the_name`, `unapply_takes_the_commits_of_the_branch_out_of_head_with_their_files`)
 - The move of HEAD, the move of the virtual branch and the files must happen together: one ref transaction, and when the
   files can't follow (a file changed since the check), HEAD and the branch move back and nothing is changed. A crash
   between the move and the files leaves a mark that the next move of the files finishes.

@@ -72,9 +72,9 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
   `KEY<TAB>name` line per key, sorted by key. Each write must be a new commit on the previous one. A missing ref is an
   empty map.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`reads_nothing_without_the_ref_and_the_written_commit_after_the_transaction`)
-- One `cat-file --batch` must read the map and the stack parents ([Stack Parents](stack-parents.spec.md)), in the same
-  phase as the stack setting: two git processes for all three.
-  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`the_stack_setting_and_both_maps_cost_two_git_processes`)
+- One `cat-file --batch` must read the map and the stack parents ([Stack Parents](stack-parents.spec.md)): one git
+  process for both.
+  [@test] ../../crates/sync-core/src/stack_parents_test.rs (`both_maps_cost_one_git_process`)
 - A line whose key is not an issue key (`[A-Z]+-\d+`), whose name is not a branch name without `/`, or whose key is
   listed twice must be a problem: it is reported and never used. A write must keep it as it is, so that a line of a
   newer format survives, unless the write sets or ungroups its key.
@@ -86,7 +86,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 
 ### Grouping
 
-- The group of a commit must be its prefix (the leaf with stacked branches on), else the issue group of its issue key,
+- The group of a commit must be its prefix (the leaf of a stack path), else the issue group of its issue key,
   else its issue key, else none. A fixup with the key of its target follows it into the group.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`the_rule_is_prefix_then_issue_group_then_issue_key`)
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`)

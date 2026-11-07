@@ -436,7 +436,7 @@ fn test_batch_archive_avoids_ref_directory_file_conflicts() {
 
   let commit = local_repo.create_commit("(auth) Add auth", "auth.js", "// auth");
   local_repo.create_branch_at("user/virtual/auth", &commit).unwrap();
-  // a flat name with a slash, as without stacked branches
+  // a name with a slash, as a flat branch of an old repository has
   local_repo.create_branch_at("user/virtual/docs/api", &commit).unwrap();
   // archived earlier today: `auth` is a directory there, `docs` a file
   local_repo.create_branch_at(&format!("user/archived/{today}/auth/old"), &commit).unwrap();

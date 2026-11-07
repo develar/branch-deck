@@ -1,6 +1,6 @@
 ---
 name: Stacked Branches
-description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, a parent without commits passed to the branch below it, problems and blocked parents reported per branch, the root row heading its stack, which collapses into it, and the setting opt-in per repository.
+description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, a parent without commits passed to the branch below it, problems and blocked parents reported per branch, and the root row heading its stack, which collapses into it; always on, without a setting.
 style: plain-1
 targets:
   - ../../crates/history-rewrite/src/stack.rs
@@ -129,22 +129,14 @@ menu stacks, unstacks and renames branches.
 
 ## Requirements
 
-### Opt-in
+### Always on
 
-- Stacks must be on only when `git config branchdeck.stacks` is true (Settings → Repository, Stacked branches, writes
-  it to `.git/config`; [Settings](../repository/settings.spec.md#repository)). Without the setting, a `/` in a prefix
-  must stay part of a flat branch name and every event must be as before, with a null `stack`.
-  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`without_stacks_a_slash_is_part_of_a_flat_name`, `stacks_are_off_unless_configured`)
-  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_branches_grouped_has_no_stack`)
-- Without stacks, `(auth)` beside `(auth/login)` is two flat branches whose refs git cannot hold together
-  (`<prefix>/virtual/auth` is a file where `<prefix>/virtual/auth/login` needs a directory): the sync fails with
-  "Failed to sync branch auth/login" (or `auth`, by the order of the writes) and git's ref error (`cannot lock ref`
-  or `couldn't set`). Turning stacks off after a stacked sync archives the stacked child (`login`) and fails the same
-  way on `auth/login`.
-  [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_a_parent_and_its_child_prefix_fail_the_sync`, `turning_stacks_off_fails_the_sync_on_the_flat_child`)
+- A `/` in a prefix must always declare a stack: `(auth/login)` builds `login` on top of `auth` in every repository,
+  without a setting. A set `branchdeck.stacks` must be ignored; branches an older version grouped under a flat name with
+  a `/` are not migrated.
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`a_slash_in_a_prefix_stacks_without_any_config`)
 - Settings → Repository doesn't offer stacks off while it would fail so: it names the stacked branches whose flat
   names clash and says to unstack them first ([Settings](../repository/settings.spec.md#repository)).
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
 
 ### Prefix syntax
@@ -571,7 +563,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
 ### Messages
 
 - The grouping preview of a typed message or branch name (`preview_group`) must read a prefix as the grouping does:
-  the leaf, its parent and an empty level; without stacked branches a `/` is a part of the name.
+  the leaf, its parent and an empty level.
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent`, `the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`)
 - The commit message editor must say when an edit restacks the branch, and warn when it would make the branch's
   parents conflict, also with its stack parent, or name a parent without commits, likely a typo: "api has no commits:
@@ -580,9 +572,9 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
 
 ### Fixups
 
-- With stacks on, a fixup's prefix must agree with its target's when both name the same leaf, so `fixup! (login) X`
-  finds `(auth/login) X`.
-  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`with_stacks_a_fixup_names_the_leaf_of_its_target`, `with_stacks_another_leaf_does_not_agree`, `the_plan_reads_the_stacks_setting_of_the_repository`)
+- A fixup's prefix must agree with its target's when both name the same leaf, so `fixup! (login) X` finds
+  `(auth/login) X`.
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`with_stacks_a_fixup_names_the_leaf_of_its_target`, `with_stacks_another_leaf_does_not_agree`, `the_plan_matches_a_fixup_by_the_leaf_of_its_prefix`)
 
 ### UI
 
@@ -737,7 +729,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   `autosquash_test.rs`.
 - `pnpm test:unit`: `src/lib/stack-lanes.test.ts`, `src/stores/branch-table-rows.test.ts`, `src/stores/stack-view.test.ts`.
 - `pnpm e2e`: `tests/e2e/stacked-branches`, `tests/e2e/branch-filter` (a collapsed stack under the filter).
-- `git config branchdeck.stacks true` in a repository, then commit with `(parent/child)` prefixes.
+- In any repository, commit with `(parent/child)` prefixes.
 
 ## Open Questions / Risks
 

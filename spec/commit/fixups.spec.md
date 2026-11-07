@@ -72,9 +72,9 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`matches_the_exact_subject_and_keeps_the_details`, `matches_the_subject_without_the_prefix`, `matches_a_unique_hash_prefix`, `falls_back_to_a_subject_starting_with_the_text`, `picks_the_oldest_of_duplicate_subjects`)
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_prefixed_fixup_names_a_hash_prefix_by_id`)
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`entries_name_a_prefixed_fixup_target_with_its_prefix`)
-- Prefixes agree when their text is the same. With [stacked branches](../branch/stacked-branches.spec.md) on, they agree
-  when they name the same leaf (`(login)` and `(auth/login)`), and the branch of a group is the leaf.
-  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`without_stacks_prefixes_are_compared_as_text`, `with_stacks_a_fixup_names_the_leaf_of_its_target`)
+- Prefixes agree when they name the same leaf (`(login)` and `(auth/login)`,
+  [Stacked Branches](../branch/stacked-branches.spec.md)), and the branch of a group is the leaf.
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`with_stacks_a_fixup_names_the_leaf_of_its_target`, `with_stacks_another_leaf_does_not_agree`)
 - A fixup of a fixup goes to the final target. A fixup without a matching older commit (the target is newer, or outside
   the range) is an orphan: it is reported and not squashed.
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`resolves_a_fixup_of_a_fixup_to_the_final_target`, `orphans_a_fixup_without_an_older_target`)

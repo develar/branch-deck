@@ -1,7 +1,7 @@
 use crate::config_snapshot::SymbolMode;
 use crate::github_repository::GitHubRepositorySource;
 use crate::repository_config::{
-  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, GLOBAL_PUSH_ROUTE_REASON, LandingDefault, OriginFacts, RepositoryConfigChange, WriteScope,
+  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, GLOBAL_PUSH_ROUTE_REASON, LandingDefault, OriginFacts, RepositoryConfigChange, WriteScope,
   parse_config_entries, read_config_entries, read_repository_config, repository_config_from_entries, set_config, set_repository_config,
 };
 use domain_types::landing_route::LandingSetting;
@@ -404,44 +404,6 @@ fn the_fallback_is_the_last_global_or_system_value_parsed() {
   );
   // an invalid global value falls back to the default, as the effective one would
   assert_eq!((config.stacks.fallback_value, config.stacks.fallback_scope), (false, Some(ConfigScope::Global)));
-}
-
-// ---- turning stacked branches off ----
-
-/// A repository with stacked branches on and a parent with commits of its own below its child
-fn stacked_parent_and_child() -> TestRepo {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "README.md", "# Test");
-  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
-  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
-  test_repo.create_commit("(auth/login/oauth) Add OAuth", "oauth.rs", "// oauth");
-  test_repo.create_commit("(docs/api) Document", "api.md", "api");
-  test_repo.set_config("branchdeck.stacks", "true").unwrap();
-  test_repo
-}
-
-#[test]
-fn with_stacks_on_the_read_names_the_flat_branches_that_would_clash() {
-  let test_repo = stacked_parent_and_child();
-
-  let config = read_repository_config(test_repo.git_executor(), test_repo.path_str()).unwrap();
-
-  let clash = |branch: &str, beside: &str| FlatNameClash {
-    branch: branch.to_string(),
-    beside: beside.to_string(),
-  };
-  // `docs/api` alone is a flat branch git can keep: no `docs` beside it
-  assert_eq!(config.stacks_off_clashes, [clash("auth/login", "auth"), clash("auth/login/oauth", "auth")]);
-}
-
-#[test]
-fn with_stacks_off_the_read_groups_nothing() {
-  let test_repo = stacked_parent_and_child();
-  test_repo.set_config("branchdeck.stacks", "false").unwrap();
-
-  let config = read_repository_config(test_repo.git_executor(), test_repo.path_str()).unwrap();
-
-  assert_eq!(config.stacks_off_clashes, []);
 }
 
 /// The git of `test_repo` with a global config of the test alone, never the developer's

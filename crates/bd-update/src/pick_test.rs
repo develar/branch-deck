@@ -253,7 +253,6 @@ fn parent_in_status(repo: &TestRepo, name: &str) -> (Value, Value) {
 #[test_log::test]
 fn a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so() {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.create_commit("(root) Add root", "root.txt", "root\n");
   repo.create_commit("(leaf) Add leaf", "leaf.txt", "leaf\n");
   assert_eq!(parent_in_status(&repo, "leaf").0, Value::Null);
@@ -282,7 +281,6 @@ fn a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so() {
 /// Stacks on: `base`, and `hang` and `teamcity` on it; `hang` adds `monitor.rs`
 fn stack_of_hang_and_teamcity() -> TestRepo {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.create_commit("(base) Add base", "base.txt", "base\n");
   repo.create_commit("(base/hang) Add the monitor", "monitor.rs", "monitor\n");
   repo.create_commit("(base/teamcity) Add the runner", "runner.rs", "runner\n");
@@ -535,7 +533,6 @@ fn a_file_edited_during_the_replay_of_a_pick_blocks_it() {
 #[test_log::test]
 fn a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack() {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.create_commit("(server) Add the server", "server.rs", "server\n");
   repo.create_commit("(client) Add the client", "client.rs", "client\n");
   let lane = TestWorktree::detached(&repo);

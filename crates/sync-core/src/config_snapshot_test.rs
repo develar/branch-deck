@@ -7,7 +7,6 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::commit_signing::Signing;
 use git_ops::word_resolve::ResolveMode;
-use history_rewrite::stack::stacks_enabled;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 
@@ -28,13 +27,18 @@ fn signing_is_read_from_the_effective_git_boolean() {
   assert_eq!(signing().unwrap_err().to_string(), "commit.gpgsign is not a boolean: invalid");
 }
 
-/// `branchdeck.stacks` as `git config --type=bool` reads it: `Some` of its answer, `None` when git refuses the value
+/// `branchdeck.resolveByWords` as `git config --type=bool` reads it: `Some` of its answer, `None` when git refuses the value
 fn git_bool(repo: &TestRepo) -> Option<bool> {
   let (output, exit_code) = repo
     .git_executor()
-    .execute_command_with_status(&["config", "--type=bool", "--get", "branchdeck.stacks"], repo.path_str())
+    .execute_command_with_status(&["config", "--type=bool", "--get", "branchdeck.resolveByWords"], repo.path_str())
     .unwrap();
   (exit_code == 0).then(|| output == "true")
+}
+
+/// `branchdeck.resolveByWords` as the snapshot reads it: `Some` of its value, `None` when it refuses the value
+fn resolve_by_words(repo: &TestRepo) -> Option<bool> {
+  snapshot(repo).resolve_mode().ok().map(|mode| mode == ResolveMode::On)
 }
 
 /// A boolean is what git makes of it, git itself the oracle: the words in any case, the empty text, git's integers
@@ -91,27 +95,23 @@ fn a_boolean_is_what_git_makes_of_it() {
     "9999999999999999999",
   ];
   for value in values {
-    repo.set_config("branchdeck.stacks", value).unwrap();
-    let expected = git_bool(&repo);
-    let snapshot = snapshot(&repo);
-    assert_eq!(snapshot.stacks().ok(), expected, "{value:?}");
-    assert_eq!(stacks_enabled(repo.git_executor(), repo.path_str()).ok(), expected, "{value:?}");
+    repo.set_config("branchdeck.resolveByWords", value).unwrap();
+    assert_eq!(resolve_by_words(&repo), git_bool(&repo), "{value:?}");
   }
 
   // `0b1` is refused on every platform, and git is no oracle for it: git defines `_GNU_SOURCE`, so with glibc 2.38+
   // its `strtoimax` follows C23 and reads `0b` as binary (true), while the git of macOS and Git for Windows refuse it.
   // Nobody writes a boolean in binary, and the glibc of the git we run is unknown, so there is one answer, C17's.
-  repo.set_config("branchdeck.stacks", "0b1").unwrap();
-  assert_eq!(snapshot(&repo).stacks().ok(), None);
-  assert_eq!(stacks_enabled(repo.git_executor(), repo.path_str()).ok(), None);
+  repo.set_config("branchdeck.resolveByWords", "0b1").unwrap();
+  assert_eq!(resolve_by_words(&repo), None);
 
   // a key without a value is true
-  repo.git(&["config", "--unset-all", "branchdeck.stacks"]);
+  repo.git(&["config", "--unset-all", "branchdeck.resolveByWords"]);
   let config = repo.path().join(".git/config");
   let text = std::fs::read_to_string(&config).unwrap();
-  std::fs::write(&config, format!("{text}[branchdeck]\n\tstacks\n")).unwrap();
+  std::fs::write(&config, format!("{text}[branchdeck]\n\tresolveByWords\n")).unwrap();
   assert_eq!(git_bool(&repo), Some(true));
-  assert_eq!(snapshot(&repo).stacks().ok(), Some(true));
+  assert_eq!(resolve_by_words(&repo), Some(true));
 }
 
 /// The snapshot says what the reader of each key says (which also see the global config of the machine)
@@ -119,7 +119,6 @@ fn a_boolean_is_what_git_makes_of_it() {
 fn assert_same_as_the_readers(repo: &TestRepo) {
   let (git, path) = (repo.git_executor(), repo.path_str());
   let snapshot = snapshot(repo);
-  assert_eq!(snapshot.stacks().unwrap(), stacks_enabled(git, path).unwrap());
   assert_eq!(snapshot.branch_prefix(), get_branch_prefix_from_git_config_sync(git, path).unwrap());
   assert_eq!(snapshot.descriptions(), &read_descriptions(git, path).unwrap());
 }
@@ -132,7 +131,7 @@ fn one_read_of_the_settings_and_the_descriptions() {
   repo.create_commit("Initial commit", "README.md", "# Test");
   assert_same_as_the_readers(&repo);
 
-  repo.set_config("branchdeck.stacks", "yes").unwrap();
+  repo.set_config("branchdeck.resolveByWords", "no").unwrap();
   repo.set_config("branchdeck.symbols", "report").unwrap();
   repo.set_config("branchDeck.branchPrefix", " dev ").unwrap();
   repo.set_config("branchdeck.githubRepository", "acme/widgets").unwrap();
@@ -144,7 +143,7 @@ fn one_read_of_the_settings_and_the_descriptions() {
   let read = ConfigSnapshot::read(&git, repo.path_str()).unwrap();
   let processes = git.process_stats().unwrap().total();
   assert_eq!(processes, 1);
-  assert!(read.stacks().unwrap());
+  assert_eq!(read.resolve_mode().unwrap(), ResolveMode::Off);
   assert_eq!(read.symbol_mode().unwrap(), SymbolMode::Report);
   assert_eq!(
     read.branch_prefix(),

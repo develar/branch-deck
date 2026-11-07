@@ -32,7 +32,7 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
       &json!("main"),
       &json!({ "on": true, "source": "default" }),
       &json!({ "on": true, "source": "default" }),
-      &json!(false)
+      &json!(true)
     )
   );
   assert_eq!(
@@ -87,7 +87,6 @@ fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
 
   fixture.repo.set_config("branchdeck.agentLease", "true").unwrap();
   fixture.repo.set_config("branchdeck.agentSubjectBranch", "maybe").unwrap();
-  fixture.repo.set_config("branchdeck.stacks", "true").unwrap();
   let output = workspace_in(&fixture, fixture.repo.path());
   assert_eq!(
     (&output["lease"], &output["subject_branch"], &output["stacks"]),

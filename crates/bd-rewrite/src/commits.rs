@@ -365,7 +365,7 @@ impl Reading {
     // the dependencies need every commit, whatever the scope
     let diffs = read_linked_diffs(context, &grouping.commit_ids, args.include_generated, args.files)?;
     let fixups = fixup_targets(&head, &ordered_commits(&grouping), &grouping.grouping);
-    // the symbol setting of the command's config, which named the prefix and the stack setting already
+    // the symbol setting of the command's config, which named the prefix already
     let symbols = match context.config()?.symbol_mode()? {
       SymbolMode::Off => None,
       SymbolMode::Report | SymbolMode::On => {

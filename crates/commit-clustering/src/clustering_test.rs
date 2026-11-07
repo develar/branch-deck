@@ -1,6 +1,6 @@
 use crate::clustering::{
   ANONYMOUS_MARKER, Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, FileLines, Link, MAX_REPAIR_ROUNDS, Placement, Repaired, Restack,
-  Warning, anonymize, cluster, cluster_change, cluster_with_repair, is_issue_only, name_clusters, place_clusters, stack_clusters, subject_words, why,
+  anonymize, cluster, cluster_change, cluster_with_repair, is_issue_only, name_clusters, place_clusters, stack_clusters, subject_words, why,
 };
 use pretty_assertions::assert_eq;
 use serde_json::Value;
@@ -55,12 +55,11 @@ fn input(commits: Vec<CommitFeatures>) -> ClusterInput {
   }
 }
 
-/// `input` with stacked branches on
+/// `input` with `dependencies`
 fn stacked(commits: Vec<CommitFeatures>, dependencies: Vec<[usize; 2]>) -> ClusterInput {
   ClusterInput {
     commits,
     dependencies,
-    stacks: true,
     ..ClusterInput::default()
   }
 }
@@ -108,7 +107,7 @@ fn hard_units_join_dependencies_fixups_prefixes_and_keys() {
 }
 
 #[test]
-fn an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge() {
+fn an_edge_between_two_anchors_stacks_them_and_anchors_never_merge() {
   let mut input = input(vec![
     CommitFeatures {
       scope: Some("vm".to_string()),
@@ -122,13 +121,7 @@ fn an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge() {
   input.dependencies = vec![[1, 0]];
   let clustering = cluster(&input, &ClusterOptions::default());
   assert_eq!(groups(&clustering), [vec![0], vec![1]]);
-  assert_eq!(
-    clustering.warnings,
-    [Warning::AnchorDependency {
-      anchors: ["b".to_string(), "a".to_string()],
-      fixup: false
-    }]
-  );
+  assert_eq!((clustering.warnings.as_slice(), clustering.dependencies.as_slice()), ([].as_slice(), [[1, 0]].as_slice()));
   assert_eq!(groups(&cluster(&input, &fresh())), [vec![0, 1]]);
 }
 
@@ -254,13 +247,14 @@ fn repair_until_joined(input: &ClusterInput) -> Repaired {
 #[test]
 fn repair_joins_a_conflicting_commit_to_what_it_needs() {
   let pair = input(vec![keyed("ABC-1", "one/a.txt"), keyed("XYZ-1", "two/b.txt")]);
+  // the first round stacks the two, the second joins them when the conflict stays
   let repaired = repair_until_joined(&pair);
   assert_eq!(
     (groups(&repaired.clustering), repaired.rounds, repaired.conflicts.clone()),
-    (vec![vec![0, 1]], 1, Vec::new())
+    (vec![vec![0, 1]], 2, Vec::new())
   );
-  assert_eq!(repaired.clustering.clusters[0].repair_rounds, [1]);
-  assert_eq!(why(&pair, &repaired.clustering.clusters[0]), "1 unit; joined by repair round 1 after a conflict; area one");
+  assert_eq!(repaired.clustering.clusters[0].repair_rounds, [2]);
+  assert_eq!(why(&pair, &repaired.clustering.clusters[0]), "1 unit; joined by repair round 2 after a conflict; area one");
 
   // a conflict inside one cluster of two issue units joins them into one unit, which is still an issue group
   let group = input(vec![keyed("ABC-1", "one/a.txt"), mentioning(keyed("ABC-2", "two/b.txt"), &["ABC-1"])]);
@@ -270,16 +264,16 @@ fn repair_joins_a_conflicting_commit_to_what_it_needs() {
   assert_eq!((repaired.rounds, repaired.clustering.clusters[0].units), (1, 1));
   assert!(is_issue_only(&group, &repaired.clustering.clusters[0]), "an issue group builds them together");
 
-  // two anchors are never joined: the conflict stays
+  // two anchors are never joined: a round stacks them, and the conflict stays
   let anchors = input(vec![prefixed("a", "one/a.txt"), prefixed("b", "two/b.txt")]);
   let conflict = Conflict { commit: 1, needs: vec![0] };
   let repaired = cluster_with_repair(&anchors, &ClusterOptions::default(), |_| Ok::<_, Infallible>(vec![conflict.clone()])).unwrap();
   assert_eq!(
     (groups(&repaired.clustering), repaired.rounds, repaired.conflicts),
-    (vec![vec![0], vec![1]], 0, vec![conflict])
+    (vec![vec![0], vec![1]], 1, vec![conflict])
   );
 
-  // at most MAX_REPAIR_ROUNDS rounds: each check finds the next commit apart
+  // at most MAX_REPAIR_ROUNDS rounds: each check finds the next commit apart, which a round stacks and the next joins
   let chain = input((0..9).map(|index| keyed(&format!("P{index}-1"), &format!("dir{index}/f.txt"))).collect());
   let mut checks = 0;
   let repaired = cluster_with_repair(&chain, &ClusterOptions::default(), |clustering| {
@@ -293,7 +287,7 @@ fn repair_joins_a_conflicting_commit_to_what_it_needs() {
   .unwrap();
   assert_eq!(
     (repaired.rounds, checks, repaired.clustering.clusters[0].commits.len()),
-    (MAX_REPAIR_ROUNDS, MAX_REPAIR_ROUNDS + 1, MAX_REPAIR_ROUNDS + 1)
+    (MAX_REPAIR_ROUNDS, MAX_REPAIR_ROUNDS + 1, 1 + MAX_REPAIR_ROUNDS / 2)
   );
 }
 
@@ -342,13 +336,6 @@ fn with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_the
       placed("b/K-1", Some("b"), Some(Restack::Needs)),
     ]
   );
-
-  // without stacked branches the dependencies join the units: K-1 joins the first prefix it meets, and the others warn
-  let flat = ClusterInput { stacks: false, ..input };
-  let clustering = cluster(&flat, &ClusterOptions::default());
-  assert_eq!(groups(&clustering), [vec![0], vec![1], vec![2, 3, 4]]);
-  assert_eq!(clustering.warnings.len(), 2);
-  assert!(placements(&flat, &clustering).iter().all(|placement| placement.parent.is_none()));
 }
 
 #[test]
@@ -484,30 +471,17 @@ fn stack_order_breaks_a_cycle_in_a_source_component() {
   assert_eq!(stack_clusters(&[[0, 1], [1, 2], [2, 1]], &[None, None, Some(0)]), [Some(1), None, Some(0)]);
 }
 
-/// An edge by symbols only (`from` uses a name `to` adds) is an order, never a join: without stacked branches two
-/// issues stay apart and a follow-up joins what it uses; with them it stacks; a unit whose names three units use is a
-/// shared helper, which orders none of them
+/// An edge by symbols only (`from` uses a name `to` adds) is an order, never a join: the user stacks on the owner; a unit
+/// whose names three units use is a shared helper, which orders none of them
 #[test]
 fn an_edge_by_symbols_orders_and_never_joins() {
-  let order = |commits: Vec<CommitFeatures>, stacks: bool, uses: Vec<[usize; 2]>| ClusterInput {
+  let order = |commits: Vec<CommitFeatures>, uses: Vec<[usize; 2]>| ClusterInput {
     commits,
-    stacks,
     symbol_dependencies: uses,
     ..ClusterInput::default()
   };
-  // two issues of two projects: apart, though one uses a name of the other
-  let issues = || vec![keyed("AB-1", "one/a.kt"), keyed("XY-2", "two/b.kt")];
-  let clustering = cluster(&order(issues(), false, vec![[1, 0]]), &ClusterOptions::default());
-  assert_eq!(groups(&clustering), [vec![0], vec![1]]);
-  // a follow-up without a key joins what it uses
-  let clustering = cluster(
-    &order(vec![keyed("AB-1", "one/a.kt"), touching("three/c.kt")], false, vec![[1, 0]]),
-    &ClusterOptions::default(),
-  );
-  assert_eq!(groups(&clustering), [vec![0, 1]]);
-  assert_eq!(clustering.clusters[0].links, [Link::Dependency]);
-  // with stacked branches the user stacks on the owner
-  let input = order(issues(), true, vec![[1, 0]]);
+  // two issues of two projects: apart, and the user stacks on the owner
+  let input = order(vec![keyed("AB-1", "one/a.kt"), keyed("XY-2", "two/b.kt")], vec![[1, 0]]);
   let clustering = cluster(&input, &ClusterOptions::default());
   assert_eq!((groups(&clustering), clustering.dependencies.clone()), (vec![vec![0], vec![1]], vec![[1, 0]]));
   // a shared helper: three users of one unit, an order of none
@@ -517,7 +491,7 @@ fn an_edge_by_symbols_orders_and_never_joins() {
     keyed("QQ-3", "three/c.kt"),
     keyed("ZZ-4", "four/d.kt"),
   ];
-  let clustering = cluster(&order(commits, true, vec![[1, 0], [2, 0], [3, 0]]), &ClusterOptions::default());
+  let clustering = cluster(&order(commits, vec![[1, 0], [2, 0], [3, 0]]), &ClusterOptions::default());
   assert_eq!(clustering.dependencies, Vec::<[usize; 2]>::new());
 }
 
@@ -630,7 +604,7 @@ fn a_cluster_takes_the_name_of_the_branch_it_holds_most_of() {
   ]);
   let clustering = manual(vec![single(vec![0, 1]), single(vec![2]), single(vec![3])]);
   let names = name_clusters(&input, &clustering, &HashSet::new());
-  assert_eq!(names, ["feat", "cluster-2", "p/c"]);
+  assert_eq!(names, ["feat", "cluster-2", "c"]);
   let changes: Vec<ClusterChange> = clustering
     .clusters
     .iter()

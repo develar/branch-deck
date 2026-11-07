@@ -534,7 +534,7 @@ impl Sessions {
   }
 
   /// The group `message` would put its commit into (`history_rewrite::commit_grouper::group_of` of its subject as git
-  /// reads it) with the stacked branches, the issue groups and the stack parents the table of the open session of `key`
+  /// reads it) with the issue groups and the stack parents the table of the open session of `key`
   /// was grouped with: the preview of a typed message or branch name; `None` for a commit it leaves unassigned and for a
   /// session that is not open
   pub async fn preview_group(&self, key: &SessionKey, message: &str) -> Option<CommitGroup> {
@@ -547,7 +547,6 @@ impl Sessions {
           ..StoreLines::default()
         };
         let inputs = GroupingInputs {
-          stacks: header.stacks_enabled,
           issue_groups: lines(&header.issue_groups),
           stack_parents: lines(&header.stack_parents),
           ..GroupingInputs::default()

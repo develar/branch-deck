@@ -84,7 +84,7 @@ fn reflog_entries(repo: &TestRepo) -> usize {
 
 #[test]
 fn applies_a_plan_in_one_rewrite() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Add login", "(old) Fix crash", "ABC-1 Add parser", "Tidy up"]);
   let head = repo.head();
   let reflog_before = reflog_entries(&repo);
@@ -105,7 +105,7 @@ fn applies_a_plan_in_one_rewrite() {
 
 #[test]
 fn unassign_falls_back_to_the_issue_key() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(lexer) ABC-1: Add lexer", "(lexer) Add tokens"]);
   let outcome = regroup(&repo, &plan(&[], &[&ids[0], &ids[1]])).unwrap();
   assert_eq!(subjects(&repo, 2), ["ABC-1: Add lexer", "Add tokens"]);
@@ -114,48 +114,45 @@ fn unassign_falls_back_to_the_issue_key() {
 
 #[test]
 fn the_current_grouping_as_a_plan_rewrites_nothing() {
-  for stacks in [false, true] {
-    let repo = baseline_repo(stacks);
-    let ids = commits(
-      &repo,
-      &[
-        "(lexer) Add lexer",
-        "ABC-1 Add parser",
-        "fixup! ABC-1 Add parser",
-        "ABC-1: Parse lists",
-        "Tidy up",
-        "(lexer/tokens) Add tokens",
-      ],
-    );
-    let head = repo.head();
-    // the plan names each branch by its path: with stacked branches on, `lexer/tokens` is the child `tokens`
-    let current = plan(&[("lexer", &[&ids[0]]), ("ABC-1", &[&ids[1], &ids[2], &ids[3]]), ("lexer/tokens", &[&ids[5]])], &[&ids[4]]);
-    let outcome = regroup(&repo, &current).unwrap();
-    assert_eq!(outcome.changed_count(), 0, "stacks: {stacks}");
-    assert_eq!(outcome.new_head, head);
-    assert_eq!(repo.head(), head);
-    let tokens = if stacks { "tokens" } else { "lexer/tokens" };
-    assert_eq!(groups(&outcome), [Some("lexer"), Some("ABC-1"), Some("ABC-1"), Some("ABC-1"), None, Some(tokens)]);
+  let repo = baseline_repo();
+  let ids = commits(
+    &repo,
+    &[
+      "(lexer) Add lexer",
+      "ABC-1 Add parser",
+      "fixup! ABC-1 Add parser",
+      "ABC-1: Parse lists",
+      "Tidy up",
+      "(lexer/tokens) Add tokens",
+    ],
+  );
+  let head = repo.head();
+  // the plan names each branch by its path: `lexer/tokens` is the child `tokens`
+  let current = plan(&[("lexer", &[&ids[0]]), ("ABC-1", &[&ids[1], &ids[2], &ids[3]]), ("lexer/tokens", &[&ids[5]])], &[&ids[4]]);
+  let outcome = regroup(&repo, &current).unwrap();
+  assert_eq!(outcome.changed_count(), 0);
+  assert_eq!(outcome.new_head, head);
+  assert_eq!(repo.head(), head);
+  assert_eq!(groups(&outcome), [Some("lexer"), Some("ABC-1"), Some("ABC-1"), Some("ABC-1"), None, Some("tokens")]);
 
-    // another branch name still gets the prefix, and the fixup follows
-    regroup(&repo, &plan(&[("parser", &[&ids[1]])], &[])).unwrap();
-    assert_eq!(
-      subjects(&repo, 6),
-      [
-        "(lexer) Add lexer",
-        "(parser) ABC-1 Add parser",
-        "fixup! (parser) ABC-1 Add parser",
-        "ABC-1: Parse lists",
-        "Tidy up",
-        "(lexer/tokens) Add tokens"
-      ]
-    );
-  }
+  // another branch name still gets the prefix, and the fixup follows
+  regroup(&repo, &plan(&[("parser", &[&ids[1]])], &[])).unwrap();
+  assert_eq!(
+    subjects(&repo, 6),
+    [
+      "(lexer) Add lexer",
+      "(parser) ABC-1 Add parser",
+      "fixup! (parser) ABC-1 Add parser",
+      "ABC-1: Parse lists",
+      "Tidy up",
+      "(lexer/tokens) Add tokens"
+    ]
+  );
 }
 
 #[test]
 fn validates_the_plan_before_writing() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let initial = repo.rev_parse("HEAD").unwrap();
   let ids = commits(&repo, &["One", "Two"]);
   let head = repo.head();
@@ -183,7 +180,7 @@ fn validates_the_plan_before_writing() {
 
 #[test]
 fn expect_head_is_a_compare_and_swap() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One", "Two"]);
   let head = repo.head();
   let one = plan(&[("a", &[&ids[0]])], &[]);
@@ -206,7 +203,7 @@ fn expect_head_is_a_compare_and_swap() {
 
 #[test]
 fn allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One", "Two"]);
   let expected = repo.head();
   // a peer adds a commit on top after the plan was made
@@ -235,7 +232,7 @@ fn allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head() {
 
 #[test]
 fn dry_run_writes_nothing() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One"]);
   let head = repo.head();
   let options = RegroupOptions {
@@ -251,7 +248,7 @@ fn dry_run_writes_nothing() {
 
 #[test]
 fn fixups_follow_their_targets() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(a) Fix login", "Other", "fixup! (a) Fix login", "squash! Other"]);
 
   let outcome = regroup(&repo, &plan(&[("b", &[&ids[0]])], &[])).unwrap();
@@ -278,7 +275,7 @@ fn fixups_follow_their_targets() {
 
 #[test]
 fn refuses_problems_the_plan_introduces_and_keeps_existing_ones() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "(auth/login) Add login", "(x/c) One", "(y/c) Two", "Loose"]);
 
   // `login/auth` makes auth a child of login, whose parent is auth: a cycle
@@ -297,14 +294,14 @@ fn refuses_problems_the_plan_introduces_and_keeps_existing_ones() {
     "{:?}",
     outcome.kept_problems
   );
-  let forest = outcome.forest.unwrap();
+  let forest = outcome.forest;
   assert_eq!(forest.declared_parent("login"), Some("auth"));
   assert_eq!(subjects(&repo, 5)[4], "(auth) Loose");
 }
 
 #[test]
 fn renames_a_branch_with_its_children() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(
     &repo,
     &[
@@ -327,7 +324,7 @@ fn renames_a_branch_with_its_children() {
     ]
   );
   assert_eq!(outcome.changed_count(), 4);
-  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("identity"));
+  assert_eq!(outcome.forest.declared_parent("login"), Some("identity"));
 
   let error = rename_branch_core(repo.git_executor(), path(&repo), "identity", "a/b", &RegroupOptions::default()).unwrap_err();
   assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");
@@ -339,9 +336,9 @@ fn renames_a_branch_with_its_children() {
 }
 
 #[test]
-fn renames_flat_and_issue_branches() {
-  let repo = baseline_repo(false);
-  commits(&repo, &["(feat) Add feature", "ABC-1 Fix parser", "(feat/sub) Flat name with a slash"]);
+fn renames_prefix_and_issue_branches() {
+  let repo = baseline_repo();
+  commits(&repo, &["(feat) Add feature", "ABC-1 Fix parser"]);
   rename_branch_core(repo.git_executor(), path(&repo), "feat", "feature", &RegroupOptions::default()).unwrap();
   let head = repo.head();
   // an issue branch is named by the issue groups, without a rewrite
@@ -349,8 +346,7 @@ fn renames_flat_and_issue_branches() {
   assert_eq!(repo.head(), head);
   assert_eq!(groups(&outcome)[1], Some("parser"));
   assert_eq!(outcome.issue_groups.unwrap().entries, BTreeMap::from([("ABC-1".to_string(), "parser".to_string())]));
-  // without stacks `feat/sub` is a flat name, not a child of feat
-  assert_eq!(subjects(&repo, 3), ["(feature) Add feature", "ABC-1 Fix parser", "(feat/sub) Flat name with a slash"]);
+  assert_eq!(subjects(&repo, 2), ["(feature) Add feature", "ABC-1 Fix parser"]);
 
   // renamed back to its key, it is the issue branch again
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "parser", "ABC-1", &RegroupOptions::default()).unwrap();
@@ -360,7 +356,7 @@ fn renames_flat_and_issue_branches() {
 
 #[test]
 fn an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login"]);
   let head = repo.head();
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "ABC-1", "login", &RegroupOptions::default()).unwrap();
@@ -368,25 +364,25 @@ fn an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups() 
   assert_eq!(repo.head(), head);
   assert_eq!(outcome.issue_groups.as_ref().unwrap().entries, BTreeMap::from([("ABC-1".to_string(), "login".to_string())]));
   assert_eq!(groups(&outcome)[2], Some("login"));
-  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
+  assert_eq!(outcome.forest.declared_parent("login"), Some("auth"));
 }
 
 #[test]
 fn restacks_and_unstacks_a_branch() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add form", "(other/login) Add button"]);
   let outcome = restack_core(repo.git_executor(), path(&repo), &Restack::On { leaf: "login", parent: "auth" }, &RegroupOptions::default()).unwrap();
   // the stack parents stack it; only the prefix that declares another parent loses its parent level
   assert_eq!(subjects(&repo, 3), ["(auth) Add auth", "(login) Add form", "(login) Add button"]);
   assert_eq!(outcome.changed_count(), 1);
-  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
+  assert_eq!(outcome.forest.declared_parent("login"), Some("auth"));
   assert_eq!(outcome.stack_parents.unwrap().entries, BTreeMap::from([("login".to_string(), "auth".to_string())]));
 
   let head = repo.head();
   let outcome = restack_core(repo.git_executor(), path(&repo), &Restack::Off { leaf: "login" }, &RegroupOptions::default()).unwrap();
   assert_eq!(repo.head(), head);
   assert_eq!(outcome.stack_parents.unwrap().entries, BTreeMap::new());
-  assert_eq!(outcome.forest.unwrap().declared_parent("login"), None);
+  assert_eq!(outcome.forest.declared_parent("login"), None);
 
   let error = restack_core(
     repo.git_executor(),
@@ -399,19 +395,8 @@ fn restacks_and_unstacks_a_branch() {
 }
 
 #[test]
-fn restack_needs_stacked_branches() {
-  let repo = baseline_repo(false);
-  commits(&repo, &["(login) Add form"]);
-  let error = restack_core(repo.git_executor(), path(&repo), &Restack::On { leaf: "login", parent: "auth" }, &RegroupOptions::default()).unwrap_err();
-  assert!(
-    matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("branchdeck.stacks")),
-    "{error}"
-  );
-}
-
-#[test]
 fn waits_for_the_repository_lock() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One"]);
   let held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let options = RegroupOptions {
@@ -434,7 +419,7 @@ fn waits_for_the_repository_lock() {
 
 #[test]
 fn a_held_lock_is_not_taken_again() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One"]);
   let held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let one = plan(&[("a", &[&ids[0]])], &[]);
@@ -456,7 +441,7 @@ fn a_held_lock_is_not_taken_again() {
 
 #[test]
 fn undo_restores_the_previous_head() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One", "Two"]);
   let outcome = regroup(&repo, &plan(&[("a", &[&ids[0], &ids[1]])], &[])).unwrap();
 
@@ -473,7 +458,7 @@ fn undo_restores_the_previous_head() {
 
 #[test]
 fn refuses_while_a_rebase_is_in_progress() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One"]);
   let git_dir = repo.path().join(".git");
   std::fs::create_dir_all(git_dir.join("rebase-merge")).unwrap();

@@ -65,8 +65,7 @@ rewrite.
 - What a conflicting commit needs must be the commits it depends on by its lines (`dependencies.rs`, with fixup units),
   and what those need in turn, that neither its branch nor the branches it is built on have; the missing commits by
   the changed files only when the lines name none.
-- The branch whose stack holds what it needs is an owner built on every other owner (the deepest), or the only owner
-  with stacked branches off.
+- The branch whose stack holds what it needs is an owner built on every other owner (the deepest).
 
 ### Candidates
 
@@ -108,7 +107,7 @@ rewrite.
   `search` says `budget` with the best plan so far. Nothing to fix is a complete search without trials.
   [@test] ../../crates/trial-check/src/conflict_fix_test.rs (`a_search_out_of_trials_says_so`, `a_search_out_of_budget_ends_with_the_best_plan_so_far`, `a_search_out_of_time_stops_before_its_first_trial`, `nothing_to_fix_is_a_complete_search_without_components`)
 - A conflict that no candidate fixes must be in `unresolved`.
-  [@test] ../../crates/trial-check/src/conflict_fix_test.rs (`a_commit_that_needs_two_long_branches_without_stacks_has_no_fix`)
+  [@test] ../../crates/trial-check/src/conflict_fix_test.rs (`a_search_out_of_trials_says_so`)
 - The steps must be grouped into components by the branches they touch; with several, each component's plan alone
   must keep what it fixes, or they become one.
 

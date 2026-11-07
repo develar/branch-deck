@@ -126,7 +126,7 @@ the rule "issue id plus one sentence". The store is the ref `refs/branch-deck/is
 one file of sorted `KEY<TAB>name` lines (`crates/history-rewrite/src/issue_groups.rs`). Each key has one name, and a name is
 a branch name without `/`. A line that is not valid is a reported problem and is never used.
 
-`GroupingInputs` (`commit_grouper.rs`) carries the stack setting, the map and the stack parents to every place that
+`GroupingInputs` (`commit_grouper.rs`) carries the map, the stack parents and the parked branches to every place that
 groups: the sync, `group_commits_ahead_of_baseline`, the regroup and the check, the fixup plan, the landed commits and
 the update check. `read_grouping_inputs` (`snapshot.rs`) reads them in one phase. The rule order is prefix, issue group, issue key, unassigned. A branch
 that the map fills, without a prefix commit, has the origin `IssueGroup`; a single-key group nests under its issue in
@@ -156,7 +156,7 @@ branch is integrated. See [Stack Parents](../../spec/branch/stack-parents.spec.m
 
 ### Stacked Branches
 
-With `git config branchdeck.stacks true`, a `/` in a prefix stacks branches: `(auth/login) Add form` belongs to `login`,
+A `/` in a prefix always stacks branches, without a setting: `(auth/login) Add form` belongs to `login`,
 whose virtual branch is built on `auth`'s (`crates/history-rewrite/src/stack.rs`). The ref is the leaf,
 `user/virtual/login`, so no level is a ref directory of another. The grouper records every declared edge with its
 commits; `StackForest` holds the declared parents, the problems (conflicting parents, cycles, `(a/a)`, leaves that
@@ -173,8 +173,8 @@ branch is the user's (Unstack). How the parent stands (`Integrated`, `Unapplied`
 by the detection note of its branch. When that branch is still its virtual branch, which this sync archives, and has
 no note that holds for the current baseline, `empty_parent_states` detects it first (`detect_pending_branches`) and
 writes the note, so the first sync after the parent's merge labels it landed and the archiving reports the parent
-from the note. The sync sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. Without the setting a `/` is
-part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
+from the note. The sync sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. A
+repository whose older branches had a `/` in a flat name is not migrated. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
 issue families come from the stack roots. The commit editor and Move to… ask `preview_group` (`group_of`: `stack_path`

@@ -774,9 +774,8 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     file each make exactly one edge by symbols; a call of an overload added in the same file was still none in this
     build, before calls carried their arguments (decision 9 now links it). On the kept
     override-overload case `brd check` is `ok` with one `missing_declarations` (`buttons`, evidence `override`, the
-    override of the new `paneId` overload), stacks on or off; `brd suggest` with stacks off keeps the plan and warns
-    `symbol_dependency` ("Safe Push ABC-1 first, or turn on stacked branches"), with `branchdeck.stacks true` it stacks
-    XYZ-2 on ABC-1, and the check of that plan is `ok`.
+    override of the new `paneId` overload); `brd suggest` stacks XYZ-2 on ABC-1 (then with `branchdeck.stacks true`;
+    stacked branches are always on since), and the check of that plan is `ok`.
   - The IntelliJ range at 1d7255a6 (60 commits on 596ffa8e): 0 edges by symbols, as before; the file-overlap edges, the
     `brd commits` and `--brief` output, `brd check` (`ok`, 16 branches, no `missing_declarations`, no dangling
     reference) and the `brd suggest` plan are the same as the old build's. The range has no edge by symbols to compare,

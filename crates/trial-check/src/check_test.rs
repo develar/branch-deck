@@ -18,8 +18,8 @@ use test_utils::git_test_utils::{TestRepo, baseline_repo};
 const PREFIX: &str = "test-prefix";
 
 /// `(a)` creates a file and changes it again; `(c)` is unrelated. Returns the commits
-fn repo(stacks: bool) -> (TestRepo, Vec<String>) {
-  let repo = baseline_repo(stacks);
+fn repo() -> (TestRepo, Vec<String>) {
+  let repo = baseline_repo();
   let ids = vec![
     repo.create_commit("(a) Add shared", "shared.txt", "one\n"),
     repo.create_commit("(a) Change shared", "shared.txt", "two\n"),
@@ -62,7 +62,7 @@ fn repository_state(repo: &TestRepo) -> (String, String, String) {
 
 #[test]
 fn the_current_grouping_and_a_clean_plan_build() {
-  let (repo, ids) = repo(false);
+  let (repo, ids) = repo();
   let cache = ObjectCache::disabled();
   let report = check(&repo, None, &cache).unwrap();
   assert_eq!(report.branches.iter().map(|check| check.name.as_str()).collect::<Vec<_>>(), ["a", "c"]);
@@ -76,7 +76,7 @@ fn the_current_grouping_and_a_clean_plan_build() {
 
 #[test]
 fn a_commit_moved_away_from_its_dependency_conflicts() {
-  let (repo, ids) = repo(false);
+  let (repo, ids) = repo();
   let before = repository_state(&repo);
   let report = check(&repo, Some(&plan(&[("b", &[&ids[1]])])), &ObjectCache::disabled()).unwrap();
   assert_eq!(
@@ -93,7 +93,7 @@ fn a_commit_moved_away_from_its_dependency_conflicts() {
 
 #[test]
 fn stacking_resolves_the_conflict() {
-  let (repo, ids) = repo(true);
+  let (repo, ids) = repo();
   let before = repository_state(&repo);
   let report = check(&repo, Some(&plan(&[("a/b", &[&ids[1]])])), &ObjectCache::disabled()).unwrap();
   let b = report.branches.iter().find(|check| check.name == "b").unwrap();
@@ -107,7 +107,7 @@ fn stacking_resolves_the_conflict() {
 
 #[test]
 fn children_of_a_conflicting_branch_are_blocked() {
-  let (repo, ids) = repo(true);
+  let (repo, ids) = repo();
   // b conflicts on the baseline; d is stacked on it
   let report = check(&repo, Some(&plan(&[("b", &[&ids[1]]), ("b/d", &[&ids[2]])])), &ObjectCache::disabled()).unwrap();
   assert!(matches!(outcome(&report, "b"), CheckOutcome::Conflict { .. }), "{report:?}");
@@ -122,7 +122,7 @@ fn children_of_a_conflicting_branch_are_blocked() {
 
 #[test]
 fn an_invalid_plan_is_refused() {
-  let (repo, _) = repo(false);
+  let (repo, _) = repo();
   let unknown = "0123456789".to_string();
   let error = check(&repo, Some(&plan(&[("b", &[&unknown])])), &ObjectCache::disabled()).unwrap_err();
   assert!(matches!(error, RegroupError::NotAheadOfBaseline { .. }), "{error}");
@@ -130,7 +130,7 @@ fn an_invalid_plan_is_refused() {
 
 #[test]
 fn the_cache_gives_the_same_report() {
-  let (repo, ids) = repo(true);
+  let (repo, ids) = repo();
   let dir = tempfile::tempdir().unwrap();
   let cache = cache(&dir);
   let conflicting = plan(&[("b", &[&ids[1]]), ("c", &[&ids[2]])]);
@@ -168,7 +168,7 @@ fn check_counting_merges(repo: &TestRepo, plan: &RegroupPlan, cache: &ObjectCach
 /// later check merges them again instead of building on a missing tree, and reuses a tree that is still there
 #[test]
 fn a_remembered_tree_that_gc_pruned_is_merged_again() {
-  let (repo, ids) = repo(true);
+  let (repo, ids) = repo();
   let dir = tempfile::tempdir().unwrap();
   let cache = cache(&dir);
   // c alone on the baseline: its parent's tree is not the baseline's, so the trial merges a tree no ref holds
@@ -199,7 +199,7 @@ fn a_remembered_tree_that_gc_pruned_is_merged_again() {
 /// A merge the check remembers is read back before it is written, and the last handle writes what no flush wrote
 #[test]
 fn a_remembered_merge_is_read_before_the_memo_writes_it() {
-  let (repo, _) = repo(false);
+  let (repo, _) = repo();
   let dir = tempfile::tempdir().unwrap();
   let memo = CacheMemo::new(cache(&dir), repo.git_executor().clone(), repo.path().to_str().unwrap().to_string());
   let trees = MergeTrees {
@@ -232,7 +232,7 @@ fn summary(report: &CheckReport) -> (Vec<(String, CheckOutcome)>, usize) {
 
 #[test]
 fn a_session_checks_many_plans_as_check_plan_does() {
-  let (repo, ids) = repo(false);
+  let (repo, ids) = repo();
   let cache = ObjectCache::disabled();
   let before = repository_state(&repo);
   let session = CheckSession::open(repo.git_executor(), repo.path().to_str().unwrap(), PREFIX, &cache).unwrap();
@@ -256,7 +256,6 @@ fn a_session_checks_many_plans_as_check_plan_does() {
 fn stacked_repo(extra: &[(&str, &str, &str)]) -> (TestRepo, Vec<String>) {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let mut ids = vec![
     repo.create_commit("(a) Add other", "other.txt", "other\n"),
     repo.create_commit("(a) Add shared", "shared.txt", "1\n2\n3\n4\n5\n6\n7\n8\n"),
@@ -530,7 +529,7 @@ fn a_branch_waits_for_its_parent_and_is_blocked_by_its_failure() {
 
 #[test]
 fn a_check_groups_with_the_issue_groups_of_the_plan() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   repo.create_commit("ABC-1 One", "file0.txt", "ABC-1 One");
   repo.create_commit("ABC-2 Two", "file1.txt", "ABC-2 Two");
   let dir = tempfile::tempdir().unwrap();

@@ -25,7 +25,7 @@ fn subjects(repo: &TestRepo) -> String {
 
 /// `Initial commit`, `(auth) Add a` (adds `a.txt`), `(ui) Add b`, `(auth) Add c`
 fn repo_with_branches() -> (TestRepo, [String; 3]) {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let a = repo.create_commit("(auth) Add a", "a.txt", "a\n");
   let b = repo.create_commit("(ui) Add b", "b.txt", "b\n");
   let c = repo.create_commit("(auth) Add c", "c.txt", "c\n");
@@ -100,7 +100,7 @@ fn dropping_a_commit_signs_the_replayed_survivors() {
 /// copies; a branch left without a commit is named
 #[test]
 fn a_commit_and_its_revert_drop_without_a_file_moving_and_empty_their_branch() -> Result<()> {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let a = repo.create_commit("(scratch) Add a", "a.txt", "a\n");
   repo.create_commit("(ui) Add b", "b.txt", "b\n");
   repo.git(&["revert", "--no-edit", &a]);

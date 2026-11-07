@@ -20,7 +20,6 @@ pub(crate) fn repo() -> TestRepo {
   let initial = repo.create_commit("Initial commit", "README.md", "# Test\n");
   repo.git(&["remote", "add", "origin", "."]);
   repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   repo
 }
 

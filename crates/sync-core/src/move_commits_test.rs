@@ -277,7 +277,7 @@ fn moves_the_fixups_with_their_target() {
 
 #[test]
 fn whole_issues_join_a_branch_without_a_rewrite_and_their_next_commits_follow() {
-  let test_repo = baseline_repo(false);
+  let test_repo = baseline_repo();
   let ids = commits(&test_repo, &["IJPL-1 Parse lists", "IJPL-1 Parse maps", "IJPL-2 Print maps"]);
   let head = test_repo.head();
 
@@ -298,7 +298,7 @@ fn whole_issues_join_a_branch_without_a_rewrite_and_their_next_commits_follow() 
 
 #[test]
 fn a_part_of_an_issue_and_a_commit_without_a_key_get_the_prefix_in_the_same_transaction() {
-  let test_repo = baseline_repo(false);
+  let test_repo = baseline_repo();
   let ids = commits(&test_repo, &["IJPL-1 Parse lists", "IJPL-1 Parse maps", "IJPL-2 Print maps", "Fix docs"]);
 
   let result = move_ids(&test_repo, &[&ids[1], &ids[2], &ids[3]], Some("maps"));
@@ -320,7 +320,7 @@ fn a_part_of_an_issue_and_a_commit_without_a_key_get_the_prefix_in_the_same_tran
 
 #[test]
 fn a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix() {
-  let test_repo = baseline_repo(false);
+  let test_repo = baseline_repo();
   commits(&test_repo, &["ABC-1 Add parser", "(lexer) ABC-1 Add lexer", "ABC-2 Add maps", "(other) ABC-2 Add sets"]);
   regroup(&test_repo, &issue_group_plan("parser", &["ABC-2"])).unwrap();
   let lexer = test_repo.rev_parse("HEAD~2").unwrap();
@@ -340,7 +340,7 @@ fn a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix() {
 
 #[test]
 fn moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them() {
-  let test_repo = baseline_repo(false);
+  let test_repo = baseline_repo();
   let ids = commits(&test_repo, &["ABC-1 One", "ABC-1 Uno", "ABC-2 Two", "ABC-3 Three"]);
   regroup(&test_repo, &issue_group_plan("parser", &["ABC-1", "ABC-2"])).unwrap();
 
@@ -368,7 +368,7 @@ fn moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them() {
 
 #[test]
 fn a_whole_issue_joins_a_stacked_target_without_a_rewrite() {
-  let test_repo = baseline_repo(true);
+  let test_repo = baseline_repo();
   let ids = commits(&test_repo, &["(auth) Add auth", "(auth/login) Add form", "ABC-1 Fix login", "Tidy login"]);
   let (fix, tidy) = (&ids[2], &ids[3]);
 
@@ -390,7 +390,7 @@ fn a_whole_issue_joins_a_stacked_target_without_a_rewrite() {
 
 #[test]
 fn the_fixups_of_a_whole_issue_move_with_it() {
-  let test_repo = baseline_repo(false);
+  let test_repo = baseline_repo();
   let ids = commits(&test_repo, &["ABC-1 Fix login", "Unrelated", "fixup! ABC-1 Fix login"]);
 
   let result = move_ids(&test_repo, &[&ids[0]], Some("auth"));
@@ -402,7 +402,7 @@ fn the_fixups_of_a_whole_issue_move_with_it() {
 
 #[test]
 fn a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head() {
-  let test_repo = baseline_repo(false);
+  let test_repo = baseline_repo();
   let ids = commits(&test_repo, &["IJPL-1 Parse lists", "Fix docs"]);
   let mut dry_run = params(&test_repo, &[&ids[0], &ids[1]], Some("maps"));
   dry_run.dry_run = true;

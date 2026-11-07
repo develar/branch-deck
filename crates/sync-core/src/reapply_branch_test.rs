@@ -15,7 +15,7 @@ const UNAPPLIED: &str = "test-prefix/unapplied/feature";
 
 /// `(feature) Add file0`, `(other) Add file1`, `(feature) Add file2`, synced, then `feature` unapplied
 fn unapplied_repo() -> TestRepo {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(feature) Add file0", "(other) Add file1", "(feature) Add file2"]);
   sync(&repo);
   unapply(&repo, "feature", None).unwrap();
@@ -103,7 +103,7 @@ fn reapply_signs_the_restored_messages_and_target_copies() -> Result<()> {
 
 #[test]
 fn an_issue_branch_comes_back_without_a_prefix() -> Result<()> {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["ABC-1 Fix the parser", "(other) Add file1"]);
   sync(&repo);
   unapply(&repo, "ABC-1", None)?;

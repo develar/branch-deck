@@ -117,7 +117,7 @@ target, read before anything is pushed.
 - The route must be `branchdeck.landing` of the git config, `patronus`, `push` or `pull-request` (any case, trimmed),
   read with the other keys of Settings → Repository in one `git config` and in the one read of an operation
   (`ConfigSnapshot`); an empty value is unset, another value is invalid with its reason, and an operation refuses it as
-  it refuses a wrong `branchdeck.stacks`. A change goes through `set_repository_config` like the other keys.
+  it refuses a wrong `branchdeck.resolveByWords`. A change goes through `set_repository_config` like the other keys.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`)
   [@test] ../../crates/domain-types/src/landing_route_test.rs (`the_setting_is_read_as_git_keeps_it_and_written_back_the_same`)

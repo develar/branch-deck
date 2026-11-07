@@ -382,7 +382,7 @@ fn assert_note_left_out(how: NoteLanding, proof: LandedProof) {
     path(&clone),
     ORIGIN_MASTER,
     CheckPurpose::Preview,
-    LandedLookup::ByKey { stacks: false },
+    LandedLookup::ByKey,
     ResolveMode::Off,
   )
   .unwrap();

@@ -7,7 +7,6 @@ use serde_json::{Value, json};
 /// `auth` and `login` built on it on Space, synced: the Safe Push of login merged on login as the sync built it
 fn merged_login() -> Space {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   sync(&space);
   space.set_robots(vec![merged(&space, "merged", "login", &minutes_ago(90))]);
   space
@@ -138,7 +137,6 @@ fn names<'a>(output: &'a Value, key: &str) -> Vec<&'a Value> {
 fn push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the_others() {
   // auth and login built on it, docs apart: the Safe Push of login merged, docs has work
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   sync(&space);
   space.set_robots(vec![merged(&space, "merged", "login", &minutes_ago(90))]);
   let (_, status) = bd(&space, &["status"]);
@@ -271,7 +269,6 @@ fn status_branch<'a>(status: &'a Value, name: &str) -> &'a Value {
 #[test_log::test]
 fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
   let space = Space::new(&[]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
   let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100)[..8].to_string();
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");

@@ -81,9 +81,8 @@ pub enum CheckPurpose {
 pub enum LandedLookup {
   /// None: the check leaves nothing out
   Off,
-  /// The ladder of `landed_pairing::pair_landed`, its twins before the replay; `stacks` is the stack setting, by which a
-  /// fixup finds its target
-  ByKey { stacks: bool },
+  /// The ladder of `landed_pairing::pair_landed`, its twins before the replay
+  ByKey,
 }
 
 /// A fixed committer date for preview replays
@@ -614,29 +613,29 @@ fn replay_outcome(
         CheckPurpose::Apply => &[],
       };
       let twins = match landed {
-        LandedLookup::ByKey { stacks } => {
+        LandedLookup::ByKey => {
           let reads = read_landed(git_executor, repo_path, landed_scope(plan))?;
-          let twins = pair_before_replay(git_executor, repo_path, &reads, stacks)?;
+          let twins = pair_before_replay(git_executor, repo_path, &reads)?;
           landed_reads = Some(Arc::new(reads));
-          Some((twins, stacks))
+          Some(twins)
         }
         LandedLookup::Off => None,
       };
       // the local commits the upstream proves it has are never replayed onto it
-      let tried = twins.as_ref().map_or(0, |(twins, _)| twins.drops.len());
+      let tried = twins.as_ref().map_or(0, |twins| twins.drops.len());
       let first = match &twins {
-        Some((twins, _)) if tried > 0 => replay_skipping(git_executor, repo_path, upstream_head, &revs, &twins.local, &drop_ids(&twins.drops), env)?,
+        Some(twins) if tried > 0 => replay_skipping(git_executor, repo_path, upstream_head, &revs, &twins.local, &drop_ids(&twins.drops), env)?,
         _ => replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)?,
       };
       if let Some(new_head) = first {
         if tried > 0 {
           info!(left_out = tried, "the update leaves out the local commits the upstream proves it has");
-          replay_plan = twins.map(|(twins, _)| ReplayPlan::of(twins));
+          replay_plan = twins.map(ReplayPlan::of);
         }
         new_head
       } else {
         let pairing = match (twins, &landed_reads) {
-          (Some((twins, stacks)), Some(reads)) => with_patch_identical(git_executor, repo_path, landed_scope(plan), reads, twins, stacks)?,
+          (Some(twins), Some(reads)) => with_patch_identical(git_executor, repo_path, landed_scope(plan), reads, twins)?,
           _ => unpaired(git_executor, repo_path, &revs)?,
         };
         let replay = ReplayPlan::of(pairing);

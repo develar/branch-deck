@@ -119,7 +119,6 @@ async fn a_signed_sync_builds_a_signed_stack_branch() {
   }
 
   let repo = stack_ahead_of_bare_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   repo.create_commit("(alpha/gamma) Gamma", "gamma.txt", "gamma\n");
   repo.enable_ssh_signing();
   sync(&GitCommandExecutor::new(), &repo).await;
@@ -236,11 +235,10 @@ async fn assert_unchanged_with_cache(repo: &TestRepo, cache: &ObjectCache) {
   assert_processes(&git, &UNCHANGED_SYNC);
 }
 
-/// `origin/master` at the initial commit and, with stacked branches on, `alpha` with two children, `beta` and
-/// `gamma`: a stack that forks, whose stack branch `test/stack/alpha` the sync builds too
+/// `origin/master` at the initial commit and `alpha` with two children, `beta` and `gamma`: a stack that forks, whose
+/// stack branch `test/stack/alpha` the sync builds too
 fn forking_stack_repo() -> TestRepo {
   let repo = repo_on_origin();
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   for (index, prefix) in ["alpha", "alpha/beta", "alpha/gamma", "beta", "gamma", "alpha"].into_iter().enumerate() {
     repo.create_commit(&format!("({prefix}) Change {index}"), &format!("file-{index}.txt"), "text\n");
   }
@@ -361,7 +359,6 @@ async fn an_unchanged_sync_of_pushed_branches_in_a_new_process() {
 #[tokio::test]
 async fn the_status_of_a_child_whose_parent_got_a_new_commit_outside_the_sync() {
   let repo = repo_on_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   repo.create_commit("(alpha) Alpha 1", "alpha-1.txt", "alpha\n");
   repo.create_commit("(alpha/beta) Beta 1", "beta-1.txt", "beta\n");
   sync(&GitCommandExecutor::new(), &repo).await;
@@ -549,7 +546,7 @@ async fn a_drop() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 2),
+      ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 4),
       ("log", 4),
@@ -590,7 +587,6 @@ async fn a_dry_run_of_a_drop() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 3), // `a_drop` without the witness under the lock
       ("log", 4),
@@ -625,7 +621,7 @@ async fn a_drop_of_commits() {
     &git,
     &[
       ("cat-file", 1),
-      ("config", 2),
+      ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 2),
       ("log", 3),
@@ -682,7 +678,7 @@ async fn a_reapply() {
     &git,
     &[
       ("cat-file", 2),
-      ("config", 2),
+      ("config", 1),
       ("diff-tree", 1),
       ("fast-import", 1),
       ("for-each-ref", 3),
@@ -777,7 +773,7 @@ fn the_app_reword() {
     &git,
     &[
       ("cat-file", 2),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 2),
@@ -802,13 +798,12 @@ fn a_park_and_an_unpark() {
     &RewriteOptions::default(),
   )
   .unwrap();
-  // the grouping of the commits ahead (`config`, `remote`, `for-each-ref`, `log`, one `cat-file` for the stores), then
-  // the store write
+  // the grouping of the commits ahead (`remote`, `for-each-ref`, `log`, one `cat-file` for the stores), then the store
+  // write
   assert_processes(
     &git,
     &[
       ("cat-file", 1),
-      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("log", 1),
@@ -843,7 +838,7 @@ fn a_squash_of_fixups() {
     &git,
     &[
       ("cat-file", 3),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 2),
       ("for-each-ref", 2), // the baseline, the witness of HEAD under the lock
       ("log", 3),
@@ -1010,13 +1005,12 @@ fn beta_robot(source: String) -> RobotLandingRequest {
 }
 
 /// What a merged robot of `beta` (built on `alpha`) landed after a new commit of `alpha` rebuilt `beta`: the commits of
-/// both branches from HEAD as the sync groups them (the stack setting, one `cat-file --batch` of the stores, one
-/// `log`), one `cat-file --batch-check` of the robot's commit and the ref, the two walks against the robot's commit,
-/// and one `diff-tree` with one `patch-id` of the copy whose identity the robot had
+/// both branches from HEAD as the sync groups them (one `cat-file --batch` of the stores, one `log`), one
+/// `cat-file --batch-check` of the robot's commit and the ref, the two walks against the robot's commit, and one
+/// `diff-tree` with one `patch-id` of the copy whose identity the robot had
 #[tokio::test]
 async fn the_landing_of_a_merged_robot_after_a_change_below_its_commit() {
   let repo = repo_on_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   let lines = |changed: &[(usize, &str)]| -> String {
     (1..=10)
       .map(|number| {
@@ -1040,17 +1034,16 @@ async fn the_landing_of_a_merged_robot_after_a_change_below_its_commit() {
   let landings = robot_landings(&git, &path(&repo), PREFIX, "origin/master", &[request]).unwrap();
   let after: Vec<usize> = landings[0].branches.iter().map(|branch| branch.after.len()).collect();
   assert_eq!(after, [1, 0]);
-  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("diff-tree", 1), ("log", 1), ("patch-id", 1), ("rev-list", 2)]);
+  assert_processes(&git, &[("cat-file", 2), ("diff-tree", 1), ("log", 1), ("patch-id", 1), ("rev-list", 2)]);
 }
 
 /// What a running robot of `beta` lands after a restack placed a new root `alpha` below it: as the landing of a merged
-/// robot, the commits of both branches from HEAD (the stack setting, one `cat-file --batch` of the stores, one `log`),
-/// one `cat-file --batch-check` of the robot's commit and the ref and the two walks against it; the copy of beta on
-/// alpha is patch-equivalent (`--cherry-mark`), so no `same_changes` runs
+/// robot, the commits of both branches from HEAD (one `cat-file --batch` of the stores, one `log`), one
+/// `cat-file --batch-check` of the robot's commit and the ref and the two walks against it; the copy of beta on alpha is
+/// patch-equivalent (`--cherry-mark`), so no `same_changes` runs
 #[tokio::test]
 async fn the_span_of_a_running_robot_after_a_restack() {
   let repo = repo_on_origin();
-  repo.git(&["config", "branchdeck.stacks", "true"]);
   repo.create_commit_with_timestamp("(beta) Beta", "beta.txt", "beta", Some(1_700_000_100));
   sync(&GitCommandExecutor::new(), &repo).await;
   let source = repo.git(&["rev-parse", "refs/heads/test/virtual/beta"]);
@@ -1064,7 +1057,7 @@ async fn the_span_of_a_running_robot_after_a_restack() {
   let spans = robot_spans(&git, &path(&repo), PREFIX, "origin/master", &[request]).unwrap();
   let branches: Vec<&str> = spans[0].branches.iter().flatten().map(|branch| branch.branch.as_str()).collect();
   assert_eq!(branches, ["beta"]);
-  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("log", 1), ("rev-list", 2)]);
+  assert_processes(&git, &[("cat-file", 2), ("log", 1), ("rev-list", 2)]);
 }
 
 /// The target conflict check of a Safe Push start without its fetch: the tips of the baseline and the branch

@@ -462,23 +462,22 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and
   `issue_group_problems`, the lines of the issue groups that are not used.
   [@test] ../../crates/bd-remote/src/status_test.rs (`issue_groups_in_status`)
-- With stacked branches on, each branch must show its declared `parent`, `parent_state` (`active`, `integrated`,
-  `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, `pr_base_changed` when a parent
-  without commits is passed (the branch is built on the nearest active ancestor or the baseline, never blocked by it),
-  and its stack `problems` with the commits that declare them, and the output must list the `forest` order, parents
-  first; `brd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the stack
-  parents), and the output lists `idle_stack_parents` and `stack_parent_problems` ([Stack Parents](../branch/stack-parents.spec.md)).
+- Each branch must show its declared `parent`, `parent_state` (`active`, `integrated`, `unapplied` or `missing`), the
+  `effective_base` or `blocked_by` a sync would use, `pr_base_changed` when a parent without commits is passed (the
+  branch is built on the nearest active ancestor or the baseline, never blocked by it), and its stack `problems` with
+  the commits that declare them, and the output must list the `forest` order, parents first (omitted only without
+  branches); `brd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the
+  stack parents), and the output lists `idle_stack_parents` and `stack_parent_problems` ([Stack Parents](../branch/stack-parents.spec.md)).
   [@test] ../../crates/bd-remote/src/status_test.rs (`stacks_in_status`, `stored_parents_in_status`)
-- With stacked branches on, `stacks` must list the stack branch of each stack that forks (`root`, `branch`
-  `{prefix}/stack/<root>`, `state`, `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`)
+- `stacks` must list the stack branch of each stack that forks (`root`, `branch` `{prefix}/stack/<root>`, `state`,
+  `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`)
   and the ones kept for their remote branch, as the last sync left them, read without a sync and without a git
   process: `blocked` by a member's placement, else `built` when the object cache remembers the build of the current
   commits at the ref's tip, `conflict` when it remembers their build conflicting, else `stale`; no `remote`
   ([Whole Stack](../branch/whole-stack.spec.md)).
   [@test] ../../crates/bd-remote/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
-- Each branch with a `brd describe` text must show its title, read for all branches in one git process, the one that
-  also gives the stack setting of the grouping.
+- Each branch with a `brd describe` text must show its title, read for all branches in one git process.
   [@test] ../../crates/bd-rewrite/src/describe_test.rs (`sets_prints_and_clears_a_description`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - `--stats` must add per branch the distinct files, the generated files, added and deleted lines, the top three
@@ -487,8 +486,8 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-remote/src/status_test.rs (`stats_per_branch`)
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`lists_the_files_of_each_tip_against_a_base`)
 - `--brief` must print per branch only the name, the commit count, the issue key when it is not the name, and the
-  newest subject, with stacked branches on also the parent, `blocked_by`, `pr_base_changed`, the problems, the
-  forest and the `stacks`, then the unassigned commits; it must not go with `--branch` or `--stats`.
+  newest subject, the parent, `blocked_by`, `pr_base_changed`, the problems, the forest and the `stacks`, then the
+  unassigned commits; it must not go with `--branch` or `--stats`.
   [@test] ../../crates/bd-remote/src/status_test.rs (`brief_status`, `brief_status_keeps_the_stack_state`)
 
 ### `brd commits`
@@ -567,7 +566,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_without_a_plan_is_refused`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
-  that names the current branch of each commit (its stack path with stacked branches on) rewrites no commit without a
+  that names the current branch of each commit (its stack path) rewrites no commit without a
   prefix or with a canonical prefix.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`the_current_grouping_as_a_plan_rewrites_nothing`)
 - The plan must be validated against every subject ahead of the baseline before anything is written: unknown ids and
@@ -623,10 +622,10 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - `brd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
   the stack parents of that name without a rewrite, and name an issue branch by the issue groups; the new name must be
   a branch name without `/`.
-  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_flat_and_issue_branches`)
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_prefix_and_issue_branches`)
 - `brd restack` and `brd unstack` must set or clear the stack parent of the branch, an issue branch and an issue group
-  included, rewrite only the commits whose prefix declares another parent, and need stacked branches.
-  [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
+  included, and rewrite only the commits whose prefix declares another parent.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
 - `brd stack-together <branch> <branch>...` must put all selected branches into one oldest-first chain, preserve an
   existing ancestor edge, move a selected branch out of its former stack while keeping its descendants, and write
@@ -934,7 +933,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - `brd suggest` must print a plan for `brd group` with only the commits whose branch changes (a fixup that follows its
   target left out, a prefixed commit that goes to its own issue branch in `unassign`), the clusters with their name,
   commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `current_branches`, `why`, `weak`, issue keys
-  and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
+  and areas, the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
 - Each cluster must name its commits in three disjoint lists that agree with the plan: `kept`, the ones it leaves as
@@ -948,18 +947,16 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   in `kept`. The one rewrite of such a subject is the stacked path it declares (`(gone/a)` to `a`): the commit stays
   in its branch and is in `new_path`.
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_plan_never_moves_a_commit_with_an_explicit_prefix`)
-- Hard units must join the dependencies, a fixup and its target, the commits of one prefix (unless `--fresh`) and the
-  commits without a prefix of one issue key. Two prefixes must never join, and a dependency between them must be an
-  `anchor_dependency` warning that names `git config branchdeck.stacks true`.
-  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`hard_units_join_dependencies_fixups_prefixes_and_keys`, `an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge`)
-  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
-- With stacked branches, a prefix must be an anchor by the leaf of its path, and a dependency must join no units: it
-  must be an edge between two clusters, and only the dependencies of a cycle of units may join them. A cycle between
+- Hard units must join a fixup and its target, the commits of one prefix (unless `--fresh`) and the commits without a
+  prefix of one issue key. Two prefixes must never join: a dependency between them stacks them, with no warning.
+  [@test] ../../crates/commit-clustering/src/clustering_test.rs (`hard_units_join_dependencies_fixups_prefixes_and_keys`, `an_edge_between_two_anchors_stacks_them_and_anchors_never_merge`)
+- A prefix must be an anchor by the leaf of its path, and a dependency must join no units: it must be an edge between
+  two clusters, and only the dependencies of a cycle of units may join them. A cycle between
   two prefixes must stay an `anchor_dependency` warning. The commits without a prefix of an issue key that a prefix
   names must join that prefix, because they are one branch.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_follow_up_that_joins_an_issue_branch_stays_there_once_applied`)
-- With stacked branches, each cluster must get a parent so that every cluster it depends on is an ancestor: the parent
+- Each cluster must get a parent so that every cluster it depends on is an ancestor: the parent
   its prefixes declare when that parent covers them; else the deepest cluster it depends on that covers the others;
   else the stacks of the clusters it needs must become one chain, in the order of the dependencies and the oldest
   cluster first, which only adds ancestors. A declared parent that is no cluster must go, a cluster must not be its own
@@ -974,17 +971,16 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   a prefix. `why` must name a new parent and its reason.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_clusters_makes_every_needed_cluster_an_ancestor`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
-- With `branchdeck.symbols on`, an edge by symbols only must never join two units: with stacked branches it must be an
-  edge of the stack outside the join of a cycle, without them it must link only a follow-up without a prefix and an
-  issue key; a unit whose names three or more units use must order none of them; a branch the plan doesn't build on
-  the branch whose name it uses must be a `symbol_dependency` warning.
+- With `branchdeck.symbols on`, an edge by symbols only must never join two units: it must be an edge of the stack
+  outside the join of a cycle; a unit whose names three or more units use must order none of them; a branch the plan
+  doesn't build on the branch whose name it uses must be a `symbol_dependency` warning.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`an_edge_by_symbols_orders_and_never_joins`)
-  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_the_symbols_on_a_use_of_another_branch_warns_or_stacks`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_the_symbols_on_a_use_of_another_branch_stacks`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
   best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40. A key that more
   than max(10, units / 3) units name must link nothing, and one body of a branch of a prefix that names the key of a
-  whole issue branch must not take the issue in without a second body or shared paths. With stacked branches, a dependency must link a cluster
+  whole issue branch must not take the issue in without a second body or shared paths. A dependency must link a cluster
   without a prefix and an issue key to the cluster it depends on, and no merge may make a cycle of the dependencies
   and the declared parents.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
@@ -994,18 +990,18 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   made with a pairwise precision of at least 0.95 and a recall of at least 0.85, and keep the issue projects and the
   named pairs of groups apart.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`golden_monorepo_branch`)
-- A proven dangling reference must be repaired like a conflict, the removing commit needing `fixed_by` (with stacked
-  branches it stacks on its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
+- A proven dangling reference must be repaired like a conflict, the removing commit needing `fixed_by` (it stacks on
+  its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
   that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning (or
   `possible_changed_declaration`, `possible_duplicate_declaration`).
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`, `a_changed_declaration_stacks_the_branch_on_its_fix`)
 - A conflict of the check must join the hard unit of the conflicting commit to the units of the commits it needs by
   its lines that its branch and the branches it is built on lack, by the conflicting files only when the lines name
   none, also inside an issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
-  still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
+  still conflicts. A conflict on a commit of another cluster must first stack the two
   clusters, and join their units only when the same conflict comes again.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
-  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_conflict_in_a_lock_file_stacks_the_commits_and_fresh_ignores_prefixes`, `a_repair_stacks_on_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file`, `whole_issue_branches_become_an_issue_group`)
 - A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
   single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or
   `cluster-N`, in this order; a name another cluster, a group now or a virtual branch has, in any case, must get `-2`,
@@ -1037,7 +1033,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   record (`<lock>.holder`) a holder writes once it has the lock and deletes before it releases it; a record of a
   process that is gone (or none, of an older Branch Deck) names "Another Branch Deck operation".
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_lock_timeout_names_the_holder_and_its_release_deletes_the_record`, `the_record_of_a_gone_holder_names_nobody`)
-- With stacked branches on, `stacks` must list the stack branch of each stack that forks, as the sync built it, with its
+- `stacks` must list the stack branch of each stack that forks, as the sync built it, with its
   `state` (`built`; `blocked` with the `member` and the `reason`; `conflict` with the commit, its subject and files;
   `stale` with the `error`), its `tip`, `commits`, `members` and the `remote` summary of its tip, then the ones kept
   for their remote branch (`stale`, no members); a tip in any state but `built` is not the stack's commits and must
@@ -1422,7 +1418,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   (exit 4), nothing pushed, in the same trial session (`trial_check::landing_gate`, the rule of the app's start too). A
   name a branch of the landing stack adds is none, a sibling's of a whole stack that forks too. The message must name
   the use, the commit that adds the name with its branch, and the fix: `brd restack <root> <branch>`, which lands that
-  branch too, or, with stacked branches off, a commit unassigned or a restack that would close a cycle, the move of the
+  branch too, or, for a commit unassigned or a restack that would close a cycle, the move of the
   commit; "(N more: brd check)" for the others. `--dry-run` must list it in `refusals`, and `--allow-missing` must start
   anyway.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack`)

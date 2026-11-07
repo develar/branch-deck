@@ -1,5 +1,5 @@
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::regroup_test::{commits, entries, groups, other_worktree, path, plant_store, regroup, sync};
+use crate::regroup_test::{commits, entries, other_worktree, path, plant_store, regroup, sync};
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::{DeclaredParent, ParentSource, ParentState, StackFix, StackProblem};
 use git_ops::revs::short_id;
@@ -41,7 +41,6 @@ fn plant_after(repo: &TestRepo, lines: &str) {
 /// The forest of `subjects` grouped with the stack parents `stored`, and the idle children
 fn forest(subjects: &[&str], stored: &[(&str, &str)]) -> (StackForest, Vec<String>) {
   let inputs = GroupingInputs {
-    stacks: true,
     stack_parents: StoreLines {
       entries: entries(stored),
       ..StoreLines::default()
@@ -53,7 +52,7 @@ fn forest(subjects: &[&str], stored: &[(&str, &str)]) -> (StackForest, Vec<Strin
     grouper.add_commit(commit(&format!("{index:040}"), subject));
   }
   let (grouped, forest) = grouper.finish_with_stacks();
-  (forest.unwrap(), grouped.idle_stack_parents)
+  (forest, grouped.idle_stack_parents)
 }
 
 fn restack(repo: &TestRepo, leaf: &str, parent: Option<&str>) -> Result<RegroupOutcome, RegroupError> {
@@ -79,7 +78,7 @@ fn subjects(repo: &TestRepo, count: usize) -> Vec<String> {
 
 #[test]
 fn reads_nothing_without_the_file_and_the_written_commit_after_the_transaction() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   assert_eq!(stack_parents(&repo), StoreLines::default());
 
@@ -99,8 +98,8 @@ fn reads_nothing_without_the_file_and_the_written_commit_after_the_transaction()
 }
 
 #[test]
-fn the_stack_setting_and_both_maps_cost_two_git_processes() {
-  let repo = baseline_repo(true);
+fn both_maps_cost_one_git_process() {
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "ABC-1 Add login", "XYZ-1 Add other"]);
   regroup(&repo, &issue_group_plan("other", &["XYZ-1"])).unwrap();
   regroup(&repo, &plan(&[("auth/ABC-1", &[&ids[1]])], &[])).unwrap();
@@ -115,7 +114,7 @@ fn the_stack_setting_and_both_maps_cost_two_git_processes() {
     .filter(|line| line.contains("\"event\":\"start\""))
     .map(str::to_string)
     .collect();
-  assert_eq!(started.len(), 2, "{started:#?}");
+  assert_eq!(started.len(), 1, "{started:#?}");
   assert!(started.iter().any(|line| line.contains("\"cat-file\",\"--batch\"")), "{started:#?}");
   assert_eq!(inputs.issue_groups.entries, entries(&[("XYZ-1", "other")]));
   assert_eq!(inputs.stack_parents.entries, entries(&[("ABC-1", "auth")]));
@@ -131,7 +130,7 @@ fn bad_lines_are_problems_and_never_used() {
   assert!(problems.iter().all(|problem| !problem.message.is_empty()));
 
   // a write keeps the unused lines, except those of a child it sets or removes
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "(login) Add login", "(twice) Two"]);
   plant(&repo, text);
   regroup(&repo, &plan(&[("auth/twice", &[&ids[2]])], &[])).unwrap();
@@ -143,7 +142,7 @@ fn bad_lines_are_problems_and_never_used() {
 
 #[test]
 fn a_write_on_one_worktree_keeps_the_parents_of_another() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let base = repo.head();
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   let (_other_dir, other_path) = other_worktree(&repo, &base, &["(core) Add core", "(ui) Add ui"]);
@@ -157,34 +156,12 @@ fn a_write_on_one_worktree_keeps_the_parents_of_another() {
   assert_eq!(here.idle_stack_parents, ["ui"]);
   let there = group_commits_ahead_of_baseline(git, other_path, "test-prefix").unwrap();
   assert_eq!(there.idle_stack_parents, ["login"]);
-  assert_eq!(there.forest.unwrap().declared_parent("ui"), Some("core"));
+  assert_eq!(there.forest.declared_parent("ui"), Some("core"));
 
   // a rename renames a parent only for the children with commits on its HEAD
   rename_branch_core(git, other_path, "core", "base", &RegroupOptions::default()).unwrap();
   rename_branch_core(git, path(&repo), "auth", "identity", &RegroupOptions::default()).unwrap();
   assert_eq!(stack_parents(&repo).entries, entries(&[("login", "identity"), ("ui", "base")]));
-}
-
-#[test]
-fn without_stacks_the_map_is_not_used_and_not_written() {
-  let repo = baseline_repo(false);
-  let ids = commits(&repo, &["(auth) Add auth", "(login) Add login"]);
-  plant(&repo, "login\tauth\n");
-  let grouping = group_commits_ahead_of_baseline(repo.git_executor(), path(&repo), "test-prefix").unwrap();
-  assert!(grouping.forest.is_none());
-  assert_eq!(grouping.idle_stack_parents, Vec::<String>::new());
-  assert_eq!(grouping.grouping.stack_parents.entries, entries(&[("login", "auth")]));
-
-  // a slash is part of a flat name, so the path writes no parent
-  let outcome = regroup(&repo, &plan(&[("auth/login", &[&ids[1]])], &[])).unwrap();
-  assert_eq!((outcome.stack_parents.is_none(), groups(&outcome)[1]), (true, Some("auth/login")));
-  for error in [restack(&repo, "auth", Some("login")).unwrap_err(), regroup(&repo, &unstack_plan(&["login"])).unwrap_err()] {
-    assert!(
-      matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("branchdeck.stacks")),
-      "{error}"
-    );
-  }
-  assert_eq!(history(&repo), 1);
 }
 
 #[test]
@@ -204,7 +181,7 @@ fn a_stored_parent_stacks_a_prefix_branch_an_issue_branch_and_an_issue_group() {
   assert!(!forest.nodes.contains_key("ghost"));
 
   // an issue group is stacked by its name
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "ABC-1 One", "ABC-2 Two"]);
   regroup(&repo, &issue_group_plan("parser", &["ABC-1", "ABC-2"])).unwrap();
   let outcome = restack(&repo, "parser", Some("auth")).unwrap();
@@ -258,7 +235,7 @@ fn a_cycle_through_the_map_marks_each_of_its_branches() {
   let (cycle, _) = forest(&["(a) A"], &[("a", "ghost"), ("ghost", "a")]);
   assert!(cycle.nodes["a"].problems.iter().any(|problem| matches!(problem, StackProblem::Cycle(_))));
 
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(a) A", "(b) B"]);
   restack(&repo, "a", Some("b")).unwrap();
   let error = restack(&repo, "b", Some("a")).unwrap_err();
@@ -284,7 +261,7 @@ fn a_stored_parent_without_commits_is_passed() {
 
 #[test]
 fn a_sync_reads_the_map_and_never_writes_a_line_it_can_not_prove_dead() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   restack(&repo, "login", Some("auth")).unwrap();
   plant_after(&repo, "ghost\tauth\n");
@@ -313,7 +290,7 @@ fn the_newest_archive_of_a_child_decides_whether_it_is_integrated() {
   assert_eq!(integrated_children(&children, &second, "p"), ["ghost"]);
 
   // a drop writes only when a line goes, and keeps every other line
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   plant(&repo, "login\tauth\nui\tlogin\nbad line\n");
   drop_integrated_stack_parents(repo.git_executor(), path(&repo), &["ghost"]);
   assert_eq!(history(&repo), 1);
@@ -324,18 +301,18 @@ fn the_newest_archive_of_a_child_decides_whether_it_is_integrated() {
 
 #[test]
 fn a_plan_path_writes_the_parent_and_a_bare_leaf_prefix() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(a) A", "Add b", "Add c"]);
   let outcome = regroup(&repo, &plan(&[("a/b/c", &[&ids[2]]), ("a/b", &[&ids[1]])], &[])).unwrap();
   assert_eq!(subjects(&repo, 3), ["(a) A", "(b) Add b", "(c) Add c"]);
   assert_eq!(outcome.stack_parents.unwrap().entries, entries(&[("b", "a"), ("c", "b")]));
-  let forest = outcome.forest.unwrap();
+  let forest = outcome.forest;
   assert_eq!((forest.declared_parent("b"), forest.declared_parent("c")), (Some("a"), Some("b")));
 }
 
 #[test]
 fn stacking_whole_issue_branches_rewrites_nothing() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["IJAI-3992 Add the model", "IJAI-4047 Use the model", "IJAI-4047 Tune it"]);
   let head = repo.head();
   let reflog = || repo.log(&["-g", "--format=%gs", "master"]).unwrap().lines().count();
@@ -348,7 +325,7 @@ fn stacking_whole_issue_branches_rewrites_nothing() {
   let outcome = regroup_commits_core(repo.git_executor(), path(&repo), &stack, &options).unwrap();
   assert_eq!((outcome.changed_count(), repo.head()), (0, head));
   assert_eq!(reflog(), entries_before, "HEAD did not move");
-  assert_eq!(outcome.forest.as_ref().unwrap().declared_parent("IJAI-4047"), Some("IJAI-3992"));
+  assert_eq!(outcome.forest.declared_parent("IJAI-4047"), Some("IJAI-3992"));
   let token = UndoToken::of(&outcome).unwrap();
   assert_eq!((token.head.is_none(), token.issue_groups.is_none(), token.stack_parents.is_some()), (true, true, true));
 
@@ -360,7 +337,7 @@ fn stacking_whole_issue_branches_rewrites_nothing() {
 
 #[test]
 fn a_named_commit_that_gets_the_bare_leaf_keeps_the_levels_above_as_stack_parents() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(core) Add core", "(core/x/login) Add z"]);
   regroup(&repo, &plan(&[("auth/login", &[&ids[1]])], &[])).unwrap();
   assert_eq!(subjects(&repo, 1), ["(login) Add z"]);
@@ -370,7 +347,7 @@ fn a_named_commit_that_gets_the_bare_leaf_keeps_the_levels_above_as_stack_parent
 
 #[test]
 fn renaming_a_level_without_commits_renames_its_stack_parent() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(core) Add core", "(auth/login) Add form"]);
   plant(&repo, "auth\tcore\n");
   rename_branch_core(repo.git_executor(), path(&repo), "auth", "identity", &RegroupOptions::default()).unwrap();
@@ -380,7 +357,7 @@ fn renaming_a_level_without_commits_renames_its_stack_parent() {
 
 #[test]
 fn a_differing_parent_level_becomes_a_bare_leaf() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(
     &repo,
     &[
@@ -400,7 +377,7 @@ fn a_differing_parent_level_becomes_a_bare_leaf() {
   assert_eq!(stack_parents(&repo).entries, entries(&[("login", "auth"), ("x", "core")]));
 
   // a deeper path of another branch that declares another parent for the child loses the levels above the child
-  let deeper = baseline_repo(true);
+  let deeper = baseline_repo();
   commits(&deeper, &["(auth) Add auth", "(x/login/oauth) Add oauth", "(login) Add login"]);
   regroup(&deeper, &plan(&[("auth/login", &[])], &[])).unwrap();
   assert_eq!(subjects(&deeper, 3)[1..], ["(login/oauth) Add oauth", "(login) Add login"].map(str::to_string));
@@ -408,7 +385,7 @@ fn a_differing_parent_level_becomes_a_bare_leaf() {
 
 #[test]
 fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "Add login", "ABC-1 One"]);
   let head = repo.head();
   let mixed = RegroupPlan {
@@ -433,7 +410,7 @@ fn a_mixed_plan_moves_head_and_the_store_in_one_transaction() {
 
 #[test]
 fn invalid_stack_parent_plans_are_refused() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(a) A", "(b) B", "(c) C"]);
   let invalid = |plan: &RegroupPlan, text: &str| {
     let error = regroup(&repo, plan).unwrap_err();
@@ -456,14 +433,14 @@ fn invalid_stack_parent_plans_are_refused() {
 
 #[test]
 fn an_issue_group_is_restacked_and_unstacked_without_a_rewrite() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "ABC-1 One", "ABC-2 Two", "XYZ-1 Three"]);
   regroup(&repo, &issue_group_plan("parser", &["ABC-1", "ABC-2"])).unwrap();
   let head = repo.head();
   for parent in [Some("auth"), None] {
     let outcome = restack(&repo, "parser", parent).unwrap();
     assert_eq!((outcome.changed_count(), repo.head()), (0, head.clone()));
-    assert_eq!(outcome.forest.unwrap().declared_parent("parser"), parent);
+    assert_eq!(outcome.forest.declared_parent("parser"), parent);
   }
   // and so is an issue branch
   restack(&repo, "XYZ-1", Some("parser")).unwrap();
@@ -477,7 +454,7 @@ fn an_issue_group_is_restacked_and_unstacked_without_a_rewrite() {
 
 #[test]
 fn an_undo_passes_over_the_drops_of_a_sync() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add login", "(docs) Write"]);
   plant(&repo, "ghost\tauth\n");
   let token = UndoToken::of(&restack(&repo, "login", Some("auth")).unwrap()).unwrap();
@@ -501,7 +478,7 @@ fn an_undo_passes_over_the_drops_of_a_sync() {
 /// lock only while it is free, else the next sync drops the line
 #[test]
 fn a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   plant(&repo, "login\tauth\n");
   let held = history_rewrite::repository_lock::lock_repository(repo.git_executor(), path(&repo), DEFAULT_LOCK_TIMEOUT).unwrap();
   drop_integrated_stack_parents(repo.git_executor(), path(&repo), &["login"]);

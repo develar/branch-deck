@@ -35,7 +35,7 @@ fn only(outcome: &ParkOutcome) -> &ParkedChange {
 
 #[test]
 fn park_writes_a_line_without_a_rewrite_and_unpark_drops_it() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   let head = repo.head();
   let outcome = park(&repo, "auth", "  waits for the fix of IJPL-1 ").unwrap();
@@ -64,7 +64,7 @@ fn park_writes_a_line_without_a_rewrite_and_unpark_drops_it() {
 
 #[test]
 fn park_refuses_an_unknown_branch_and_a_note_of_two_lines_unpark_one_not_parked() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth"]);
   assert!(matches!(park(&repo, "ghost", ""), Err(ParkError::UnknownBranch(name)) if name == "ghost"));
   assert!(matches!(park(&repo, "auth", "one\ntwo"), Err(ParkError::InvalidNote(_))));
@@ -75,7 +75,7 @@ fn park_refuses_an_unknown_branch_and_a_note_of_two_lines_unpark_one_not_parked(
 
 #[test]
 fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_they_are() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth"]);
   plant_store(&repo, &PARKED, "ghost\tof another worktree\nauth\t\nnot a line\n");
   let before = parked(&repo);
@@ -87,7 +87,7 @@ fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_th
 
 #[test]
 fn park_waits_for_the_repository_lock() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth"]);
   let _held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let options = RewriteOptions {
@@ -102,7 +102,7 @@ fn park_waits_for_the_repository_lock() {
 /// What the rewrites `Park` and `Unpark` answer: the note of each branch and the note it had before
 #[test]
 fn the_result_of_a_park_reports_the_notes() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   let parked_result = park_result(park(&repo, "auth", "later").unwrap());
   assert!(parked_result.changed);
@@ -113,7 +113,7 @@ fn the_result_of_a_park_reports_the_notes() {
 
 #[test]
 fn several_branches_park_and_unpark_in_one_store_commit_or_not_at_all() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add login", "(docs) Write"]);
   let lines = |names: &[&'static str]| names.iter().map(|branch| ParkLine { branch, note: "" }).collect::<Vec<_>>();
   // an unknown branch parks none
@@ -149,7 +149,7 @@ fn several_branches_park_and_unpark_in_one_store_commit_or_not_at_all() {
 
 #[test]
 fn a_rename_carries_the_line_and_its_undo_moves_it_back() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   park(&repo, "auth", "IJPL-1").unwrap();
   let outcome = rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap();
@@ -172,7 +172,7 @@ fn a_rename_carries_the_line_and_its_undo_moves_it_back() {
 
 #[test]
 fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth"]);
   park(&repo, "auth", "").unwrap();
   plant_store(&repo, &PARKED, "auth\t\nghost\t\n");
@@ -192,7 +192,7 @@ fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
 
 #[test]
 fn a_sync_keeps_every_line_it_can_not_prove_dead() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth"]);
   park(&repo, "auth", "").unwrap();
   plant_store(&repo, &PARKED, "auth\t\nghost\tof another worktree\n");

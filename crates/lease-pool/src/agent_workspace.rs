@@ -52,7 +52,7 @@ pub struct AgentWorkspace {
   pub lease: ConfigSetting<bool>,
   /// `branchdeck.agentSubjectBranch`
   pub subject_branch: ConfigSetting<bool>,
-  /// `branchdeck.stacks`: a new stack is declared with `(parent/leaf)`
+  /// Always true: a new stack is declared with `(parent/leaf)`
   pub stacks: bool,
   /// The top level of the working tree; None without one
   pub top_level: Option<String>,
@@ -83,7 +83,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       kind: WorkspaceKind::None,
       lease: config.agent_lease,
       subject_branch: config.agent_subject_branch,
-      stacks: config.stacks.value,
+      stacks: true,
       top_level: None,
       subdir: String::new(),
       shared_checkout: None,
@@ -165,7 +165,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     kind,
     lease: config.agent_lease,
     subject_branch: config.agent_subject_branch,
-    stacks: config.stacks.value,
+    stacks: true,
     subdir: subdir(directory, &top_level),
     top_level: Some(top_level),
     shared_checkout,

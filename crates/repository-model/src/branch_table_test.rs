@@ -15,7 +15,6 @@ pub(crate) fn placed(name: &str, effective_base: Option<&str>) -> GroupedBranchI
 fn stacked_repo_with_remote() -> (TestRepo, TestRepo) {
   let repo = TestRepo::new();
   repo.create_commit("Initial commit", "README.md", "# Test");
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let remote = TestRepo::new_empty();
   remote.git_executor().execute_command(&["init", "--bare"], remote.path_str()).unwrap();
   repo.add_remote("origin", remote.path_str()).unwrap();

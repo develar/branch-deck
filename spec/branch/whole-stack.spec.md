@@ -134,7 +134,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 
 ### The stack branch
 
-- With stacked branches on, every stack that forks (a branch of it has two children or more in it) must also be built
+- Every stack that forks (a branch of it has two children or more in it) must also be built
   as the virtual branch `{prefix}/stack/<root>` (`to_stack_branch_name`), stacks inside an issue family included; a
   straight chain has none. The stack is the root and the branches built on it (`effective_base`, the parent that
   blocks a blocked branch, the declared parent of a branch with a stack problem); a branch whose parents lead into a
@@ -172,7 +172,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   authored its root.
   [@test] ../../crates/sync-core/src/stack_branch_test.rs (`the_email_of_a_stack_branch_is_its_most_frequent_author`)
   [@test] ../../crates/operations/src/push_test.rs (`a_push_of_a_stack_branch_counts_the_commits_of_its_members_author_as_the_sync_does`)
-- A stack branch whose stack no longer forks (or whose root is gone, or with stacked branches off) must be deleted in
+- A stack branch whose stack no longer forks (or whose root is gone) must be deleted in
   one transaction with compare-and-swap, but only while it has no remote branch and no worktree has it checked out;
   one with a remote branch stays, `Stale` without members, for the user to decide on.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_stack_that_no_longer_forks_loses_its_stack_branch_unless_it_is_on_the_remote`)

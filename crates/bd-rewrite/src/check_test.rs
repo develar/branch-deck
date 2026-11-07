@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
-use test_utils::git_test_utils::{TestRepo, append_config};
+use test_utils::git_test_utils::TestRepo;
 use test_utils::history::HistoryCommit;
 
 /// `<mode>|<repository>|<plan file>` of `bd_check_in_a_child`
@@ -49,11 +49,9 @@ fn dangling_reference_in_two_files(repo: &TestRepo) -> (String, String) {
   (removed_by, repo.head())
 }
 
-/// A repository with stacked branches on
+/// A repository for stacked branches
 fn stacked_repo() -> TestRepo {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
-  repo
+  repo_with_baseline(&[("README.md", "readme\n")])
 }
 
 /// Write `content` to `path` and commit it
@@ -136,7 +134,6 @@ fn a_conflicting_plan_names_the_commit_and_what_it_needs() {
 #[test_log::test]
 fn stacking_resolves_the_conflict() {
   let (repo, ids) = repo();
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let before = state(&repo);
   let (exit_code, output) = check(&repo, &json!({ "branches": { "a/b": [ids[1]] } }), &[]);
   assert_eq!(exit_code, 0, "{output}");
@@ -805,10 +802,11 @@ fn a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix() {
   assert_eq!(output["fix"]["unresolved"], json!(["b"]), "{output}");
   assert_check_schema(&repo, &output);
 
-  // the first candidate is not the fix: the search stops after it
+  // the first candidate, `b` restacked on `a`, is the fix: one trial completes the search
   let (exit_code, output) = run_in(&repo, &["check", "--fix", "--max-trials", "1", "--plan", plan]);
   assert_eq!(exit_code, 1, "{output}");
-  assert_eq!((&output["fix"]["search"], &output["fix"]["trials"]), (&json!("budget"), &json!(1)), "{output}");
+  assert_eq!((&output["fix"]["search"], &output["fix"]["trials"]), (&json!("complete"), &json!(1)), "{output}");
+  assert_eq!(output["fix"]["components"][0]["steps"], json!([{ "fixes": "b", "kind": "restack", "to": "a" }]), "{output}");
 
   let (exit_code, output) = run_in(&repo, &["check", "--max-trials", "1", "--plan", plan]);
   assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("invalid_arguments")), "{output}");

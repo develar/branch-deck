@@ -1,9 +1,7 @@
 //! Tests for the archive step of a sync: which branches it moves into the archive and how it fails
 
-use crate::detection_test_helpers::sync_user_branches;
 use branch_integration::common::get_all_branch_data;
 use branch_integration::detector::archive_and_clean_up;
-use branch_integration::strategy::DetectionStrategy;
 use domain_types::SyncEvent;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -136,29 +134,4 @@ fn a_failed_archive_still_reports_the_archived_branches() {
     })
     .collect();
   assert_eq!(found, [(sorted([format!("user/archived/{today}"), "user/archived/2026-10-01/docs".to_string()]), vec![])]);
-}
-
-/// A group renamed from `(foo)` to `(foo/bar)`: its virtual branch is archived before `foo/bar` is built, which git's
-/// directory/file rule forbids beside `foo`
-#[test(tokio::test)]
-async fn a_group_renamed_below_its_old_name_syncs() {
-  let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
-  local_repo.create_commit("(foo) Add foo", "foo.js", "// foo");
-  sync_user_branches(&git_executor, &local_repo, DetectionStrategy::Rebase).await.unwrap();
-  assert!(local_repo.branch_exists("user/virtual/foo"));
-
-  local_repo.reset_hard("HEAD~1").unwrap();
-  local_repo.create_commit("(foo/bar) Add foo", "foo.js", "// foo");
-  sync_user_branches(&git_executor, &local_repo, DetectionStrategy::Rebase).await.unwrap();
-
-  assert!(local_repo.branch_exists("user/virtual/foo/bar"));
-  assert!(!local_repo.branch_exists("user/virtual/foo"));
-  assert!(local_repo.branch_exists(&format!("user/archived/{}/foo", utc_today())));
-
-  // and back: `foo/bar` is archived before `foo` is built
-  local_repo.reset_hard("HEAD~1").unwrap();
-  local_repo.create_commit("(foo) Add foo again", "foo.js", "// foo again");
-  sync_user_branches(&git_executor, &local_repo, DetectionStrategy::Rebase).await.unwrap();
-  assert!(local_repo.branch_exists("user/virtual/foo"));
-  assert!(!local_repo.branch_exists("user/virtual/foo/bar"));
 }

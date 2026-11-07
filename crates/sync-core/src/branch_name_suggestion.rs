@@ -208,7 +208,7 @@ pub fn clean_names(raw: &[String]) -> Vec<String> {
 
 /// A name the model suggested as a valid branch name: lowercase, separators (whitespace, `/`, `_`) become one hyphen, other
 /// punctuation is dropped, at most `MAX_BRANCH_NAME_LENGTH` bytes. A suggestion names one branch: a `/` would declare a
-/// parent with stacked branches on, so it becomes a hyphen too.
+/// parent, so it becomes a hyphen too.
 pub fn clean_branch_name(raw: &str) -> Option<String> {
   let mut result = String::with_capacity(raw.len());
   for c in raw.trim().chars().flat_map(char::to_lowercase) {

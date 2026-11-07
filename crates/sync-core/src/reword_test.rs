@@ -56,7 +56,7 @@ fn assert_stranded(error: &RegroupError, expected: FixupRefusal) {
 
 #[test]
 fn rewords_messages_in_one_rewrite() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(a) One", "(a) Two with a subject that is far too long", "Three"]);
   let trees: Vec<String> = ids.iter().map(|id| tree(&repo, id)).collect();
 
@@ -78,7 +78,7 @@ fn rewords_messages_in_one_rewrite() {
 
 #[test]
 fn a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   commits(&repo, &["Two\n\nThe body"]);
   let head = repo.head();
 
@@ -106,7 +106,7 @@ fn a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing()
 
 #[test]
 fn a_new_prefix_moves_the_commit_with_its_fixups() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(a) Fix login", "fixup! (a) Fix login", "(b) Other"]);
   let outcome = reword(&repo, &[subject(&ids[0], "(b) Fix login")]).unwrap();
   assert_eq!(subjects(&repo, 3), ["(b) Fix login", "fixup! (b) Fix login", "(b) Other"]);
@@ -117,7 +117,7 @@ fn a_new_prefix_moves_the_commit_with_its_fixups() {
 #[test]
 fn a_reword_that_strands_a_fixup_is_refused() {
   // by subject: the fixup would fold into nothing
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Fix login", "fixup! Fix login"]);
   let head = repo.head();
   // the app says how it folds them
@@ -135,7 +135,7 @@ fn a_reword_that_strands_a_fixup_is_refused() {
   assert_eq!(repo.head(), head, "nothing is written");
 
   // by id: the target gets a new id
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One", "Two"]);
   let by_id = repo.create_commit(&format!("fixup! {}", &ids[1][..8]), "two.txt", "fixed");
   assert_stranded(&reword(&repo, &[subject(&ids[0], "One, reworded")]).unwrap_err(), FixupRefusal::NamedById);
@@ -145,14 +145,14 @@ fn a_reword_that_strands_a_fixup_is_refused() {
   reword(&repo, &[subject(&by_id, &format!("fixup! {}", &ids[1][..10]))]).unwrap();
 
   // a waiting amend! would replace the new message at the next fold
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["One", "amend! One\n\nThe message the amend! gives"]);
   assert_stranded(&reword(&repo, &[message(&ids[0], "One\n\nAnother body")]).unwrap_err(), FixupRefusal::AmendWaits);
 }
 
 #[test]
 fn a_plan_that_rewords_a_fixup_with_its_target_passes() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Fix login", "fixup! Fix login"]);
   reword(&repo, &[subject(&ids[0], "Fix the login"), subject(&ids[1], "fixup! Fix the login")]).unwrap();
   assert_eq!(subjects(&repo, 2), ["Fix the login", "fixup! Fix the login"]);
@@ -160,7 +160,7 @@ fn a_plan_that_rewords_a_fixup_with_its_target_passes() {
 
 #[test]
 fn a_reword_keeps_the_issue_groups_and_the_stack_parents() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "(login) Add form", "ABC-1 Add parser"]);
   restack_core(repo.git_executor(), path(&repo), &Restack::On { leaf: "login", parent: "auth" }, &RegroupOptions::default()).unwrap();
   regroup(&repo, &issue_group_plan("login", &["ABC-1"])).unwrap();
@@ -171,12 +171,12 @@ fn a_reword_keeps_the_issue_groups_and_the_stack_parents() {
   assert_eq!((outcome.issue_groups.is_none(), outcome.stack_parents.is_none()), (true, true));
   assert_eq!(stores(&repo), before);
   assert_eq!(groups(&outcome), [Some("auth"), Some("login"), Some("login")]);
-  assert_eq!(outcome.forest.unwrap().declared_parent("login"), Some("auth"));
+  assert_eq!(outcome.forest.declared_parent("login"), Some("auth"));
 }
 
 #[test]
 fn a_reword_that_breaks_a_stack_is_refused() {
-  let repo = baseline_repo(true);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add auth", "(auth/login) Add form"]);
   let error = reword(&repo, &[subject(&ids[0], "(login/auth) Add auth")]).unwrap_err();
   assert_invalid(&error, "break the stacks");
@@ -184,7 +184,7 @@ fn a_reword_that_breaks_a_stack_is_refused() {
 
 #[test]
 fn refuses_ids_and_texts_it_cannot_reword() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let initial = repo.head();
   let ids = commits(&repo, &["One"]);
   let error = reword(&repo, &[subject(&initial, "Initial")]).unwrap_err();
@@ -203,7 +203,7 @@ fn refuses_ids_and_texts_it_cannot_reword() {
 
 #[test]
 fn rewords_a_middle_commit_and_keeps_the_commits_after_it() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add login", "(auth) Add logout", "(api) Add endpoint"]);
   let head_tree = tree(&repo, "HEAD");
   // uncommitted work is not touched
@@ -224,7 +224,7 @@ fn rewords_a_middle_commit_and_keeps_the_commits_after_it() {
 
 #[test]
 fn rewords_several_commits_in_one_pass() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(feature-x) ABC-1 Add login", "ABC-1 Add logout", "(feature-x) ABC-1 Add session"]);
   let head_tree = tree(&repo, "HEAD");
 
@@ -241,7 +241,7 @@ fn rewords_several_commits_in_one_pass() {
 
 #[test]
 fn refuses_to_reword_while_a_merge_is_in_progress() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Add login"]);
   std::fs::write(repo.path().join("file0.txt"), "changed").unwrap();
   std::fs::write(repo.path().join(".git/MERGE_HEAD"), format!("{}\n", ids[0])).unwrap();
@@ -258,7 +258,7 @@ fn refuses_to_reword_while_a_merge_is_in_progress() {
 
 #[test]
 fn rewrite_refused_on_detached_head() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Add login"]);
   repo.checkout(&ids[0]).unwrap();
 
@@ -278,7 +278,7 @@ fn is_detached(repo: &TestRepo) -> bool {
 /// compare-and-swap; a commit the home branch has is not ahead of it; the undo moves the detached HEAD back
 #[test]
 fn a_reword_in_a_lease_moves_its_detached_head() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Landed", "Add login with a subject that is far too long", "Add form"]);
   repo.create_branch_at("home", &ids[0]).unwrap();
   repo.checkout(&ids[2]).unwrap();
@@ -307,7 +307,7 @@ fn a_reword_in_a_lease_moves_its_detached_head() {
 /// The app's list was read before the commit was reworded or dropped in a terminal: the app says to sync
 #[test]
 fn refuses_a_commit_that_left_the_current_branch() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["Add login"]);
   let replacement = app_reword(&repo, &[(&ids[0], "Add the login form")]).unwrap().new_head;
 
@@ -378,7 +378,7 @@ fn reword_preserves_committer() {
 /// virtual branch from the old commits again, its copy reused by the mapping notes
 #[test]
 fn undo_of_a_reword_brings_back_the_old_virtual_commits() {
-  let repo = baseline_repo(false);
+  let repo = baseline_repo();
   let ids = commits(&repo, &["(auth) Add login", "(cache) Add cache"]);
   sync(&repo);
   let virtual_tips = |repo: &TestRepo| {

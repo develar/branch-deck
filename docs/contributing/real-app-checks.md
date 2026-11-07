@@ -89,8 +89,8 @@ what the window draws and what the screen shows, cold and warm, under Wayland (G
   --config profile.release.lto=false --config profile.release.codegen-units=16` (about a minute with the registry
   volume, after the `rustup toolchain install` of a fresh container). No features: no updater.
 - **Data**: a scratch repository in the VM (a bare `origin` with the first commit, then commits with `(feature-N)`
-  prefixes and one `(feature-1/feature-3)`, `git config branchdeck.branchPrefix <prefix>` and `branchdeck.stacks
-  true`), and before each launch, as `parallels`: `~/.local/share/<identifier>/settings.json`
+  prefixes and one `(feature-1/feature-3)`, `git config branchdeck.branchPrefix <prefix>`), and before each launch,
+  as `parallels`: `~/.local/share/<identifier>/settings.json`
   (`{"recentProjects":[{"path":"<repository>"}]}`), `repository-state.json` beside it
   (`{"repositoryState":{"<repository>":{"lastSyncTime":<ms>}}}`, milliseconds as `Date.now()`: seconds read as 1970,
   "Last synced 57 years ago") and `~/.config/<identifier>/.window-state.json` (`{"main":{"width":1000,"height":700,

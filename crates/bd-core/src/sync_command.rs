@@ -38,7 +38,7 @@ pub struct SyncOutput {
   pub baseline: String,
   /// In the order of `brd status`
   pub branches: Vec<SyncedBranch>,
-  /// With stacked branches on: the stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
+  /// The stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
   /// one branch), then those kept for their remote branch after their stack stopped forking
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stacks: Vec<StackSummary>,
@@ -85,15 +85,12 @@ impl SyncOutput {
     self.branches.iter().any(|branch| !branch.state.is_built())
   }
 
-  /// Parents first: the stack order with stacked branches, else the order of `branches`
+  /// Parents first: the stack order
   pub fn order(&self) -> Vec<&str> {
-    self.report.forest.as_ref().map_or_else(
-      || self.branches.iter().map(|branch| branch.name.as_str()).collect(),
-      |forest| forest.order.iter().map(String::as_str).collect(),
-    )
+    self.report.forest.order.iter().map(String::as_str).collect()
   }
 
-  /// Where the sync placed the branch in the stack; `None` with stacked branches off
+  /// Where the sync placed the branch in the stack
   pub fn placement(&self, name: &str) -> Option<&BranchStack> {
     placement(&self.report.branches, name)
   }

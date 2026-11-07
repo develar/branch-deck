@@ -457,12 +457,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   the user's. A write waits for no sync: during one it is written at once, and the sync it asks for runs once after
   that one.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should write stacked branches turned off during a held sync at once, the main window syncing it once after that sync`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
-- Stacked branches are not offered off while a sync would fail then: with them on, the read groups the commits as with
-  them off (`stacks_off_clashes`, baseline detection, one `cat-file`, one `log`) and names the flat branches git cannot
-  keep beside another one (`auth/login` beside `auth`). The switch is disabled with what to do: "Turning this off
-  renames login and session to names like auth/login, which git cannot keep next to auth. Unstack them first" (one:
-  "Turning this off makes login the branch auth/login, which git cannot keep next to auth. Unstack login first").
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`, `with_stacks_off_the_read_groups_nothing`)
+- Stacked branches are not offered off while `stacks_off_clashes` names flat branches git cannot keep beside another
+  one (`auth/login` beside `auth`); the read leaves it empty, since stacked branches are always on. The switch is
+  disabled with what to do: "Turning this off renames login and session to names like auth/login, which git cannot keep
+  next to auth. Unstack them first" (one: "Turning this off makes login the branch auth/login, which git cannot keep
+  next to auth. Unstack login first").
   [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
 

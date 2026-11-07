@@ -25,7 +25,7 @@ use git_ops::update_branch::{UndoCheck, apply_update_undo, finish_pending_update
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
 use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, Prepared, RewriteOptions, Witness, lock_prepared_move};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
-use history_rewrite::stack::{StackForest, stack_top};
+use history_rewrite::stack::stack_top;
 use object_cache::cache::ObjectCache;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -571,7 +571,7 @@ struct Landing {
   reparented: BTreeMap<String, String>,
 }
 
-/// How the picked commits group on the target, from one read before the move: the grouping inputs (`git config`, one
+/// How the picked commits group on the target, from one read before the move: the grouping inputs (one
 /// `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped without and with the copies on top.
 /// Only when a prefix of a picked commit names a branch the target has, the diffs of the commits ahead and of the copies
 /// (`read_commit_diffs_cached`) give the edges by lines (`compute_dependencies`, no symbols)
@@ -590,13 +590,11 @@ fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&st
   let after = group_commits(&commits, &grouping);
 
   let mut reparented = BTreeMap::new();
-  if let (Some(before_forest), Some(after_forest)) = (&before.forest, &after.forest) {
-    for group in groups.iter().filter_map(|group| group.group.as_deref()).filter(|group| existing.contains(group)) {
-      if let Some(parent) = after_forest.declared_parent(group)
-        && before_forest.declared_parent(group) != Some(parent)
-      {
-        reparented.insert(group.to_string(), parent.to_string());
-      }
+  for group in groups.iter().filter_map(|group| group.group.as_deref()).filter(|group| existing.contains(group)) {
+    if let Some(parent) = after.forest.declared_parent(group)
+      && before.forest.declared_parent(group) != Some(parent)
+    {
+      reparented.insert(group.to_string(), parent.to_string());
     }
   }
 
@@ -621,17 +619,12 @@ fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&st
           .filter(|edge| edge.from == position)
           .filter_map(|edge| after.groups.get(&ids[edge.to]).and_then(Option::as_deref))
           .collect();
-        dependency(&picked[index], group, &needs, &after, grouping.stacks)
+        dependency(&picked[index], group, &needs, &after)
       })
       .collect()
   };
   debug!(dependencies = dependencies.len(), reparented = reparented.len(), "the landing of the pick");
   Ok(Landing { groups, dependencies, reparented })
-}
-
-/// The branch and the branches it is built on, nearest first; only the branch with stacked branches off
-fn chain_of<'a>(forest: &'a StackForest, branch: &'a str, stacks: bool) -> Vec<&'a str> {
-  if stacks { forest.chain(branch) } else { vec![branch] }
 }
 
 /// The copy of a picked commit as the grouping sees it: its id and subject
@@ -662,10 +655,9 @@ fn copy_commit(commit: &PickedCommit) -> Commit {
 /// The dependency of a picked commit of `group` that needs the commits of the branches `needs`: `None` when `group` is
 /// built on each of them (or is one). The fix: the commit moves into the branch of the stack that holds all of them; a
 /// commit that needs its own branch too stacks the branch instead, on a branch that holds them and its parent
-fn dependency(commit: &PickedCommit, group: &str, needs: &BTreeSet<&str>, after: &Grouped, stacks: bool) -> Option<PickDependency> {
-  let empty = StackForest::default();
-  let forest = after.forest.as_ref().unwrap_or(&empty);
-  let built_on = chain_of(forest, group, stacks);
+fn dependency(commit: &PickedCommit, group: &str, needs: &BTreeSet<&str>, after: &Grouped) -> Option<PickDependency> {
+  let forest = &after.forest;
+  let built_on = forest.chain(group);
   let depends_on: Vec<String> = needs.iter().filter(|need| !built_on.contains(need)).map(|need| (*need).to_string()).collect();
   if depends_on.is_empty() {
     return None;
@@ -673,11 +665,11 @@ fn dependency(commit: &PickedCommit, group: &str, needs: &BTreeSet<&str>, after:
   let fix = if needs.contains(group) {
     let mut owners: BTreeSet<&str> = needs.iter().copied().filter(|need| *need != group).collect();
     owners.extend(forest.declared_parent(group));
-    stack_top(&owners, stacks, |branch| chain_of(forest, branch, stacks))
-      .filter(|top| stacks && !chain_of(forest, top, stacks).contains(&group))
+    stack_top(&owners, |branch| forest.chain(branch))
+      .filter(|top| !forest.chain(top).contains(&group))
       .map(|top| DependencyFix::Restack(top.to_string()))
   } else {
-    stack_top(needs, stacks, |branch| chain_of(forest, branch, stacks)).map(|top| DependencyFix::Move(top.to_string()))
+    stack_top(needs, |branch| forest.chain(branch)).map(|top| DependencyFix::Move(top.to_string()))
   };
   Some(PickDependency {
     commit: commit.new_id.clone(),

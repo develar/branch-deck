@@ -529,11 +529,6 @@ impl Given {
     root
   }
 
-  /// Stacked branches: a commit declares a parent, or the landing gate's names need a stack
-  fn stacks(&self) -> bool {
-    self.landing_needs.is_some() || self.commits.iter().any(|subject| Self::group_of(subject).1.is_some())
-  }
-
   fn args(&self, check: bool) -> SafePushArgs {
     SafePushArgs {
       branch: self.branch.clone(),
@@ -792,9 +787,6 @@ fn space_of(given: &Given) -> Space {
     Vec::new()
   };
   let space = Space::with_history(&commits);
-  if given.stacks() {
-    append_config(space.repo.path(), &[("branchdeck.stacks", "true")]);
-  }
   match given.dangling {
     Some(Dangling::Removed) => drop(commit_dangling_reference(&space.repo)),
     Some(Dangling::Changed) => drop(commit_changed_declaration(&space.repo)),
@@ -1940,7 +1932,6 @@ fn assert_d8_placement(stack: Option<&BranchStack>) {
 fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() {
   // the placement alone, as stack_test.rs places branches
   let mut grouper = CommitGrouper::new_with(&GroupingInputs {
-    stacks: true,
     stack_parents: StoreLines {
       entries: [("B".to_string(), "A".to_string())].into(),
       ..StoreLines::default()
@@ -1950,7 +1941,7 @@ fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() 
   for (index, subject) in D8_SUBJECTS.iter().enumerate() {
     grouper.add_commit(listed_commit(&format!("c{index}"), subject));
   }
-  let forest = grouper.finish_with_stacks().1.expect("stacks are on");
+  let forest = grouper.finish_with_stacks().1;
   let placed = place_branches(&forest, &HashMap::new());
   assert_d8_placement(placed.get("C"));
 
@@ -1958,7 +1949,6 @@ fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() 
   // the reword drops its prefix
   let space = Space::new(&[]);
   let repo = &space.repo;
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let mut ids = Vec::new();
   for (index, subject) in ["(A) a1", "(A/A) a2", "(A/B) b1", "(B/C) c1"].iter().enumerate() {
     write(repo, &format!("f{index}.txt"), subject);

@@ -1657,7 +1657,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
     остаётся для них. Модули `domain-types` называют, что в них лежит (`commit`, `conflict`, `update_project`,
     `branch_names`), не `model`.
   - `stack_path` переезжает вместе со `StackSyntaxError`, `stack_of` и `leaf_of` (`stack.rs:48-85`): один синтаксис
-    префикса `(parent/child)` в одном месте; `stacks_enabled` и лес остаются в `history-rewrite`.
+    префикса `(parent/child)` в одном месте; лес остаётся в `history-rewrite`.
   - `Subject` в s2 — внутренний тип: провод `LandingGateParams` (`branchName`, `stack`) не меняется, поэтому
     `bindings.ts` остаётся байт в байт; `landing_check` и `brd safe-push` строят `Subject` из своих параметров.
   - `ErrorCode` уносит `exit_code` и `retryable`; `CONFLICT_EXIT` и `CliError` остаются в `bd-core`; `domain-types`

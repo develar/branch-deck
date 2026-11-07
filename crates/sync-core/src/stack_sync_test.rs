@@ -17,11 +17,10 @@ fn repo_path(test_repo: &TestRepo) -> &str {
   test_repo.path().to_str().unwrap()
 }
 
-/// A repository with an initial commit and stacked branches on
+/// A repository with an initial commit
 fn stacked_repo() -> TestRepo {
   let test_repo = TestRepo::new();
   test_repo.create_commit("Initial commit", "README.md", "# Test");
-  append_config(test_repo.path(), &[("branchdeck.stacks", "true")]);
   test_repo
 }
 
@@ -42,21 +41,6 @@ fn grouped(events: &[SyncEvent]) -> BTreeMap<String, GroupedBranchInfo> {
       _ => None,
     })
     .expect("BranchesGrouped is sent")
-}
-
-#[tokio::test]
-async fn without_stacks_branches_grouped_has_no_stack() {
-  let (test_repo, _) = TestRepo::with_commits(&one_file_each([
-    ("Initial commit", "README.md", "# Test"),
-    ("(docs) Document", "docs.md", "docs"),
-    ("(auth/login) Add form", "login.rs", "// login"),
-  ]));
-
-  let flat = grouped(&sync(&test_repo).await);
-
-  assert_eq!(flat.keys().collect::<Vec<_>>(), ["auth/login", "docs"]);
-  assert!(flat.values().all(|branch| branch.stack.is_none()));
-  assert!(test_repo.branch_exists("test/virtual/auth/login"));
 }
 
 #[tokio::test]
@@ -274,60 +258,6 @@ async fn the_unpushed_commits_of_a_child_exclude_its_parent() {
   // only the new commit is login's: the copy is patch-equivalent to the pushed one, the session commit is the parent's
   assert_eq!(login.unpushed_commits, [test_repo.rev_parse("test/virtual/login").unwrap()]);
   assert_eq!(login.my_unpushed_count, 1);
-}
-
-/// Syncs with the `test` branch prefix, expecting a failure: its error and the events sent before
-async fn failed_sync(test_repo: &TestRepo) -> (anyhow::Error, Vec<SyncEvent>) {
-  let progress = TestReporter::new();
-  let error = sync_branches(test_repo.git_executor(), repo_path(test_repo), "test", progress.clone(), SyncOptions::default())
-    .await
-    .unwrap_err();
-  (error, progress.get_events())
-}
-
-/// Stacks off in a repository with stacked prefixes: `(auth/login)` is the flat branch `auth/login`, whose ref
-/// `test/virtual/auth/login` cannot exist beside `test/virtual/auth` (a directory/file conflict of refs), so the sync
-/// fails. Which of the two fails depends on the order the branches are written in, the other one is written
-#[tokio::test]
-async fn without_stacks_a_parent_and_its_child_prefix_fail_the_sync() {
-  let (test_repo, _) = TestRepo::with_commits(&one_file_each([
-    ("Initial commit", "README.md", "# Test"),
-    ("(auth) Add auth", "auth.rs", "// auth"),
-    ("(auth/login) Add form", "login.rs", "// login"),
-  ]));
-
-  let (error, events) = failed_sync(&test_repo).await;
-
-  assert_eq!(grouped(&events).keys().collect::<Vec<_>>(), ["auth", "auth/login"]);
-  let message = format!("{error:#}");
-  assert!(message.starts_with("Failed to sync branch auth"), "{message}");
-  assert!(message.contains("refs/heads/test/virtual/auth"), "{message}");
-  assert!(!(test_repo.branch_exists("test/virtual/auth") && test_repo.branch_exists("test/virtual/auth/login")));
-}
-
-/// Turning stacks off after a stacked sync: `auth` stays, `login` is archived, and the flat `auth/login` fails the sync
-#[tokio::test]
-async fn turning_stacks_off_fails_the_sync_on_the_flat_child() {
-  let test_repo = stacked_repo();
-  test_repo.commits_on(
-    "refs/heads/master",
-    &one_file_each([("(auth) Add auth", "auth.rs", "// auth"), ("(auth/login) Add form", "login.rs", "// login")]),
-  );
-  sync(&test_repo).await;
-  test_repo.set_config("branchdeck.stacks", "false").unwrap();
-
-  let (error, events) = failed_sync(&test_repo).await;
-
-  let message = format!("{error:#}");
-  assert!(message.starts_with("Failed to sync branch auth/login: Failed to update refs (sync)"), "{message}");
-  assert!(
-    message.contains("cannot lock ref 'refs/heads/test/virtual/auth/login': 'refs/heads/test/virtual/auth' exists"),
-    "{message}"
-  );
-  assert_eq!(final_statuses(&events), BTreeMap::from([("auth".to_string(), status(BranchSyncStatus::Unchanged))]));
-  assert!(test_repo.branch_exists("test/virtual/auth"));
-  assert!(!test_repo.branch_exists("test/virtual/login"));
-  assert_eq!(test_repo.list_branches("test/archived/*/login").unwrap().len(), 1);
 }
 
 /// The stack branch updates of a sync, by root

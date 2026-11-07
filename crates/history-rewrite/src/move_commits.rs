@@ -74,7 +74,7 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
   };
   let mut leaf = None;
   let outcome = regroup_planned(git_executor, &params.repository_path, &options, |snapshot| {
-    leaf = target.map(|target| move_target(snapshot, target).leaf);
+    leaf = target.map(|target| move_target(target).leaf);
     plan_move(snapshot, &params.commit_ids, target)
   })?;
   let result = move_result(&outcome, &params.commit_ids, leaf);

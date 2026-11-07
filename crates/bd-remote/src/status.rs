@@ -80,16 +80,16 @@ pub struct StatusOutput {
   pub baseline: String,
   pub branch_count: usize,
   pub unassigned_count: usize,
-  /// With stacked branches on (`branchdeck.stacks`): the branches with commits, each after its parent
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub forest: Option<Vec<String>>,
+  /// The branches with commits, each after its parent; omitted without branches
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub forest: Vec<String>,
   /// Newest first; omitted with --unassigned
   #[serde(skip_serializing_if = "Option::is_none")]
   pub branches: Option<Vec<BranchStatus>>,
   /// Newest first; omitted with --branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unassigned: Option<Vec<CommitSummary>>,
-  /// With stacked branches on: the stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
+  /// The stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
   /// one branch), then those kept for their remote branch; as the last sync left them, by what the object cache knows
   /// of their builds; omitted with --branch or --unassigned
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -102,7 +102,7 @@ pub struct StatusOutput {
   /// The lines of the issue groups that are not used: not `KEY<TAB>name`, an invalid key or name, a key listed twice
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub issue_group_problems: Vec<StoreLine>,
-  /// With stacked branches on, the children of the stack parents (`refs/branch-deck/stack-parents`) that stack no
+  /// The children of the stack parents (`refs/branch-deck/stack-parents`) that stack no
   /// branch ahead of the baseline on this branch. The map is shared by every branch and worktree, so they may stack a
   /// branch of another one; a sync drops the line of a branch once it is integrated
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -206,9 +206,9 @@ pub struct StatusBrief {
   pub baseline: String,
   pub branch_count: usize,
   pub unassigned_count: usize,
-  /// With stacked branches on: the branches with commits, each after its parent
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub forest: Option<Vec<String>>,
+  /// As in `brd status`
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub forest: Vec<String>,
   /// Newest first; omitted with --unassigned
   #[serde(skip_serializing_if = "Option::is_none")]
   pub branches: Option<Vec<BriefBranch>>,
@@ -243,7 +243,7 @@ pub struct BriefBranch {
   pub issue_keys: Vec<String>,
   /// The subject of its newest commit, without the `(prefix)`
   pub newest: String,
-  /// The parent its commits declare, else its stack parent, with stacked branches on
+  /// The parent its commits declare, else its stack parent
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
   /// Where `parent` comes from
@@ -345,7 +345,7 @@ pub struct BranchStatus {
   #[serde(rename = "ref")]
   pub reference: String,
   /// The parent its commits declare (`(parent/name)`), else its line in the stack parents
-  /// (`refs/branch-deck/stack-parents`), with stacked branches on
+  /// (`refs/branch-deck/stack-parents`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent: Option<String>,
   /// Where `parent` comes from: `prefix` when a prefix declares it, `store` when only the stack parents do
@@ -550,7 +550,6 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   };
   let stacks = if args.branch.is_some() || args.unassigned { Vec::new() } else { all_stacks };
   let descriptions = if args.brief { HashMap::new() } else { config.descriptions().clone() };
-  let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
   let short = context.short_ids(
     grouping
@@ -662,7 +661,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     baseline: grouping.baseline_branch.clone(),
     branch_count: grouping.branches.len(),
     unassigned_count: grouping.unassigned.len(),
-    forest: forest.map(|forest| forest.order.clone()),
+    forest: grouping.forest.order.clone(),
     branches,
     unassigned,
     stacks: stacks
@@ -675,11 +674,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     idle_issue_groups: grouping.idle_issue_groups.clone(),
     issue_group_problems: store_lines(&issue_groups.problems),
     idle_stack_parents: grouping.idle_stack_parents.clone(),
-    stack_parent_problems: if grouping.grouping.stacks {
-      store_lines(&grouping.grouping.stack_parents.problems)
-    } else {
-      Vec::new()
-    },
+    stack_parent_problems: store_lines(&grouping.grouping.stack_parents.problems),
     idle_parked: grouping
       .grouping
       .parked

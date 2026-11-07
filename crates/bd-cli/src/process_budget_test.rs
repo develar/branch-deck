@@ -43,7 +43,7 @@ use lease_pool::lease::{GetStep, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
-use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
+use test_utils::git_test_utils::{TestRepo, TestWorktree};
 use test_utils::process_budget::{FIRST_SYNC, assert_signed_commits, with_added_processes, with_process_deltas};
 
 /// The context `brd --prefix test-user` resolves in `repo`; its executor counts every process of the command
@@ -87,7 +87,6 @@ fn repo_with_branches() -> TestRepo {
 fn stack_together_uses_the_same_number_of_git_processes_as_restack() {
   let repo_with_two_branches = || {
     let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(alpha) A", "(beta) B"]);
-    repo.set_config("branchdeck.stacks", "true").unwrap();
     repo
   };
   let process_counts = |context: &RepoContext| {
@@ -196,7 +195,7 @@ fn a_check_with_the_prefix_of_the_config() {
 }
 
 /// `brd commits` with the branch prefix of the repository's config: the one `git config` of the context names the
-/// prefix, the stack setting and the symbol setting
+/// prefix and the symbol setting
 #[test]
 fn commits_with_the_prefix_of_the_config() {
   let repo = repo_with_branches();
@@ -304,7 +303,6 @@ fn a_status() {
 #[test]
 fn a_status_of_a_forking_stack() {
   let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(auth/login) Add b", "(auth/session) Add c"]);
-  append_config(repo.path(), &[("branchdeck.stacks", "true")]);
   sync(&context(&repo)).unwrap();
   let context = context(&repo);
   let output = status(&context, &StatusArgs::default(), &environment(repo.path())).unwrap();
@@ -415,7 +413,6 @@ fn a_push_over_a_moved_remote() {
 #[test]
 fn a_push_beside_a_robot_started_before_a_restack() {
   let space = Space::new(&["(auth) Add auth"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   run_in(&space.repo, &["sync"]);
   space.set_robots(vec![robot_json("auth-robot", "RUNNING", "auth", &space.local_tip(AUTH))]);
   write(&space.repo, "env.txt", "env\n");
@@ -475,7 +472,7 @@ fn a_fold() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 3),
@@ -509,7 +506,7 @@ fn a_squash() {
     &context,
     &[
       ("cat-file", 2), // the stores of the grouping; the squashed commit
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 2),  // the squashed commit; the carried notes
       ("for-each-ref", 2), // the baseline; the witness of HEAD under the lock
       ("log", 3),          // the commits ahead; the history with its notes; the new one with its trees
@@ -548,7 +545,7 @@ fn a_reword() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 2),
       ("log", 2),
@@ -582,7 +579,7 @@ fn a_reword_in_a_lease() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 2),
+      ("config", 1),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("log", 2),
@@ -988,7 +985,7 @@ fn assert_followed_pick_with(context: &RepoContext, output: &PickOutput, more_lo
   );
   let expected = vec![
     ("cat-file", 1),
-    ("config", 2),
+    ("config", 1),
     ("diff-tree", 2),
     ("for-each-ref", 1),
     ("log", 4 + more_logs),
@@ -1060,7 +1057,7 @@ fn a_remote_pick() {
     &context,
     &[
       ("cat-file", 5),
-      ("config", 4),
+      ("config", 2),
       ("diff-tree", 1),
       ("fast-import", 1),
       ("fetch", 1),
@@ -1126,9 +1123,8 @@ fn a_lease_get_and_return() {
 /// `brd lease return` of a commit that landed on master with a conflict resolution (the twin of `brd update`): the return
 /// of a free slot, then the proofs, each for what the one before left: the dry run of the pick (its tip, the upstream,
 /// the fork point, the merges, the range and the replay that conflicts), the patch id (`rev-list --cherry-mark` of
-/// master's side, nothing marked), the reads of the ladder (the local and the upstream `log`, the stack setting), the
-/// ladder (`diff-tree` and `patch-id` of the pair, `merge-tree` and the upstream tree, the changed lines) and the
-/// interdiff of the twin
+/// master's side, nothing marked), the reads of the ladder (the local and the upstream `log`), the ladder (`diff-tree`
+/// and `patch-id` of the pair, `merge-tree` and the upstream tree, the changed lines) and the interdiff of the twin
 #[test]
 fn a_lease_return_whose_commit_landed_by_the_ladder() {
   let repo = repo_with_branches();
@@ -1149,7 +1145,7 @@ fn a_lease_return_whose_commit_landed_by_the_ladder() {
   assert_git_processes(
     &context.git,
     &[
-      ("config", 2),
+      ("config", 1),
       ("diff-tree", 4),
       ("for-each-ref", 1),
       ("log", 5),
@@ -1675,7 +1671,6 @@ fn a_pick_into_a_branch_the_target_has() {
     &context,
     &[
       ("cat-file", 2),
-      ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 1),
       ("log", 4),
@@ -1837,7 +1832,6 @@ const LAND_CHECK: &[(&str, u32)] = &[
 #[test]
 fn a_safe_push_check_of_a_stacked_branch() {
   let space = Space::new(&["(auth) Add login", "(auth/form) Add form"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let environment = space.environment();
   let context = space_context(&environment);
   let args = SafePushArgs {
@@ -1861,7 +1855,6 @@ fn a_safe_push_check_of_a_stacked_branch() {
 #[test]
 fn a_safe_push_check_of_the_whole_stack() {
   let space = Space::new(&["(auth) Add login", "(auth/form) Add form", "(auth/side) Add side"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
   let environment = space.environment();
   let context = space_context(&environment);
   let args = SafePushArgs {
@@ -2017,7 +2010,7 @@ fn a_request_review_check() {
 }
 
 /// `brd group --dry-run` of a plan with a description, with the prefix of the config: the current descriptions come from
-/// the one `git config` of the command, the regroup's snapshot reads its own
+/// the one `git config` of the command, the regroup's snapshot reads no config
 #[test]
 fn a_group_dry_run_with_a_description() {
   let repo = repo_with_branches();
@@ -2035,7 +2028,7 @@ fn a_group_dry_run_with_a_description() {
   assert_eq!(output.described, ["auth"]);
   assert_processes(
     &context,
-    &[("cat-file", 1), ("config", 2), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 3)],
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 3)],
   );
 }
 

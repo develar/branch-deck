@@ -107,7 +107,6 @@ fn the_pull_request_command_names_a_github_mirror() {
 #[test_log::test]
 fn parents_go_first_and_a_child_alone_carries_its_parents_commits() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&repo, &["push", "--alone"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 
@@ -141,7 +140,6 @@ fn parents_go_first_and_a_child_alone_carries_its_parents_commits() {
 #[test_log::test]
 fn a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add auth", "(auth/session) Add session", "(auth/login) Add login"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
 
@@ -155,7 +153,6 @@ fn a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children()
 #[test_log::test]
 fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth", "(docs) Add docs"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
 
   let (exit_code, output) = run_in(&repo, &["push", "--with-children"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
@@ -189,7 +186,6 @@ fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
 #[test_log::test]
 fn with_children_takes_the_stack_branch_along_once_it_is_on_the_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let stack = format!("{PREFIX}/stack/auth");
 
   // a child's push takes no stack branch along: only the root names the whole stack
@@ -249,7 +245,6 @@ fn with_children_takes_the_stack_branch_along_once_it_is_on_the_remote() {
 #[test_log::test]
 fn with_children_refuses_a_blocked_child() {
   let (repo, remote) = repo_with_remote(&["(docs) Add docs", "(auth) Add auth"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   // login changes a file only docs has: it conflicts on auth, and oauth on it is blocked
   write(&repo, "f0.txt", "changed\n");
   commit_all(&repo, "(auth/login) Change docs", 1_700_000_900);
@@ -294,7 +289,6 @@ fn all_needs_yes_and_unsynced_branches_are_refused() {
 #[test_log::test]
 fn a_parked_branch_and_what_is_built_on_it_are_never_pushed() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&repo, &["park", "login", "--note", "IJPL-1"]);
   assert_eq!(exit_code, 0, "{output}");
 
@@ -439,7 +433,6 @@ fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch() {
 #[test_log::test]
 fn a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&repo, &["push", "login"]);
   assert_eq!(exit_code, 0, "{output}");
   let login = "test-user/virtual/login";
@@ -702,7 +695,6 @@ fn the_app_and_bd_share_the_lease() {
 fn amended_and_restacked_commits_push_without_force() {
   let subjects = ["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth"];
   let (repo, remote) = repo_with_remote(&subjects);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
   assert_eq!(exit_code, 0, "{output}");
 
@@ -823,7 +815,6 @@ fn a_remote_commit_the_baseline_lacks_still_refuses_the_push() {
 fn a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed() {
   const LOGIN: &str = "test-user/virtual/login";
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
   assert_eq!(exit_code, 0, "{output}");
   let pushed_login = remote_tip(&remote, LOGIN);
@@ -884,7 +875,6 @@ fn sync_names_the_push_of_each_branch() {
 #[test_log::test]
 fn a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
-  repo.set_config("branchdeck.stacks", "true").unwrap();
   run_in(&repo, &["push", "login"]);
   push_from_elsewhere_to(&remote, "test-user/virtual/login", "Their fix");
   git(&repo, &["fetch", "-q", "origin"]);

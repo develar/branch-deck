@@ -3,15 +3,15 @@
 //! `suggest.rs` reads the input, and checks the result through the oracle of `cluster_with_repair`.
 //!
 //! 1. Hard units (union-find): the dependency edges, fixup -> target, the same explicit prefix or issue group (an
-//!    anchor, unless `fresh`), and the same issue key of the subject among the commits without a prefix. An edge
-//!    between two anchors joins nothing: it is an `anchor_dependency` warning. With stacked branches a dependency
-//!    joins nothing either: it is an edge between units, and only the edges of a cycle join.
+//!    anchor, unless `fresh`), and the same issue key of the subject among the commits without a prefix. A fixup
+//!    between two anchors joins nothing: it is an `anchor_dependency` warning. A dependency joins nothing either: it
+//!    is an edge between units, and only the edges of a cycle join (between two anchors, a warning too).
 //! 2. A soft score between two clusters, `S = max(R, P × Kp) × K + adj`, in integer units of 1/10 000 so that ties are
 //!    exact. R links by issue keys and scopes, P by shared paths (IDF-weighted Jaccard), K lowers both when the issue
 //!    projects or the scopes disagree, and adj adds a little for neighbours in the log.
 //! 3. Agglomerative merges, the best pair first and on a tie the oldest; two anchors never merge, no merge goes over
 //!    `max_commits`, no merge makes a cycle of dependencies, and the merging stops under `MERGE_THRESHOLD`.
-//! 4. With stacked branches, `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
+//! 4. `place_clusters` gives each cluster a parent, so that every cluster it depends on is an
 //!    ancestor (`stack_clusters`).
 
 use crate::areas::{DEFAULT_AREA_DEPTH, area_lines, area_of};
@@ -36,7 +36,7 @@ pub const DEFAULT_MAX_COMMITS: usize = 40;
 /// How many times `cluster_with_repair` clusters again after a conflict
 pub const MAX_REPAIR_ROUNDS: usize = 5;
 
-/// R, with stacked branches: a commit of one side depends on a commit of the other, and a side without an anchor has
+/// R: a commit of one side depends on a commit of the other, and a side without an anchor has
 /// no issue key, so the commit follows up on the other side; a commit with a key stacks on it instead
 const DEPENDENCY: u32 = 9_500;
 /// R: a body names an issue key of the other side
@@ -88,14 +88,9 @@ pub struct ClusterInput {
   #[serde(default)]
   pub dependencies: Vec<[usize; 2]>,
   /// `[from, to]`: `from` uses a name `to` adds, and no line links them (`symbol_dependencies`, the class `Order`):
-  /// with stacked branches the cluster of `from` stacks on the cluster of `to`, without them a follow-up joins what it
-  /// uses; never a join of two units
+  /// the cluster of `from` stacks on the cluster of `to`; never a join of two units
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub symbol_dependencies: Vec<[usize; 2]>,
-  /// Stacked branches are on (`branchdeck.stacks`): a prefix path is an anchor by its leaf, and a dependency between
-  /// two units stacks one cluster on the other instead of joining them
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-  pub stacks: bool,
   /// Child -> parent: the stack parents (`refs/branch-deck/stack-parents`), the parent of a branch whose prefixes
   /// declare none
   #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -104,10 +99,10 @@ pub struct ClusterInput {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitFeatures {
-  /// The sanitized `(prefix)` of the subject: a path with stacked branches on
+  /// The sanitized `(prefix)` of the subject, a stack path
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub prefix: Option<String>,
-  /// The group now: the prefix (its leaf with stacked branches on), else the issue group of the key, else the issue
+  /// The group now: the prefix (its leaf), else the issue group of the key, else the issue
   /// key; `None` when unassigned
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub group: Option<String>,
@@ -166,8 +161,8 @@ pub struct RepairEdge {
   pub commit: usize,
   pub needs: usize,
   pub round: usize,
-  /// The edge stacks the cluster of `commit` on the cluster of `needs`, as a dependency does with stacked branches,
-  /// instead of joining their units
+  /// The edge stacks the cluster of `commit` on the cluster of `needs`, as a dependency does, instead
+  /// of joining their units
   pub stack: bool,
 }
 
@@ -259,7 +254,7 @@ pub enum ClusterChange {
 /// Cluster `input`, then check the result with `check` and, while it finds conflicts, join each conflicting commit to
 /// the commits it needs as hard edges and cluster again, at most `MAX_REPAIR_ROUNDS` times. An edge is added only
 /// between two hard units, so also inside a cluster whose units build apart (an issue group), and never between two
-/// anchors, so such a conflict stays. With stacked branches, a commit that needs a commit of another cluster first
+/// anchors, so such a conflict stays. A commit that needs a commit of another cluster first
 /// stacks its cluster on that one; only when the same conflict comes again do their units join
 pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mut check: impl FnMut(&Clustering) -> Result<Vec<Conflict>, E>) -> Result<Repaired, E> {
   let mut options = options.clone();
@@ -289,7 +284,7 @@ pub fn cluster_with_repair<E>(input: &ClusterInput, options: &ClusterOptions, mu
       .flat_map(|conflict| conflict.needs.iter().map(|&needs| (conflict.commit, needs)))
       .filter(|&(commit, needs)| commit < count && needs < count)
       .filter_map(|(commit, needs)| {
-        let stack = input.stacks && cluster_of[commit] != cluster_of[needs] && !stacked_before(commit, needs);
+        let stack = cluster_of[commit] != cluster_of[needs] && !stacked_before(commit, needs);
         (stack || joinable(commit, needs)).then_some((commit, needs, stack))
       })
       .filter(|&(commit, needs, stack)| {
@@ -332,7 +327,7 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
   let scorer = Scorer::new(&groups, &features, options.max_commits);
 
   let count = groups.len();
-  // the groups each group depends on: with stacked branches, the dependencies that joined no units; and the groups
+  // the groups each group depends on: the dependencies that joined no units; and the groups
   // each group must build on, also by the parents its prefixes declare
   let mut needs: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); count];
   for [from, to] in unit_edges {
@@ -342,7 +337,7 @@ pub fn cluster(input: &ClusterInput, options: &ClusterOptions) -> Clustering {
   for [from, to] in declared {
     below[from].insert(to);
   }
-  // the groups one uses a name of, by symbols only: a link for a follow-up, with or without stacked branches
+  // the groups one uses a name of, by symbols only: a link for a follow-up
   let mut uses: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); count];
   for [from, to] in unit_uses {
     uses[from].insert(to);
@@ -654,19 +649,13 @@ impl Sets {
   }
 }
 
-/// The anchor of a commit: its prefix (the leaf of its path with stacked branches), else the issue group of its key;
-/// none with `fresh`
-fn anchor_of(commit: &CommitFeatures, fresh: bool, stacks: bool) -> Option<&str> {
+/// The anchor of a commit: the leaf of its prefix path, else the issue group of its key; none with `fresh`
+fn anchor_of(commit: &CommitFeatures, fresh: bool) -> Option<&str> {
   if fresh {
     None
   } else {
-    commit.prefix.as_deref().map(|prefix| prefix_anchor(prefix, stacks)).or(commit.issue_group.as_deref())
+    commit.prefix.as_deref().map(leaf_of_path).or(commit.issue_group.as_deref())
   }
-}
-
-/// The branch a prefix names: with stacked branches the leaf of its path
-fn prefix_anchor(prefix: &str, stacks: bool) -> &str {
-  if stacks { leaf_of_path(prefix) } else { prefix }
 }
 
 /// The last level of a stack path
@@ -688,14 +677,13 @@ struct HardUnits {
   dependencies: Vec<[usize; 2]>,
   /// A unit and the parent its prefix paths declare
   declared: Vec<[usize; 2]>,
-  /// The units one uses a name of, by symbols only (`symbol_dependencies`); with stacked branches in `dependencies`
-  /// too
+  /// The units one uses a name of, by symbols only (`symbol_dependencies`), in `dependencies` too
   uses: Vec<[usize; 2]>,
 }
 
 fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &[Vec<(u32, f64)>]) -> HardUnits {
   let count = input.commits.len();
-  let anchor_of = |commit| anchor_of(commit, options.fresh, input.stacks);
+  let anchor_of = |commit| anchor_of(commit, options.fresh);
   let mut sets = Sets {
     parents: (0..count).collect(),
     anchors: input.commits.iter().map(|commit| anchor_of(commit).map(str::to_string)).collect(),
@@ -724,7 +712,7 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
       warnings.push(warning);
     }
   };
-  // with stacked branches a dependency is an edge of the stack, not a join
+  // a dependency is an edge of the stack, not a join
   let mut stack_edges: Vec<[usize; 2]> = Vec::new();
   let edges = input
     .dependencies
@@ -739,7 +727,7 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     )
     .filter(|&(from, to, _)| from < count && to < count);
   for (from, to, fixup) in edges {
-    if input.stacks && !fixup {
+    if !fixup {
       stack_edges.push([from, to]);
     } else if let Err(anchors) = sets.union(from, to) {
       warn(&mut warnings, anchors, fixup);
@@ -753,7 +741,7 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
       joined_in.push((repair.commit, repair.round));
     }
   }
-  // no stack builds a cycle of units: its edges join, as without stacked branches
+  // no stack builds a cycle of units: its edges join
   for [from, to] in cyclic_edges(&mut sets, &stack_edges) {
     if let Err(anchors) = sets.union(from, to) {
       warn(&mut warnings, anchors, false);
@@ -801,26 +789,22 @@ fn hard_units(input: &ClusterInput, options: &ClusterOptions, commit_features: &
     *users.entry(*to).or_default() += 1;
   }
   uses.retain(|[_, to]| users[to] < SHARED_HELPER_USERS);
-  if input.stacks {
-    unit_edges.extend(uses.iter().copied());
-  }
+  unit_edges.extend(uses.iter().copied());
   unit_edges.sort_unstable();
   unit_edges.dedup();
   let unit_of_anchor: HashMap<String, usize> = by_root.keys().enumerate().filter_map(|(unit, &root)| Some((sets.anchors[root].clone()?, unit))).collect();
   let mut declared: Vec<[usize; 2]> = Vec::new();
-  if input.stacks {
-    for (position, prefix) in input
-      .commits
-      .iter()
-      .enumerate()
-      .filter_map(|(position, commit)| Some((position, commit.prefix.as_deref()?)))
+  for (position, prefix) in input
+    .commits
+    .iter()
+    .enumerate()
+    .filter_map(|(position, commit)| Some((position, commit.prefix.as_deref()?)))
+  {
+    let unit = unit_of_root[&sets.root(position)];
+    if let Some(&parent) = parent_of_path(prefix).and_then(|parent| unit_of_anchor.get(parent))
+      && parent != unit
     {
-      let unit = unit_of_root[&sets.root(position)];
-      if let Some(&parent) = parent_of_path(prefix).and_then(|parent| unit_of_anchor.get(parent))
-        && parent != unit
-      {
-        declared.push([unit, parent]);
-      }
+      declared.push([unit, parent]);
     }
   }
   declared.sort_unstable();
@@ -1207,8 +1191,8 @@ pub fn name_clusters(input: &ClusterInput, clustering: &Clustering, taken: &Hash
   names
 }
 
-/// The name of a group the cluster takes over: the prefix its commits have (the leaf of the path with stacked
-/// branches on, which `place_clusters` stacks), else the group, an issue key
+/// The name of a group the cluster takes over: the leaf of the prefix path its commits have (`place_clusters` stacks
+/// it), else the group, an issue key
 fn inherited_name(input: &ClusterInput, cluster: &Cluster, group: &str) -> String {
   cluster
     .commits
@@ -1216,7 +1200,7 @@ fn inherited_name(input: &ClusterInput, cluster: &Cluster, group: &str) -> Strin
     .map(|&commit| &input.commits[commit])
     .find(|commit| commit.group.as_deref() == Some(group))
     .and_then(|commit| commit.prefix.as_deref())
-    .map_or_else(|| group.to_string(), |prefix| prefix_anchor(prefix, input.stacks).to_string())
+    .map_or_else(|| group.to_string(), |prefix| leaf_of_path(prefix).to_string())
 }
 
 /// The name of a candidate, or `None` when it can't be a branch name
@@ -1378,15 +1362,11 @@ impl Placement {
   }
 }
 
-/// Where each cluster named `leaves` builds. Without stacked branches each one is a root under its leaf. With them,
-/// the parent its prefixes declare (else its stack parent) stays when it holds every cluster it depends on as an
+/// Where each cluster named `leaves` builds: the parent its prefixes declare (else its stack parent) stays when it holds every cluster it depends on as an
 /// ancestor (`stack_clusters`);
 /// a declared parent that is no cluster goes, as the sync would build the branch on the baseline anyway, and `fresh`
 /// declares no parent
 pub fn place_clusters(input: &ClusterInput, clustering: &Clustering, leaves: &[String], fresh: bool) -> Vec<Placement> {
-  if !input.stacks {
-    return leaves.iter().map(|leaf| Placement::root(leaf)).collect();
-  }
   // the parent that the prefix path of the leaf declares in its oldest commit, else its stack parent; not the leaf
   // itself
   let declared_names: Vec<Option<&str>> = clustering
@@ -1610,9 +1590,7 @@ pub fn why(input: &ClusterInput, cluster: &Cluster) -> String {
   let commits: Vec<&CommitFeatures> = cluster.commits.iter().map(|&commit| &input.commits[commit]).collect();
   let mut parts: Vec<String> = Vec::new();
   if let Some(anchor) = &cluster.anchor {
-    let prefixed = commits
-      .iter()
-      .any(|commit| commit.prefix.as_deref().map(|prefix| prefix_anchor(prefix, input.stacks)) == Some(anchor.as_str()));
+    let prefixed = commits.iter().any(|commit| commit.prefix.as_deref().map(leaf_of_path) == Some(anchor.as_str()));
     parts.push(if prefixed { format!("prefix ({anchor})") } else { format!("issue group {anchor}") });
   }
   let issue = if cluster.issue_units == cluster.units { "issue " } else { "" };
@@ -1693,7 +1671,6 @@ pub fn anonymize(input: &ClusterInput, keys: &impl BuildHasher) -> ClusterInput 
       .collect(),
     dependencies: input.dependencies.clone(),
     symbol_dependencies: input.symbol_dependencies.clone(),
-    stacks: input.stacks,
     stack_parents: input.stack_parents.iter().map(|(child, parent)| (name(child), name(parent))).collect(),
   }
 }

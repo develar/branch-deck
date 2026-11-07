@@ -23,9 +23,8 @@ fn archived_info(events: &[SyncEvent], name: &str) -> BranchIntegrationInfo {
     .unwrap_or_else(|| panic!("no detection result for the archived {name}"))
 }
 
-/// A clone with stacked branches on and `login` stacked on `auth`, synced; returns the tips of both virtual branches
+/// A clone with `login` stacked on `auth`, synced; returns the tips of both virtual branches
 pub(crate) async fn stacked_clone(local_repo: &TestRepo, git_executor: &GitCommandExecutor) -> (String, String) {
-  local_repo.set_config("branchdeck.stacks", "true").unwrap();
   local_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
   local_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
   sync_user_branches(git_executor, local_repo, DetectionStrategy::All).await.unwrap();

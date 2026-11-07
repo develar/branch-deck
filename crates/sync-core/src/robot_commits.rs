@@ -30,9 +30,9 @@ pub(crate) struct HeadCommit {
   pub(crate) branch: String,
 }
 
-/// The commits of `branches` on HEAD, oldest first, grouped as the sync groups them, with their mapping notes. Three
-/// or four processes: the stack setting and one `cat-file --batch` for the issue groups and the stack parents, one `log`
-/// of the commits ahead of the baseline (plus a `rev-parse` on a local baseline)
+/// The commits of `branches` on HEAD, oldest first, grouped as the sync groups them, with their mapping notes. Two
+/// or three processes: one `cat-file --batch` for the issue groups and the stack parents, one `log` of the commits
+/// ahead of the baseline (plus a `rev-parse` on a local baseline)
 pub(crate) fn head_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, branches: &[&str]) -> Result<Vec<HeadCommit>> {
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   Ok(

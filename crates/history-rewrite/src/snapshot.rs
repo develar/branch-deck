@@ -6,7 +6,7 @@ use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::issue_groups::ISSUE_GROUPS;
 use crate::parked::PARKED;
 use crate::regroup::RegroupError;
-use crate::stack::{StackForest, stacks_enabled};
+use crate::stack::StackForest;
 use crate::stack_parents::STACK_PARENTS;
 use crate::store_lines::read_line_stores;
 use anyhow::Result;
@@ -42,7 +42,7 @@ pub struct Snapshot {
   pub head: String,
   /// The checked out branch
   pub branch: String,
-  /// The stack setting, the issue groups, the stack parents and the parked branches
+  /// The issue groups, the stack parents and the parked branches
   pub grouping: GroupingInputs,
   /// The branch the commits are ahead of, e.g. `origin/master`
   pub baseline: String,
@@ -50,8 +50,8 @@ pub struct Snapshot {
   pub commits: Vec<Commit>,
   /// Commit id -> its group now
   pub groups: HashMap<String, Option<String>>,
-  /// How the branches stack now; `None` with stacked branches off
-  pub forest: Option<StackForest>,
+  /// How the branches stack now
+  pub forest: StackForest,
 }
 
 impl Snapshot {
@@ -73,26 +73,25 @@ impl Snapshot {
       };
       Ok((ahead, ()))
     };
-    let (snapshot, ()) = Self::read_guarded(git_executor, repository_path, (None, lease_home.is_some()), commits_ahead)?;
+    let (snapshot, ()) = Self::read_guarded(git_executor, repository_path, lease_home.is_some(), commits_ahead)?;
     Ok(snapshot)
   }
 
-  /// `read` with the stack setting a caller read already (`None`: one `git config`) and the commits ahead of the
-  /// baseline from `commits_ahead` of HEAD and the checked out branch, after the guards; with what else it read
+  /// `read` with the commits ahead of the baseline from `commits_ahead` of HEAD and the checked out branch, after the
+  /// guards; with what else it read
   pub fn read_with<T>(
     git_executor: &GitCommandExecutor,
     repository_path: &str,
-    stacks: Option<bool>,
     commits_ahead: impl FnOnce(&str, &str) -> Result<(CommitsAhead, T), RegroupError>,
   ) -> Result<(Self, T), RegroupError> {
-    Self::read_guarded(git_executor, repository_path, (stacks, false), commits_ahead)
+    Self::read_guarded(git_executor, repository_path, false, commits_ahead)
   }
 
   /// `read_with`; with `detached`, a detached HEAD is the branch [`DETACHED`]
   fn read_guarded<T>(
     git_executor: &GitCommandExecutor,
     repository_path: &str,
-    (stacks, detached): (Option<bool>, bool),
+    detached: bool,
     commits_ahead: impl FnOnce(&str, &str) -> Result<(CommitsAhead, T), RegroupError>,
   ) -> Result<(Self, T), RegroupError> {
     ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
@@ -102,10 +101,7 @@ impl Snapshot {
       None if detached => DETACHED.to_string(),
       None => return Err(RegroupError::DetachedHead(DetachedHead.to_string())),
     };
-    let grouping = match stacks {
-      Some(stacks) => read_grouping_inputs_with(git_executor, repository_path, stacks)?,
-      None => read_grouping_inputs(git_executor, repository_path)?,
-    };
+    let grouping = read_grouping_inputs(git_executor, repository_path)?;
     let (CommitsAhead { baseline, commits }, read) = commits_ahead(&head, &branch)?;
     let Grouped { groups, forest, .. } = group_commits(&commits, &grouping);
     let snapshot = Self {
@@ -121,18 +117,12 @@ impl Snapshot {
   }
 }
 
-/// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects, and the
-/// parked branches. Two git processes: `git config` and one `cat-file --batch` for the three maps
+/// The issue groups and the stack parents: what decides the groups besides the subjects, and the parked branches. One
+/// `cat-file --batch` for the three maps
 #[instrument(skip(git_executor))]
 pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GroupingInputs> {
-  read_grouping_inputs_with(git_executor, repository_path, stacks_enabled(git_executor, repository_path)?)
-}
-
-/// `read_grouping_inputs` with the stack setting read already (`ConfigSnapshot::stacks`): one `cat-file --batch`
-pub fn read_grouping_inputs_with(git_executor: &GitCommandExecutor, repository_path: &str, stacks: bool) -> Result<GroupingInputs> {
   let mut maps = read_line_stores(git_executor, repository_path, &[&ISSUE_GROUPS, &STACK_PARENTS, &PARKED])?.into_iter();
   Ok(GroupingInputs {
-    stacks,
     issue_groups: maps.next().unwrap_or_default(),
     stack_parents: maps.next().unwrap_or_default(),
     parked: maps.next().unwrap_or_default(),
@@ -143,8 +133,8 @@ pub fn read_grouping_inputs_with(git_executor: &GitCommandExecutor, repository_p
 pub struct Grouped {
   /// Commit id -> group
   pub groups: HashMap<String, Option<String>>,
-  /// With stacked branches on
-  pub forest: Option<StackForest>,
+  /// How the branches stack
+  pub forest: StackForest,
   /// The keys of the issue groups that group no commit
   pub idle_issue_groups: Vec<String>,
 }
