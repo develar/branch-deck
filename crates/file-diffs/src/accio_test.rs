@@ -50,6 +50,7 @@ fn waits_for_a_slow_index_as_long_as_it_runs() {
     Some(vec![SymbolHit {
       path: "src/Base.kt".to_string(),
       line: 1,
+      column: None,
       kind: "function".to_string(),
       name: "outsider".to_string(),
       parent: None,

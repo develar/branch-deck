@@ -164,17 +164,24 @@ fn hit(path: &str, line: u32, kind: &str, name: &str) -> SymbolHit {
   SymbolHit {
     path: path.to_string(),
     line,
+    column: None,
     kind: kind.to_string(),
     name: name.to_string(),
     parent: None,
   }
 }
 
+fn hit_with_column(path: &str, line: u32, column: u32, kind: &str, name: &str) -> SymbolHit {
+  let mut hit = hit(path, line, kind, name);
+  hit.column = Some(column);
+  hit
+}
+
 #[test]
 fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
   let repo = TestRepo::new();
   std::fs::create_dir_all(repo.path().join("lib")).unwrap();
-  write(&repo, "lib/Outside.kt", b"package lib\n\nfun outsider() = 1\n");
+  write(&repo, "lib/Outside.kt", b"package lib\n\n@Deprecated(\"outsider\") fun outsider() = 1\n");
   commit_all(&repo, "Initial");
   write(&repo, "Uses.kt", b"fun run() = outsider() + inner()\n\nfun inner() = 2\n");
   let commit = commit_all(&repo, "Use it");
@@ -189,7 +196,7 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
     )
     .unwrap();
   let index = FakeIndex {
-    hits: vec![("outsider", hit("lib/Outside.kt", 3, "function", "outsider"))],
+    hits: vec![("outsider", hit_with_column("lib/Outside.kt", 3, 28, "function", "outsider"))],
     queries: std::sync::Mutex::default(),
   };
   let mut params = single_file_params(&repo, &files, &commit);
@@ -200,13 +207,20 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 2)]);
   let target = &found.targets[0];
   assert_eq!(
-    (target.path.as_str(), target.line, target.column, target.kind.as_str()),
-    ("lib/Outside.kt", 2, 4, "function")
+    (target.path.as_str(), target.line, target.column, target.end_column, target.kind.as_str()),
+    ("lib/Outside.kt", 2, 28, 36, "function")
   );
   let outside = target.outside.as_ref().unwrap();
   assert_eq!((outside.revision.as_deref(), outside.line_count), (Some(commit.as_str()), 4));
   assert_eq!(Some(outside.blob_id.clone()), repo.rev_parse(&format!("{commit}:lib/Outside.kt")).ok());
   assert_eq!(*index.queries.lock().unwrap(), [("outsider".to_string(), Some(commit))]);
+
+  let old_index = FakeIndex {
+    hits: vec![("outsider", hit("lib/Outside.kt", 3, "function", "outsider"))],
+    queries: std::sync::Mutex::default(),
+  };
+  let fallback = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), Some(&old_index), &params).unwrap();
+  assert_eq!((fallback.targets[0].column, fallback.targets[0].end_column), (13, 21));
 
   // a declaration of the review is found there, without the index
   params.site.column = 25;

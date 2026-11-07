@@ -76,12 +76,14 @@ outside it.
   [@test] ../../crates/file-diffs/src/accio_test.rs (`waits_for_a_slow_index_as_long_as_it_runs`, `a_canceled_search_kills_its_query`)
   [@test] ../../crates/file-diffs/src/usages_test.rs (`a_canceled_search_answers_nothing`)
   [@test] ../../crates/app-api/src/session/windows_test.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
-- The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected
-  once its row is painted with its text, however long its text takes, and again when a new layout paints the row anew,
+- The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected at
+  its exact position on the line (the column from accio when present, the first match for older accio without one), once
+  its row is painted with its text, however long its text takes, and again when a new layout paints the row anew,
   until the user presses or types in the view or selects elsewhere; the caret of a field (the search that the reveal of
   a hidden file clears) is no selection elsewhere while the name waits for its paint.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none`)
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
   declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere. A
   Kotlin name after a receiver and `::` (`Foo::bar`, `this::bar`) is a member of that receiver, as after a dot; a label

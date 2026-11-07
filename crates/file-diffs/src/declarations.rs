@@ -224,7 +224,7 @@ impl FileDiffs {
           let id = id_of(&hit.path)?;
           let text = texts.get(&id)?;
           let line = hit.line.saturating_sub(1);
-          let column = column_of(text, line, name).unwrap_or(0);
+          let column = hit.column.unwrap_or_else(|| column_of(text, line, name).unwrap_or(0));
           let outside = file.is_none().then(|| outside_file(revision, &id, text));
           Some(DeclarationTarget {
             path: file.map_or_else(|| hit.path.clone(), |it| it.path.clone()),

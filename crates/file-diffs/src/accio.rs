@@ -38,12 +38,14 @@ const REFERENCES_LIMIT: &str = "100";
 /// hundred (97 tests of 7 files for one place of idea-1)
 const TESTS_LIMIT: &str = "1000";
 
-/// A declaration an index knows: a path of the repository and a line from 1
+/// A declaration an index knows: a path of the repository, a line from 1 and an optional zero-based UTF-16 name column
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SymbolHit {
   #[serde(rename = "file")]
   pub path: String,
   pub line: u32,
+  #[serde(default)]
+  pub column: Option<u32>,
   pub kind: String,
   pub name: String,
   #[serde(default)]
