@@ -40,6 +40,7 @@ use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
+use history_rewrite::needs::{local_targets, needs_drop};
 use history_rewrite::parked::parked_drop;
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
@@ -328,6 +329,9 @@ struct PreparedSync {
   /// The parked branches that group no commit on this HEAD: the detection of the archived branches drops the lines of
   /// those that are integrated
   idle_parked: Vec<String>,
+  /// The branches of this repository a declared need names that group no commit on this HEAD: the detection of the
+  /// archived branches drops them from the needs that name them (`needs_drop`)
+  idle_needs: Vec<String>,
   /// The stack branches: the stacks that fork, and the listed stack branches the sync keeps or deletes
   stack_branches: StackBranchSync,
   /// The unapplied branches the sync listed, newest first
@@ -542,6 +546,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
 
   let grouped = prepare_branches_for_ui(&branches, &branch_emails, Some(&stacks), &description_titles);
   let idle_parked: Vec<String> = grouping.parked.entries.keys().filter(|name| !branches.contains_key(*name)).cloned().collect();
+  let idle_needs: Vec<String> = local_targets(&grouping.needs.entries).into_iter().filter(|name| !branches.contains_key(name)).collect();
   let mut report = SyncReport {
     baseline: baseline_branch.clone(),
     baseline_commit: facts.baseline_commit.clone(),
@@ -606,6 +611,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     stacks,
     idle_stack_parents,
     idle_parked,
+    idle_needs,
     stack_branches,
     unapplied,
     update_check,
@@ -1018,6 +1024,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     stacks,
     idle_stack_parents,
     idle_parked,
+    idle_needs,
     stack_branches,
     unapplied,
     update_check,
@@ -1091,10 +1098,12 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       &detection_permits,
     )?;
-    // an integrated branch stacks nothing anywhere any more, and is parked nowhere: both stores in one drop
+    // an integrated branch stacks nothing anywhere any more, is parked nowhere, and a declared need of it is met: the
+    // three stores in one drop
     let stacked = integrated_children(&idle_stack_parents, &reported, branch_prefix);
     let parked = integrated_children(&idle_parked, &reported, branch_prefix);
-    drop_store_lines(git_executor, repository_path, &[stack_parents_drop(&stacked), parked_drop(&parked)]);
+    let needed = integrated_children(&idle_needs, &reported, branch_prefix);
+    drop_store_lines(git_executor, repository_path, &[stack_parents_drop(&stacked), parked_drop(&parked), needs_drop(&needed)]);
     anyhow::Ok(())
   });
 

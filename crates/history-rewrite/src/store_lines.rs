@@ -272,6 +272,8 @@ pub struct StoreDrop<'a> {
   pub store: &'a LineStore,
   pub message: &'a str,
   pub keys: &'a [&'a str],
+  /// Values to remove from space-separated lists, when the store's value is a list of independent keys
+  pub drop_values: Option<&'a [&'a str]>,
 }
 
 /// Drop the lines of every one of `drops` at once: one try of the lock, one `cat-file --batch` that reads the stores
@@ -283,7 +285,10 @@ pub struct StoreDrop<'a> {
 /// drop to the next sync
 #[instrument(skip(git_executor, drops), fields(stores = drops.len()))]
 pub fn drop_store_lines(git_executor: &GitCommandExecutor, repository_path: &str, drops: &[StoreDrop<'_>]) {
-  let drops: Vec<&StoreDrop<'_>> = drops.iter().filter(|drop| !drop.keys.is_empty()).collect();
+  let drops: Vec<&StoreDrop<'_>> = drops
+    .iter()
+    .filter(|drop| !drop.keys.is_empty() || drop.drop_values.is_some_and(|values| !values.is_empty()))
+    .collect();
   if drops.is_empty() {
     return;
   }
@@ -305,10 +310,29 @@ pub fn drop_store_lines(git_executor: &GitCommandExecutor, repository_path: &str
     let mut dropped = Vec::new();
     for (drop, read) in drops.iter().zip(read) {
       let (Some(commit), mut entries) = (read.commit, read.entries) else { continue };
-      let keys: Vec<String> = drop.keys.iter().filter(|key| entries.remove(**key).is_some()).map(|key| (*key).to_string()).collect();
+      let mut keys: Vec<String> = drop.keys.iter().filter(|key| entries.remove(**key).is_some()).map(|key| (*key).to_string()).collect();
+      if let Some(values) = drop.drop_values {
+        let mut changed = Vec::new();
+        for (key, value) in &entries {
+          let remaining: Vec<&str> = value.split_whitespace().filter(|value| !values.contains(value)).collect();
+          if remaining.len() != value.split_whitespace().count() {
+            changed.push((key.clone(), remaining.join(" ")));
+          }
+        }
+        for (key, value) in changed {
+          keys.push(key.clone());
+          if value.is_empty() {
+            entries.remove(&key);
+          } else {
+            entries.insert(key, value);
+          }
+        }
+      }
       if keys.is_empty() {
         continue;
       }
+      keys.sort();
+      keys.dedup();
       let kept: Vec<String> = read.problems.into_iter().map(|problem| problem.line).collect();
       contents.push((drop, commit, format_store_lines(&entries, &kept)));
       dropped.push((drop.store.name, keys));

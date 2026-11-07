@@ -38,6 +38,7 @@ use bd_rewrite::describe::{DescribeArgs, describe};
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
+use bd_rewrite::need_command::{NeedArgs, need};
 use bd_rewrite::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use bd_rewrite::review_plan_command::{ReviewPlanArgs, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
@@ -223,6 +224,11 @@ enum Command {
   Park(ParkArgs),
   /// Let a parked branch be pushed again; only when the user asks
   Unpark(UnparkArgs),
+  /// Declare what lands before a branch: no Safe Push, dry run or land of it starts until those branches are in master
+  ///
+  /// Each need is a branch of this repository, or `<companion>:<branch>` of a companion (`brd companion`). No rewrite:
+  /// the store `refs/branch-deck/needs`, shared by every worktree; a sync drops a need that landed
+  Need(NeedArgs),
   /// Remember the base and the tip a branch has now as reviewed (experimental), the start of its next review
   ///
   /// No rewrite: the refs `refs/branch-deck/reviewed/<sha256 of the branch>/{base,tip}`, with compare-and-swap; the
@@ -624,6 +630,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| printed(out, &output)),
     Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Need(args) => context().and_then(|context| need(&context, args)).and_then(|output| printed(out, &output)),
     Command::MarkReviewed(args) => context().and_then(|context| mark_reviewed(&context, args)).and_then(|output| printed(out, &output)),
     Command::ReviewPlan(args) => context().and_then(|context| review_plan(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| printed(out, &output)),

@@ -45,7 +45,7 @@ use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationResult, OperationStep, Outcome, Plan, Resource};
 use domain_types::review_request::FetchReviewHeadParams;
-use domain_types::rewrite::{AppliedConflictFix, MoveCommitsResult, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
+use domain_types::rewrite::{AppliedConflictFix, MoveCommitsResult, NeedResult, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
 use domain_types::session::{StoreTips, SyncReason, SyncState, SyncStep, Version};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -55,6 +55,7 @@ use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core}
 use history_rewrite::drop_commits::{DropCommitsParams, DropUndoToken, drop_commits_core, undo_drop_core};
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core, move_result};
+use history_rewrite::needs::{NeedOutcome, need_core, unneed_core};
 use history_rewrite::parked::{PARKED_REF, ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupOptions, Restack, UndoToken as RegroupUndoToken, rename_branch_core, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWait, LockWaiter, RewriteOptions};
@@ -784,6 +785,27 @@ impl Core {
         let names: Vec<&str> = branch_names.iter().map(String::as_str).collect();
         parked(unpark_core(git, path, &names, &options).map_err(|error| failed(error.into()))?)
       }
+      RewriteIntent::Need { branch_name, needs, .. } => {
+        let names: Vec<&str> = needs.iter().map(String::as_str).collect();
+        needed(need_core(git, path, branch_name, &names, &options).map_err(|error| failed(error.into()))?)
+      }
+      RewriteIntent::Unneed { branch_name, needs, .. } => {
+        let mut outcome = None;
+        for name in needs {
+          let removed = unneed_core(git, path, branch_name, name, &options).map_err(|error| failed(error.into()))?;
+          outcome = Some(match outcome.take() {
+            Some(NeedOutcome {
+              previous_needs, previous_commit, ..
+            }) => NeedOutcome {
+              previous_needs,
+              previous_commit,
+              ..removed
+            },
+            None => removed,
+          });
+        }
+        needed(outcome.ok_or_else(|| failed(anyhow::anyhow!("An unneed intent names no need")))?)
+      }
       RewriteIntent::Unapply {
         branch_name, original_commit_ids, ..
       } => {
@@ -962,15 +984,43 @@ impl Core {
   }
 }
 
+/// What a declaration or a removal of declared needs answered, and its undo: the store back to the commit it was
+/// written on, with compare-and-swap (`needs:` of a regroup token); none when nothing changed
+fn needed(outcome: NeedOutcome) -> Ran {
+  let token = outcome.new_commit.clone().map(|new| {
+    RegroupUndoToken {
+      needs: Some((outcome.previous_commit.clone(), new)),
+      ..empty_regroup_token()
+    }
+    .to_string()
+  });
+  let result = NeedResult {
+    changed: outcome.new_commit.is_some(),
+    branch_name: outcome.branch,
+    needs: outcome.needs,
+    previous_needs: outcome.previous_needs,
+  };
+  Ran::of(RewriteResult::Needed(result), UndoKind::Regroup, token)
+}
+
+/// A token that moves no ref, the base of the one a store write fills in
+const fn empty_regroup_token() -> RegroupUndoToken {
+  RegroupUndoToken {
+    head: None,
+    issue_groups: None,
+    stack_parents: None,
+    parked: None,
+    needs: None,
+  }
+}
+
 /// What a park or an unpark answered, and its undo: the store back to the commit it was written on, with
 /// compare-and-swap (`parked:` of a regroup token); none when nothing changed
 fn parked(outcome: ParkOutcome) -> Ran {
   let token = outcome.new_commit.clone().map(|new| {
     RegroupUndoToken {
-      head: None,
-      issue_groups: None,
-      stack_parents: None,
       parked: Some((outcome.previous_commit.clone(), new)),
+      ..empty_regroup_token()
     }
     .to_string()
   });

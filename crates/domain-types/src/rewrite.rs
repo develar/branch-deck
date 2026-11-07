@@ -57,6 +57,19 @@ pub enum RewriteIntent {
     branch_names: Vec<String>,
     witness: TableWitness,
   },
+  /// The branch declares that the branches of `needs` land before it (`refs/branch-deck/needs`); each is a branch of
+  /// this repository or `<companion>:<branch>`
+  Need {
+    branch_name: String,
+    needs: Vec<String>,
+    witness: TableWitness,
+  },
+  /// The declared needs of `needs` go from the branch
+  Unneed {
+    branch_name: String,
+    needs: Vec<String>,
+    witness: TableWitness,
+  },
   /// The branch and its files leave HEAD for `{prefix}/unapplied/<name>`; `original_commit_ids`: the commits its row
   /// showed, which it must still have
   Unapply {
@@ -167,6 +180,8 @@ impl RewriteIntent {
       | Self::StackTogether { witness, .. }
       | Self::Park { witness, .. }
       | Self::Unpark { witness, .. }
+      | Self::Need { witness, .. }
+      | Self::Unneed { witness, .. }
       | Self::Unapply { witness, .. }
       | Self::Reapply { witness, .. }
       | Self::Drop { witness, .. }
@@ -204,7 +219,9 @@ impl RewriteIntent {
         scope: AutosquashScope::Branch(branch),
         ..
       } => Some(branch),
-      Self::Ungroup { branch_name, .. }
+      Self::Need { branch_name, .. }
+      | Self::Unneed { branch_name, .. }
+      | Self::Ungroup { branch_name, .. }
       | Self::Rename { branch_name, .. }
       | Self::Restack { branch_name, .. }
       | Self::Unstack { branch_name, .. }
@@ -253,8 +270,8 @@ pub struct UndoToken {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub enum UndoKind {
-  /// A regroup (a move, an ungroup, a rename, a restack, an unstack, a reword, a fix) or a park: HEAD and the stores
-  /// back (`<previous>..<new>`, `groups:`, `stacks:`, `parked:`, joined by `+`)
+  /// A regroup (a move, an ungroup, a rename, a restack, an unstack, a reword, a fix), a park or a need: HEAD and the
+  /// stores back (`<previous>..<new>`, `groups:`, `stacks:`, `parked:`, `needs:`, joined by `+`)
   Regroup,
   /// A squash or a squash of fixups: HEAD back from the new commit (`<previous>..<new>`)
   Squash,
@@ -279,6 +296,8 @@ pub enum RewriteResult {
   Moved(MoveCommitsResult),
   /// A park or an unpark
   Parked(ParkResult),
+  /// A declaration or a removal of declared needs
+  Needed(NeedResult),
   Unapplied(UnapplyBranchResult),
   Reapplied(ReapplyBranchResult),
   Dropped(DropCommitsResult),
@@ -325,6 +344,7 @@ impl RewriteResult {
         moved.moves() || !moved.grouped_issues.is_empty() || !moved.ungrouped_issues.is_empty() || moved.undo_token.is_some()
       }
       Self::Parked(parked) => parked.changed,
+      Self::Needed(needed) => needed.changed,
       Self::FixupsSquashed(squashed) => squashed.squashed_count > 0,
       Self::Reworded(reworded) => reworded.new_head != reworded.previous_head || reworded.undo_token.is_some(),
       Self::Amended(amended) => matches!(amended, AmendCommandResult::Ok(_)),
@@ -489,6 +509,20 @@ pub struct ParkedBranchChange {
   pub note: Option<String>,
   /// The note before; `None` when it was not parked
   pub previous_note: Option<String>,
+}
+
+/// What a declaration or a removal of declared needs did to one branch
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct NeedResult {
+  pub branch_name: String,
+  /// What lands before the branch afterwards, as it is written (`<companion>:<branch>` for one of a companion)
+  pub needs: Vec<String>,
+  /// What landed before it until now
+  pub previous_needs: Vec<String>,
+  /// Whether the store changed
+  pub changed: bool,
 }
 
 /// What a park or an unpark did

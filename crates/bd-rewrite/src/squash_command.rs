@@ -176,6 +176,7 @@ pub(crate) fn head_undo_token(previous_head: &str, new_head: &str) -> Option<Str
       issue_groups: None,
       stack_parents: None,
       parked: None,
+      needs: None,
     }
     .to_string()
   })

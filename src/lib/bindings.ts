@@ -2355,6 +2355,8 @@ export type ErrorCode =
 "stacks_moved" | 
 /**  The parked branches (`refs/branch-deck/parked`) changed since the caller read them; read again and retry */
 "parked_moved" | 
+/**  The declared needs (`refs/branch-deck/needs`) changed since the caller read them; read again and retry */
+"needs_moved" | 
 /**
  *  The app's sync of a session whose branch prefix the git config no longer names (a `git config` meanwhile): nothing
  *  was built; resolve the prefix again and sync the session under it. `bd` resolves the prefix once per command and
@@ -4543,6 +4545,17 @@ export type MovedCommit = {
 	/**  The id after the rewrite; `old_id` for a commit older than every rewritten one and for a dry run */
 	newId: string,
 	change: MoveChange,
+};
+
+/**  What a declaration or a removal of declared needs did to one branch */
+export type NeedResult = {
+	branchName: string,
+	/**  What lands before the branch afterwards, as it is written (`<companion>:<branch>` for one of a companion) */
+	needs: string[],
+	/**  What landed before it until now */
+	previousNeeds: string[],
+	/**  Whether the store changed */
+	changed: boolean,
 };
 
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
@@ -7206,6 +7219,13 @@ export type RewriteIntent =
 /**  The branches are parked with their notes, or the notes of parked ones change */
 { rewrite: "park"; branches: ParkBranchLine[]; witness: TableWitness } | { rewrite: "unpark"; branchNames: string[]; witness: TableWitness } | 
 /**
+ *  The branch declares that the branches of `needs` land before it (`refs/branch-deck/needs`); each is a branch of
+ *  this repository or `<companion>:<branch>`
+ */
+{ rewrite: "need"; branchName: string; needs: string[]; witness: TableWitness } | 
+/**  The declared needs of `needs` go from the branch */
+{ rewrite: "unneed"; branchName: string; needs: string[]; witness: TableWitness } | 
+/**
  *  The branch and its files leave HEAD for `{prefix}/unapplied/<name>`; `original_commit_ids`: the commits its row
  *  showed, which it must still have
  */
@@ -7255,7 +7275,9 @@ export type RewriteResult =
 /**  A move, an ungroup, a rename, a restack, an unstack: the commits that moved and the branch they are in */
 { rewrite: "moved"; answer: MoveCommitsResult } | 
 /**  A park or an unpark */
-{ rewrite: "parked"; answer: ParkResult } | { rewrite: "unapplied"; answer: UnapplyBranchResult } | { rewrite: "reapplied"; answer: ReapplyBranchResult } | { rewrite: "dropped"; answer: DropCommitsResult } | { rewrite: "squashed"; answer: SquashCommitsResult } | { rewrite: "fixupsSquashed"; answer: SquashFixupsResult } | { rewrite: "reworded"; answer: RewordResult } | { rewrite: "amended"; answer: AmendCommandResult } | { rewrite: "issueReferenceAdded"; answer: AddIssueReferenceResult } | { rewrite: "conflictFixApplied"; answer: AppliedConflictFix } | { rewrite: "picked"; answer: PickRemoteCommitsResult } | 
+{ rewrite: "parked"; answer: ParkResult } | 
+/**  A declaration or a removal of declared needs */
+{ rewrite: "needed"; answer: NeedResult } | { rewrite: "unapplied"; answer: UnapplyBranchResult } | { rewrite: "reapplied"; answer: ReapplyBranchResult } | { rewrite: "dropped"; answer: DropCommitsResult } | { rewrite: "squashed"; answer: SquashCommitsResult } | { rewrite: "fixupsSquashed"; answer: SquashFixupsResult } | { rewrite: "reworded"; answer: RewordResult } | { rewrite: "amended"; answer: AmendCommandResult } | { rewrite: "issueReferenceAdded"; answer: AddIssueReferenceResult } | { rewrite: "conflictFixApplied"; answer: AppliedConflictFix } | { rewrite: "picked"; answer: PickRemoteCommitsResult } | 
 /**  An archived or an unapplied branch is gone */
 { rewrite: "deleted" } | 
 /**  An undo; `already_undone`: an undo before had done it, nothing changed now (of an unapply, a reapply, a pick) */
@@ -9017,8 +9039,8 @@ export type UncommittedFileChange = {
 /**  The core an undo token is for */
 export type UndoKind = 
 /**
- *  A regroup (a move, an ungroup, a rename, a restack, an unstack, a reword, a fix) or a park: HEAD and the stores
- *  back (`<previous>..<new>`, `groups:`, `stacks:`, `parked:`, joined by `+`)
+ *  A regroup (a move, an ungroup, a rename, a restack, an unstack, a reword, a fix), a park or a need: HEAD and the
+ *  stores back (`<previous>..<new>`, `groups:`, `stacks:`, `parked:`, `needs:`, joined by `+`)
  */
 "regroup" | 
 /**  A squash or a squash of fixups: HEAD back from the new commit (`<previous>..<new>`) */

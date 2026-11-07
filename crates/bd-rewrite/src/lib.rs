@@ -4,6 +4,7 @@
 //! - `rewrite`: `brd group`, `brd rename`, `brd restack` and `brd unstack`, and the sync after a rewrite
 //! - `reword_command`, `fold_command`, `move_hunk_command`, `park_command`: `brd reword`, `brd fold`, `brd move-hunk`,
 //!   `brd park` and `brd unpark`
+//! - `need_command`: `brd need`, the branches a branch declares land before it (`history_rewrite::needs`)
 //! - `check_command`: `brd check`, the trial sync and builds of a plan
 //! - `suggest`: `brd suggest`, the clustering of commit-clustering checked by `brd check`
 //! - `commits`, `block_patch`, `symbol_stats`: `brd commits`, its patches and its symbol statistics
@@ -20,6 +21,7 @@ pub mod fold_command;
 pub mod group_plan;
 pub mod mark_reviewed_command;
 pub mod move_hunk_command;
+pub mod need_command;
 pub mod park_command;
 pub mod review_plan_command;
 pub mod reword_command;
@@ -40,6 +42,8 @@ mod fold_test;
 mod mark_reviewed_test;
 #[cfg(test)]
 mod move_hunk_test;
+#[cfg(test)]
+mod need_test;
 #[cfg(test)]
 mod park_error_test;
 #[cfg(test)]

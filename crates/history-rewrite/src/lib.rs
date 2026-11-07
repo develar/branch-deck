@@ -17,6 +17,7 @@
 //! - `issue_groups`: `ISSUE_GROUPS`, issue key -> branch name
 //! - `stack_parents`: `STACK_PARENTS`, branch -> stack parent
 //! - `parked`: `PARKED`, branch -> note: the branches kept local, never pushed; park and unpark
+//! - `needs`: `NEEDS`, branch -> needed branches, removed as they integrate
 //!
 //! Rewrites, each under the repository lock its core takes:
 //! - `repository_lock`: `$GIT_COMMON_DIR/branch-deck.lock`, `RewriteOptions`, `LockWait` and `ensure_expected_head`
@@ -39,6 +40,7 @@ mod fixup_targets;
 pub mod issue_groups;
 pub mod move_commits;
 pub mod move_plan;
+pub mod needs;
 pub mod parked;
 pub mod regroup;
 pub mod repository_lock;

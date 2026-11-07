@@ -163,6 +163,8 @@ mod issue_groups_test;
 #[cfg(test)]
 mod move_commits_test;
 #[cfg(test)]
+mod needs_test;
+#[cfg(test)]
 mod parked_test;
 #[cfg(test)]
 mod patronus_start_test;

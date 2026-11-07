@@ -76,6 +76,7 @@ pub const fn stack_parents_drop<'a>(integrated: &'a [&'a str]) -> StoreDrop<'a> 
     store: &STACK_PARENTS,
     message: STACK_PARENTS_DROP_MESSAGE,
     keys: integrated,
+    drop_values: None,
   }
 }
 

@@ -76,6 +76,8 @@ pub struct GroupingInputs {
   pub stack_parents: StoreLines,
   /// Branch -> note (`parked::PARKED`): read with the other maps, decides no group
   pub parked: StoreLines,
+  /// Branch -> space-separated needed branch keys (`needs::NEEDS`)
+  pub needs: StoreLines,
 }
 
 impl GroupingInputs {

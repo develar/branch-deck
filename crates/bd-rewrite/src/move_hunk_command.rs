@@ -156,6 +156,7 @@ fn move_hunk_output(context: &RepoContext, dry_run: bool, result: &MoveHunkResul
       issue_groups: None,
       stack_parents: None,
       parked: None,
+      needs: None,
     }
     .to_string()
   });

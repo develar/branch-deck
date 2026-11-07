@@ -22,6 +22,7 @@ use bd_rewrite::describe::DescribeOutput;
 use bd_rewrite::fold_command::FoldOutput;
 use bd_rewrite::mark_reviewed_command::MarkReviewedOutput;
 use bd_rewrite::move_hunk_command::MoveHunkOutput;
+use bd_rewrite::need_command::NeedOutput;
 use bd_rewrite::park_command::ParkOutput;
 use bd_rewrite::review_plan_command::ReviewPlanOutput;
 use bd_rewrite::rewrite::RewriteOutput;
@@ -68,6 +69,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("operation", &["operation_forget"]),
   ("land", &["land"]),
   ("mark-reviewed", &["mark_reviewed"]),
+  ("need", &["need"]),
   ("park", &["park"]),
   ("pick", &["pick"]),
   ("push", &["push"]),
@@ -183,6 +185,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
     ("land".to_string(), schema_for!(LandOutput)),
     ("mark_reviewed".to_string(), schema_for!(MarkReviewedOutput)),
+    ("need".to_string(), schema_for!(NeedOutput)),
     ("park".to_string(), schema_for!(ParkOutput)),
     ("operation_forget".to_string(), schema_for!(OperationForgetOutput)),
     ("pick".to_string(), schema_for!(PickOutput)),

@@ -312,6 +312,7 @@ pub const fn parked_drop<'a>(integrated: &'a [&'a str]) -> StoreDrop<'a> {
     store: &PARKED,
     message: PARKED_DROP_MESSAGE,
     keys: integrated,
+    drop_values: None,
   }
 }
 

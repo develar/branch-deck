@@ -4,6 +4,7 @@
 use crate::baseline::{NoBaseline, detect_baseline_branch};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::issue_groups::ISSUE_GROUPS;
+use crate::needs::NEEDS;
 use crate::parked::PARKED;
 use crate::regroup::RegroupError;
 use crate::stack::StackForest;
@@ -121,11 +122,12 @@ impl Snapshot {
 /// `cat-file --batch` for the three maps
 #[instrument(skip(git_executor))]
 pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GroupingInputs> {
-  let mut maps = read_line_stores(git_executor, repository_path, &[&ISSUE_GROUPS, &STACK_PARENTS, &PARKED])?.into_iter();
+  let mut maps = read_line_stores(git_executor, repository_path, &[&ISSUE_GROUPS, &STACK_PARENTS, &PARKED, &NEEDS])?.into_iter();
   Ok(GroupingInputs {
     issue_groups: maps.next().unwrap_or_default(),
     stack_parents: maps.next().unwrap_or_default(),
     parked: maps.next().unwrap_or_default(),
+    needs: maps.next().unwrap_or_default(),
   })
 }
 

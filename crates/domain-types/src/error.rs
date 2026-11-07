@@ -48,6 +48,8 @@ pub enum ErrorCode {
   StacksMoved,
   /// The parked branches (`refs/branch-deck/parked`) changed since the caller read them; read again and retry
   ParkedMoved,
+  /// The declared needs (`refs/branch-deck/needs`) changed since the caller read them; read again and retry
+  NeedsMoved,
   /// The app's sync of a session whose branch prefix the git config no longer names (a `git config` meanwhile): nothing
   /// was built; resolve the prefix again and sync the session under it. `bd` resolves the prefix once per command and
   /// never answers it
@@ -354,6 +356,7 @@ impl ErrorCode {
       | Self::GroupsMoved
       | Self::StacksMoved
       | Self::ParkedMoved
+      | Self::NeedsMoved
       | Self::PrefixChanged
       | Self::RoundMoved
       | Self::PlanChanged
@@ -448,12 +451,12 @@ impl ErrorCode {
   }
 
   /// Whether a ref the request was made on moved before anything was written (HEAD, the issue groups, the stack
-  /// parents, the parked branches): the refusal of the compare-and-swap of a rewrite, which a request built again on
+  /// parents, the parked branches, the declared needs): the refusal of the compare-and-swap of a rewrite, which a request built again on
   /// the refs as they are now may pass (`Retry::AfterReread` of `retry`), never a failure that came after a write. The
   /// one list of these codes: the engine runs a rewrite again only after one, and an undo is stale after one
   /// (`in_undo`)
   pub const fn moved_ref(self) -> bool {
-    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved)
+    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::NeedsMoved)
   }
 
   /// The code of this error when an undo fails with it: a ref that moved on since the operation (`moved_ref`) makes

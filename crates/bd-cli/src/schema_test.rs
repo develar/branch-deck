@@ -33,6 +33,7 @@ fn schema_lists_every_output() {
       "lease_trim",
       "mark_reviewed",
       "move_hunk",
+      "need",
       "operation_forget",
       "park",
       "pick",

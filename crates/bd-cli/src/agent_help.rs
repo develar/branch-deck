@@ -38,6 +38,7 @@ Rules
 - A branch `parked` in `brd status` stays local, and so do a branch built on it (`with` names the parked one) and the
   stack that holds it. `brd park <branch> --note '<why>'` and `brd unpark <branch>` only when the user asks (no rewrite;
   `idle_parked` lists the lines of branches without commits here).
+- `brd need <branch> <needed>...` declares what lands before a branch, --remove takes it back; a sync drops it.
 - `brd unapply <branch>` (`--dry-run`, `--expect-head <id>`) takes a branch and its files out of the checked out
   branch, kept as `{prefix}/unapplied/{name}` (`unapplied` of `brd status`); `brd reapply <name>` (`--dry-run`,
   `--expect-head <id>`) puts it back on top; `brd undo <undo_token>` takes either back. Only when the user asks. `brd push` and `brd safe-push`

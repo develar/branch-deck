@@ -188,6 +188,7 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::NoBaseline
     | ErrorCode::NotAheadOfBaseline
     | ErrorCode::ParkedMoved
+    | ErrorCode::NeedsMoved
     | ErrorCode::PrefixChanged
     | ErrorCode::NotParked
     | ErrorCode::DetachedHead

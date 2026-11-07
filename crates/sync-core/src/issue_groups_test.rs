@@ -383,6 +383,9 @@ fn an_undo_token_is_read_strictly() {
     format!("{h1}..{h2}+stacks:{h1}..{h2}"),
     format!("groups:{h1}..{h2}+stacks:{zeros}..{h2}"),
     format!("{h1}..{h2}+groups:{h1}..{h2}+stacks:{h1}..{h2}"),
+    // the parked branches and the declared needs follow them, in this order
+    format!("parked:{h1}..{h2}+needs:{h1}..{h2}"),
+    format!("{h1}..{h2}+stacks:{h1}..{h2}+needs:{zeros}..{h2}"),
   ];
   for token in &valid {
     assert_eq!(UndoToken::parse(token).map(|parsed| parsed.to_string()).as_deref(), Some(token.as_str()));
@@ -402,6 +405,8 @@ fn an_undo_token_is_read_strictly() {
     format!("stacks:{h1}..{h2}+stacks:{h1}..{h2}"),
     format!("stacks:{h1}..{h2}+"),
     format!("{h1}..{h2}+stacks:{}..{h2}", "0".repeat(8)),
+    format!("needs:{h1}..{h2}+parked:{h1}..{h2}"),
+    format!("needs:{h1}..{h2}+needs:{h1}..{h2}"),
   ];
   for token in &invalid {
     assert_eq!(UndoToken::parse(token), None, "{token}");
@@ -421,6 +426,7 @@ fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
     issue_groups: Some((Some(repo.head()), new.clone())),
     stack_parents: None,
     parked: None,
+    needs: None,
   };
   let error = undo(&repo, &forged).unwrap_err();
   assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");
