@@ -437,6 +437,7 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       revision: Some(site.revision.to_string()),
       path: site.read_path.to_string(),
       line: site.form.line,
+      column: None,
     },
     signatures_before: Vec::new(),
     signatures_after: Vec::new(),

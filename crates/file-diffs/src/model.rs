@@ -463,6 +463,8 @@ pub struct FoundUsages {
   pub usages: Vec<UsageTarget>,
   /// The index knows more usages outside the review than it answered
   pub more_outside: bool,
+  /// Name-only candidates not linked to the declaration and omitted from a place-based answer
+  pub filtered_count: u32,
   /// Why the index of the repository did not answer, when it was asked
   pub index_error: Option<String>,
 }

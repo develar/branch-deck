@@ -222,6 +222,7 @@ impl SymbolIndex for Counts {
           .collect();
         References {
           hits,
+          by_name: 0,
           complete: answer.len() < LIMIT,
           unavailable: false,
         }
@@ -272,6 +273,7 @@ fn change(name: &str, kind: ApiChangeKind) -> ApiChange {
       revision: None,
       path: path.clone(),
       line: 1,
+      column: None,
     },
     signatures_before: Vec::new(),
     signatures_after: Vec::new(),
@@ -342,6 +344,7 @@ fn an_entry_is_asked_by_its_place_once() {
     revision: revision.map(str::to_string),
     path: "src/Store.kt".to_string(),
     line: 4,
+    column: None,
   };
   let mut api = vec![
     ApiChange {

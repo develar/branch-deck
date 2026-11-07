@@ -1181,6 +1181,7 @@ fn code_of(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, step: &Review
           revision: None,
           path: stop.path.clone(),
           line: declaration.name_line,
+          column: None,
         };
         code.push((name, name.to_string(), at));
       }
@@ -1201,6 +1202,7 @@ fn code_of(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, step: &Review
       revision: None,
       path: stop.path.clone(),
       line,
+      column: None,
     };
     code.push((name, shown, at));
   }

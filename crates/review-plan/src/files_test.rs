@@ -314,6 +314,7 @@ fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiCh
       revision: None,
       path: path.to_string(),
       line: 1,
+      column: None,
     },
     signatures_before: Vec::new(),
     signatures_after: Vec::new(),

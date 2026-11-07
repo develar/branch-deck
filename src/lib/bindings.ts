@@ -3285,6 +3285,8 @@ export type FoundUsages = {
 	usages: UsageTarget[],
 	/**  The index knows more usages outside the review than it answered */
 	moreOutside: boolean,
+	/**  Name-only candidates not linked to the declaration and omitted from a place-based answer */
+	filteredCount: number,
 	/**  Why the index of the repository did not answer, when it was asked */
 	indexError: string | null,
 };

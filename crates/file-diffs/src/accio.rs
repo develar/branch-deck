@@ -2,7 +2,7 @@
 //! the files of a review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name>` and
 //! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout. A review
 //! plan asks about declarations by their place (spec/branch/review-plan.spec.md, "Fan-in";
-//! spec/branch/review-tour.spec.md, "Tests That Reach It"): `accio references --at <path>:<line>` and
+//! spec/branch/review-tour.spec.md, "Tests That Reach It"): `accio references --at <path>:<line>[:<column>]` and
 //! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel.
 //!
 //! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked.
@@ -115,21 +115,26 @@ pub struct CallArgument {
   pub unbound: bool,
 }
 
-/// A declaration by its place: the line of its name in `path` at `revision`, `None` for the revision the query
+/// A declaration by its place: the line and optional byte column of its name in `path` at `revision`, `None` for the revision the query
 /// answers from (for a removed declaration, the parent of the commit that removed it)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeclarationAt {
   pub revision: Option<String>,
   pub path: String,
   pub line: u32,
+  /// A 1-based byte column of the declared name, when the caller knows it
+  pub column: Option<u32>,
 }
 
 impl DeclarationAt {
-  /// The `--at` argument: `<path>:<line>`, `<revision>:<path>:<line>`
+  /// The `--at` argument: `<path>:<line>[:<column>]`, `<revision>:<path>:<line>[:<column>]`
   pub fn argument(&self) -> String {
+    let place = self
+      .column
+      .map_or_else(|| format!("{}:{}", self.path, self.line), |column| format!("{}:{}:{column}", self.path, self.line));
     match &self.revision {
-      Some(revision) => format!("{revision}:{}:{}", self.path, self.line),
-      None => format!("{}:{}", self.path, self.line),
+      Some(revision) => format!("{revision}:{place}"),
+      None => place,
     }
   }
 }
@@ -193,11 +198,14 @@ pub struct TestReach {
   pub unavailable: bool,
 }
 
-/// The usages of a name an index answered
+/// The usages an index answered, and its name-only candidates excluded by `--resolved`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct References {
   #[serde(default)]
   pub hits: Vec<ReferenceHit>,
+  /// Name-only hits excluded by `--resolved`
+  #[serde(default)]
+  pub by_name: usize,
   /// False when the limit cut the answer
   #[serde(default = "complete_by_default")]
   pub complete: bool,
@@ -222,6 +230,12 @@ pub trait SymbolIndex: Send + Sync {
   /// The usages in the tree of `revision` of each declaration of `declarations`, in their order; `None` when the
   /// repository has no index
   fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> Result<Option<Vec<References>>>;
+
+  /// The usages tied to each declaration by a type or import; name-only hits are counted, not returned. `None` uses the working tree.
+  fn references_at_resolved(&self, repository_root: &str, declarations: &[DeclarationAt], revision: Option<&str>) -> Result<Option<Vec<References>>> {
+    let Some(revision) = revision else { return Ok(None) };
+    self.references_at(repository_root, declarations, revision)
+  }
 
   /// The tests of `given` (test files of the tree of `revision`) that reach each declaration of `declarations` through
   /// any number of calls, only by calls tied by a type or an import, in their order; `None` when the repository has no
@@ -416,6 +430,21 @@ impl SymbolIndex for AccioSearch<'_> {
       .map(Some)
   }
 
+  fn references_at_resolved(&self, repository_root: &str, declarations: &[DeclarationAt], revision: Option<&str>) -> Result<Option<Vec<References>>> {
+    if declarations.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    self
+      .query(
+        "references",
+        &["--limit", REFERENCES_LIMIT, "--resolved"],
+        repository_root,
+        &Targets::At(declarations),
+        revision,
+      )
+      .map(Some)
+  }
+
   fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> Result<Option<Vec<TestReach>>> {
     if declarations.is_empty() {
       return Ok(Some(Vec::new()));
@@ -465,6 +494,11 @@ impl<'a> Lenient<'a> {
   /// query failed (`error` says why)
   pub fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> Result<Option<Vec<References>>> {
     self.answered(self.index.references_at(repository_root, declarations, revision))
+  }
+
+  /// The resolved usages at each declaration, with name-only hits counted; `None` when the repository has no usable index or the query failed
+  pub fn references_at_resolved(&self, repository_root: &str, declarations: &[DeclarationAt], revision: Option<&str>) -> Result<Option<Vec<References>>> {
+    self.answered(self.index.references_at_resolved(repository_root, declarations, revision))
   }
 
   /// The tests that reach each declaration, as `SymbolIndex::tests`: `None` when the repository has no index or the
@@ -549,22 +583,18 @@ impl SymbolIndex for FixtureIndex {
   fn references(&self, repository_root: &str, name: &str, _revision: Option<&str>) -> Result<Option<References>> {
     Ok(Self::read(repository_root)?.map(|mut fixture| References {
       hits: fixture.references.remove(name).unwrap_or_default(),
+      by_name: 0,
       complete: true,
       unavailable: false,
     }))
   }
 
   fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], _revision: &str) -> Result<Option<Vec<References>>> {
-    Ok(Self::read(repository_root)?.map(|mut fixture| {
-      declarations
-        .iter()
-        .map(|declaration| References {
-          hits: fixture.references.remove(&fixture_place(declaration)).unwrap_or_default(),
-          complete: true,
-          unavailable: false,
-        })
-        .collect()
-    }))
+    Ok(Self::read(repository_root)?.map(|mut fixture| declarations.iter().map(|declaration| fixture_references(&mut fixture, declaration, false)).collect()))
+  }
+
+  fn references_at_resolved(&self, repository_root: &str, declarations: &[DeclarationAt], _revision: Option<&str>) -> Result<Option<Vec<References>>> {
+    Ok(Self::read(repository_root)?.map(|mut fixture| declarations.iter().map(|declaration| fixture_references(&mut fixture, declaration, true)).collect()))
   }
 
   fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], _given: &[String], _revision: &str) -> Result<Option<Vec<TestReach>>> {
@@ -579,5 +609,25 @@ impl SymbolIndex for FixtureIndex {
 
 /// The key of a place in a fixture: `<path>:<line>`, whatever its revision
 fn fixture_place(declaration: &DeclarationAt) -> String {
-  format!("{}:{}", declaration.path, declaration.line)
+  declaration.column.map_or_else(
+    || format!("{}:{}", declaration.path, declaration.line),
+    |column| format!("{}:{}:{column}", declaration.path, declaration.line),
+  )
+}
+
+fn fixture_references(fixture: &mut Fixture, declaration: &DeclarationAt, resolved: bool) -> References {
+  let mut hits = fixture.references.remove(&fixture_place(declaration)).unwrap_or_default();
+  let by_name = if resolved {
+    let count = hits.iter().filter(|hit| hit.resolved == Resolved::Name).count();
+    hits.retain(|hit| hit.resolved != Resolved::Name);
+    count
+  } else {
+    0
+  };
+  References {
+    hits,
+    by_name,
+    complete: true,
+    unavailable: false,
+  }
 }

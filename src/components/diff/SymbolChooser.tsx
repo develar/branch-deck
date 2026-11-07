@@ -56,7 +56,9 @@ export function SymbolChooser({ choice, onClose }: { choice: SymbolChoice | null
             ))}
           </div>
         )}
-        {choice?.kind === "usages" && <UsageList name={choice.name} usages={choice.usages} moreOutside={choice.moreOutside} indexError={choice.indexError} onPick={pick} />}
+        {choice?.kind === "usages" && (
+          <UsageList name={choice.name} usages={choice.usages} moreOutside={choice.moreOutside} filteredCount={choice.filteredCount} indexError={choice.indexError} onPick={pick} />
+        )}
       </PopoverContent>
     </Popover>
   )
@@ -66,12 +68,14 @@ function UsageList({
   name,
   usages,
   moreOutside,
+  filteredCount,
   indexError,
   onPick,
 }: {
   name: string
   usages: readonly UsageTarget[]
   moreOutside: boolean
+  filteredCount: number
   indexError: string | null
   onPick: (target: DeclarationTarget) => void
 }) {
@@ -86,6 +90,13 @@ function UsageList({
         {count}
         {moreOutside && "+"} {count === 1 && !moreOutside ? "usage" : "usages"} of <span className="font-mono text-foreground">{name}</span>
       </div>
+      {filteredCount > 0 && (
+        <div role="status" className="px-2 pb-1 text-xs text-muted-foreground">
+          {filteredCount === 1
+            ? "1 name-only match was omitted because it was not linked to this declaration"
+            : `${filteredCount} name-only matches were omitted because they were not linked to this declaration`}
+        </div>
+      )}
       <div role="listbox" aria-label={`Usages of ${name}`} className="flex max-h-96 flex-col gap-1 overflow-y-auto" onKeyDown={moveFocus}>
         {groups.map((group, groupIndex) => (
           <div key={group.label} role="group" aria-label={group.label} className="flex flex-col">

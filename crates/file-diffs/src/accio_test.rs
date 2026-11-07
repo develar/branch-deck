@@ -166,11 +166,13 @@ fn the_places_of_a_plan_are_asked_in_one_process() {
       revision: Some("c1".to_string()),
       path: "src/Policy.kt".to_string(),
       line: 3,
+      column: None,
     },
     DeclarationAt {
       revision: Some("c0^".to_string()),
       path: "src/Old.kt".to_string(),
       line: 5,
+      column: None,
     },
   ];
   let answers = search.references_at(ROOT, &places, "head").unwrap().unwrap();
@@ -206,4 +208,43 @@ fn the_places_of_a_plan_are_asked_in_one_process() {
     }
   );
   assert_eq!((answers[1].hits.len(), answers[1].complete), (0, false));
+}
+
+#[test]
+fn resolved_usages_are_asked_at_a_name_column_and_count_name_only_hits() {
+  let dir = tempfile::tempdir().unwrap();
+  let (started, args) = (dir.path().join("started"), dir.path().join("args"));
+  let answer = r#"[{"hits":[{"file":"lib/Use.kt","line":2,"column":3,"kind":"call","resolved":"typed"}],"by_name":1,"complete":true}]"#;
+  let accio = fake_accio(dir.path(), &started, &format!("printf '%s\\n' \"$@\" > {}\nprintf '%s' '{answer}'", shell_path(&args)));
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let declarations = [DeclarationAt {
+    revision: None,
+    path: "src/Store.kt".to_string(),
+    line: 4,
+    column: Some(7),
+  }];
+
+  let answers = search.references_at_resolved(ROOT, &declarations, Some("head")).unwrap().unwrap();
+  assert_eq!(answers[0].by_name, 1);
+  assert_eq!(answers[0].hits[0].resolved, Resolved::Typed);
+  let asked: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
+  assert_eq!(
+    asked,
+    [
+      "references",
+      "--no-build",
+      "--format",
+      "json",
+      "--project",
+      ROOT,
+      "--limit",
+      "100",
+      "--resolved",
+      "--ref",
+      "head",
+      "--at",
+      "src/Store.kt:4:7",
+    ]
+  );
 }

@@ -50,8 +50,9 @@ outside it.
 ## Non-Goals
 
 - Building an index: a repository accio has not indexed is searched in the review only.
-- Resolution as the compiler does it: what the syntax and the declarations of the review tell, not the types. The usages
-  of a name that is not a local are the names of that text, as the index of accio answers them too.
+- Compiler resolution inside the review: it uses the syntax and declarations the review has, not types. Outside, when
+  the review has the declaration, a place-based index query uses type/import links; without one, the index is still
+  queried by name.
 
 ## Requirements
 
@@ -144,9 +145,14 @@ outside it.
   [@test] ../../crates/file-diffs/src/usages_test.rs (`finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only`)
 - The usages outside the review must come from the index of accio at the commit of the side (100 at most), only in the
   files the review lacks and in a language that sees the name; one `cat-file --batch-check` and one `cat-file --batch`
-  read their files, for their lines and the view of each. A cut answer says "The index has more usages outside the
-  review"; nothing runs when accio is missing or has no index of the repository.
-  [@test] ../../crates/file-diffs/src/usages_test.rs (`adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side`)
+  read their files, for their lines and the view of each. When the review has the declaration, usages are queried at its
+  path, line and column with `--resolved`: only type- or import-linked hits are listed, and the number of name-only
+  candidates omitted is shown. Without a declaration in the review, usages remain queried by name, with typed and import
+  hits ahead of name-only hits. A cut answer says "The index has more usages outside the review"; nothing runs when
+  accio is missing or has no index of the repository.
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`does_not_list_a_name_only_namesake_when_the_review_has_the_declaration`, `adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side`, `the_accio_column_counts_bytes_after_a_utf16_surrogate_pair`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`resolved_usages_are_asked_at_a_name_column_and_count_name_only_hits`)
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should list the usages of a name in the review and outside it, from ⌥F7 and from the menu of the code, and show the one chosen`)
 - An index that fails must take nothing from what the review knows: the usages of the review stay, with "accio did not
   answer: <why>" under them, and a name without a declaration in the review says why in its toast.
   [@test] ../../crates/file-diffs/src/usages_test.rs (`an_index_that_fails_takes_nothing_from_the_review_and_says_why`)

@@ -84,6 +84,7 @@ impl SymbolIndex for Search<'_> {
     }
     let none = References {
       hits: Vec::new(),
+      by_name: 0,
       complete: true,
       unavailable: false,
     };

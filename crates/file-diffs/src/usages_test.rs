@@ -20,6 +20,16 @@ fn places(found: &FoundUsages) -> Vec<(&str, u32, u32, &str)> {
 }
 
 #[test]
+fn the_accio_column_counts_bytes_after_a_utf16_surrogate_pair() {
+  let position = code_symbols::navigate::Position { line: 0, column: 6 };
+  assert_eq!(crate::usages::byte_column("val 😀count = 1", position), Some(9));
+  assert_eq!(
+    crate::usages::byte_column("val 😀count = 1", code_symbols::navigate::Position { column: 5, ..position }),
+    None
+  );
+}
+
+#[test]
 fn finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only() {
   let (repo, diffs, files) = review();
   let counting = repo.git_executor().with_process_stats("test");
@@ -42,7 +52,10 @@ fn finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_o
 /// An index that answers the references of each name from a fixed list, cut short, and records the queries
 struct FakeReferences {
   hits: Vec<ReferenceHit>,
+  at_hits: Vec<ReferenceHit>,
+  by_name: usize,
   queries: Mutex<Vec<(String, Option<String>)>>,
+  places: Mutex<Vec<(Vec<DeclarationAt>, Option<String>)>>,
 }
 
 impl SymbolIndex for FakeReferences {
@@ -58,6 +71,7 @@ impl SymbolIndex for FakeReferences {
       .push((name.to_string(), revision.map(str::to_string)));
     Ok(Some(References {
       hits: self.hits.clone(),
+      by_name: 0,
       complete: false,
       unavailable: false,
     }))
@@ -65,6 +79,25 @@ impl SymbolIndex for FakeReferences {
   /// Find Usages asks no place
   fn references_at(&self, _repository_root: &str, _declarations: &[DeclarationAt], _revision: &str) -> anyhow::Result<Option<Vec<References>>> {
     anyhow::bail!("Find Usages asked a place")
+  }
+
+  fn references_at_resolved(&self, _repository_root: &str, declarations: &[DeclarationAt], revision: Option<&str>) -> anyhow::Result<Option<Vec<References>>> {
+    self
+      .places
+      .lock()
+      .map_err(|error| anyhow::anyhow!("{error}"))?
+      .push((declarations.to_vec(), revision.map(str::to_string)));
+    Ok(Some(
+      declarations
+        .iter()
+        .map(|_| References {
+          hits: self.at_hits.clone(),
+          by_name: self.by_name,
+          complete: true,
+          unavailable: false,
+        })
+        .collect(),
+    ))
   }
 
   /// Find Usages asks no tests
@@ -109,14 +142,20 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
   let mut params = single_file_params(&repo, &files, &commit);
   params.site.column = 13;
   // the file of the review and a text file are not usages the review takes from the index
+  let mut name_only = reference("lib/Outside.kt", 5, 13, "call");
+  name_only.resolved = Resolved::Name;
   let index = FakeReferences {
     hits: vec![
+      name_only,
       reference("Uses.kt", 1, 13, "call"),
       reference("README.md", 1, 1, "read"),
       reference("lib/Outside.kt", 3, 5, "declaration"),
       reference("lib/Outside.kt", 5, 26, "argument"),
     ],
+    at_hits: Vec::new(),
+    by_name: 0,
     queries: Mutex::default(),
+    places: Mutex::default(),
   };
   let counting = repo.git_executor().with_process_stats("test");
   let found = diffs.find_usages(&counting, Some(&index), &params).unwrap();
@@ -124,14 +163,57 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
   assert_eq!(process_counts(&counting), [("cat-file".to_string(), 2)]);
   assert_eq!(
     places(&found),
-    [("Uses.kt", 0, 12, "call"), ("lib/Outside.kt", 2, 4, "declaration"), ("lib/Outside.kt", 4, 25, "read")]
+    [
+      ("Uses.kt", 0, 12, "call"),
+      ("lib/Outside.kt", 2, 4, "declaration"),
+      ("lib/Outside.kt", 4, 25, "read"),
+      ("lib/Outside.kt", 4, 12, "call")
+    ]
   );
   // the second `outsider` of its line, nearest to the column of the index
   assert_eq!((found.usages[2].text.as_str(), found.usages[2].text_column), ("val twice = outsider() + outsider()", 25));
   assert!(found.more_outside);
+  assert_eq!(found.filtered_count, 0);
   let outside = found.usages[1].target.outside.as_ref().unwrap();
   assert_eq!((outside.revision.as_deref(), outside.line_count), (Some(commit.as_str()), 6));
   assert_eq!(*index.queries.lock().unwrap(), [("outsider".to_string(), Some(commit))]);
+  assert!(index.places.lock().unwrap().is_empty());
+}
+
+#[test]
+fn does_not_list_a_name_only_namesake_when_the_review_has_the_declaration() {
+  let (repo, diffs, files) = review();
+  write(&repo, "lib/Outside.kt", b"package lib\n\nfun run(s: app.Store) = s.add(1)\n");
+  write(&repo, "lib/Namesake.kt", b"package lib\n\nfun run() = add()\n");
+  let params = params(&repo, &files, "src/Uses.kt", 4, "add");
+  let mut namesake = reference("lib/Namesake.kt", 3, 13, "call");
+  namesake.resolved = Resolved::Name;
+  let actual = reference("lib/Outside.kt", 3, 27, "call");
+  let index = FakeReferences {
+    hits: vec![actual.clone(), namesake.clone()],
+    at_hits: vec![actual, namesake],
+    by_name: 1,
+    queries: Mutex::default(),
+    places: Mutex::default(),
+  };
+
+  let found = diffs.find_usages(repo.git_executor(), Some(&index), &params).unwrap();
+  assert!(places(&found).contains(&("lib/Outside.kt", 2, 26, "call")));
+  assert!(!places(&found).contains(&("lib/Namesake.kt", 2, 12, "call")), "{found:?}");
+  assert_eq!(found.filtered_count, 1);
+  assert_eq!(
+    *index.places.lock().unwrap(),
+    [(
+      vec![DeclarationAt {
+        revision: None,
+        path: "src/Store.kt".to_string(),
+        line: 4,
+        column: Some(7),
+      }],
+      None,
+    )]
+  );
+  assert!(index.queries.lock().unwrap().is_empty());
 }
 
 /// An index that fails every query with `error`: accio that exits with an error, or a search the window canceled

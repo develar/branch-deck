@@ -4,19 +4,21 @@
 //! - **A local** (a parameter, a local of a function) is used only in its file: the names its scopes bind to it.
 //! - **Any other name** is looked for by its text: every name of that text that no local binds, in the file of the name
 //!   and in the same side of the other files of the review in a language that sees it, from the texts the diffs read.
-//! - **Outside the review**: `accio references --ref <the commit of the side>` for the files the review lacks; one
-//!   `cat-file --batch-check` names their blobs and one `cat-file --batch` reads them, for their lines and the view of
-//!   each file. The index answers by the word, as the review does; one that fails takes nothing from the review's usages.
+//! - **Outside the review**: with a declaration in the review, `accio references --at … --resolved` answers linked
+//!   uses and counts name-only candidates; without one, `accio references <name>` keeps the name-based fallback. One
+//!   `cat-file --batch-check` names the missing blobs and one `cat-file --batch` reads them; a failed index takes
+//!   nothing from the review's usages.
 
-use crate::accio::{Lenient, ReferenceHit, SymbolIndex};
+use crate::accio::{DeclarationAt, Lenient, ReferenceHit, Resolved, SymbolIndex};
 use crate::declarations::{Candidate, candidate, in_review, outside_file, revision_of, site_position, word_columns};
 use crate::model::{DeclarationTarget, DiffSide, FindDeclarationParams, FoundUsages, UsageTarget};
 use crate::service::FileDiffs;
 use anyhow::Result;
 use code_symbols::highlight::grammar_of;
 use code_symbols::language::{Language, language_of};
-use code_symbols::navigate::{Usage, usages_at, usages_of};
+use code_symbols::navigate::{Access, Position, Usage, usages_at, usages_of};
 use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::cache::ObjectCache;
 use std::collections::HashMap;
 use tracing::instrument;
 
@@ -32,6 +34,7 @@ impl FileDiffs {
       name,
       usages: Vec::new(),
       more_outside: false,
+      filtered_count: 0,
       index_error: None,
     };
     let Some((grammar, language, text)) = self.site_text(git, params)? else {
@@ -46,6 +49,7 @@ impl FileDiffs {
         name: found.name,
         usages,
         more_outside: false,
+        filtered_count: 0,
         index_error: None,
       });
     }
@@ -72,19 +76,91 @@ impl FileDiffs {
         name: found.name,
         usages,
         more_outside: false,
+        filtered_count: 0,
         index_error: None,
       });
     };
-    let index = Lenient::new(index);
-    let references = index.references(&params.repository_path, &found.name, revision_of(params))?;
-    let more_outside = !references.complete;
-    usages.extend(self.outside_usages(git, params, &found.name, language, references.hits)?);
+    let declaration = self.declaration_at(git, params, &found.usages, &text, &others, &texts)?;
+    let (hits, more_outside, filtered_count, index_error) = if let Some(declaration) = declaration {
+      let index_at = Lenient::new(index);
+      let references = index_at.references_at_resolved(&params.repository_path, std::slice::from_ref(&declaration), revision_of(params))?;
+      let unavailable = index_at.unavailable();
+      let error = index_at.error();
+      if let Some(references) = references.filter(|references| references.iter().any(|it| !it.unavailable)) {
+        let more_outside = references.iter().any(|it| !it.complete);
+        let filtered_count = references.iter().fold(0u32, |count, it| {
+          let by_name = u32::try_from(it.by_name).unwrap_or(u32::MAX);
+          let returned = u32::try_from(it.hits.iter().filter(|hit| hit.resolved == Resolved::Name).count()).unwrap_or(u32::MAX);
+          count.saturating_add(by_name.max(returned))
+        });
+        let hits = references
+          .into_iter()
+          .flat_map(|it| it.hits.into_iter().filter(|hit| hit.resolved != Resolved::Name))
+          .collect();
+        (hits, more_outside, filtered_count, error.or(unavailable))
+      } else if let Some(unavailable) = unavailable {
+        (Vec::new(), false, 0, Some(unavailable))
+      } else {
+        references_by_name(index, params, &found.name)?
+      }
+    } else {
+      references_by_name(index, params, &found.name)?
+    };
+    usages.extend(self.outside_usages(git, params, &found.name, language, hits)?);
     Ok(FoundUsages {
       name: found.name,
       usages,
       more_outside,
-      index_error: index.error(),
+      filtered_count,
+      index_error,
     })
+  }
+
+  fn declaration_at(
+    &self,
+    git: &GitCommandExecutor,
+    params: &FindDeclarationParams,
+    usages: &[Usage],
+    site_text: &str,
+    others: &[Candidate<'_>],
+    texts: &HashMap<String, String>,
+  ) -> Result<Option<DeclarationAt>> {
+    let position = site_position(params);
+    if usages.iter().any(|usage| usage.access == Access::Declaration && usage.start == position) {
+      return Ok(Some(DeclarationAt {
+        revision: None,
+        path: params.site.path.clone(),
+        line: position.line.saturating_add(1),
+        column: byte_column(site_text, position),
+      }));
+    }
+    let declarations = self.find_declaration(git, &ObjectCache::disabled(), None, params)?;
+    let Some(target) = declarations.targets.iter().find(|target| target.outside.is_none()) else {
+      return Ok(None);
+    };
+    let text = if target.path == params.site.path {
+      Some(site_text)
+    } else {
+      others
+        .iter()
+        .find(|other| other.path == target.path)
+        .and_then(|other| texts.get(&other.request.id).map(String::as_str))
+    };
+    let column = text.and_then(|text| {
+      byte_column(
+        text,
+        Position {
+          line: target.line,
+          column: target.column,
+        },
+      )
+    });
+    Ok(Some(DeclarationAt {
+      revision: None,
+      path: target.path.clone(),
+      line: target.line.saturating_add(1),
+      column,
+    }))
   }
 
   /// The usages the index knows in the files the review lacks, in a language that sees the name, read at the revision
@@ -130,6 +206,40 @@ impl FileDiffs {
         .collect(),
     )
   }
+}
+
+fn references_by_name(index: &dyn SymbolIndex, params: &FindDeclarationParams, name: &str) -> Result<(Vec<ReferenceHit>, bool, u32, Option<String>)> {
+  let index = Lenient::new(index);
+  let references = index.references(&params.repository_path, name, revision_of(params))?;
+  let mut hits = references.hits;
+  hits.sort_by_key(|hit| resolved_order(hit.resolved));
+  let unavailable = index.unavailable();
+  let index_error = index.error().or(unavailable);
+  Ok((hits, !references.complete, 0, index_error))
+}
+
+const fn resolved_order(resolved: Resolved) -> u8 {
+  match resolved {
+    Resolved::Typed => 0,
+    Resolved::Import => 1,
+    Resolved::Name => 2,
+  }
+}
+
+/// Convert a zero-based UTF-16 position to accio's one-based byte column.
+pub(crate) fn byte_column(text: &str, position: Position) -> Option<u32> {
+  let line = text.split('\n').nth(position.line as usize)?.trim_end_matches('\r');
+  let mut utf16 = 0u32;
+  for (byte, character) in line.char_indices() {
+    if utf16 == position.column {
+      return u32::try_from(byte + 1).ok();
+    }
+    utf16 += u32::try_from(character.len_utf16()).ok()?;
+    if utf16 > position.column {
+      return None;
+    }
+  }
+  (utf16 == position.column).then(|| u32::try_from(line.len() + 1).ok()).flatten()
 }
 
 /// The usages of a text of the review as targets with their lines

@@ -17,7 +17,10 @@ export type SymbolChoice = {
   show: (target: DeclarationTarget) => void
   /** What had the focus when the choice was asked for: Escape gives it back */
   returnFocus: HTMLElement | null
-} & ({ kind: "declarations"; targets: readonly DeclarationTarget[] } | { kind: "usages"; usages: readonly UsageTarget[]; moreOutside: boolean; indexError: string | null })
+} & (
+  | { kind: "declarations"; targets: readonly DeclarationTarget[] }
+  | { kind: "usages"; usages: readonly UsageTarget[]; moreOutside: boolean; filteredCount: number; indexError: string | null }
+)
 
 /** A navigation the backend still answers, the index of the repository being searched: shown at the name, canceled by Escape or Cancel */
 export interface SymbolSearch {
@@ -131,10 +134,10 @@ export function useSymbolNavigation(files: readonly DiffViewFile[], revisions: D
     }
   })
 
-  const findUsages = ask("usages", commands.findUsages, "Cannot find the usages", ({ name, usages, moreOutside, indexError }, show, at) => {
+  const findUsages = ask("usages", commands.findUsages, "Cannot find the usages", ({ name, usages, moreOutside, filteredCount, indexError }, show, at) => {
     // a declaration alone is no usage, as IntelliJ says "No usages found"
-    if (usages.some(usage => usage.target.kind !== "declaration")) {
-      setChoice({ kind: "usages", name, at, usages, moreOutside, indexError, show, returnFocus: focused() })
+    if (usages.some(usage => usage.target.kind !== "declaration") || filteredCount > 0) {
+      setChoice({ kind: "usages", name, at, usages, moreOutside, filteredCount, indexError, show, returnFocus: focused() })
     } else {
       showToast({ type: "info", title: name === "" ? "No name here" : `No usages of ${name} found`, description: indexError ?? undefined })
     }

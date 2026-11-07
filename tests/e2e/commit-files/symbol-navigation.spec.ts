@@ -284,11 +284,18 @@ test.describe("Find Usages", () => {
   })
 
   test("should list the usages of a name in the review and outside it, from ⌥F7 and from the menu of the code, and show the one chosen", async ({ page }) => {
-    // the index of the repository, as accio answers `references helper`: the call of Base.kt, outside the review
+    // the index of the repository, as accio answers `references --at src/Store.kt:36:5`: the call of Base.kt and a prose namesake
     const snippet = "fun outsider(value: Int) = helper(value)"
     writeFileSync(
       path.join(repositoryPath, ".git", "branch-deck-accio.json"),
-      JSON.stringify({ references: { helper: [{ file: "src/Base.kt", line: 1, column: 28, snippet, kind: "call", resolved: "typed" }] } }),
+      JSON.stringify({
+        references: {
+          "src/Store.kt:36:5": [
+            { file: "src/Base.kt", line: 1, column: 28, snippet, kind: "call", resolved: "typed" },
+            { file: "README.md", line: 1, column: 1, snippet: "helper", kind: "read", resolved: "name" },
+          ],
+        },
+      }),
     )
     const code = await openNavigationReview(page)
     const chooser = page.getByTestId("symbol-chooser")
@@ -297,6 +304,7 @@ test.describe("Find Usages", () => {
     await findUsagesOf(code, "src/Uses.kt", "helper")
     await expect(usages.getByRole("option")).toHaveText(["callhelper(2)src/Uses.kt:4", "declarationfun helper(value: Int) = valuesrc/Store.kt:36", `call${snippet}src/Base.kt:1`])
     await expect(chooser).toContainText("2 usages of helper")
+    await expect(chooser).toContainText("1 name-only match was omitted because it was not linked to this declaration")
     await expect(usages.getByRole("group", { name: "Outside the review" })).toContainText("src/Base.kt:1")
     await usages.getByRole("option", { name: /src\/Store\.kt/ }).click()
     await expect(chooser).toBeHidden()
