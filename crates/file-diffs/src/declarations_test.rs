@@ -130,20 +130,30 @@ fn goes_to_a_local_by_the_scopes_and_nowhere_from_a_declaration() {
   assert_eq!(targets(&diffs, &repo, &params(&repo, &files, "src/Store.kt", 3, "add")), []);
 }
 
-/// An index that answers each query from a fixed list, and records the queries
+/// An index that answers each query from a fixed list, and records the queries of each lookup: one entry per lookup,
+/// the names it asked in their order
 struct FakeIndex {
   hits: Vec<(&'static str, SymbolHit)>,
-  queries: std::sync::Mutex<Vec<(String, Option<String>)>>,
+  queries: std::sync::Mutex<Vec<(Vec<String>, Option<String>)>>,
 }
 
 impl SymbolIndex for FakeIndex {
-  fn symbols(&self, _repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
+  fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
+    Ok(self.symbols_any(repository_root, &[query], revision)?.and_then(|answers| answers.into_iter().next()))
+  }
+
+  fn symbols_any(&self, _repository_root: &str, queries: &[&str], revision: Option<&str>) -> anyhow::Result<Option<Vec<Vec<SymbolHit>>>> {
     self
       .queries
       .lock()
       .map_err(|error| anyhow::anyhow!("{error}"))?
-      .push((query.to_string(), revision.map(str::to_string)));
-    Ok(Some(self.hits.iter().filter(|(name, _)| *name == query).map(|(_, hit)| hit.clone()).collect()))
+      .push((queries.iter().map(|it| (*it).to_string()).collect(), revision.map(str::to_string)));
+    Ok(Some(
+      queries
+        .iter()
+        .map(|query| self.hits.iter().filter(|(name, _)| name == query).map(|(_, hit)| hit.clone()).collect())
+        .collect(),
+    ))
   }
 
   fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
@@ -218,7 +228,8 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
   let outside = target.outside.as_ref().unwrap();
   assert_eq!((outside.revision.as_deref(), outside.line_count), (Some(commit.as_str()), 4));
   assert_eq!(Some(outside.blob_id.clone()), repo.rev_parse(&format!("{commit}:lib/Outside.kt")).ok());
-  assert_eq!(*index.queries.lock().unwrap(), [("outsider".to_string(), Some(commit))]);
+  // one lookup, one query of the index: the bare name, since the call names no owner
+  assert_eq!(*index.queries.lock().unwrap(), [(vec!["outsider".to_string()], Some(commit))]);
 
   let old_index = FakeIndex {
     hits: vec![("outsider", hit("lib/Outside.kt", 3, HitKind::Function, "outsider"))],

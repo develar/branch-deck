@@ -118,6 +118,10 @@ outside it.
   the repository accio answers at once (`--no-build`): never an index build, a wait for one or a refresh.
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`)
+- The names of one Go to Declaration (`Owner.name`, then the bare name) must be asked in one accio process, which
+  answers an entry per name in the order asked; the first that declares the name is taken.
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`every_name_of_a_lookup_is_asked_in_one_process`)
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 - An unrecognized accio declaration kind must not by itself discard a name that otherwise fits the language and query;
   an unrecognized access kind is shown as `read`, never as a raw string.
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)

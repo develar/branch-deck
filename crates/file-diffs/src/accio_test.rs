@@ -249,6 +249,37 @@ fn resolved_usages_are_asked_at_a_name_column_and_count_name_only_hits() {
   );
 }
 
+/// The names of one lookup (`Owner.name`, then the bare name) go in one process, which answers an entry per name in
+/// their order
+#[test]
+fn every_name_of_a_lookup_is_asked_in_one_process() {
+  let dir = tempfile::tempdir().unwrap();
+  let (started, args, runs) = (dir.path().join("started"), dir.path().join("args"), dir.path().join("runs"));
+  let answer = r#"[{"hits":[]},{"hits":[{"file":"src/Base.kt","line":1,"column":4,"kind":"function","name":"outsider"}]}]"#;
+  let accio = fake_accio(
+    dir.path(),
+    &started,
+    &format!(
+      "printf 'run\\n' >> {runs}\nprintf '%s\\n' \"$@\" > {args}\nprintf '%s' '{answer}'",
+      runs = shell_path(&runs),
+      args = shell_path(&args)
+    ),
+  );
+  let canceled = || false;
+  let search = accio.search(&canceled);
+
+  let answers = search.symbols_any(ROOT, &["Store.outsider", "outsider"], Some("head")).unwrap().unwrap();
+  assert_eq!(answers.len(), 2);
+  assert!(answers[0].is_empty());
+  assert_eq!(answers[1][0].column, Some(4));
+  assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "one accio per lookup");
+  let asked: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
+  assert_eq!(
+    asked,
+    ["symbol", "--no-build", "--format", "json", "--project", ROOT, "--limit", "20", "--ref", "head", "--", "Store.outsider", "outsider"]
+  );
+}
+
 #[test]
 fn unknown_accio_kinds_deserialize_to_unknown() {
   let symbol: SymbolHit = serde_json::from_str(r#"{"file":"src/A.kt","line":2,"kind":"supertype","name":"A"}"#).unwrap();

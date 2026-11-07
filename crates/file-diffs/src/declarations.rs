@@ -169,13 +169,14 @@ impl FileDiffs {
     let site = &params.site;
     let revision = revision_of(params);
     let qualified = owner.map(|owner| format!("{owner}.{name}"));
-    let mut hits = match &qualified {
-      Some(query) => index.symbols(&params.repository_path, query, revision)?,
-      None => Vec::new(),
-    };
-    if hits.is_empty() {
-      hits = index.symbols(&params.repository_path, name, revision)?;
-    }
+    // `Owner.name` and the bare name go in one process, which accio answers in their order: the first that declares
+    // the name wins, as two queries one after the other did
+    let queries: Vec<&str> = qualified.iter().map(String::as_str).chain(std::iter::once(name)).collect();
+    let hits = index
+      .symbols_any(&params.repository_path, &queries, revision)?
+      .into_iter()
+      .find(|hits| !hits.is_empty())
+      .unwrap_or_default();
     let packages = imported_directories(site_summary, name);
     let mut hits: Vec<(i32, SymbolHit)> = hits
       .into_iter()

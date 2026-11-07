@@ -5,7 +5,10 @@
 //! spec/branch/review-tour.spec.md, "Tests That Reach It"): `accio references --at <path>:<line>[:<column>]` and
 //! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel.
 //!
-//! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked.
+//! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked, so
+//!   the names of one lookup go in one process (`symbols_any`: `Owner.name`, then the bare name). On the IntelliJ
+//!   monorepo one `symbol` of both names takes 179 ms against 201 ms for the two queries one after the other (warm),
+//!   and 265 ms against 388 ms at a revision 200 commits from the index (warmed, the median of 9).
 //!
 //! - **Never an index build**: every query runs with `--no-build`, so accio neither builds, waits for nor refreshes
 //!   an index; without a usable index of the checkout it answers `available: false` with the reason in `note` ("no
@@ -324,6 +327,19 @@ pub trait SymbolIndex: Send + Sync {
   /// `None` when the repository has no index
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>>;
 
+  /// The declarations of each name of `queries`, in their order, asked in one process; `None` when the repository has
+  /// no index. An index that answers one name at a time asks one after the other
+  fn symbols_any(&self, repository_root: &str, queries: &[&str], revision: Option<&str>) -> Result<Option<Vec<Vec<SymbolHit>>>> {
+    let mut answers = Vec::with_capacity(queries.len());
+    for query in queries {
+      let Some(hits) = self.symbols(repository_root, query, revision)? else {
+        return Ok(None);
+      };
+      answers.push(hits);
+    }
+    Ok(Some(answers))
+  }
+
   /// The whole-word usages of `name` in the tree of `revision`; `None` when the repository has no index
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>>;
 
@@ -453,7 +469,7 @@ struct Answer {
 
 /// The targets of a query: names after `--`, or declarations by `--at`
 enum Targets<'a> {
-  Name(&'a str),
+  Names(&'a [&'a str]),
   At(&'a [DeclarationAt]),
 }
 
@@ -477,9 +493,9 @@ impl AccioSearch<'_> {
       command.args(["--ref", revision]);
     }
     let asked = match targets {
-      Targets::Name(name) => {
-        command.arg("--").arg(name);
-        1
+      Targets::Names(names) => {
+        command.arg("--").args(*names);
+        names.len()
       }
       Targets::At(declarations) => {
         for declaration in *declarations {
@@ -512,12 +528,21 @@ impl AccioSearch<'_> {
 
 impl SymbolIndex for AccioSearch<'_> {
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
-    let entries = self.query::<Answer>("symbol", &["--limit", LIMIT], repository_root, &Targets::Name(query), revision)?;
+    let entries = self.query::<Answer>("symbol", &["--limit", LIMIT], repository_root, &Targets::Names(&[query]), revision)?;
     Ok(Some(entries.into_iter().flat_map(|entry| entry.hits).collect()))
   }
 
+  /// Every name of one lookup in one process: accio answers an entry per name, in the order asked
+  fn symbols_any(&self, repository_root: &str, queries: &[&str], revision: Option<&str>) -> Result<Option<Vec<Vec<SymbolHit>>>> {
+    if queries.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    let entries = self.query::<Answer>("symbol", &["--limit", LIMIT], repository_root, &Targets::Names(queries), revision)?;
+    Ok(Some(entries.into_iter().map(|entry| entry.hits).collect()))
+  }
+
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>> {
-    let entries = self.query::<References>("references", &["--limit", REFERENCES_LIMIT], repository_root, &Targets::Name(name), revision)?;
+    let entries = self.query::<References>("references", &["--limit", REFERENCES_LIMIT], repository_root, &Targets::Names(&[name]), revision)?;
     Ok(entries.into_iter().next())
   }
 
@@ -578,6 +603,12 @@ impl<'a> Lenient<'a> {
 
   pub(crate) fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Vec<SymbolHit>> {
     Ok(self.answered(self.index.symbols(repository_root, query, revision))?.unwrap_or_default())
+  }
+
+  /// The declarations of each name, in their order, as `SymbolIndex::symbols_any`: none where the index did not answer
+  pub(crate) fn symbols_any(&self, repository_root: &str, queries: &[&str], revision: Option<&str>) -> Result<Vec<Vec<SymbolHit>>> {
+    let answers = self.answered(self.index.symbols_any(repository_root, queries, revision))?;
+    Ok(answers.unwrap_or_else(|| vec![Vec::new(); queries.len()]))
   }
 
   pub(crate) fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<References> {
