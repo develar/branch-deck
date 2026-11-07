@@ -330,6 +330,27 @@ async fn only_a_branch_a_window_asked_and_no_window_shows_is_read_ahead() {
   assert_eq!(fixture.asked()[2..], [(auth, ChildPriority::Background)]);
 }
 
+/// The read ahead watches the 4 branches of a repository a window asked last: a fifth branch forgets the one asked
+/// longest ago, and a branch asked again is the newest; the newest is read first
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fifth_asked_branch_forgets_the_one_asked_longest_ago() {
+  let names = ["auth", "docs", "feed", "form", "grid"];
+  let fixture = Fixture::new(&names);
+  for name in &names[..4] {
+    fixture.ask("review", name).await;
+  }
+  // again from the memory of the plans: the newest watch now, asking the index nothing
+  assert_eq!(fixture.ask("review", "auth").await, [(fixture.head("auth"), false)]);
+  fixture.ask("review", "grid").await;
+  fixture.close("review");
+  assert_eq!(fixture.asked().len(), 5);
+  let [auth, _, feed, form, grid] = names.map(|name| fixture.move_branch(name, "x: Int, y: Int, z: Int"));
+
+  fixture.commit(&names).expect("a read ahead").await;
+  let ahead: Vec<String> = fixture.asked()[5..].iter().map(|(revision, _)| revision.clone()).collect();
+  assert_eq!(ahead, [grid, auth, form, feed], "docs, asked longest ago, is read ahead no more");
+}
+
 /// A newer commit of the table supersedes the read ahead in flight: its query of the index is killed, and the newer
 /// one reads the plan of the newest head, which the window that opens again finds whole
 #[tokio::test(flavor = "multi_thread")]

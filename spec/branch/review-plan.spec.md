@@ -582,9 +582,9 @@ group at the end. The overview at the top of the document of the review, before 
   itself and still get it.
   [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_window_that_asks_the_plan_being_read_ahead_joins_its_reading`, `a_window_that_waited_for_a_superseded_read_ahead_still_gets_its_plan`)
 - Once a sync commits the table of a repository (also one that moved nothing), the app must read ahead, in the
-  background and one at a time, the most recently asked first, the plan of each branch a review window asked since the
-  app started whose head the table moved and that no open window shows (that window reads its own plan once it sees
-  the new head): the branch by the name the window asked it, on the stack parent whose head the window named as its
+  background and one at a time, the most recently asked first, the plan of each branch it watches (a review window
+  asked it since the app started, among the last 4, below) whose head the table moved and that no open window shows
+  (that window reads its own plan once it sees the new head): the branch by the name the window asked it, on the stack parent whose head the window named as its
   base, else on the baseline of the table, "Since Your Review" as asked. The window that opens the review again then
   finds the plan whole in the memory of the plans and asks the index nothing, and a commit that leaves the head there
   reads nothing again. A branch the table no longer has, or that no longer resolves, is forgotten; a range, a commit
@@ -594,6 +594,10 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_commit_that_moved_a_branch_a_window_asked_reads_its_plan_ahead_once_below_the_app`, `only_a_branch_a_window_asked_and_no_window_shows_is_read_ahead`)
   [@test] ../../crates/repository-model/src/session_test.rs (`the_host_hears_each_table_a_sync_commits`)
   [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`the_base_of_a_stacked_branch_resolves_to_its_parent_by_name`)
+- The read ahead must watch at most the 4 branches of a repository a window asked the plan of last: a branch asked
+  again becomes the newest, and asking a fifth one forgets the one asked longest ago, which no commit reads ahead any
+  more. `brd update` moves every branch at once, and the reviews opened again are mostly the recent ones.
+  [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_fifth_asked_branch_forgets_the_one_asked_longest_ago`)
 - The queries of accio of a plan read ahead must run below the app, at nice 19 on Unix and the below-normal priority
   class on Windows, which the processes accio starts inherit; those of a plan a window asks run at the priority of the
   app.

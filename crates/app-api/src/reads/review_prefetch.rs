@@ -8,7 +8,11 @@
 //! - **What a window asked** (`Prefetch::asked`): the last plan of a scope it asked of a branch, by the name the window
 //!   asked it, its base as the stack parent whose head it is (`ResolvedSubject::stack_parent`) or else the baseline,
 //!   "Since Your Review", and the head it was asked at: the same subject resolved after the rewrite is the key the window
-//!   asks. A range, a commit and a kept branch name commits a rewrite replaces: none is read ahead.
+//!   asks. A range, a commit and a kept branch name commits a rewrite replaces: none is read ahead. At most the
+//!   `WATCHED` branches of a repository asked last: a branch asked again is the newest, a fifth one forgets the one
+//!   asked longest ago. `brd update` moves every branch at once, and the reviews opened again are mostly the recent
+//!   ones, so a day of reviews read again on each update (15 branches, about 17 min of the processors at nice 19 on
+//!   the IntelliJ monorepo) would cost more than it gives.
 //! - **What a commit reads** (`Prefetch::committed`): the branches whose head the table moved, but not one a window
 //!   shows now (it reads its own plan once it sees the new head, at the priority of the app), the most recently asked
 //!   first, one at a time. A branch that left the table, or that no longer resolves, is forgotten. Nothing without the
@@ -38,14 +42,17 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use sync_utils::child_process::ChildPriority;
 use tracing::{Instrument, debug, info_span};
 
+/// The branches of a repository read ahead at most: those a window asked last
+const WATCHED: usize = 4;
+
 /// What the windows asked of the branches, for the read ahead
 #[derive(Default)]
 pub(crate) struct Prefetch(Mutex<Watches>);
 
 #[derive(Default)]
 struct Watches {
-  /// By repository (`ReviewPlanParams::repository_path`, the worktree of its session), the branches its windows asked,
-  /// by full name
+  /// By repository (`ReviewPlanParams::repository_path`, the worktree of its session), the `WATCHED` branches its
+  /// windows asked last, by full name
   asked: HashMap<String, HashMap<String, Watch>>,
   /// The branch each window shows now, by repository and full name: of its last plan of a scope; none for a range
   shown: HashMap<WindowId, (String, String)>,
@@ -95,7 +102,8 @@ impl Prefetch {
   }
 
   /// `window` asked the plan of a scope, resolved as `asked`: of a branch, what the window shows now, kept for the read
-  /// ahead; a range shows none
+  /// ahead as the newest watch of its repository, past `WATCHED` in place of the one asked longest ago; a range shows
+  /// none
   pub(crate) fn asked(&self, window: &WindowId, asked: &Asked) {
     let mut watches = self.watches();
     let (ReviewSubject::Branch { name, .. }, Some(branch)) = (&asked.params.subject, &asked.subject.branch) else {
@@ -111,7 +119,13 @@ impl Prefetch {
       head: asked.subject.head.clone(),
       number: watches.last,
     };
-    watches.asked.entry(repository.clone()).or_default().insert(branch.clone(), watch);
+    let branches = watches.asked.entry(repository.clone()).or_default();
+    branches.insert(branch.clone(), watch);
+    if branches.len() > WATCHED
+      && let Some(oldest) = branches.iter().min_by_key(|(_, watch)| watch.number).map(|(branch, _)| branch.clone())
+    {
+      branches.remove(&oldest);
+    }
     watches.shown.insert(window.clone(), (repository, branch.clone()));
   }
 
