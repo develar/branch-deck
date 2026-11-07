@@ -461,9 +461,11 @@ brd-host upgrade <alias> [--binary <path>] [--force]
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
 - Below `branchdeck.leaseMinFree` of the host, the relief must raise the free space by the steps of a get there,
   without a get ([brd lease](lease.spec.md), "Host slots"), once per volume: the repositories of a host share one, so
-  the first repository on it measures and relieves it, and the others of the round take nothing. It runs on a thread
-  of its own, one at a time, and writes one line of the log per volume it relieved, with what each step deleted and the
-  free space after. A relief that leaves a volume below the minimum after every step says so and the next one waits
+  the first repository on it measures and relieves its pools, and the others of the round take none of those steps.
+  Below the minimum still, each repository relieves its idle host slots, used longest ago first: their clean rules with
+  keep 0, then their Bazel output bases, until the volume has the minimum. It runs on a thread of its own, one at a
+  time, and writes one line of the log per repository whose relief took a step, with what each step deleted (each host
+  slot with what it freed) and the free space after. A relief that leaves a volume below the minimum after every step says so and the next one waits
   15 minutes; without a minimum it deletes nothing. So a host that only runs keeps its disk without the app and
   without `brd`.
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_keeps_the_minimum_free_space_once_per_volume_and_waits_after_a_relief_that_left_it_low`)

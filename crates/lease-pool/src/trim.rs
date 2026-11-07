@@ -159,14 +159,14 @@ pub struct RemovedBase {
 impl RemovedBase {
   /// What the delete of the output base, moved into the trash at `path`, freed or why it failed; an error of its move
   /// comes first
-  fn record(&mut self, path: &Path, result: std::io::Result<u64>) {
+  pub(crate) fn record(&mut self, path: &Path, result: std::io::Result<u64>) {
     match result {
       Ok(freed) => self.freed_bytes = freed,
       Err(error) => self.error = self.error.take().or_else(|| Some(delete_error(path, &error))),
     }
   }
 
-  fn of(base: &OutputBase) -> Self {
+  pub(crate) fn of(base: &OutputBase) -> Self {
     Self {
       path: display_path(&base.path),
       workspace: display_path(&base.workspace),
@@ -523,14 +523,29 @@ impl SlotRemoval<'_> {
     if let Err(error) = drop_slot(pool, timeout, &slot.path, &marker.id) {
       removed.errors.push(format!("{error:#}"));
     }
-    for (index, base) in slot_bases.iter().enumerate() {
-      match self.trash.move_in(&base.path) {
-        Ok(path) => moved.push((path, Moved::Base(index))),
-        Err(error) => removed.output_bases[index].error = Some(format!("cannot move it into the trash: {error}")),
-      }
-    }
+    moved.extend(
+      trash_bases(self.trash, &slot_bases, &mut removed.output_bases)
+        .into_iter()
+        .map(|(index, path)| (path, Moved::Base(index))),
+    );
     Removal::Removed(Box::new(removed), moved)
   }
+}
+
+/// Move `bases`, the output bases of the workspaces of one slot, into `trash`: the paths in the trash, each with the
+/// index of its base in `reports` (`RemovedBase::of` of each, in the order of `bases`), whose `error` says why one
+/// stayed. The Bazel servers of the slot are stopped before (`stop_servers`): the trim of a free slot
+/// (`SlotRemoval::remove`) and the keeper's relief of an idle host slot (`host_slots::relieve_host_slots`) both take
+/// it, and both delete what moved with `remove_all`
+pub(crate) fn trash_bases(trash: &Trash, bases: &[&OutputBase], reports: &mut [RemovedBase]) -> Vec<(usize, PathBuf)> {
+  let mut moved = Vec::new();
+  for (index, base) in bases.iter().enumerate() {
+    match trash.move_in(&base.path) {
+      Ok(path) => moved.push((index, path)),
+      Err(error) => reports[index].error = Some(format!("cannot move it into the trash: {error}")),
+    }
+  }
+  moved
 }
 
 /// The slots of a pool as a trim counts them (`present`: a lease, or a directory that is there) and its free slots in
@@ -662,7 +677,7 @@ fn drop_slot(pool: &Pool, timeout: Duration, path: &str, marker_id: &str) -> Res
 
 /// Delete each of `paths` with what is below it, by `DELETE_WORKERS` threads that take the entries right in each path
 /// one by one, then the paths themselves: the bytes on disk each freed, or why it could not be deleted
-fn remove_all(paths: &[&Path]) -> Vec<std::io::Result<u64>> {
+pub(crate) fn remove_all(paths: &[&Path]) -> Vec<std::io::Result<u64>> {
   // the entries right in each path, with the index of the path
   let mut entries: Vec<(usize, PathBuf)> = Vec::new();
   for (index, path) in paths.iter().enumerate() {

@@ -2518,6 +2518,19 @@ start. The give-back runs off the client's path:
    runs no git, comes once the slot is idle (`apply_tracked_rules`), so the next run does not wait for it. The clean
    takes the slot only while it is still idle, and it leaves the slot idle before it deletes its trash.
 
+The give-back cleans one slot at a time, and only the slot of a run that just ended. A host slot is a lease, so the
+steps a get takes below the minimum free space (the trim, the shrink, the eviction) never take one, and an idle slot
+that no run gets again keeps its build output and its Bazel output bases. On the Studio on 2026-11-07, four host slots
+of idea-1 held 412 GB of output bases, and the disk filled with `branchdeck.leaseMinFree` set. So the keeper relieves
+the host slots itself (`host_slots::relieve_host_slots`, after `relieve_core` in `keep_free`). Below the minimum after
+the steps of the pools, it takes the idle host slots of its repository one by one, the one used longest ago first, as
+`lend` gives them. In each it first applies the clean rules with keep 0 (`shrink::DEEP`, as the shrink of a free slot).
+Then, below the minimum still, it stops the slot's Bazel servers and deletes its output bases (`trim::trash_bases`, the
+step the trim takes when it removes a slot), and it stops once the volume has the minimum. The slot stays in the pool
+and only its warm build is gone, because a removed slot would cost the next run a fill. The slots used last go last:
+they serve the runs a user waits for. The output bases go only after the clean rules, since a rebuild of them costs
+more than a rebuild of `target/`.
+
 The checkout of a run (`host_slots::checkout`) moves the slot the
 run has to the commit of the run by the diff, as the get of a reused slot does, but without a `status`: the give-back
 of the last run, the fill and a clean leave the slot clean, and `reset --merge` keeps a local change outside the diff

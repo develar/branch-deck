@@ -900,13 +900,20 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs`)
 - `host_slots::keep_free`, which the keeper of brd-host runs once a minute, must keep the minimum free space of the
   volume of the pool without a get: below `branchdeck.leaseMinFree` the trash, the trim of every pool of the machine,
-  the shrink and the eviction, each when the one before left the volume below it, as a get takes them ("Get"). A host
-  slot is a lease and stays. Below the minimum after every step it must answer what went and the free space, not the
-  `low_disk_space` of a get, whose advice is for an agent that asked for a slot; without a minimum, where the system
-  tells no free space, and while a live process upgrades git it deletes nothing. One `ReliefRound` takes each volume
-  once: a pool of the round on a volume that it took measures nothing. `host_slots::trim` is the trim of
-  `brd-host trim` ([brd-host](host.spec.md#trim)), with the same guard.
+  the shrink and the eviction, each when the one before left the volume below it, as a get takes them ("Get"). Those
+  steps take free slots only: a host slot is a lease and stays in the pool. Below the minimum still, it must relieve
+  the idle host slots of its repository (`relieve_host_slots`), one by one, the one used longest ago first (a never lent
+  one before them), until the volume has the minimum: in each, `cleaning` meanwhile so no run gets it, its clean rules
+  with keep 0 and age 0 as the shrink applies them, then, below the minimum still, its Bazel output bases, its Bazel
+  servers stopped first, as the trim removes them with a slot; each moves the `generation` of the slot. A slot that is
+  not idle, or that a process of a run works in, must not be touched, and a server that does not exit keeps every
+  base. Below the minimum after every step it must answer what went and the free space, not the `low_disk_space` of a
+  get, whose advice is for an agent that asked for a slot; without a minimum, where the system tells no free space, and
+  while a live process upgrades git it deletes nothing. One `ReliefRound` takes each volume once for the steps of the
+  pools: a pool of the round on a volume that it took measures nothing for them, and relieves only its own host slots.
+  `host_slots::trim` is the trim of `brd-host trim` ([brd-host](host.spec.md#trim)), with the same guard.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_keeper_relieves_the_idle_host_slots_used_longest_ago_first_until_the_volume_has_its_minimum`)
 - Only the git of that measure (one `ls-files` of the paths of the rules) may run while the slot is `giving_back`, so
   an upgrade of git waits for it; the walk of the sizes must run once the slot is idle, and the clean then takes the
   slot only while it is still idle. A clean must leave the slot idle before it deletes its trash, as a return of the

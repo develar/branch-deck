@@ -16,17 +16,23 @@
 //! behind a recorded upgrade. A state of a slot names its process, and a host-object call that no state names is a
 //! `HostUser` in `users` while it runs. A fill, a clean, a shrink and the steps of `reclaim` skip while a live process
 //! upgrades, and a host-object call waits.
+//!
+//! A host slot is a lease, so the trim, the shrink and the eviction of a get below the minimum free space never take
+//! one: below `branchdeck.leaseMinFree` the keeper relieves the idle host slots itself (`relieve_host_slots`), their
+//! clean rules with keep 0, then their Bazel output bases, used longest ago first.
 
 use crate::free_space::available_bytes;
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
-  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, ReliefRound, Relieved, canonical_path, get_host_slot,
-  move_reused_slot, relieve_core, return_host_slot,
+  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, ReliefRound, Relieved, ServerStop, canonical_path,
+  get_host_slot, move_reused_slot, relieve_core, return_host_slot, slot_servers, stop_servers,
 };
-use crate::lease_clean::{CleanMode, CleanOverrides, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, read_clean_rules, tracked_by_rules};
+use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, read_clean_rules, tracked_by_rules};
+use crate::output_bases::OutputBase;
+use crate::shrink::DEEP;
 use crate::state_file::StateFile;
-use crate::trim::{TrimParams, Trimmed, trim_core};
+use crate::trim::{Machine, RemovedBase, TrimParams, Trimmed, remove_all, trash_bases, trim_core};
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes, start_deferred_maintenance};
@@ -35,8 +41,9 @@ use git_ops::worktree_snapshot::{CommitText, read_head_commit, worktree_commit, 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, kill, process_started, terminate};
 use sync_utils::size::parse_size;
@@ -1540,12 +1547,14 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
 /// The minimum free space of the volume of the pool, kept by the keeper of the host slots: below
 /// `branchdeck.leaseMinFree` it takes the steps a get takes there (`lease::relieve_core`: the trash, the trim of every
 /// pool of the machine, the shrink, the eviction), so a host that only runs keeps its minimum without a get and without
-/// `brd`. `None` when the volume has it, and when `round` took its volume already: the repositories of a host share
-/// one, and one relief serves them all. Below it after every step, `Relieved::after` is below `Relieved::required`.
-/// While a live process upgrades git it runs no git: `GitUpgrading`
+/// `brd`; those steps take free slots only, and a host slot is a lease. Below it still, the idle host slots of this
+/// repository go next (`relieve_host_slots`). `None` when the volume has it, and when `round` took its volume already
+/// and no host slot of this repository was relieved: the repositories of a host share one volume, and one relief of the
+/// pools serves them all, while each repository relieves its own host slots. Below it after every step,
+/// `Relieved::after` is below `Relieved::required`. While a live process upgrades git it runs no git: `GitUpgrading`
 pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
   refuse_while_upgrading(&params.table().read()?)?;
-  relieve_core(
+  let relieved = relieve_core(
     git_executor,
     &LeaseGetParams {
       source: params.repository,
@@ -1560,7 +1569,169 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
       space: None,
     },
     round,
-  )
+  )?;
+  let config = lease_config(git_executor, &params.repository.top_level)?;
+  let min_free = config_size("branchdeck.leaseMinFree", config.min_free.as_ref())?.unwrap_or(0);
+  relieve_host_slots(git_executor, params, relieved, min_free, &available_bytes)
+}
+
+/// What the keeper freed in one idle host slot below the minimum free space (`relieve_host_slots`)
+#[derive(Debug, Clone)]
+pub struct RelievedHostSlot {
+  pub n: u32,
+  pub path: String,
+  /// What its clean rules freed with keep 0 and age 0, as the shrink of a free slot (`shrink::DEEP`)
+  pub cleaned: Vec<Cleaned>,
+  /// Its Bazel output bases, deleted when the volume was below the minimum after the clean; empty otherwise
+  pub output_bases: Vec<RemovedBase>,
+  /// Why a step did not run or failed: a process in it, a Bazel server that did not exit, a run that took it meanwhile
+  pub error: Option<String>,
+}
+
+impl RelievedHostSlot {
+  /// The bytes its clean and the delete of its output bases freed
+  pub fn freed_bytes(&self) -> u64 {
+    self.cleaned.iter().map(|rule| rule.freed_bytes).sum::<u64>() + self.output_bases.iter().map(|base| base.freed_bytes).sum::<u64>()
+  }
+}
+
+/// The idle host slots of `params` relieved while the volume of the slots has less than `min_free` after `relieved`
+/// (the steps of the pools, `relieve_core`): one by one, the slot used longest ago first (a never lent one before
+/// them), as `lend` gives the idle slot used longest ago, so the warm slots of the runs of late go last. In each its
+/// clean rules with keep 0 and age 0 (`shrink::DEEP`: the build output of `.branchdeck.toml`, and so every cache the
+/// repository puts under a rule), then, below the minimum still, its Bazel output bases with its Bazel servers stopped
+/// first (`trim::trash_bases`, as the trim removes a free slot). A slot that is not idle is never touched, nor one with
+/// a process of a run in it; a slot stays in the pool: a run gets it again with a cold build. `available` tells the
+/// free bytes of a path (`free_space::available_bytes`); without a minimum, or without host slots, `relieved` as it
+/// is. The answer is `relieved` with `host_slots` and the free space after them, or a relief of its own when the steps
+/// of the pools did not run (a round that took the volume already, a volume that had its minimum before them)
+pub fn relieve_host_slots(
+  git_executor: &GitCommandExecutor,
+  params: &HostSlotsParams<'_>,
+  relieved: Option<Relieved>,
+  min_free: u64,
+  available: &dyn Fn(&Path) -> Option<u64>,
+) -> Result<Option<Relieved>> {
+  if min_free == 0 {
+    return Ok(relieved);
+  }
+  let table = params.table().read::<HostSlots>()?;
+  let Some(volume) = table.slots.iter().find(|slot| !slot.path.is_empty()).map(|slot| PathBuf::from(&slot.path)) else {
+    return Ok(relieved);
+  };
+  let low = || available(&volume).is_some_and(|free| free < min_free);
+  let before = available(&volume);
+  if !low() {
+    return Ok(relieved);
+  }
+  let mut idle: Vec<&HostSlot> = table.slots.iter().filter(|slot| slot.state == HostState::Idle && !slot.path.is_empty()).collect();
+  idle.sort_by_key(|slot| (slot.used, slot.n));
+  // the output bases before any clean: a rule may delete the `bazel-out` links that lead to their root
+  let bases = Machine::read(params.repository, params.home).bases;
+  let scan = ProcessScan::scan();
+  let mut slots = Vec::new();
+  for slot in idle {
+    if !low() {
+      break;
+    }
+    slots.push(relieve_host_slot(git_executor, params, slot, &bases, &scan, &low));
+  }
+  if slots.is_empty() {
+    return Ok(relieved);
+  }
+  let mut relieved = relieved.unwrap_or_else(|| Relieved {
+    required: min_free,
+    before: before.unwrap_or_default(),
+    after: None,
+    swept: false,
+    trimmed: None,
+    shrunk: None,
+    evicted: None,
+    host_slots: Vec::new(),
+  });
+  relieved.after = available(&volume);
+  relieved.host_slots = slots;
+  Ok(Some(relieved))
+}
+
+/// The relief of the idle host slot `slot` (`relieve_host_slots`): its clean rules with keep 0 and age 0, then, while
+/// `low` still, its output bases of `bases`
+fn relieve_host_slot(
+  git_executor: &GitCommandExecutor,
+  params: &HostSlotsParams<'_>,
+  slot: &HostSlot,
+  bases: &[OutputBase],
+  scan: &ProcessScan,
+  low: &dyn Fn() -> bool,
+) -> RelievedHostSlot {
+  let mut relieved = RelievedHostSlot {
+    n: slot.n,
+    path: slot.path.clone(),
+    cleaned: Vec::new(),
+    output_bases: Vec::new(),
+    error: None,
+  };
+  let workers: Vec<String> = workers_inside(scan, &slot.path)
+    .iter()
+    .map(|process| format!("{} ({})", process.name, process.pid))
+    .collect();
+  if !workers.is_empty() {
+    relieved.error = Some(format!("processes work in it: {}", workers.join(", ")));
+    return relieved;
+  }
+  match clean_core(git_executor, params, slot.n, DEEP, Take::Idle) {
+    Ok(target) => relieved.cleaned = target.cleaned,
+    Err(error) => {
+      relieved.error = Some(format!("{error:#}"));
+      return relieved;
+    }
+  }
+  let slot_bases: Vec<&OutputBase> = bases.iter().filter(|base| base.is_in(Path::new(&slot.path))).collect();
+  if slot_bases.is_empty() || !low() {
+    return relieved;
+  }
+  match drop_output_bases(params, slot, &slot_bases, scan) {
+    Ok(reports) => relieved.output_bases = reports,
+    Err(error) => relieved.error = Some(format!("{error:#}")),
+  }
+  relieved
+}
+
+/// The output bases `bases` of the idle host slot `slot` deleted, `cleaning` meanwhile so no run gets it, its
+/// `generation` moved first as a clean moves it: its Bazel servers stopped (`stop_servers`), the bases moved into the
+/// trash of the pool (`trim::trash_bases`), the slot idle again, then the trash deleted. A server that does not exit
+/// keeps every base, and the slot idle
+fn drop_output_bases(params: &HostSlotsParams<'_>, slot: &HostSlot, bases: &[&OutputBase], scan: &ProcessScan) -> Result<Vec<RemovedBase>> {
+  let (n, me) = (slot.n, Owner::this());
+  params.update(|table| {
+    refuse_while_upgrading(table)?;
+    let slot = slot_mut(table, n)?;
+    if slot.state != HostState::Idle {
+      bail!(busy(n, &slot.state));
+    }
+    slot.state = HostState::Cleaning(me.clone());
+    slot.generation = slot.generation.saturating_add(1);
+    Ok(())
+  })?;
+  let mine = |state: &HostState| matches!(state, HostState::Cleaning(owner) if *owner == me);
+  let (servers, _) = slot_servers(scan, Path::new(&slot.path));
+  let ServerStop { running, .. } = stop_servers(&servers.iter().collect::<Vec<_>>(), None, params.server_timeout);
+  if !running.is_empty() {
+    set_state(params, n, mine, |slot| slot.state = HostState::Idle)?;
+    let pids: Vec<String> = running.iter().map(|process| process.pid.to_string()).collect();
+    bail!("the Bazel servers {} of {} did not exit: its output bases stay", pids.join(", "), slot.path);
+  }
+  let trash = Trash::new(&params.pool().trash_dir());
+  let mut reports: Vec<RemovedBase> = bases.iter().map(|base| RemovedBase::of(base)).collect();
+  let moved = trash_bases(&trash, bases, &mut reports);
+  let idle = set_state(params, n, mine, |slot| slot.state = HostState::Idle);
+  let paths: Vec<&Path> = moved.iter().map(|(_, path)| path.as_path()).collect();
+  for ((index, path), result) in moved.iter().zip(remove_all(&paths)) {
+    reports[*index].record(path, result);
+  }
+  let _ = fs_retry::remove_dir(trash.dir());
+  idle?;
+  Ok(reports)
 }
 
 /// The trim of every pool of the host that `brd-host trim` asks for (`trim::trim_core`, as `brd lease trim` runs it):

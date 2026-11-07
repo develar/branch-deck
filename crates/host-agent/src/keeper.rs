@@ -233,6 +233,22 @@ fn relieved_line(repo: &Path, relieved: &Relieved, still_low: bool) -> String {
       describe_size(evicted.freed_bytes())
     ));
   }
+  if !relieved.host_slots.is_empty() {
+    let slots: Vec<String> = relieved
+      .host_slots
+      .iter()
+      .map(|slot| {
+        let bases = if slot.output_bases.is_empty() {
+          String::new()
+        } else {
+          format!(" with {} Bazel output base(s)", slot.output_bases.len())
+        };
+        let error = slot.error.as_ref().map_or_else(String::new, |error| format!(" ({error})"));
+        format!("{} {}{bases}{error}", slot.n, describe_size(slot.freed_bytes()))
+      })
+      .collect();
+    steps.push(format!("the idle host slots, used longest ago first, freed {}", slots.join(", ")));
+  }
   let after = relieved.after.map_or_else(|| "unknown".to_string(), describe_size);
   let still = if still_low {
     format!(", still less than the minimum; the next relief in {} min", RELIEF_BACKOFF.as_secs() / 60)

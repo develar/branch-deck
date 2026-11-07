@@ -92,7 +92,9 @@ The lend table, the give-back, the clean and the shrink are in "Host slots" of
   the minimum free space (`keep_free`), and fills the missing slots (`fill`). A failed fill waits 1, 5, then 15
   minutes. Below `branchdeck.leaseMinFree` the relief takes the steps of a get (the trash, the trim of every pool of
   the host, the shrink, the eviction) without one, once per volume and tick (`ReliefRound`), since the repositories
-  of a host share one; a relief that leaves a volume below it waits 15 minutes.
+  of a host share one. Those steps take free slots only, so below the minimum still each repository relieves its idle
+  host slots, used longest ago first: their clean rules with keep 0, then their Bazel output bases
+  (`relieve_host_slots`). A relief that leaves a volume below it waits 15 minutes.
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after
   its hello, and each supervisor holds them for its whole life. So a command runs to its end without its client.
 

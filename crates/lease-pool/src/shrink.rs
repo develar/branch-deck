@@ -45,7 +45,7 @@ pub fn lock_pressure(home: Option<&Path>, pool: &Pool, unknown_timeout: Duration
 }
 
 /// The parameters of every cargo rule of a shrink: no unit of a free slot is kept, whatever its age
-const DEEP: CleanOverrides = CleanOverrides {
+pub(crate) const DEEP: CleanOverrides = CleanOverrides {
   keep: Some(0),
   age: Some(Duration::ZERO),
 };

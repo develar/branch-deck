@@ -15,7 +15,7 @@
 use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
-use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
+use crate::host_slots::{HOST_HOLDER_PREFIX, RelievedHostSlot, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, holds_gone_runs, read_clean_rules, remove_together};
 use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
@@ -1569,6 +1569,9 @@ pub struct Relieved {
   pub trimmed: Option<Trimmed>,
   pub shrunk: Option<Shrunk>,
   pub evicted: Option<Trimmed>,
+  /// The idle host slots of the repository relieved after these steps, used longest ago first, until the volume had its
+  /// minimum (`host_slots::relieve_host_slots`); empty for a get, which lends no host slot
+  pub host_slots: Vec<RelievedHostSlot>,
 }
 
 /// The volumes that one round of the keeper took already (`relieve_core`): a relief raises the free space of a volume
@@ -1624,6 +1627,7 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
     trimmed: relief.trimmed,
     shrunk: relief.shrunk,
     evicted: relief.evicted,
+    host_slots: Vec::new(),
   }))
 }
 

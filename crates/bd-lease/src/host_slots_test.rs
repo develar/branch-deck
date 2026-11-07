@@ -9,11 +9,11 @@ use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git, states};
-use bd_cli::fixture_test::{assert_error, git, gone_process};
+use bd_cli::fixture_test::{assert_error, canonical, git, gone_process};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
-  clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
+  clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, relieve_host_slots, set_limit, shrink, snapshot_run,
 };
 use lease_pool::lease::{LeaseState, Pool, ReliefRound, canonical_path};
 use lease_pool::lease_clean::CleanOverrides;
@@ -27,6 +27,7 @@ use std::time::UNIX_EPOCH;
 #[cfg(unix)]
 use sync_utils::process_scan::ProcessScan;
 use sync_utils::process_scan::process_started;
+use test_utils::links::directory_link;
 
 /// The rules of the fixture: `out/` is ignored, and a clean deletes `out/cache`
 const RULES: &str = "[lease]\nclean = [\n  { delete = \"out/cache\" },\n]\n";
@@ -554,9 +555,10 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
 }
 
 /// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim deletes the
-/// free slot past `branchdeck.leaseMaxSlots` returned longest ago, and the host slot, a lease, stays. A minimum past the
-/// volume deletes no build output and no slot below the limit, and the answer says what went, not the refusal of a get.
-/// A second pool of the round on the same volume measures nothing. Without a minimum, and where the system tells no
+/// free slot past `branchdeck.leaseMaxSlots` returned longest ago, and the host slot, a lease, stays in the pool, its
+/// clean rules applied (`relieve_host_slots`). A minimum past the volume deletes no build output and no slot below the
+/// limit, and the answer says what went, not the refusal of a get. A second call of the round on the same volume takes
+/// no step of the pools again, only the host slots of its repository. Without a minimum, and where the system tells no
 /// free space, it measures only
 #[test]
 fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
@@ -574,7 +576,7 @@ fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
   let tells_free_space = lease_pool::free_space::volume_space(Path::new(&lanes[0])).is_some();
   let mut round = ReliefRound::default();
   let relieved = keep_free(&context.git, &params, &mut round).unwrap();
-  assert!(keep_free(&context.git, &params, &mut round).unwrap().is_none(), "once per volume and round");
+  let again = keep_free(&context.git, &params, &mut round).unwrap();
   let slots: Vec<String> = states(&fixture.status()).into_iter().map(|(path, _)| path).collect();
   if !tells_free_space {
     assert!(relieved.is_none(), "no free space told, no minimum to fall under");
@@ -585,8 +587,89 @@ fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
   assert!(relieved.after.is_some_and(|after| after < relieved.required), "still below 1 PiB: {relieved:?}");
   assert_eq!(relieved.trimmed.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(1), "{relieved:?}");
   assert!(relieved.shrunk.is_none() && relieved.evicted.is_none(), "{relieved:?}");
+  let host_slots = |relieved: &lease_pool::lease::Relieved| relieved.host_slots.iter().map(|slot| slot.n).collect::<Vec<_>>();
+  assert_eq!(host_slots(&relieved), [1], "{relieved:?}");
+  let again = again.expect("the host slots again");
+  assert!(again.trimmed.is_none() && again.shrunk.is_none() && !again.swept, "once per volume and round: {again:?}");
+  assert_eq!(host_slots(&again), [1], "{again:?}");
   assert!(!slots.contains(&lanes[0]), "the free slot returned longest ago goes: {slots:?}");
   assert!(slots.contains(&lanes[1]) && slots.contains(&host.filled[0].path), "{slots:?}");
+}
+
+/// Below the minimum free space after the steps of the pools, which take free slots only, the keeper relieves the idle
+/// host slots of the repository, used longest ago first (`relieve_host_slots`): in each its clean rules with keep 0,
+/// then, below the minimum still, its Bazel output bases, and it stops once the volume has its minimum. A lent slot is
+/// never touched; without a minimum nothing is. The output bases are fakes found through the `out/bazel-out` link of
+/// the source checkout, as in the trim's tests
+#[test]
+fn the_keeper_relieves_the_idle_host_slots_used_longest_ago_first_until_the_volume_has_its_minimum() {
+  let host = Host::filled(3);
+  let (fixture, context, params) = host.parts();
+  // lent in the order 1, 2, 3, 1: slot 2 was used longest ago, then 3, then 1; then 2 goes to a run that keeps it
+  for (run, n) in [("run-a", 1), ("run-b", 2), ("run-c", 3), ("run-d", 1)] {
+    let slot = lent(lend_to(&params, run, None));
+    assert_eq!(slot.n, n, "{run}");
+    give_back(&context.git, &params, n, run).unwrap();
+    std::thread::sleep(Duration::from_millis(5));
+  }
+  let busy = lent(lend_to(&params, "busy", None));
+  assert_eq!(busy.n, 2);
+  let path = |n: u32| PathBuf::from(&host.filled.iter().find(|slot| slot.n == n).unwrap().path);
+  let cache = |n: u32| path(n).join("out/cache");
+  let root = canonical(fixture.home.path()).join("bazel-root");
+  let base = |name: &str| root.join(name);
+  for (name, workspace) in [("main", canonical(fixture.repo.path())), ("slot-1", path(1)), ("slot-2", path(2)), ("slot-3", path(3))] {
+    std::fs::create_dir_all(base(name).join("execroot/_main/bazel-out")).unwrap();
+    std::fs::write(base(name).join("DO_NOT_BUILD_HERE"), workspace.to_string_lossy().as_bytes()).unwrap();
+    std::fs::write(base(name).join("execroot/_main/bazel-out/action"), vec![7u8; 4096]).unwrap();
+  }
+  let source = canonical(fixture.repo.path());
+  std::fs::write(source.join("MODULE.bazel"), "").unwrap();
+  std::fs::create_dir_all(source.join("out")).unwrap();
+  directory_link(&base("main").join("execroot/_main/bazel-out"), &source.join("out/bazel-out"));
+  for n in 1..=3 {
+    std::fs::create_dir_all(path(n).join("out")).unwrap();
+    std::fs::write(cache(n), vec![1u8; 4096]).unwrap();
+  }
+  let generation = |n: u32| table(fixture).slots.iter().find(|slot| slot.n == n).unwrap().generation;
+  let before = generation(3);
+
+  assert!(relieve_host_slots(&context.git, &params, None, 0, &|_| Some(0)).unwrap().is_none(), "without a minimum");
+  assert!(cache(3).is_file());
+
+  // low until the output base of slot 3 is gone: its clean does not suffice, its output bases do, and slot 1 stays warm
+  let low_until = base("slot-3");
+  let relieved = relieve_host_slots(&context.git, &params, None, 1000, &|_| Some(if low_until.exists() { 0 } else { u64::MAX }))
+    .unwrap()
+    .expect("a relief below the minimum");
+  let slots: Vec<u32> = relieved.host_slots.iter().map(|slot| slot.n).collect();
+  assert_eq!(slots, [3], "{relieved:?}");
+  let slot = &relieved.host_slots[0];
+  assert!(slot.error.is_none(), "{slot:?}");
+  assert!(slot.cleaned.iter().any(|rule| rule.rule == "delete out/cache" && rule.freed_bytes > 0), "{slot:?}");
+  assert_eq!(
+    slot.output_bases.iter().map(|base| PathBuf::from(&base.path)).collect::<Vec<_>>(),
+    [base("slot-3")],
+    "{slot:?}"
+  );
+  assert!(slot.freed_bytes() >= 8192, "{slot:?}");
+  assert_eq!(relieved.after, Some(u64::MAX));
+  assert!(!cache(3).exists() && !base("slot-3").exists());
+  assert!(cache(1).is_file() && base("slot-1").is_dir(), "the slot used last stays warm");
+  assert!(cache(2).is_file() && base("slot-2").is_dir(), "a lent slot is never touched");
+  assert!(generation(3) > before, "a run keys the outputs of its prepare steps by it");
+  assert_eq!(table(fixture).slots.iter().filter(|slot| slot.state == HostState::Idle).count(), 2, "idle again");
+
+  // never enough: every idle slot in turn, slot 3 (used longest ago) before slot 1, and still not the lent one
+  let relieved = relieve_host_slots(&context.git, &params, None, 1000, &|_| Some(0))
+    .unwrap()
+    .expect("a relief below the minimum");
+  assert_eq!(relieved.host_slots.iter().map(|slot| slot.n).collect::<Vec<_>>(), [3, 1], "{relieved:?}");
+  assert!(!cache(1).exists() && !base("slot-1").exists());
+  assert!(
+    cache(2).is_file() && base("slot-2").is_dir() && base("main").is_dir(),
+    "the lent slot and the source checkout stay"
+  );
 }
 
 /// A give-back holds the slot only for the git of its measure: `ls-files` runs while the slot is given back, and the
