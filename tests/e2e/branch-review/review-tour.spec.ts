@@ -465,23 +465,23 @@ test.describe("Review tour", () => {
     },
   )
 
-  test("should give the heading of a range of one commit the mark of its card, which the hover and I open, Escape giving the focus back", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupRepo("review_tour")
-    turnOnReviewPlan(repo)
-    await commitTwoTasks(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "story")
-    // the tree lists the tasks of the commit, no row of it; its heading tells what is told before the tasks
-    await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("commit-row-mark")).toHaveCount(0)
-    const header = window.getByTestId("range-review-commit-header")
-    await expect(header).toContainText("The cold start paints a splash at once")
-    await expect(header).not.toContainText(THEME_ITEM.replaceAll("`", ""))
-    // the card of the mark of its heading shows the whole message
-    await expectHeadingCard(window, header, THEME_ITEM.replaceAll("`", ""))
-  })
+  test(
+    "should give the heading of a range of one commit the mark of its card, which the hover and I open, Escape giving the focus back",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_tour")
+      turnOnReviewPlan(repo)
+      await commitTwoTasks(repo)
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "story")
+      // the tree lists the tasks of the commit, no row of it; its heading tells what is told before the tasks
+      await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("commit-row-mark")).toHaveCount(0)
+      const header = window.getByTestId("range-review-commit-header")
+      await expect(header).toContainText("The cold start paints a splash at once")
+      await expect(header).not.toContainText(THEME_ITEM.replaceAll("`", ""))
+      // the card of the mark of its heading shows the whole message
+      await expectHeadingCard(window, header, THEME_ITEM.replaceAll("`", ""))
+    },
+  )
 
   test("should tell the whole body of a range of one commit of one task in its heading, whose mark opens its card, name a removed declaration after the heading of its block, and give a commit without a body no mark and no tab stop", async ({
     page,
@@ -523,118 +523,118 @@ test.describe("Review tour", () => {
     await expect(bareHeader).not.toHaveAttribute("tabindex")
   })
 
-  test("should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    turnOnReviewPlan(await setupRepo("review_tour"))
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
-    const tree = window.getByRole("tree", { name: "Changed files" })
-    const bar = window.getByTestId("review-step-bar")
-    const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
+  test(
+    "should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      turnOnReviewPlan(await setupRepo("review_tour"))
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+      const tree = window.getByRole("tree", { name: "Changed files" })
+      const bar = window.getByTestId("review-step-bar")
+      const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
 
-    // `Manager.allowed` in the body of step 2 resolves to the rule the step adds: a link, its hover names it, its file,
-    // its step
-    const allowed = opening.getByTestId("commit-body-lead").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
-    await expect(allowed).toHaveAttribute("data-path", "src/a/Manager.kt")
-    await allowed.hover()
-    // its card says what it names, never the name again: the status and the place, and no step, the reader is in it
-    await expect(window.getByTestId("review-story-mention-tip")).toHaveText("NewManager.kt:6")
-    // its name is the name it shows, its description what the card says
-    await expect(allowed).toHaveAccessibleName("Manager.allowed")
-    await expect(allowed).toHaveAccessibleDescription("New · Manager.kt:6")
-    // a click shows the declaration: its file selected, its name selected in the diffs
-    await allowed.click()
-    await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
-    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
-    // the same name in the contents of the overview links too
-    await expect(window.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention")).toHaveText("Manager.allowed")
+      // `Manager.allowed` in the body of step 2 resolves to the rule the step adds: a link, its hover names it, its file,
+      // its step
+      const allowed = opening.getByTestId("commit-body-lead").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
+      await expect(allowed).toHaveAttribute("data-path", "src/a/Manager.kt")
+      await allowed.hover()
+      // its card says what it names, never the name again: the status and the place, and no step, the reader is in it
+      await expect(window.getByTestId("review-story-mention-tip")).toHaveText("NewManager.kt:6")
+      // its name is the name it shows, its description what the card says
+      await expect(allowed).toHaveAccessibleName("Manager.allowed")
+      await expect(allowed).toHaveAccessibleDescription("New · Manager.kt:6")
+      // a click shows the declaration: its file selected, its name selected in the diffs
+      await allowed.click()
+      await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
+      // the same name in the contents of the overview links too
+      await expect(window.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention")).toHaveText("Manager.allowed")
 
-    // back: the header of the section the body names marks it, its hover the line that names it, where it is told
-    const manager = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').first()
-    const mark = manager.getByTestId("review-story-mark")
-    await expect(mark).toHaveCount(1)
-    await mark.hover()
-    // a card of the story: where it is told once, then the line that names the section, its code names links, inside
-    // the window
-    const tip = window.getByTestId("review-story-mark-tip")
-    await expect(tip.getByText("Step 2 · the open keeps a stored layout", { exact: true })).toHaveCount(1)
-    await expect(tip).toContainText("One rule decides now: Manager.allowed answers whether the open may show a tool window.")
-    await expect(tip.getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })).toBeVisible()
-    await expect.poll(async () => ((await tip.boundingBox())?.x ?? 0) + ((await tip.boundingBox())?.width ?? Infinity) <= window.viewportSize()!.width - 8).toBe(true)
-    // the focus from the keyboard opens it too, above the header of its section, or under it at the top of the diffs,
-    // never over it; it is read, not entered (Enter shows the story, whose names are links), and Escape closes it
-    await window.mouse.move(0, 0)
-    await expect(tip).toHaveCount(0)
-    await mark.focus()
-    await window.keyboard.press("Shift+Tab")
-    await window.keyboard.press("Tab")
-    await expect(mark).toBeFocused()
-    await expect(tip).toBeVisible()
-    const headerBox = (await manager.getByTestId("review-file-header").boundingBox())!
-    const clearsHeader = async () => {
-      const box = await tip.boundingBox()
-      return box !== null && (box.y + box.height <= headerBox.y + 1 || box.y >= headerBox.y + headerBox.height - 1)
-    }
-    await expect.poll(clearsHeader).toBe(true)
-    await window.keyboard.press("Escape")
-    await expect(tip).toHaveCount(0)
-    await expect(window.getByTestId("commit-review")).toBeVisible()
-    // a click shows the opening of its step, the paragraph outlined
-    await window.mouse.move(0, 0)
-    await mark.click()
-    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
-    await expect(opening.locator("[data-story-block][data-highlight]")).toContainText("One rule decides now")
-    await expect(window.locator("[data-story-block][data-highlight]")).toHaveCount(1)
+      // back: the header of the section the body names marks it, its hover the line that names it, where it is told
+      const manager = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').first()
+      const mark = manager.getByTestId("review-story-mark")
+      await expect(mark).toHaveCount(1)
+      await mark.hover()
+      // a card of the story: where it is told once, then the line that names the section, its code names links, inside
+      // the window
+      const tip = window.getByTestId("review-story-mark-tip")
+      await expect(tip.getByText("Step 2 · the open keeps a stored layout", { exact: true })).toHaveCount(1)
+      await expect(tip).toContainText("One rule decides now: Manager.allowed answers whether the open may show a tool window.")
+      await expect(tip.getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })).toBeVisible()
+      await expect.poll(async () => ((await tip.boundingBox())?.x ?? 0) + ((await tip.boundingBox())?.width ?? Infinity) <= window.viewportSize()!.width - 8).toBe(true)
+      // the focus from the keyboard opens it too, above the header of its section, or under it at the top of the diffs,
+      // never over it; it is read, not entered (Enter shows the story, whose names are links), and Escape closes it
+      await window.mouse.move(0, 0)
+      await expect(tip).toHaveCount(0)
+      await mark.focus()
+      await window.keyboard.press("Shift+Tab")
+      await window.keyboard.press("Tab")
+      await expect(mark).toBeFocused()
+      await expect(tip).toBeVisible()
+      const headerBox = (await manager.getByTestId("review-file-header").boundingBox())!
+      const clearsHeader = async () => {
+        const box = await tip.boundingBox()
+        return box !== null && (box.y + box.height <= headerBox.y + 1 || box.y >= headerBox.y + headerBox.height - 1)
+      }
+      await expect.poll(clearsHeader).toBe(true)
+      await window.keyboard.press("Escape")
+      await expect(tip).toHaveCount(0)
+      await expect(window.getByTestId("commit-review")).toBeVisible()
+      // a click shows the opening of its step, the paragraph outlined
+      await window.mouse.move(0, 0)
+      await mark.click()
+      await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
+      await expect(opening.locator("[data-story-block][data-highlight]")).toContainText("One rule decides now")
+      await expect(window.locator("[data-story-block][data-highlight]")).toHaveCount(1)
 
-    // the Look closely of the author is a callout in the opening of its step and in the contents; its tests are folded
-    // always, named on the line of the folded parts
-    const restart = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 4 · the restart story checks the layout", exact: true }) })
-    await expect(restart.getByTestId("commit-body-look-closely")).toContainText("the story restarts the window alone, never the whole IDE.")
-    // the callout holds the question alone: the label right above its paragraph heads the story after it
-    await expect(restart.getByTestId("commit-body-look-closely")).not.toContainText("takes a minute")
-    await expect(restart.getByTestId("commit-body-part").filter({ hasText: "Why not the whole IDE" })).toContainText("A restart of the IDE takes a minute")
-    await expect(window.getByTestId("review-contents-step").nth(3).getByTestId("review-contents-step-look-closely")).toContainText("the story restarts the window alone")
-    const tests = restart.getByTestId("commit-body-fold")
-    const folded = restart.getByTestId("commit-body-folded")
-    await expect(folded).toHaveText("More:Tests")
-    await expect(tests).toHaveAttribute("aria-expanded", "false")
-    const foldedTest = restart.getByText("restart.json restarts the window once", { exact: true })
-    await expect(foldedTest).toBeAttached()
-    await expect(foldedTest).toBeHidden()
-    // a name in a folded part marks its section too: a click opens the part, its block outlined; the open part is
-    // headed by its label, the toggle that folds it, and leaves the line of what is still folded
-    await tree.getByRole("treeitem", { name: "tests/restart.json", exact: true }).click()
-    const restartMark = window.locator('[data-testid="diff-view-file"][data-path="tests/restart.json"]').getByTestId("review-story-mark")
-    await window.mouse.move(0, 0)
-    await restartMark.click()
-    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
-    const unfold = restart.getByTestId("commit-body-unfold")
-    await expect(unfold).toHaveText("Tests")
-    await expect(unfold).toHaveAttribute("aria-expanded", "true")
-    await expect(folded).toHaveCount(0)
-    await expect(restart.locator("[data-story-block][data-highlight]")).toHaveText("restart.json restarts the window once")
-    // its label folds it again, back into the line, and the line opens it again below
-    await unfold.click()
-    await expect(tests).toHaveAttribute("aria-expanded", "false")
-    await expect(foldedTest).toBeHidden()
-    await tests.click()
-    await expect(restart.getByTestId("commit-body-part").filter({ hasText: "restarts the window once" })).toBeVisible()
+      // the Look closely of the author is a callout in the opening of its step and in the contents; its tests are folded
+      // always, named on the line of the folded parts
+      const restart = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 4 · the restart story checks the layout", exact: true }) })
+      await expect(restart.getByTestId("commit-body-look-closely")).toContainText("the story restarts the window alone, never the whole IDE.")
+      // the callout holds the question alone: the label right above its paragraph heads the story after it
+      await expect(restart.getByTestId("commit-body-look-closely")).not.toContainText("takes a minute")
+      await expect(restart.getByTestId("commit-body-part").filter({ hasText: "Why not the whole IDE" })).toContainText("A restart of the IDE takes a minute")
+      await expect(window.getByTestId("review-contents-step").nth(3).getByTestId("review-contents-step-look-closely")).toContainText("the story restarts the window alone")
+      const tests = restart.getByTestId("commit-body-fold")
+      const folded = restart.getByTestId("commit-body-folded")
+      await expect(folded).toHaveText("More:Tests")
+      await expect(tests).toHaveAttribute("aria-expanded", "false")
+      const foldedTest = restart.getByText("restart.json restarts the window once", { exact: true })
+      await expect(foldedTest).toBeAttached()
+      await expect(foldedTest).toBeHidden()
+      // a name in a folded part marks its section too: a click opens the part, its block outlined; the open part is
+      // headed by its label, the toggle that folds it, and leaves the line of what is still folded
+      await tree.getByRole("treeitem", { name: "tests/restart.json", exact: true }).click()
+      const restartMark = window.locator('[data-testid="diff-view-file"][data-path="tests/restart.json"]').getByTestId("review-story-mark")
+      await window.mouse.move(0, 0)
+      await restartMark.click()
+      await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
+      const unfold = restart.getByTestId("commit-body-unfold")
+      await expect(unfold).toHaveText("Tests")
+      await expect(unfold).toHaveAttribute("aria-expanded", "true")
+      await expect(folded).toHaveCount(0)
+      await expect(restart.locator("[data-story-block][data-highlight]")).toHaveText("restart.json restarts the window once")
+      // its label folds it again, back into the line, and the line opens it again below
+      await unfold.click()
+      await expect(tests).toHaveAttribute("aria-expanded", "false")
+      await expect(foldedTest).toBeHidden()
+      await tests.click()
+      await expect(restart.getByTestId("commit-body-part").filter({ hasText: "restarts the window once" })).toBeVisible()
 
-    // the outline plays once: the commit shown alone, then the whole story again, mount their stories with no block
-    // outlined and no fold opened by the click before
-    const { commitRow, column } = reviewSidebar(window)
-    await commitRow("4 · the restart story checks the layout").click()
-    await commitRow("4 · the restart story checks the layout").press("Enter")
-    const header = window.getByTestId("range-review-commit-header")
-    await expect(header.getByTestId("commit-body-fold")).toHaveAttribute("aria-expanded", "false")
-    await expect(window.locator("[data-highlight]")).toHaveCount(0)
-    await column.filter({ hasText: "All Changes" }).click()
-    await expect(header).toHaveCount(0)
-    await expect(tests).toHaveAttribute("aria-expanded", "false")
-    await expect(window.locator("[data-highlight]")).toHaveCount(0)
-  })
+      // the outline plays once: the commit shown alone, then the whole story again, mount their stories with no block
+      // outlined and no fold opened by the click before
+      const { commitRow, column } = reviewSidebar(window)
+      await commitRow("4 · the restart story checks the layout").click()
+      await commitRow("4 · the restart story checks the layout").press("Enter")
+      const header = window.getByTestId("range-review-commit-header")
+      await expect(header.getByTestId("commit-body-fold")).toHaveAttribute("aria-expanded", "false")
+      await expect(window.locator("[data-highlight]")).toHaveCount(0)
+      await column.filter({ hasText: "All Changes" }).click()
+      await expect(header).toHaveCount(0)
+      await expect(tests).toHaveAttribute("aria-expanded", "false")
+      await expect(window.locator("[data-highlight]")).toHaveCount(0)
+    },
+  )
 
   test("should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it", async ({
     page,

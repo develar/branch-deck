@@ -179,68 +179,68 @@ test.describe("A commit of the branch preview", () => {
 })
 
 test.describe("Reading the review ahead", () => {
-  test("should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    await setupRepo("stacked_ownership")
-    await syncAndWaitForBranches()
-    // the server reads it: the test only records the command
-    const prefetches = await recordCommand(page, "prefetch_review")
+  test(
+    "should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRepo("stacked_ownership")
+      await syncAndWaitForBranches()
+      // the server reads it: the test only records the command
+      const prefetches = await recordCommand(page, "prefetch_review")
 
-    // the pointer rests on the row, the row gets the focus: nothing is read
-    await restOnBranchRow(page, "login")
-    await findBranchRow(page, "login").focus()
-    await expect(findBranchRow(page, "login")).toBeFocused()
-    await settledInvokes(page)
-    expect(prefetches).toEqual([])
+      // the pointer rests on the row, the row gets the focus: nothing is read
+      await restOnBranchRow(page, "login")
+      await findBranchRow(page, "login").focus()
+      await expect(findBranchRow(page, "login")).toBeFocused()
+      await settledInvokes(page)
+      expect(prefetches).toEqual([])
 
-    // D opens the window and reads its own part on its parent, the stack from the root
-    await page.keyboard.press("d")
-    expect((await openedReview(page, 1)).title).toBe("Review login")
-    await settledInvokes(page)
-    expect(prefetches).toMatchObject([{ review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" }])
+      // D opens the window and reads its own part on its parent, the stack from the root
+      await page.keyboard.press("d")
+      expect((await openedReview(page, 1)).title).toBe("Review login")
+      await settledInvokes(page)
+      expect(prefetches).toMatchObject([{ review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" }])
 
-    // Review Changes of its menu: the window comes to the front, the branch is read already
-    await openReviewWindow(page, "login")
-    await settledInvokes(page)
-    expect(prefetches).toHaveLength(1)
+      // Review Changes of its menu: the window comes to the front, the branch is read already
+      await openReviewWindow(page, "login")
+      await settledInvokes(page)
+      expect(prefetches).toHaveLength(1)
 
-    // another branch: its own read
-    await openReviewWindow(page, "auth")
-    await settledInvokes(page)
-    expect(prefetches).toMatchObject([
-      { review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" },
-      { review: { target: { kind: "branch", chain: ["auth"] } }, part: "own" },
-    ])
-  })
+      // another branch: its own read
+      await openReviewWindow(page, "auth")
+      await settledInvokes(page)
+      expect(prefetches).toMatchObject([
+        { review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" },
+        { review: { target: { kind: "branch", chain: ["auth"] } }, part: "own" },
+      ])
+    },
+  )
 })
 
 test.describe("The scopes of the stack", () => {
-  test("should keep an unavailable Whole Stack in the scopes, announced as unavailable, its reason on hover, a press changing nothing", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    // the `stack_island` template, its stack branch not built: the review of the whole air stack can't open
-    await setupRepo("stack_island", { syncOverrides: { stacks: { air: { tip: null } } } })
-    await syncAndWaitForBranches()
-    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "bazel"))
-    const whole = window.getByTestId("branch-review-whole-stack")
-    await expect(whole).toHaveAttribute("aria-disabled", "true")
-    await whole.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("The stack branch is not built yet: sync first")
-    // a press (forced: Playwright waits for an enabled element) opens no review and presses nothing; From Root after it
-    // still changes the scope
-    await whole.click({ force: true })
-    await expect(whole).toHaveAttribute("aria-pressed", "false")
-    const fromRoot = window.getByRole("button", { name: "From Root" })
-    await fromRoot.click()
-    await expect(fromRoot).toHaveAttribute("aria-pressed", "true")
-    await expect(whole).toHaveAttribute("aria-pressed", "false")
-    expect(await getOpenedSubWindows(page)).toHaveLength(1)
-  })
+  test(
+    "should keep an unavailable Whole Stack in the scopes, announced as unavailable, its reason on hover, a press changing nothing",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the `stack_island` template, its stack branch not built: the review of the whole air stack can't open
+      await setupRepo("stack_island", { syncOverrides: { stacks: { air: { tip: null } } } })
+      await syncAndWaitForBranches()
+      const window = await openLinkedSubWindow(page, await openReviewWindow(page, "bazel"))
+      const whole = window.getByTestId("branch-review-whole-stack")
+      await expect(whole).toHaveAttribute("aria-disabled", "true")
+      await whole.hover()
+      await expect(window.getByRole("tooltip")).toHaveText("The stack branch is not built yet: sync first")
+      // a press (forced: Playwright waits for an enabled element) opens no review and presses nothing; From Root after it
+      // still changes the scope
+      await whole.click({ force: true })
+      await expect(whole).toHaveAttribute("aria-pressed", "false")
+      const fromRoot = window.getByRole("button", { name: "From Root" })
+      await fromRoot.click()
+      await expect(fromRoot).toHaveAttribute("aria-pressed", "true")
+      await expect(whole).toHaveAttribute("aria-pressed", "false")
+      expect(await getOpenedSubWindows(page)).toHaveLength(1)
+    },
+  )
 
   test("should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit", async ({
     page,
@@ -467,83 +467,91 @@ test.describe("Branch review window", () => {
     await expect(commits).toBeFocused()
   })
 
-  test("should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_ownership")
-    await syncAndWaitForBranches()
-    await openReviewOf(page, "login")
-    const tree = page.getByRole("tree", { name: "Changed files" })
-    const position = page.getByTestId("review-position")
-    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
-    const focusDiffs = () => page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
-    await expect(position).toHaveText("All Changes · File 1 / 4")
+  test(
+    "should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRepo("stacked_ownership")
+      await syncAndWaitForBranches()
+      await openReviewOf(page, "login")
+      const tree = page.getByRole("tree", { name: "Changed files" })
+      const position = page.getByTestId("review-position")
+      const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+      const focusDiffs = () => page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+      await expect(position).toHaveText("All Changes · File 1 / 4")
 
-    // Monorepo has README.md, the last file: every file stays, the rows and the headers of the others muted
-    await owner("Monorepo").click()
-    await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
-    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
-    for (const muted of ["auth", "token.js", "ui", "login.js"]) {
-      await expect(tree.getByRole("treeitem", { name: muted, exact: true })).toHaveAttribute("data-muted", "")
-    }
-    await expect(tree.getByRole("treeitem", { name: "README.md" })).not.toHaveAttribute("data-muted")
-    await expect(fileHeader(page, "auth/token.js")).toHaveAttribute("data-muted", "")
-    await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
-    // the map of the files plays the others down too
-    const map = page.getByTestId("review-file-map")
-    await expect(map).toHaveAttribute("data-muted", "3")
-    // the footer counts the files of Monorepo, the file shown being another owner's
-    await expect(position).toHaveText("All Changes · File 1 / 4 · Monorepo 1")
+      // Monorepo has README.md, the last file: every file stays, the rows and the headers of the others muted
+      await owner("Monorepo").click()
+      await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
+      await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
+      for (const muted of ["auth", "token.js", "ui", "login.js"]) {
+        await expect(tree.getByRole("treeitem", { name: muted, exact: true })).toHaveAttribute("data-muted", "")
+      }
+      await expect(tree.getByRole("treeitem", { name: "README.md" })).not.toHaveAttribute("data-muted")
+      await expect(fileHeader(page, "auth/token.js")).toHaveAttribute("data-muted", "")
+      await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
+      // the map of the files plays the others down too
+      const map = page.getByTestId("review-file-map")
+      await expect(map).toHaveAttribute("data-muted", "3")
+      // the footer counts the files of Monorepo, the file shown being another owner's
+      await expect(position).toHaveText("All Changes · File 1 / 4 · Monorepo 1")
 
-    // N from the first file passes the blocks of the others to README.md; P finds none of Monorepo before it, and moves
-    // nothing: with All it goes back to ui/login.js
-    await focusDiffs()
-    await page.keyboard.press("n")
-    await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
-    await page.keyboard.press("p")
-    await owner("All").click()
-    await expect(map).toHaveAttribute("data-muted", "0")
-    await focusDiffs()
-    await page.keyboard.press("p")
-    await expect(position).toHaveText("All Changes · File 3 / 4")
+      // N from the first file passes the blocks of the others to README.md; P finds none of Monorepo before it, and moves
+      // nothing: with All it goes back to ui/login.js
+      await focusDiffs()
+      await page.keyboard.press("n")
+      await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
+      await page.keyboard.press("p")
+      await owner("All").click()
+      await expect(map).toHaveAttribute("data-muted", "0")
+      await focusDiffs()
+      await page.keyboard.press("p")
+      await expect(position).toHaveText("All Changes · File 3 / 4")
 
-    // J from auth/token.js passes the files of the others to README.md, K finds none of Monorepo before it: with All it
-    // goes back to ui/login.js
-    await tree.getByRole("treeitem", { name: "token.js" }).click()
-    await expect(position).toHaveText("All Changes · File 1 / 4")
-    await owner("Monorepo").click()
-    await focusDiffs()
-    await page.keyboard.press("j")
-    await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
-    await page.keyboard.press("k")
-    await owner("All").click()
-    await expect(tree.getByRole("treeitem", { name: "auth", exact: true })).not.toHaveAttribute("data-muted")
-    await focusDiffs()
-    await page.keyboard.press("k")
-    await expect(position).toHaveText("All Changes · File 3 / 4")
-  })
+      // J from auth/token.js passes the files of the others to README.md, K finds none of Monorepo before it: with All it
+      // goes back to ui/login.js
+      await tree.getByRole("treeitem", { name: "token.js" }).click()
+      await expect(position).toHaveText("All Changes · File 1 / 4")
+      await owner("Monorepo").click()
+      await focusDiffs()
+      await page.keyboard.press("j")
+      await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
+      await page.keyboard.press("k")
+      await owner("All").click()
+      await expect(tree.getByRole("treeitem", { name: "auth", exact: true })).not.toHaveAttribute("data-muted")
+      await focusDiffs()
+      await page.keyboard.press("k")
+      await expect(position).toHaveText("All Changes · File 3 / 4")
+    },
+  )
 
-  test("should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_ownership")
-    // a long file of Auth Team first in the tree, before the files of the others
-    const lines = Array.from({ length: 40 }, (_, index) => `export const step${index + 1} = ${index + 1}\n`).join("")
-    await repo.commit("(login) Keep the session", { "auth/session.js": lines }, 1704124800)
-    await syncAndWaitForBranches()
-    await openReviewOf(page, "login")
-    const position = page.getByTestId("review-position")
-    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
-    const session = page.locator("[data-testid=diff-view-file][data-path='auth/session.js']")
-    await expect(position).toHaveText("All Changes · File 1 / 5")
-    // the next file of all
-    await expect(session.getByRole("button", { name: "Next: token.js auth", exact: true })).toBeVisible()
+  test(
+    "should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("stacked_ownership")
+      // a long file of Auth Team first in the tree, before the files of the others
+      const lines = Array.from({ length: 40 }, (_, index) => `export const step${index + 1} = ${index + 1}\n`).join("")
+      await repo.commit("(login) Keep the session", { "auth/session.js": lines }, 1704124800)
+      await syncAndWaitForBranches()
+      await openReviewOf(page, "login")
+      const position = page.getByTestId("review-position")
+      const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+      const session = page.locator("[data-testid=diff-view-file][data-path='auth/session.js']")
+      await expect(position).toHaveText("All Changes · File 1 / 5")
+      // the next file of all
+      await expect(session.getByRole("button", { name: "Next: token.js auth", exact: true })).toBeVisible()
 
-    // Monorepo has README.md, the last file: J and the line at the end of the card pass the files of the others
-    await owner("Monorepo").click()
-    const next = session.getByRole("button", { name: "Next: README.md", exact: true })
-    await expect(next).toBeVisible()
-    await next.click()
-    await expect(position).toHaveText("All Changes · File 5 / 5 · Monorepo 1 / 1")
-    await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "README.md" })).toHaveAttribute("aria-selected", "true")
-    await expect(page.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
-  })
+      // Monorepo has README.md, the last file: J and the line at the end of the card pass the files of the others
+      await owner("Monorepo").click()
+      const next = session.getByRole("button", { name: "Next: README.md", exact: true })
+      await expect(next).toBeVisible()
+      await next.click()
+      await expect(position).toHaveText("All Changes · File 5 / 5 · Monorepo 1 / 1")
+      await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "README.md" })).toHaveAttribute("aria-selected", "true")
+      await expect(page.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
+    },
+  )
 
   test("should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all", async ({
     page,
