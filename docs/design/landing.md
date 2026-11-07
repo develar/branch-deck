@@ -182,6 +182,12 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   pull request into a virtual branch doesn't stop the start: its retarget to master is the first effect of the start
   (`PlannedEffect::Retarget` of `domain_policy::land::decide`), then the push and the robot, as `brd safe-push` does;
   the slot offers the retarget alone too (row 5).
+- **An order no build sees.** Two pieces can need to land in an order that no trial build proves: a test that downloads
+  its data before the CI step that prepared it goes away. The user declares it (`brd need`), and the piece is refused
+  like one whose build needs a branch outside it: row 1′, its popover, `unlanded_need` of `brd`, Start Anyway or
+  `--allow-unlanded` on the user's word ([Declared Needs](../../spec/branch/declared-needs.spec.md)). A branch built on
+  the declaring one inherits the need, since one robot lands both; the fix is its unstack, so that the needed piece
+  lands between them. The need is met when integration detection proves the needed branch landed into master.
 - **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
   own start; its popover opens at its own row's slot. The header of a stack island asks the start of the whole stack
   (below); of a straight chain, which has no stack branch, the start of its last branch, its popover at the header's

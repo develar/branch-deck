@@ -27,6 +27,7 @@ pub mod review_plan_command;
 pub mod reword_command;
 pub mod rewrite;
 pub mod squash_command;
+mod store_command;
 pub mod suggest;
 pub mod symbol_stats;
 
@@ -45,8 +46,6 @@ mod move_hunk_test;
 #[cfg(test)]
 mod need_test;
 #[cfg(test)]
-mod park_error_test;
-#[cfg(test)]
 mod park_test;
 #[cfg(test)]
 mod review_plan_test;
@@ -56,5 +55,7 @@ mod reword_test;
 mod rewrite_test;
 #[cfg(test)]
 mod squash_test;
+#[cfg(test)]
+mod store_error_test;
 #[cfg(test)]
 mod suggest_test;

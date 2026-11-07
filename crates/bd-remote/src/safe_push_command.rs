@@ -76,7 +76,7 @@ use patronus::service::PatronusService;
 use remote_facts::fact_sources::FactSources;
 use remote_facts::pull_requests::GitHubWriteError;
 use repository_model::branch_table::{BranchTable, RemoteFact};
-use repository_model::derive::{LandingFacts, StepSources, grouped_rows, landed_states, next_steps, open_pull_requests_view};
+use repository_model::derive::{LandingFacts, StepSources, declared_needs_of, grouped_rows, is_unapplied, landed_states, next_steps, open_pull_requests_view};
 use repository_model::facts::{FactRecord, Needs};
 use repository_model::one_shot::OneShot;
 use repository_model::push_guard::parked_words;
@@ -1077,6 +1077,40 @@ fn stack_not_built_message(update: &StackBranchUpdate) -> String {
 
 /// What the build of what lands misses: the first missing declaration with its fix, and the count of the rest, which
 /// `brd check` lists (`missing_declarations`)
+/// A declared need that refuses the start (`LandingRefusal::UnlandedNeed`) in the words of `bd`, after `lead` (what is
+/// not done, with its colon): land the needed branch first, take the need back, or start anyway only on the user's
+/// word; an inherited need also names the unstack that lands the branch alone, as its step
+pub(crate) fn unlanded_need_refusal(context: &RepoContext, refusal: &LandingRefusal, lead: &str) -> Refusal {
+  let LandingRefusal::UnlandedNeed {
+    branch,
+    needs,
+    inherited_from,
+    fix,
+    ..
+  } = refusal
+  else {
+    return Refusal::new(ErrorCode::UnlandedNeed, format!("{lead}{}", refusal.reason()));
+  };
+  let owner = inherited_from.as_deref().unwrap_or(branch);
+  let remove = format!("{} need {} --remove {}", context.bd, shell_word(owner), shell_word(needs));
+  let unstack = match fix {
+    Some(LandingFix::Unstack { branch, from }) => Some((format!("{} unstack {}", context.bd, shell_word(branch)), from)),
+    _ => None,
+  };
+  let alone = unstack
+    .as_ref()
+    .map_or_default(|(command, from)| format!(", `{command}` lands {branch} without {from} after the user approves"));
+  let message = format!(
+    "{lead}{}; land {needs} first{alone}, remove the need (`{remove}`), or --allow-unlanded starts anyway, only when the user says the order no longer holds",
+    refusal.reason()
+  );
+  let refused = Refusal::new(ErrorCode::UnlandedNeed, message);
+  match unstack {
+    Some((command, _)) => refused.with_next_step(command, true),
+    None => refused,
+  }
+}
+
 fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]) -> String {
   let short = context.short_ids(missing.iter().flat_map(|refusal| match refusal {
     LandingRefusal::MissingDeclaration { used_by, declared_by, .. } => vec![used_by.id.as_str(), declared_by.id.as_str()],
@@ -1503,6 +1537,7 @@ pub(crate) fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start
     readiness: &readiness,
     target: read.target,
     view_stacks: None,
+    declared: &declared_needs_of(table, |need| is_unapplied(&read.session.state().sections().unapplied, need), view),
   };
   let mut steps = next_steps(&sources);
   steps.remove(&key).map(|view| {
@@ -1563,6 +1598,7 @@ impl Told<'_> {
           }
           self.dangling_refusal()
         }
+        Reason::LandingRefused { refusal } if matches!(**refusal, LandingRefusal::UnlandedNeed { .. }) => unlanded_need_refusal(self.context, refusal, ""),
         Reason::LandingRefused { .. } if !std::mem::replace(&mut missing_told, true) => self.missing_refusal(&missing),
         Reason::LandingRefused { .. } => continue,
         reason => self.refusal(reason),

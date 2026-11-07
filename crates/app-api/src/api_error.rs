@@ -23,9 +23,11 @@ use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAtt
 use github::device_flow::DeviceFlowError;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::drop_commits::DropSelectionRefused;
+use history_rewrite::needs::NeedError;
 use history_rewrite::parked::ParkError;
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{LockWaitCanceled, RepositoryLocked};
+use history_rewrite::store_write::{StoreError, StoreWriteError};
 use review_plan::mark_reviewed::{NoCommonHistory, UnknownReviewBase, UnknownReviewBranch};
 use review_plan::{SinceReviewedOfRange, UnknownRevision};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -143,15 +145,24 @@ pub(crate) fn api_error_at(error: &anyhow::Error, now: u64) -> ApiError {
   }
 }
 
-/// The held repository lock of `error`: its own, or the one a regroup or a park was refused by
+/// The held repository lock of `error`: its own, or the one a regroup or a write of a store was refused by
 fn repository_locked(error: &anyhow::Error) -> Option<&RepositoryLocked> {
   error.downcast_ref::<RepositoryLocked>().or_else(|| match error.downcast_ref::<RegroupError>() {
     Some(RegroupError::Locked(locked)) => Some(locked),
-    _ => match error.downcast_ref::<ParkError>() {
-      Some(ParkError::Locked(locked)) => Some(locked),
+    _ => match store_write_error(error) {
+      Some(StoreWriteError::Locked(locked)) => Some(locked),
       _ => None,
     },
   })
+}
+
+/// What failed the write of a store of `error`, a park or a need, but its refusals
+fn store_write_error(error: &anyhow::Error) -> Option<&StoreWriteError> {
+  match (error.downcast_ref::<ParkError>(), error.downcast_ref::<NeedError>()) {
+    (Some(park), _) => park.write_error(),
+    (None, Some(need)) => need.write_error(),
+    (None, None) => None,
+  }
 }
 
 /// `locked` with the holder of the lock; the words name the holder but not the lock file, an internal detail, and not
@@ -177,11 +188,14 @@ fn classify(error: &anyhow::Error) -> Option<Classified> {
       _ => regroup.code().and_then(code),
     };
   }
+  if let Some(StoreWriteError::Other(inner)) = store_write_error(error) {
+    return classify(inner);
+  }
   if let Some(park) = error.downcast_ref::<ParkError>() {
-    return match park {
-      ParkError::Other(inner) => classify(inner),
-      _ => park.code().and_then(code),
-    };
+    return park.code().and_then(code);
+  }
+  if let Some(need) = error.downcast_ref::<NeedError>() {
+    return need.code().and_then(code);
   }
   if let Some(deferred) = error.downcast_ref::<SyncDeferred>() {
     return code(deferred.code());

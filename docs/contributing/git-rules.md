@@ -119,6 +119,10 @@ written only there) in that transaction.
   a rename in its regroup transaction; a sync only drops the line of a branch whose archived branch is integrated
   (`drop_integrated_parked`, as the stack parents). It decides no group: only the pushes leave a parked branch out
   ([Regroup](../design/git-operations.md#regroup-rename-restack)).
+- `refs/branch-deck/needs` (`needs.rs`, a ref of its own too): `brd need` and its removal under the repository lock
+  with CAS, a rename in its regroup transaction; a sync only drops a needed name whose archived branch is integrated
+  (`drop_integrated_needs`, in the one drop of the stores). It decides no group: only the starts read it
+  ([Regroup](../design/git-operations.md#regroup-rename-restack)).
 - `{prefix}/unapplied/<name>` (`unapply.rs`, `reapply.rs`): only the unapply, the reapply and their undo, in the
   transaction that moves HEAD, and its delete (`delete_unapplied_branch_core`, CAS); a sync only lists it, and a push
   of it goes under its own name ([Drop and unapply](../design/git-operations.md#drop-and-unapply)).

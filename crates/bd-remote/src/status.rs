@@ -26,8 +26,8 @@ use domain_types::stack::{ParentState, StackBranchUpdate};
 use domain_types::{BranchOrigin, GroupedBranchInfo};
 use git_ops::commit_utils::get_commits_info;
 use history_rewrite::store_lines::StoreLineProblem;
-use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts};
-use repository_model::derive::{StepSources, grouped_rows, landed_states, next_steps};
+use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts, declared_needs};
+use repository_model::derive::{StepSources, declared_needs_of, grouped_rows, landed_states, next_steps};
 use repository_model::one_shot::OneShot;
 use repository_model::patronus_view::landed_commits;
 use repository_model::table::TableState;
@@ -419,9 +419,11 @@ pub struct BranchStatus {
   /// only work left. Asked of Patronus on Space with a Space token; omitted otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<LandedBySummary>,
-  /// What its Safe Push needs of a commit outside what it lands (the branch and those it is built on): the refusals
-  /// `brd safe-push` would give its start, from one trial check of every branch. Empty: its build has what it uses. On
-  /// Space only, where a Safe Push lands it; omitted otherwise, with --brief, and when the check can't run
+  /// What its Safe Push needs before it starts: the branches the user declared land before it or a branch it is built
+  /// on (`brd need`, `unlanded_need`, on every route), then what its build needs of a commit outside what it lands (the
+  /// refusals `brd safe-push` would give its start, from one trial check of every branch, on Space only). Empty: its
+  /// build has what it uses and nothing declared waits. Omitted with --brief, and off Space or when the check can't run
+  /// unless a declared need refuses it
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landing_needs: Option<Vec<LandingNeed>>,
   /// The user parked it (`brd park`), or a branch it is built on: kept local, `brd push` and `brd safe-push` refuse it.
@@ -512,6 +514,7 @@ pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, s
     copies: HashMap::new(),
     stack_branches: stacks.to_vec(),
     parked: grouping.grouping.parked.entries.clone(),
+    needs: declared_needs(&grouping.grouping.needs.entries),
     // no sync: the remote tips the grouping read, no remote status
     remote: RemoteFacts {
       branches: grouping
@@ -551,7 +554,14 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   // what merged Safe Pushes landed, until the update archives it, by content: the robots kept in the object cache while
   // they hold, else one list and one poll (`robot_list`)
   let (landed, landing_needs, mut steps) = if args.unassigned || grouping.branches.is_empty() {
-    (HashMap::new(), None, HashMap::new())
+    (
+      HashMap::new(),
+      LandingNeedsOf {
+        checked: false,
+        refusals: HashMap::new(),
+      },
+      HashMap::new(),
+    )
   } else {
     let table = grouping_table(context, &grouping, &all_stacks);
     let read = read_robots(context, environment);
@@ -565,7 +575,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
         .inspect_err(|error| debug!(error = %format!("{error:#}"), "no landing needs"))
         .ok()
     };
-    let landing_needs = needs.map(|needs| {
+    let needs_known = needs.is_some();
+    let found = needs.map(|needs| {
       facts.landing_needs(|_| Ok(needs));
       facts
         .view()
@@ -577,10 +588,17 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
         })
         .collect::<HashMap<String, Vec<LandingRefusal>>>()
     });
+    // the order the user declared is known on every route as soon as the grouping is read: its refusals come first
+    let declared = if args.brief {
+      BTreeMap::new()
+    } else {
+      declared_needs_of(&table, |need| unapplied_branch(&grouping, &context.prefix, need), facts.view())
+    };
+    let landing_needs = with_declared_needs(found, &declared);
     let steps = if args.brief {
       HashMap::new()
     } else {
-      next_steps_of_status(&grouping, &table, &facts, read.head, landing_needs.is_some(), &route_of_status(context, &grouping)?)
+      next_steps_of_status(&grouping, &table, &facts, read.head, needs_known, &declared, &route_of_status(context, &grouping)?)
     };
     (landed_branches(&facts), landing_needs, steps)
   };
@@ -667,11 +685,9 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
           commit_count: branch.commits.len(),
           stats: stats.remove(&branch.name),
           landed_by: landed.get(&branch.name).map(|landed| LandedBySummary::new(context, landed, &short)),
-          landing_needs: landing_needs.as_ref().map(|needs| {
-            needs
-              .get(&branch.name)
-              .map_or_default(|refusals| refusals.iter().map(|refusal| LandingNeed::new(context, refusal, &short)).collect())
-          }),
+          landing_needs: landing_needs
+            .of(&branch.name)
+            .map(|refusals| refusals.iter().map(|refusal| LandingNeed::new(context, refusal, &short)).collect()),
           parked: parked_state(&repo, &branch.name).map(|parked| ParkedSummary {
             note: parked.note,
             with: parked.with,
@@ -723,6 +739,44 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   })
 }
 
+/// What `brd status` says each branch needs before its Safe Push starts, by branch: the declared needs of `declared`
+/// first, then what the landing gate found (`found`, Space only)
+fn with_declared_needs(found: Option<HashMap<String, Vec<LandingRefusal>>>, declared: &BTreeMap<String, Vec<LandingRefusal>>) -> LandingNeedsOf {
+  let checked = found.is_some();
+  let mut refusals = found.unwrap_or_default();
+  for (name, declared) in declared.iter().filter(|(_, declared)| !declared.is_empty()) {
+    refusals.entry(name.clone()).or_default().splice(0..0, declared.iter().cloned());
+  }
+  LandingNeedsOf { checked, refusals }
+}
+
+/// The refusals of the start of each branch `brd status` names
+struct LandingNeedsOf {
+  /// The landing gate ran (Space, no --brief): a branch it did not refuse needs nothing. Else only a declared need is known
+  checked: bool,
+  refusals: HashMap<String, Vec<LandingRefusal>>,
+}
+
+impl LandingNeedsOf {
+  /// What `branch` needs: every refusal where the gate ran, else its declared needs, omitted without one
+  fn of(&self, branch: &str) -> Option<&[LandingRefusal]> {
+    match self.refusals.get(branch) {
+      Some(refusals) => Some(refusals),
+      None => self.checked.then_some(&[]),
+    }
+  }
+}
+
+/// An unapply of this repository keeps a branch of this name (`{prefix}/unapplied/<name>`), as the listing of the
+/// grouping has it
+fn unapplied_branch(grouping: &BranchGrouping, prefix: &str, name: &str) -> bool {
+  grouping
+    .listed
+    .iter()
+    .filter_map(|listed| strip_branch_namespace(&listed.name, prefix, BranchKind::Unapplied))
+    .any(|branch| branch == name)
+}
+
 /// The route of the repository into master as the app's session decides it (`domain_policy::landing_route::route`),
 /// over what the grouping read of git (the push URLs of its listing) and the setting of the command's config; GitHub is
 /// not asked, so the gate of a push into a repository on GitHub waits for it, as the steps that need a pull request do
@@ -756,6 +810,7 @@ fn next_steps_of_status(
   facts: &OneShot,
   head: Fact<RobotsHead>,
   needs_known: bool,
+  declared: &BTreeMap<String, Vec<LandingRefusal>>,
   route: &LandingRoute,
 ) -> HashMap<String, NextStepSummary> {
   let rows = grouped_rows(table);
@@ -799,6 +854,7 @@ fn next_steps_of_status(
     readiness: &readiness,
     target: baseline_on_remote(&grouping.baseline_branch),
     view_stacks: None,
+    declared,
   };
   next_steps(&sources)
     .into_iter()

@@ -1,22 +1,20 @@
 use crate::parked::park_result;
-use crate::regroup_test::{commits, entries, path, plant_store, sync};
+use crate::regroup_test::{assert_waits_for_the_lock, commits, entries, path, plant_store, store_history, stores, sync};
 use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
-use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};
-use history_rewrite::snapshot::read_grouping_inputs;
+use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
-use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 fn parked(repo: &TestRepo) -> StoreLines {
-  read_grouping_inputs(repo.git_executor(), path(repo)).unwrap().parked
+  stores(repo).parked
 }
 
 /// The commits of the store: one per write
 fn history(repo: &TestRepo) -> usize {
-  repo.log(&["--format=%H", PARKED_REF]).unwrap_or_default().lines().count()
+  store_history(repo, PARKED_REF)
 }
 
 fn park(repo: &TestRepo, branch: &str, note: &str) -> Result<ParkOutcome, ParkError> {
@@ -89,14 +87,9 @@ fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_th
 fn park_waits_for_the_repository_lock() {
   let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth"]);
-  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
-  let options = RewriteOptions {
-    lock_wait: LockWait::Bounded(Duration::from_millis(100)),
-    ..RewriteOptions::default()
-  };
-  let error = park_core(repo.git_executor(), path(&repo), &[ParkLine { branch: "auth", note: "" }], &options).unwrap_err();
-  assert!(matches!(error, ParkError::Locked(_)), "{error}");
-  assert_eq!(history(&repo), 0);
+  assert_waits_for_the_lock(&repo, PARKED_REF, |options| {
+    park_core(repo.git_executor(), path(&repo), &[ParkLine { branch: "auth", note: "" }], options)
+  });
 }
 
 /// What the rewrites `Park` and `Unpark` answer: the note of each branch and the note it had before

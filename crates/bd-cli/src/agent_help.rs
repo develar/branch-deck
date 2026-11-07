@@ -397,11 +397,12 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
 /// `brd status --help`: the fields an agent acts on, `landing_needs` first
 pub const STATUS_HELP: &str = "\
 `brd status` prints the branches and the unassigned commits ahead of the baseline; `brd status --brief` is small
-enough to read whole, `brd status --stats` adds the size of each branch. On Space it lists per branch `landing_needs`:
-what its Safe Push needs of a commit outside what it lands, the refusals `brd safe-push` would give (a name only
-another branch adds, a dangling use), each with its `fix` and `landing_in` (a running Safe Push lands that branch: a
-start beside it fails too). Tell the user before a Safe Push and run the fix (`brd restack …`) only after they
-approve; `[]` is nothing, absent is unknown. `landed_by`: a merged Safe Push landed the branch, only its `after`
+enough to read whole, `brd status --stats` adds the size of each branch. `landing_needs` per branch: what its Safe
+Push needs before it starts, the refusals `brd safe-push` would give: on every route a branch the user declared lands
+first (`unlanded_need`, `brd need --help`), on Space also a name only another branch adds or a dangling use, each with
+its `fix` and `landing_in` (a running Safe Push lands that branch: a start beside it fails too). Tell the user before
+a Safe Push and run the fix (`brd restack …`, `brd unstack …`) only after they approve; `[]` is nothing, absent is
+unknown (off Space, a branch without a declared need). `landed_by`: a merged Safe Push landed the branch, only its `after`
 commits are left (`brd safe-push --help`); `parked`: it stays local until the user unparks it; `unapplied`: the
 branches `brd unapply` took out; `stacks`: the stack branch of each stack that forks (`brd push --help`);
 `prefix_source`: where the branch prefix came from. `next_step.status`: what the app's Status cell says of the branch,

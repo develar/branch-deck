@@ -3,10 +3,10 @@ import { useStore } from "zustand"
 import { useOperationWordsWhile } from "@/hooks/useOperationWords"
 import { getRowOperation, useRowOperation } from "@/hooks/useRowOperation"
 import { requestSafePush } from "@/hooks/useSafePush"
-import { restackBranch } from "@/hooks/useStackActions"
+import { runLandingFix } from "@/hooks/useStackActions"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
-import type { ActionState, LandingFix, NextStep, NextStepView, PatronusRobot, PullRequest, PullRequestView, RunningOperation } from "@/lib/bindings"
+import type { ActionState, NextStep, NextStepView, PatronusRobot, PullRequest, PullRequestView, RunningOperation } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
 import { closeEventToasts, showEventToast, toastKeys } from "@/lib/event-toast"
@@ -70,13 +70,6 @@ export async function linkGitHubStackOf(branchName: string): Promise<void> {
     () => showToast({ title: `Linked the GitHub stack of ${branchName}`, description: "Each layer goes into the branch below it" }),
     (error: unknown) => notifyError(`Cannot link the GitHub stack of ${branchName}`, error),
   )
-}
-
-/** Runs the fix of what a Safe Push needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs */
-export function fixLanding(fix: LandingFix): void {
-  if (fix.kind === "restack") {
-    void restackBranch(fix.branch, fix.onto)
-  }
 }
 
 /**
@@ -186,7 +179,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
         openPullRequest(pullRequest)
       }
     },
-    fixLanding,
+    fixLanding: runLandingFix,
     copyLoginCommand: repositoryPath === null ? null : () => void copyText(formatSafePushLoginCommand(repositoryPath, isWindows)),
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),

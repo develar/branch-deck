@@ -4,6 +4,7 @@
 //! logs the state of the lock (`test_utils::lock_span`) tells which commands ran under it.
 
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
+use crate::needs::{need_core, unneed_core};
 use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF, ParkLine, park_core, parked_drop, unpark_core};
 use crate::regroup::{RegroupError, RegroupOptions, Restack, UndoToken, regroup_commits_core, rename_branch_core, restack_core, undo_regroup_core};
 use crate::repository_lock::{LockWait, RewriteOptions};
@@ -258,14 +259,28 @@ fn a_drop_of_store_lines_locks_only_its_read_and_its_write() {
 fn a_park_and_an_unpark_lock_only_the_write() {
   let (repo, _, span) = stacked();
   let parked = park_core(span.executor(), repo.path_str(), &[ParkLine { branch: "alpha", note: "later" }], &RewriteOptions::default()).unwrap();
-  assert!(parked.new_commit.is_some());
-  assert_eq!(span.commands_under_the_lock(), ["update-ref"], "{:#?}", span.commands());
-  assert!(span.commands_before_the_lock().iter().any(|command| command == "fast-import"));
-
+  assert_store_write(&span, parked.new_commit.as_ref(), true);
   let span = LockSpan::new(&repo.path().join(".git"));
   let unparked = unpark_core(span.executor(), repo.path_str(), &["alpha"], &RewriteOptions::default()).unwrap();
-  assert!(unparked.new_commit.is_some());
+  assert_store_write(&span, unparked.new_commit.as_ref(), false);
+}
+
+/// A write of a store alone wrote its commit (by `fast-import` before the lock, when `fast_import`) and moved it under
+/// the lock by the one `update-ref`, its compare-and-swap the witness
+fn assert_store_write(span: &LockSpan, new_commit: Option<&String>, fast_import: bool) {
+  assert!(new_commit.is_some());
   assert_eq!(span.commands_under_the_lock(), ["update-ref"], "{:#?}", span.commands());
+  assert!(!fast_import || span.commands_before_the_lock().iter().any(|command| command == "fast-import"));
+}
+
+#[test]
+fn a_need_and_its_removal_lock_only_the_write() {
+  let (repo, _, span) = stacked();
+  let declared = need_core(span.executor(), repo.path_str(), "alpha", &["beta"], &RewriteOptions::default()).unwrap();
+  assert_store_write(&span, declared.new_commit.as_ref(), true);
+  let span = LockSpan::new(&repo.path().join(".git"));
+  let removed = unneed_core(span.executor(), repo.path_str(), "alpha", &["beta"], &RewriteOptions::default()).unwrap();
+  assert_store_write(&span, removed.new_commit.as_ref(), false);
 }
 
 /// `store` with the line `line` of `gone`, an integrated branch, and the commit a sync writes when it drops that line

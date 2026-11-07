@@ -217,7 +217,7 @@ the code the `brd` command gives them: the types name it (`ParkError::code`, `Gu
 and in the undo commands of the app (`app_api::api_error::undo_error`): a ref that moved on since the operation is
 `undo_stale`, in the words of `HeadMoved::undo_message` or `StoreMoved::undo_message` (`RegroupError::undo_message`):
 what moved and that it can't be undone any more, not the advice to retry. One table of the typed errors with their codes, `crates/update-core/src/error_cases.rs`, is what both
-sides are tested on (`error_code_test.rs` of `bd-update`, `park_error_test.rs` of `bd-rewrite`, `api_error_test.rs` of
+sides are tested on (`error_code_test.rs` of `bd-update`, `store_error_test.rs` of `bd-rewrite`, `api_error_test.rs` of
 `app-api`): no crate calls both, as only the app and the e2e server depend on `app-api`. A lock file of git in the way of a ref move (`RefLocked`) is `locked` without
 `details`: its message names the file. So is the index lock of another process that stayed for the 30 s a move waits
 for it (`IndexLocked`; a lock no process owns is removed): its message names the file, its age and the processes that

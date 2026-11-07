@@ -266,6 +266,72 @@
     }
   },
   {
+    "id": "declared-need-refuses-the-start",
+    "group": "landing",
+    "title": "the user declared that docs lands before auth, and docs is not in master: the app says so and lets it start anyway, bd refuses without --allow-unlanded",
+    "spec": ["spec/branch/declared-needs.spec.md#the-start", "spec/branch/next-step.spec.md#the-table:1′", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "given": {
+      "commits": ["(docs) Write the guide", "(auth) Add auth"],
+      "need": "docs"
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "needsBranch"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "start": "api"
+      }
+    }
+  },
+  {
+    "id": "declared-need-allowed",
+    "group": "landing",
+    "title": "the user declared that docs lands before auth, and the start is told the order no longer holds: --allow-unlanded, the popover's Start Anyway",
+    "spec": ["spec/branch/declared-needs.spec.md#the-start", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "given": {
+      "commits": ["(docs) Write the guide", "(auth) Add auth"],
+      "need": "docs",
+      "flags": ["allowUnlanded"]
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "needsBranch"
+      },
+      "land": {
+        "start": "api",
+        "pushes": ["auth"]
+      }
+    }
+  },
+  {
+    "id": "declared-need-on-the-push-route",
+    "group": "landing",
+    "title": "a repository that lands by a push: the order the user declared refuses the push of auth into master before docs, as it refuses a Safe Push",
+    "spec": ["spec/branch/declared-needs.spec.md#every-route", "spec/cli/agent-cli.spec.md#brd-land"],
+    "given": {
+      "route": "push",
+      "commits": ["(docs) Write the guide", "(auth) Add auth"],
+      "need": "docs",
+      "flags": ["withoutChecks"]
+    },
+    "expect": {
+      "step": {
+        "row": "1′",
+        "kind": "needsBranch",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "blockers": ["landingRefused"],
+        "confirmations": ["unchecked"],
+        "into": "master",
+        "lands": ["auth"]
+      }
+    }
+  },
+  {
     "id": "dangling-reference-removed",
     "group": "landing",
     "title": "fake-agent removes a constant that the tree it lands still uses; lane-document, outside it, changes the use",

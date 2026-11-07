@@ -292,6 +292,102 @@ fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
   assert_eq!(status_branch(&status, "util")["landing_needs"], json!([]));
 }
 
+/// The order of landing the user declared (`brd need`) refuses the start of the branch and of a branch built on it,
+/// `brd status` names it on every route, and `--allow-unlanded` starts anyway
+#[test_log::test]
+fn a_declared_need_refuses_the_start_of_the_branch_and_of_the_one_built_on_it_until_it_lands() {
+  let space = Space::new(&["(docs) Write the guide", "(auth) Add auth", "(auth/ui) Show the form"]);
+  sync(&space);
+  let (exit_code, output) = bd(&space, &["need", "auth", "docs"]);
+  assert_eq!((exit_code, &output["needs"]), (0, &json!(["docs"])), "{output}");
+
+  let status = covered_status(&space);
+  let own = json!([{
+    "code": "unlanded_need",
+    "needs_branch": "docs",
+    "state": "active",
+    "reason": "you declared that docs lands before auth",
+  }]);
+  assert_eq!(status_branch(&status, "auth")["landing_needs"], own);
+  // ui lands in the same robot as auth, so it inherits the need; unstacking it lands it alone
+  assert_eq!(
+    status_branch(&status, "ui")["landing_needs"],
+    json!([{
+      "code": "unlanded_need",
+      "needs_branch": "docs",
+      "state": "active",
+      "inherited_from": "auth",
+      "reason": "you declared that docs lands before auth; ui is built on auth, so they land in one robot",
+      "fix": "brd unstack ui",
+    }])
+  );
+  assert_eq!(status_branch(&status, "docs")["landing_needs"], json!([]));
+  assert_eq!(next_step_of(&status, "branches", "auth")["step"], json!("needs_branch"));
+  assert_eq!(next_step_of(&status, "branches", "ui")["step"], json!("needs_branch"));
+
+  // nothing starts: the refusal names what lands first, how to take the need back and the flag of the user's word
+  let (exit_code, output) = bd(&space, &["safe-push", "auth"]);
+  assert_error(&output, exit_code, (4, "unlanded_need"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(
+      "you declared that docs lands before auth; land docs first, remove the need (`brd need auth --remove docs`), or \
+       --allow-unlanded starts anyway, only when the user says the order no longer holds"
+    )
+  );
+  assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip("test-user/virtual/auth")), (0, String::new()));
+  // the branch built on it: the unstack lands it alone, after the user approves
+  let (_, output) = bd(&space, &["safe-push", "ui", "--dry-run"]);
+  let refusal = &output["refusals"][0];
+  assert_eq!(refusal["code"], json!("unlanded_need"), "{output}");
+  assert!(refusal["message"].as_str().unwrap().contains("`brd need auth --remove docs`"), "{output}");
+  assert_eq!(next_steps(refusal), [("brd unstack ui".to_string(), true)]);
+
+  // the user says the order no longer holds
+  let (exit_code, output) = bd(&space, &["safe-push", "auth", "--dry-run", "--allow-unlanded"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert!(!output["refusals"].to_string().contains("unlanded_need"), "{output}");
+
+  // the need is met once the branch it names is integrated: docs landed, the baseline has it, and the sync drops the
+  // line
+  let docs = git(&space.repo, &["rev-parse", "HEAD~2"]);
+  git(&space.repo, &["update-ref", "refs/remotes/origin/master", &docs]);
+  space.publish_target();
+  sync(&space);
+  let status = covered_status(&space);
+  assert_eq!(status_branch(&status, "auth")["landing_needs"], json!([]));
+  assert_eq!(status_branch(&status, "ui")["landing_needs"], json!([]));
+  assert_ne!(next_step_of(&status, "branches", "auth")["step"], json!("needs_branch"));
+}
+
+/// The whole stack lands every branch of it in one robot, so a need any of them declared refuses its start
+#[test_log::test]
+fn a_declared_need_of_a_member_refuses_the_start_of_the_whole_stack() {
+  let space = Space::new(&["(docs) Write the guide", "(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
+  sync(&space);
+  let (_, output) = bd(&space, &["safe-push", "auth", "--whole-stack", "--dry-run"]);
+  assert!(!output.to_string().contains("unlanded_need"), "{output}");
+  bd(&space, &["need", "session", "docs"]);
+  let (_, output) = bd(&space, &["safe-push", "auth", "--whole-stack", "--dry-run"]);
+  let refusal = &output["refusals"][0];
+  assert_eq!(refusal["code"], json!("unlanded_need"), "{output}");
+  assert!(refusal["message"].as_str().unwrap().starts_with("you declared that docs lands before session"), "{output}");
+  assert_eq!(next_step_of(&covered_status(&space), "stacks", "auth")["step"], json!("needs_branch"));
+}
+
+/// `brd need --remove` takes the declared order back: the start is no longer refused
+#[test_log::test]
+fn a_removed_need_refuses_nothing() {
+  let space = Space::new(&["(docs) Write the guide", "(auth) Add auth"]);
+  sync(&space);
+  bd(&space, &["need", "auth", "docs"]);
+  let (exit_code, output) = bd(&space, &["need", "auth", "--remove", "docs"]);
+  assert_eq!((exit_code, &output["needs"]), (0, &json!([])), "{output}");
+  assert_eq!(status_branch(&covered_status(&space), "auth")["landing_needs"], json!([]));
+  let (_, output) = bd(&space, &["safe-push", "auth", "--dry-run"]);
+  assert!(!output["refusals"].to_string().contains("unlanded_need"), "{output}");
+}
+
 /// `next_step` of a branch or a whole stack of `brd status`
 fn next_step_of<'a>(status: &'a Value, key: &str, name: &str) -> &'a Value {
   let found = status[key]

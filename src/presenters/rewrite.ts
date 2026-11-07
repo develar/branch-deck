@@ -58,6 +58,24 @@ export function presentRewrite(rewrite: RewriteIntent): RewriteWords {
       const names = rewrite.branchNames.join(", ")
       return words(`Unparking ${names}`, `the unpark of ${names}`, `Cannot unpark ${names}`, `Unparked ${names}`)
     }
+    case "need": {
+      const needs = `${joinNames(rewrite.needs)} ${rewrite.needs.length === 1 ? "lands" : "land"}`
+      return words(
+        `Declaring what lands before ${rewrite.branchName}`,
+        `the need of ${rewrite.branchName}`,
+        `Cannot declare that ${needs} before ${rewrite.branchName}`,
+        `Declared that ${needs} before ${rewrite.branchName}`,
+      )
+    }
+    case "unneed": {
+      const needs = joinNames(rewrite.needs)
+      return words(
+        `Removing a need of ${rewrite.branchName}`,
+        `the removal of a need of ${rewrite.branchName}`,
+        `Cannot remove the need of ${rewrite.branchName} for ${needs}`,
+        `Removed the need of ${rewrite.branchName} for ${needs}`,
+      )
+    }
     case "unapply":
       return words(`Unapplying ${rewrite.branchName}`, `the unapply of ${rewrite.branchName}`, `Cannot unapply ${rewrite.branchName}`, `Unapplied ${rewrite.branchName}`)
     case "reapply":

@@ -15,3 +15,14 @@ export const MISSING_STILLS: LandingRefusal = {
   fix: { kind: "restack", branch: "lane-run", onto: "stills-codec" },
   landingIn: null,
 }
+
+/** The order the user declared (`brd need auth docs`): docs lands before auth, and it is not in master yet */
+export const DECLARED_DOCS: Extract<LandingRefusal, { kind: "unlandedNeed" }> = {
+  kind: "unlandedNeed",
+  branch: "auth",
+  needs: "docs",
+  state: { kind: "active" },
+  inheritedFrom: null,
+  fix: null,
+  landingIn: null,
+}

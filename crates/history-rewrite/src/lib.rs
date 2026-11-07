@@ -50,6 +50,7 @@ pub mod squash;
 pub mod stack;
 pub mod stack_parents;
 pub mod store_lines;
+pub mod store_write;
 #[cfg(any(test, feature = "test-commit"))]
 pub mod test_commit;
 

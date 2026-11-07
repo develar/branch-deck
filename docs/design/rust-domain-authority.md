@@ -1253,7 +1253,7 @@ repository». Аудит всех функций в тот же день наш�
   (`app_api::api_error::undo_error`: `undo_regroup`, `undo_unapply_branch`, `undo_reapply_branch`,
   `restore_branch_head` — отмена squash и squash fixups, чей сдвинутый branch — типизированный `HeadMoved`). Что обе стороны
   отвечают один код на каждую ошибку, проверяет одна таблица ошибок с их кодами `update_core::error_cases` (feature
-  `fixtures`): на ней тестируются мапперы `brd` (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`)
+  `fixtures`): на ней тестируются мапперы `brd` (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/store_error_test.rs`)
   и `api_error` (`app-api/src/api_error_test.rs`), потому что `app-api` недоступен crate'ам `brd` (без кода: `git_error`
   в `brd`, `internal` в приложении). Ошибки только
   `brd` (`ResolveError`, `PickRefusal`, `LeaseRefusal`, `MoveHunkError`) — только там, приложение отвечает на них

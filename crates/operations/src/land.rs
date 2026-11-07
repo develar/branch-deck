@@ -34,7 +34,7 @@ use domain_types::session::{Fact, LandedSection, SubjectReadiness};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, github_layers_over, land_decision, landing_route_of, patronus_lands, with_land_sources};
+use repository_model::derive::{LandSources, declared_needs_of, github_layers_over, is_unapplied, land_decision, landing_route_of, patronus_lands, with_land_sources};
 use repository_model::facts::FactRecord;
 use repository_model::one_shot::OneShot;
 use repository_model::session::{SessionKey, Sessions};
@@ -113,6 +113,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
     pushed: None,
   };
   let github_layers = github_layers_over(&route, host.table, &host.table.remote, &landed, facts.pull_requests.view());
+  let declared = declared_needs_of(host.table, |need| is_unapplied(&session.state().sections().unapplied, need), session.view());
   let sources = LandSources {
     route: &route,
     patronus: patronus_lands(session.facts().robots.view()),
@@ -133,6 +134,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
     landing_needs: &facts.patronus.part().landing_needs,
     baseline: host.baseline,
     gate: Some(host.gate),
+    declared: &declared,
     target_conflict: host.target_conflict,
     github_layers: &github_layers,
   };

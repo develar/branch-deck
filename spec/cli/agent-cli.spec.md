@@ -378,7 +378,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   rewrite refused by the same move gives. Both sides are tested on one table of the typed errors and their codes
   (`update_core::error_cases`).
   [@test] ../../crates/bd-update/src/error_code_test.rs (`bd_answers_the_code_of_each_refusal_of_a_move_an_unapply_and_a_reapply_that_the_app_answers`, `bd_undo_answers_the_code_of_each_refusal_that_the_app_answers_and_a_moved_head_makes_it_stale`, `an_error_without_a_code_is_git_error_in_bd`)
-  [@test] ../../crates/bd-rewrite/src/park_error_test.rs (`bd_answers_the_code_of_each_refusal_of_a_park_that_the_app_answers`, `a_park_that_fails_without_a_code_is_git_error_in_bd`)
+  [@test] ../../crates/bd-rewrite/src/store_error_test.rs (`bd_answers_the_code_of_each_refusal_of_a_park_and_a_need_that_the_app_answers`, `a_write_of_a_store_that_fails_without_a_code_is_git_error_in_bd`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo`, `a_stale_undo_says_it_cannot_be_undone_instead_of_advising_a_retry`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried`)
@@ -442,6 +442,12 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `--unassigned`, and when the check can't run: unknown, not empty.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it`)
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
+- On every route `landing_needs` must also list, first, the order the user declared (`brd need`, [Declared
+  Needs](../branch/declared-needs.spec.md)): `code: unlanded_need`, `needs_branch`, its `state` (`active`,
+  `unapplied`, `missing`, `companion_unreadable`), `inherited_from` and `fix` (`brd unstack <branch>`) of a need a
+  branch inherits from the branch it is built on; off Space only a branch such a need refuses has `landing_needs`.
+  [@test] ../../crates/bd-remote/src/status_test.rs (`a_declared_need_is_in_the_status_off_space_with_the_state_of_the_branch_it_names`)
+  [@test] ../../crates/bd-remote/src/landed_test.rs (`a_declared_need_refuses_the_start_of_the_branch_and_of_the_one_built_on_it_until_it_lands`)
 - Each branch, and in `stacks` each whole stack of a stack that forks, must show `next_step`: the step the app's row
   shows by the same rule (`domain_policy::next_step`, [Next Step](../branch/next-step.spec.md#the-table)) over what
   `brd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, `1″` `pick_remote_commits`:
@@ -705,6 +711,12 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 
 - `brd pick` (the commits of another worktree onto the checked out branch, `--follow`) and `brd undo pick:`:
   [brd pick](pick.spec.md).
+
+### `brd need`
+
+- `brd need <branch> <needed>…` and `brd need <branch> --remove <needed>…` (what lands before a branch, in
+  `refs/branch-deck/needs`; `--allow-unlanded` of `brd safe-push` and `brd land` starts anyway on the user's word):
+  [Declared Needs](../branch/declared-needs.spec.md).
 
 ### `brd unapply`, `brd reapply`
 

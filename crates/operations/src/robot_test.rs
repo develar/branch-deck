@@ -102,6 +102,7 @@ impl Sources {
       landing_needs: &FactState::Fresh,
       baseline: &self.baseline,
       gate: None,
+      declared: &BTreeMap::new(),
       target_conflict: None,
       github_layers: &self.github_layers,
     };

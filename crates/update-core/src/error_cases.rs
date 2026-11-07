@@ -1,6 +1,6 @@
-//! The typed errors of a move of HEAD, an update, an unapply, a reapply, a park and their undo, each with the one code
+//! The typed errors of a move of HEAD, an update, an unapply, a reapply, a park, a need and their undo, each with the one code
 //! `bd` and the app answer for it. Both sides test their conversion on this table: the mappers of the brd commands
-//! (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`) and `app_api::api_error`
+//! (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/store_error_test.rs`) and `app_api::api_error`
 //! (`app-api/src/api_error_test.rs`), which no crate can call both of (only the app and the e2e server depend on
 //! `app-api`). A case whose code differs on one side fails that side's test
 use crate::update_project::{FetchFailed, NoUpstream};
@@ -11,9 +11,11 @@ use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, NotAnUpdate, PendingUpdate, RefLocked, UndoBlocked};
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::drop_commits::DropSelectionRefused;
+use history_rewrite::needs::NeedError;
 use history_rewrite::parked::ParkError;
 use history_rewrite::repository_lock::RepositoryLocked;
 use history_rewrite::store_lines::StoreMoved;
+use history_rewrite::store_write::StoreWriteError;
 use std::path::PathBuf;
 use std::time::Duration;
 use sync_core::reapply_branch::ReapplyRefusal;
@@ -21,7 +23,7 @@ use sync_core::unapply_branch::UnapplyRefusal;
 
 /// The command whose mapper of `bd` answers a case: any move of HEAD (`core_error`, also under an unapply, a reapply or
 /// a drop, and its undo), an unapply (`unapply_error`), a reapply (`reapply_error`), a drop of commits (`drop_error`) or
-/// a park (`park_error`)
+/// a write of a store, a park or a need (`store_error`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaseOf {
   Move,
@@ -29,6 +31,7 @@ pub enum CaseOf {
   Reapply,
   Drop,
   Park,
+  Need,
 }
 
 pub struct ErrorCase {
@@ -335,30 +338,84 @@ fn park_cases() -> Vec<ErrorCase> {
     case(
       "park_moved",
       Park,
-      || {
-        ParkError::Moved(StoreMoved {
-          name: "parked branches",
-          store_ref: "refs/branch-deck/parked",
-          expected: None,
-          actual: Some("1111111111111111111111111111111111111111".to_string()),
-        })
-        .into()
-      },
+      || ParkError::Write(moved("parked branches", "refs/branch-deck/parked")).into(),
       ErrorCode::ParkedMoved,
       None,
     ),
-    case("park_locked", Park, || ParkError::Locked(repository_locked()).into(), ErrorCode::Locked, None),
     case(
-      "park_no_baseline",
+      "park_locked",
       Park,
-      || ParkError::Other(NoBaseline::NoCommits.into()).into(),
-      ErrorCode::NoBaseline,
+      || ParkError::Write(StoreWriteError::Locked(repository_locked())).into(),
+      ErrorCode::Locked,
       None,
     ),
+    case("park_no_baseline", Park, || ParkError::Write(no_baseline()).into(), ErrorCode::NoBaseline, None),
   ]
+}
+
+fn need_cases() -> Vec<ErrorCase> {
+  use CaseOf::Need;
+  vec![
+    case(
+      "need_unknown_branch",
+      Need,
+      || NeedError::UnknownBranch("auth".to_string()).into(),
+      ErrorCode::UnknownBranch,
+      None,
+    ),
+    case(
+      "need_invalid",
+      Need,
+      || NeedError::Invalid("auth cannot need itself".to_string()).into(),
+      ErrorCode::InvalidArguments,
+      None,
+    ),
+    case(
+      "need_not_declared",
+      Need,
+      || {
+        NeedError::NotDeclared {
+          branch: "auth".to_string(),
+          needed: "docs".to_string(),
+        }
+        .into()
+      },
+      ErrorCode::InvalidArguments,
+      None,
+    ),
+    case(
+      "need_moved",
+      Need,
+      || NeedError::Write(moved("declared needs", "refs/branch-deck/needs")).into(),
+      ErrorCode::NeedsMoved,
+      None,
+    ),
+    case(
+      "need_locked",
+      Need,
+      || NeedError::Write(StoreWriteError::Locked(repository_locked())).into(),
+      ErrorCode::Locked,
+      None,
+    ),
+    case("need_no_baseline", Need, || NeedError::Write(no_baseline()).into(), ErrorCode::NoBaseline, None),
+  ]
+}
+
+/// The store `name` of `store_ref` moved since a write read it
+fn moved(name: &'static str, store_ref: &'static str) -> StoreWriteError {
+  StoreWriteError::Moved(StoreMoved {
+    name,
+    store_ref,
+    expected: None,
+    actual: Some("1111111111111111111111111111111111111111".to_string()),
+  })
+}
+
+fn no_baseline() -> StoreWriteError {
+  StoreWriteError::Other(NoBaseline::NoCommits.into())
 }
 
 /// Every case, by its name
 pub fn error_cases() -> Vec<ErrorCase> {
-  [move_cases(), refusal_cases(), park_cases()].into_iter().flatten().collect()
+  [move_cases(), refusal_cases(), park_cases(), need_cases()].into_iter().flatten().collect()
 }

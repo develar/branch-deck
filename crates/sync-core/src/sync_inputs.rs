@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::rewrite_guard::OPERATION_MARKERS;
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
+use history_rewrite::needs::NEEDS_REF;
 use history_rewrite::parked::PARKED_REF;
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use std::collections::BTreeMap;
@@ -69,6 +70,7 @@ pub fn read_sync_inputs(git_executor: &GitCommandExecutor, repository_path: &str
       ISSUE_GROUPS_REF,
       STACK_PARENTS_REF,
       PARKED_REF,
+      NEEDS_REF,
     ],
     repository_path,
   )?;

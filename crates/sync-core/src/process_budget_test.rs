@@ -24,6 +24,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::SigningFailed;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::drop_commits::{DropCommitsParams, drop_commits_core};
+use history_rewrite::needs::{need_core, unneed_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
@@ -798,24 +799,38 @@ fn a_park_and_an_unpark() {
     &RewriteOptions::default(),
   )
   .unwrap();
-  // the grouping of the commits ahead (`remote`, `for-each-ref`, `log`, one `cat-file` for the stores), then the store
-  // write
-  assert_processes(
-    &git,
-    &[
-      ("cat-file", 1),
-      ("fast-import", 1),
-      ("for-each-ref", 1),
-      ("log", 1),
-      ("remote", 1),
-      ("rev-parse", 2), // the directories, read once for the lock: 1
-      ("update-ref", 1),
-      ("var", 1),
-    ],
-  );
+  assert_processes(&git, GROUPED_STORE_WRITE);
   let git = counting();
   unpark_core(&git, &path(&repo), &["alpha", "beta"], &RewriteOptions::default()).unwrap();
-  assert_processes(&git, &[("cat-file", 1), ("fast-import", 1), ("rev-parse", 1), ("update-ref", 1), ("var", 1)]);
+  assert_processes(&git, STORE_WRITE);
+}
+
+/// The processes of a write of a store of a branch that must group commits (a park, a need): the grouping of the commits
+/// ahead (`remote`, `for-each-ref`, `log`, one `cat-file` for the stores), then the store write
+const GROUPED_STORE_WRITE: &[(&str, u32)] = &[
+  ("cat-file", 1),
+  ("fast-import", 1),
+  ("for-each-ref", 1),
+  ("log", 1),
+  ("remote", 1),
+  ("rev-parse", 2), // the directories, read once for the lock: 1
+  ("update-ref", 1),
+  ("var", 1),
+];
+
+/// The processes of a write of a store that reads the store alone (an unpark, the removal of a need)
+const STORE_WRITE: &[(&str, u32)] = &[("cat-file", 1), ("fast-import", 1), ("rev-parse", 1), ("update-ref", 1), ("var", 1)];
+
+/// alpha declares that beta lands before it, then takes it back: the store only, as a park
+#[test]
+fn a_need_and_its_removal() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  let git = counting();
+  need_core(&git, &path(&repo), "alpha", &["beta"], &RewriteOptions::default()).unwrap();
+  assert_processes(&git, GROUPED_STORE_WRITE);
+  let git = counting();
+  unneed_core(&git, &path(&repo), "alpha", &["beta"], &RewriteOptions::default()).unwrap();
+  assert_processes(&git, STORE_WRITE);
 }
 
 /// A `fixup!` of alpha and a `squash!` of beta folded into their targets

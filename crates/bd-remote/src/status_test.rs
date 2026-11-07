@@ -628,3 +628,44 @@ fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
     (&json!("blocked"), &json!("session"), &json!("problem"))
   );
 }
+
+/// Off Space no trial check runs, yet the order the user declared (`brd need`) is known as soon as the grouping is read:
+/// `landing_needs` names it with the state of the needed branch, and the next step of the row is `needs_branch`; a
+/// branch that declared nothing has no `landing_needs`
+#[test]
+fn a_declared_need_is_in_the_status_off_space_with_the_state_of_the_branch_it_names() {
+  let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(docs) Write the guide", "(api) Add api", "(auth) Add auth"]);
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = run_in(&repo, &["need", "auth", "docs", "api", "ghost"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = run_in(&repo, &["unapply", "api"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  let (exit_code, status) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{status}");
+  let branch = |name: &str| status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap().clone();
+  let states: Vec<(Value, Value)> = branch("auth")["landing_needs"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|need| (need["needs_branch"].clone(), need["state"].clone()))
+    .collect();
+  assert_eq!(
+    states,
+    [(json!("api"), json!("unapplied")), (json!("docs"), json!("active")), (json!("ghost"), json!("missing"))],
+    "{status}"
+  );
+  assert!(
+    branch("auth")["landing_needs"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .all(|need| need["code"] == json!("unlanded_need"))
+  );
+  assert_eq!(branch("auth")["next_step"]["step"], json!("needs_branch"), "{status}");
+  assert_eq!(branch("docs").get("landing_needs"), None);
+
+  let (_, brief) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!(brief["branches"][0].get("landing_needs"), None);
+}

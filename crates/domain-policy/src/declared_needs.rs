@@ -1,8 +1,8 @@
 //! The order of landing the user declared (`brd need`, `refs/branch-deck/needs`;
 //! spec/branch/declared-needs.spec.md): a branch does not start while a branch it needs is not in master, and a branch
 //! built on it inherits that need, because one robot lands them together. The rule over the declared lines, the state
-//! of each needed branch and the stack chains; the facts come from the session (`repository_model::facts`), never from
-//! git here.
+//! of each needed branch and the stack chains; the facts come from the table of the session
+//! (`repository_model::branch_table::need_states`), never from git here.
 
 use domain_types::landing::{LandingFix, LandingRefusal, NeedState};
 use domain_types::repository_view::RobotOf;

@@ -790,21 +790,8 @@ impl Core {
         needed(need_core(git, path, branch_name, &names, &options).map_err(|error| failed(error.into()))?)
       }
       RewriteIntent::Unneed { branch_name, needs, .. } => {
-        let mut outcome = None;
-        for name in needs {
-          let removed = unneed_core(git, path, branch_name, name, &options).map_err(|error| failed(error.into()))?;
-          outcome = Some(match outcome.take() {
-            Some(NeedOutcome {
-              previous_needs, previous_commit, ..
-            }) => NeedOutcome {
-              previous_needs,
-              previous_commit,
-              ..removed
-            },
-            None => removed,
-          });
-        }
-        needed(outcome.ok_or_else(|| failed(anyhow::anyhow!("An unneed intent names no need")))?)
+        let names: Vec<&str> = needs.iter().map(String::as_str).collect();
+        needed(unneed_core(git, path, branch_name, &names, &options).map_err(|error| failed(error.into()))?)
       }
       RewriteIntent::Unapply {
         branch_name, original_commit_ids, ..

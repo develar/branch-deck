@@ -32,6 +32,13 @@ describe("presentRewrite", () => {
         witness: WITNESS,
       }).label,
     ).toBe("Parking auth, ui")
+    expect(presentRewrite({ rewrite: "need", branchName: "auth", needs: ["docs", "ci-config:prepare"], witness: WITNESS })).toEqual({
+      label: "Declaring what lands before auth",
+      phrase: "the need of auth",
+      failure: "Cannot declare that docs and ci-config:prepare land before auth",
+      done: "Declared that docs and ci-config:prepare land before auth",
+    })
+    expect(presentRewrite({ rewrite: "unneed", branchName: "auth", needs: ["docs"], witness: WITNESS }).done).toBe("Removed the need of auth for docs")
     expect(presentRewrite({ rewrite: "undo", token: { kind: "regroup", token: "h0..h1" } }).failure).toBe("Cannot undo")
     expect(presentRewrite({ rewrite: "moveHunk", from: "a1", to: "b2", path: "src/app.ts", witness: WITNESS }).label).toBe("Moving a hunk of src/app.ts")
     expect(presentRewrite({ rewrite: "group", plan: { branches: { auth: ["a1"] } }, witness: WITNESS }).done).toBe("Regrouped the commits")

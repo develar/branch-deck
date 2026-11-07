@@ -486,6 +486,9 @@ fn decide(facts: &StepFacts<'_>, slot: Slot, general: Option<StepBlocker>, dry_r
     PatronusAnswer::Pending => {
       return if general.is_some() || matches!(slot, Slot::Running { .. } | Slot::Finished(Chip::Merged)) {
         settled(general, dry_run)
+      } else if let Some(refusals) = declared_needs(facts) {
+        // the order the user declared needs no answer: row 1′ says it before Patronus answers
+        step(StepRow::OnePrime, StepKind::NeedsBranch { refusals: refusals.to_vec() }, general, dry_run)
       } else {
         pending(StepFact::Patronus, general, dry_run)
       };
@@ -586,7 +589,8 @@ fn push_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Optio
 fn gated(facts: &StepFacts<'_>, gate: &RouteGate, general: Option<StepBlocker>, dry_run: Option<&StepBlocker>) -> Result<Option<StepBlocker>, Box<NextStep>> {
   let refused = match gate {
     RouteGate::Refused { reason } => Some(StepBlocker::Rule { reason: reason.clone() }),
-    RouteGate::Wait { fact, .. } if general.is_none() => {
+    // the order the user declared needs no answer of the gate: row 1′ says it while the gate waits
+    RouteGate::Wait { fact, .. } if general.is_none() && declared_needs(facts).is_none() => {
       let fact = match fact {
         RouteFact::Permission => StepFact::Permission,
         RouteFact::TargetRules => StepFact::TargetRules,
@@ -607,6 +611,16 @@ fn gated(facts: &StepFacts<'_>, gate: &RouteGate, general: Option<StepBlocker>, 
     )));
   }
   Ok(blocker)
+}
+
+/// The needs of the subject while one of them is an order the user declared (`LandingRefusal::UnlandedNeed`): every
+/// refusal it knows, which row 1′ names. A declaration is read of the repository, so it waits for no answer of Patronus
+/// or of the gate of the route (row 0); a reason of the subject (row 1) still outranks it
+fn declared_needs<'a>(facts: &StepFacts<'a>) -> Option<&'a [LandingRefusal]> {
+  match facts.needs {
+    Needs::Known(refusals) if refusals.iter().any(|refusal| matches!(refusal, LandingRefusal::UnlandedNeed { .. })) => Some(refusals),
+    _ => None,
+  }
 }
 
 /// The step of a repository that lands by a merge of the pull request on GitHub (the module's header): rows 1, 0, 1′

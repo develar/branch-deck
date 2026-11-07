@@ -1,16 +1,18 @@
 //! The branch table a sync left (or a grouping read without one, `brd status`), what the repository view derives from
 //! (docs/design/git-operations.md, "Session facts"): the grouped branches in the order of the table, their virtual
-//! tips, the copies the sync wrote, the stack branches, the parked branches and the branches the fetched baseline has
-//! whole. The app keeps the one of its last sync per repository; `bd` builds it from the report of its sync.
+//! tips, the copies the sync wrote, the stack branches, the parked branches, the declared needs and the branches the
+//! fetched baseline has whole. The app keeps the one of its last sync per repository; `bd` builds it from the report
+//! of its sync.
 
+use domain_policy::declared_needs::NeedFacts;
 use domain_policy::facts::{RemoteBranch, Repository};
 use domain_policy::stack::build_ancestors;
-use domain_types::GroupedBranchInfo;
-use domain_types::RemoteStatusUpdate;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
 use domain_types::landed::LandedBranch;
+use domain_types::landing::NeedState;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
+use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;
@@ -32,6 +34,9 @@ pub struct BranchTable {
   pub stack_branches: Vec<StackBranchUpdate>,
   /// The parked branches, each with the note the user parked it with
   pub parked: BTreeMap<String, String>,
+  /// Branch -> what the user declared lands before it (`brd need`, `refs/branch-deck/needs`), as it is written
+  /// (`<companion>:<branch>` for a branch of a companion repository)
+  pub needs: BTreeMap<String, Vec<String>>,
   /// What the sync knows of the remote branches of the table and of its stack branches (`remote_facts`); a table read
   /// without a sync (`brd status`) has the remote tips only
   pub remote: RemoteFacts,
@@ -54,6 +59,7 @@ impl BranchTable {
       copies: report.copies.clone(),
       stack_branches: report.stack_branches.clone(),
       parked: report.grouping.parked.entries.clone(),
+      needs: declared_needs(&report.grouping.needs.entries),
       remote: remote_facts(prefix, report, statuses),
       in_baseline: in_baseline(landing).map(str::to_string).collect(),
     }
@@ -91,10 +97,61 @@ impl BranchTable {
     build_ancestors(&self.repository(), name).into_iter().map(str::to_string).collect()
   }
 
+  /// Every branch of the table with the branches it is built on, nearest first: what a declared need is inherited
+  /// along (`domain_policy::declared_needs`)
+  #[must_use]
+  pub fn chains(&self) -> Vec<(String, Vec<String>)> {
+    let repository = self.repository();
+    self
+      .branches
+      .iter()
+      .map(|branch| {
+        let chain = build_ancestors(&repository, &branch.name).into_iter().rev().map(str::to_string).collect();
+        (branch.name.clone(), chain)
+      })
+      .collect()
+  }
+
   /// The stack branch of the stack of `root`, while the stack forks (it has members)
   pub fn stack(&self, root: &str) -> Option<&StackBranchUpdate> {
     self.stack_branches.iter().find(|stack| stack.root == root && !stack.members.is_empty())
   }
+}
+
+/// The lines of the needs store as the rules read them: branch -> the names it declared, each a branch of this
+/// repository or `<companion>:<branch>`; a line of a branch that declared nothing is none
+#[must_use]
+pub fn declared_needs(entries: &BTreeMap<String, String>) -> BTreeMap<String, Vec<String>> {
+  entries
+    .iter()
+    .filter_map(|(branch, value)| {
+      let needs: Vec<String> = value.split_whitespace().map(str::to_string).collect();
+      (!needs.is_empty()).then(|| (branch.clone(), needs))
+    })
+    .collect()
+}
+
+/// The state of every branch a need of `table` names, of this repository: `Active` while it groups a commit,
+/// `Unapplied` while an unapply keeps it, else `Missing`. A branch of a companion is none of them: only the companion
+/// says how it stands (`sync_core::companions`), and a need of one without facts refuses nothing
+#[must_use]
+pub fn need_states(table: &BranchTable, unapplied: impl Fn(&str) -> bool) -> BTreeMap<String, NeedFacts> {
+  table
+    .needs
+    .values()
+    .flatten()
+    .filter(|need| !need.contains(':'))
+    .map(|need| {
+      let state = if table.branch(need).is_some() {
+        NeedState::Active
+      } else if unapplied(need) {
+        NeedState::Unapplied
+      } else {
+        NeedState::Missing
+      };
+      (need.clone(), NeedFacts::of(state))
+    })
+    .collect()
 }
 
 /// The branches of the landing report `landing` the fetched baseline has whole: none of their commits stays local

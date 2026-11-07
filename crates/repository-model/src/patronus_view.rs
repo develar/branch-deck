@@ -607,19 +607,26 @@ pub fn landed_commits(view: &PatronusView) -> HashSet<String> {
 /// declaration names the running Safe Push that lands the branch adding the name, as `view` holds it: its own robot, or
 /// one of a branch built on it or of its whole stack
 pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &BTreeMap<String, Vec<LandingRefusal>>) {
-  let landing: HashMap<String, RobotOf> = view
+  let landing = landing_robots(view);
+  for branch in &table.branches {
+    let mut refusals = needs.get(&branch.name).cloned().unwrap_or_default();
+    name_landing_robots(&mut refusals, |declared_in| landing.get(declared_in).cloned());
+    view.branches.entry(branch.name.clone()).or_default().landing_needs = LandingNeeds::Known { refusals };
+  }
+}
+
+/// Branch -> the robot that lands it now, as `view` holds it: its own running Safe Push, else the one of a start that
+/// lands it (of a branch built on it, of its whole stack)
+#[must_use]
+pub fn landing_robots(view: &PatronusView) -> HashMap<String, RobotOf> {
+  view
     .branches
     .iter()
     .filter_map(|(name, facts)| {
       let running = facts.landing.hold.as_ref().filter(|hold| hold.kind != HoldKind::Landed).map(|hold| hold.by.clone());
       Some((name.clone(), running.or_else(|| facts.span.as_ref().map(|span| span.by.clone()))?))
     })
-    .collect();
-  for branch in &table.branches {
-    let mut refusals = needs.get(&branch.name).cloned().unwrap_or_default();
-    name_landing_robots(&mut refusals, |declared_in| landing.get(declared_in).cloned());
-    view.branches.entry(branch.name.clone()).or_default().landing_needs = LandingNeeds::Known { refusals };
-  }
+    .collect()
 }
 
 #[cfg(test)]

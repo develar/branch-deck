@@ -306,7 +306,8 @@ taken and deletes it before the release), then runs the real git.
 | Stack On, Unstack and Stack Together (`restack_core`) | `for-each-ref`, `update-ref` | `a_restack_locks_only_the_witness_and_the_write`, `stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite` (`regroup_test.rs`) |
 | Undo of a regroup (`undo_regroup_core`) | `for-each-ref`, `update-ref`; of the stores alone `update-ref` (its CAS the witness) | `an_undo_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
 | Park, unpark (`park_core`, `unpark_core`) | `update-ref` (its CAS the witness) | `a_park_and_an_unpark_lock_only_the_write` (`regroup_test.rs`) |
-| The drop of the lines of integrated branches in a sync (`drop_store_lines`, only while the lock is free; the stack parents and the parked branches in one drop) | `cat-file` (the stores), `var`, `fast-import`, `update-ref`, one of each | `a_drop_of_store_lines_locks_only_its_read_and_its_write` (`regroup_test.rs`) |
+| A need and its removal (`need_core`, `unneed_core`) | `update-ref` (its CAS the witness) | `a_need_and_its_removal_lock_only_the_write` (`regroup_test.rs`) |
+| The drop of the lines of integrated branches in a sync (`drop_store_lines`, only while the lock is free; the stack parents, the parked branches and the declared needs in one drop) | `cat-file` (the stores), `var`, `fast-import`, `update-ref`, one of each | `a_drop_of_store_lines_locks_only_its_read_and_its_write` (`regroup_test.rs`) |
 | Squash and its undo (`squash_commits_core`, `restore_branch_head_core`; the carried mapping notes before the lock) | `for-each-ref`, `update-ref` | `a_squash_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/squash_test.rs`) |
 | Fold, `brd fold` (`squash_fixup_commits_core`; the carried mapping notes before the lock) | `for-each-ref`, `update-ref` | `a_fold_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/autosquash_test.rs`) |
 | Amend (`amend_uncommitted_to_branch_core`) | `for-each-ref`, `update-index`, `update-ref` | `an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write` (`crates/sync-core/src/repository_lock_test.rs`) |
@@ -794,6 +795,23 @@ built on it, which carries its commits.
   stack parents (`drop_integrated_parked`, its own drop message, best effort, only while the lock is free), and an undo of a rename passes
   over those drops. Every other idle line stays (`idle_parked` of `brd status`): an issue key that groups again is
   parked again.
+
+**Declared needs.** The order of landing the user declares lives in `refs/branch-deck/needs`
+([Declared Needs](../../spec/branch/declared-needs.spec.md)), the fourth `LineStore` (`NEEDS`, `needs.rs`): one file
+`needs` of sorted `branch<TAB>needed needed…` lines, each needed name a branch of this repository or
+`<companion>:<branch>` (`NeedKey`). It decides no group and moves no commit: the session derives a refusal of the start
+of the branch from it (`domain_policy::declared_needs`), the next step and every start of the app and of `brd` read it.
+- It is read in the same `cat-file --batch` as the other three maps (`GroupingInputs.needs`), so the four maps still
+  cost one process; the ref is an input of the sync (`read_sync_inputs`), so a `brd need` syncs the window on its next
+  focus. The table of the sync carries the lines (`BranchTable::needs`, `CachedBuild::needs` of the frame).
+- `need_core` and `unneed_core` write as `park_core`: the store commit before the repository lock, one `update-ref`
+  under it with CAS on the commit they read (`needs_moved` after a second move). A need of the branch on itself, an
+  unknown branch, or a removal of a name never declared are refused before any write; the same name again writes
+  nothing. A rename carries a need both ways, as the key and as a needed name, in the transaction of the rename
+  (`needs:` of the undo token after `parked:`); a rename that would make a branch need itself drops the line.
+- A sync drops a needed name once the integration detection proves its branch landed (`drop_integrated_needs`, in
+  the one drop of the stores, `drop_values`: only that name, the line with its last name). A name of a companion stays:
+  this repository cannot prove a branch of another one landed.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it). The in-process mutexes don't cover the app and parallel `brd` processes. A dry run reads only and takes no

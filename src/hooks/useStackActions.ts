@@ -1,5 +1,5 @@
 import { toast } from "@/components/ui/toast"
-import type { RewriteIntent } from "@/lib/bindings"
+import type { LandingFix, RewriteIntent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
@@ -58,6 +58,24 @@ async function runStackOperation(
     done.outcome,
   )
   return true
+}
+
+/**
+ * Runs the fix of what a start needs (`LandingFix`): the restack of the root of what it lands onto the branch it needs,
+ * or the unstack of a branch from the one whose declared need it inherits; false for a fix no action runs (the move of
+ * a commit), which the Safe Push popover says
+ */
+export function runLandingFix(fix: LandingFix): boolean {
+  switch (fix.kind) {
+    case "restack":
+      void restackBranch(fix.branch, fix.onto)
+      return true
+    case "unstack":
+      void restackBranch(fix.branch, null)
+      return true
+    case "moveCommit":
+      return false
+  }
 }
 
 /**

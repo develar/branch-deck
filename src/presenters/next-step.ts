@@ -21,7 +21,6 @@ import {
 import type { LandingFix, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { getErrorDetails } from "@/lib/errors"
-import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { describeMerge, formatMergeLabel, formatMergeMethod } from "@/lib/merge-pull-request"
 import { describeStart, formatPatronusAvailabilityHint, formatStartLabel } from "@/lib/patronus"
@@ -29,7 +28,7 @@ import { formatAvailabilityHint } from "@/lib/pull-request"
 import { describePushToBaseline, formatPushToBaselineLabel } from "@/lib/push-to-baseline"
 import { joinNames } from "@/lib/text"
 import { formatWholeStack } from "@/lib/whole-stack"
-import { describeLandingRefusals, formatLandingFix, neededCommit } from "@/presenters/landing"
+import { describeLandingRefusals, formatLandingFix, formatNeeded } from "@/presenters/landing"
 import { formatLandedWhole, formatReason } from "@/presenters/reasons"
 
 /**
@@ -388,14 +387,14 @@ function helpItem(help: Extract<StepKind, { kind: "unavailable" }>["help"], reas
 }
 
 /**
- * Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it: "Needs stills-codec", which runs
- * the fix ("Stack lane-run on stills-codec"), the reason in its hover; a fix no action runs (the move of a commit) opens
- * the Safe Push popover, which says it and starts anyway
+ * Row 1′: the build of what the Safe Push lands needs a commit of a branch outside it, or the user declared that another
+ * branch lands first: "Needs stills-codec", which runs the fix ("Stack lane-run on stills-codec", "Unstack ui from
+ * auth"), the reason in its hover; a fix no action runs (the move of a commit), and a declared need of the branch itself,
+ * open the Safe Push popover, which says it and starts anyway
  */
 function needsBranch(kind: Extract<StepKind, { kind: "needsBranch" }>, context: StepContext): Shown {
   const decision = describeLandingRefusals(kind.refusals, context.subject)
-  const needed = neededCommit(kind.refusals[0]!)
-  const label = `Needs ${needed.branch === "" ? formatShortHash(needed.id) : needed.branch}`
+  const label = `Needs ${formatNeeded(kind.refusals[0]!)}`
   const reason = decision?.reason ?? ""
   const fix = decision?.fix ?? null
   const fixLabel = formatLandingFix(fix)

@@ -196,6 +196,8 @@ struct Given {
   stack_branch: Option<StackBranch>,
   landed: Option<Landed>,
   landing_needs: Option<bool>,
+  /// A branch of `commits` the user declared lands before the branch of the case (`brd need`)
+  need: Option<String>,
   /// The commits of a fixture that make a dangling reference, instead of `commits`
   dangling: Option<Dangling>,
   /// The route of the repository into master (`branchdeck.landing`): unset, the host of `origin` decides it
@@ -249,6 +251,7 @@ impl Default for Given {
       stack_branch: None,
       landed: None,
       landing_needs: None,
+      need: None,
       dangling: None,
       route: None,
       permission: None,
@@ -439,6 +442,8 @@ enum Flag {
   AllowMissing,
   AllowDangling,
   AllowUnknownRules,
+  /// `--allow-unlanded`: the order the user declared, which the start breaks, accepted
+  AllowUnlanded,
   /// `--allow-checks-not-passed` of `brd land`: what CI did not check, accepted
   WithoutChecks,
   /// `--bypass-rules` of `brd land`: what the gate of the route asks, accepted
@@ -540,6 +545,7 @@ impl Given {
       cancel_running: self.has(Flag::CancelRunning),
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
+      allow_unlanded: self.has(Flag::AllowUnlanded),
       allow_unknown_rules: self.has(Flag::AllowUnknownRules),
       whole_stack: self.subject == GivenSubject::WholeStack,
       ..SafePushArgs::default()
@@ -557,6 +563,7 @@ impl Given {
       (args.cancel_running, "--cancel-running"),
       (args.allow_dangling, "--allow-dangling"),
       (args.allow_missing, "--allow-missing"),
+      (args.allow_unlanded, "--allow-unlanded"),
       (args.allow_unknown_rules, "--allow-unknown-rules"),
       (args.whole_stack, "--whole-stack"),
     ];
@@ -573,7 +580,7 @@ impl Given {
     LandingAllowances {
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
-      allow_unlanded: false,
+      allow_unlanded: self.has(Flag::AllowUnlanded),
       allow_force: false,
       allow_unknown_rules: self.has(Flag::AllowUnknownRules),
       allow_unknown_review: false,
@@ -593,7 +600,7 @@ impl Given {
       bypass_rules: self.has(Flag::BypassRules),
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
-      allow_unlanded: false,
+      allow_unlanded: self.has(Flag::AllowUnlanded),
     }
   }
 
@@ -958,6 +965,10 @@ impl Situation {
       };
       bd_ok(&environment, &["sync"]);
       bd_ok(&environment, &["park", name]);
+    }
+    if let Some(needed) = given.need.as_deref() {
+      bd_ok(&environment, &["sync"]);
+      bd_ok(&environment, &["need", branch, needed]);
     }
     if given.robot.is_some() {
       // the robots ran on the tips the sync builds; a branch that fails to sync fails it

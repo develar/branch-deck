@@ -1,22 +1,17 @@
 //! Declared landing needs: a branch -> its required branches (`store_lines.rs`). The store is shared by every branch and
 //! worktree; a write changes only the named branch and moves its ref with compare-and-swap.
 
-use crate::baseline::NoBaseline;
 use crate::issue_groups::validate_leaf_name;
-use crate::repository_lock::{MovedHead, Prepared, RepositoryLocked, RewriteOptions, Witness};
-use crate::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
-use crate::store_lines::{LineStore, StoreDrop, StoreLines, StoreMoved, drop_store_lines, format_store_lines};
+use crate::repository_lock::RewriteOptions;
+use crate::store_lines::{LineStore, StoreDrop, StoreLines, drop_store_lines};
+use crate::store_write::{PreparedLines, StoreWriteError, grouped_branches, store_error, write_prepared_lines};
 use anyhow::Result;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_signing::Signing;
-use git_ops::commit_writer::{WrittenCommits, write_commits_with_notes};
-use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::with_dirs_of;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Display, Formatter};
-use tracing::{info, instrument};
+use tracing::instrument;
 
 pub const NEEDS_REF: &str = "refs/branch-deck/needs";
 pub const NEEDS_FILE: &str = "needs";
@@ -108,11 +103,7 @@ pub enum NeedError {
   #[error("{needed} is not declared as a need of {branch}")]
   NotDeclared { branch: String, needed: String },
   #[error(transparent)]
-  Moved(StoreMoved),
-  #[error(transparent)]
-  Locked(RepositoryLocked),
-  #[error("{0:#}")]
-  Other(anyhow::Error),
+  Write(StoreWriteError),
 }
 
 impl NeedError {
@@ -120,88 +111,51 @@ impl NeedError {
     Some(match self {
       Self::UnknownBranch(_) => ErrorCode::UnknownBranch,
       Self::Invalid(_) | Self::NotDeclared { .. } => ErrorCode::InvalidArguments,
-      Self::Moved(_) => ErrorCode::NeedsMoved,
-      Self::Locked(_) => ErrorCode::Locked,
-      Self::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
-      Self::Other(_) => return None,
+      Self::Write(error) => return error.code(ErrorCode::NeedsMoved),
     })
   }
 }
 
-impl MovedHead for NeedError {
-  fn head_moved(&self) -> bool {
-    matches!(self, Self::Other(error) if error.head_moved())
-  }
-}
-
-impl From<anyhow::Error> for NeedError {
-  fn from(error: anyhow::Error) -> Self {
-    match (error.downcast_ref::<StoreMoved>().cloned(), error.downcast_ref::<RepositoryLocked>().cloned()) {
-      (Some(moved), _) => Self::Moved(moved),
-      (None, Some(locked)) => Self::Locked(locked),
-      (None, None) => Self::Other(error),
-    }
-  }
-}
+store_error!(NeedError);
 
 /// Declare `needed` for `branch`; each name is a local branch or `companion:branch`. The branch must group a commit
 /// ahead of the baseline. Its store commit is written before the repository lock, then moved under it with CAS.
 #[instrument(skip(git_executor, options))]
 pub fn need_core(git_executor: &GitCommandExecutor, repository_path: &str, branch: &str, needed: &[&str], options: &RewriteOptions) -> Result<NeedOutcome, NeedError> {
-  validate_leaf_name(branch, "branch name").map_err(NeedError::Invalid)?;
   let keys = parse_request(branch, needed)?;
-  let git_executor = &with_dirs_of(git_executor, repository_path)?;
-  write_prepared(git_executor, repository_path, options, || {
-    let grouping = read_grouping_inputs(git_executor, repository_path)?;
-    let ahead = CommitsAhead::read(git_executor, repository_path)?;
-    let grouped = group_commits(&ahead.commits, &grouping);
-    if !grouped.groups.values().any(|group| group.as_deref() == Some(branch)) {
+  write_prepared(git_executor, repository_path, options, |git_executor| {
+    let (grouping, branches) = grouped_branches(git_executor, repository_path)?;
+    if !branches.contains(branch) {
       return Err(NeedError::UnknownBranch(branch.to_string()));
     }
-    let mut combined = grouping
-      .needs
-      .entries
-      .get(branch)
-      .map(|value| parse_needs(branch, value))
-      .transpose()
-      .map_err(NeedError::Invalid)?
-      .unwrap_or_default();
+    let mut combined = declared(&grouping.needs, branch)?;
     combined.extend(keys.iter().cloned());
-    prepare_lines(git_executor, repository_path, &grouping.needs, branch, Some(&combined))
+    prepare_lines(git_executor, repository_path, &grouping.needs, branch, Some(&combined), "need")
   })
 }
 
-/// Remove `needed` from the declared needs of `branch`; the branch may have no commits any more.
+/// Remove the names of `needed` from the declared needs of `branch`, in one store commit or not at all: each must be
+/// declared. The branch may have no commits any more
 #[instrument(skip(git_executor, options))]
-pub fn unneed_core(git_executor: &GitCommandExecutor, repository_path: &str, branch: &str, needed: &str, options: &RewriteOptions) -> Result<NeedOutcome, NeedError> {
-  validate_leaf_name(branch, "branch name").map_err(NeedError::Invalid)?;
-  let key = NeedKey::parse(needed).map_err(NeedError::Invalid)?;
-  if key.companion.is_none() && key.branch == branch {
-    return Err(NeedError::Invalid(format!("{branch} cannot need itself")));
-  }
-  let git_executor = &with_dirs_of(git_executor, repository_path)?;
-  write_prepared(git_executor, repository_path, options, || {
+pub fn unneed_core(git_executor: &GitCommandExecutor, repository_path: &str, branch: &str, needed: &[&str], options: &RewriteOptions) -> Result<NeedOutcome, NeedError> {
+  let keys = parse_request(branch, needed)?;
+  write_prepared(git_executor, repository_path, options, |git_executor| {
     let read = NEEDS.read(git_executor, repository_path)?;
-    let current = read
-      .entries
-      .get(branch)
-      .map(|value| parse_needs(branch, value))
-      .transpose()
-      .map_err(NeedError::Invalid)?
-      .unwrap_or_default();
-    if !current.contains(&key) {
+    let mut remaining = declared(&read, branch)?;
+    if let Some(undeclared) = keys.iter().find(|key| !remaining.contains(*key)) {
       return Err(NeedError::NotDeclared {
         branch: branch.to_string(),
-        needed: needed.to_string(),
+        needed: undeclared.to_string(),
       });
     }
-    let mut remaining = current;
-    remaining.remove(&key);
-    prepare_lines(git_executor, repository_path, &read, branch, (!remaining.is_empty()).then_some(&remaining))
+    remaining.retain(|key| !keys.contains(key));
+    prepare_lines(git_executor, repository_path, &read, branch, (!remaining.is_empty()).then_some(&remaining), "unneed")
   })
 }
 
+/// The branch and the names of a need or of its removal, checked: a branch name, at least one name, none the branch itself
 fn parse_request(branch: &str, needed: &[&str]) -> Result<BTreeSet<NeedKey>, NeedError> {
+  validate_leaf_name(branch, "branch name").map_err(NeedError::Invalid)?;
   if needed.is_empty() {
     return Err(NeedError::Invalid("At least one needed branch is required".to_string()));
   }
@@ -213,6 +167,14 @@ fn parse_request(branch: &str, needed: &[&str]) -> Result<BTreeSet<NeedKey>, Nee
     keys.insert(key);
     Ok(keys)
   })
+}
+
+/// What `branch` needs as the store `read` has it: none without a line
+fn declared(read: &StoreLines, branch: &str) -> Result<BTreeSet<NeedKey>, NeedError> {
+  read
+    .entries
+    .get(branch)
+    .map_or_else(|| Ok(BTreeSet::new()), |value| parse_needs(branch, value).map_err(NeedError::Invalid))
 }
 
 fn validate_line(branch: &str, value: &str) -> Result<(), String> {
@@ -257,120 +219,40 @@ pub fn local_targets(entries: &BTreeMap<String, String>) -> BTreeSet<String> {
     .collect()
 }
 
+/// The store commit `prepare` computed and wrote before the repository lock, moved under it (`write_prepared_lines`),
+/// as a park
 fn write_prepared(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RewriteOptions,
-  prepare: impl Fn() -> Result<PreparedNeeds, NeedError>,
+  prepare: impl Fn(&GitCommandExecutor) -> Result<PreparedLines<NeedOutcome>, NeedError>,
 ) -> Result<NeedOutcome, NeedError> {
-  let prepared = match prepare() {
-    Ok(prepared) if prepared.written.is_none() => return Ok(prepared.outcome),
-    prepared => prepared,
+  let (mut outcome, new_commit) = write_prepared_lines(git_executor, repository_path, options, prepare)?;
+  outcome.new_commit = new_commit;
+  Ok(outcome)
+}
+
+/// Set the line of `branch` to `needs`, or drop it with `None`, on the store as `read`, in one commit written on a
+/// temporary ref (`PreparedLines::new`)
+fn prepare_lines(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  read: &StoreLines,
+  branch: &str,
+  needs: Option<&BTreeSet<NeedKey>>,
+  operation: &'static str,
+) -> Result<PreparedLines<NeedOutcome>, NeedError> {
+  let previous_needs = declared(read, branch)?;
+  let written = |keys: &BTreeSet<NeedKey>| keys.iter().map(ToString::to_string).collect::<Vec<_>>();
+  let outcome = NeedOutcome {
+    branch: branch.to_string(),
+    previous_needs: written(&previous_needs),
+    needs: needs.map_or_default(written),
+    previous_commit: read.commit.clone(),
+    new_commit: None,
   };
-  let (prepared, lock) = options.lock_prepared(git_executor, repository_path, prepared, &prepare)?;
-  match prepared.write(git_executor, repository_path) {
-    Err(NeedError::Moved(_)) if lock.is_some() => prepare()?.write(git_executor, repository_path),
-    written => written,
-  }
-}
-
-struct PreparedNeeds {
-  outcome: NeedOutcome,
-  written: Option<WrittenCommits>,
-  removes: bool,
-}
-
-impl Prepared for PreparedNeeds {
-  fn witness(&self) -> Witness {
-    Witness::default()
-  }
-
-  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
-    if let Some(written) = &self.written {
-      written.discard(git_executor, repository_path);
-    }
-  }
-}
-
-impl PreparedNeeds {
-  fn write(mut self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<NeedOutcome, NeedError> {
-    let Some(written) = self.written.take() else {
-      return Ok(self.outcome);
-    };
-    let previous = self.outcome.previous_commit.clone();
-    let new_commit = written.store_commits.first().cloned().unwrap_or_default();
-    let mut transaction = RefTransaction::new();
-    match &previous {
-      Some(previous) => transaction.update(NEEDS_REF, &new_commit, Some(previous)),
-      None => transaction.create(NEEDS_REF, &new_commit),
-    };
-    written.delete_temp_refs(&mut transaction);
-    if let Err(error) = transaction.commit(git_executor, repository_path, if self.removes { "unneed" } else { "need" }) {
-      written.discard(git_executor, repository_path);
-      return Err(match crate::store_lines::read_store_head(git_executor, repository_path, NEEDS_REF) {
-        Ok(actual) if actual.as_ref().map(|(commit, _)| commit) != previous.as_ref() => NeedError::Moved(NEEDS.moved(previous, actual.map(|(commit, _)| commit))),
-        _ => NeedError::from(error),
-      });
-    }
-    self.outcome.new_commit = Some(new_commit);
-    info!(branch = %self.outcome.branch, removes = self.removes, "Wrote declared needs");
-    Ok(self.outcome)
-  }
-}
-
-fn prepare_lines(git_executor: &GitCommandExecutor, repository_path: &str, read: &StoreLines, branch: &str, needs: Option<&BTreeSet<NeedKey>>) -> Result<PreparedNeeds, NeedError> {
-  let previous_needs = read
-    .entries
-    .get(branch)
-    .map(|value| parse_needs(branch, value))
-    .transpose()
-    .map_err(NeedError::Invalid)?
-    .unwrap_or_default();
-  let needs_text = needs.map(|keys| keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(" "));
-  let next_needs = needs.cloned().unwrap_or_default();
-  let mut entries = read.entries.clone();
-  match &needs_text {
-    Some(value) => {
-      entries.insert(branch.to_string(), value.clone());
-    }
-    None => {
-      entries.remove(branch);
-    }
-  }
-  let mut prepared = PreparedNeeds {
-    outcome: NeedOutcome {
-      branch: branch.to_string(),
-      previous_needs: previous_needs.iter().map(ToString::to_string).collect(),
-      needs: next_needs.iter().map(ToString::to_string).collect(),
-      previous_commit: read.commit.clone(),
-      new_commit: None,
-    },
-    written: None,
-    removes: needs.is_none_or(|next| next.len() < previous_needs.len()),
-  };
-  let named = |key: &str| key == branch;
-  let had_problem = read.problems.iter().any(|problem| problem.key.as_deref().is_some_and(named));
-  if entries == read.entries && !had_problem {
-    return Ok(prepared);
-  }
-  let kept: Vec<String> = read
-    .problems
-    .iter()
-    .filter(|problem| !problem.key.as_deref().is_some_and(named))
-    .map(|problem| problem.line.clone())
-    .collect();
-  let content = format_store_lines(&entries, &kept);
-  let update = NEEDS.update(read.commit.as_deref(), &content);
-  prepared.written = Some(write_commits_with_notes(
-    git_executor,
-    repository_path,
-    &[],
-    None,
-    std::slice::from_ref(&update.commit),
-    None,
-    Signing::Off,
-  )?);
-  Ok(prepared)
+  let line = needs.map(|keys| written(keys).join(" "));
+  Ok(PreparedLines::new(git_executor, repository_path, &NEEDS, read, &[(branch, line)], operation, outcome)?)
 }
 
 /// Drop integrated local references from the needs store; each branch keeps its other declared needs.

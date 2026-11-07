@@ -136,7 +136,7 @@ fakes; both sides read that.
 | `stackPullRequest` | `true` | the open #12 of `{prefix}/stack/<root>` in the search |
 | `readiness` | `notRequired` · `approved` · `missing` · `unknown` · `unavailable` · `unlisted` · `space` · `notAsked` [`notRequired`] | the pre-check answer, see below |
 | `profile` | `{ chosen: <id>·none, lastRobot: lsc, skipsReview, newApi }` | the profile of the start (`--profile`); the last robot's options |
-| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnknownRules` · `withoutChecks` · `bypassRules` | the flags of `brd` of the same names, the choices of the popover (`Land`); `withoutChecks` and `bypassRules` the ones of `brd land` |
+| `flags` | `withoutApprovals` · `cancelRunning` · `createPullRequest` · `allowMissing` · `allowDangling` · `allowUnlanded` · `allowUnknownRules` · `withoutChecks` · `bypassRules` | the flags of `brd` of the same names, the choices of the popover (`Land`); `withoutChecks` and `bypassRules` the ones of `brd land` |
 | `route` | `push` | `branchdeck.landing push`: the repository lands by a push of the copy into the target, `brd land` its side |
 | `permission` | `read` · `write` | `remote.origin.pushurl` github.com/acme/monorepo, and the listing of the pull requests names `viewerPermission: READ` or `WRITE` |
 | `baselineAhead` | `true` | a commit of someone else on origin/master, fetched: HEAD lacks it, the copies are built on the fork point |
@@ -145,6 +145,7 @@ fakes; both sides read that.
 | `stackBranch` | `notBuilt` | the last branch gets a stack problem (`(<b>/<b>) Loop`) |
 | `landed` | `inBaseline` · `byContent` | `inBaseline`: origin/master gets every commit of the branch rebuilt (`cherry-pick -x`), fetched, HEAD keeps them until the update; `byContent`: `land_auth_by_content` after `brd push` (`LANDED_SUBJECTS` only), one commit left |
 | `landingNeeds` | `true` | `(codec) Add controlUrl`, then the branch uses it (Kotlin) |
+| `need` | a branch of `commits` | `brd need` of the branch on it after a sync: the user declared that it lands first |
 | `dangling` | `removed` (branch `fake-agent`) · `changed` (branch `suspend`), with `commits: []` | `commit_dangling_reference` · `commit_changed_declaration` |
 
 A value the fixtures don't map fails the case with what it needs.

@@ -47,10 +47,12 @@
 //! they are, so the landing overview, Attention and the Dock badge list what the view says.
 
 use crate::action_view::{FrameReads, reads_cached_frame};
-use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, remote_fact};
+use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts, in_baseline, need_states, remote_fact};
 use crate::facts::{FactRecord, FactStore, listed_robots};
+use crate::patronus_view::landing_robots;
 use crate::table::{TableParts, TableState};
 use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
+use domain_policy::declared_needs::declared_refusals;
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::github_stack::chain_of;
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, push_blocker, restart_action, stack_branch_hold};
@@ -59,6 +61,7 @@ use domain_policy::land::{
   standing, start_refusal,
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
+use domain_policy::landing_needs::name_landing_robots;
 use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
@@ -88,7 +91,7 @@ use domain_types::session::{
   RobotAttention, RobotsView, StackBranchAlong, SubjectReadiness, TableHeader, WholeStackView, stack_readiness_key,
 };
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
-use domain_types::{GroupedBranchInfo, PushAction};
+use domain_types::{GroupedBranchInfo, PushAction, UnappliedBranchInfo};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The input of the rules over the table of `table`, as its view has it
@@ -1143,6 +1146,9 @@ pub struct LandSources<'a> {
   /// What the landing gate the deciding side ran of this start refuses (`bd`'s, of a whole stack too), in place of the
   /// landing needs of the view; `None`: the view's (a session runs the gate at the start)
   pub gate: Option<&'a [LandingRefusal]>,
+  /// The refusals of the order of landing the user declared (`domain_policy::declared_needs`), by branch: known right
+  /// after the sync, on every route and before Patronus answers, and refused beside what the gate refuses
+  pub declared: &'a BTreeMap<String, Vec<LandingRefusal>>,
   /// A conflict the check of the deciding side against the newest target found; `None` without one, or when nothing
   /// checked (a session checks at the start)
   pub target_conflict: Option<TargetConflictFact<'a>>,
@@ -1197,6 +1203,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let readiness = |key: &str| facts.readiness.fact(key);
   let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts, state.operations());
   let github_layers = github_layers_of(state, facts, &route, &landed_states_of(state, facts));
+  let declared = declared_needs_of(&table.table, |need| is_unapplied(&state.parts.sections.unapplied, need), &part.view);
   let sources = LandSources {
     route: &route,
     patronus: patronus_lands(facts.robots.view()),
@@ -1216,10 +1223,33 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
     landing_needs: &part.landing_needs,
     baseline: &state.parts.sections.landed,
     gate: checks.gate.as_deref(),
+    declared: &declared,
     target_conflict: checks.target_conflict.as_ref().map(|(commit, files)| TargetConflictFact { commit, files }),
     github_layers: &github_layers,
   };
   Some(decide(&sources))
+}
+
+/// The refusals of the order the user declared of a table (`domain_policy::declared_needs`), with the running Safe
+/// Push of each needed branch named (`name_landing_robots`, as a missing declaration names it). A need of a branch of
+/// a companion refuses nothing here: only the companion says how its branch stands
+#[must_use]
+pub fn declared_needs_of(table: &BranchTable, unapplied: impl Fn(&str) -> bool, view: &PatronusView) -> BTreeMap<String, Vec<LandingRefusal>> {
+  if table.needs.is_empty() {
+    return BTreeMap::new();
+  }
+  let mut refusals = declared_refusals(&table.needs, &need_states(table, unapplied), &table.chains());
+  let landing = landing_robots(view);
+  for branch in refusals.values_mut() {
+    name_landing_robots(branch, |needed| landing.get(needed).cloned());
+  }
+  refusals
+}
+
+/// An unapply keeps a branch of this name (`UnappliedBranchInfo::branch`)
+#[must_use]
+pub fn is_unapplied(unapplied: &[UnappliedBranchInfo], name: &str) -> bool {
+  unapplied.iter().any(|branch| branch.branch == name)
 }
 
 /// A robot of Patronus lands the repository of `robots`: they answered for it (logged in or not, failing), or have not
@@ -1300,19 +1330,22 @@ fn with_land_facts<'s, T>(
       (
         SubjectFacts::Branch(landing.branch_subject(name, Some(sources.pull_requests), sources.baseline)?),
         landing.robot_of(name),
-        sources.gate.or(needs),
+        with_declared(sources.declared.get(name.as_str()), sources.gate.or(needs)),
       )
     }
     Subject::WholeStack { root } => {
       let stack = sources.table.stack_branches.iter().find(|stack| stack.root == *root && !stack.members.is_empty())?;
-      // the landing needs are of the branches: the gate of the start checks the whole stack
+      // the landing needs are of the branches: the gate of the start checks the whole stack. Its declared needs are
+      // those of every branch it lands: one robot lands them together
+      let declared = whole_stack_declared(sources.declared, stack);
       (
         SubjectFacts::WholeStack(landing.stack_subject(stack, Some(sources.pull_requests), sources.baseline)),
         landing.stack_robot(stack),
-        Some(sources.gate.unwrap_or_default()),
+        with_declared(Some(&declared), Some(sources.gate.unwrap_or_default())),
       )
     }
   };
+  let needs = needs.as_deref();
   let last = robot.and_then(|robot| robot.profile.as_ref());
   let facts = LandFacts {
     route: sources.route,
@@ -1331,6 +1364,30 @@ fn with_land_facts<'s, T>(
     target_conflict: sources.target_conflict,
   };
   Some(decide(&facts, last))
+}
+
+/// The declared needs a start of the whole stack of `stack` breaks: those of every branch it lands, each once, by the
+/// branch that declared it (a need one of them inherits from another one of them is that one's own)
+fn whole_stack_declared(declared: &BTreeMap<String, Vec<LandingRefusal>>, stack: &StackBranchUpdate) -> Vec<LandingRefusal> {
+  let lands = |name: &str| name == stack.root || stack.members.iter().any(|member| member == name);
+  stack
+    .members
+    .iter()
+    .chain(std::iter::once(&stack.root))
+    .filter_map(|name| declared.get(name))
+    .flatten()
+    .filter(|refusal| !matches!(refusal, LandingRefusal::UnlandedNeed { inherited_from: Some(from), .. } if lands(from)))
+    .cloned()
+    .collect()
+}
+
+/// What refuses a start: the declared needs of its subject first, then what the gate refuses of it; `None` while
+/// neither is known. A declared need refuses although the gate did not run or has not answered: it is no build
+fn with_declared(declared: Option<&Vec<LandingRefusal>>, found: Option<&[LandingRefusal]>) -> Option<Vec<LandingRefusal>> {
+  match (declared.filter(|declared| !declared.is_empty()), found) {
+    (None, found) => found.map(<[LandingRefusal]>::to_vec),
+    (Some(declared), found) => Some(declared.iter().chain(found.unwrap_or_default()).cloned().collect()),
+  }
 }
 
 /// What a row of the table says of its subject for its next step and its node: the sync of it, its failure, its
@@ -1447,6 +1504,9 @@ pub struct StepSources<'a> {
   /// The stack branches as the view of a session has them, by root, whose tips its rows show (`TableState::stack`);
   /// `None`: those of `table`
   pub view_stacks: Option<&'a BTreeMap<String, StackBranchUpdate>>,
+  /// The refusals of the order of landing the user declared (`domain_policy::declared_needs`), by branch: the row
+  /// names them right after the sync, on every route and before Patronus answers
+  pub declared: &'a BTreeMap<String, Vec<LandingRefusal>>,
 }
 
 impl StepSources<'_> {
@@ -1509,6 +1569,20 @@ pub(crate) fn live_hold<'a>(facts: &'a BranchPatronus, robots: &'a RobotsView) -
 #[must_use]
 pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
   let repo = Repository::of_grouping(&sources.table.branches, &sources.table.parked);
+  // a declared need refuses the start before the landing needs of the view are computed, and where nothing computes
+  // them: the row says it as soon as the sync read the store
+  let merged_needs: BTreeMap<&str, Vec<LandingRefusal>> = sources
+    .declared
+    .iter()
+    .filter(|(_, declared)| !declared.is_empty())
+    .map(|(branch, declared)| {
+      let found = match sources.view.branches.get(branch).map(|facts| &facts.landing_needs) {
+        Some(LandingNeeds::Known { refusals }) => refusals.as_slice(),
+        _ => &[],
+      };
+      (branch.as_str(), declared.iter().chain(found).cloned().collect())
+    })
+    .collect();
   let repository = sources.repository();
   let patronus = sources.patronus.answer();
   let listing = Listing::of(&sources.pull_requests.head);
@@ -1564,7 +1638,10 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
         base: sources.open_pull_requests.get(name.as_str()).map(|open| &open.base),
       }),
       target: sources.target,
-      needs: Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
+      needs: match merged_needs.get(name.as_str()) {
+        Some(refusals) => Needs::Known(refusals),
+        None => Needs::of(facts.map(|facts| &facts.landing_needs), sources.landing_needs),
+      },
       readiness: (sources.readiness)(name),
       stack_pull_request: stack_pull_request.as_ref(),
       repository,
@@ -1602,6 +1679,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     let lands = rest
       .filter(|rest| !rest.members.is_empty() || !rest.landed.is_empty())
       .map_or(stack.members.len(), |rest| rest.members.len());
+    let declared = whole_stack_declared(sources.declared, stack);
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
@@ -1633,8 +1711,9 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
         base: sources.open_pull_requests.get(&key).map(|open| &open.base),
       }),
       target: sources.target,
-      // the landing needs are of the branches: the gate of the start checks the whole stack
-      needs: Needs::Unknown,
+      // the landing needs are of the branches: the gate of the start checks the whole stack; the order the user declared
+      // of any branch it lands is known without a check
+      needs: if declared.is_empty() { Needs::Unknown } else { Needs::Known(&declared) },
       readiness: (sources.readiness)(&key),
       stack_pull_request: None,
       repository,
@@ -1721,6 +1800,7 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
     readiness: &readiness,
     target: baseline_on_remote(&parts.header.baseline_branch),
     view_stacks: Some(&parts.stacks),
+    declared: &declared_needs_of(&table.table, |need| is_unapplied(&parts.sections.unapplied, need), &part.view),
   };
   next_steps(&sources)
 }

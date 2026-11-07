@@ -40,7 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 7;
+pub const FRAME_SCHEMA: u32 = 8;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +100,8 @@ pub struct CachedBuild {
   pub not_built: BTreeMap<String, BlockReason>,
   pub copies: BTreeMap<String, String>,
   pub parked: BTreeMap<String, String>,
+  /// Branch -> what the user declared lands before it (`brd need`)
+  pub needs: BTreeMap<String, Vec<String>>,
   pub remote: RemoteFacts,
   pub in_baseline: BTreeSet<String>,
 }
@@ -120,6 +122,7 @@ impl CachedBuild {
       not_built: table.not_built.iter().map(|(name, reason)| (name.clone(), *reason)).collect(),
       copies,
       parked: table.parked.clone(),
+      needs: table.needs.clone(),
       remote: table.remote.clone(),
       in_baseline: table.in_baseline.clone(),
     }
@@ -138,6 +141,7 @@ impl CachedBuild {
       copies: self.copies.into_iter().collect(),
       stack_branches: parts.stacks.values().cloned().collect(),
       parked: self.parked,
+      needs: self.needs,
       remote: self.remote,
       in_baseline: self.in_baseline,
     }

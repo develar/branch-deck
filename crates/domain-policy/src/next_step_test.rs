@@ -2,7 +2,7 @@ use crate::facts::RemoteBranch;
 use crate::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{missing_approvals, pull_request, robot, robot_of, stack_commit};
-use domain_types::landing::{Landed, LandedBy, LandingFix, LandingRefusal, Subject};
+use domain_types::landing::{Landed, LandedBy, LandingFix, LandingRefusal, NeedState, Subject};
 use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
 use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact, StepFailure, StepHelp, StepKind, StepRetarget, StepRow, WithoutReview};
 use domain_types::patronus::{
@@ -584,6 +584,48 @@ fn row_1_prime_needs_a_branch_outside_what_the_safe_push_lands_and_keeps_the_sta
     refusals: vec![missing_declaration()],
   };
   assert_eq!(shape(&needs.step()), (StepRow::OnePrime, kind, None, None));
+}
+
+/// Row 1′ of an order the user declared (`brd need`): a declaration is read of the repository, so the row names it
+/// before Patronus answers and while the gate of a route without a robot waits (row 0); a reason of the subject (row 1)
+/// still outranks it
+#[test]
+fn row_1_prime_names_a_declared_need_before_any_answer_and_after_a_reason_of_the_subject() {
+  let declared = LandingRefusal::UnlandedNeed {
+    branch: "auth".to_string(),
+    needs: "docs".to_string(),
+    state: NeedState::Active,
+    inherited_from: None,
+    fix: None,
+    landing_in: None,
+  };
+  let kind = StepKind::NeedsBranch { refusals: vec![declared.clone()] };
+  let with_need = |it: &mut Fixture| it.needs = Some(LandingNeeds::Known { refusals: vec![declared.clone()] });
+
+  let before_patronus = Fixture::branch().with(with_need).with(|it| it.robots_head = Fact::default());
+  assert_eq!(shape(&before_patronus.step()), (StepRow::OnePrime, kind.clone(), None, None));
+  let no_dry_run = Some(StepBlocker::Rule {
+    reason: Reason::DryRunNeedsPatronus,
+  });
+  let gate_waits = Fixture::pushing(RouteGate::Wait {
+    fact: RouteFact::Permission,
+    failed: None,
+  })
+  .with(with_need);
+  assert_eq!(shape(&gate_waits.step()), (StepRow::OnePrime, kind, None, no_dry_run));
+  // a found need waits for the gate as before
+  let found = Fixture::pushing(RouteGate::Wait {
+    fact: RouteFact::Permission,
+    failed: None,
+  })
+  .with(|it| {
+    it.needs = Some(LandingNeeds::Known {
+      refusals: vec![missing_declaration()],
+    });
+  });
+  assert_eq!(found.step().kind, StepKind::Pending { fact: StepFact::Permission });
+  let syncing = before_patronus.with(|it| it.syncing = true);
+  assert_eq!((syncing.step().row, syncing.step().kind), (StepRow::One, StepKind::Settled));
 }
 
 /// Row 1″: someone else pushed to the remote branch commits the branch lacks: they come in first, before a restart or a

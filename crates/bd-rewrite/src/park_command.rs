@@ -3,15 +3,15 @@
 //! operations registry of the repository before the lock, as every rewrite of `bd` (`bd_core::operation_record`), the
 //! lock taken by the core after it read the store
 
+use crate::store_command::store_write;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
-use domain_types::operation::Intent;
+use domain_types::rewrite::TableWitness;
 use domain_types::rewrite::{ParkBranchLine, RewriteIntent};
 use history_rewrite::parked::{ParkError, ParkLine, ParkOutcome, park_core, unpark_core};
-use history_rewrite::repository_lock::{LockWait, RewriteOptions};
+use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -49,12 +49,12 @@ pub struct ParkOutput {
 }
 
 pub fn park(context: &RepoContext, args: &ParkArgs) -> Result<ParkOutput, CliError> {
-  let intent = RewriteIntent::Park {
+  let intent = |witness| RewriteIntent::Park {
     branches: vec![ParkBranchLine {
       branch_name: args.branch.clone(),
       note: args.note.clone(),
     }],
-    witness: asked_on(None),
+    witness,
   };
   locked(context, intent, |options| {
     park_core(
@@ -70,26 +70,20 @@ pub fn park(context: &RepoContext, args: &ParkArgs) -> Result<ParkOutput, CliErr
 }
 
 pub fn unpark(context: &RepoContext, args: &UnparkArgs) -> Result<ParkOutput, CliError> {
-  let intent = RewriteIntent::Unpark {
+  let intent = |witness| RewriteIntent::Unpark {
     branch_names: vec![args.branch.clone()],
-    witness: asked_on(None),
+    witness,
   };
   locked(context, intent, |options| unpark_core(&context.git, &context.repository, &[args.branch.as_str()], options))
 }
 
-/// `write`, the rewrite `intent`, recorded in the operations registry, and its output; its core takes the repository
-/// lock after it read the store, for the move of the store only
-fn locked(context: &RepoContext, intent: RewriteIntent, write: impl FnOnce(&RewriteOptions) -> Result<ParkOutcome, ParkError>) -> Result<ParkOutput, CliError> {
-  recorded(context, &Intent::Rewrite(Box::new(intent)), || written(context, write))
-}
-
-/// `locked` once recorded
-fn written(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<ParkOutcome, ParkError>) -> Result<ParkOutput, CliError> {
-  let options = RewriteOptions {
-    lock_wait: LockWait::Bounded(context.lock_timeout),
-    ..RewriteOptions::default()
-  };
-  let outcome = write(&options).map_err(park_error)?;
+/// `write`, the rewrite `intent`, recorded (`store_write`), and its output
+fn locked(
+  context: &RepoContext,
+  intent: impl FnOnce(TableWitness) -> RewriteIntent,
+  write: impl FnOnce(&RewriteOptions) -> Result<ParkOutcome, ParkError>,
+) -> Result<ParkOutput, CliError> {
+  let outcome = store_write(context, intent, write)?;
   let changed = outcome.new_commit.is_some();
   // one branch named, so one change
   let change = outcome
@@ -106,10 +100,4 @@ fn written(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<
     note: change.note,
     previous_note: change.previous_note,
   })
-}
-
-/// The error code of a refused or failed park; by value, for `map_err`
-#[expect(clippy::needless_pass_by_value, reason = "used as `map_err(park_error)`")]
-pub(crate) fn park_error(error: ParkError) -> CliError {
-  CliError::new(error.code().unwrap_or(ErrorCode::GitError), error.to_string())
 }

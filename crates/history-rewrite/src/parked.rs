@@ -6,19 +6,14 @@
 //! the regroup (`regroup.rs`); a sync only drops the lines of the branches whose archived branch is integrated
 //! (`drop_integrated_parked`). The ref is shared by every branch and worktree, so a write changes only the lines it names.
 
-use crate::baseline::NoBaseline;
 use crate::move_commits::validate_branch_name;
-use crate::repository_lock::{MovedHead, Prepared, RepositoryLocked, RewriteOptions, Witness};
-use crate::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
-use crate::store_lines::{LineStore, StoreDrop, StoreMoved, drop_store_lines, format_store_lines};
+use crate::repository_lock::RewriteOptions;
+use crate::store_lines::{LineStore, StoreDrop, drop_store_lines};
+use crate::store_write::{PreparedLines, StoreWriteError, grouped_branches, store_error, write_prepared_lines};
 use anyhow::Result;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_signing::Signing;
-use git_ops::commit_writer::{WrittenCommits, write_commits_with_notes};
-use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::with_dirs_of;
-use tracing::{info, instrument};
+use tracing::instrument;
 
 pub const PARKED_REF: &str = "refs/branch-deck/parked";
 /// The file of the store's tree
@@ -68,11 +63,7 @@ pub enum ParkError {
   InvalidNote(String),
   /// The parked branches changed since they were read
   #[error(transparent)]
-  Moved(StoreMoved),
-  #[error(transparent)]
-  Locked(RepositoryLocked),
-  #[error("{0:#}")]
-  Other(anyhow::Error),
+  Write(StoreWriteError),
 }
 
 impl ParkError {
@@ -83,30 +74,12 @@ impl ParkError {
       Self::UnknownBranch(_) => ErrorCode::UnknownBranch,
       Self::NotParked(_) => ErrorCode::NotParked,
       Self::InvalidNote(_) => ErrorCode::InvalidArguments,
-      Self::Moved(_) => ErrorCode::ParkedMoved,
-      Self::Locked(_) => ErrorCode::Locked,
-      Self::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
-      Self::Other(_) => return None,
+      Self::Write(error) => return error.code(ErrorCode::ParkedMoved),
     })
   }
 }
 
-/// A park reads no HEAD: only a git failure could carry `HeadMoved`
-impl MovedHead for ParkError {
-  fn head_moved(&self) -> bool {
-    matches!(self, Self::Other(error) if error.head_moved())
-  }
-}
-
-impl From<anyhow::Error> for ParkError {
-  fn from(error: anyhow::Error) -> Self {
-    match (error.downcast_ref::<StoreMoved>().cloned(), error.downcast_ref::<RepositoryLocked>().cloned()) {
-      (Some(moved), _) => Self::Moved(moved),
-      (None, Some(locked)) => Self::Locked(locked),
-      (None, None) => Self::Other(error),
-    }
-  }
-}
+store_error!(ParkError);
 
 /// A line a park writes: the branch and why it stays local (empty for none)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,13 +120,9 @@ pub fn park_core(git_executor: &GitCommandExecutor, repository_path: &str, lines
     .iter()
     .map(|line| Ok((line.branch, Some(normalize_note(line.note)?))))
     .collect::<Result<Vec<_>, ParkError>>()?;
-  // the guards and the lock take the directories read here
-  let git_executor = &with_dirs_of(git_executor, repository_path)?;
-  write_prepared(git_executor, repository_path, options, || {
-    let grouping = read_grouping_inputs(git_executor, repository_path)?;
-    let ahead = CommitsAhead::read(git_executor, repository_path)?;
-    let grouped = group_commits(&ahead.commits, &grouping);
-    if let Some(unknown) = lines.iter().find(|line| !grouped.groups.values().any(|group| group.as_deref() == Some(line.branch))) {
+  write_prepared(git_executor, repository_path, options, |git_executor| {
+    let (grouping, branches) = grouped_branches(git_executor, repository_path)?;
+    if let Some(unknown) = lines.iter().find(|line| !branches.contains(line.branch)) {
       return Err(ParkError::UnknownBranch(unknown.branch.to_string()));
     }
     prepare_lines(git_executor, repository_path, &grouping.parked, &changes)
@@ -165,10 +134,8 @@ pub fn park_core(git_executor: &GitCommandExecutor, repository_path: &str, lines
 /// under it one `update-ref --stdin` with compare-and-swap on the store (`write_prepared`)
 #[instrument(skip(git_executor, options))]
 pub fn unpark_core(git_executor: &GitCommandExecutor, repository_path: &str, branches: &[&str], options: &RewriteOptions) -> Result<ParkOutcome, ParkError> {
-  // the guards and the lock take the directories read here
-  let git_executor = &with_dirs_of(git_executor, repository_path)?;
   let changes: Vec<(&str, Option<String>)> = branches.iter().map(|branch| (*branch, None)).collect();
-  write_prepared(git_executor, repository_path, options, || {
+  write_prepared(git_executor, repository_path, options, |git_executor| {
     let parked = PARKED.read(git_executor, repository_path)?;
     if let Some(branch) = branches
       .iter()
@@ -180,130 +147,49 @@ pub fn unpark_core(git_executor: &GitCommandExecutor, repository_path: &str, bra
   })
 }
 
-/// The store commit `prepare` computed and wrote before the repository lock, moved under it. A park or an unpark writes
-/// the one store it read, so the old value of its compare-and-swap is its witness: a store that moved after the read
-/// (a sync dropped the lines of integrated branches) is read and written once more, under the lock now
+/// The store commit `prepare` computed and wrote before the repository lock, moved under it (`write_prepared_lines`);
+/// a store a sync dropped lines of after the read is read and written once more, under the lock now
 fn write_prepared(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RewriteOptions,
-  prepare: impl Fn() -> Result<PreparedLines, ParkError>,
+  prepare: impl Fn(&GitCommandExecutor) -> Result<PreparedLines<ParkOutcome>, ParkError>,
 ) -> Result<ParkOutcome, ParkError> {
-  let prepared = match prepare() {
-    Ok(prepared) if prepared.written.is_none() => return Ok(prepared.outcome),
-    prepared => prepared,
-  };
-  let (prepared, lock) = options.lock_prepared(git_executor, repository_path, prepared, &prepare)?;
-  match prepared.write(git_executor, repository_path) {
-    Err(ParkError::Moved(_)) if lock.is_some() => prepare()?.write(git_executor, repository_path),
-    written => written,
-  }
-}
-
-/// A park or an unpark computed before the repository lock: its outcome and the store commit on a temporary ref
-struct PreparedLines {
-  outcome: ParkOutcome,
-  /// The store commit and its temporary ref; `None` when nothing changes
-  written: Option<WrittenCommits>,
-  parks: bool,
-}
-
-impl Prepared for PreparedLines {
-  /// No read: the compare-and-swap of the one store it writes is its witness (`write_prepared`)
-  fn witness(&self) -> Witness {
-    Witness::default()
-  }
-
-  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
-    if let Some(written) = &self.written {
-      written.discard(git_executor, repository_path);
-    }
-  }
-}
-
-impl PreparedLines {
-  /// Move the store from the commit it was read at to the new one, deleting the temporary ref, in one transaction
-  fn write(mut self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<ParkOutcome, ParkError> {
-    let Some(written) = self.written.take() else {
-      return Ok(self.outcome);
-    };
-    let previous = self.outcome.previous_commit.clone();
-    let new_commit = written.store_commits.first().cloned().unwrap_or_default();
-    let mut transaction = RefTransaction::new();
-    match &previous {
-      Some(previous) => transaction.update(PARKED_REF, &new_commit, Some(previous)),
-      None => transaction.create(PARKED_REF, &new_commit),
-    };
-    written.delete_temp_refs(&mut transaction);
-    if let Err(error) = transaction.commit(git_executor, repository_path, if self.parks { "park" } else { "unpark" }) {
-      written.discard(git_executor, repository_path);
-      // a ref that moved between the read and the transaction explains the failure
-      return Err(match crate::store_lines::read_store_head(git_executor, repository_path, PARKED_REF) {
-        Ok(actual) if actual.as_ref().map(|(commit, _)| commit) != previous.as_ref() => ParkError::Moved(PARKED.moved(previous, actual.map(|(commit, _)| commit))),
-        _ => ParkError::from(error),
-      });
-    }
-    self.outcome.new_commit = Some(new_commit);
-    info!(branches = self.outcome.branches.len(), parks = self.parks, "Wrote the parked branches");
-    Ok(self.outcome)
-  }
+  let (mut outcome, new_commit) = write_prepared_lines(git_executor, repository_path, options, prepare)?;
+  outcome.new_commit = new_commit;
+  Ok(outcome)
 }
 
 /// Set the line of each branch of `changes` to its note, or drop it with `None`, on the store as `read`, in one commit
-/// written on a temporary ref; the unused lines of other keys stay as they are. A branch named twice gets its last change
+/// written on a temporary ref (`PreparedLines::new`)
 fn prepare_lines(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   read: &crate::store_lines::StoreLines,
   changes: &[(&str, Option<String>)],
-) -> Result<PreparedLines, ParkError> {
-  let named = |branch: &str| changes.iter().any(|(name, _)| *name == branch);
+) -> Result<PreparedLines<ParkOutcome>, ParkError> {
   let parks = changes.iter().any(|(_, note)| note.is_some());
-  let mut prepared = PreparedLines {
-    outcome: ParkOutcome {
-      branches: changes
-        .iter()
-        .map(|(branch, note)| ParkedChange {
-          branch: (*branch).to_string(),
-          previous_note: read.entries.get(*branch).cloned(),
-          note: note.clone(),
-        })
-        .collect(),
-      new_commit: None,
-      previous_commit: read.commit.clone(),
-    },
-    written: None,
-    parks,
+  let outcome = ParkOutcome {
+    branches: changes
+      .iter()
+      .map(|(branch, note)| ParkedChange {
+        branch: (*branch).to_string(),
+        previous_note: read.entries.get(*branch).cloned(),
+        note: note.clone(),
+      })
+      .collect(),
+    new_commit: None,
+    previous_commit: read.commit.clone(),
   };
-  let mut entries = read.entries.clone();
-  for (branch, note) in changes {
-    match note {
-      Some(note) => entries.insert((*branch).to_string(), note.clone()),
-      None => entries.remove(*branch),
-    };
-  }
-  let had_problem = read.problems.iter().any(|problem| problem.key.as_deref().is_some_and(named));
-  if entries == read.entries && !had_problem {
-    return Ok(prepared);
-  }
-  let kept: Vec<String> = read
-    .problems
-    .iter()
-    .filter(|problem| !problem.key.as_deref().is_some_and(named))
-    .map(|problem| problem.line.clone())
-    .collect();
-  let content = format_store_lines(&entries, &kept);
-  let update = PARKED.update(read.commit.as_deref(), &content);
-  prepared.written = Some(write_commits_with_notes(
+  Ok(PreparedLines::new(
     git_executor,
     repository_path,
-    &[],
-    None,
-    std::slice::from_ref(&update.commit),
-    None,
-    Signing::Off,
-  )?);
-  Ok(prepared)
+    &PARKED,
+    read,
+    changes,
+    if parks { "park" } else { "unpark" },
+    outcome,
+  )?)
 }
 
 /// The drop of the lines of `integrated` branches from the parked store (`drop_integrated_parked`)

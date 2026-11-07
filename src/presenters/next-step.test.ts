@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { LandingRefusal, Reason, StepBlocker } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"
 import { presentNextStep, startStepBlocker } from "@/presenters/next-step"
+import { DECLARED_DOCS } from "@/test-support/landing-refusal"
 import { missingGroup, testActions, testContext, testStep } from "@/test-support/next-step"
 
 /** The reasons of the catalog Rust writes (`reason_catalog_test.rs`) */
@@ -96,6 +97,21 @@ describe("the words of the next step", () => {
     const opens = presentNextStep(testStep({ kind: "needsBranch", refusals: [move] }), testContext({ actions: testActions(calls) }))
     expect(opens.item).toMatchObject({ id: "landing-needs", label: "Needs acp" })
     expect(opens.landingFix).toBeNull()
+  })
+
+  it("row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need", () => {
+    const calls: string[] = []
+    const own = presentNextStep(testStep({ kind: "needsBranch", refusals: [DECLARED_DOCS] }), testContext({ actions: testActions(calls) }))
+    expect(own).toMatchObject({ kind: "needsBranch", safePushBlocker: null, landingFix: null })
+    expect(own.item).toMatchObject({ id: "landing-needs", label: "Needs docs" })
+    own.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["openSafePush"])
+    const inherited: LandingRefusal = { ...DECLARED_DOCS, branch: "ui", inheritedFrom: "auth", fix: { kind: "unstack", branch: "ui", from: "auth" } }
+    const unstacks = presentNextStep(testStep({ kind: "needsBranch", refusals: [inherited] }), testContext({ actions: testActions(calls) }))
+    expect(unstacks.item).toMatchObject({ id: "landing-fix", label: "Needs docs" })
+    expect(unstacks.landingFix).toMatchObject({ label: "Unstack ui from auth" })
+    unstacks.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["openSafePush", "fixLanding unstack"])
   })
 
   it("row 1″: takes in the commits someone else pushed to the remote branch, which a push would drop", () => {

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
-import { restackBranch } from "@/hooks/useStackActions"
+import { runLandingFix } from "@/hooks/useStackActions"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { askUntilSettled } from "@/lib/ask-until-settled"
 import type { ApiError, Land, LandingAllowances, LandProfiles, OperationEvent, OperationId, Outcome, PatronusProfile, PatronusRobot, Plan, ReviewReadiness } from "@/lib/bindings"
@@ -864,8 +864,8 @@ function tellStartRefusal(error: ApiError, plan: Plan, repositoryPath: string): 
       const fix = refusal.fix
       const fixLabel = formatLandingFix(fix)
       const failure = { ...error, message: refusal.reason }
-      if (fix?.kind === "restack" && fixLabel !== null) {
-        notifyError(refusal.title, failure, { children: fixLabel, onClick: () => void restackBranch(fix.branch, fix.onto) }, anyway)
+      if (fix !== null && fixLabel !== null) {
+        notifyError(refusal.title, failure, { children: fixLabel, onClick: () => runLandingFix(fix) }, anyway)
       } else {
         notifyError(refusal.title, failure, { children: anyway.label, onClick: anyway.onClick })
       }

@@ -60,7 +60,7 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   assert_eq!(fingerprint(&executor, &repo), unapplied_pushed);
   let pushed = unapplied_pushed;
 
-  // `brd describe` writes the config; the stack parents and the parked branches are refs of their own
+  // `brd describe` writes the config; the stack parents, the parked branches and the declared needs are refs of their own
   git(&executor, &repo, &["config", "branch.test/virtual/auth.description", "Login and logout"]);
   let described = fingerprint(&executor, &repo);
   assert_ne!(described, pushed);
@@ -69,7 +69,11 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   assert_ne!(stacked, described);
   // a park in `bd` syncs the window on its next focus
   git(&executor, &repo, &["update-ref", "refs/branch-deck/parked", &head]);
-  assert_ne!(fingerprint(&executor, &repo), stacked);
+  let parked = fingerprint(&executor, &repo);
+  assert_ne!(parked, stacked);
+  // and so does a need declared in `bd`: the row of the window names it
+  git(&executor, &repo, &["update-ref", "refs/branch-deck/needs", &head]);
+  assert_ne!(fingerprint(&executor, &repo), parked);
 
   // another prefix reads other branches
   assert_ne!(read_sync_inputs(&executor, repo.path().to_str().unwrap(), "other")?, fingerprint(&executor, &repo));

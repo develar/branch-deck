@@ -467,6 +467,7 @@ fn the_view_decides_the_default_starts_of_each_branch_and_a_read_answers_another
     landing_needs: &failed,
     baseline: &LandedSection::default(),
     gate: None,
+    declared: &BTreeMap::new(),
     target_conflict: None,
     github_layers: &BTreeMap::new(),
   };

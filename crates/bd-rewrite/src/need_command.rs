@@ -3,15 +3,14 @@
 //! the operations registry of the repository before the lock, as every rewrite of `bd` (`bd_core::operation_record`),
 //! the lock taken by the core after it read the store
 
+use crate::store_command::store_write;
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::SchemaVersion;
-use domain_types::error::ErrorCode;
-use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
+use domain_types::rewrite::TableWitness;
 use history_rewrite::needs::{NeedError, NeedOutcome, need_core, unneed_core};
-use history_rewrite::repository_lock::{LockWait, RewriteOptions};
+use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -41,56 +40,29 @@ pub struct NeedOutput {
   pub changed: bool,
 }
 
+/// `brd need`, and with `--remove` the removal of the named needs: every name in one write; one that is not declared
+/// refuses them all
 pub fn need(context: &RepoContext, args: &NeedArgs) -> Result<NeedOutput, CliError> {
-  if args.remove {
-    return remove(context, args);
-  }
-  let intent = RewriteIntent::Need {
-    branch_name: args.branch.clone(),
-    needs: args.needs.clone(),
-    witness: asked_on(None),
+  let (branch_name, needs) = (args.branch.clone(), args.needs.clone());
+  let intent = |witness| {
+    if args.remove {
+      RewriteIntent::Unneed { branch_name, needs, witness }
+    } else {
+      RewriteIntent::Need { branch_name, needs, witness }
+    }
   };
   let needs: Vec<&str> = args.needs.iter().map(String::as_str).collect();
-  locked(context, intent, |options| need_core(&context.git, &context.repository, &args.branch, &needs, options))
+  let core = if args.remove { unneed_core } else { need_core };
+  locked(context, intent, |options| core(&context.git, &context.repository, &args.branch, &needs, options))
 }
 
-/// `brd need --remove`: every named need goes in one write, the first one that is not declared refuses
-fn remove(context: &RepoContext, args: &NeedArgs) -> Result<NeedOutput, CliError> {
-  let intent = RewriteIntent::Unneed {
-    branch_name: args.branch.clone(),
-    needs: args.needs.clone(),
-    witness: asked_on(None),
-  };
-  locked(context, intent, |options| {
-    let mut outcome: Option<NeedOutcome> = None;
-    for needed in &args.needs {
-      let removed = unneed_core(&context.git, &context.repository, &args.branch, needed, options)?;
-      outcome = Some(match outcome.take() {
-        Some(first) => NeedOutcome {
-          previous_needs: first.previous_needs,
-          previous_commit: first.previous_commit,
-          ..removed
-        },
-        None => removed,
-      });
-    }
-    outcome.ok_or_else(|| NeedError::Invalid("At least one needed branch is required".to_string()))
-  })
-}
-
-/// `write`, the rewrite `intent`, recorded in the operations registry, and its output; its core takes the repository
-/// lock after it read the store, for the move of the store only
-fn locked(context: &RepoContext, intent: RewriteIntent, write: impl FnOnce(&RewriteOptions) -> Result<NeedOutcome, NeedError>) -> Result<NeedOutput, CliError> {
-  recorded(context, &Intent::Rewrite(Box::new(intent)), || written(context, write))
-}
-
-/// `locked` once recorded
-fn written(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<NeedOutcome, NeedError>) -> Result<NeedOutput, CliError> {
-  let options = RewriteOptions {
-    lock_wait: LockWait::Bounded(context.lock_timeout),
-    ..RewriteOptions::default()
-  };
-  let outcome = write(&options).map_err(need_error)?;
+/// `write`, the rewrite `intent`, recorded (`store_write`), and its output
+fn locked(
+  context: &RepoContext,
+  intent: impl FnOnce(TableWitness) -> RewriteIntent,
+  write: impl FnOnce(&RewriteOptions) -> Result<NeedOutcome, NeedError>,
+) -> Result<NeedOutput, CliError> {
+  let outcome = store_write(context, intent, write)?;
   Ok(NeedOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -99,10 +71,4 @@ fn written(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<
     needs: outcome.needs,
     previous_needs: outcome.previous_needs,
   })
-}
-
-/// The error code of a refused or failed need; by value, for `map_err`
-#[expect(clippy::needless_pass_by_value, reason = "used as `map_err(need_error)`")]
-pub(crate) fn need_error(error: NeedError) -> CliError {
-  CliError::new(error.code().unwrap_or(ErrorCode::GitError), error.to_string())
 }

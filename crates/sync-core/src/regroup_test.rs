@@ -1,9 +1,12 @@
 use crate::sync::{SyncOptions, sync_branches};
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::StackProblem;
+use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, Restack, UndoToken, regroup_commits_core, rename_branch_core, restack_core, undo_regroup_core};
-use history_rewrite::repository_lock::{LockWait, lock_repository_as_another_process};
+use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};
+use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::store_lines::LineStore;
+use history_rewrite::store_write::{StoreError, StoreWriteError};
 use history_rewrite::test_commit::plan;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -19,6 +22,33 @@ pub(crate) fn commits(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
     .enumerate()
     .map(|(index, subject)| repo.create_commit(subject, &format!("file{index}.txt"), subject))
     .collect()
+}
+
+/// The commits of the store of `store_ref`: one per write
+pub(crate) fn store_history(repo: &TestRepo, store_ref: &str) -> usize {
+  repo.log(&["--format=%H", store_ref]).unwrap_or_default().lines().count()
+}
+
+/// The write of a store `write` waits 100 ms for the repository lock another process holds (`brd pick --follow`), is
+/// `locked`, and writes nothing to the store of `store_ref`
+pub(crate) fn assert_waits_for_the_lock<O: std::fmt::Debug, E: StoreError + std::fmt::Display>(
+  repo: &TestRepo,
+  store_ref: &str,
+  write: impl FnOnce(&RewriteOptions) -> Result<O, E>,
+) {
+  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
+  let options = RewriteOptions {
+    lock_wait: LockWait::Bounded(Duration::from_millis(100)),
+    ..RewriteOptions::default()
+  };
+  let error = write(&options).unwrap_err();
+  assert!(matches!(error.write_error(), Some(StoreWriteError::Locked(_))), "{error}");
+  assert_eq!(store_history(repo, store_ref), 0);
+}
+
+/// The inputs of the grouping as a write of a store reads them: the stores among them
+pub(crate) fn stores(repo: &TestRepo) -> GroupingInputs {
+  read_grouping_inputs(repo.git_executor(), path(repo)).unwrap()
 }
 
 pub(crate) fn path(repo: &TestRepo) -> &str {

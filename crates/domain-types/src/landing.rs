@@ -290,9 +290,10 @@ impl LandingRefusal {
           NeedState::Missing => ", and no branch of that name is here".to_string(),
           NeedState::CompanionUnreadable { companion, reason } => format!(", and the companion {companion} is not readable: {reason}"),
         };
+        let owner = inherited_from.as_deref().unwrap_or(branch);
         let inherited = inherited_from
           .as_ref()
-          .map_or_default(|parent| format!("; {branch} is built on {parent}, which needs it, so they land in one robot"));
+          .map_or_default(|parent| format!("; {branch} is built on {parent}, so they land in one robot"));
         let landing = landing_in.as_ref().map_or_default(|robot| {
           let subject = robot.subject();
           let of = if subject.is_branch(needs) {
@@ -302,7 +303,7 @@ impl LandingRefusal {
           };
           format!("; {needs} is landing in {of}, which tests it without this start")
         });
-        format!("you declared that {needs} lands before {branch}{state}{inherited}{landing}")
+        format!("you declared that {needs} lands before {owner}{state}{inherited}{landing}")
       }
     }
   }

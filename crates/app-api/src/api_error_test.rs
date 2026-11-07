@@ -130,7 +130,7 @@ fn api_error_picks_no_code_by_the_message() {
 }
 
 /// The app answers the code of each typed error that `bd` answers: both are tested on `update_core::error_cases`
-/// (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`), an undo through `undo_error`
+/// (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/store_error_test.rs`), an undo through `undo_error`
 #[test]
 fn api_error_answers_the_code_of_each_typed_error_that_bd_answers_and_an_undo_its_code_in_undo() {
   let cases = error_cases();

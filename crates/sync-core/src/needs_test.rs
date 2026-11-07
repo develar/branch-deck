@@ -1,29 +1,26 @@
-use crate::regroup_test::{commits, entries, path, plant_store, sync};
+use crate::regroup_test::{assert_waits_for_the_lock, commits, entries, path, plant_store, store_history, stores, sync};
 use history_rewrite::needs::{NEEDS, NEEDS_REF, NeedError, NeedKey, NeedOutcome, drop_integrated_needs, need_core, unneed_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
-use history_rewrite::repository_lock::{LockWait, RewriteOptions, lock_repository_as_another_process};
-use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
-use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, baseline_repo};
 
 fn needs(repo: &TestRepo) -> StoreLines {
-  read_grouping_inputs(repo.git_executor(), path(repo)).unwrap().needs
+  stores(repo).needs
 }
 
 /// The commits of the store: one per write
 fn history(repo: &TestRepo) -> usize {
-  repo.log(&["--format=%H", NEEDS_REF]).unwrap_or_default().lines().count()
+  store_history(repo, NEEDS_REF)
 }
 
 fn need(repo: &TestRepo, branch: &str, needed: &[&str]) -> Result<NeedOutcome, NeedError> {
-  need_core(repo.git_executor(), path(repo), branch, needed, &RewriteOptions::default())
+  need_core(repo.git_executor(), path(repo), branch, needed, &Default::default())
 }
 
 fn unneed(repo: &TestRepo, branch: &str, needed: &str) -> Result<NeedOutcome, NeedError> {
-  unneed_core(repo.git_executor(), path(repo), branch, needed, &RewriteOptions::default())
+  unneed_core(repo.git_executor(), path(repo), branch, &[needed], &Default::default())
 }
 
 #[test]
@@ -70,14 +67,7 @@ fn a_need_of_an_unknown_branch_of_itself_or_of_a_name_that_is_no_branch_is_refus
 fn a_need_waits_for_the_repository_lock() {
   let repo = baseline_repo();
   commits(&repo, &["(auth) Add auth", "(docs) Write"]);
-  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
-  let options = RewriteOptions {
-    lock_wait: LockWait::Bounded(Duration::from_millis(100)),
-    ..RewriteOptions::default()
-  };
-  let error = need_core(repo.git_executor(), path(&repo), "auth", &["docs"], &options).unwrap_err();
-  assert!(matches!(error, NeedError::Locked(_)), "{error}");
-  assert_eq!(history(&repo), 0);
+  assert_waits_for_the_lock(&repo, NEEDS_REF, |options| need_core(repo.git_executor(), path(&repo), "auth", &["docs"], options));
 }
 
 #[test]
@@ -104,7 +94,7 @@ fn a_rename_carries_the_need_as_the_branch_and_as_the_name_it_needs_and_its_undo
   let token = UndoToken::of(&outcome).unwrap();
   assert!(token.to_string().contains("+needs:"), "{token}");
   assert_eq!(UndoToken::parse(&token.to_string()), Some(token.clone()));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, Default::default()).unwrap();
   assert_eq!(needs(&repo).entries, entries(&[("auth", "docs")]));
 
   // the branch it needs
@@ -158,14 +148,14 @@ fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
   let token = UndoToken::of(&rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap()).unwrap();
   drop_integrated_needs(repo.git_executor(), path(&repo), &["gone"]);
   assert_eq!(needs(&repo).entries, entries(&[("sign-in", "docs")]));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, Default::default()).unwrap();
   // the rename is undone, the drop stays
   assert_eq!(needs(&repo).entries, entries(&[("auth", "docs")]));
 
   // a need declared after the token is no drop: the undo refuses
   let token = UndoToken::of(&rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap()).unwrap();
   need(&repo, "docs", &["sign-in"]).unwrap();
-  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap_err();
+  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, Default::default()).unwrap_err();
   assert!(matches!(error, RegroupError::NeedsMoved(_)), "{error}");
 }
 
