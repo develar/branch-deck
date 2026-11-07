@@ -2,11 +2,11 @@ import { defineConfig, devices } from "@playwright/test"
 import base from "./playwright.config"
 
 // The drag and drop tests in WebKit, the engine of the app on macOS (WKWebView), beside Chromium of `pnpm e2e`, and the
-// tests tagged `@webkit`, of the focus, the popups and the widths of the branch columns, where WebKit differs (it drops
-// the focus of a hidden element only at a later layout, it times the reports of a `ResizeObserver` its own way):
-// `pnpm e2e:webkit`, by hand after a change of a drag, of the focus, of a popup or of the columns. The snapshots
-// are Chromium's, so none is compared here. What only WKWebView does (the drag image, the autoscroll, the outline of a
-// row) is the check of the real app (docs/contributing/real-app-checks.md).
+// tests tagged `@webkit` for focus, popups, branch-column widths and review navigation, where WebKit differs. It drops
+// focus of a hidden element only at a later layout and times `ResizeObserver` reports its own way.
+// Run `pnpm e2e:webkit` by hand after changes to a drag, focus, popup, column or review navigation. Snapshots are
+// Chromium's, so none is compared here. What only WKWebView does (the drag image, the autoscroll, the outline of a row)
+// is the check of the real app (docs/contributing/real-app-checks.md).
 export default defineConfig({
   ...base,
   projects: [{ name: "webkit", use: { ...devices["Desktop Safari"] } }],
@@ -22,6 +22,7 @@ export default defineConfig({
     "branch-row-layout/focus-outline.spec.ts",
     "repository/repository-lock.spec.ts",
     "branch-review/review-plan.spec.ts",
+    "branch-review/review-tour.spec.ts",
     "commit-files/commit-review.spec.ts",
     "commit-message/commit-message.spec.ts",
   ],
