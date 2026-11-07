@@ -1,7 +1,9 @@
 // @spec spec/branch/review-plan.spec.md
+import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
+import type { GetBlobTextsParams } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
@@ -22,13 +24,25 @@ import { holdCommandCalls } from "../helpers/wait-helpers"
 // `plan` of a terminal: `helper` takes a scale (a changed declaration that src/Base.kt and others use), then
 // src/b/Cache.kt and src/a/Reader.kt, which imports it: Reader uses Cache, a link the change added
 
-/** src/Store.kt as the commit of `nav` leaves it, with `helper` declared as given */
-function storeText(helper: string): string {
-  let text = "class Store {\n  val version = 2\n"
+/** src/Store.kt as the commit of `nav` leaves it (`version` 2), with `helper` declared as given */
+function storeText(helper: string, version = 2): string {
+  let text = `class Store {\n  val version = ${version}\n`
   for (let index = 0; index < 30; index++) {
     text += `  val field${index} = ${index}\n`
   }
   return `${text}  fun add(value: Int) {}\n}\n\n${helper}\n`
+}
+
+/** The git blob id of a text, as `git hash-object` gives it: the id the window asks the text of */
+function blobId(text: string): string {
+  return createHash("sha1")
+    .update(`blob ${Buffer.byteLength(text)}\0${text}`)
+    .digest("hex")
+}
+
+/** The blob ids a held `get_blob_texts` asks for (the `params` of the command are the body of the call) */
+function askedBlobs(call: Record<string, unknown>): string[] {
+  return ((call as unknown as GetBlobTextsParams).blobs ?? []).map(blob => blob.id)
 }
 
 /** The place of `helper` in `storeText`, as the index of a fixture keys its answer */
@@ -511,7 +525,13 @@ test.describe("The review plan in the branch review", () => {
     syncAndWaitForBranches,
   }) => {
     const repo = await setupRepo("symbol_navigation")
+    // every text of the diffs held from before the window opens: a text once read is never asked again (the store keeps
+    // it by blob id), so a hold installed later may never see the read of Store the reveal waits for
+    const texts = await holdCommandCalls(page, "get_blob_texts", { scope: "context" })
     const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
+    // the head of the review: the commit of `plan` copied onto the baseline, which the commit of `nav` never reached,
+    // so its Store.kt is the one of the baseline (`version = 1`) with the helper of `plan`
+    const storeBlob = blobId(storeText("fun helper(value: Int, scale: Int) = value * scale", 1))
     const { cache, store } = planRows(window)
     const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
     const search = window.getByRole("textbox", { name: "Filter files" })
@@ -520,15 +540,14 @@ test.describe("The review plan in the branch review", () => {
     const card = window.getByTestId("review-overview")
     const header = (filePath: string) => window.locator(`[data-testid="review-file-header"][data-path="${filePath}"]`)
 
-    // a search that matches no file: the overview stays, its entry clears the search and selects Store. The search,
-    // cleared, moves its caret, under load after the name of Store waits for the paint of its row: the text of the diff
-    // held, the caret moves as the clear moves it, and the name is still selected once the row is painted
+    // a search that matches no file: the overview stays, its entry clears the search and selects Store. The text of the
+    // diff of Store is held, so its row is unpainted while the name of Store waits for the paint: the search, cleared,
+    // moves its caret as the clear moves it, and the name is still selected once the row is painted
     await search.fill("nothing matches this")
     await expect(noMatch).toBeVisible()
-    const texts = await holdCommandCalls(window, "get_blob_texts")
     await card.getByTestId("review-plan-breakage-file").click()
     await expect(search).toHaveValue("")
-    await expect.poll(() => texts.calls.length).toBeGreaterThan(0)
+    await expect.poll(() => texts.calls.some(call => askedBlobs(call).includes(storeBlob))).toBe(true)
     await search.evaluate(field => (field as HTMLInputElement).setSelectionRange(0, 0))
     texts.release()
     await expect(noMatch).toHaveCount(0)

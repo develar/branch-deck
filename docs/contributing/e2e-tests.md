@@ -1,7 +1,7 @@
 # Writing E2E Tests
 
 **Status:** Active  
-**Updated:** 2026-10-30  
+**Updated:** 2026-11-07  
 **Tags:** [e2e, playwright, tests]
 
 ## Summary
@@ -82,6 +82,11 @@ rules in one line each and links here.
   (`branch-row-layout.spec.ts`, the right-click within the exit of a "⋯" menu), never only for the popup's visibility.
   A step that must land within an exit holds it: a style that lengthens the exit, then `finish()` of the popup's
   `getAnimations()` once the step is done; never an assertion that a quick step happened to land in it.
+- **A command the page answers from a cache is asked once**: the texts of the blobs (`get_blob_texts`) are kept by
+  blob id (`src/stores/blob-texts.ts`), and a read-ahead asks for them before the file is shown, so a hold installed
+  after the window opened may never see the call a test waits for (1 run in 12 of `review-plan.spec.ts`). Hold it on
+  the context before the window opens (`holdCommandCalls(page, command, { scope: "context" })`) and wait for a held
+  call that asks for what the test holds unpainted, never for a call that may already have gone out.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
