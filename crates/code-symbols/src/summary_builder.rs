@@ -57,6 +57,19 @@ pub(crate) fn count_lines(source: &[u8]) -> u32 {
   u32::try_from(newlines + partial).unwrap_or(u32::MAX)
 }
 
+/// The column of the byte at `offset`, in UTF-16 code units from the start of its line, as a view counts them: the
+/// line starts after the last `\n` before it, so a `\r` of a CRLF end is on the line it ends, not the next one. Bytes
+/// that are no UTF-8 count as one each, as a lossy read shows them.
+///
+/// The same arithmetic as `psi_builder::document::column`, which accio's index answers from; the two meet when
+/// `psi-builder` stops being optional here, as Rust and TypeScript leave tree-sitter for it
+pub(crate) fn column_at(source: &[u8], offset: usize) -> u32 {
+  let offset = offset.min(source.len());
+  let start = source[..offset].iter().rposition(|&byte| byte == b'\n').map_or(0, |it| it + 1);
+  let before = String::from_utf8_lossy(&source[start..offset]);
+  u32::try_from(before.encode_utf16().count()).unwrap_or(u32::MAX)
+}
+
 /// The last line of a node of `source` that spans `start..end`, given the 1-based line of an offset: a node that ends
 /// right after a `\n`, on a later line than it starts, ends on the line before (as `extract.rs` reads tree-sitter's end
 /// position at column 0)
@@ -98,6 +111,7 @@ pub(crate) const fn blank_declaration(name: u32, kind: DeclKind, reach: Reach, m
     start_line: 0,
     end_line: 0,
     name_line: 0,
+    name_column: 0,
     in_error: false,
   }
 }

@@ -6,7 +6,7 @@ use crate::test_support::{check_golden, declaration, fixture, summary_of};
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
 /// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 2_372_531_534;
+const EXTRACTOR_VERSION: u32 = 1_472_175_397;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -245,6 +245,47 @@ fn every_language_gives_declarations_and_references() {
     assert_eq!(declaration(&summary, declared).kind, DeclKind::Type, "{name}");
     assert!(summary.references_to(used).any(|it| it.role == Role::Type || it.role == Role::Value), "{name}");
   }
+}
+
+/// The line and the UTF-16 column the summary says the name of the declaration `name` starts at
+fn name_place(language: Language, source: &str, name: &str) -> (u32, u32) {
+  let summary = summarize(language, source.as_bytes());
+  let declaration = declaration(&summary, name);
+  (declaration.name_line, declaration.name_column)
+}
+
+/// A jump lands on the name the parser read, not on the first word of its line that reads the same: every walk writes
+/// the column, whichever parser read the file
+#[test]
+#[cfg(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "rust", feature = "typescript"))]
+fn a_declaration_whose_line_writes_its_name_twice_is_found_at_its_own_column() {
+  assert_eq!(name_place(Language::Rust, "fn text(text: &str) {}\n", "text"), (1, 3));
+  assert_eq!(name_place(Language::TypeScript, "function text(text: string) {}\n", "text"), (1, 9));
+  assert_eq!(name_place(Language::Kotlin, "fun name(name: String) {}\n", "name"), (1, 4));
+  assert_eq!(name_place(Language::Java, "class A {\n  void value(int value) {}\n}\n", "value"), (2, 7));
+  assert_eq!(name_place(Language::CSharp, "class A {\n  void Value(int Value) {}\n}\n", "Value"), (2, 7));
+}
+
+/// The column counts the UTF-16 units of its own line: a `\r` of a CRLF end belongs to the line it ends, and a
+/// surrogate pair before the name counts as two
+#[test]
+#[cfg(all(feature = "rust", feature = "typescript"))]
+fn a_name_column_counts_the_utf16_units_of_its_line_before_it() {
+  assert_eq!(name_place(Language::Rust, "/// one\r\n/// two\r\nfn crab() {}\r\n", "crab"), (3, 3));
+  // `#[doc = "` is 9 units, `🦀` two, `"]` two and ` fn ` four
+  assert_eq!(name_place(Language::Rust, "#[doc = \"🦀\"] fn crab() {}\n", "crab"), (1, 17));
+  assert_eq!(name_place(Language::TypeScript, "const a = 1\r\nfunction b() {}\r\n", "b"), (2, 9));
+}
+
+/// A doc comment above the declaration moves its first line, never the line or the column of its name
+#[test]
+#[cfg(all(feature = "kotlin", feature = "rust"))]
+fn a_doc_comment_above_a_name_leaves_the_column_of_the_name() {
+  let source = "/** The shape\n * of it\n */\nclass Circle\n";
+  let summary = summarize(Language::Kotlin, source.as_bytes());
+  let circle = declaration(&summary, "Circle");
+  assert_eq!((circle.start_line, circle.name_line, circle.name_column), (1, 4, 6));
+  assert_eq!(name_place(Language::Rust, "/// The shape\nstruct Circle;\n", "Circle"), (2, 7));
 }
 
 /// The lines of the import and package statements, a statement over several lines whole; a Rust `pub use` passes its

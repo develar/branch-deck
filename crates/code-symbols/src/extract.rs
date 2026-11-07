@@ -23,7 +23,7 @@
 
 use crate::language::Language;
 use crate::summary::{DeclKind, FileSummary, Import, LineSpan, MemberKind, Reach, Role};
-use crate::summary_builder::{Bindings, Marks, SummaryBuilder, blank_declaration, empty_summary};
+use crate::summary_builder::{Bindings, Marks, SummaryBuilder, blank_declaration, column_at, empty_summary};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -31,7 +31,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 22;
+pub const RULES_VERSION: u32 = 23;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -850,6 +850,7 @@ impl<'t> Walk<'t> {
     declaration.start_line = leading.map_or(start, |it| it.min(start));
     declaration.end_line = end_line_of(node);
     declaration.name_line = line_of(name_node);
+    declaration.name_column = column_at(self.source, name_node.start_byte());
     declaration.in_error = self.error_depth > 0;
     self.out.add_declaration(declaration)
   }

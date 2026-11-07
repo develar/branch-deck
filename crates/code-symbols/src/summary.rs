@@ -160,6 +160,9 @@ pub struct Declaration {
   pub start_line: u32,
   pub end_line: u32,
   pub name_line: u32,
+  /// Where the name starts on its line, in UTF-16 code units, as a view counts them: a jump lands on the name itself,
+  /// not on the first word of the line that reads the same (`#[doc(alias = "needle")] fn needle()`)
+  pub name_column: u32,
   /// Inside an ERROR node: the parser recovered around it, so it may be misread
   pub in_error: bool,
 }

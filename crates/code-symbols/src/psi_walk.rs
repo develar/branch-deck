@@ -7,7 +7,7 @@
 
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver};
 use crate::summary::{DeclKind, MemberKind, Reach, Role};
-use crate::summary_builder::{Bindings, SummaryBuilder, Typed, blank_declaration, end_line};
+use crate::summary_builder::{Bindings, SummaryBuilder, Typed, blank_declaration, column_at, end_line};
 use psi_builder::document::Lines;
 use psi_builder::language::TreeLanguage;
 use psi_builder::{NodeId, Tree};
@@ -19,6 +19,8 @@ pub(crate) struct Span {
   pub(crate) start: u32,
   pub(crate) end: u32,
   pub(crate) name: u32,
+  /// The UTF-16 column the name starts at on its line
+  pub(crate) name_column: u32,
 }
 
 /// A composite node the walk is inside, until the end of its subtree: what it opened, and what the language's walk
@@ -140,6 +142,7 @@ impl<'t, L: TreeLanguage, E: Default, M> WalkCore<'t, L, E, M> {
       start: doc.map_or(start, |it| start.min(self.line(it))),
       end: self.end_line(own.start, own.end),
       name: self.line(name),
+      name_column: column_at(self.source, name),
     }
   }
 
@@ -159,6 +162,7 @@ impl<'t, L: TreeLanguage, E: Default, M> WalkCore<'t, L, E, M> {
     declaration.start_line = span.start;
     declaration.end_line = span.end;
     declaration.name_line = span.name;
+    declaration.name_column = span.name_column;
     declaration.in_error = in_error;
     self.out.add_declaration(declaration)
   }

@@ -30,7 +30,7 @@
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
 use crate::kotlin::parse;
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
+use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, column_at, end_line};
 use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind as N, TokenKind as K, Tree};
 use psi_builder::document::Lines;
@@ -1096,13 +1096,16 @@ impl<'t> Walk<'t> {
     let container = self.container();
     let unstable = fields.unstable || (traits.kind != DeclKind::Binding && container.is_none() && self.file_annotations.iter().any(|it| self.out.unstable_annotation(it)));
     let header = matches!(traits.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant).then(|| self.header(node, has_signature));
-    let name_line = if name_node == node { start } else { self.line_of(name_node) };
+    // a declaration that writes no name (an anonymous object) is its own name node: the jump lands where it starts
+    let name_offset = if name_node == node { self.tree.declaration_range(node).start } else { self.tree.range(name_node).start };
+    let name_line = if name_node == node { start } else { self.lines.line(name_offset) };
     let mut declaration = JvmFields { unstable, ..fields }.declaration(blank_declaration(name, traits.kind, traits.reach, traits.member, container));
     declaration.receiver = traits.receiver;
     declaration.header = header;
     declaration.start_line = leading.map_or(start, |it| it.min(start));
     declaration.end_line = end;
     declaration.name_line = name_line;
+    declaration.name_column = column_at(self.source, name_offset);
     declaration.in_error = self.error_depth > 0;
     self.out.add_declaration(declaration)
   }

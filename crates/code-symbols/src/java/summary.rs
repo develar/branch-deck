@@ -21,7 +21,7 @@
 use crate::jvm::{Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
 use crate::psi_walk::{Span, WalkCore, Walker, has_error_in};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{TEST_ANNOTATIONS, Typed};
+use crate::summary_builder::{TEST_ANNOTATIONS, Typed, column_at};
 use java_syntax::psi;
 use java_syntax::psi::modifier::Modifier;
 use java_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree};
@@ -454,6 +454,7 @@ impl<'t> Walk<'t> {
       start: start_line,
       end: self.core.end_line(start, self.tree.declaration_range(id).end),
       name: self.core.lines.line(start),
+      name_column: column_at(self.core.source, start),
     };
     let header = self.header(head, id, false);
     let decl = self.declare(name, traits, &span, fields, Some(header));
