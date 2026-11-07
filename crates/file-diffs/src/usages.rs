@@ -9,14 +9,14 @@
 //!   `cat-file --batch-check` names the missing blobs and one `cat-file --batch` reads them; a failed index takes
 //!   nothing from the review's usages.
 
-use crate::accio::{DeclarationAt, Lenient, ReferenceHit, Resolved, SymbolIndex};
+use crate::accio::{Access as IndexAccess, DeclarationAt, Lenient, ReferenceHit, Resolved, SymbolIndex};
 use crate::declarations::{Candidate, candidate, in_review, outside_file, revision_of, site_position, word_columns};
 use crate::model::{DeclarationTarget, DiffSide, FindDeclarationParams, FoundUsages, UsageTarget};
 use crate::service::FileDiffs;
 use anyhow::Result;
 use code_symbols::highlight::grammar_of;
 use code_symbols::language::{Language, language_of};
-use code_symbols::navigate::{Access, Position, Usage, usages_at, usages_of};
+use code_symbols::navigate::{Access as NavigationAccess, Position, Usage, usages_at, usages_of};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use std::collections::HashMap;
@@ -126,7 +126,7 @@ impl FileDiffs {
     texts: &HashMap<String, String>,
   ) -> Result<Option<DeclarationAt>> {
     let position = site_position(params);
-    if usages.iter().any(|usage| usage.access == Access::Declaration && usage.start == position) {
+    if usages.iter().any(|usage| usage.access == NavigationAccess::Declaration && usage.start == position) {
       return Ok(Some(DeclarationAt {
         revision: None,
         path: params.site.path.clone(),
@@ -197,7 +197,7 @@ impl FileDiffs {
               line,
               column,
               end_column: column + width,
-              kind: access_name(&hit.kind).to_string(),
+              kind: access_name(hit.kind).to_string(),
               container: None,
               outside: Some(outside_file(revision, id, text)),
             },
@@ -273,9 +273,19 @@ fn line_text(text: &str, line: u32) -> (String, u32) {
 }
 
 /// How the index names a usage, as the review does: an argument is read
-fn access_name(kind: &str) -> &str {
+const fn access_name(kind: IndexAccess) -> &'static str {
   match kind {
-    "argument" => "read",
-    other => other,
+    IndexAccess::Declaration => "declaration",
+    IndexAccess::Import => "import",
+    IndexAccess::Call => "call",
+    IndexAccess::Write => "write",
+    IndexAccess::Read
+    | IndexAccess::Argument
+    | IndexAccess::Type
+    | IndexAccess::Supertype
+    | IndexAccess::Override
+    | IndexAccess::Doc
+    | IndexAccess::String
+    | IndexAccess::Unknown => "read",
   }
 }

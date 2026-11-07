@@ -3,7 +3,7 @@
 
 #[cfg(unix)]
 use crate::accio::AccioSearch;
-use crate::accio::{AccioCli, CallArgument, DeclarationAt, Lenient, Resolved, SearchCanceled, SymbolHit, SymbolIndex};
+use crate::accio::{Access, AccioCli, CallArgument, DeclarationAt, HitKind, Lenient, ReferenceHit, Resolved, SearchCanceled, SymbolHit, SymbolIndex};
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,7 +51,7 @@ fn waits_for_a_slow_index_as_long_as_it_runs() {
       path: "src/Base.kt".to_string(),
       line: 1,
       column: None,
-      kind: "function".to_string(),
+      kind: HitKind::Function,
       name: "outsider".to_string(),
       parent: None,
     }])
@@ -247,4 +247,13 @@ fn resolved_usages_are_asked_at_a_name_column_and_count_name_only_hits() {
       "src/Store.kt:4:7",
     ]
   );
+}
+
+#[test]
+fn unknown_accio_kinds_deserialize_to_unknown() {
+  let symbol: SymbolHit = serde_json::from_str(r#"{"file":"src/A.kt","line":2,"kind":"supertype","name":"A"}"#).unwrap();
+  let reference: ReferenceHit = serde_json::from_str(r#"{"file":"src/A.kt","line":2,"column":3,"snippet":"a","kind":"config","resolved":"name"}"#).unwrap();
+
+  assert_eq!(symbol.kind, HitKind::Unknown);
+  assert_eq!(reference.kind, Access::Unknown);
 }

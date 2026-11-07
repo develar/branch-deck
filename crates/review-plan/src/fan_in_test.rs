@@ -36,17 +36,7 @@ const OUTSIDE: &str = "src/Use.kt";
 
 /// A hit tied to the declaration by a type
 pub(crate) fn typed(path: &str, line: u32, kind: &str) -> ReferenceHit {
-  ReferenceHit {
-    path: path.to_string(),
-    line,
-    column: 1,
-    snippet: String::new(),
-    kind: kind.to_string(),
-    resolved: Resolved::Typed,
-    end_line: None,
-    arguments: None,
-    fits: None,
-  }
+  serde_json::from_value(serde_json::json!({"file":path,"line":line,"column":1,"snippet":"","kind":kind,"resolved":"typed"})).unwrap()
 }
 
 /// A hit only the name ties to the declaration

@@ -13,7 +13,7 @@
 //!   the review becomes one of the review, any other one names its blob (one `cat-file --batch-check`) for the view of
 //!   its file.
 
-use crate::accio::{Lenient, SymbolHit, SymbolIndex};
+use crate::accio::{HitKind, Lenient, SymbolHit, SymbolIndex};
 use crate::model::{BlobRequest, BlobText, DeclarationTarget, DiffSide, FindDeclarationParams, FoundDeclarations, OutsideFile, ReviewFileSides};
 use crate::service::{FileDiffs, read_summaries, write_summaries};
 use crate::worktree::read_worktree_blob;
@@ -179,7 +179,7 @@ impl FileDiffs {
     let packages = imported_directories(site_summary, name);
     let mut hits: Vec<(i32, SymbolHit)> = hits
       .into_iter()
-      .filter(|hit| language_of(&hit.path).is_some_and(|it| it.family() == language.family()) && fits_hit(kind, &hit.kind))
+      .filter(|hit| language_of(&hit.path).is_some_and(|it| it.family() == language.family()) && fits_hit(kind, hit.kind))
       .map(|hit| {
         let mut score = 0;
         if packages.iter().any(|directory| hit.path.contains(directory.as_str())) {
@@ -232,7 +232,7 @@ impl FileDiffs {
             line,
             column,
             end_column: column + u32::try_from(name.encode_utf16().count()).unwrap_or(0),
-            kind: hit.kind,
+            kind: hit.kind.name().to_string(),
             container: hit.parent,
             outside,
           })
@@ -452,14 +452,12 @@ fn imported_directories(site: &FileSummary, name: &str) -> Vec<String> {
 }
 
 /// Whether a declaration of an index (its kind as accio names it) can be what the syntax says the name is
-fn fits_hit(reference: ReferenceKind, kind: &str) -> bool {
-  let is_type = matches!(
-    kind,
-    "class" | "interface" | "enum" | "object" | "trait" | "struct" | "union" | "record" | "annotation" | "type" | "typealias" | "type_alias"
-  );
+fn fits_hit(reference: ReferenceKind, kind: HitKind) -> bool {
+  let is_type = kind.is_type();
+  let unknown = kind == HitKind::Unknown;
   match reference {
-    ReferenceKind::Type => is_type,
-    ReferenceKind::Call | ReferenceKind::MemberCall => is_type || matches!(kind, "method" | "function" | "constructor" | "macro"),
+    ReferenceKind::Type => is_type || unknown,
+    ReferenceKind::Call | ReferenceKind::MemberCall => is_type || unknown || matches!(kind, HitKind::Method | HitKind::Function | HitKind::Constructor | HitKind::Macro),
     ReferenceKind::Member | ReferenceKind::Value => true,
     ReferenceKind::Declaration => false,
   }

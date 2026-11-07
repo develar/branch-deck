@@ -38,6 +38,88 @@ const REFERENCES_LIMIT: &str = "100";
 /// hundred (97 tests of 7 files for one place of idea-1)
 const TESTS_LIMIT: &str = "1000";
 
+/// A declaration kind accio answers; an unrecognized kind remains a candidate rather than disappearing from navigation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HitKind {
+  Class,
+  Interface,
+  Enum,
+  Struct,
+  Trait,
+  Impl,
+  Function,
+  Method,
+  Constructor,
+  Field,
+  Property,
+  Constant,
+  Variable,
+  #[serde(rename = "type", alias = "typealias", alias = "type_alias")]
+  TypeAlias,
+  Module,
+  Namespace,
+  Macro,
+  Object,
+  EnumMember,
+  Record,
+  Delegate,
+  Section,
+  Key,
+  ExtensionPoint,
+  Extension,
+  Action,
+  #[serde(rename = "union")]
+  Union,
+  #[serde(rename = "annotation")]
+  Annotation,
+  #[serde(other)]
+  Unknown,
+}
+
+impl HitKind {
+  pub const fn name(self) -> &'static str {
+    match self {
+      Self::Class => "class",
+      Self::Interface => "interface",
+      Self::Enum => "enum",
+      Self::Struct => "struct",
+      Self::Trait => "trait",
+      Self::Impl => "impl",
+      Self::Function => "function",
+      Self::Method => "method",
+      Self::Constructor => "constructor",
+      Self::Field => "field",
+      Self::Property => "property",
+      Self::Constant => "constant",
+      Self::Variable => "variable",
+      Self::TypeAlias => "type",
+      Self::Module => "module",
+      Self::Namespace => "namespace",
+      Self::Macro => "macro",
+      Self::Object => "object",
+      Self::EnumMember => "enum_member",
+      Self::Record => "record",
+      Self::Delegate => "delegate",
+      Self::Section => "section",
+      Self::Key => "key",
+      Self::ExtensionPoint => "extension_point",
+      Self::Extension => "extension",
+      Self::Action => "action",
+      Self::Union => "union",
+      Self::Annotation => "annotation",
+      Self::Unknown => "unknown",
+    }
+  }
+
+  pub const fn is_type(self) -> bool {
+    matches!(
+      self,
+      Self::Class | Self::Interface | Self::Enum | Self::Struct | Self::Trait | Self::Object | Self::Record | Self::Delegate | Self::TypeAlias | Self::Union | Self::Annotation
+    )
+  }
+}
+
 /// A declaration an index knows: a path of the repository, a line from 1 and an optional zero-based UTF-16 name column
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SymbolHit {
@@ -46,15 +128,33 @@ pub struct SymbolHit {
   pub line: u32,
   #[serde(default)]
   pub column: Option<u32>,
-  pub kind: String,
+  pub kind: HitKind,
   pub name: String,
   #[serde(default)]
   pub parent: Option<String>,
 }
 
-/// A usage an index knows: a path, a line and a column from 1, the text of the line, how it uses the name (`call`,
-/// `write`, `argument`, `read`, `type`, `supertype`, `override`, `declaration`, `import`, `doc`, `string`, `config`) and
-/// what ties it to the declaration
+/// How an indexed usage accesses a name; unknown kinds display as `read`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Access {
+  Declaration,
+  Import,
+  Call,
+  Write,
+  Read,
+  Argument,
+  Type,
+  Supertype,
+  Override,
+  Doc,
+  String,
+  #[serde(other)]
+  Unknown,
+}
+
+/// A usage an index knows: a path, a line and a column from 1, the text of the line, how it uses the name, and what ties
+/// it to the declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ReferenceHit {
   #[serde(rename = "file")]
@@ -63,7 +163,7 @@ pub struct ReferenceHit {
   pub column: u32,
   #[serde(default)]
   pub snippet: String,
-  pub kind: String,
+  pub kind: Access,
   pub resolved: Resolved,
   /// The last line of a call, from 1
   #[serde(default)]

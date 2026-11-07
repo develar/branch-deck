@@ -27,7 +27,7 @@
 use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages, rank};
 use crate::pair::ChangedLines;
 use anyhow::Result;
-use file_diffs::accio::{CallArgument, DeclarationAt, Lenient, ReferenceHit, References, Resolved, SymbolIndex};
+use file_diffs::accio::{Access, CallArgument, DeclarationAt, Lenient, ReferenceHit, References, Resolved, SymbolIndex};
 use std::collections::BTreeMap;
 use tracing::debug;
 use trial_check::symbol_dependencies::declaration_checks::ParameterForm;
@@ -42,10 +42,10 @@ pub const NO_ACCIO: &str = "accio is not installed";
 pub const NO_INDEX: &str = "accio has no index of this repository";
 
 /// The kinds of accio hits that use nothing: the declaration itself, an import, a mention in a doc comment or in prose
-pub const NOT_USES: [&str; 3] = ["declaration", "import", "doc"];
+pub const NOT_USES: [Access; 3] = [Access::Declaration, Access::Import, Access::Doc];
 
 /// The kinds of accio hits that call a constructor of a type: a call, and a subtype, whose constructors call one
-const CONSTRUCTOR_USES: [&str; 2] = ["call", "supertype"];
+const CONSTRUCTOR_USES: [Access; 2] = [Access::Call, Access::Supertype];
 
 /// The only change of `change` is its constructors: of its hits, only a call and a subtype are known to break
 fn constructors_only(change: &ApiChange) -> bool {
@@ -66,13 +66,13 @@ enum Use {
 }
 
 fn use_of(change: &ApiChange, hit: &ReferenceHit) -> Use {
-  if NOT_USES.contains(&hit.kind.as_str()) {
+  if NOT_USES.contains(&hit.kind) {
     return Use::None;
   }
   if hit.resolved == Resolved::Name {
     return Use::ByName;
   }
-  if constructors_only(change) && !CONSTRUCTOR_USES.contains(&hit.kind.as_str()) {
+  if constructors_only(change) && !CONSTRUCTOR_USES.contains(&hit.kind) {
     return Use::None;
   }
   if still_binds(change, hit) { Use::StillBound } else { Use::Breaks }
@@ -84,7 +84,7 @@ fn use_of(change: &ApiChange, hit: &ReferenceHit) -> Use {
 fn still_binds(change: &ApiChange, hit: &ReferenceHit) -> bool {
   let only_parameters =
     change.kind == ApiChangeKind::Changed && !change.changes.is_empty() && change.changes.iter().all(|it| matches!(it, FormChange::Parameters | FormChange::Constructors));
-  if !only_parameters || !CONSTRUCTOR_USES.contains(&hit.kind.as_str()) || hit.fits != Some(true) {
+  if !only_parameters || !CONSTRUCTOR_USES.contains(&hit.kind) || hit.fits != Some(true) {
     return false;
   }
   let Some(arguments) = &hit.arguments else { return false };

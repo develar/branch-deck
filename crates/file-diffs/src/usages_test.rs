@@ -112,12 +112,20 @@ fn reference(path: &str, line: u32, column: u32, kind: &str) -> ReferenceHit {
     line,
     column,
     snippet: String::new(),
-    kind: kind.to_string(),
+    kind: serde_json::from_value(serde_json::Value::String(kind.to_string())).unwrap(),
     resolved: Resolved::Typed,
     end_line: None,
     arguments: None,
     fits: None,
   }
+}
+
+fn find_store_add_usages(index: &FakeReferences) -> FoundUsages {
+  let (repo, diffs, files) = review();
+  write(&repo, "lib/Outside.kt", b"package lib\n\nfun run(s: app.Store) = s.add(1)\n");
+  write(&repo, "lib/Namesake.kt", b"package lib\n\nfun run() = add()\n");
+  let params = params(&repo, &files, "src/Uses.kt", 4, "add");
+  diffs.find_usages(repo.git_executor(), Some(index), &params).unwrap()
 }
 
 #[test]
@@ -182,10 +190,6 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
 
 #[test]
 fn does_not_list_a_name_only_namesake_when_the_review_has_the_declaration() {
-  let (repo, diffs, files) = review();
-  write(&repo, "lib/Outside.kt", b"package lib\n\nfun run(s: app.Store) = s.add(1)\n");
-  write(&repo, "lib/Namesake.kt", b"package lib\n\nfun run() = add()\n");
-  let params = params(&repo, &files, "src/Uses.kt", 4, "add");
   let mut namesake = reference("lib/Namesake.kt", 3, 13, "call");
   namesake.resolved = Resolved::Name;
   let actual = reference("lib/Outside.kt", 3, 27, "call");
@@ -197,7 +201,7 @@ fn does_not_list_a_name_only_namesake_when_the_review_has_the_declaration() {
     places: Mutex::default(),
   };
 
-  let found = diffs.find_usages(repo.git_executor(), Some(&index), &params).unwrap();
+  let found = find_store_add_usages(&index);
   assert!(places(&found).contains(&("lib/Outside.kt", 2, 26, "call")));
   assert!(!places(&found).contains(&("lib/Namesake.kt", 2, 12, "call")), "{found:?}");
   assert_eq!(found.filtered_count, 1);
@@ -214,6 +218,20 @@ fn does_not_list_a_name_only_namesake_when_the_review_has_the_declaration() {
     )]
   );
   assert!(index.queries.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_unknown_accio_access_kind_is_shown_as_read() {
+  let index = FakeReferences {
+    hits: Vec::new(),
+    at_hits: vec![reference("lib/Outside.kt", 3, 27, "config")],
+    by_name: 0,
+    queries: Mutex::default(),
+    places: Mutex::default(),
+  };
+
+  let found = find_store_add_usages(&index);
+  assert!(places(&found).contains(&("lib/Outside.kt", 2, 26, "read")));
 }
 
 /// An index that fails every query with `error`: accio that exits with an error, or a search the window canceled

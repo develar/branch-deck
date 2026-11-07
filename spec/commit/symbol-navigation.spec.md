@@ -118,6 +118,11 @@ outside it.
   the repository accio answers at once (`--no-build`): never an index build, a wait for one or a refresh.
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`)
+- An unrecognized accio declaration kind must not by itself discard a name that otherwise fits the language and query;
+  an unrecognized access kind is shown as `read`, never as a raw string.
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`an_unknown_accio_access_kind_is_shown_as_read`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`unknown_accio_kinds_deserialize_to_unknown`)
 - A declaration outside the review must open its whole file over the review: its path, "at <commit>, outside the
   review" ("the working tree, outside the review" for uncommitted changes), coloured as the diffs, its name selected,
   and Go to Declaration in it as in the review (a declaration of the review closes the file and shows it there).
@@ -128,10 +133,12 @@ outside it.
 - ⌥F7 (Alt+F7 off macOS) on the selection and the item "Find Usages" of the menu of the code must list the usages of
   the name at the name: "N usages of X" (the declarations not counted), the usages in the review, then those outside
   it, each with how it uses the name (declaration, import, call, write, read), its line with the name in bold, and its
-  file and line; ↑ and ↓ and Enter or a click show one, in the review or in the view of its file, and Back returns to
-  the name; Escape gives the focus back to the view. A name with no usage but its declarations says so in a toast ("No
-  usages of version found"); the item is disabled, with the reason, where no name is.
+  file and line; `argument` and unrecognized access kinds are shown as `read`. ↑ and ↓ and Enter or a click show one,
+  in the review or in the view of its file, and Back returns to the name; Escape gives the focus back to the view. A
+  name-only candidate omitted by a location-based query is reported by count; a name with no usage and no omitted
+  candidates says so in a toast ("No usages of version found"); the item is disabled, with the reason, where no name is.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should list the usages of a name in the review and outside it, from ⌥F7 and from the menu of the code, and show the one chosen`, `should say when a name has no usage but its declaration`)
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`an_unknown_accio_access_kind_is_shown_as_read`)
 - The usages of a local (a parameter, a local of a function) are the names its scopes bind to its declaration, in its
   file; those of any other name are the names of that text that no local binds, in its file and in the same side of
   the other files of the review in a language that sees it, from the texts the diffs read: no git process. In Kotlin a
