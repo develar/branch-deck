@@ -320,6 +320,10 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
      where it was made (`brd reword <id> --subject '(branch) <subject>'` in your lease), then pick again.
      `brd lease pick --allow-message-format '<reason>'` (`brd pick --allow-message-format '<reason>'`) lands them as
      they are: only once the user agreed. A WARNING one lands and is named in `message_warnings`.
+   - `baseline_parent` (exit 4), of `brd lease pick` and `brd pick` alike, a dry run too: the prefix of a picked
+     commit stacks its branch on the baseline or on the checked out branch, as `(master/leaf)`; nothing landed. A
+     branch without a parent is built on the baseline already: run the `brd reword` of `error.next_steps`, which
+     keeps `(leaf)`, then pick again.
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
    - `brd undo <undo_token>` moves the branch and your worktree back.
@@ -489,6 +493,8 @@ Outputs and refusals: `brd help worktrees` for the pick of a worktree or of revi
   picked: show what the remote has now and ask again. --dry-run fetches the branch and writes nothing else.
 - `nothing_to_pick` (exit 4): the remote branch has no commit the branch lacks.
 - `message_format` (exit 4): the commit rules of `[commit] check` reject a picked message; `brd help worktrees`.
+- `baseline_parent` (exit 4): a picked prefix names the baseline or the checked out branch as its parent
+  (`(master/leaf)`); nothing landed. Run the `brd reword` of `next_steps`, which keeps `(leaf)`, then pick again.
 - `state: conflict` (exit 1): nothing changed; resolve it in a lease cut from HEAD (cherry-pick the commits there),
   then `brd lease pick`, or ask the user whether a force push may drop them. `brd undo <undo_token>` takes a pick back.
 ";

@@ -1,7 +1,7 @@
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::{LockSpanGit, beside_a_held_sync, hold_the_lock, subcommand};
-use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, repo_with_commits, run_in, run_json};
+use bd_cli::fixture_test::{assert_error, environment, git, next_steps, repo_with_baseline, repo_with_commits, run_in, run_json};
 use bd_cli::remote_fixture_test::{AUTH, push_from_elsewhere_to, repo_with_remote, their_fix_on_auth};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -276,6 +276,48 @@ fn a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so() {
   let (exit_code, again) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
   assert_eq!((exit_code, &again["state"]), (0, &json!("up_to_date")), "{again}");
   assert!(again.get("reparented").is_none(), "{again}");
+}
+
+/// `baseline_parent` of one commit, with its reword to `subject` in `lane` as the one step, without approval
+fn assert_baseline_parent(output: &Value, exit_code: i32, lane: &TestWorktree, subject: &str) {
+  assert_error(output, exit_code, (4, "baseline_parent"));
+  assert_eq!(output["error"]["commits"].as_array().map(Vec::len), Some(1), "{output}");
+  let steps = next_steps(&output["error"]);
+  assert_eq!(steps.len(), 1, "{output}");
+  let (command, needs_approval) = &steps[0];
+  assert!(
+    command.contains(&lane.path) && command.contains(" reword ") && command.ends_with(&format!("--subject '{subject}'")),
+    "{command}"
+  );
+  assert!(!needs_approval, "{command}");
+}
+
+#[test]
+fn a_parent_that_is_the_baseline_is_refused_and_nothing_lands() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let head = repo.head();
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(master/leaf) Add leaf", "leaf.txt", "leaf\n");
+
+  let (exit_code, dry_run) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
+  assert_baseline_parent(&dry_run, exit_code, &lane, "(leaf) Add leaf");
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_baseline_parent(&output, exit_code, &lane, "(leaf) Add leaf");
+  assert_eq!(repo.head(), head);
+  assert!(!repo.path().join("leaf.txt").exists());
+}
+
+#[test]
+fn a_parent_that_is_the_checked_out_branch_is_refused_and_a_deeper_path_keeps_its_levels_below() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  git(&repo, &["switch", "-q", "-c", "feature"]);
+  let head = repo.head();
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(feature/auth/login) Add login", "login.txt", "login\n");
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path]);
+  assert_baseline_parent(&output, exit_code, &lane, "(auth/login) Add login");
+  assert_eq!(repo.head(), head);
 }
 
 /// Stacks on: `base`, and `hang` and `teamcity` on it; `hang` adds `monitor.rs`

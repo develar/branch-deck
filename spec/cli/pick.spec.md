@@ -122,6 +122,13 @@ its commits with `brd lease pick`, this pick run in the checkout it was cut from
   the whole branch on `parent`, and the pick must say so in `reparented` (`{"leaf": "parent"}`), in a `--dry-run`
   too; the next `brd sync` must build the stack.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so`)
+- A prefix of a picked commit whose parent, a level above its leaf, is the branch of the baseline (`master` of
+  `origin/master`) or the checked out branch must land nothing, a `--dry-run` too: `baseline_parent` (exit 4), its
+  `commits` the ids. Neither is a virtual branch, and a branch without a parent is built on the baseline already. For
+  `--from` and `brd lease pick` each commit's `next_steps` entry is `brd -C <worktree> reword <id> --subject '(<levels
+  below it>) <rest>'`, without approval: the agent's own commit in its own worktree. No flag lands it as it is.
+  `--remote` is not checked: its commits are others'.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_parent_that_is_the_baseline_is_refused_and_nothing_lands`, `a_parent_that_is_the_checked_out_branch_is_refused_and_a_deeper_path_keeps_its_levels_below`)
 - `groups`, `dependencies` and `reparented` decide nothing: they must be read after the moves and the release of the
   repository lock, from the head the check froze, so the `log` of the commits ahead and the diffs of the dependency
   check never make another writer wait. A failure of that read after a move must keep the pick and its undo token.
@@ -335,7 +342,7 @@ would drop it. `brd pick --remote <branch>` takes it into the checked out branch
 | 1 | a commit conflicts (`state: "conflict"`): an output, not an error |
 | 2 | `invalid_arguments` |
 | 3 | `head_moved`, `locked` (retryable) |
-| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`, `unchecked_tree`, `message_format`; with --remote `lease_rejected`, `nothing_to_pick` |
+| 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`, `unchecked_tree`, `message_format`, `baseline_parent`; with --remote `lease_rejected`, `nothing_to_pick` |
 
 - The outputs must match `brd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)

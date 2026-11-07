@@ -9,7 +9,7 @@
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
 use bd_core::bd_command::{CLI_NAME, shell_word};
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput};
+use bd_core::error::{CONFLICT_EXIT, CliError, MessageFormatOutput, MessageSeverity, MessageVerdictOutput, NextStep};
 use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
@@ -34,8 +34,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use sync_utils::timestamp::format_utc_timestamp;
 use update_core::pick::{
-  DependencyFix, GroupedBy, MessageFormatRefused, MessageGate, MessageVerdict, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick, UndonePick, pick_core,
-  undo_pick_core,
+  BaselineParentRefused, DependencyFix, GroupedBy, MessageFormatRefused, MessageGate, MessageVerdict, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick,
+  UndonePick, pick_core, undo_pick_core,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -529,9 +529,14 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
-  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(|error| match error.downcast_ref::<MessageFormatRefused>() {
-    Some(refused) => message_format(context, &params.from, refused, home),
-    None => pick_error(error),
+  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(|error| {
+    if let Some(refused) = error.downcast_ref::<MessageFormatRefused>() {
+      message_format(context, &params.from, refused, home)
+    } else if let Some(refused) = error.downcast_ref::<BaselineParentRefused>() {
+      baseline_parent(context, &params.from, refused)
+    } else {
+      pick_error(error)
+    }
   })?;
   let mut output = output(context, &result, args.dry_run, home)?;
   output.check = gate.check.as_ref().map(tree_check_output);
@@ -626,6 +631,47 @@ fn message_format(context: &RepoContext, from: &PickFrom, refused: &MessageForma
     hint: refused.hint.clone(),
     documentation: refused.documentation.clone(),
   });
+  error
+}
+
+/// `baseline_parent`: the prefix of a picked commit names the baseline or the checked out branch as a parent, nothing
+/// landed. Each such commit of a worktree gets its `brd reword` as a step, in that worktree (the lease or --from): its
+/// own commit in its own worktree, so no approval; a commit of revisions is reworded where it lives
+fn baseline_parent(context: &RepoContext, from: &PickFrom, refused: &BaselineParentRefused) -> CliError {
+  let short = context.short_ids(refused.commits.iter().map(|commit| commit.commit.as_str()));
+  let named = refused
+    .commits
+    .iter()
+    .map(|commit| format!("{} ({}: {} is no virtual branch)", short.get(&commit.commit), commit.subject, commit.parent))
+    .collect::<Vec<_>>()
+    .join(", ");
+  let worktree = match from {
+    PickFrom::Worktree(dir) => Some(dir.as_str()),
+    PickFrom::Revisions(_) | PickFrom::Remote(_) => None,
+  };
+  let fix = match worktree {
+    Some(_) => "run the `brd reword` of `next_steps`",
+    None => "reword each one where it lives to the subject without that parent",
+  };
+  let message = format!(
+    "The prefix of {named} stacks the branch on the baseline or on the checked out branch; nothing landed. A branch without a parent is built on \
+     the baseline already: {fix}, then pick again."
+  );
+  let mut error = CliError::new(ErrorCode::BaselineParent, message);
+  error.commits = refused.commits.iter().map(|commit| short.get(&commit.commit).to_string()).collect();
+  if let Some(dir) = worktree {
+    for commit in &refused.commits {
+      error.push_next_step(NextStep::new(
+        format!(
+          "{CLI_NAME} -C {} reword {} --subject {}",
+          shell_word(dir),
+          short.get(&commit.commit),
+          shell_word(&commit.fixed_subject)
+        ),
+        false,
+      ));
+    }
+  }
   error
 }
 

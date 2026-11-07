@@ -2275,7 +2275,9 @@ pick (`MessageGate` in `PickParams`, `update_core::pick`) reads the messages and
 commits with one `log --no-walk=unsorted --stdin -z --name-only --no-renames` (`git_ops::commit_list::read_messages_and_paths`),
 before the lock, and keeps them for a check made again on the same commits. Each message is the one the baseline gets
 (`git_ops::copy_commit::virtual_message_of`, the `(branch)` prefix stripped), the autosquash markers cut. A STRICT
-one is `message_format` before the lock, nothing written; `--allow-message-format <reason>` lands it anyway.
+one is `message_format` before the lock, nothing written; `--allow-message-format <reason>` lands it anyway. The same
+check, with or without rules and in a dry run too, refuses a picked `(parent/leaf)` prefix whose parent is the branch of
+the baseline or the checked out branch (`baseline_parent`): no git, the subjects of the replay suffice.
 
 Which processes keep a slot busy was learned from 27 sessions of idea-1 (2026-10-19 to 24) whose returns were
 refused: mostly the Bazel server of the slot, then git's maintenance, the `caffeinate` of Claude Code and the `jq` of

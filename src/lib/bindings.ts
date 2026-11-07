@@ -2476,6 +2476,12 @@ export type ErrorCode =
  */
 "message_format" | 
 /**
+ *  `brd lease pick` and `brd pick`, a dry run too: the `(parent/leaf)` prefix of a picked commit names the baseline
+ *  or the checked out branch of the target as the parent, which is no virtual branch (`commits`; `next_steps`: the
+ *  `brd reword` that keeps the levels below it); nothing landed
+ */
+"baseline_parent" | 
+/**
  *  `brd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `brd lease
  *  pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
  */

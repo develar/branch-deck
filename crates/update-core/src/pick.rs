@@ -10,6 +10,7 @@ use commit_rules::{MessageRules, Severity};
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::{Commit, SubjectParts};
 use domain_types::rewrite::PickRemoteCommitsResult;
+use domain_types::stack::stack_path;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{get_commit_list_at, read_messages_and_paths};
@@ -117,10 +118,55 @@ pub struct MessageFormatRefused {
   pub documentation: Option<String>,
 }
 
+/// A picked commit whose `(parent/leaf)` prefix names the baseline or the checked out branch of the target as a parent
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaselineParentCommit {
+  /// The commit in the source, its full id
+  pub commit: String,
+  pub subject: String,
+  /// The level of the prefix that names the baseline or the branch, `master` of `(master/leaf)`
+  pub parent: String,
+  /// The subject without that level and the ones above it, `(leaf) …`: the branch is built on the baseline anyway
+  pub fixed_subject: String,
+}
+
+/// A picked commit stacks its branch on the baseline or on the checked out branch of the target, which is no virtual
+/// branch (spec/cli/pick.spec.md): nothing landed, a dry run too. A branch without a parent is built on the baseline
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("the prefix of {} names the baseline or the checked out branch as a parent", .commits.iter().map(|commit| format!("{} ({})", short_id(&commit.commit), commit.subject)).collect::<Vec<_>>().join(", "))]
+pub struct BaselineParentRefused {
+  pub commits: Vec<BaselineParentCommit>,
+}
+
+/// The picked commits whose prefix declares one of `names` (the short name of the baseline, the checked out branch) as
+/// a parent: a level above the leaf of `(a/b/leaf)`
+fn baseline_parents(picked: &[PickedCommit], names: &[&str]) -> Vec<BaselineParentCommit> {
+  picked
+    .iter()
+    .filter_map(|commit| {
+      let parsed = parse_subject(&commit.subject);
+      let path = stack_path(parsed.prefix?).ok()?;
+      let (_, parents) = path.split_last()?;
+      let last = parents.iter().rposition(|level| names.contains(&level.as_str()))?;
+      Some(BaselineParentCommit {
+        commit: commit.commit.clone(),
+        subject: commit.subject.clone(),
+        parent: path[last].clone(),
+        fixed_subject: format!("({}) {}", path[last + 1..].join("/"), parsed.rest.trim_start()),
+      })
+    })
+    .collect()
+}
+
 /// The verdicts of the commit rules on the picked commits of a check, read once per set of commits: a check made again
-/// with the same commits (the target moved meanwhile) reads no git
+/// with the same commits (the target moved meanwhile) reads no git. Every check also refuses a prefix whose parent is
+/// the baseline or the checked out branch (`BaselineParentRefused`), with or without rules
 struct MessageCheck<'a> {
   gate: Option<&'a MessageGate>,
+  /// The parents of the prefixes are checked; not for a remote pick, which takes the commits of others
+  check_parents: bool,
+  /// The short name of the baseline, `master` of `origin/master`; `None` without one
+  baseline: Option<&'a str>,
   /// The picked commits and their verdicts, of the last check
   last: Option<(Vec<String>, Vec<MessageVerdict>)>,
 }
@@ -129,6 +175,13 @@ impl MessageCheck<'_> {
   /// The verdicts on the picked commits of `plan` (one `log` for all of them when they are new), and with `refuse` the
   /// refusal of a STRICT one. A plan that lands nothing has none
   fn verify(&mut self, git_executor: &GitCommandExecutor, target: &str, plan: &PickPlan, refuse: bool) -> Result<()> {
+    if self.check_parents {
+      let names: Vec<&str> = self.baseline.into_iter().chain([plan.check.branch.as_str()]).collect();
+      let commits = baseline_parents(&plan.check.picked, &names);
+      if !commits.is_empty() {
+        return Err(anyhow::Error::new(BaselineParentRefused { commits }));
+      }
+    }
     let Some(gate) = self.gate else { return Ok(()) };
     if plan.check.state != PickState::Clean || plan.check.picked.is_empty() {
       self.last = None;
@@ -303,8 +356,15 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
       _ => None,
     },
   };
+  // the branch of the baseline, without its remote
+  let baseline_branch = baseline.as_deref().map(|name| match &upstream {
+    Some(_) => name.split_once('/').map_or(name, |(_, branch)| branch),
+    None => name,
+  });
   let mut messages = MessageCheck {
     gate: params.messages.as_ref(),
+    check_parents: !matches!(params.from, PickFrom::Remote(_)),
+    baseline: baseline_branch,
     last: None,
   };
   let (plan, applied) = if params.dry_run {
