@@ -39,6 +39,17 @@ pub(crate) struct Candidate<'a> {
   pub(crate) language: Language,
 }
 
+/// A declaration of the review that the name may mean, with the score that orders it; its place is the summary's
+struct Scored<'a> {
+  score: i32,
+  candidate: &'a Candidate<'a>,
+  name_line: u32,
+  /// The UTF-16 column the name starts at, as the parser of the file read it
+  column: u32,
+  container: Option<String>,
+  kind: DeclKind,
+}
+
 impl FileDiffs {
   /// The declarations the name at `params.site` may mean, the most likely first; none where no name is
   #[instrument(skip(self, git, cache, index, params), fields(path = %params.site.path, line = params.site.line))]
@@ -81,7 +92,7 @@ impl FileDiffs {
     let summaries = self.summaries_of(git, cache, &params.repository_path, &candidates)?;
     let site_summary = summarize(language, text.as_bytes());
     let owner = expected_owner(&site_summary, reference.qualifier.as_deref(), site.line);
-    let mut scored: Vec<(i32, &Candidate<'_>, u32, Option<String>, DeclKind)> = Vec::new();
+    let mut scored: Vec<Scored<'_>> = Vec::new();
     for candidate in &candidates {
       let Some(summary) = summaries.get(&candidate.request.id) else { continue };
       for declaration in &summary.declarations {
@@ -110,29 +121,30 @@ impl FileDiffs {
         if directory_of(candidate.path) == directory_of(&site.path) {
           score += 10;
         }
-        scored.push((score, candidate, declaration.name_line, container, declaration.kind));
+        scored.push(Scored {
+          score,
+          candidate,
+          name_line: declaration.name_line,
+          column: declaration.name_column,
+          container,
+          kind: declaration.kind,
+        });
       }
     }
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.cmp(b.1.path)).then(a.2.cmp(&b.2)));
+    scored.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.candidate.path.cmp(b.candidate.path)).then(a.name_line.cmp(&b.name_line)));
     scored.truncate(MAX_TARGETS);
-    // the column of each name, from the texts of the files with a target
-    let requests: Vec<BlobRequest> = scored.iter().map(|it| it.1.request.clone()).collect();
-    let texts = self.texts_by_id(git, &params.repository_path, &requests)?;
+    // the summary says where each name starts, so no text of a candidate is read for it
     let targets = scored
       .into_iter()
-      .map(|(_, candidate, name_line, container, kind)| {
-        let line = name_line.saturating_sub(1);
-        let column = texts.get(&candidate.request.id).and_then(|text| column_of(text, line, &reference.name)).unwrap_or(0);
-        DeclarationTarget {
-          path: candidate.path.to_string(),
-          side: site.side,
-          line,
-          column,
-          end_column: column + u32::try_from(reference.name.encode_utf16().count()).unwrap_or(0),
-          kind: kind_name(kind).to_string(),
-          container,
-          outside: None,
-        }
+      .map(|it| DeclarationTarget {
+        path: it.candidate.path.to_string(),
+        side: site.side,
+        line: it.name_line.saturating_sub(1),
+        column: it.column,
+        end_column: it.column + u32::try_from(reference.name.encode_utf16().count()).unwrap_or(0),
+        kind: kind_name(it.kind).to_string(),
+        container: it.container,
+        outside: None,
       })
       .collect::<Vec<_>>();
     if targets.is_empty()
@@ -423,7 +435,8 @@ fn directory_of(path: &str) -> &str {
   path.rsplit_once('/').map_or("", |(directory, _)| directory)
 }
 
-/// The UTF-16 column of `name` as a whole word on `line` of `text`
+/// The UTF-16 column of `name` as a whole word on `line` of `text`: the fallback for a hit of the index that carries
+/// no column of its own, where a summary of the review would have said it (`Declaration::name_column`)
 fn column_of(text: &str, line: u32, name: &str) -> Option<u32> {
   word_columns(text, line, name).next()
 }

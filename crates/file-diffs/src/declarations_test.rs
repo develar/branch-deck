@@ -118,8 +118,10 @@ fn revisions_of(commit: &str) -> DiffRevisions {
   }
 }
 
+/// The jump lands on the name the parser read, at the same column whether the declaration is in the change or in the
+/// index; the kind word still differs, which the shared vocabulary closes
 #[test]
-fn records_the_rust_impl_method_kind_and_column_differences_inside_and_outside_the_review() {
+fn finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review() {
   let declaration = "struct Text;\nimpl Text {\n  #[doc(alias = \"needle\")] pub fn needle(&self, needle: &str) {}\n}\n";
   let uses = "fn run(value: &crate::lib::Text) { value.needle(\"\"); }\n";
   let (local_repo, local_diffs, local_files, local_commit) = source_review(&[], &[("src/lib.rs", declaration), ("src/uses.rs", uses)]);
@@ -161,16 +163,19 @@ fn records_the_rust_impl_method_kind_and_column_differences_inside_and_outside_t
     .unwrap();
   let outside = &outside.targets[0];
 
+  // the first `needle` of the line is the one of the attribute, which the column no longer takes
   let first = declaration_line.find("needle").unwrap();
+  assert_ne!(first, outside_column);
   assert_eq!(
-    (local.path.as_str(), local.line, local.column, local.kind.as_str()),
-    ("src/lib.rs", 2, u32::try_from(first).unwrap(), "function")
+    (local.path.as_str(), local.line, local.column, local.end_column),
+    ("src/lib.rs", 2, u32::try_from(outside_column).unwrap(), u32::try_from(outside_column + "needle".len()).unwrap())
   );
   assert_eq!(
-    (outside.path.as_str(), outside.line, outside.column, outside.kind.as_str()),
-    ("src/lib.rs", 2, u32::try_from(outside_column).unwrap(), "method")
+    (outside.path.as_str(), outside.line, outside.column, outside.end_column),
+    (local.path.as_str(), local.line, local.column, local.end_column)
   );
-  assert_ne!(local.column, outside.column);
+  // the two sides still name the kind differently: the index says `method`, the review's own walk `function`
+  assert_eq!((local.kind.as_str(), outside.kind.as_str()), ("function", "method"));
 }
 
 #[test]
