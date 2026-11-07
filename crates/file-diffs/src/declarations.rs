@@ -98,9 +98,17 @@ impl SymbolGroup {
   /// The fold of a kind of an accio that answers no `group`: the same one `Kind::group` makes there
   const fn of_kind(kind: HitKind) -> Option<Self> {
     match kind {
-      HitKind::Class | HitKind::Interface | HitKind::Enum | HitKind::Struct | HitKind::Trait | HitKind::Impl | HitKind::Object | HitKind::Record | HitKind::Delegate | HitKind::Union | HitKind::Annotation => {
-        Some(Self::Class)
-      }
+      HitKind::Class
+      | HitKind::Interface
+      | HitKind::Enum
+      | HitKind::Struct
+      | HitKind::Trait
+      | HitKind::Impl
+      | HitKind::Object
+      | HitKind::Record
+      | HitKind::Delegate
+      | HitKind::Union
+      | HitKind::Annotation => Some(Self::Class),
       HitKind::Function | HitKind::Method | HitKind::Constructor => Some(Self::Function),
       HitKind::Field | HitKind::Property | HitKind::Variable => Some(Self::Property),
       HitKind::Constant => Some(Self::Constant),
@@ -220,7 +228,12 @@ impl FileDiffs {
         });
       }
     }
-    scored.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.candidate.path.cmp(b.candidate.path)).then(a.name_line.cmp(&b.name_line)));
+    scored.sort_by(|a, b| {
+      b.score
+        .cmp(&a.score)
+        .then_with(|| a.candidate.path.cmp(b.candidate.path))
+        .then(a.name_line.cmp(&b.name_line))
+    });
     scored.truncate(MAX_TARGETS);
     // the summary says where each name starts, so no text of a candidate is read for it
     let targets = scored

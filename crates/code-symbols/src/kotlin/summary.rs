@@ -1097,7 +1097,11 @@ impl<'t> Walk<'t> {
     let unstable = fields.unstable || (traits.kind != DeclKind::Binding && container.is_none() && self.file_annotations.iter().any(|it| self.out.unstable_annotation(it)));
     let header = matches!(traits.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant).then(|| self.header(node, has_signature));
     // a declaration that writes no name (an anonymous object) is its own name node: the jump lands where it starts
-    let name_offset = if name_node == node { self.tree.declaration_range(node).start } else { self.tree.range(name_node).start };
+    let name_offset = if name_node == node {
+      self.tree.declaration_range(node).start
+    } else {
+      self.tree.range(name_node).start
+    };
     let name_line = if name_node == node { start } else { self.lines.line(name_offset) };
     let mut declaration = JvmFields { unstable, ..fields }.declaration(blank_declaration(name, traits.kind, traits.reach, traits.member, container));
     declaration.receiver = traits.receiver;

@@ -168,7 +168,12 @@ fn finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review() {
   assert_ne!(first, outside_column);
   assert_eq!(
     (local.path.as_str(), local.line, local.column, local.end_column),
-    ("src/lib.rs", 2, u32::try_from(outside_column).unwrap(), u32::try_from(outside_column + "needle".len()).unwrap())
+    (
+      "src/lib.rs",
+      2,
+      u32::try_from(outside_column).unwrap(),
+      u32::try_from(outside_column + "needle".len()).unwrap()
+    )
   );
   assert_eq!(
     (outside.path.as_str(), outside.line, outside.column, outside.end_column),
