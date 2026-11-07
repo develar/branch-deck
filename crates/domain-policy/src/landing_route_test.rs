@@ -47,6 +47,7 @@ fn decide(remote: &LandingRemote, github: GitHubFacts<'_>, rules: TargetRules<'_
     rules,
     refused: None,
     update: None,
+    landing_in_flight: false,
   })
 }
 
@@ -344,6 +345,7 @@ fn a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push() {
       rules,
       refused: Some("remote: master is protected"),
       update: None,
+      landing_in_flight: false,
     })
   };
   let refused = Reason::BaselineRefusedPush {
@@ -396,7 +398,7 @@ fn a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update(
     required_status_checks: true,
     ..BranchRules::default()
   };
-  let with = |github: GitHubFacts<'_>, rules: TargetRules<'_>, update: &UpdateCheck| {
+  let with = |github: GitHubFacts<'_>, rules: TargetRules<'_>, update: &UpdateCheck, landing_in_flight: bool| {
     route(&RouteFacts {
       remote: &remote,
       baseline: "origin/master",
@@ -404,6 +406,7 @@ fn a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update(
       rules,
       refused: None,
       update: Some(update),
+      landing_in_flight,
     })
   };
   let ahead = push(RouteGate::Refused {
@@ -411,18 +414,25 @@ fn a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update(
       upstream: "origin/master".to_owned(),
     },
   });
-  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &behind), ahead);
-  assert_eq!(with(listed(Write), TargetRules::Known(&checks), &behind), ahead);
-  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &current), push(RouteGate::Open));
+  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &behind, false), ahead);
+  assert_eq!(with(listed(Write), TargetRules::Known(&checks), &behind, false), ahead);
+  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &behind, true), push(RouteGate::Open));
   assert_eq!(
-    with(listed(Write), TargetRules::Pending, &behind),
+    with(listed(Write), TargetRules::Known(&checks), &behind, true),
+    push(RouteGate::Confirm {
+      confirmations: vec![Reason::BaselineRequiresStatusChecks { target: "master".to_owned() }]
+    })
+  );
+  assert_eq!(with(listed(Write), TargetRules::Known(&BranchRules::default()), &current, false), push(RouteGate::Open));
+  assert_eq!(
+    with(listed(Write), TargetRules::Pending, &behind, false),
     push(RouteGate::Wait {
       fact: RouteFact::TargetRules,
       failed: None,
     })
   );
   assert_eq!(
-    with(listed(Read), TargetRules::Pending, &behind),
+    with(listed(Read), TargetRules::Pending, &behind, false),
     push(RouteGate::Refused {
       reason: Reason::NoWriteAccess {
         repository: REPOSITORY.to_owned(),

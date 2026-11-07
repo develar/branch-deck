@@ -95,6 +95,7 @@ pub mod review_fetch;
 pub mod rewrite;
 pub mod robot;
 pub mod robot_start;
+pub mod run_frame;
 pub mod update;
 pub mod witness;
 

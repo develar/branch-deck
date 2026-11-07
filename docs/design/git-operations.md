@@ -332,7 +332,12 @@ taken and deletes it before the release), then runs the real git.
 
 **One exception remains**, pinned as it is, and no change adds a computation under it: `brd update --continue`, which
 holds the lock from its read of the session to the end of its finish (the commit of the round, the replay of the rest,
-the exact check of the finish and the move); it is in "Follow-ups".
+  the exact check of the finish and the move); it is in "Follow-ups".
+
+An app landing that pushes into its target also keeps its registry `Resource::Ref` reservation beyond the repository-lock
+span above: it holds the target through Update Project and the following sync, adding `Resource::Head` for the update.
+That registry reservation serializes landings and fetches of the same target in the session; it does not hold the
+repository lock across the update's fetch or sync.
 
 **Without the lock:** every sync (the app's, `brd sync`, the sync `brd push`, `brd safe-push`, `brd land` and
 `brd request-review` run first, whose refs the witness of their push holds, the `--sync` of a `brd` rewrite after its release:
@@ -1278,8 +1283,10 @@ Details:
   its operation asks: the check inside it compares HEAD with the fetched tracking ref. A forced update needs no
   record: the next check excludes the old tip by the fork point of the tracking ref's reflog.
 - **Fetch lock.** Every fetch of the baseline (`baseline::fetch_baseline`: the app's Update Project and Fetch, `brd update`)
-  holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its whole fetch (`crates/sync-core/src/fetch_lock.rs`, its one
-  taker; `registry_scan_test.rs` fails on the name anywhere else), its holder record (`fetch.lock.holder`, as the
+  holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its whole fetch (`crates/sync-core/src/fetch_lock.rs`, the one
+  implementation of `take_fetch_turn`; `registry_scan_test.rs` fails on the lock name anywhere else). The CAS that
+  follows a successful baseline push also takes this lock for its local tracking-ref update, never across the network
+  push, and does not write a fetch outcome. The holder record (`fetch.lock.holder`, as the
   repository lock's: command, pid, start time, since) naming the tracking ref it writes (`LockHolder::subject`). A
   second fetch, of any process, waits in the line of its process, then for the file lock, as long as the holder's
   record names a live process (`lock_file_while_held_for`; only a lock no record names for 10 s refuses), its progress
@@ -4240,25 +4247,26 @@ frame of every start (`operations::land_execute`):
    `cat-file`), the first push URL of its remote (`remote get-url --push`, with `pushurl` and `pushInsteadOf`), then
    `git -c remote.<r>.url= -c remote.<r>.pushurl= push --progress --porcelain --end-of-options <url> <tip>:refs/heads/<target>`.
    - No `+` and no lease: a commit that is no fast-forward the server refuses whole, atomically.
-   - By the URL, not by the remote's name: a push to a named remote moves its remote-tracking ref, which only the fetch
-     of the baseline writes (`fetch_baseline`, under `fetch.lock`, "Fetch lock"). Git takes the configured remote whose
-     `url` or `pushurl` equals the URL all the same (git 2.56), so the push clears both of that remote for itself (an
-     empty value resets the list); `refs/remotes/origin/master` stays where the last fetch left it
-     (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays`). A pre-push hook sees the URL
-     as both its arguments; a second push URL, `remote.<name>.receivepack` and `remote.<name>.proxy` play no part.
+   - By the URL, not by the remote's name: a push to a named remote would move its remote-tracking ref. Git takes the
+     configured remote whose `url` or `pushurl` equals the URL all the same (git 2.56), so the push clears both of that
+     remote for itself (an empty value resets the list); Git itself moves no tracking ref. After a successful fast-forward
+     `move_tracking_ref_after_push` moves `refs/remotes/<remote>/<target>` locally by one CAS `RefTransaction`, from the
+     witnessed old tip to the pushed tip, under `fetch.lock`, with reflog message `branch-deck: baseline push`. If a
+     fetch already changed the ref, the CAS does nothing. A pre-push hook sees the URL as both its arguments; a second
+     push URL, `remote.<name>.receivepack` and `remote.<name>.proxy` play no part.
    - The report of the ref comes from `--porcelain`, the server's words from its `remote:` lines.
 
 What it answers:
 
 - Taken (`*`, ` `; `=` when the target was at it already): the copies it landed go into the session, each branch of
   `lands` at its tip and the subject at the pushed tip (`Sessions::tell_baseline_push`, `BaselinePushes::landed`), so
-  `landed_state` says "Landed in origin/master" before any fetch shows it and a second click pushes nothing; then the
-  engine runs Update Project with its fetch as an operation of its own (`engine::execute_land`,
-  `domain_policy::land_direct::update_after`), admitted as any update: the start holds no HEAD. Its replay drops the
-  originals whose copies landed: their changes are in the new baseline, so they become empty (`git replay`, "Update
-  project"). Its steps, the progress of its fetch and its outcome go to the caller of the start after the start's own
-  `Done`, on the same channel, and the start answers after it; an update refused before its first effect sends no
-  `Done` of its own. `brd land` updates nothing: it names `brd update`.
+  `landed_state` says "Landed in origin/master" before any fetch shows it and a second click pushes nothing. After a
+  successful fast-forward, the tracking ref already names the pushed tip; Update Project therefore runs without a fetch
+  inside the same operation (`engine::execute_land`, `domain_policy::land_direct::update_after`), with the target ref
+  held until its sync ends. Its replay drops the originals whose copies landed: their changes are in the new baseline,
+  so they become empty (`git replay`, "Update project"). The start's `Done` goes to the caller first, then Update
+  Project's progress and outcome on the same channel; the journal keeps one operation. `brd land` updates nothing: it
+  names `brd update`.
 - `[rejected] (fetch first)` or `(non-fast-forward)`: the target moved since the copy was built on it. The start fetches
   the baseline (`fetch_baseline`, which joins a fetch of any process that runs), asks a sync, and fails as
   `baseline_moved`; no push goes again by itself. The copies are built on the fork point of the checked out branch, not
@@ -4271,9 +4279,9 @@ What it answers:
 - Over the size limit: `push_too_large`, nothing sent.
 
 The start reserves the remote-tracking ref of the target on the remote its plan names (`Resource::Ref`,
-`refs/remotes/<remote>/<target>`): two landings
-into it wait for each other in the process, a fetch of it waits for the push, and across processes the record of the
-other one makes it `busy`.
+`refs/remotes/<remote>/<target>`): two landings into it wait for each other in the process, and the first holds it
+through Update Project and its sync; a fetch of it waits for that whole cycle. Across processes the record of the other
+one makes it `busy`.
 
 Code: `crates/sync-core/src/baseline_push.rs`, `crates/operations/src/land_execute.rs` (`Run::push_baseline`),
 `crates/operations/src/engine.rs` (`execute_land`), `crates/domain-policy/src/land_direct.rs`,

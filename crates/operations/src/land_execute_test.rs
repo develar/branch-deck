@@ -4,7 +4,7 @@ use crate::witness::{Witness, read_refs};
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{land_intent, robot};
-use domain_types::landing::{BaselinePush, Confirmation, Land, PlannedEffect, StartRoute, Subject};
+use domain_types::landing::{BaselinePush, Confirmation, Land, PlannedEffect, StartRoute, Subject, Unchecked};
 use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationId, Plan};
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use domain_types::reason::Reason;
@@ -676,4 +676,71 @@ async fn the_auto_merge_after_the_push_of_the_branch_goes_on_the_pushed_commit()
     [format!(r#"enablePullRequestAutoMerge {{"head":"{tip}","id":"PR_7","method":"REBASE"}}"#)]
   );
   assert_eq!(host.told()[2..], ["pull request AutoMerge { number: 7, method: Some(Rebase) }".to_string()]);
+}
+
+fn plan_with_confirmations(confirmations: Vec<Confirmation>) -> Plan {
+  let Intent::Land(land) = land_intent("alpha", PatronusPushMode::RebaseAutosquash) else {
+    unreachable!()
+  };
+  Plan {
+    intent: Intent::Land(land.clone()),
+    fingerprint: Fingerprint("new fingerprint".to_owned()),
+    lands: vec!["alpha".to_owned()],
+    effects: vec![PlannedEffect::PushBaseline {
+      subject: land.subject,
+      tip: "copy-tip".to_owned(),
+      remote: "origin".to_owned(),
+      target: "master".to_owned(),
+    }],
+    confirmations,
+    blockers: Vec::new(),
+    waits: Vec::new(),
+    alternatives: None,
+    pull_request: None,
+    approvals_skipped_by: None,
+  }
+}
+
+/// A waited plan is retryable only when its target tracking ref alone changed
+#[test]
+fn only_a_waited_landing_with_its_target_ref_moved_gets_one_retry_signal() {
+  use super::{only_target_ref_moved, witnessed_or_retry_target};
+  let plan = plan_with_confirmations(Vec::new());
+  let target_ref = "refs/remotes/origin/master";
+  let witness = Witness {
+    refs: BTreeMap::from([(target_ref.to_owned(), Some("base".to_owned())), ("refs/heads/main".to_owned(), Some("head".to_owned()))]),
+    pull_requests: BTreeMap::new(),
+    robots: BTreeMap::new(),
+    leases: BTreeMap::new(),
+    route: None,
+  };
+  let mut target_moved = witness.refs.clone();
+  target_moved.insert(target_ref.to_owned(), Some("new-base".to_owned()));
+  assert!(only_target_ref_moved(&plan, &witness, &target_moved));
+  assert_eq!(witnessed_or_retry_target(&plan, &witness, &target_moved, true).unwrap_err().code, ErrorCode::BaselineMoved);
+  assert_eq!(witnessed_or_retry_target(&plan, &witness, &target_moved, false).unwrap_err().code, ErrorCode::PlanChanged);
+
+  let mut another_ref_moved = witness.refs.clone();
+  another_ref_moved.insert("refs/heads/main".to_owned(), Some("new-head".to_owned()));
+  let mut both_refs_moved = another_ref_moved.clone();
+  both_refs_moved.insert(target_ref.to_owned(), Some("new-base".to_owned()));
+  for moved in [another_ref_moved, both_refs_moved] {
+    assert!(!only_target_ref_moved(&plan, &witness, &moved));
+    assert_eq!(witnessed_or_retry_target(&plan, &witness, &moved, true).unwrap_err().code, ErrorCode::PlanChanged);
+  }
+}
+
+/// A retry updates the accepted fingerprint, but never silently accepts a new confirmation
+#[test]
+fn a_replanned_landing_still_requires_a_new_confirmation() {
+  use super::check_confirmations;
+  let accepted = Accepted {
+    fingerprint: Fingerprint("old fingerprint".to_owned()),
+    confirmations: Vec::new(),
+  };
+  let plan = plan_with_confirmations(vec![Confirmation::Unchecked { why: Unchecked::NoPullRequest }]);
+  let decided_again = accepted.decided_again(&plan, true);
+  assert_eq!(decided_again.fingerprint, plan.fingerprint);
+  assert_eq!(decided_again.confirmations, Vec::<Confirmation>::new());
+  assert_eq!(check_confirmations(&decided_again, &plan).unwrap_err().code, ErrorCode::PlanChanged);
 }

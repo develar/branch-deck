@@ -703,6 +703,31 @@ fn the_pushes_of_the_view_read_the_landing_report_of_the_table_as_the_decision_o
   }
 }
 
+/// A session has a landing in flight only while an operation holds the exact tracking ref of its target
+#[test]
+fn the_landing_route_sees_only_an_operation_holding_its_target_ref() {
+  use super::landing_in_flight;
+  use domain_types::landing_route::LandingRemote;
+  use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Resource, RunningOperation};
+  let remote = LandingRemote {
+    remote: Some("origin".to_owned()),
+    target: Some("master".to_owned()),
+    ..LandingRemote::default()
+  };
+  let operation = |reference: &str| RunningOperation {
+    id: OperationId("fetch".to_owned()),
+    intent: Intent::FetchBaseline,
+    resources: vec![Resource::Ref { name: reference.to_owned() }],
+    step: OperationStep::Fetching,
+    origin: Origin::ThisProcess,
+    moves: Vec::new(),
+    joined: 0,
+  };
+  assert!(landing_in_flight(&remote, &[operation("refs/remotes/origin/master")]));
+  assert!(!landing_in_flight(&remote, &[operation("refs/remotes/upstream/master")]));
+  assert!(!landing_in_flight(&remote, &[operation("refs/remotes/origin/main")]));
+}
+
 /// The view carries the next step and the node of every row and of every whole stack that forks
 /// (`domain_policy::next_step`, `domain_policy::landing_node`), over the table and the facts of the session; a patch
 /// carries only the subjects whose step or node changed

@@ -6,22 +6,26 @@
 //! - No `+`, no lease: a commit that is no fast-forward of the target the server refuses whole, atomically, as
 //!   `[rejected] (fetch first)` or `(non-fast-forward)`: the target moved since the copy was built on it (`Moved`).
 //! - By the first push URL of the remote (`remote get-url --push`, with `pushurl` and `pushInsteadOf`), not by its name:
-//!   a push to a named remote moves its remote-tracking ref (`refs/remotes/origin/master`), which only the fetch of the
-//!   baseline writes (`baseline::fetch_baseline`, under `fetch.lock`). Git takes the configured remote whose `url` or
-//!   `pushurl` is the URL (and moves its refs all the same), so the push clears both of that remote for itself
-//!   (`-c remote.<name>.url= -c remote.<name>.pushurl=`: an empty value resets the list). A pre-push hook sees the URL
-//!   as both its arguments; a second push URL, `remote.<name>.receivepack` and `remote.<name>.proxy` play no part.
+//!   Git takes the configured remote whose `url` or `pushurl` is the URL, so the push clears both of that remote for
+//!   itself (`-c remote.<name>.url= -c remote.<name>.pushurl=`: an empty value resets the list) and moves no tracking
+//!   ref. After a successful fast-forward, the local tracking ref is moved from the landing witness tip to the pushed tip
+//!   by `move_tracking_ref_after_push`, one CAS under `fetch.lock`; if the ref has moved, it is left alone. A pre-push
+//!   hook sees the URL as both its arguments; a second push URL, `remote.<name>.receivepack` and `remote.<name>.proxy`
+//!   play no part.
 //! - The size check of every push first (`push_size::check_push_size`, over the remote-tracking refs of the remote).
 //! - Through the policy of every git that talks to a remote (`remote_command`), its progress to the caller; the
 //!   report of the ref read from `--porcelain`, the server's words from its `remote:` lines.
 
 use crate::baseline::{BaselineUpstream, resolve_baseline_upstream};
+use crate::fetch_lock::{FetchTurn, take_fetch_turn};
 use crate::push_lease::{PushRefsReport, parse_push_porcelain, remote_messages};
 use crate::push_size::{PushTooLarge, check_push_size};
 use crate::remote_command::execute_remote_command_with_progress_configured;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::ref_transaction::RefTransaction;
+use git_ops::revs::resolve_commit;
 use tracing::{info, instrument, warn};
 
 /// What a push into the baseline is of
@@ -36,6 +40,8 @@ pub struct BaselinePush<'a> {
   pub target: &'a str,
   /// The commit pushed: the copy as the witness of the start froze it
   pub tip: &'a str,
+  /// The tip of the tracking ref in the witness; the write after a successful push is compare-and-swap on it
+  pub expected_tracking_tip: Option<&'a str>,
   /// `branchdeck.pushSizeLimit`; `None` for no check
   pub size_limit: Option<u64>,
 }
@@ -63,8 +69,8 @@ pub struct BaselinePushReport {
 }
 
 /// Pushes `push.tip` into the branch of `push.baseline` on its remote by the first push URL of that remote (the
-/// module's header): the size check, the upstream and the URL, then one `git push --porcelain --progress`. A rejected
-/// ref is an answer, never an error
+/// module's header): the size check, the upstream and the URL, then one `git push --porcelain --progress`; after a
+/// successful fast-forward it moves the local tracking ref with CAS. A rejected ref is an answer, never an error
 ///
 /// # Errors
 /// A local baseline, a remote without a push URL, git failing, a push whose report names no ref
@@ -105,8 +111,36 @@ pub fn push_baseline(git_executor: &GitCommandExecutor, push: &BaselinePush<'_>,
     refs: parse_push_porcelain(&output.into_text()),
   };
   let pushed = answer_of(&report, &upstream.remote_ref)?;
+  if matches!(&pushed, BaselinePushed::Pushed { up_to_date: false })
+    && let Err(error) = move_tracking_ref_after_push(git_executor, path, &upstream, push.expected_tracking_tip, push.tip)
+  {
+    warn!(error = %format!("{error:#}"), tracking_ref = %upstream.tracking_ref, "the baseline push landed but its tracking ref could not be advanced");
+  }
   info!(?pushed, "the push into the baseline answered");
   Ok(BaselinePushReport { upstream, pushed })
+}
+
+/// Moves the tracking ref only from the value the landing witnessed, under the fetch lock; a fetch that already moved it
+/// wins, and a waiter that joined that fetch takes the lock again before deciding whether a write is needed
+fn move_tracking_ref_after_push(git_executor: &GitCommandExecutor, repository_path: &str, upstream: &BaselineUpstream, expected: Option<&str>, tip: &str) -> Result<()> {
+  loop {
+    match take_fetch_turn(git_executor, repository_path, upstream, &mut |_| {}, &|| false)? {
+      FetchTurn::Joined { .. } => {}
+      FetchTurn::Own(lock) => {
+        if resolve_commit(git_executor, repository_path, &upstream.tracking_ref)?.as_deref() == expected {
+          let mut refs = RefTransaction::new();
+          if let Some(expected) = expected {
+            refs.update(&upstream.tracking_ref, tip, Some(expected));
+          } else {
+            refs.create(&upstream.tracking_ref, tip);
+          }
+          refs.create_reflog().commit(git_executor, repository_path, "baseline push")?;
+        }
+        drop(lock);
+        return Ok(());
+      }
+    }
+  }
 }
 
 /// The first push URL of `remote` (`pushurl`, `pushInsteadOf` applied)

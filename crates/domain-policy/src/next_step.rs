@@ -551,7 +551,9 @@ fn push_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Optio
   if holds_still(facts, slot, landed) {
     return settled(general, dry_run);
   }
-  // row push′: the copy is built on the commit before the new ones of the fetched baseline, the update builds it anew
+  // An in-flight landing leaves the gate open so the action queues. BaselineAhead means the target moved outside the
+  // session.
+  // Row push′: the copy is built on the commit before the new ones of the fetched baseline, the update builds it anew
   if let RouteGate::Refused {
     reason: reason @ Reason::BaselineAhead { upstream },
   } = gate

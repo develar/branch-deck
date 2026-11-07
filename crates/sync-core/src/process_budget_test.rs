@@ -1096,11 +1096,13 @@ async fn a_target_conflict_check() {
 
 /// The push of a copy into the branch of the baseline on its remote (`baseline_push`): the upstream of the baseline
 /// (`remote`, the checked out branch by `symbolic-ref`, its upstream by `for-each-ref`), the size check of what it adds
-/// (one `log`, one `cat-file`), the push URL of the remote (`remote get-url`), one `push`
+/// (one `log`, one `cat-file`), the push URL of the remote (`remote get-url`), one `push`, then the fetch lock and one
+/// CAS update of the local tracking ref (`rev-parse`, `update-ref`); no network fetch follows the push
 #[test]
 fn a_push_into_the_baseline() {
   let repo = stack_ahead_of_bare_origin();
   let tip = repo.rev_parse("test/virtual/alpha").unwrap();
+  let expected_tracking_tip = repo.rev_parse("refs/remotes/origin/master").unwrap();
   let git = counting();
   let push = BaselinePush {
     repository_path: repo.path_str(),
@@ -1108,10 +1110,23 @@ fn a_push_into_the_baseline() {
     remote: "origin",
     target: "master",
     tip: &tip,
+    expected_tracking_tip: Some(&expected_tracking_tip),
     size_limit: Some(50 << 20),
   };
   push_baseline(&git, &push, &mut |_| {}).unwrap();
-  assert_processes(&git, &[("cat-file", 1), ("for-each-ref", 1), ("log", 1), ("push", 1), ("remote", 2), ("symbolic-ref", 1)]);
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("for-each-ref", 1),
+      ("log", 1),
+      ("push", 1),
+      ("remote", 2),
+      ("rev-parse", 2),
+      ("symbolic-ref", 1),
+      ("update-ref", 1),
+    ],
+  );
 }
 
 /// The review of a target (`review_target`): a branch is one `for-each-ref` of the tips and the baseline and one `log`;

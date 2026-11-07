@@ -27,6 +27,7 @@ use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::pull_request_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
+use crate::run_frame::wait_for_facts;
 use crate::witness::Witness;
 use domain_policy::github_stack::stack_writes;
 use domain_policy::pull_request::layer_base_of;
@@ -704,9 +705,10 @@ pub async fn execute_pull_request(registry: &Registry, key: &SessionKey, intent:
   let planned = prepare_planned(sessions, key, &intent).await;
   let request = pull_request_request(&intent, planned.as_ref());
   run(registry, key, request, events, async |guard| {
+    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head]).await;
     // decided again once admitted: an operation it waited for changed what it decides on
     let planned = prepare_planned(sessions, key, &intent).await.ok_or_else(|| no_plan(&intent))?;
-    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, guard.queued()).await
+    run_planned_in(guard, pull_request_start(services, sessions, key).await?, planned, &accepted, waited.waited).await
   })
   .await
 }

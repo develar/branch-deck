@@ -1799,7 +1799,17 @@ fn a_land_check_by_a_push() {
 fn a_land_by_a_push() {
   let (context, output) = land_by_push(|args| args.allow_checks_not_passed = true);
   assert!(output.landed, "{output:?}");
-  let run = [("cat-file", 1), ("for-each-ref", 3), ("log", 1), ("push", 1), ("remote", 2), ("symbolic-ref", 1)];
+  // The baseline push advances its tracking ref locally by CAS after the network push; it does not fetch.
+  let run = [
+    ("cat-file", 1),
+    ("for-each-ref", 3),
+    ("log", 1),
+    ("push", 1),
+    ("remote", 2),
+    ("rev-parse", 1),
+    ("symbolic-ref", 1),
+    ("update-ref", 1),
+  ];
   assert_processes(&context, &with_more(LAND_CHECK, &run));
 }
 

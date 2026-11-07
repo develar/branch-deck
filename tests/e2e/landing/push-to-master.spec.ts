@@ -4,12 +4,12 @@ import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
-import { virtualBranch } from "../helpers/push-helpers"
+import { holdRemotePushes, virtualBranch } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { waitForStepFacts } from "../helpers/wait-helpers"
@@ -79,6 +79,39 @@ test.describe("Push to master", () => {
     const copy = await repo.revision(virtualBranch(BRANCH))
     await step.click()
     await confirmAndExpectLanded(page, repo, safePushPopover(page), copy)
+  })
+
+  test("should queue a second push to master until the first landing's update and sync finish", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const firstBranch = "JIRA-456"
+    const secondBranch = "ABC-123"
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+    await waitForStepFacts(findBranchRow(page, secondBranch).getByTestId("next-step-slot"))
+    const masterBefore = (await repo.getRemoteBranches()).master
+    const heldPush = await holdRemotePushes(repo)
+    const bothAnswers = nextAnswer(page, "execute", 2)
+    const firstAnswer = runAndWaitForAnswer(page, "execute", async () => {
+      await pushStep(page, firstBranch).click()
+      await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
+      await page.keyboard.press("Enter")
+    })
+
+    await heldPush.arrived()
+    const secondStep = pushStep(page, secondBranch)
+    await expect(secondStep).toBeEnabled()
+    await secondStep.click()
+    await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
+    await page.keyboard.press("Enter")
+    await heldPush.release()
+    await Promise.all([firstAnswer, bothAnswers])
+
+    const firstToast = pushToast(page, `Pushed ${firstBranch} into master`)
+    const secondToast = pushToast(page, `Pushed ${secondBranch} into master`)
+    await expect(firstToast).toContainText(`${firstBranch} landed in origin/master`)
+    await expect(secondToast).toContainText(`${secondBranch} landed in origin/master`)
+    await expect(findBranchRow(page, firstBranch)).toHaveCount(0)
+    await expect(findBranchRow(page, secondBranch)).toHaveCount(0)
+    await expect.poll(async () => (await repo.getRemoteBranches()).master).not.toBe(masterBefore)
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: /Cannot push|Nothing was pushed/ })).toHaveCount(0)
   })
 
   test("should open the popover of Push to master with S on the row", async ({ page, setupRepo, syncAndWaitForBranches }) => {

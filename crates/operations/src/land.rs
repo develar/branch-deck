@@ -104,7 +104,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
   let facts = session.facts();
   let readiness = |key: &str| -> Option<&Fact<SubjectReadiness>> { facts.readiness.fact(key) };
   let header = session.state().header();
-  let route = landing_route_of(header, &session.state().sections().landed, facts);
+  let route = landing_route_of(header, &session.state().sections().landed, facts, session.state().operations());
   let robots = Robots::new(session.robots());
   let landed = LandedFacts {
     baseline: host.baseline,

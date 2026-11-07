@@ -44,6 +44,7 @@ targets:
   - ../../src/lib/text.ts
   - ../../crates/sync-utils/src/list_cut.rs
   - ../../crates/operations/src/events.rs
+  - ../../crates/operations/src/run_frame.rs
   - ../../src/model/intents.ts
   - ../../crates/update-core/src/error_cases.rs
   - ../../crates/git-ops/src/word_replay.rs
@@ -445,6 +446,11 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/operations/src/update_test.rs (`an_update_fetches_checks_and_moves_then_asks_its_sync_with_its_undo`)
   [@test] ../../src/stores/update-project.test.ts (`shows the steps of its operation: the fetch with git's progress, the wait behind a rewrite, then the check`)
   [@test] ../../src/stores/update-project.test.ts (`ignores a step that arrives after its outcome`)
+- Update Project that follows a successful push into the target is part of that landing's operation, not a second start:
+  the push's CAS already moved the target tracking ref, so the update has no network fetch; it holds the target until its
+  sync ends. The start and update outcomes use the same event channel and operation id, and the journal contains one
+  entry. A target that refused the push as `baseline_moved` still takes the fetch path.
+  [@test] ../../crates/operations/src/update_test.rs (`a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed`, `two_pushes_into_the_target_run_one_after_the_other_with_the_second_replanned`)
 - The step and the fetch progress belong to the repository the update (or the Fetch of a merge toast) runs in: after a
   switch, the buttons show the selected repository's, never another one's. One update or fetch runs at a time in a
   repository, and none is dropped: the session joins a second Update (⌘T, a toast) into the running update, the fetch

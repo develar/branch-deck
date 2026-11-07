@@ -462,7 +462,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 
   | # | State | Slot | Start elsewhere |
   |---|---|---|---|
-  | push′ | The fetched baseline has commits the fork point of the checked out branch lacks, which the copy is built on (`baselineAhead`, the gate of the route) | "Update Project" (⌘T's update), its node the user's step | Push to master disabled: "origin/master has new commits: Update Project first" |
+  | push′ | The fetched baseline has commits the fork point of the checked out branch lacks, which the copy is built on (`baselineAhead`, the gate of the route), unless a landing in this session holds the same target ref | "Update Project" (⌘T's update), its node the user's step | Push to master disabled: "origin/master has new commits: Update Project rebuilds the copy on the new baseline"; while that landing is in flight, Push to master stays enabled and queues behind it |
   | push | Nothing of the table above holds it | "Push to master" ("Push to master · 3" for what it is built on), its node ready | disabled with the refusal of the gate ("You have no write access to acme/monorepo"), else enabled: its popover confirms what CI did not check and what the gate asks |
 
   A Dry Run is a robot of Patronus: never offered on this route (`dryRunNeedsPatronus`). The whole stack of a root that
@@ -478,11 +478,17 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
 - Row push′: a push of a copy built on the commit before the new ones of the fetched baseline would be no fast-forward,
   which the server refuses after a round trip; the step is Update Project, which builds the copy anew on them, and the
-  push waits for it on every surface. `brd land` refuses it as `baseline_moved` with `brd update` next, pushing nothing.
+  push waits for it on every surface. While another landing in this session holds that target ref, the push gate stays
+  open (or keeps its confirmations) and the action remains Push to master, so it queues instead of refusing; a target
+  moved outside the session still takes the Update Project step. `brd land` refuses it as `baseline_moved` with `brd
+  update` next, pushing nothing.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_push_to_master_stays_the_next_step_while_another_landing_is_in_flight`)
+  [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update`)
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_fetched_baseline_ahead_of_the_copy_makes_the_update_the_users_step`)
   [@test] ../../src/presenters/next-step.test.ts (`row push′: updates the project, whose fetched baseline has commits the copy is not built on, and Push to master says why it waits`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should offer Update Project while the fetched master has commits the branch is not built on, and push after it`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should queue a second push to master until the first landing's update and sync finish`)
 
 ### A merge of the pull request
 

@@ -17,15 +17,16 @@
 //! the user accepted what it asks (`Accepted::decided_again`): a push and the Safe Push pressed right after it are one
 //! push and one start. A start of a repository that lands by a push into the target reserves the remote-tracking ref of
 //! the target on the remote its plan names (`refs/remotes/origin/master`: two landings into it wait for each other, a
-//! fetch of it waits for the push) and runs without Patronus; once its push landed, Update Project with its fetch
-//! follows as an operation of its own (`domain_policy::land_direct::update_after`), admitted as any update, its events
-//! to the caller of the start: the start holds no HEAD in its network part.
+//! fetch of it waits for the push) and runs without Patronus; after its push, the follow-up intent of
+//! `domain_policy::land_direct::update_after` runs under the same guard, which holds the target through Update Project
+//! and its sync. It adds HEAD after any fetch and sends the start outcome before the update outcome on the same channel.
 
 use crate::events::EventSink;
-use crate::land_execute::{self, Accepted, Planned, StartServices, Steps};
+use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Steps};
 use crate::land_session::{SessionStart, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
+use crate::run_frame::{self, wait_for_facts};
 use crate::witness::{Witness, check};
 use crate::{auto_merge, close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
 use domain_policy::land_direct::update_after;
@@ -240,7 +241,7 @@ pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, S
   let steps = steps_of(guard);
   let accepted = accepted.decided_again(&planned.plan, waited);
   // the run of a plan is a large future: on the heap
-  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, &accepted)).await?;
+  let started = Box::pin(land_execute::run_planned(&host, &services, &steps, guard.id().clone(), planned, &accepted, waited)).await?;
   Ok(started.outcome)
 }
 
@@ -249,38 +250,52 @@ pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, S
 /// (`land_execute::execute`) over the session and the services of `hosts` (`session_start`; a push into the target,
 /// which starts no robot, `pull_request_start`) with its steps in the view and its progress and outcome to `events`, on
 /// what the operations it queued behind left (the push of its branch pressed just before it: the start pushes nothing
-/// more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows as an operation of
-/// its own (`land_direct::update_after`), its steps in the view and, after the start's `Done`, its events and its own
-/// `Done` to `events`; the answer is the start's, after the update: an update refused before its first effect (a lock
-/// another process holds) sends no `Done` of its own
+/// more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
+/// guard (`land_direct::update_after`): its steps and, after the start's `Done`, its outcome go to `events`, while the
+/// target stays held until its sync; the answer is the start's. The journal contains one operation for both phases
 ///
 /// # Errors
 /// What refused the start before its first effect (`land_execute::execute`), a lock another process holds, a session
 /// that closed or has no sync yet
 pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, accepted: Accepted, hosts: Hosts<'_>, events: Arc<dyn EventSink>) -> Answer {
   let services = hosts.services;
-  let planned = land::prepare(registry.sessions(), key, land.clone()).await;
+  let sessions = registry.sessions();
+  let planned = land::prepare(sessions, key, land.clone()).await;
   let request = land_request(&key.prefix, &land, planned.as_ref());
   let pushes_into_target = planned.as_ref().is_some_and(pushes_into_target);
-  let answer = run(registry, key, request, Arc::clone(&events), async |guard| {
-    let (host, run) = if pushes_into_target {
-      pull_request_start(services, registry.sessions(), key).await?
+  run(registry, key, request, Arc::clone(&events), async |guard| {
+    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head]).await;
+    let (mut host, run) = if pushes_into_target {
+      pull_request_start(services, sessions, key).await?
     } else {
-      session_start(services, registry.sessions(), key).await?
+      session_start(services, sessions, key).await?
     };
+    host.exclude_operation(guard.id().clone());
+    if let Some(error) = waited.failed {
+      return Err(error);
+    }
     let steps = steps_of(guard);
-    let started = land_execute::execute(&host, &run, &steps, guard.id().clone(), &land, &accepted, guard.queued()).await?;
+    let started = match land_execute::execute(&host, &run, &steps, guard.id().clone(), &land, &accepted, waited.waited).await {
+      Ok(started) => started,
+      Err(error) if waited.waited && error.code == ErrorCode::BaselineMoved => {
+        run_frame::refresh_baseline(sessions, key, guard, hosts).await?;
+        let planned = host
+          .plan(&land)
+          .await?
+          .ok_or_else(|| ApiError::new(ErrorCode::UnknownBranch, format!("Nothing was pushed: the session no longer has {}", land.subject.words())))?;
+        let accepted = accepted.decided_again(&planned.plan, true);
+        land_execute::run_planned(&host, &run, &steps, guard.id().clone(), planned, &accepted, false).await?
+      }
+      Err(error) => return Err(error),
+    };
+    if let Some(intent) = update_after(&started.outcome.effects) {
+      // the start's outcome comes first on the channel; the follow-up keeps the target held until its sync ends
+      guard.report(&started.outcome);
+      let _ = run_frame::follow_up(registry, key, guard, intent, hosts, &events).await;
+    }
     Ok(started.outcome)
   })
-  .await;
-  if let Ok(outcome) = &answer
-    && let Some(Intent::UpdateProject { fetch }) = update_after(&outcome.effects)
-  {
-    // the caller hears its steps, the progress of its fetch and its outcome after the start's `Done`, on the same
-    // channel (the toast of the push says how the update went); the answer is the start's
-    drop(Box::pin(update::execute_update(registry, key, fetch, hosts, events)).await);
-  }
-  answer
+  .await
 }
 
 /// The plan pushes the copy of its subject into the target, or GitHub merges its pull request: no robot of Patronus

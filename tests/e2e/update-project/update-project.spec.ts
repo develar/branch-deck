@@ -223,7 +223,7 @@ test.describe("Update Project", () => {
     await expect(await updateWaiting(page)).toContainText(/Waiting for `brd pick --follow`/)
 
     // a park meanwhile waits behind the update in the queue of the session, never refused
-    await expectParkWaiting(page, "Waits for Updating the project…")
+    await expectParkWaiting(page, "Queued behind Updating the project…")
     await expectUpdatedAndParked(page, repo)
   })
 

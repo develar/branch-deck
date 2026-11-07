@@ -74,8 +74,9 @@ use domain_policy::row_status::row_status;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
-use domain_types::landing_route::LandingRoute;
+use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::{NextStepView, RowStatus, StackPullRequest};
+use domain_types::operation::{Resource, RunningOperation};
 use domain_types::patronus::{
   LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness,
 };
@@ -978,10 +979,10 @@ pub fn landed_states_of(state: &TableState, facts: &FactStore) -> BTreeMap<Strin
 /// The route of the repository of `header` into master with its gate (`domain_policy::landing_route::route`): what its
 /// last grouping read of git (the setting, where the remotes push, the target), the check of the update of its last
 /// sync (`landed`: the fork point the copies are built on, the fetched baseline), the facts of GitHub of `facts` (the listing of
-/// the pull requests with the permission of the token, the rules of the target), and the refusal of the server of its
-/// last push into the target (`BaselinePushes::refused`)
+/// the pull requests with the permission of the token, the rules of the target), the refusal of the server of its last
+/// push into the target (`BaselinePushes::refused`) and operations holding the target ref
 #[must_use]
-pub fn landing_route_of(header: &TableHeader, landed: &LandedSection, facts: &FactStore) -> LandingRoute {
+pub fn landing_route_of(header: &TableHeader, landed: &LandedSection, facts: &FactStore, operations: &[RunningOperation]) -> LandingRoute {
   let remote = &header.landing;
   let rules = rules_target(remote).and_then(|target| facts.rules.get(target)).map(FactRecord::fact);
   route(&RouteFacts {
@@ -991,7 +992,23 @@ pub fn landing_route_of(header: &TableHeader, landed: &LandedSection, facts: &Fa
     rules: TargetRules::of(rules),
     refused: facts.baseline_pushes.refused.as_ref().map(|refused| refused.message.as_str()),
     update: landed.baseline.as_ref().and_then(|baseline| baseline.update.as_ref()),
+    landing_in_flight: landing_in_flight(remote, operations),
   })
+}
+
+/// Whether one of this session's operations holds the remote-tracking ref that its landing would move
+fn landing_in_flight(remote: &LandingRemote, operations: &[RunningOperation]) -> bool {
+  let Some(target_ref) = remote
+    .remote
+    .as_deref()
+    .zip(remote.target.as_deref())
+    .map(|(remote, target)| format!("refs/remotes/{remote}/{target}"))
+  else {
+    return false;
+  };
+  operations
+    .iter()
+    .any(|operation| operation.resources.iter().any(|resource| matches!(resource, Resource::Ref { name } if name == &target_ref)))
 }
 
 /// The layers of the stacks of GitHub of `state` (`domain_policy::github_stack::chain_of`), by branch: on a route without
@@ -1178,7 +1195,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let robots = listed_robots(facts.robots.view());
   let target = baseline_on_remote(&state.parts.header.baseline_branch);
   let readiness = |key: &str| facts.readiness.fact(key);
-  let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
+  let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts, state.operations());
   let github_layers = github_layers_of(state, facts, &route, &landed_states_of(state, facts));
   let sources = LandSources {
     route: &route,
@@ -1654,7 +1671,7 @@ pub fn session_open_pull_requests(state: &TableState, facts: &FactStore, prefix:
 /// without the derived parts of the view: `bd`, a read of the session
 #[must_use]
 pub fn session_github_layers(state: &TableState, facts: &FactStore) -> BTreeMap<String, GitHubLayer> {
-  let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
+  let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts, state.operations());
   github_layers_of(state, facts, &route, &landed_states_of(state, facts))
 }
 
@@ -1688,7 +1705,7 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
   let robots = facts.robots.view();
   let patronus = PatronusStanding::of(&robots.head, &part.state);
   let readiness = |key: &str| facts.readiness.fact(key);
-  let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
+  let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
   let sources = StepSources {
     route: &route,
     table: &table.table,

@@ -228,8 +228,7 @@ Hard rules of the git the app and `brd` run. Each rule in full, with its excepti
 - **Exit codes**: `merge-tree` and `replay` exit 1 on conflicts, `merge-tree --stdin` 0 with a status per merge;
   `merge-base` 1 is "no", any other non-zero an error.
 - **Network commands** run through `execute_remote_command`.
-- **The branch of the baseline on its remote** takes only `push_baseline`; only `fetch_baseline` writes
-  `refs/remotes/origin/master`.
+- **Baseline tracking refs**: only `fetch_baseline` and the successful-push witness CAS write them under `fetch.lock`.
 - **Fetch lock**: the baseline is fetched only by `fetch_baseline` (`fetch.lock`); no retry on `cannot lock ref`.
 - **Git config writes**: only the `branchdeck.*` keys of Settings (`repository_config.rs`) and the branch descriptions
   of `brd describe`.

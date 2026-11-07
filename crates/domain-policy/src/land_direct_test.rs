@@ -405,12 +405,12 @@ fn bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags() {
   assert_eq!(unaccepted(&confirmations, &both), [] as [&Confirmation; 0]);
 }
 
-/// Update Project with its fetch follows only a push into the target that landed: not one that failed, not a start of a
-/// robot
+/// Update Project without a fetch follows a push into the target that landed; a refusal after a moved target still
+/// fetches it; the server's refusal and a start of a robot do neither
 #[test]
 fn the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved() {
   let pushed = |status| vec![EffectRecord::new(push_effect("login-tip"), status)];
-  assert_eq!(update_after(&pushed(EffectStatus::Done)), Some(Intent::UpdateProject { fetch: true }));
+  assert_eq!(update_after(&pushed(EffectStatus::Done)), Some(Intent::UpdateProject { fetch: false }));
   // the copy is built on the fork point: only the update onto the moved target builds it anew
   let moved = EffectStatus::Failed {
     error: ApiError::new(ErrorCode::BaselineMoved, "master moved"),

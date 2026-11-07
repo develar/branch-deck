@@ -465,6 +465,7 @@ impl Registry {
       sessions: Arc::clone(&self.sessions),
       channels: Arc::clone(&self.channels),
       events,
+      reported: AtomicBool::new(false),
       ended: false,
       queued: false,
       entry,
@@ -715,6 +716,8 @@ pub struct RunningGuard {
   sessions: Arc<Sessions>,
   channels: Channels,
   events: Arc<dyn EventSink>,
+  /// Its first outcome was sent before an in-guard follow-up; the final outcome is still journaled at `finish`
+  reported: AtomicBool,
   ended: bool,
   /// It waited in the queue for the operations before it
   queued: bool,
@@ -842,6 +845,18 @@ impl RunningGuard {
     self.entry.as_ref().map(Entry::handle)
   }
 
+  /// Sends the outcome of the operation's main effect before its follow-up; `finish` still ends and journals it once
+  pub fn report(&self, outcome: &Outcome) {
+    if !self.reported.swap(true, Ordering::SeqCst) {
+      self.events.send(OperationEvent::Done {
+        outcome: Box::new(Outcome {
+          stats: stats_of(&self.tally),
+          ..outcome.clone()
+        }),
+      });
+    }
+  }
+
   /// The moves of rows the operation makes from now on
   pub fn moves(&self, moves: Vec<RunningMove>) {
     let id = self.id.clone();
@@ -862,7 +877,9 @@ impl RunningGuard {
   pub async fn finish(mut self, answer: Answer) -> Answer {
     let stats = stats_of(&self.tally);
     let answer = answer.map(|outcome| Outcome { stats: stats.clone(), ..outcome });
-    if let Ok(outcome) = &answer {
+    if let Ok(outcome) = &answer
+      && !self.reported.swap(true, Ordering::SeqCst)
+    {
       self.events.send(OperationEvent::Done {
         outcome: Box::new(outcome.clone()),
       });

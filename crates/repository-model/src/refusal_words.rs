@@ -85,7 +85,7 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::NotOnGitHub => "the pull requests of the branches are not on GitHub".to_string(),
     Reason::DryRunNeedsPatronus => "a Dry Run is a robot of Patronus, and the repository lands without one".to_string(),
     Reason::BaselineRefusedPush { target, message } => format!("the server refused a push into {target} before: {message}"),
-    Reason::BaselineAhead { upstream } => format!("{upstream} has new commits, and the copy of {subject} is built on the commit before them: the update builds it anew on them"),
+    Reason::BaselineAhead { upstream } => format!("{upstream} has new commits: Update Project rebuilds the copy of {subject} on the new baseline"),
     Reason::NoPullRequestToMerge { branch } => format!("{branch} has no open pull request: create one, GitHub merges it"),
     Reason::MergeDraft { number } => format!("#{number} is a draft: mark it ready for review on GitHub first"),
     Reason::MergeConflict { number } => format!("#{number} conflicts with its base: GitHub can't merge it"),

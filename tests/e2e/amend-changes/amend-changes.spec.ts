@@ -183,7 +183,7 @@ test.describe("Amend Changes Feature", () => {
       // the amend reaches the session and waits behind it in its queue: its form says so
       await openAmendDialog(page, "feature-auth")
       await submitAmend(page)
-      await expect(page.getByRole("dialog", { name: "Amend changes to feature-auth" })).toContainText("Waits for Adding GH-1 to feature-api…")
+      await expect(page.getByRole("dialog", { name: "Amend changes to feature-auth" })).toContainText("Queued behind Adding GH-1 to feature-api…")
       expect(amends.map(call => [call.repositoryPath, call.rewrite.branchName])).toEqual([[repositoryPath, "feature-auth"]])
 
       await switchRepository(page, OTHER_REPOSITORY)
@@ -209,7 +209,7 @@ test.describe("Amend Changes Feature", () => {
 
       // the issue reference reaches the session and waits behind it in its queue: its form says so
       await addIssueReference(page, "feature-auth", "GH-2")
-      await expect(page.getByText("Waits for Amending changes to feature-api…")).toBeVisible()
+      await expect(page.getByText("Queued behind Amending changes to feature-api…")).toBeVisible()
       expect(references.map(call => [call.repositoryPath, call.rewrite.branchName, call.rewrite.issueReference])).toEqual([[repositoryPath, "feature-auth", "GH-2"]])
 
       await switchRepository(page, OTHER_REPOSITORY)

@@ -86,7 +86,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let repository = github_repository_known(pull_requests, robots);
   let sync_running = matches!(state.sync, SyncState::Running { .. });
   let operations = state.operations();
-  let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
+  let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
   let push_route = matches!(route, LandingRoute::Push { .. });
   let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view()));
   // what the pushes, the starts and the pull requests read; a restart and a cancel only the robots

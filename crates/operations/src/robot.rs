@@ -26,6 +26,7 @@ use crate::land_execute::{Accepted, Planned, PushLease, PushedRef};
 use crate::land_session::session_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::patronus_failure;
+use crate::run_frame::wait_for_facts;
 use crate::witness::Witness;
 use domain_policy::holds::is_active;
 use domain_policy::pull_request::base_of;
@@ -302,11 +303,12 @@ pub async fn execute_restart(registry: &Registry, key: &SessionKey, robot_id: &s
   let planned = prepare_restart(sessions, key, robot_id).await;
   let request = restart_request(robot_id, planned.as_ref());
   run(registry, key, request, events, async |guard| {
+    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head]).await;
     // decided again once admitted: an operation it waited for changed what it decides on
     let planned = prepare_restart(sessions, key, robot_id)
       .await
       .ok_or_else(|| unknown_robot(robot_id, "restarted", "restart"))?;
-    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, guard.queued()).await
+    run_planned_in(guard, session_start(services, sessions, key).await?, planned, &accepted, waited.waited).await
   })
   .await
 }

@@ -95,13 +95,17 @@ The specs are the contract of each part:
   the next step of a ready subject is "Push to master" (the row `push` of [Next Step](../../spec/branch/next-step.spec.md#a-push-into-the-target)),
   its node ready, its action `push-to-baseline`; a Dry Run, a robot of Patronus, is refused. A push runs no CI, so
   what CI did not pass on the tip (no open pull request, one that shows another commit, failing or running checks) and
-  the changes requested on it are confirmations, and so is what the gate asks. After a push that landed, Update Project
-  follows as an operation of its own: the originals whose copies landed drop out of the branch. A target that moved
-  refuses the push as no fast-forward; the copies are built on the fork point of the branch, so the same update builds
-  them anew on it, and the step offers the push again. A fetch that already shows the target ahead of the fork point
-  refuses the push before it is sent (the gate's `BaselineAhead`): the step is Update Project, a push would cost a round
-  trip to be refused. The page tells the push and the update in one toast; Settings →
-  Landing names the route. `brd land` lands by the route of the repository and names `brd update` after it.
+  the changes requested on it are confirmations, and so is what the gate asks. After a successful fast-forward, the push
+  moves the local target tracking ref by CAS from the witness tip to the pushed tip; Update Project therefore runs
+  without a fetch, under the same operation guard, until its sync ends. Its replay drops the originals whose copies
+  landed. The target stays reserved across that whole cycle, so another click queues behind it and replans on the new
+  master. If a target moved outside the session, the push refuses as no fast-forward; Update Project fetches and syncs
+  the target, rebuilding the copies on it, and the step offers the push again. A fetched baseline ahead of the fork point
+  refuses a push before it is sent (`BaselineAhead`) unless this session has a landing in flight for that same target:
+  the button stays enabled and queues behind that landing. A waited plan whose only changed witness ref is that target
+  gets one fetch/update/sync and one new plan; other changed refs remain `plan_changed`, and new confirmations still need
+  the user's acceptance. The page tells the push and the update in one toast; Settings → Landing names the route. `brd land`
+  lands by the route of the repository and names `brd update` after it.
   - *Rationale:* the update is a rule of Rust, not of the page: a landing by a click leaves the branch where the next
     click lands nothing twice; `brd` never moves the files of an agent's checkout by itself.
 - **Merge #7.** On the pull-request route, where no robot of Patronus lands the repository and a merge on GitHub lands

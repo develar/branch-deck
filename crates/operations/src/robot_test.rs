@@ -212,7 +212,7 @@ impl Fixture {
       fingerprint: Fingerprint("planned".to_owned()),
       confirmations: Vec::new(),
     };
-    let started = run_planned(&host, &self.services, &Steps::none(), OperationId("op".to_owned()), planned, &accepted)
+    let started = run_planned(&host, &self.services, &Steps::none(), OperationId("op".to_owned()), planned, &accepted, false)
       .await
       .unwrap();
     (host, started)

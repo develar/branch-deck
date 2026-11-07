@@ -40,8 +40,9 @@
 //! refuses the merge (`plan_changed`).
 //!
 //! After a push that landed, after a target that moved refused it, and after a merge by the click, Update Project follows
-//! as an operation of its own (`update_after`): the app runs it, `brd land` names it as the next step. An auto-merge that
-//! GitHub completes later runs none: the news of the session tells it (`news::auto_merged`).
+//! as an operation of its own (`update_after`): the app runs it, `brd land` names it as the next step. A push that landed
+//! already moved its tracking ref, so it updates without a fetch; other routes fetch. An auto-merge that GitHub completes
+//! later runs none: the news of the session tells it (`news::auto_merged`).
 
 use crate::facts::RemoteBranch;
 use crate::github_stack::layers_below;
@@ -463,19 +464,16 @@ fn checks_of(open: Option<&PullRequest>, tip: Option<&str>) -> Vec<Confirmation>
   confirmations
 }
 
-/// What follows the start whose effects ran as `effects`: Update Project with its fetch, as an operation of its own,
-/// once its push into the target landed, and once the target refused it as no fast-forward (`baseline_moved`): the
-/// copies are built on the fork point of the checked out branch, so only the update onto the moved target builds them
-/// anew on it; once GitHub merged its pull request by the click; nothing otherwise (a refusal of the server, another
-/// failure, an auto-merge GitHub completes later, a start of a robot)
+/// What follows the start whose effects ran as `effects`: Update Project without a fetch when its successful push into
+/// the target moved the tracking ref, with a fetch when the target refused it as no fast-forward (`baseline_moved`) or a
+/// pull request merged by the click; nothing otherwise (a refusal of the server, another failure, an auto-merge GitHub
+/// completes later, a start of a robot)
 #[must_use]
 pub fn update_after(effects: &[EffectRecord]) -> Option<Intent> {
-  effects
-    .iter()
-    .any(|record| match (&record.effect, &record.status) {
-      (PlannedEffect::PushBaseline { .. } | PlannedEffect::MergePullRequest { .. } | PlannedEffect::MergeStack { .. }, EffectStatus::Done) => true,
-      (PlannedEffect::PushBaseline { .. }, EffectStatus::Failed { error }) => error.code == ErrorCode::BaselineMoved,
-      _ => false,
-    })
-    .then_some(Intent::UpdateProject { fetch: true })
+  effects.iter().find_map(|record| match (&record.effect, &record.status) {
+    (PlannedEffect::PushBaseline { .. }, EffectStatus::Done) => Some(Intent::UpdateProject { fetch: false }),
+    (PlannedEffect::PushBaseline { .. }, EffectStatus::Failed { error }) if error.code == ErrorCode::BaselineMoved => Some(Intent::UpdateProject { fetch: true }),
+    (PlannedEffect::MergePullRequest { .. } | PlannedEffect::MergeStack { .. }, EffectStatus::Done) => Some(Intent::UpdateProject { fetch: true }),
+    _ => None,
+  })
 }

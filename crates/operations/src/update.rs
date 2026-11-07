@@ -210,54 +210,112 @@ pub async fn execute_update(registry: &Registry, key: &SessionKey, fetch: bool, 
   let sessions = registry.sessions();
   let request = update_request(&Intent::UpdateProject { fetch }, "");
   let asked = Mutex::new(None);
-  let mut answer = run(registry, key, request, events, async |guard| {
-    let mut effects = Vec::new();
-    if fetch {
-      let fetched = fetch_operation(registry, key, hosts, Arc::new(Relay(guard.stepper())), false).await?;
-      let record = fetched
-        .effects
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| EffectRecord::new(PlannedEffect::Sync, EffectStatus::Done));
-      let failed = !matches!(record.status, EffectStatus::Done);
-      effects.push(record);
-      if failed {
-        effects.extend([PlannedEffect::Update, PlannedEffect::Sync].map(|effect| EffectRecord::new(effect, EffectStatus::Skipped { reason: None })));
-        return Ok(outcome_of(guard.id().clone(), effects, None, None, OperationResult::None));
-      }
-      // the check and the move need HEAD: after the rewrites of the process before it, before the ones after it
-      guard.hold(vec![Resource::Head], OperationStep::Checking).await?;
-    }
-    let updated = update(guard, key, hosts).await;
-    let applied = updated.as_ref().is_ok_and(|result| result.applied.is_some());
-    // the fetch moved the baseline also when nothing moved here: integration, the remote status, what landed
-    let sync = (fetch || applied).then(|| sessions.sync(key, SyncReason::AfterRewrite));
-    let sync_status = if sync.is_some() { EffectStatus::Done } else { EffectStatus::Skipped { reason: None } };
-    let (status, result, undo) = match updated {
-      Ok(result) => {
-        let undo = undo_of(&result);
-        (EffectStatus::Done, OperationResult::Update(Box::new(result)), undo)
-      }
-      // nothing was changed by it: before its first effect without a fetch, the failed update after one
-      Err(error) if !fetch => return Err(error),
-      Err(error) => (EffectStatus::Failed { error: named(&error, guard) }, OperationResult::None, None),
-    };
-    effects.push(EffectRecord::new(PlannedEffect::Update, status));
-    effects.push(EffectRecord::new(PlannedEffect::Sync, sync_status));
-    if applied {
-      *asked.lock().unwrap_or_else(PoisonError::into_inner) = sync;
-    }
-    Ok(Outcome {
-      undo,
-      ..outcome_of(guard.id().clone(), effects, None, None, result)
-    })
+  let answer = run(registry, key, request, events, async |guard| {
+    let (answer, sync) = update_under_guard(Some(registry), sessions, key, guard, fetch, hosts, false).await;
+    *asked.lock().unwrap_or_else(PoisonError::into_inner) = sync;
+    answer
   })
   .await;
   let sync = asked.into_inner().unwrap_or_else(PoisonError::into_inner);
+  let mut answer = answer;
   if let (Ok(outcome), Some(sync)) = (&mut answer, sync) {
     outcome.version_after = synced(sync).await;
   }
   answer
+}
+
+/// Runs Update Project under the guard of its caller, without a second registry entry or journal line; waits for the sync
+/// before returning so the caller keeps its resources until the new facts are visible
+pub(crate) async fn execute_update_in(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, fetch: bool, hosts: Hosts<'_>) -> Answer {
+  let (answer, sync) = update_under_guard(None, sessions, key, guard, fetch, hosts, true).await;
+  let mut outcome = match answer {
+    Ok(outcome) => outcome,
+    Err(error) => {
+      let failed = EffectRecord::new(PlannedEffect::Update, EffectStatus::Failed { error: named(&error, guard) });
+      return Ok(outcome_of(guard.id().clone(), vec![failed], None, None, OperationResult::None));
+    }
+  };
+  if let Some(sync) = sync {
+    match sync.wait().await {
+      Ok(answer) => outcome.version_after = Some(answer.version),
+      Err(error) => {
+        if let Some(record) = outcome.effects.iter_mut().find(|record| record.effect == PlannedEffect::Sync) {
+          record.status = EffectStatus::Failed { error: named(&error, guard) };
+        }
+      }
+    }
+  }
+  Ok(outcome)
+}
+
+/// The effects of Update Project under the operation of `guard`: its fetch either as an operation of its own or inline,
+/// HEAD for the update, then the sync; only a caller with its own operation waits for that sync outside `run`
+async fn update_under_guard(
+  registry: Option<&Registry>,
+  sessions: &Sessions,
+  key: &SessionKey,
+  guard: &RunningGuard,
+  should_fetch: bool,
+  hosts: Hosts<'_>,
+  wait_for_sync: bool,
+) -> (Answer, Option<SyncTicket>) {
+  let mut effects = Vec::new();
+  if should_fetch {
+    let fetched = if let Some(registry) = registry {
+      match fetch_operation(registry, key, hosts, Arc::new(Relay(guard.stepper())), false).await {
+        Ok(fetched) => fetched
+          .effects
+          .into_iter()
+          .next()
+          .unwrap_or_else(|| EffectRecord::new(PlannedEffect::Sync, EffectStatus::Done)),
+        Err(error) => return (Err(error), None),
+      }
+    } else {
+      guard.step(OperationStep::Fetching);
+      let upstream = baseline_of(sessions, key).await;
+      match fetch(guard, hosts, key).await {
+        Ok(fetched) => EffectRecord::new(PlannedEffect::Fetch { upstream: fetched.upstream }, EffectStatus::Done),
+        Err(error) => EffectRecord::new(PlannedEffect::Fetch { upstream }, EffectStatus::Failed { error: named(&error, guard) }),
+      }
+    };
+    let failed = !matches!(fetched.status, EffectStatus::Done);
+    effects.push(fetched);
+    if failed {
+      effects.extend([PlannedEffect::Update, PlannedEffect::Sync].map(|effect| EffectRecord::new(effect, EffectStatus::Skipped { reason: None })));
+      return (Ok(outcome_of(guard.id().clone(), effects, None, None, OperationResult::None)), None);
+    }
+  }
+  if (should_fetch || registry.is_none())
+    && let Err(error) = guard
+      .hold(vec![Resource::Head], if should_fetch { OperationStep::Checking } else { OperationStep::Updating })
+      .await
+  {
+    return (Err(error), None);
+  }
+  let updated = update(guard, key, hosts).await;
+  let applied = updated.as_ref().is_ok_and(|result| result.applied.is_some());
+  // the fetch moved the baseline also when nothing moved here: integration, the remote status, what landed
+  let sync = (should_fetch || applied).then(|| sessions.sync(key, SyncReason::AfterRewrite));
+  let sync_status = if sync.is_some() { EffectStatus::Done } else { EffectStatus::Skipped { reason: None } };
+  let (status, result, undo) = match updated {
+    Ok(result) => {
+      let undo = undo_of(&result);
+      (EffectStatus::Done, OperationResult::Update(Box::new(result)), undo)
+    }
+    // nothing was changed by it: before its first effect without a fetch, the failed update after one
+    Err(error) if !should_fetch => return (Err(error), None),
+    Err(error) => (EffectStatus::Failed { error: named(&error, guard) }, OperationResult::None, None),
+  };
+  effects.push(EffectRecord::new(PlannedEffect::Update, status));
+  effects.push(EffectRecord::new(PlannedEffect::Sync, sync_status));
+  let wait = if wait_for_sync || applied { sync } else { None };
+  (
+    Ok(Outcome {
+      undo,
+      ..outcome_of(guard.id().clone(), effects, None, None, result)
+    }),
+    wait,
+  )
 }
 
 /// `error` of an effect of the operation of `guard`, naming it, as an error of the operation does (`engine::run`): the

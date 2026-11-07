@@ -17,8 +17,8 @@ fn landing_by_push() -> (TestRepo, TempDir) {
 
 /// A repository that lands by a push: `--dry-run` names what lands and what CI did not check, pushing nothing; the push
 /// itself refuses what the user didn't accept (`checks_not_passed`); with `--allow-checks-not-passed` the copy of the branch
-/// lands into master as a fast-forward, the remote-tracking ref of master stays, and `brd update` is the next step,
-/// which drops the original whose copy landed
+/// lands into master as a fast-forward and its tracking ref moves, but `brd update` remains the next step because it
+/// rebuilds the copies and drops the original whose copy landed
 #[test_log::test]
 fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check() {
   let (repo, remote) = landing_by_push();
@@ -42,7 +42,7 @@ fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not
   assert_eq!((&landed["landed"], &landed["next"]), (&json!(true), &json!("brd update")));
   let copy = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_eq!(remote_tip(&remote, "master"), copy);
-  assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), base, "only a fetch moves it");
+  assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), copy, "the successful push moves it by CAS");
 
   let (exit_code, updated) = run_in(&repo, &["update"]);
   assert_eq!(exit_code, 0, "{updated}");

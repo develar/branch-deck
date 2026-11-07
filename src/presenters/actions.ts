@@ -4,8 +4,8 @@
  * key), and a blocker one sentence (`formatActionBlocker`). Every surface builds its items here (`presentAction`): the
  * "⋯" and right-click menus, the row's keys, the branch preview, the review window, the stack island and the command
  * palette, so an action is offered, named and refused alike everywhere. What runs is Rust's too (`with_operations`): an
- * item whose intent runs or waits in the session is running ("Unstacking oauth…"), a rewrite that can start says what
- * its start waits behind ("Waits for Unstacking oauth…"), a remote action whose resource an operation holds is disabled
+ * item whose intent runs or waits in the session is running ("Unstacking oauth…"), a rewrite whose start waits behind it
+ * says so ("Waits for Unstacking oauth…"), a remote action whose resource an operation holds is disabled
  * with it ("Pushing login…"); the page words the operation (`operationBusyOf`, the busy state its window gave it).
  */
 import type { LucideIcon } from "lucide-react"

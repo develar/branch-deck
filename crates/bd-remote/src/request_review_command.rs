@@ -267,7 +267,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
     confirmations: Vec::new(),
   };
   let steps = Steps::none().with_record(Some(entry.handle()));
-  let request = run_planned(&start, &run, &steps, entry.id().clone(), planned, &accepted);
+  let request = run_planned(&start, &run, &steps, entry.id().clone(), planned, &accepted, false);
   let started = run_admitted(context, entry, request).map_err(CliError::from)?;
   // the request got to its end unless its last effect did not (a retarget GitHub refused of a branch the push takes
   // along stops nothing): then the first failure says why

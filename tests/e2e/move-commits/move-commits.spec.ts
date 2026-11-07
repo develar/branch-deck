@@ -395,7 +395,7 @@ test.describe("Move commits", () => {
     const more = getMoreButton(findBranchRow(page, "docs"))
     await expect(more).toHaveAttribute("aria-busy", "true")
     await more.hover()
-    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Waits for Moving 1 commit to docs…" })).toBeVisible()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Queued behind Moving 1 commit to docs…" })).toBeVisible()
     await expect.poll(() => moves.length).toBe(2)
 
     // the holder is done: the second move runs beside the sync of the first, with the id the first move gave the commit

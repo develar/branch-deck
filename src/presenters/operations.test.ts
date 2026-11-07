@@ -52,9 +52,18 @@ describe("presentOperationBusy", () => {
     const named: OperationNames = { unstack: { label: "Unstacking oauth" } }
     expect(presentOperationBusy(unstack, { operations: { unstack }, named })).toBe("Unstacking oauth after the sync")
     const squash: RunningOperation = { ...unstack, id: "squash", step: { kind: "queued", behind: "unstack" } }
-    expect(presentOperationBusy(squash, { operations: { unstack, squash }, named })).toBe("Waits for Unstacking oauth")
+    expect(presentOperationBusy(squash, { operations: { unstack, squash }, named })).toBe("Queued behind Unstacking oauth")
     expect(presentOperationBusy({ ...unstack, step: { kind: "checking" } }, { operations: { unstack }, named })).toBe("Unstacking oauth")
-    expect(presentOperationBusy({ ...squash, step: { kind: "queued", behind: "gone" } }, { operations: { squash }, named })).toBe("Waits for another operation")
+    expect(presentOperationBusy({ ...squash, step: { kind: "queued", behind: "gone" } }, { operations: { squash }, named })).toBe("Queued behind another operation")
+    const landing: RunningOperation = {
+      ...unstack,
+      id: "landing",
+      intent: SAFE_PUSH,
+      resources: [{ kind: "ref", name: "refs/remotes/origin/master" }],
+      step: { kind: "checking" },
+    }
+    const queuedLanding: RunningOperation = { ...squash, id: "queuedLanding", step: { kind: "queued", behind: "landing" } }
+    expect(presentOperationBusy(queuedLanding, { operations: { landing, queuedLanding }, named })).toBe("Queued behind Push of auth into master")
   })
 
   it("names an operation by the one rule of its items: of another process as its row, of this window as it named it, else as the view", () => {

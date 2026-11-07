@@ -706,6 +706,7 @@ fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<L
     rules: TargetRules::Pending,
     refused: None,
     update: None,
+    landing_in_flight: false,
   }))
 }
 

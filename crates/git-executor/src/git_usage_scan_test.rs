@@ -175,6 +175,20 @@ fn refs_move_only_through_ref_transaction() {
 }
 
 #[test]
+fn the_baseline_push_is_the_named_cas_writer_of_its_tracking_ref() {
+  check(
+    "the baseline push is the named extra writer of its remote-tracking ref",
+    "move it only after the successful fast-forward push, under fetch.lock, with RefTransaction CAS from the witness tip to the pushed tip",
+    &[Exemption {
+      path: "crates/sync-core/src/baseline_push.rs",
+      hits: 1,
+      reason: "the target tracking ref after a successful baseline push, using the witnessed old tip under fetch.lock",
+    }],
+    |source| code_lines_with(source, ".update(&upstream.tracking_ref, tip, Some(expected))"),
+  );
+}
+
+#[test]
 fn objects_are_read_through_cat_file_batch() {
   check(
     "objects are read by a cat-file --batch of its own",

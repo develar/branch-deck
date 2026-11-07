@@ -16,11 +16,11 @@ use crate::land_execute::{Current, Locker, Planned, PullRequestText, PushSetting
 use crate::push::Sent;
 use domain_types::RemoteStatusUpdate;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::landing::{BaselinePush, Land, LandingRefusal, Subject};
+use domain_types::landing::{BaselinePush, Land, LandFact, LandingRefusal, Subject};
 use domain_types::landing_route::LandingRoute;
-use domain_types::operation::StartNote;
+use domain_types::operation::{OperationId, StartNote};
 use domain_types::patronus::{PatronusAvailability, PatronusRobot};
-use domain_types::session::{SyncReason, Version};
+use domain_types::session::{SyncReason, Version, ViewPatch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{git_common_dir, resolve_commit};
 use github::service::GitHubService;
@@ -35,7 +35,7 @@ use repository_model::facts::BaselineRefusal;
 use repository_model::facts::listed_robots;
 use repository_model::patronus_view::landed_commits;
 use repository_model::pull_request_facts::PullRequestWrite;
-use repository_model::session::{SessionKey, Sessions};
+use repository_model::session::{SessionKey, Sessions, Subscriber, SubscriberGone, SubscriptionId};
 use repository_model::table::RemoteSubject;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -60,6 +60,8 @@ pub struct SessionStart {
   pub new_api: bool,
   /// The object cache of the repository, which the landing gate of a whole stack checks through
   pub cache: ObjectCache,
+  /// The start being planned, which must not count itself as a landing already in flight
+  excluded_operation: Option<OperationId>,
 }
 
 /// What the plan of a start reads of the session before its checks: the tip of what lands and the baseline it is
@@ -73,8 +75,14 @@ struct Inputs {
 }
 
 impl SessionStart {
+  /// Excludes the current start when it derives whether another landing holds its target
+  pub fn exclude_operation(&mut self, operation: OperationId) {
+    self.excluded_operation = Some(operation);
+  }
+
   async fn inputs(&self, subject: &Subject) -> Option<Inputs> {
     let subject = subject.clone();
+    let excluded_operation = self.excluded_operation.clone();
     self
       .sessions
       .read(&self.key, move |state, facts| {
@@ -90,7 +98,20 @@ impl SessionStart {
           tip,
           baseline: table.table.baseline.clone(),
           landed,
-          push_route: matches!(landing_route_of(state.header(), &state.sections().landed, facts), LandingRoute::Push { .. }),
+          push_route: matches!(
+            landing_route_of(
+              state.header(),
+              &state.sections().landed,
+              facts,
+              &state
+                .operations()
+                .iter()
+                .filter(|operation| Some(&operation.id) != excluded_operation.as_ref())
+                .cloned()
+                .collect::<Vec<_>>(),
+            ),
+            LandingRoute::Push { .. }
+          ),
         })
       })
       .await
@@ -122,6 +143,69 @@ impl SessionStart {
       Some(gate) => Some(gate_refusals(gate.await.map_err(failed)?, &mut notes)),
     };
     Ok((StartChecks { gate, target_conflict }, notes))
+  }
+
+  async fn current_plan(&self, land: &Land) -> Result<Option<(Planned, bool)>, ApiError> {
+    let Some(inputs) = self.inputs(&land.subject).await else {
+      return Ok(None);
+    };
+    let push_route = inputs.push_route;
+    // a push into the target is its own check against it: one that moved refuses it as no fast-forward
+    let (checks, notes) = if push_route {
+      (StartChecks::default(), Vec::new())
+    } else {
+      self.checks(&land.subject, inputs).await?
+    };
+    let (prefix, land) = (self.key.prefix.clone(), land.clone());
+    let planned = self
+      .sessions
+      .read(&self.key, move |state, facts| {
+        with_checked_land_sources(state, facts, &prefix, &checks, |sources| planned_of(sources, &land))
+      })
+      .await;
+    Ok(planned.flatten().flatten().map(|planned| (Planned { notes, ..planned }, push_route)))
+  }
+
+  async fn wait_for_landing_needs(&self, land: &Land) -> Result<Option<Planned>, ApiError> {
+    let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel();
+    let Some((id, _)) = self.sessions.subscribe(&self.key, Box::new(PlanChanges(changed))).await else {
+      return Err(ApiError::internal("The session closed while waiting for the landing needs"));
+    };
+    let _subscription = PlanSubscription {
+      sessions: Arc::clone(&self.sessions),
+      id,
+    };
+    loop {
+      let Some((planned, push_route)) = self.current_plan(land).await? else {
+        return Ok(None);
+      };
+      let landing_needs_pending = planned.plan.waits.iter().any(|wait| wait.failed.is_none() && matches!(&wait.fact, LandFact::LandingNeeds));
+      if !push_route || !landing_needs_pending {
+        return Ok(Some(planned));
+      }
+      if changes.recv().await.is_none() {
+        return Err(ApiError::internal("The session closed while waiting for the landing needs"));
+      }
+    }
+  }
+}
+
+struct PlanChanges(tokio::sync::mpsc::UnboundedSender<()>);
+
+impl Subscriber for PlanChanges {
+  fn send(&self, _patch: &ViewPatch) -> Result<(), SubscriberGone> {
+    self.0.send(()).map_err(|_closed| SubscriberGone)
+  }
+}
+
+struct PlanSubscription {
+  sessions: Arc<Sessions>,
+  id: SubscriptionId,
+}
+
+impl Drop for PlanSubscription {
+  fn drop(&mut self) {
+    self.sessions.unsubscribe(self.id);
   }
 }
 
@@ -176,23 +260,17 @@ fn target_check(git: &GitCommandExecutor, path: &str, baseline: &str, tip: Optio
 impl StartHost for SessionStart {
   fn plan<'a>(&'a self, land: &'a Land) -> Read<'a, Result<Option<Planned>, ApiError>> {
     Box::pin(async move {
-      let Some(inputs) = self.inputs(&land.subject).await else {
+      let Some((planned, push_route)) = self.current_plan(land).await? else {
         return Ok(None);
       };
-      // a push into the target is its own check against it: one that moved refuses it as no fast-forward
-      let (checks, notes) = if inputs.push_route {
-        (StartChecks::default(), Vec::new())
-      } else {
-        self.checks(&land.subject, inputs).await?
-      };
-      let (prefix, land) = (self.key.prefix.clone(), land.clone());
-      let planned = self
-        .sessions
-        .read(&self.key, move |state, facts| {
-          with_checked_land_sources(state, facts, &prefix, &checks, |sources| planned_of(sources, &land))
-        })
-        .await;
-      Ok(planned.flatten().flatten().map(|planned| Planned { notes, ..planned }))
+      if !push_route {
+        return Ok(Some(planned));
+      }
+      let landing_needs_pending = planned.plan.waits.iter().any(|wait| wait.failed.is_none() && matches!(&wait.fact, LandFact::LandingNeeds));
+      if !landing_needs_pending {
+        return Ok(Some(planned));
+      }
+      self.wait_for_landing_needs(land).await
     })
   }
 
@@ -420,6 +498,7 @@ async fn start_of(
     space: space.clone(),
     new_api: services.new_api(key),
     cache: services.object_cache(key).await,
+    excluded_operation: None,
   };
   let lock_dir = common_dir.clone();
   let lock: Locker = Arc::new(move |on_wait, canceled| {

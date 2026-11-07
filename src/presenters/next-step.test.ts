@@ -121,11 +121,11 @@ describe("the words of the next step", () => {
       testStep({ kind: "updateProject", upstream: "origin/master" }, { safePush: { code: "rule", reason: ahead } }),
       testContext({ actions: testActions(calls) }),
     )
-    expect(step).toMatchObject({ kind: "updateProject", safePushBlocker: "origin/master has new commits: Update Project first" })
+    expect(step).toMatchObject({ kind: "updateProject", safePushBlocker: "origin/master has new commits: Update Project rebuilds the copy on the new baseline" })
     expect(step.item).toMatchObject({
       id: "next-step-update-project",
       label: "Update Project",
-      description: "origin/master has new commits: Update Project builds auth anew on them before its push",
+      description: "origin/master has new commits: Update Project rebuilds auth on the new baseline before its push",
     })
     step.item!.onSelect(FROM_MENU)
     expect(calls).toEqual(["updateProject"])

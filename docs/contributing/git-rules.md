@@ -274,17 +274,21 @@ The branch of the baseline on its remote (`master` of `origin`) takes only the p
 that lands by a push (`sync_core::baseline_push::push_baseline`, run by `land_execute` after the lock): the copy as
 the witness froze it, `<tip>:refs/heads/<target>`, no `+`, no lease (the server refuses what is no fast-forward), by
 the first push URL of the remote with its `url` and `pushurl` cleared (`-c remote.<r>.url=`), so git takes no
-configured remote for the URL and moves no remote-tracking ref: only `fetch_baseline` writes
-`refs/remotes/origin/master`. A pre-push hook sees the URL; a second push URL, `receivepack` and `proxy` play no
-part ([Push into the baseline](../design/git-operations.md#push-into-the-baseline)).
+configured remote for the URL and moves no remote-tracking ref. After a successful fast-forward, the sole additional
+writer of `refs/remotes/<remote>/<target>` is `sync_core::baseline_push::move_tracking_ref_after_push`: under
+`fetch.lock`, one `RefTransaction` CAS from the target tip in the landing witness to the pushed tip, with reflog message
+`branch-deck: baseline push`. If the ref no longer has the witnessed value, it is left unchanged; every other move is a
+fetch by `fetch_baseline`. A pre-push hook sees the URL; a second push URL, `receivepack` and `proxy` play no part
+([Push into the baseline](../design/git-operations.md#push-into-the-baseline)).
 
 ## Fetch lock
 
 The baseline is fetched only by `sync_core::baseline::fetch_baseline` (the app's Update Project and
 Fetch, `brd update`), which holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its fetch (`fetch_lock.rs`, its one
-taker: `registry_scan_test.rs`), its record naming the tracking ref: a second fetch of any process waits while the
-holder lives and takes its result when that one ended well (`fetch-outcomes.json` beside the lock) or the ref moved,
-one transfer; no retry on `cannot lock ref`, no clean rule
+taker: `registry_scan_test.rs`). The successful baseline-push writer also takes this lock for its local CAS, never for
+the network push; it does not report a fetch outcome. A second fetch of any process waits while the holder lives and
+takes its result when that one ended well (`fetch-outcomes.json` beside the lock) or the ref moved, one transfer; no
+retry on `cannot lock ref`, no clean rule
 ([Update project](../design/git-operations.md#update-project), Fetch lock).
 
 ## Git config writes

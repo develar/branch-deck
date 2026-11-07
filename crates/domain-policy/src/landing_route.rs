@@ -98,6 +98,9 @@ pub struct RouteFacts<'a> {
   /// fork point (`base`), which the copies are built on, and the head of the baseline; `None` before one, or without a
   /// sync (`brd status`)
   pub update: Option<&'a UpdateCheck>,
+  /// This session has an operation holding the target's remote-tracking ref; its push will land it here and rebuild the
+  /// copies, so `BaselineAhead` is not a refusal yet
+  pub landing_in_flight: bool,
 }
 
 /// The route of the repository with its gate
@@ -157,6 +160,9 @@ fn with_refusal(gate: RouteGate, facts: &RouteFacts<'_>) -> RouteGate {
 /// `gate` refusing a push it would let go while the fetched baseline has commits the fork point of the checked out
 /// branch lacks (`BaselineAhead`): the copy is built on the fork point, so the push is no fast-forward
 fn behind(gate: RouteGate, facts: &RouteFacts<'_>) -> RouteGate {
+  if facts.landing_in_flight {
+    return gate;
+  }
   match (gate, facts.update) {
     (RouteGate::Open | RouteGate::Confirm { .. }, Some(update)) if update.base != update.upstream_head => refused(Reason::BaselineAhead {
       upstream: update.upstream.clone(),

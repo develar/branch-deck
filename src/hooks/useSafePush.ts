@@ -679,7 +679,7 @@ interface PushFollow {
 /**
  * The toast of a push of the copy into the target (Push to master), one per push: "Pushed auth into master · 3
  * commits", or of a target that moved meanwhile "master moved: auth is rebuilt on the new commits" (nothing pushed), each
- * with the update that follows it in place ("Updating the project…", then what it did, the push again after a moved
+ * with the update that follows it in place ("Rebuilding on the new master…", then what it did, the push again after a moved
  * target; Update Project when it did not move the branch); a refusal of the server in its words (`notifyError`)
  */
 function followPush(plan: Plan, land: Land, repositoryPath: string): PushFollow {

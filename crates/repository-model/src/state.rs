@@ -193,7 +193,7 @@ impl Derived {
     let pushes = (!syncing).then(|| push_view(parts, facts));
     // what landed each subject, as the starts: over the table a sync leaves, its landing report with it
     let landed = landed_states_of(state, facts);
-    let route = landing_route_of(&parts.header, &parts.sections.landed, facts);
+    let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
     // the layers of the stacks of GitHub, over what landed: the bottom of a stack is the first branch not landed
     let github_layers = github_layers_of(state, facts, &route, &landed);
     let open = open_pull_requests_of(state, facts, prefix, &github_layers);

@@ -115,7 +115,7 @@ describe("the actions Rust offers", () => {
     expect(item({ id: "unstack", availability: { kind: "queued", op: "u2", behind: "u1" } })).toMatchObject({
       running: true,
       disabled: true,
-      description: "Waits for Unstacking oauth…",
+      description: "Queued behind Unstacking oauth…",
     })
     expect(item({ id: "unstack", availability: { kind: "running", op: "l1" } })?.description).toBe("Waiting for `brd pick` (pid 4242, for 12 s)…")
     // its start goes to the session, which queues it
@@ -134,7 +134,7 @@ describe("the actions Rust offers", () => {
     const named: OperationNames = { u1: { label: "Unstacking oauth from auth" } }
     const item = (action: ActionState) => presentAction([action], action.id, { onSelect: () => {} }, { subject: "auth", operations, named })
     expect(item({ id: "unstack", availability: { kind: "running", op: "u1" } })?.description).toBe("Unstacking oauth from auth…")
-    expect(item({ id: "unstack", availability: { kind: "queued", op: "u2", behind: "u1" } })?.description).toBe("Waits for Unstacking oauth from auth…")
+    expect(item({ id: "unstack", availability: { kind: "queued", op: "u2", behind: "u1" } })?.description).toBe("Queued behind Unstacking oauth from auth…")
     expect(item({ id: "push", availability: { kind: "disabled", reason: { code: "busy", op: "u1" } } })?.description).toBe("Unstacking oauth from auth…")
     // the one it didn't start, as the view names it
     expect(item({ id: "unstack", availability: { kind: "running", op: "u3" } })?.description).toBe("Unstacking auth…")
@@ -159,7 +159,7 @@ describe("the actions Rust offers", () => {
     }
     expect(item({ id: "unstack", availability: { kind: "running", op: "s1" } })?.description).toBe("Unstacking oauth after the sync…")
     expect(item({ id: "unstack", availability: { kind: "queued", op: "q1", behind: "u1" } })?.description).toBe(row("q1"))
-    expect(row("q1")).toBe("Waits for Unstacking oauth from auth…")
+    expect(row("q1")).toBe("Queued behind Unstacking oauth from auth…")
     // a start that waits behind an operation, and an item an operation keeps busy, name it as its row does
     for (const op of ["u1", "s1"] as const) {
       const name = presentOperationLabel(operations[op], words.named)

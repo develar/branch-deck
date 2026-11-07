@@ -144,7 +144,7 @@ describe("runRewriteIntent", () => {
     const second = runRewriteIntent({ repositoryPath: "/repo", surface: "move-form" }, move)
     await vi.waitFor(() => expect(indicatorsStore.getState().runs["move-form"]?.op).toBe("op-2"))
     // the busy state the window gave the one it waits behind
-    expect(operationBusyOf(engine.operations["op-2"] as RunningOperation)).toBe("Waits for Unstacking oauth from auth")
+    expect(operationBusyOf(engine.operations["op-2"] as RunningOperation)).toBe("Queued behind Unstacking oauth from auth")
     proceed()
     await Promise.all([first, second])
     expect(engine.calls).toEqual(["execute unstack in /repo", "execute move in /repo"])

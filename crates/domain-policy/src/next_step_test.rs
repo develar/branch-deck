@@ -1252,6 +1252,13 @@ fn a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push() 
   );
 }
 
+/// A landing in flight keeps the Push to master action as the next step so another click can queue
+#[test]
+fn a_push_to_master_stays_the_next_step_while_another_landing_is_in_flight() {
+  let step = Fixture::pushing(RouteGate::Open).step();
+  assert_eq!(step.kind, StepKind::PushToBaseline { target: "master".to_owned() });
+}
+
 /// A repository off Space that lands by a merge of the pull request on GitHub takes the table of its route: no pull
 /// request is Create Pull Request… (`pr`), also one GitHub merged into another branch than the target (a parent's, which
 /// master lacks), with why, a mergeable one "Merge #7" (`merge`), required checks still running

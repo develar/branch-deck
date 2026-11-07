@@ -7,12 +7,14 @@ use test_utils::git_test_utils::{TestRepo, pre_receive_hook, stack_ahead_of_bare
 const ORIGIN: &str = ".git/origin.git";
 
 fn push<'a>(repo: &'a TestRepo, tip: &'a str, size_limit: Option<u64>) -> BaselinePushed {
+  let expected_tracking_tip = repo.rev_parse("refs/remotes/origin/master").unwrap();
   let push = BaselinePush {
     repository_path: repo.path_str(),
     baseline: "origin/master",
     remote: "origin",
     target: "master",
     tip,
+    expected_tracking_tip: Some(&expected_tracking_tip),
     size_limit,
   };
   let report = push_baseline(repo.git_executor(), &push, &mut |_| {}).unwrap();
@@ -24,17 +26,45 @@ fn remote_master(repo: &TestRepo) -> String {
   repo.git(&["--git-dir", ORIGIN, "rev-parse", "refs/heads/master"])
 }
 
-/// A copy built on the target lands as a fast-forward of it, by the push URL: the remote-tracking ref of the baseline
-/// stays where the last fetch left it, only `fetch_baseline` moves it; the same commit again is up to date
+/// A copy built on the target lands as a fast-forward of it, by the push URL: its remote-tracking ref moves from the
+/// witness to the pushed tip by CAS and leaves a reflog entry; the same commit again is up to date
 #[test]
-fn a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays() {
+fn a_copy_built_on_the_target_lands_as_a_fast_forward_and_moves_the_tracking_ref_by_cas() {
   let repo = stack_ahead_of_bare_origin();
   let fetched = repo.rev_parse("refs/remotes/origin/master").unwrap();
   let alpha = repo.rev_parse("test/virtual/alpha").unwrap();
   assert!(matches!(push(&repo, &alpha, None), BaselinePushed::Pushed { up_to_date: false }));
   assert_eq!(remote_master(&repo), alpha);
-  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), fetched);
+  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), alpha);
+  assert_ne!(fetched, alpha);
+  assert_eq!(repo.git(&["reflog", "-1", "--format=%gs", "refs/remotes/origin/master"]), "branch-deck: baseline push");
   assert!(matches!(push(&repo, &alpha, None), BaselinePushed::Pushed { up_to_date: true }));
+}
+
+/// A tracking ref that changed from the witness while the push ran is not overwritten
+#[test]
+fn a_tracking_ref_that_moved_since_the_witness_is_not_overwritten() {
+  let repo = stack_ahead_of_bare_origin();
+  let expected = repo.rev_parse("refs/remotes/origin/master").unwrap();
+  let tree = repo.git(&["rev-parse", &format!("{expected}^{{tree}}")]);
+  let other = repo.git(&["commit-tree", &tree, "-p", &expected, "-m", "Fetched meanwhile"]);
+  repo.git(&["update-ref", "refs/remotes/origin/master", &other]);
+  let alpha = repo.rev_parse("test/virtual/alpha").unwrap();
+  let push = BaselinePush {
+    repository_path: repo.path_str(),
+    baseline: "origin/master",
+    remote: "origin",
+    target: "master",
+    tip: &alpha,
+    expected_tracking_tip: Some(&expected),
+    size_limit: None,
+  };
+  assert!(matches!(
+    push_baseline(repo.git_executor(), &push, &mut |_| {}).unwrap().pushed,
+    BaselinePushed::Pushed { up_to_date: false }
+  ));
+  assert_eq!(remote_master(&repo), alpha);
+  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), other);
 }
 
 /// A target that moved since the copy was built on it takes no push: no fast-forward, nothing moves
@@ -80,6 +110,7 @@ fn a_baseline_that_tracks_another_remote_than_the_plan_named_pushes_nothing() {
     remote: "upstream",
     target: "master",
     tip: &alpha,
+    expected_tracking_tip: Some(&base),
     size_limit: None,
   };
   let error = push_baseline(repo.git_executor(), &push, &mut |_| {}).unwrap_err();

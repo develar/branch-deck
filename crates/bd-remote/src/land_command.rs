@@ -191,6 +191,7 @@ pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -
     rules: TargetRules::Pending,
     refused: None,
     update: None,
+    landing_in_flight: false,
   });
   match routed {
     LandingRoute::Push { .. } => land_directly(context, args, environment, Direct::Push),
@@ -314,7 +315,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
   facts.read(context, &first)?;
   if direct == Direct::Merge {
     let session = &facts.session;
-    let routed = landing_route_of(session.state().header(), &session.state().sections().landed, session.facts());
+    let routed = landing_route_of(session.state().header(), &session.state().sections().landed, session.facts(), session.state().operations());
     if let LandingRoute::PullRequest {
       merge: RouteGate::Refused {
         reason: reason @ (Reason::GitHubMirror { .. } | Reason::NotOnGitHub),
@@ -411,7 +412,12 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
       landed: &synced.landed_section,
       readiness: None,
       target: &target,
-      route: &landing_route_of(facts.session.state().header(), &facts.session.state().sections().landed, facts.session.facts()),
+      route: &landing_route_of(
+        facts.session.state().header(),
+        &facts.session.state().sections().landed,
+        facts.session.facts(),
+        facts.session.state().operations(),
+      ),
     };
     (output.decided.step, output.next_step) = check_next_step(context, &read, &start, &what).unzip();
     output.refusals = refusals;

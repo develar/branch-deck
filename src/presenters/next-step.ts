@@ -525,8 +525,8 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
     }
     case "updateProject": {
       // row push′: the copy is built on the commit before the new ones of the fetched baseline, a push of it is no
-      // fast-forward; the update builds it anew on them, then the step offers the push
-      const reason = `${kind.upstream} has new commits: Update Project builds ${subject} anew on them before its push`
+      // fast-forward; Update Project rebuilds it on the new baseline, then the step offers the push
+      const reason = `${kind.upstream} has new commits: Update Project rebuilds ${subject} on the new baseline before its push`
       const item: MenuItem = { id: "next-step-update-project", label: "Update Project", icon: RefreshCwIcon, description: reason, onSelect: actions.updateProject }
       return { kind: "updateProject", item, own: reason, notice: { title: `${kind.upstream} has new commits`, description: reason } }
     }

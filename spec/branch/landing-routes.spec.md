@@ -36,6 +36,9 @@ targets:
   - ../../crates/operations/src/land.rs
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/land_session.rs
+  - ../../crates/operations/src/run_frame.rs
+  - ../../crates/operations/src/update.rs
+  - ../../crates/operations/src/registry.rs
   - ../../crates/operations/src/engine.rs
   - ../../crates/operations/src/witness.rs
   - ../../crates/operations/src/close.rs
@@ -220,10 +223,12 @@ target, read before anything is pushed.
 - The push must go by the first push URL of the remote of the baseline that its plan names
   (`PlannedEffect::PushBaseline.remote`, whose remote-tracking ref of the target the start reserves; a baseline that
   tracks another remote or branch by the time it runs pushes nothing), `<tip>:refs/heads/<target>`, without `+` and
-  without a lease, after the size check, with the configured remote of the URL cleared so its remote-tracking ref stays
-  (only the fetch of the baseline writes it); the witness under the repository lock holds the tip of the copy, the
-  remote-tracking ref of the baseline the copies were built on and the checked out branch at the HEAD the sync grouped.
-  [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_the_tracking_ref_stays`, `a_baseline_that_tracks_another_remote_than_the_plan_named_pushes_nothing`)
+  without a lease, after the size check, with the configured remote of the URL cleared so Git itself moves no
+  remote-tracking ref; after a successful fast-forward, the tracking ref moves from the witness tip to the pushed tip by
+  one CAS under `fetch.lock`, with a `branch-deck: baseline push` reflog message. The witness under the repository lock
+  holds the tip of the copy, the remote-tracking ref of the baseline the copies were built on and the checked out branch
+  at the HEAD the sync grouped.
+  [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_copy_built_on_the_target_lands_as_a_fast_forward_and_moves_the_tracking_ref_by_cas`, `a_tracking_ref_that_moved_since_the_witness_is_not_overwritten`, `a_baseline_that_tracks_another_remote_than_the_plan_named_pushes_nothing`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_push_into_the_baseline`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_push_into_the_target_lands_the_copy_as_a_fast_forward_and_tells_what_it_landed`)
 - A target that moved must refuse the push as no fast-forward: the start fetches the baseline (`fetch_baseline`, joining
@@ -238,23 +243,30 @@ target, read before anything is pushed.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_refusal_of_the_server_in_this_session_is_asked_before_the_next_push`)
 - A fetched baseline with commits the fork point of the checked out branch lacks (the check of the update of the last
   sync: its `base` is not the head of the baseline) must refuse a push the gate would let go or ask about
-  (`baselineAhead`, "origin/master has new commits: Update Project first"): the copy is built on the fork point, so the
-  server would refuse it as no fast-forward after a round trip. The step is Update Project (row push′ of
-  [Next Step](next-step.spec.md#a-push-into-the-target)); `brd land` refuses it as `baseline_moved` with `brd update`
-  next, before anything is sent. A gate that refuses for another reason or waits keeps its answer.
+  (`baselineAhead`, "origin/master has new commits: Update Project rebuilds the copy on the new baseline"), unless an
+  operation in this session holds the same target ref for a landing. That landing will move the target and rebuild the
+  copies, so the Push to master action stays enabled and queues behind it; a target moved outside the session still
+  takes Update Project (row push′ of [Next Step](next-step.spec.md#a-push-into-the-target)). `brd land` refuses it as
+  `baseline_moved` with `brd update` next, before anything is sent. A gate that refuses for another reason or waits keeps
+  its answer.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_landing_route_sees_only_an_operation_holding_its_target_ref`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_push_to_master_stays_the_next_step_while_another_landing_is_in_flight`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
-- A push that landed must land its subject at once, each branch of what it landed at the tip it pushed, until a fetch
-  shows it (`landed_state`: "Landed in origin/master"): a second click pushes nothing. Then Update Project with its fetch
-  follows as an operation of its own (`land_direct::update_after`, run by the engine), whose replay drops the originals
-  whose copies landed; the caller of the start hears its steps and its outcome on the channel of the start, after the
-  start's own (the toast of the push tells how the update went), and the answer of the start comes after it; `brd land`
+- A push that landed must land its subject at once, each branch of what it landed at the tip it pushed
+  (`landed_state`: "Landed in origin/master"): a second click pushes nothing. Its successful fast-forward CAS moves the
+  tracking ref, then Update Project runs without a fetch under the same operation guard until its sync ends
+  (`land_direct::update_after`, run by the engine), and its replay drops the originals whose copies landed. The caller
+  hears the start's outcome first, then the update outcome on the same channel; the journal keeps one operation. `brd land`
   names `brd update` instead.
   [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved`)
   [@test] ../../crates/operations/src/update_test.rs (`a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed`)
+  [@test] ../../crates/operations/src/update_test.rs (`two_pushes_into_the_target_run_one_after_the_other_with_the_second_replanned`)
+  [@test] ../../crates/operations/src/land_execute_test.rs (`only_a_waited_landing_with_its_target_ref_moved_gets_one_retry_signal`, `a_replanned_landing_still_requires_a_new_confirmation`)
+  [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should queue a second push to master until the first landing's update and sync finish`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
 - The next step of a ready subject must be "Push to master" (the row `push` of
   [Next Step](next-step.spec.md#a-push-into-the-target)), its node ready, the user's move, and its action

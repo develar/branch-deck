@@ -1,5 +1,5 @@
 // The page's words of an operation of the session (`RepositoryView.operations`): its busy state as its surfaces say it
-// ("Unstacking oauth", "Waits for Unstacking oauth", whom it waits for while another holder has the repository lock),
+// ("Unstacking oauth", "Queued behind Unstacking oauth", whom it waits for while another holder has the repository lock),
 // the rows it works on (`operationOnRow`), and of an operation of another process of the repository as the session
 // shows it on its row (`RunningOperation` with `origin.otherProcess`, `operations::registry_watch`): "bd: Safe Push of
 // auth". The holder that made an operation of the page `busy` is worded by `src/presenters/lock-wait.ts`.
@@ -131,7 +131,7 @@ export function presentOperationLabel(operation: RunningOperation, named: Operat
 /**
  * The busy state of `operation` as every surface that shows it says it, the "⋯" of its row and the item that runs as
  * it: whom it waits for while another holder has the repository lock ("Waiting for `brd pick` (pid 4242, for 12 s)"),
- * what it waits behind in the queue of the session ("Waits for Unstacking oauth"), that it waits for a sync
+ * what it waits behind in the queue of the session ("Queued behind Unstacking oauth"), that it waits for a sync
  * ("Unstacking oauth after the sync"), else its own ("Unstacking tool-events"); each operation by its name
  * (`presentOperationLabel`), `operation` by `label` where its surface names it ("Restarting the Safe Push")
  */
@@ -142,7 +142,7 @@ export function presentOperationBusy(operation: RunningOperation, words: Operati
   }
   if (operation.step.kind === "queued") {
     const behind = words.operations[operation.step.behind]
-    return `Waits for ${behind === undefined ? "another operation" : presentOperationLabel(behind, words.named)}`
+    return `Queued behind ${behind === undefined ? "another operation" : presentOperationLabel(behind, words.named)}`
   }
   const name = label ?? presentOperationLabel(operation, words.named)
   // a rewrite asked on the rows of the frame of an earlier run, a push of a tip the running sync brings

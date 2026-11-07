@@ -176,7 +176,7 @@ export type FollowingUpdate =
 export function describeFollowingUpdate(update: FollowingUpdate): { readonly description: string; readonly offersUpdate: boolean } {
   switch (update.kind) {
     case "running":
-      return { description: "Updating the project…", offersUpdate: false }
+      return { description: "Rebuilding on the new master…", offersUpdate: false }
     case "failed":
       return {
         description: update.error === null ? "Update Project drops the pushed commits from the branch" : `Cannot update the project: ${update.error.message}`,

@@ -54,7 +54,7 @@ describe("formatReason", () => {
       "The pull requests of the branches are not on GitHub",
       "A Dry Run is a robot of Patronus: the repository lands without one",
       "The server refused a push into master before: remote: master is protected",
-      "origin/master has new commits: Update Project first",
+      "origin/master has new commits: Update Project rebuilds the copy on the new baseline",
       "auth has no open pull request: create one, GitHub merges it",
       "#7 is a draft: mark it ready for review on GitHub first",
       "#7 conflicts with its base: GitHub can't merge it",

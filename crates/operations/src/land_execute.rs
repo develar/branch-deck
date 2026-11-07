@@ -32,10 +32,11 @@
 //! `domain_policy::land_direct`) runs the same frame: its witness the tip of the copy, the remote-tracking ref of the
 //! baseline the copy was built on and the checked out branch that holds the originals, under the lock; then, after the
 //! lock, the push of the copy into the target by the push URL (`sync_core::baseline_push`). A push that landed goes into
-//! the facts as what landed its subject until a fetch shows it (`StartHost::baseline_pushed`); a target that moved since
+//! the facts as what landed its subject (`StartHost::baseline_pushed`); a target that moved since
 //! (no fast-forward) is fetched (`fetch_baseline`, which joins a fetch that runs) and synced, `baseline_moved`; a refusal
 //! of the server (`[remote rejected]`) goes into the facts with its words, which the gate of the route asks about next,
-//! `baseline_refused`. Update Project after a push that landed is an operation of its own (`engine::execute_land`).
+//! `baseline_refused`. After a successful push, Update Project runs under the same operation guard until its sync ends
+//! (`engine::execute_land`), with no fetch because the tracking ref has already moved locally.
 //!
 //! A refusal the facts know (a blocker, an unaccepted confirmation, a changed fingerprint, a held lock) does nothing:
 //! every effect comes after the full witness (a plan that moves and leases no ref reads none and takes no lock). The
@@ -486,7 +487,7 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
   steps.step(OperationStep::Checking);
   let planned = host.plan(land).await?.ok_or_else(|| unknown_subject(&land.subject))?;
   let accepted = accepted.decided_again(&planned.plan, waited);
-  run_planned(host, services, steps, op, planned, &accepted).await
+  run_planned(host, services, steps, op, planned, &accepted, waited).await
 }
 
 /// Runs `planned`, a plan prepared again just now (a start, or a restart of a robot, `robot::execute_restart`), as `op`
@@ -495,16 +496,22 @@ pub async fn execute(host: &dyn StartHost, services: &StartServices, steps: &Ste
 ///
 /// # Errors
 /// As `execute`, before any effect
-pub async fn run_planned(host: &dyn StartHost, services: &StartServices, steps: &Steps, op: OperationId, planned: Planned, accepted: &Accepted) -> Result<Started, ApiError> {
+pub async fn run_planned(
+  host: &dyn StartHost,
+  services: &StartServices,
+  steps: &Steps,
+  op: OperationId,
+  planned: Planned,
+  accepted: &Accepted,
+  waited: bool,
+) -> Result<Started, ApiError> {
   // what refuses it now is told as itself, a refusal the check against the newest target found too
   if let Some(blocker) = planned.plan.blockers.first() {
     return Err(refusal(blocker, &planned.plan, &planned.subject, &host.current().await.robots));
   }
   let intent = &planned.plan.intent;
   check(&accepted.fingerprint, &planned.plan.fingerprint, intent)?;
-  if planned.plan.confirmations.iter().any(|confirmation| !accepted.confirmations.contains(confirmation)) {
-    return Err(plan_changed(intent, Some("it asks to accept more than was accepted")));
-  }
+  check_confirmations(accepted, &planned.plan)?;
   if !planned.plan.waits.is_empty() {
     return Err(plan_changed(intent, Some("it waits for facts nobody answered yet")));
   }
@@ -516,9 +523,9 @@ pub async fn run_planned(host: &dyn StartHost, services: &StartServices, steps: 
     let names: Vec<String> = planned.witness.refs.keys().cloned().collect();
     let (git, path) = (services.git.clone(), services.repository_path.clone());
     let cheap = blocking(move || read_refs(&git, &path, &names).map_err(git_failure)).await?;
-    witnessed(&planned.plan.intent, &planned.witness, &cheap)?;
+    witnessed_or_retry_target(&planned.plan, &planned.witness, &cheap, waited)?;
     let frozen = frozen_under_lock(services, steps, &planned.witness).await?;
-    witnessed(&planned.plan.intent, &planned.witness, &frozen)?;
+    witnessed_or_retry_target(&planned.plan, &planned.witness, &frozen, waited)?;
     freeze(services, &planned.pushes, &frozen, false)?
   };
   debug!(effects = planned.plan.effects.len(), "the witness holds: the effects run");
@@ -568,6 +575,41 @@ fn witnessed(intent: &Intent, witness: &Witness, read: &BTreeMap<String, Option<
     .collect();
   debug!(?moved, "a ref of the plan moved before its first effect");
   Err(plan_changed(intent, Some(&format!("{} moved", moved.join(", ")))))
+}
+
+/// A plan may ask for the confirmations its caller accepted, never one newly needed after a waited update
+fn check_confirmations(accepted: &Accepted, plan: &Plan) -> Result<(), ApiError> {
+  if plan.confirmations.iter().any(|confirmation| !accepted.confirmations.contains(confirmation)) {
+    return Err(plan_changed(&plan.intent, Some("it asks to accept more than was accepted")));
+  }
+  Ok(())
+}
+
+/// A waited landing may refresh once when the only ref that moved is the remote-tracking ref it will push into; every
+/// other mismatch remains `plan_changed`
+fn witnessed_or_retry_target(plan: &Plan, witness: &Witness, read: &BTreeMap<String, Option<String>>, waited: bool) -> Result<(), ApiError> {
+  match witnessed(&plan.intent, witness, read) {
+    Ok(()) => Ok(()),
+    Err(error) if waited && only_target_ref_moved(plan, witness, read) => Err(ApiError::new(ErrorCode::BaselineMoved, error.message)),
+    Err(error) => Err(error),
+  }
+}
+
+/// Whether the only ref that differs from `witness` is the remote-tracking ref of the target of its baseline push
+fn only_target_ref_moved(plan: &Plan, witness: &Witness, read: &BTreeMap<String, Option<String>>) -> bool {
+  let Some(target_ref) = plan.effects.iter().find_map(|effect| match effect {
+    PlannedEffect::PushBaseline { remote, target, .. } => Some(format!("refs/remotes/{remote}/{target}")),
+    _ => None,
+  }) else {
+    return false;
+  };
+  let moved: Vec<&str> = witness
+    .refs
+    .iter()
+    .filter(|(name, tip)| read.get(*name) != Some(*tip))
+    .map(|(name, _)| name.as_str())
+    .collect();
+  moved.as_slice() == [target_ref.as_str()]
 }
 
 /// The push of the plan on the frozen tips and leases: one atomic push of every branch it sends (`git push --dry-run`
@@ -1048,6 +1090,8 @@ impl Run<'_> {
       self.services.push.baseline.clone(),
       self.services.push.size_limit,
     );
+    let tracking_ref = format!("refs/remotes/{remote}/{target}");
+    let expected_tracking_tip = self.planned.witness.refs.get(&tracking_ref).cloned().flatten();
     let (owned_tip, owned_remote, owned_target, progress) = (tip.to_owned(), remote.to_owned(), target.to_owned(), Arc::clone(&self.steps.progress));
     let pushed = blocking(move || {
       let push = BaselinePush {
@@ -1056,6 +1100,7 @@ impl Run<'_> {
         remote: &owned_remote,
         target: &owned_target,
         tip: &owned_tip,
+        expected_tracking_tip: expected_tracking_tip.as_deref(),
         size_limit,
       };
       push_baseline(&git, &push, &mut |tick: TransferProgress| progress(&tick)).map_err(git_failure)

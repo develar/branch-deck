@@ -1,4 +1,5 @@
 use crate::events::EventSink;
+use crate::journal::read;
 use crate::land_execute::Accepted;
 use crate::push::push_test::{AGENT_PUSH, OFFLINE, registry_of};
 use crate::registry::Registry;
@@ -8,7 +9,7 @@ use crate::update::{execute_dismiss, execute_fetch, execute_update};
 use domain_types::error::ErrorCode;
 use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
-use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationResult, OperationStep, Outcome, RunningOperation};
+use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, RunningOperation};
 use domain_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use domain_types::rewrite::{RewriteIntent, RewriteResult, UndoKind};
@@ -17,7 +18,9 @@ use history_rewrite::repository_lock::{RepositoryLock, lock_repository_as_anothe
 use pretty_assertions::assert_eq;
 use repository_model::facts::{FactResult, RobotsRead};
 use repository_model::session::SessionKey;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sync_core::fetch_lock::hold_fetch_as_another_process;
 use sync_core::landed::read_report;
@@ -117,9 +120,51 @@ async fn locked() -> (Fixture, RepositoryLock, Arc<Heard>, Intent) {
   (fixture, held, Arc::new(Heard::default()), Intent::UpdateProject { fetch: true })
 }
 
+/// A push-route session with no Patronus or GitHub gate
+async fn push_landing_fixture() -> (TestRepo, Registry, SessionKey) {
+  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
+  repo.set_config("branchdeck.landing", "push").unwrap();
+  let (registry, key) = registry_of(&repo, true).await;
+  let sessions = registry.sessions();
+  for result in [
+    FactResult::Robots {
+      read: RobotsRead::List { full: true },
+      result: PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
+    },
+    FactResult::PullRequests(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub)),
+  ] {
+    let ticket = sessions.begin(&key).await.unwrap();
+    sessions.apply_facts(&key, ticket, result).await.unwrap();
+  }
+  (repo, registry, key)
+}
+
 /// `body` within a minute
 async fn within_a_minute<T>(body: impl Future<Output = T>) -> T {
   tokio::time::timeout(Duration::from_mins(1), body).await.unwrap()
+}
+
+/// `body` within a minute, naming the stage in the timeout
+async fn within_a_minute_named<T>(stage: &str, body: impl Future<Output = T>) -> T {
+  tokio::time::timeout(Duration::from_mins(1), body)
+    .await
+    .unwrap_or_else(|_| panic!("timed out while {stage}"))
+}
+
+/// Pauses the follow-up after the landing's first `Done`, until the test has queued the next landing
+struct PauseFollowUp {
+  ready: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+  release: Mutex<mpsc::Receiver<()>>,
+  paused: AtomicBool,
+}
+
+impl EventSink for PauseFollowUp {
+  fn send(&self, event: OperationEvent) {
+    if matches!(&event, OperationEvent::Done { .. }) && !self.paused.swap(true, Ordering::SeqCst) {
+      self.ready.lock().unwrap().take().unwrap().send(()).unwrap();
+      self.release.lock().unwrap().recv().unwrap();
+    }
+  }
 }
 
 /// The operation of `intent` among `operations`
@@ -363,25 +408,13 @@ async fn a_rewrite_during_the_check_of_an_update_waits_behind_it_and_runs_on_wha
 }
 
 /// Push to master lands the copy of a piece into the target of a repository that lands by a push, off Space and off
-/// GitHub; Update Project follows as an operation of its own, not an effect of the start: its fetch shows the copy in the
-/// baseline, and its replay drops the original commit whose copy landed (an empty change on the new baseline), so the
-/// branch keeps only what is built on it
+/// GitHub; Update Project follows under the start's guard, not as a second operation: its local baseline tracking ref
+/// already names the pushed copy, so there is no second fetch; its replay drops the original commit whose copy landed
+/// (an empty change on the new baseline), leaving only what is built on the branch
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed() {
-  let repo = test_utils::git_test_utils::stack_ahead_of_bare_origin();
-  repo.set_config("branchdeck.landing", "push").unwrap();
-  let (registry, key) = registry_of(&repo, true).await;
+  let (repo, registry, key) = push_landing_fixture().await;
   let sessions = registry.sessions();
-  // Patronus and GitHub answer for nothing here
-  let robots = FactResult::Robots {
-    read: RobotsRead::List { full: true },
-    result: PatronusRobotsResult::from(PatronusAvailability::NotPatronus),
-  };
-  let pull_requests = FactResult::PullRequests(PullRequestsResult::unavailable(PullRequestAvailability::NotGitHub));
-  for result in [robots, pull_requests] {
-    let ticket = sessions.begin(&key).await.unwrap();
-    sessions.apply_facts(&key, ticket, result).await.unwrap();
-  }
   let Intent::Land(land) = land_intent("alpha", PatronusPushMode::RebaseAutosquash) else {
     unreachable!()
   };
@@ -432,11 +465,111 @@ async fn a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_t
     .collect();
   assert_eq!(done.len(), 2, "{done:?}");
   assert_eq!(done[0].op, outcome.op);
+  assert_eq!(done[1].op, outcome.op, "the follow-up is reported on the start's channel");
   assert!(matches!(done[1].result, OperationResult::Update(_)), "{:?}", done[1].result);
   assert!(done[1].effects.iter().any(|record| record.effect == PlannedEffect::Update), "{:?}", done[1].effects);
+  assert!(
+    !done[1].effects.iter().any(|record| matches!(record.effect, PlannedEffect::Fetch { .. })),
+    "{:?}",
+    done[1].effects
+  );
+  let journal = read(&repo.path().join(".git")).unwrap();
+  assert_eq!(journal.len(), 1, "the landing and its follow-up are one recorded operation");
+  assert_eq!(journal[0].id, outcome.op);
   assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "rev-parse", "refs/heads/master"]), copy);
-  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), copy, "the update fetched it");
+  assert_eq!(repo.rev_parse("refs/remotes/origin/master").unwrap(), copy, "the baseline push advanced its tracking ref");
   assert_eq!(repo.git(&["log", "--format=%s", "origin/master..HEAD"]), "(alpha/beta) Beta");
+}
+
+/// A second click waits behind the first push and its Update Project sync, then lands on the facts that sync left
+#[tokio::test(flavor = "multi_thread")]
+async fn two_pushes_into_the_target_run_one_after_the_other_with_the_second_replanned() {
+  let (repo, registry, key) = push_landing_fixture().await;
+  let sessions = registry.sessions();
+  let land = |name| {
+    let Intent::Land(land) = land_intent(name, PatronusPushMode::RebaseAutosquash) else {
+      unreachable!()
+    };
+    land
+  };
+  let first_land = land("alpha");
+  let second_land = land("beta");
+  let first_plan = within_a_minute_named("preparing the first landing", async {
+    loop {
+      if let Some(plan) = crate::engine::prepare(sessions, &key, Intent::Land(first_land.clone())).await.unwrap()
+        && plan.waits.is_empty()
+      {
+        break plan;
+      }
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  let second_plan = within_a_minute_named("preparing the second landing", async {
+    loop {
+      if let Some(plan) = crate::engine::prepare(sessions, &key, Intent::Land(second_land.clone())).await.unwrap()
+        && plan.waits.is_empty()
+      {
+        break plan;
+      }
+      tokio::task::yield_now().await;
+    }
+  })
+  .await;
+  let accepted = |plan: &Plan| Accepted {
+    fingerprint: plan.fingerprint.clone(),
+    confirmations: plan.confirmations.clone(),
+  };
+  let (start_reported, start_reported_by_test) = tokio::sync::oneshot::channel();
+  let (release_follow_up, wait_for_release) = mpsc::channel();
+  let pause = Arc::new(PauseFollowUp {
+    ready: Mutex::new(Some(start_reported)),
+    release: Mutex::new(wait_for_release),
+    paused: AtomicBool::new(false),
+  });
+  let first_registry = registry.clone();
+  let first_key = key.clone();
+  let first_pause = Arc::clone(&pause);
+  let first = tokio::spawn(async move { crate::engine::execute(&first_registry, &first_key, Intent::Land(first_land), accepted(&first_plan), OFFLINE.hosts(), first_pause).await });
+  within_a_minute_named("the first landing to report its start", async { start_reported_by_test.await.unwrap() }).await;
+  let second_registry = registry.clone();
+  let second_key = key.clone();
+  let second = tokio::spawn(async move {
+    crate::engine::execute(
+      &second_registry,
+      &second_key,
+      Intent::Land(second_land),
+      accepted(&second_plan),
+      OFFLINE.hosts(),
+      Arc::new(Heard::default()),
+    )
+    .await
+  });
+  let queued = within_a_minute_named(
+    "the second landing to enter the queue",
+    operations_until(sessions, &key, |operations| {
+      operations.len() == 2 && operations.iter().any(|operation| matches!(operation.step, OperationStep::Queued { .. }))
+    }),
+  )
+  .await;
+  assert_eq!(queued.len(), 2, "the second click is queued behind the first operation");
+  release_follow_up.send(()).unwrap();
+  let (first, second) = tokio::join!(first, second);
+  let first = within_a_minute_named("the first landing and its sync to finish", async { first.unwrap().unwrap() }).await;
+  let second = within_a_minute_named("the second landing and its sync to finish", async { second.unwrap().unwrap() }).await;
+  assert!(
+    first
+      .effects
+      .iter()
+      .any(|record| matches!(record.effect, PlannedEffect::PushBaseline { .. }) && record.status == EffectStatus::Done)
+  );
+  assert!(
+    second
+      .effects
+      .iter()
+      .any(|record| matches!(record.effect, PlannedEffect::PushBaseline { .. }) && record.status == EffectStatus::Done)
+  );
+  assert_eq!(repo.git(&["--git-dir", ".git/origin.git", "log", "--format=%s", "master"]), "Beta\nAlpha\nInitial commit");
 }
 
 /// Merge #7 by rebase: GitHub writes the copy of the piece onto the target again, its author, time and message kept and

@@ -396,7 +396,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   };
   // the record tells the other processes what a restart of its robot sends, before it goes out
   let steps = Steps::none().with_record(Some(entry.handle()));
-  let push = run_planned(&start, &services, &steps, entry.id().clone(), planned.clone(), &accepted);
+  let push = run_planned(&start, &services, &steps, entry.id().clone(), planned.clone(), &accepted, false);
   let started = run_admitted(context, entry, push).map_err(CliError::from)?;
   let told = run.tell(&facts, &services, &planned, &started)?;
   run.output(&facts, Some((&planned, started.pushed.as_ref())), told, decided.covered)

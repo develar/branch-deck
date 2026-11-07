@@ -212,7 +212,7 @@ describe("a push into the target", () => {
 
   it("says the update that follows it: running, what it did, or Update Project where it did not move the branch", () => {
     const check: UpdateCheck = { branch: "main", upstream: "origin/master", head: "h1", upstreamHead: "u1", base: "b1", state: { status: "upToDate" }, fetchedAt: null }
-    expect(describeFollowingUpdate({ kind: "running" })).toEqual({ description: "Updating the project…", offersUpdate: false })
+    expect(describeFollowingUpdate({ kind: "running" })).toEqual({ description: "Rebuilding on the new master…", offersUpdate: false })
     expect(describeFollowingUpdate({ kind: "ended", result: { check, applied: null, landed: [] } })).toEqual({
       description: "main is up to date with origin/master",
       offersUpdate: false,
