@@ -1,6 +1,7 @@
 //! The calls of the system that std has no safe form of, each in a safe function: flock, the process groups and the
-//! sessions of the children, the signals of the supervisor, the open-files limit, the niceness, the load, the user
-//! database, and the kqueue of a watch on macOS. No other module has an unsafe block.
+//! sessions of the children, the signals of the supervisor, the open-files limit, the load, the user database, and the
+//! kqueue of a watch on macOS (the niceness of a child is `sync_utils::child_process::set_niceness`). No other module
+//! has an unsafe block.
 
 use std::ffi::{CStr, OsStr};
 use std::fs::File;
@@ -54,22 +55,6 @@ pub(crate) fn detach(command: &mut Command, keep: Option<RawFd>) {
   // SAFETY: the closure runs in the child between fork and exec, and calls only setsid and fcntl.
   unsafe {
     command.pre_exec(prepare);
-  }
-}
-
-/// Gives the child of `command` the niceness `nice`
-pub(crate) fn set_niceness(command: &mut Command, nice: u8) {
-  let nice = libc::c_int::from(nice);
-  let lower = move || {
-    // SAFETY: setpriority takes plain integers and is async-signal-safe.
-    if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) } == -1 {
-      return Err(io::Error::last_os_error());
-    }
-    Ok(())
-  };
-  // SAFETY: the closure runs in the child between fork and exec, and calls only setpriority.
-  unsafe {
-    command.pre_exec(lower);
   }
 }
 

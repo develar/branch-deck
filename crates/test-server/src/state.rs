@@ -156,7 +156,7 @@ pub struct TestHosts {
 pub struct FixtureIndexes;
 
 impl app_api::reads::symbols::SymbolIndexes for FixtureIndexes {
-  fn search<'a>(&'a self, _canceled: &'a (dyn Fn() -> bool + Sync)) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
+  fn search<'a>(&'a self, _canceled: &'a (dyn Fn() -> bool + Sync), _priority: sync_utils::child_process::ChildPriority) -> Option<Box<dyn file_diffs::accio::SymbolIndex + 'a>> {
     Some(Box::new(file_diffs::accio::FixtureIndex))
   }
 }

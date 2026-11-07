@@ -892,10 +892,13 @@ impl Actor {
       }
       (_, Ok(synced)) => {
         self.state.finish_sync(Ok(()));
-        let baseline = synced.table.baseline.clone();
-        let _ = self.facts.table.answer(observation, Ok(Arc::new(synced.table)));
+        let table = Arc::new(synced.table);
+        let baseline = table.baseline.clone();
+        let _ = self.facts.table.answer(observation, Ok(Arc::clone(&table)));
         self.facts.table_committed(&baseline);
         self.events.emit(&self.key, SessionEventKind::TableCommitted { baseline });
+        // before the patch: what the host starts on a commit runs ahead of the windows that read the table
+        self.host.table_committed(&self.key, &table);
         self.derive_patronus();
         derives = self.facts.patronus.is_deriving();
         // the table of the next start
@@ -1224,6 +1227,10 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   /// Keeps `frame` as the frame of its worktree (`SessionHost::save_frame`); nothing by default. Blocking
   fn save_frame(&self, _frame: &CachedSession) {}
 
+  /// A sync of `key` committed `table` (`SessionHost::table_committed`): the app reads ahead the review plans its
+  /// windows asked whose branches the sync moved (`app_api::reads::review_prefetch`); nothing by default. Not blocking
+  fn table_committed(&self, _key: &SessionKey, _table: &BranchTable) {}
+
   /// Whether the worktree of `key` was synced before (`SessionHost::synced_before`): the `lastSyncTime` of its state in
   /// the app's settings; false by default
   fn synced_before(&self, _key: &SessionKey) -> bool {
@@ -1314,6 +1321,10 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn save_frame(&self, frame: &CachedSession) {
     self.environment.save_frame(frame);
+  }
+
+  fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
+    self.environment.table_committed(key, table);
   }
 
   fn synced_before(&self, key: &SessionKey) -> bool {

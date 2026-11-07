@@ -19,12 +19,16 @@
 //!   what it has, and says why the index did not (`Lenient`).
 //! - **Found** on `PATH` (the login shell's for an app started from the Finder), else in `~/.local/bin`, `~/.cargo/bin`
 //!   and Homebrew's directories.
+//! - **Below the app ahead of a need**: the queries of a search the user waits for run at the priority of the app; those
+//!   of a plan read ahead of its window (`AccioSearch::in_background`, the prefetch after a rewrite of
+//!   spec/branch/review-plan.spec.md) at the lowest (`ChildPriority::Background`), so the index answers them with what
+//!   the machine leaves over.
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command};
+use sync_utils::child_process::{ChildPriority, ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command_at};
 
 /// The declarations a lookup answers at most
 const LIMIT: &str = "20";
@@ -253,10 +257,12 @@ pub struct AccioCli {
   executable: PathBuf,
 }
 
-/// The lookups of one navigation: each query runs until it answers, and is killed once `canceled` turns true
+/// The lookups of one navigation: each query runs until it answers, at `priority`, and is killed once `canceled` turns
+/// true
 pub struct AccioSearch<'a> {
   accio: &'a AccioCli,
   canceled: &'a (dyn Fn() -> bool + Sync),
+  priority: ChildPriority,
 }
 
 impl AccioCli {
@@ -275,9 +281,14 @@ impl AccioCli {
       .as_ref()
   }
 
-  /// The index of the repository for one navigation, which the caller cancels through `canceled`
+  /// The index of the repository for one navigation, which the caller cancels through `canceled`; its queries run at
+  /// the priority of the app
   pub fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync)) -> AccioSearch<'a> {
-    AccioSearch { accio: self, canceled }
+    AccioSearch {
+      accio: self,
+      canceled,
+      priority: ChildPriority::Normal,
+    }
   }
 
   /// accio at `executable`, for a test
@@ -331,10 +342,19 @@ enum Targets<'a> {
 }
 
 impl AccioSearch<'_> {
+  /// The same search, whose queries run below the app (`ChildPriority::Background`): no user waits for their answer yet
+  #[must_use]
+  pub const fn in_background(self) -> Self {
+    Self {
+      priority: ChildPriority::Background,
+      ..self
+    }
+  }
+
   /// The JSON answer of `accio <command> --no-build … <targets>` at `revision`, one entry per target in their order;
   /// `IndexUnavailable` when accio has no usable index of the repository
   fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, options: &[&str], repository_root: &str, targets: &Targets<'_>, revision: Option<&str>) -> Result<Vec<T>> {
-    let mut command = windowless_command(&self.accio.executable);
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
     command.args([command_name, "--no-build", "--format", "json", "--project", repository_root]);
     command.args(options);
     if let Some(revision) = revision {

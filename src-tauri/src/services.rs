@@ -12,6 +12,7 @@ use app_api::app::sign_in::account_changed;
 use app_api::context::AppContext;
 use app_api::events::{activity_changed, settings_changed};
 use app_api::operation::run_blocking;
+use app_api::reads::review_prefetch::prefetch_after_commit;
 use app_api::repository_state::RepositoryStateCache;
 use app_api::transport::AppHost;
 use app_settings::linked_pull_requests::{forget, linked};
@@ -44,6 +45,7 @@ use remote_facts::scheduler::Scheduler;
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
 use remote_facts::sign_in::{SignInHost, SignIns};
 use remote_facts::youtrack_cli::handed_token_file;
+use repository_model::branch_table::BranchTable;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session};
 use repository_model::runtime::{GitSessionHost, RunSetup, SessionEnvironment};
@@ -152,6 +154,11 @@ impl SessionEnvironment for AppEnvironment {
   fn save_frame(&self, frame: &CachedSession) {
     let ctx = self.app.state::<AppContext>();
     write_frame(&ctx.repository_state.object_cache(&ctx.git, &frame.key.worktree), frame);
+  }
+
+  /// The plans of the branches the review windows asked, which the sync moved, read ahead in the background
+  fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
+    prefetch_after_commit(&self.app.state::<AppContext>(), key, table);
   }
 
   /// The `lastSyncTime` of the repository in the state the writer of the settings keeps

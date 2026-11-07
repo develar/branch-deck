@@ -1,4 +1,5 @@
 use crate::mark_reviewed::{MarkReviewedParams, NoCommonHistory, UnknownReviewBase, UnknownReviewBranch, mark_reviewed_core};
+use crate::{ReviewPlanParams, ReviewSubject, resolve_subject};
 use git_ops::reviewed_refs::{REVIEWED_REFS, read_reviewed_pair};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -66,6 +67,34 @@ fn a_branch_stacked_on_another_is_marked_on_the_base_its_caller_names() {
 
 /// A base that names no commit, or one with no history in common with the tip, fails before the transaction: no ref
 /// is written, also when the base reads as an option of git
+/// A branch reviewed on the head of its stack parent, which the review window names by that commit, resolves its parent
+/// by name: the base of the same plan once a rewrite moved both heads (`ResolvedSubject::stack_parent`, which the app
+/// reads ahead with); a base named as a branch is that branch; a branch on the baseline has none, also where a local
+/// branch of the name has the same commit
+#[test]
+fn the_base_of_a_stacked_branch_resolves_to_its_parent_by_name() {
+  let (repo, base, parent_tip) = repo();
+  repo.git(&["switch", "-q", "-c", "jane/virtual/ui", "jane/virtual/auth"]);
+  repo.create_commit("(ui) Add form", "form.rs", "// form\n");
+  repo.git(&["switch", "-q", "master"]);
+  let parent_of = |name: &str, base: &str| {
+    let params = ReviewPlanParams {
+      repository_path: repo.path_str().to_string(),
+      subject: ReviewSubject::Branch {
+        name: name.to_string(),
+        base: Some(base.to_string()),
+        baseline_branch: None,
+      },
+      since_reviewed: false,
+      concern_edges: crate::concerns::ConcernEdges::default(),
+    };
+    resolve_subject(repo.git_executor(), PREFIX, &params).unwrap().stack_parent
+  };
+  assert_eq!(parent_of("ui", &parent_tip).as_deref(), Some("auth"));
+  assert_eq!(parent_of("ui", "auth").as_deref(), Some("auth"));
+  assert_eq!(parent_of("auth", &base), None);
+}
+
 #[test]
 fn a_base_that_is_no_commit_or_shares_no_history_is_its_own_error_and_writes_nothing() {
   let (repo, _, _) = repo();

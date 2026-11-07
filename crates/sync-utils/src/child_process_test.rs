@@ -1,7 +1,7 @@
-use crate::child_process::{ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines};
+use crate::child_process::{ChildPriority, ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines, windowless_command_at};
 #[cfg(unix)]
 use crate::process_scan::is_running;
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -179,4 +179,54 @@ fn a_child_that_exited_does_not_wait_for_a_neighbour_that_holds_its_pipes() {
       std::panic::resume_unwind(panic);
     }
   });
+}
+
+/// The niceness on Unix, the priority class on Windows
+#[cfg(unix)]
+type Priority = libc::c_int;
+#[cfg(windows)]
+type Priority = u32;
+
+/// The priority of a background child: nice 19
+#[cfg(unix)]
+const BACKGROUND: Priority = 19;
+/// The priority of a background child: the below-normal class
+#[cfg(windows)]
+const BACKGROUND: Priority = windows_sys::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS;
+
+/// The niceness of `child`, alive
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "getpriority(2) of a child, which std does not offer")]
+fn priority_of(child: &Child) -> Priority {
+  // SAFETY: getpriority takes plain integers; a child that is alive has a priority to answer
+  unsafe { libc::getpriority(libc::PRIO_PROCESS, child.id()) }
+}
+
+/// The priority class of `child`, alive
+#[cfg(windows)]
+#[expect(unsafe_code, reason = "GetPriorityClass of a child, which std does not offer")]
+fn priority_of(child: &Child) -> Priority {
+  use std::os::windows::io::AsRawHandle;
+  // SAFETY: the handle belongs to `child`, which lives for the call
+  unsafe { windows_sys::Win32::System::Threading::GetPriorityClass(child.as_raw_handle()) }
+}
+
+/// A child of work done ahead of a need runs below the app (nice 19, the below-normal class on Windows); a child the
+/// user waits for keeps the priority a child of the app gets by default, whatever the priority the tests run at
+#[test]
+fn a_background_child_runs_below_the_app() {
+  let dir = tempfile::tempdir().unwrap();
+  // it waits for its stdin, alive while its priority is read
+  let waiting = fake(&dir, "read line");
+  let priority = |command: &mut Command| {
+    let mut child = command.stdin(Stdio::piped()).spawn().unwrap();
+    let priority = priority_of(&child);
+    drop(child.stdin.take());
+    child.wait().unwrap();
+    priority
+  };
+  let default = priority(&mut Command::new(&waiting));
+  let normal = priority(&mut windowless_command_at(&waiting, ChildPriority::Normal));
+  let background = priority(&mut windowless_command_at(&waiting, ChildPriority::Background));
+  assert_eq!((normal, background), (default, BACKGROUND));
 }

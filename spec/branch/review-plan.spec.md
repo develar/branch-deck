@@ -34,6 +34,7 @@ targets:
   - ../../crates/bd-cli/src/lib.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/app-api/src/reads/review_plan.rs
+  - ../../crates/app-api/src/reads/review_prefetch.rs
   - ../../crates/app-api/src/app/mark_reviewed.rs
   - ../../crates/app-api/src/session/windows.rs
   - ../../crates/sync-core/src/repository_config.rs
@@ -575,6 +576,33 @@ group at the end. The overview at the top of the document of the review, before 
   kill its queries of accio and answer `canceled`; the two slots, and a symbol search of the window, must never
   supersede each other.
   [@test] ../../crates/app-api/src/session/windows_test.rs (`a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other`, `a_closed_window_supersedes_its_request`, `the_plan_of_a_commit_and_the_plan_of_its_scope_never_supersede_each_other`)
+- A plan must be read once, whoever asks it: a window that asks the plan another window or the read ahead reads now
+  must wait for that reading and get its plan whole, in one event, without the plan of its pending usages; when that
+  reading ends without a plan (its window asked another, a newer commit superseded it), the window must read the plan
+  itself and still get it.
+  [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_window_that_asks_the_plan_being_read_ahead_joins_its_reading`, `a_window_that_waited_for_a_superseded_read_ahead_still_gets_its_plan`)
+- Once a sync commits the table of a repository (also one that moved nothing), the app must read ahead, in the
+  background and one at a time, the most recently asked first, the plan of each branch a review window asked since the
+  app started whose head the table moved and that no open window shows (that window reads its own plan once it sees
+  the new head): the branch by the name the window asked it, on the stack parent whose head the window named as its
+  base, else on the baseline of the table, "Since Your Review" as asked. The window that opens the review again then
+  finds the plan whole in the memory of the plans and asks the index nothing, and a commit that leaves the head there
+  reads nothing again. A branch the table no longer has, or that no longer resolves, is forgotten; a range, a commit
+  and a kept branch are never read ahead; nothing is without `branchdeck.reviewExperimental` or an index on the
+  machine, since a plan without its usages is not kept. No memory of its own beside the memory of the plans: the speed
+  comes from accio ([Change Review](../../docs/design/change-review.md#prefetch-after-a-rewrite)).
+  [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_commit_that_moved_a_branch_a_window_asked_reads_its_plan_ahead_once_below_the_app`, `only_a_branch_a_window_asked_and_no_window_shows_is_read_ahead`)
+  [@test] ../../crates/repository-model/src/session_test.rs (`the_host_hears_each_table_a_sync_commits`)
+  [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`the_base_of_a_stacked_branch_resolves_to_its_parent_by_name`)
+- The queries of accio of a plan read ahead must run below the app, at nice 19 on Unix and the below-normal priority
+  class on Windows, which the processes accio starts inherit; those of a plan a window asks run at the priority of the
+  app.
+  [@test] ../../crates/sync-utils/src/child_process_test.rs (`a_background_child_runs_below_the_app`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`a_search_in_the_background_runs_its_queries_at_the_lowest_priority`)
+  [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_commit_that_moved_a_branch_a_window_asked_reads_its_plan_ahead_once_below_the_app`)
+- A newer commit of the table of the same repository must supersede the read ahead in flight: its queries of accio are
+  killed, and the newer one reads what is left to read.
+  [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_newer_commit_supersedes_the_read_ahead_in_flight`)
 - `branchdeck.reviewExperimental` must be off unless git config turns it on (Settings → Diffs & Merge → Review), read
   and written like the other keys of Settings; a value git refuses must be off with its reason and fail no sync: an
   experiment never turns on from a broken value.

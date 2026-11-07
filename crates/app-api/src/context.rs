@@ -51,7 +51,8 @@ pub struct AppContext {
   pub symbol_indexes: Arc<dyn SymbolIndexes>,
   /// The search of the fix of the conflicts, one at a time
   pub conflict_fix: ConflictFixSearch,
-  /// The review plans whose every query answered, by what each is of
+  /// The review plans whose every query answered, by what each is of, the readings in flight and the branches the
+  /// windows asked, which a commit of a table reads ahead (`review_prefetch`)
   pub review_plans: ReviewPlans,
   /// The sessions of the repositories the windows show (`repository_model::session`), which own their tables and read
   /// their facts; the e2e server shares one between its test repositories
@@ -128,12 +129,14 @@ impl AppContext {
   }
 
   /// `window` closed: its subscriptions end, its review fetches stop, its symbol search and its read of a review plan
-  /// are superseded, and a window built again under its label waits for its page again
+  /// are superseded, the branch it reviewed is read ahead after a rewrite (`review_prefetch`), and a window built again
+  /// under its label waits for its page again
   pub fn forget_window(&self, window: &WindowId) {
     for op in self.windows.forget_fetches(window) {
       self.registry.cancel(&op);
     }
     self.windows.forget_reads(window);
+    self.review_plans.forget_window(window);
     self.sub_windows.forget(window.as_str());
     self.forget_page(window);
   }

@@ -202,6 +202,12 @@ pub trait SessionHost: Send + Sync + 'static {
   /// runtime calls it on the blocking pool, one save of a session at a time. Nothing by default
   fn save_frame(&self, _frame: &CachedSession) {}
 
+  /// A sync of `key` succeeded and committed `table`, its tips and its baseline (not a retry, not a deferred or failed
+  /// sync; a sync that changed nothing too). Called on the actor of the session, in the order of the commits and before
+  /// the windows get the patch of the table, so it must not block: a host starts what it does on a commit and returns
+  /// (the app reads ahead the review plans of the branches the sync moved). Nothing by default
+  fn table_committed(&self, _key: &SessionKey, _table: &BranchTable) {}
+
   /// Whether the worktree of `key` was synced before (the `lastSyncTime` of its state, which the app's writer keeps): the
   /// session then syncs when it opens (`SyncReason::Open`), with or without a window. Blocking, called with `frame`.
   /// False by default

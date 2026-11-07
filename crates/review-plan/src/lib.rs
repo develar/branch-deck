@@ -52,7 +52,7 @@ use crate::fan_in::add_usages;
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
 use crate::interdiff::{Interdiff, MessageChange, PairState, commits_of, interdiff, message_change};
 use crate::links::{FileLink, link_files};
-use crate::mark_reviewed::{BranchOnBase, branch_on_base};
+use crate::mark_reviewed::{BranchOnBase, branch_on_base, resolve_branch};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
@@ -241,6 +241,10 @@ pub struct ResolvedSubject {
   pub message_changes: HashMap<String, MessageChange>,
   /// The reviewed commit a commit was read with (`ReviewSubject::Commit::reviewed`), by its full id
   pub reviewed_commit: Option<String>,
+  /// The virtual branch of the prefix whose head the base of a branch is (its stack parent, as the review window names
+  /// the base by that commit), by its name: `ReviewSubject::Branch::base` of the same plan once a rewrite moved both
+  /// heads; `None` for a branch on the baseline, a range, a commit
+  pub stack_parent: Option<String>,
 }
 
 /// The subject of `params` resolved (`review_plan_core`): for a branch one `for-each-ref` of the reviewed refs with
@@ -249,9 +253,14 @@ pub struct ResolvedSubject {
 pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &ReviewPlanParams) -> Result<ResolvedSubject> {
   let repository_path = params.repository_path.as_str();
   match &params.subject {
-    ReviewSubject::Branch { name, base, baseline_branch } => {
+    ReviewSubject::Branch {
+      name,
+      base: named,
+      baseline_branch,
+    } => {
       let refs = read_reviewed_refs(git, repository_path)?;
-      let BranchOnBase { branch, tip, base } = branch_on_base(git, repository_path, &refs.branches, branch_prefix, name, (base.as_deref(), baseline_branch.as_deref()))?;
+      let BranchOnBase { branch, tip, base } = branch_on_base(git, repository_path, &refs.branches, branch_prefix, name, (named.as_deref(), baseline_branch.as_deref()))?;
+      let stack_parent = named.as_deref().and_then(|named| stack_parent(&refs.branches, branch_prefix, named, &base));
       let interdiff = refs.reviewed(&branch).map(|reviewed| interdiff(git, repository_path, &reviewed, &base, &tip)).transpose()?;
       let message_changes = interdiff
         .iter()
@@ -266,6 +275,7 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
         interdiff,
         message_changes,
         reviewed_commit: None,
+        stack_parent,
       })
     }
     ReviewSubject::Range { base, head } => {
@@ -281,6 +291,7 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
         interdiff: None,
         message_changes: HashMap::new(),
         reviewed_commit: None,
+        stack_parent: None,
       })
     }
     ReviewSubject::Commit { id, reviewed } => {
@@ -302,9 +313,25 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
         interdiff: None,
         message_changes,
         reviewed_commit,
+        stack_parent: None,
       })
     }
   }
+}
+
+/// The stack parent a branch is reviewed on, by its name (`ResolvedSubject::stack_parent`): the branch `named` names, or
+/// the virtual branch of the prefix whose tip is `base` (the merge base of the branch and the commit `named`); the first
+/// by name should two have that tip
+fn stack_parent(branches: &HashMap<String, String>, branch_prefix: &str, named: &str, base: &str) -> Option<String> {
+  if resolve_branch(branches, branch_prefix, named).is_some() {
+    return Some(named.to_string());
+  }
+  branches
+    .iter()
+    .filter(|(_, tip)| *tip == base)
+    .filter_map(|(full, _)| strip_branch_namespace(full, branch_prefix, BranchKind::Virtual))
+    .min()
+    .map(str::to_string)
 }
 
 /// The reviewed commit of `head` by its full id and how the message of `head` differs from its message: one `rev-list`
@@ -356,6 +383,7 @@ pub fn review_plan_of(
     interdiff,
     message_changes,
     reviewed_commit: _,
+    stack_parent: _,
   } = subject;
   let carried = interdiff
     .as_ref()

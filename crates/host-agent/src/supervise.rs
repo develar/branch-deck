@@ -64,7 +64,7 @@ use std::process::{Child, ExitStatus, Stdio};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
-use sync_utils::child_process::windowless_command;
+use sync_utils::child_process::{set_niceness, windowless_command};
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
 
@@ -635,7 +635,7 @@ fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>,
     .stderr(Stdio::piped())
     .process_group(0);
   if let Some(nice) = launch.nice {
-    sys::set_niceness(&mut command, nice);
+    set_niceness(&mut command, nice);
   }
   let mut child = command
     .spawn()

@@ -44,6 +44,9 @@ per rule and links here.
 - **A process** starts through `sync_utils::child_process::windowless_command`, git through `GitCommandExecutor`,
   never `Command::new`: the release app on Windows is a GUI program, and every console program it started got a
   console window of its own, a Windows Terminal window in front of the app for each git (`console_window_scan_test.rs`).
+  A child of work done ahead of a need (the read ahead of a review plan) starts through `windowless_command_at(…,
+  ChildPriority::Background)`, below the app: Windows takes its priority class and its console flag in one
+  `creation_flags`, which a second call would replace.
 - **Rust imports** ([Import Guidelines](imports.md)): never `pub use` re-exports (except for internal
   module organization); make modules public with `pub mod`; every import uses the full module path, so it shows where
   a type or function comes from:

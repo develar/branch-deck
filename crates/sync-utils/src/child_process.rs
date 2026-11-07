@@ -1,5 +1,6 @@
 //! Runs a CLI that is not git (`gh`, `claude`, `accio`): input on stdin, both pipes drained while it runs, killed after
-//! a timeout (none for `run_child_until_superseded`) or as soon as the caller no longer wants the answer.
+//! a timeout (none for `run_child_until_superseded`) or as soon as the caller no longer wants the answer; a child of work
+//! done ahead of a need runs below the app (`ChildPriority::Background`).
 
 use crate::span::in_current_span;
 use std::ffi::{OsStr, OsString};
@@ -46,19 +47,69 @@ impl ChildOutput {
   }
 }
 
+/// How the child of a command shares the machine with the app
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ChildPriority {
+  /// As the app: a child whose answer the user waits for
+  #[default]
+  Normal,
+  /// Below the app: work done ahead of a need (the plans of the reviews after a rewrite), which yields the processors
+  /// to everything else. Nice 19 on Unix, the below-normal priority class on Windows; either is inherited by the
+  /// processes the child starts
+  Background,
+}
+
+/// The niceness of a background child on Unix: the lowest priority
+#[cfg(unix)]
+const BACKGROUND_NICENESS: u8 = 19;
+
 /// The command of `program`, which on Windows opens no console window: the one way a process that is not git starts
 /// (`console_window_scan_test.rs`; git starts in `GitCommandExecutor`, on this too). The release app is a GUI
 /// program without a console, so Windows gives every console program it starts (`gh`, `claude`, the `cmd` of a `.cmd`
 /// shim) a console of its own, which Windows Terminal shows as a window in front of the app for each process. A
 /// process with a console (`bd`, a debug build of the app) keeps sharing it with its children, so a Ctrl+C ends them too
 pub fn windowless_command(program: impl AsRef<OsStr>) -> Command {
-  #[cfg_attr(not(windows), expect(unused_mut, reason = "the creation flags exist on Windows only"))]
+  windowless_command_at(program, ChildPriority::Normal)
+}
+
+/// `windowless_command` whose child runs at `priority`. On Windows the priority class is a creation flag beside the one
+/// of the console window, which a second `creation_flags` would replace: both are set here at once
+pub fn windowless_command_at(program: impl AsRef<OsStr>, priority: ChildPriority) -> Command {
   let mut command = Command::new(program);
   #[cfg(windows)]
-  if !has_console() {
-    std::os::windows::process::CommandExt::creation_flags(&mut command, windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+  {
+    use windows_sys::Win32::System::Threading::{BELOW_NORMAL_PRIORITY_CLASS, CREATE_NO_WINDOW};
+    let window = if has_console() { 0 } else { CREATE_NO_WINDOW };
+    let class = if priority == ChildPriority::Background { BELOW_NORMAL_PRIORITY_CLASS } else { 0 };
+    let flags = window | class;
+    if flags != 0 {
+      std::os::windows::process::CommandExt::creation_flags(&mut command, flags);
+    }
+  }
+  #[cfg(unix)]
+  if priority == ChildPriority::Background {
+    set_niceness(&mut command, BACKGROUND_NICENESS);
   }
   command
+}
+
+/// Gives the child of `command` the niceness `nice` (setpriority(2) between fork and exec): a process may raise its own
+/// niceness, never lower it
+#[cfg(unix)]
+#[expect(unsafe_code, reason = "pre_exec runs a closure in the child between fork and exec, which std cannot check")]
+pub fn set_niceness(command: &mut Command, nice: u8) {
+  let nice = libc::c_int::from(nice);
+  let lower = move || {
+    // SAFETY: setpriority takes plain integers and is async-signal-safe.
+    if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) } == -1 {
+      return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+  };
+  // SAFETY: the closure runs in the child between fork and exec, and calls only setpriority.
+  unsafe {
+    std::os::unix::process::CommandExt::pre_exec(command, lower);
+  }
 }
 
 /// Whether this process has a console, asked once: a console program has one from its start, a GUI program never gets one

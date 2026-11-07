@@ -54,6 +54,8 @@ tokio = { workspace = true, features = ["test-util", "time"] }
 update-core = { path = "../update-core", features = ["fixtures"] }
 pretty_assertions = { workspace = true }
 tempfile.workspace = true
+# the repositories of the plans read ahead (`review_prefetch_test.rs`)
+test-utils = { path = "../test-utils" }
 
 # the fake socket of an IDE in `air_launch_test.rs`: AF_UNIX on Windows, as `air-launch` connects to it
 [target.'cfg(windows)'.dev-dependencies]

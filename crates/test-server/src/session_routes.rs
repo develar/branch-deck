@@ -22,6 +22,7 @@ use crate::state::TestRepository;
 use crate::sync_overrides::OverridingReporter;
 use app_api::api_error::{api_error, patronus_error};
 use app_api::operation::run_blocking;
+use app_api::reads::review_prefetch::prefetch_after_commit;
 use app_settings::projects::synced_before;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -38,6 +39,7 @@ use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
 use remote_facts::fact_sources::{FactSources, Read};
 use remote_facts::service_sources::{ServiceFactSources, ServiceHost};
+use repository_model::branch_table::BranchTable;
 use repository_model::facts::Needs;
 use repository_model::moved_remote::{MovedRemoteAsk, fetch_in_session, skip_in_session};
 use repository_model::runtime::{RunSetup, SessionEnvironment};
@@ -183,6 +185,15 @@ impl SessionEnvironment for TestSessionEnvironment {
       .upgrade()
       .and_then(|state| state.repository(&key.worktree).ok().map(|repository| state.git_of(&repository.id)))
       .unwrap_or_else(|| git.clone())
+  }
+
+  /// The plans the review windows of the repository asked, read ahead in the background as the app reads them
+  fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
+    if let Some(state) = self.state.upgrade()
+      && let Ok(repository) = state.repository(&key.worktree)
+    {
+      prefetch_after_commit(&repository.context, key, table);
+    }
   }
 
   /// Records the `keep` of the repository (`prunes` of `GET /repositories/{id}/review-requests`), then prunes as the app

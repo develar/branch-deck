@@ -1,5 +1,8 @@
-//! The accio process of a lookup: waited for as long as it runs, killed once the navigation is canceled
+//! The accio process of a lookup: waited for as long as it runs, killed once the navigation is canceled, below the app
+//! for a plan read ahead of its window
 
+#[cfg(unix)]
+use crate::accio::AccioSearch;
 use crate::accio::{AccioCli, CallArgument, DeclarationAt, Lenient, Resolved, SearchCanceled, SymbolHit, SymbolIndex};
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -77,6 +80,31 @@ fn a_canceled_search_kills_its_query() {
   assert!(error.is::<SearchCanceled>(), "{error:#}");
   // killed within the poll interval, not after the 600 s of its sleep
   assert!(waited < Duration::from_secs(60), "{waited:?}");
+}
+
+/// The queries of a plan read ahead of its window run below the app, at nice 19, which the processes accio starts
+/// inherit; those of a search the user waits for run at the priority of the app, whatever the one the tests run at
+#[cfg(unix)]
+#[test]
+fn a_search_in_the_background_runs_its_queries_at_the_lowest_priority() {
+  let dir = tempfile::tempdir().unwrap();
+  let niceness = dir.path().join("niceness");
+  // its own niceness, then the one of the test that started it
+  let body = format!(
+    "ps -o nice= -p $$ > {path}\nps -o nice= -p $PPID >> {path}\nprintf '%s' '[{{\"hits\":[]}}]'",
+    path = shell_path(&niceness)
+  );
+  let accio = AccioCli::at(fake_executable(dir.path(), "accio", &body));
+  let canceled = || false;
+  let read = |search: AccioSearch<'_>| -> (i32, i32) {
+    assert_eq!(search.symbols(ROOT, "outsider", None).unwrap(), Some(Vec::new()));
+    let text = std::fs::read_to_string(&niceness).unwrap();
+    let values: Vec<i32> = text.split_whitespace().map(|value| value.parse().unwrap()).collect();
+    (values[0], values[1])
+  };
+  let (normal, test) = read(accio.search(&canceled));
+  assert_eq!(normal, test, "a search the user waits for runs as the app");
+  assert_eq!(read(accio.search(&canceled).in_background()), (19, test));
 }
 
 /// Every query runs with `--no-build`; accio without a usable index answers `available: false`, which the lookup answers

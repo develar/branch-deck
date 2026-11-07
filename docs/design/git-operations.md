@@ -3438,11 +3438,16 @@ the other outputs of `brd` with 2. The app reads the plan with `get_review_plan`
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes
 (`Windows::begin_plan`, a slot for the plan of a scope and one for the plan of a commit of the column, `ReviewSubject::Commit` against its first parent, so neither cancels the other and a Go to Declaration of the window cancels neither); a plan
-superseded after its last query answers `canceled` too. Its channel carries the plan without the usages before the
-index is asked (`review_plan_of`'s `pending`), then the plan with them, or `disabled` after one `git config` read
-(`ConfigSnapshot`) when the repository turns the plan off; a plan whose every query answered is kept by its subject
-resolved (`ReviewPlans`, a weighed `moka` cache), so a window that asks it again runs only the resolve of its subject
-(`for-each-ref`, `merge-base` or `rev-parse`) and asks no index. Mark Reviewed of the window is `mark_branch_reviewed`, a
+superseded after its last query answers `canceled` too, its plan kept for the next ask. Its channel carries the plan
+without the usages before the index is asked (`review_plan_of`'s `pending`), then the plan with them, or `disabled`
+after one `git config` read (`ConfigSnapshot`) when the repository turns the plan off; a plan whose every query
+answered is kept by its subject resolved (`ReviewPlans`, a weighed `moka` cache), so a window that asks it again runs
+only the resolve of its subject (`for-each-ref`, `merge-base` or `rev-parse`) and asks no index. A plan is read once
+whoever asks it: a window that asks the plan another window or the read ahead reads now waits for that reading
+(`ReviewPlans`' flights, a `sync_utils::single_flight`) and gets it in one event. After a sync commits the table of a
+repository the app reads ahead, below the app, the plans of the branches its review windows asked that the sync moved
+(`crates/app-api/src/reads/review_prefetch.rs`, [Change Review](change-review.md#prefetch-after-a-rewrite)): the same
+resolve and plan, no other git. Mark Reviewed of the window is `mark_branch_reviewed`, a
 command of the app (`app(ReviewedRefs)`: the refs have their one writer, no session reads them,
 `crates/app-api/src/app/mark_reviewed.rs`), with the same `mark_reviewed_core` and its CAS; both name the branch with
 the prefix the app resolves for the repository (`PrefixInputs`), and the page passes the head of the stack parent as

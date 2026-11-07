@@ -11,21 +11,27 @@ use domain_types::error::ApiError;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use file_diffs::model::{DeclarationTarget, FindDeclarationParams, FoundDeclarations, FoundUsages, OutsidePlaceParams};
 use std::sync::Arc;
+use sync_utils::child_process::ChildPriority;
 use tracing::instrument;
 
 /// Where a symbol search looks outside the review: the index of this machine in the app (`Accio`), the fixture of a
 /// test repository in the e2e server
 pub trait SymbolIndexes: Send + Sync {
-  /// The index of one search, whose queries are killed once `canceled` turns true; None when there is none
-  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync)) -> Option<Box<dyn SymbolIndex + 'a>>;
+  /// The index of one search, whose queries run at `priority` (below the app for a plan read ahead of its window) and
+  /// are killed once `canceled` turns true; None when there is none
+  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync), priority: ChildPriority) -> Option<Box<dyn SymbolIndex + 'a>>;
 }
 
 /// accio, when this machine has it (`AccioCli::discover`), and the repository an index
 pub struct Accio;
 
 impl SymbolIndexes for Accio {
-  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync)) -> Option<Box<dyn SymbolIndex + 'a>> {
-    AccioCli::discover().map(|accio| Box::new(accio.search(canceled)) as Box<dyn SymbolIndex + 'a>)
+  fn search<'a>(&'a self, canceled: &'a (dyn Fn() -> bool + Sync), priority: ChildPriority) -> Option<Box<dyn SymbolIndex + 'a>> {
+    AccioCli::discover().map(|accio| {
+      let search = accio.search(canceled);
+      let search = if priority == ChildPriority::Background { search.in_background() } else { search };
+      Box::new(search) as Box<dyn SymbolIndex + 'a>
+    })
   }
 }
 
@@ -37,7 +43,7 @@ pub async fn find_declaration(ctx: &AppContext, call: &Call, params: FindDeclara
   run_blocking(move || {
     let cache = repository_state.object_cache(&git, &params.repository_path);
     let canceled = || search.is_superseded();
-    let index = indexes.search(&canceled);
+    let index = indexes.search(&canceled, ChildPriority::Normal);
     file_diffs.find_declaration(&git, &cache, index.as_deref(), &params)
   })
   .await
@@ -50,7 +56,7 @@ pub async fn find_usages(ctx: &AppContext, call: &Call, params: FindDeclarationP
   let (git, file_diffs, indexes) = (ctx.git.clone(), ctx.file_diffs.clone(), Arc::clone(&ctx.symbol_indexes));
   run_blocking(move || {
     let canceled = || search.is_superseded();
-    let index = indexes.search(&canceled);
+    let index = indexes.search(&canceled, ChildPriority::Normal);
     file_diffs.find_usages(&git, index.as_deref(), &params)
   })
   .await

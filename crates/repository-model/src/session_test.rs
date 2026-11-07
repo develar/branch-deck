@@ -94,6 +94,8 @@ struct ScriptedHost {
   needs_computed: Mutex<u32>,
   /// While set, a derivation of the Patronus view says that it started and waits for the release
   view_gate: Mutex<Option<ViewGate>>,
+  /// The worktree and the baseline of each table a sync committed, in order (`SessionHost::table_committed`)
+  commits: Mutex<Vec<(String, String)>>,
 }
 
 /// What holds the derivations of the Patronus view of a `ScriptedHost` (`ScriptedHost::hold_views`)
@@ -252,6 +254,10 @@ impl SessionHost for ScriptedHost {
 
   fn synced_before(&self, _key: &SessionKey) -> bool {
     *self.synced_before.lock().unwrap()
+  }
+
+  fn table_committed(&self, key: &SessionKey, table: &BranchTable) {
+    self.commits.lock().unwrap().push((key.worktree.clone(), table.baseline.clone()));
   }
 }
 
@@ -441,6 +447,25 @@ async fn a_moved_branch_is_retried_once_and_syncing_until_then() {
   gate.notify_one();
   assert_eq!(outcome(ticket).await, Ok(SyncOutcome::Synced));
   assert_eq!(host.runs(), 2, "one retry");
+}
+
+/// A sync that commits its table tells the host once, with that table, so the app reads ahead what its windows will
+/// ask of it; a run the sync retries and a failed sync tell it nothing (`SessionHost::table_committed`)
+#[tokio::test]
+async fn the_host_hears_each_table_a_sync_commits() {
+  let host = Arc::new(ScriptedHost::default());
+  let table = BranchTable {
+    baseline: "origin/master".to_string(),
+    ..BranchTable::default()
+  };
+  host.push(auth_built(), Ok(report(true, &["auth"])));
+  host.push_table(Vec::new(), Ok(report(false, &[])), table);
+  host.push(Vec::new(), Err(ApiError::internal("broken")));
+  let (sessions, key) = watched(&host).await;
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Ok(SyncOutcome::Synced));
+  assert_eq!(host.runs(), 2, "one retry");
+  assert_eq!(outcome(sessions.sync(&key, SyncReason::Manual)).await, Err(ApiError::internal("broken")));
+  assert_eq!(*host.commits.lock().unwrap(), [("/repo".to_string(), "origin/master".to_string())]);
 }
 
 /// A failed sync keeps the table of the sync before, its rows as they were, with the error; a deferred one keeps it

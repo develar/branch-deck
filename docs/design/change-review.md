@@ -76,6 +76,22 @@ budget is a test, `process_budget_test.rs`). The window only words it: one docum
 tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns are the next part
 ([Next](#next)).
 
+### Prefetch after a rewrite
+
+The `accio tests --tests` query of a plan of the IntelliJ monorepo costs about 5 s, 70 s of the processors, cold and
+2.8 s warm, and every rewrite of Branch Deck (`brd update`, a pick, a fold) replaces the commits of a branch, so the
+first plan after it is the cold one. The app pays it ahead (`app_api::reads::review_prefetch`): once a sync commits the
+table of a repository (`SessionHost::table_committed`, on the actor of the session, before the windows get the patch),
+it reads again the plan of each branch a review window asked since the app started whose head the table moved, the most
+recently asked first and one at a time, its queries of accio at nice 19 (the below-normal class on Windows). What it
+reads is what the window will ask: the window names the base of a stacked branch by the head of its parent, which the
+rewrite moved, so the read ahead names the parent itself (`ResolvedSubject::stack_parent`), else the baseline of the
+table, and the subject resolves to the key the window asks the memory of the plans by. The plan goes into that memory,
+the only one of Branch Deck ([decision 16](#decisions-and-reversals)); accio's own store of the resolved edges warms
+for the new tree with it (JetBrains/accio#348). A branch an open window shows is left to that window, which reads its
+plan as it sees the new head, at the priority of the app. A newer commit supersedes the read ahead in flight, and a
+window that asks the plan being read joins that reading (`sync_utils::single_flight`) instead of reading it twice.
+
 ## Research
 
 What other work offers for the parts that are not done, read on 2026-10-31. These are claims of the papers and the
@@ -237,6 +253,14 @@ the review.
    and "No test found within 3 calls" went, and a negative stands only on a complete answer. The graph stays accio's:
    the answer costs a plan ~20 s on the IntelliJ monorepo, and the review takes that cost rather than a depth cap or a
    cache of its own until accio answers fast (JetBrains/accio#376, #191).
+17. **The plan is read ahead after a rewrite** (2026-11-07). A rewrite replaces every commit of a branch, so the plan
+   the user opens next was cold. A commit of the table reads ahead the plans of the branches a review window asked in
+   this run of the app, not of every branch the sync moved: it costs only what the user reviews. Below the app (nice
+   19), superseded by a newer commit, and with no store of Branch Deck's own: decision 16 stands, the memory of the
+   plans keeps what it read, and accio's store (JetBrains/accio#348) makes the next plan fast. The branch of an open
+   window is left to it: a window that joined a reading at nice 19 would wait for the plan on screen as long as the
+   machine is busy, and a process cannot take its niceness back
+   ([Prefetch after a rewrite](#prefetch-after-a-rewrite)).
 
 ## Review Rounds
 
