@@ -512,8 +512,9 @@ fn the_skill_lands_by_the_route_of_the_repository_and_a_pick_is_local() {
 }
 
 /// The repository form of a subject follows the `(branch) ` prefix, also with the rule off, from the agent instructions
-/// of the repository or its `git log`; the push drops the prefix, and a pick refuses what `[commit] check` rejects. `brd
-/// help worktrees` says the same for `(branch)`, `(parent/leaf)` and `(leaf)`
+/// of the repository or its `git log`; the push drops the prefix, and a pick refuses what `[commit] check` rejects. A new
+/// branch is `(name)`, never a stack on the baseline. `brd help worktrees` says the same for `(branch)`, `(parent/leaf)`
+/// and `(leaf)`
 #[test]
 fn the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix() {
   let skill = skill_text("brd");
@@ -521,13 +522,16 @@ fn the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix() {
   let end = start + 2 + skill[start + 2..].find("\n- ").unwrap();
   let rule = &skill[start..=end];
   for words in [
-    "Then, also\n  off (no prefix), write the subject as the repository does: its agent instructions, else its `git log`.",
-    "The push drops\n  the prefix; a pick refuses a message that `[commit] check` rejects (`message_format`).",
+    "a new branch is `(name)`; `(parent/leaf)` only on top of\n  an existing virtual branch, never the baseline (`baseline_parent`).",
+    "Then, also off (no prefix), write the subject as\n  the repository does: its agent instructions, else its `git log`.",
+    "The push drops the prefix; a pick refuses a message\n  that `[commit] check` rejects (`message_format`).",
   ] {
     assert!(rule.contains(words), "{words}: {rule}");
   }
+  assert!(!skill.contains("a new stack is"), "{rule}");
   assert!(WORKTREES_HELP.contains("A subject is `(branch) ` and then the subject form of the repository (its agent\n   instructions, else its `git log`)"));
-  assert!(WORKTREES_HELP.contains("`(parent/leaf) ` and then that form; once the stack parents know the leaf, `(leaf) ` and then that form"));
+  assert!(WORKTREES_HELP.contains("A new branch is `(name) `; `(parent/leaf) ` only stacks it on an existing virtual\n   branch, never on the baseline"));
+  assert!(WORKTREES_HELP.contains("once\n   the stack parents know the leaf, `(leaf) ` and then that form is enough"));
 }
 
 /// `brd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into

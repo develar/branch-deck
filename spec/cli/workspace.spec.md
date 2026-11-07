@@ -95,9 +95,9 @@ in the session wins over both.
   task needs the `local_changes`; its own files ignored by git and kept by its harness in the shared checkout (a plan,
   notes) are not `local_changes` and may be updated there at their original paths, never copied into the lease or
   committed; without it, stage only its own paths; with the
-  subject branch, `(branch) ` first, a branch of `brd status --brief` reused where it fits, `(parent/leaf)` for a new
-  stack; never change either rule.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`)
+  subject branch, `(branch) ` first, a branch of `brd status --brief` reused where it fits, a new branch `(name)`,
+  `(parent/leaf)` only on an existing virtual branch, never the baseline; never change either rule.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`)
 - The skill must carry the isolation rules a repository would otherwise repeat in its own agent instructions: a lease is
   the agent's only worktree, never a `git worktree add` or a clone on its own initiative, also not when a brd command
   fails (then it works where it is when that is safe, or asks, and names a lease that survived). The rule of the lease

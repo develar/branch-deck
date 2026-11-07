@@ -26,8 +26,8 @@ pub const AGENT_HELP: &str = concat!(
 (-v for debug). `brd <command> --help` says what a command prints and what each of its refusals asks.
 
 Branch Deck groups commits ahead of the baseline by `(name)`, else issue group, else issue key, into
-`{prefix}/virtual/{name}`; sync never touches the working tree. Stacks (`git config branchdeck.stacks true`) name a
-parent in `(parent/leaf)` or `refs/branch-deck/stack-parents` with `(leaf)`; the leaf names the branch.
+`{prefix}/virtual/{name}`; sync never touches the working tree. A stack names a parent, an existing virtual branch,
+in `(parent/leaf)` or `refs/branch-deck/stack-parents` with `(leaf)`; the leaf names the branch.
 
 Rules
 - Ask the user first, and run only what the user approved: a push (`brd push`, also --force and --restart-running), a
@@ -263,12 +263,13 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
    (`brd suggest`, issue keys). A subject is `(branch) ` and then the subject form of the repository (its agent
    instructions, else its `git log`): the push drops the prefix, so the rest alone must pass the commit rules of the
-   repository (`message_format`). With stacked branches (`branchdeck.stacks`) a new stack is declared once,
-   `(parent/leaf) ` and then that form; once the stack parents know the leaf, `(leaf) ` and then that form is enough,
-   as a plan of `brd suggest` writes it. `(parent/leaf)` on a commit of a
-   branch that is a root stacks the whole branch on `parent` (`reparented` in the pick); two parents for one branch
-   are conflicting parents, `brd restack <leaf> <parent>` keeps one. The branch is a readable name of a few words, never an issue
-   id as the name; an issue id stays in the subject after the prefix, or in the body. A series of commits is a stack
+   repository (`message_format`). A new branch is `(name) `; `(parent/leaf) ` only stacks it on an existing virtual
+   branch, never on the baseline or the checked out branch (`baseline_parent` in the pick), and is written once; once
+   the stack parents know the leaf, `(leaf) ` and then that form is enough, as a plan of `brd suggest` writes it.
+   `(parent/leaf)` on a commit of a branch that is a root stacks the whole branch on `parent` (`reparented` in the
+   pick); two parents for one branch are conflicting parents, `brd restack <leaf> <parent>` keeps one. The branch is a
+   readable name of a few words, never an issue id as the name; an issue id stays in the subject after the prefix, or
+   in the body. A series of commits is a stack
    root with one leaf per logical group; a change on its own gets a root of its own. One deliberate commit per change:
    no `fixup!` subject on the shared branch, `brd fold` would fold it into its target. Rename a branch with
    `brd rename <old> <new>`, which rewrites every prefix, children included. `brd suggest` is for commits that came
@@ -412,8 +413,8 @@ pub const SUGGEST_HELP: &str = "\
 plan). Per cluster: `change` (kept, renamed, merged, split, new) against its `current_branches`; its commits in
 `kept`, `moved` ({commit, leaves}: the branch it leaves, null if unassigned) and `new_path` (the same branch,
 another stacked path in the subject): with `moved`, what the plan changes; `why`, one line to quote to the user;
-`weak`, review these first; `issue_keys` and `areas`; with stacked branches `parent`, `restacked` (it stacks each
-branch on the branches it needs) and `stacked_without_need` (a stack parent the branch needs nothing of: the plan
+`weak`, review these first; `issue_keys` and `areas`; `parent`, `restacked` (it stacks each branch on the branches
+it needs) and `stacked_without_need` (a stack parent the branch needs nothing of: the plan
 keeps it, ask the user before an unstack). Whole issue branches that belong together go into `issue_groups`: no
 subject changes. `brd suggest --fresh` ignores the current prefixes and issue groups. To look closer:
 `brd status --brief`, `brd status --stats` (the size of each branch), `brd commits --brief` (per commit its group,
@@ -535,8 +536,8 @@ nothing of it landed, its `pull_request` draft opens a new one into the baseline
   nothing of them is left to push until they are archived. With others to push, `brd push` only leaves a landed
   one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
   branch it is built on that landed is not pushed along.
-`brd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
-in `brd sync` and `brd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
+`brd sync` prints the push each branch needs as `push`, ready to run once approved. `stacks` in `brd sync` and
+`brd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
 in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
 push none that isn't `built`. `brd push <root> --with-children` pushes it in the same atomic push once it is on the
 remote or its pull request is open, when this sync built it (`stack_warnings` names one left out).
@@ -804,9 +805,10 @@ wins over it:
 - `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
   `git add -A` or `git add .`.
 - `subject_branch.on`: start each commit subject with `(branch) `, a readable name of a few words, never an issue id as
-  the name; reuse a branch of `brd status --brief` that fits; with `stacks`, a new stack is `(parent/leaf)`. Then, also
-  off (no prefix), write the subject as the repository does: its agent instructions, else its `git log`. The push drops
-  the prefix; a pick refuses a message that `[commit] check` rejects (`message_format`).
+  the name; reuse a branch of `brd status --brief` that fits; a new branch is `(name)`; `(parent/leaf)` only on top of
+  an existing virtual branch, never the baseline (`baseline_parent`). Then, also off (no prefix), write the subject as
+  the repository does: its agent instructions, else its `git log`. The push drops the prefix; a pick refuses a message
+  that `[commit] check` rejects (`message_format`).
 - Both are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
   never change them.
 - The diff shows what changed; the body says why. After the subject (the behaviour change): a lead of 1–3 sentences

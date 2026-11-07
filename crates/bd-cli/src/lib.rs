@@ -109,8 +109,7 @@ enum Command {
   Rename(RenameArgs),
   /// Stack a branch on a parent branch
   ///
-  /// Needs `git config branchdeck.stacks true`; writes the stack parents, and rewrites a subject only where its prefix
-  /// declares another parent
+  /// Writes the stack parents, and rewrites a subject only where its prefix declares another parent
   #[command(after_help = "Outputs and refusals: `brd group --help`")]
   Restack(RestackArgs),
   /// Make a stacked branch a root again

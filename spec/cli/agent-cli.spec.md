@@ -1757,7 +1757,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 
 - It must say how sessions that share a checkout work in worktrees of their own: the lease of a worktree with
   `brd lease get` (its `home` and `next`) and its return with `brd lease return` and their refusals, the `(branch)` prefix written
-  when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
+  when a commit is made (`(name)` for a new branch, `(parent/leaf)` only on an existing virtual branch, never the baseline, a readable name, an issue id never the name, no
   `fixup!` subject on the shared branch, `brd rename`, `brd suggest` only for commits without a prefix); one owner
   rewrites the shared branch (`brd reword` among its rewrites) and every other session only adds commits with
   `brd lease pick` from its lease (its refusals `home_branch_switched`, `no_home_branch`, `no_lease`) or
