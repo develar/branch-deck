@@ -259,7 +259,9 @@ pub struct DeclarationTarget {
   pub line: u32,
   pub column: u32,
   pub end_column: u32,
-  /// What is declared: `class`, `function`, `property`, `constant`, `enumEntry`, `typeAlias`, `module`, `macro`, `local`
+  /// What is declared, in the nine words both sides of the review boundary share (`declarations::SymbolGroup`):
+  /// `class`, `function`, `property`, `constant`, `enum_entry`, `type_alias`, `module`, `macro`, `local`. A target of
+  /// the index keeps the word accio's own answer used (`method`, `struct`), and a usage holds its access instead.
   pub kind: String,
   /// The name of the declaration it is a member of
   pub container: Option<String>,

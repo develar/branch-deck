@@ -178,6 +178,53 @@ fn finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review() {
   assert_eq!((local.kind.as_str(), outside.kind.as_str()), ("function", "method"));
 }
 
+/// One list of nine words filters both sides: a method of an `impl` is a candidate for a call and none for a type
+/// position, whether the index answers the word itself or an older accio leaves it out
+#[test]
+fn one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review() {
+  let uses = "fn run() { crate::lib::needle(); }\n\nfn typed(value: needle) {}\n";
+  let (repo, diffs, files, commit) = source_review(&[("src/lib.rs", "pub struct Text;\n")], &[("src/uses.rs", uses)]);
+  let targets = |line: u32, hit: SymbolHit| {
+    let column = uses.lines().nth(line as usize).unwrap().find("needle").unwrap();
+    let params = source_params(&repo, &files, revisions_of(&commit), "src/uses.rs", line, u32::try_from(column).unwrap());
+    let index = FakeIndex {
+      hits: vec![("needle", hit)],
+      queries: std::sync::Mutex::default(),
+    };
+    let found = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params).unwrap();
+    found.targets.len()
+  };
+  for hit in [
+    hit_with_group("src/lib.rs", 1, HitKind::Method, "function", "needle"),
+    // an accio older than the word: the kind is folded here, the same way
+    hit("src/lib.rs", 1, HitKind::Method, "needle"),
+  ] {
+    assert_eq!(targets(0, hit.clone()), 1, "a call takes the method");
+    assert_eq!(targets(2, hit), 0, "a type position does not");
+  }
+  // what is no code carries no word and is judged by nothing: the candidate stays
+  assert_eq!(targets(2, hit("src/lib.rs", 1, HitKind::Key, "needle")), 1);
+  // the word of the answer is what filters, not the kind beside it
+  assert_eq!(targets(2, hit_with_group("src/lib.rs", 1, HitKind::Key, "class", "needle")), 1);
+  assert_eq!(targets(0, hit_with_group("src/lib.rs", 1, HitKind::Method, "property", "needle")), 0);
+}
+
+/// A type alias and an entry of an enum are named by the same two words on both sides of the boundary
+#[test]
+fn a_type_alias_and_an_enum_entry_are_named_alike_on_both_sides() {
+  let declarations = "pub type Shape = u8;\npub enum Color { Red }\n";
+  let uses = "fn run(shape: Shape) { let _ = Color::Red; }\n";
+  let (repo, diffs, files, commit) = source_review(&[], &[("src/lib.rs", declarations), ("src/uses.rs", uses)]);
+  let line = uses.lines().next().unwrap();
+  let kind_at = |needle: &str| {
+    let params = source_params(&repo, &files, revisions_of(&commit), "src/uses.rs", 0, u32::try_from(line.find(needle).unwrap()).unwrap());
+    let found = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), None, &params).unwrap();
+    found.targets.first().map(|it| it.kind.clone())
+  };
+  assert_eq!(kind_at("Shape)"), Some("type_alias".to_string()));
+  assert_eq!(kind_at("Red"), Some("enum_entry".to_string()));
+}
+
 #[test]
 fn returns_the_typescript_overload_signatures_and_implementation() {
   let declarations = concat!(
@@ -287,9 +334,17 @@ fn hit(path: &str, line: u32, kind: HitKind, name: &str) -> SymbolHit {
     line,
     column: None,
     kind,
+    group: None,
     name: name.to_string(),
     parent: None,
   }
+}
+
+/// A hit of an accio that answers the word a review shares
+fn hit_with_group(path: &str, line: u32, kind: HitKind, group: &str, name: &str) -> SymbolHit {
+  let mut hit = hit(path, line, kind, name);
+  hit.group = Some(group.to_string());
+  hit
 }
 
 fn hit_with_column(path: &str, line: u32, column: u32, kind: HitKind, name: &str) -> SymbolHit {

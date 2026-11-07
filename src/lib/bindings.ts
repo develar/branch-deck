@@ -2042,7 +2042,11 @@ export type DeclarationTarget = {
 	line: number,
 	column: number,
 	endColumn: number,
-	/**  What is declared: `class`, `function`, `property`, `constant`, `enumEntry`, `typeAlias`, `module`, `macro`, `local` */
+	/**
+	 *  What is declared, in the nine words both sides of the review boundary share (`declarations::SymbolGroup`):
+	 *  `class`, `function`, `property`, `constant`, `enum_entry`, `type_alias`, `module`, `macro`, `local`. A target of
+	 *  the index keeps the word accio's own answer used (`method`, `struct`), and a usage holds its access instead.
+	 */
 	kind: string,
 	/**  The name of the declaration it is a member of */
 	container: string | null,

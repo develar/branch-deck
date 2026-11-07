@@ -52,9 +52,26 @@ fn waits_for_a_slow_index_as_long_as_it_runs() {
       line: 1,
       column: None,
       kind: HitKind::Function,
+      group: None,
       name: "outsider".to_string(),
       parent: None,
     }])
+  );
+}
+
+/// A hit carries the declaration in the words a review shares when accio answers them; one from an accio older than
+/// the field has none, and the review folds its kind itself instead of dropping the hit
+#[test]
+fn a_hit_carries_the_word_a_review_shares_when_accio_answers_one() {
+  let dir = tempfile::tempdir().unwrap();
+  let started = dir.path().join("started");
+  let answer = r#"[{"hits":[{"file":"src/Base.kt","line":1,"kind":"method","group":"function","name":"run"},{"file":"src/Old.kt","line":2,"kind":"method","name":"run"}]}]"#;
+  let accio = fake_accio(dir.path(), &started, &format!("printf '%s' '{answer}'"));
+  let canceled = || false;
+  let hits = accio.search(&canceled).symbols(ROOT, "run", None).unwrap().unwrap();
+  assert_eq!(
+    hits.iter().map(|it| (it.kind, it.group.as_deref())).collect::<Vec<_>>(),
+    [(HitKind::Method, Some("function")), (HitKind::Method, None)]
   );
 }
 

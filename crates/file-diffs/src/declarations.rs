@@ -39,6 +39,95 @@ pub(crate) struct Candidate<'a> {
   pub(crate) language: Language,
 }
 
+/// The nine words both sides of the review boundary name a declaration with: the review's own walk reads them from
+/// `DeclKind`, the index answers them as `group` (accio's `Kind::group`, decision 2026-11-07-shared-declaration-group
+/// of accio), and one list filters both. A kind of either side that is no code has no word, and such a hit is kept
+/// rather than judged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SymbolGroup {
+  Class,
+  Function,
+  Property,
+  Constant,
+  EnumEntry,
+  TypeAlias,
+  Module,
+  Macro,
+  /// A name a file binds: only the reader of a file writes it, never the index
+  Local,
+}
+
+impl SymbolGroup {
+  const fn of_declaration(kind: DeclKind) -> Self {
+    match kind {
+      DeclKind::Type => Self::Class,
+      DeclKind::Function => Self::Function,
+      DeclKind::Value => Self::Property,
+      DeclKind::Constant => Self::Constant,
+      DeclKind::EnumEntry => Self::EnumEntry,
+      DeclKind::TypeAlias => Self::TypeAlias,
+      DeclKind::Module => Self::Module,
+      DeclKind::Macro => Self::Macro,
+      DeclKind::Binding => Self::Local,
+    }
+  }
+
+  /// The word the index answered, else the kind folded the way accio folds it; `None` where neither says a group
+  fn of_hit(hit: &SymbolHit) -> Option<Self> {
+    match hit.group.as_deref() {
+      Some(group) => Self::of_word(group),
+      None => Self::of_kind(hit.kind),
+    }
+  }
+
+  fn of_word(word: &str) -> Option<Self> {
+    match word {
+      "class" => Some(Self::Class),
+      "function" => Some(Self::Function),
+      "property" => Some(Self::Property),
+      "constant" => Some(Self::Constant),
+      "enum_entry" => Some(Self::EnumEntry),
+      "type_alias" => Some(Self::TypeAlias),
+      "module" => Some(Self::Module),
+      "macro" => Some(Self::Macro),
+      "local" => Some(Self::Local),
+      _ => None,
+    }
+  }
+
+  /// The fold of a kind of an accio that answers no `group`: the same one `Kind::group` makes there
+  const fn of_kind(kind: HitKind) -> Option<Self> {
+    match kind {
+      HitKind::Class | HitKind::Interface | HitKind::Enum | HitKind::Struct | HitKind::Trait | HitKind::Impl | HitKind::Object | HitKind::Record | HitKind::Delegate | HitKind::Union | HitKind::Annotation => {
+        Some(Self::Class)
+      }
+      HitKind::Function | HitKind::Method | HitKind::Constructor => Some(Self::Function),
+      HitKind::Field | HitKind::Property | HitKind::Variable => Some(Self::Property),
+      HitKind::Constant => Some(Self::Constant),
+      HitKind::EnumMember => Some(Self::EnumEntry),
+      HitKind::TypeAlias => Some(Self::TypeAlias),
+      HitKind::Module | HitKind::Namespace => Some(Self::Module),
+      HitKind::Macro => Some(Self::Macro),
+      // what is no code (a section, a registry key, an extension point, an extension, an action) and an unknown kind
+      HitKind::Section | HitKind::Key | HitKind::ExtensionPoint | HitKind::Extension | HitKind::Action | HitKind::Unknown => None,
+    }
+  }
+
+  pub(crate) const fn name(self) -> &'static str {
+    match self {
+      Self::Class => "class",
+      Self::Function => "function",
+      Self::Property => "property",
+      Self::Constant => "constant",
+      Self::EnumEntry => "enum_entry",
+      Self::TypeAlias => "type_alias",
+      Self::Module => "module",
+      Self::Macro => "macro",
+      Self::Local => "local",
+    }
+  }
+}
+
 /// A declaration of the review that the name may mean, with the score that orders it; its place is the summary's
 struct Scored<'a> {
   score: i32,
@@ -96,7 +185,7 @@ impl FileDiffs {
     for candidate in &candidates {
       let Some(summary) = summaries.get(&candidate.request.id) else { continue };
       for declaration in &summary.declarations {
-        if summary.name(declaration.name) != reference.name || !fits(reference.kind, declaration.kind) {
+        if summary.name(declaration.name) != reference.name || !fits(reference.kind, SymbolGroup::of_declaration(declaration.kind)) {
           continue;
         }
         let container = declaration
@@ -142,7 +231,7 @@ impl FileDiffs {
         line: it.name_line.saturating_sub(1),
         column: it.column,
         end_column: it.column + u32::try_from(reference.name.encode_utf16().count()).unwrap_or(0),
-        kind: kind_name(it.kind).to_string(),
+        kind: SymbolGroup::of_declaration(it.kind).name().to_string(),
         container: it.container,
         outside: None,
       })
@@ -192,7 +281,7 @@ impl FileDiffs {
     let packages = imported_directories(site_summary, name);
     let mut hits: Vec<(i32, SymbolHit)> = hits
       .into_iter()
-      .filter(|hit| language_of(&hit.path).is_some_and(|it| it.family() == language.family()) && fits_hit(kind, hit.kind))
+      .filter(|hit| language_of(&hit.path).is_some_and(|it| it.family() == language.family()) && fits_hit(kind, hit))
       .map(|hit| {
         let mut score = 0;
         if packages.iter().any(|directory| hit.path.contains(directory.as_str())) {
@@ -410,13 +499,13 @@ fn expected_owner(summary: &FileSummary, qualifier: Option<&str>, line: u32) -> 
 }
 
 /// Whether a declaration can be what the syntax says the name is
-const fn fits(reference: ReferenceKind, declaration: DeclKind) -> bool {
+const fn fits(reference: ReferenceKind, group: SymbolGroup) -> bool {
   match reference {
-    ReferenceKind::Type => matches!(declaration, DeclKind::Type | DeclKind::TypeAlias),
+    ReferenceKind::Type => matches!(group, SymbolGroup::Class | SymbolGroup::TypeAlias),
     // a call of a class is its constructor
-    ReferenceKind::Call => matches!(declaration, DeclKind::Function | DeclKind::Type | DeclKind::Macro),
-    ReferenceKind::MemberCall => matches!(declaration, DeclKind::Function | DeclKind::Type),
-    ReferenceKind::Member | ReferenceKind::Value => !matches!(declaration, DeclKind::Binding),
+    ReferenceKind::Call => matches!(group, SymbolGroup::Function | SymbolGroup::Class | SymbolGroup::Macro),
+    ReferenceKind::MemberCall => matches!(group, SymbolGroup::Function | SymbolGroup::Class),
+    ReferenceKind::Member | ReferenceKind::Value => !matches!(group, SymbolGroup::Local),
     ReferenceKind::Declaration => false,
   }
 }
@@ -466,27 +555,8 @@ fn imported_directories(site: &FileSummary, name: &str) -> Vec<String> {
 }
 
 /// Whether a declaration of an index (its kind as accio names it) can be what the syntax says the name is
-fn fits_hit(reference: ReferenceKind, kind: HitKind) -> bool {
-  let is_type = kind.is_type();
-  let unknown = kind == HitKind::Unknown;
-  match reference {
-    ReferenceKind::Type => is_type || unknown,
-    ReferenceKind::Call | ReferenceKind::MemberCall => is_type || unknown || matches!(kind, HitKind::Method | HitKind::Function | HitKind::Constructor | HitKind::Macro),
-    ReferenceKind::Member | ReferenceKind::Value => true,
-    ReferenceKind::Declaration => false,
-  }
-}
-
-const fn kind_name(kind: DeclKind) -> &'static str {
-  match kind {
-    DeclKind::Type => "class",
-    DeclKind::Function => "function",
-    DeclKind::Value => "property",
-    DeclKind::Constant => "constant",
-    DeclKind::EnumEntry => "enumEntry",
-    DeclKind::TypeAlias => "typeAlias",
-    DeclKind::Module => "module",
-    DeclKind::Macro => "macro",
-    DeclKind::Binding => "local",
-  }
+/// Whether a hit of the index can be what the syntax says the name is; a hit of no group (what is no code, or an
+/// accio too old to answer one) is kept as a candidate rather than judged, as an unknown kind was
+fn fits_hit(reference: ReferenceKind, hit: &SymbolHit) -> bool {
+  SymbolGroup::of_hit(hit).is_none_or(|group| fits(reference, group))
 }

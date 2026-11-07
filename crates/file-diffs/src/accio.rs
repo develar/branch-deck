@@ -114,13 +114,6 @@ impl HitKind {
       Self::Unknown => "unknown",
     }
   }
-
-  pub const fn is_type(self) -> bool {
-    matches!(
-      self,
-      Self::Class | Self::Interface | Self::Enum | Self::Struct | Self::Trait | Self::Object | Self::Record | Self::Delegate | Self::TypeAlias | Self::Union | Self::Annotation
-    )
-  }
 }
 
 /// A declaration an index knows: a path of the repository, a line from 1 and an optional zero-based UTF-16 name column
@@ -132,6 +125,10 @@ pub struct SymbolHit {
   #[serde(default)]
   pub column: Option<u32>,
   pub kind: HitKind,
+  /// The declaration in the nine words a review shares (accio's `Kind::group`), the list `declarations::SymbolGroup`
+  /// filters both sides of the boundary by; absent from an accio older than it, and from what is no code
+  #[serde(default)]
+  pub group: Option<String>,
   pub name: String,
   #[serde(default)]
   pub parent: Option<String>,
