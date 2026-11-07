@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.3.0](https://github.com/develar/branch-deck/compare/v1.2.0...v1.3.0) (2026-11-07)
+
+
+### Features
+
+* **bd:** a pick refuses a prefix whose parent is the baseline ([73bc8fd](https://github.com/develar/branch-deck/commit/73bc8fdf2a27723b888784cb6903135d1fb37782))
+* **review:** a review opened again after a rewrite finds its plan read ahead ([f0ebb0a](https://github.com/develar/branch-deck/commit/f0ebb0ad1b238ca82c70031648d2f38211463cfe))
+* **review:** read ahead only the 4 branches reviewed last in a repository ([dcaddc1](https://github.com/develar/branch-deck/commit/dcaddc13addde4981e7f62fef2c6d92c8416ece7))
+
+
+### Bug Fixes
+
+* **e2e:** the divider of Split says it is dragged, and its test presses a point the rows have stopped moving ([dc9393e](https://github.com/develar/branch-deck/commit/dc9393eb6b9b839f15fcdf932cd2c7c680df7d3e))
+* **landing:** serialize pushes into master ([a5ddaa7](https://github.com/develar/branch-deck/commit/a5ddaa70ef1260e7f18d5ebc2dd136c6ff0ecff9))
+* **lease:** widen a read-only directory the delete walk goes into ([922456c](https://github.com/develar/branch-deck/commit/922456c956ff5c1708f03e56a24f3b2fcf32be6c))
+* **review:** add long title review fixture ([73eef98](https://github.com/develar/branch-deck/commit/73eef9829cadc1c5a6ac3fbad29dcf689540934c))
+* **review:** dim conventional prefixes in step titles ([154fb83](https://github.com/develar/branch-deck/commit/154fb834e59b854d4c45df4595936f164f845c9f))
+* **review:** let review history handle empty diff history ([19a0e7b](https://github.com/develar/branch-deck/commit/19a0e7bb5ac85c98d3526ab2cc169b54e686788b))
+* **review:** show whole titles in the review tree ([766ee49](https://github.com/develar/branch-deck/commit/766ee490d173a851f44a3a3281612c3e7c22f60a))
+* **symbol:** handle unknown accio kinds ([41a0aa5](https://github.com/develar/branch-deck/commit/41a0aa52094c1198dd2aa7cae84febc5a4e23a8c))
+* **symbol:** query usages by declaration place ([500c1c1](https://github.com/develar/branch-deck/commit/500c1c1f85316b0146c9c16fd98ce1d1affbdd93))
+* **symbol:** use the indexed declaration column ([d2d5df9](https://github.com/develar/branch-deck/commit/d2d5df97d1fd6f0188003ccec1287d0d4699b95c))
+
+
+### Performance Improvements
+
+* **symbol:** one accio process per declaration lookup ([a41ebfc](https://github.com/develar/branch-deck/commit/a41ebfcd135724059550f1b95fdcd477df79560e))
+
 ## [1.2.0](https://github.com/develar/branch-deck/compare/v1.1.0...v1.2.0) (2026-11-06)
 
 
