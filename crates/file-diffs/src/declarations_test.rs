@@ -17,62 +17,40 @@ const OTHER: &str = "package other\n\nclass Queue {\n  fun add(value: Int) {}\n}
 
 /// A commit that adds the three files, and the diffs a review of it read
 pub(crate) fn review() -> (TestRepo, FileDiffs, Vec<DiffFile>) {
-  let repo = TestRepo::new();
-  write(&repo, "README.md", b"root\n");
-  commit_all(&repo, "Initial");
-  for directory in ["src", "lib"] {
-    std::fs::create_dir_all(repo.path().join(directory)).unwrap();
-  }
-  write(&repo, "src/Uses.kt", USES.as_bytes());
-  write(&repo, "src/Store.kt", STORE.as_bytes());
-  write(&repo, "lib/Queue.kt", OTHER.as_bytes());
-  let commit = commit_all(&repo, "Add the files");
-  let diffs = unhurried();
-  let files = diffs
-    .read(
-      repo.git_executor(),
-      repo_path(&repo),
-      &ObjectCache::disabled(),
-      &DiffSource::Commit { id: commit },
-      WhitespacePolicy::Default,
-    )
-    .unwrap();
+  let (repo, diffs, files, _) = source_review(&[], &[("src/Uses.kt", USES), ("src/Store.kt", STORE), ("lib/Queue.kt", OTHER)]);
   (repo, diffs, files)
 }
 
 /// The params of a name on `line` at the start of `needle` in the new side of `path`
 pub(crate) fn params(repo: &TestRepo, files: &[DiffFile], path: &str, line: u32, needle: &str) -> FindDeclarationParams {
-  let file = files.iter().find(|it| it.path == path).unwrap();
   let text = match path {
     "src/Uses.kt" => USES,
     "src/Store.kt" => STORE,
     _ => OTHER,
   };
   let column = text.lines().nth(line as usize).unwrap().find(needle).unwrap();
-  FindDeclarationParams {
-    repository_path: repo_path(repo).to_string(),
-    site: DeclarationSite {
-      path: path.to_string(),
-      side: DiffSide::New,
-      blob: BlobRequest {
-        id: file.new_id.clone().unwrap(),
-        path: None,
-      },
-      line,
-      column: u32::try_from(column).unwrap(),
-    },
-    files: files
-      .iter()
-      .map(|it| ReviewFileSides {
-        path: it.path.clone(),
-        old_path: it.old_path.clone(),
-        old_id: it.old_id.clone(),
-        new_id: it.new_id.clone(),
-        worktree: false,
-      })
-      .collect(),
-    revisions: DiffRevisions::default(),
+  source_params(repo, files, DiffRevisions::default(), path, line, u32::try_from(column).unwrap())
+}
+
+/// The file, its parents made
+fn write_file(repo: &TestRepo, path: &str, text: &str) {
+  if let Some(parent) = std::path::Path::new(path).parent() {
+    std::fs::create_dir_all(repo.path().join(parent)).unwrap();
   }
+  write(repo, path, text.as_bytes());
+}
+
+/// The diffs a review of `commit` read
+fn read_review(diffs: &FileDiffs, repo: &TestRepo, commit: &str) -> Vec<DiffFile> {
+  diffs
+    .read(
+      repo.git_executor(),
+      repo_path(repo),
+      &ObjectCache::disabled(),
+      &DiffSource::Commit { id: commit.to_string() },
+      WhitespacePolicy::Default,
+    )
+    .unwrap()
 }
 
 /// The path, line and column of each target
@@ -84,6 +62,134 @@ fn targets(diffs: &FileDiffs, repo: &TestRepo, params: &FindDeclarationParams) -
     .into_iter()
     .map(|it| (it.path, it.line, it.column, it.kind))
     .collect()
+}
+
+/// A repository whose first commit adds `before` and whose second adds `sources`, and the diffs a review of the second
+/// read
+fn source_review(before: &[(&str, &str)], sources: &[(&str, &str)]) -> (TestRepo, FileDiffs, Vec<DiffFile>, String) {
+  let repo = TestRepo::new();
+  write(&repo, "README.md", b"root\n");
+  for (path, text) in before {
+    write_file(&repo, path, text);
+  }
+  commit_all(&repo, "Initial");
+  for (path, text) in sources {
+    write_file(&repo, path, text);
+  }
+  let commit = commit_all(&repo, "Add source");
+  let diffs = unhurried();
+  let files = read_review(&diffs, &repo, &commit);
+  (repo, diffs, files, commit)
+}
+
+fn source_params(repo: &TestRepo, files: &[DiffFile], revisions: DiffRevisions, path: &str, line: u32, column: u32) -> FindDeclarationParams {
+  let file = files.iter().find(|it| it.path == path).unwrap();
+  FindDeclarationParams {
+    repository_path: repo_path(repo).to_string(),
+    site: DeclarationSite {
+      path: path.to_string(),
+      side: DiffSide::New,
+      blob: BlobRequest {
+        id: file.new_id.clone().unwrap(),
+        path: None,
+      },
+      line,
+      column,
+    },
+    files: files
+      .iter()
+      .map(|it| ReviewFileSides {
+        path: it.path.clone(),
+        old_path: it.old_path.clone(),
+        old_id: it.old_id.clone(),
+        new_id: it.new_id.clone(),
+        worktree: false,
+      })
+      .collect(),
+    revisions,
+  }
+}
+
+/// The revisions of a review of `commit`
+fn revisions_of(commit: &str) -> DiffRevisions {
+  DiffRevisions {
+    old: Some(format!("{commit}^")),
+    new: Some(commit.to_string()),
+  }
+}
+
+#[test]
+fn records_the_rust_impl_method_kind_and_column_differences_inside_and_outside_the_review() {
+  let declaration = "struct Text;\nimpl Text {\n  #[doc(alias = \"needle\")] pub fn needle(&self, needle: &str) {}\n}\n";
+  let uses = "fn run(value: &crate::lib::Text) { value.needle(\"\"); }\n";
+  let (local_repo, local_diffs, local_files, local_commit) = source_review(&[], &[("src/lib.rs", declaration), ("src/uses.rs", uses)]);
+  let call = uses.lines().next().unwrap();
+  let local_params = source_params(
+    &local_repo,
+    &local_files,
+    revisions_of(&local_commit),
+    "src/uses.rs",
+    0,
+    u32::try_from(call.find("needle").unwrap()).unwrap(),
+  );
+  let local = local_diffs
+    .find_declaration(local_repo.git_executor(), &ObjectCache::disabled(), None, &local_params)
+    .unwrap();
+  let local = &local.targets[0];
+
+  let uses = "fn run() { crate::lib::needle(\"\"); }\n";
+  let (outside_repo, outside_diffs, outside_files, outside_commit) = source_review(&[("src/lib.rs", declaration)], &[("src/uses.rs", uses)]);
+  let declaration_line = declaration.lines().nth(2).unwrap();
+  let outside_column = declaration_line.find("fn needle").unwrap() + 3;
+  let outside_params = source_params(
+    &outside_repo,
+    &outside_files,
+    revisions_of(&outside_commit),
+    "src/uses.rs",
+    0,
+    u32::try_from(uses.find("needle").unwrap()).unwrap(),
+  );
+  let index = FakeIndex {
+    hits: vec![(
+      "needle",
+      hit_with_column("src/lib.rs", 3, u32::try_from(outside_column).unwrap(), HitKind::Method, "needle"),
+    )],
+    queries: std::sync::Mutex::default(),
+  };
+  let outside = outside_diffs
+    .find_declaration(outside_repo.git_executor(), &ObjectCache::disabled(), Some(&index), &outside_params)
+    .unwrap();
+  let outside = &outside.targets[0];
+
+  let first = declaration_line.find("needle").unwrap();
+  assert_eq!(
+    (local.path.as_str(), local.line, local.column, local.kind.as_str()),
+    ("src/lib.rs", 2, u32::try_from(first).unwrap(), "function")
+  );
+  assert_eq!(
+    (outside.path.as_str(), outside.line, outside.column, outside.kind.as_str()),
+    ("src/lib.rs", 2, u32::try_from(outside_column).unwrap(), "method")
+  );
+  assert_ne!(local.column, outside.column);
+}
+
+#[test]
+fn returns_the_typescript_overload_signatures_and_implementation() {
+  let declarations = concat!(
+    "function parse(value: string): string;\n",
+    "function parse(value: number): number;\n",
+    "function parse(value: string | number) { return value; }\n",
+  );
+  let uses = "function run() { parse(1); }\n";
+  let (repo, diffs, files, commit) = source_review(&[], &[("src/functions.ts", declarations), ("src/uses.ts", uses)]);
+  let call = uses.lines().next().unwrap();
+  let params = source_params(&repo, &files, revisions_of(&commit), "src/uses.ts", 0, u32::try_from(call.find("parse").unwrap()).unwrap());
+  let found = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), None, &params).unwrap();
+  assert_eq!(found.name, "parse");
+  assert_eq!(
+    found.targets.iter().map(|it| (it.line, it.kind.as_str())).collect::<Vec<_>>(),
+    [(0, "function"), (1, "function"), (2, "function")]
+  );
 }
 
 #[test]
@@ -197,15 +303,7 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
   write(&repo, "Uses.kt", b"fun run() = outsider() + inner()\n\nfun inner() = 2\n");
   let commit = commit_all(&repo, "Use it");
   let diffs = unhurried();
-  let files = diffs
-    .read(
-      repo.git_executor(),
-      repo_path(&repo),
-      &ObjectCache::disabled(),
-      &DiffSource::Commit { id: commit.clone() },
-      WhitespacePolicy::Default,
-    )
-    .unwrap();
+  let files = read_review(&diffs, &repo, &commit);
   let index = FakeIndex {
     hits: vec![
       ("outsider", hit_with_column("lib/Outside.kt", 3, 28, HitKind::Function, "outsider")),
@@ -267,9 +365,6 @@ pub(crate) fn single_file_params(repo: &TestRepo, files: &[DiffFile], commit: &s
       new_id: file.new_id.clone(),
       worktree: false,
     }],
-    revisions: DiffRevisions {
-      old: Some(format!("{commit}^")),
-      new: Some(commit.to_string()),
-    },
+    revisions: revisions_of(commit),
   }
 }

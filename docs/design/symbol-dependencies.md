@@ -982,6 +982,28 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `internal` member, a Java field read only of `@JvmField` and `lateinit`, the checks of a getter for a direct call,
     `_` before a digit and no facade of a script) change no link, edge or output of the range.
 
+- The two readers of Rust and TypeScript against each other (`examples/accio_facts.rs`, 2026-11-07, the 2 059 `.rs` and
+  `.ts` files of branch-deck, 189 102 facts: 84 245 of the summaries, 16 216 local probes, 6 112 symbols of accio with
+  the review's answer at each, 21 852 reference queries and 54 564 references). The name a jump lands on is at the
+  same place in both for every symbol of the index but one: `impl IntoApiError for &str`
+  (`crates/app-api/src/api_error.rs:90`), which accio indexes as a symbol named `str` while inside the review `str`
+  there is a primitive type, a keyword of the grammar, and no reference at all — two questions, not two readings. So
+  the parsers agree on where names are; what differs is what the two sides make of the same declaration, and it is
+  the review's side that guesses:
+  - the kind word of a Rust method in an `impl` is `function` (`kind_name(DeclKind)`, nine words) inside and `method`
+    (`HitKind`, twenty-nine) outside;
+  - the column inside is the first occurrence of the word on the line (`column_of`), so
+    `#[doc(alias = "needle")] pub fn needle(…)` jumps into the attribute inside the review and onto the method's name
+    outside.
+
+  Both are tests that need no accio, as is the TypeScript overload, whose signatures and implementation the review
+  answers one by one.
+
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`records_the_rust_impl_method_kind_and_column_differences_inside_and_outside_the_review`)
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`returns_the_typescript_overload_signatures_and_implementation`)
+  [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_rust_impl_method_name_before_its_same_named_parameter_and_body_use`)
+  [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_each_typescript_overload_signature_and_implementation_at_its_name`)
+
 ### The gate
 
 | Measure | Threshold | Measured |

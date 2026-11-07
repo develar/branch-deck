@@ -32,44 +32,32 @@
 use code_symbols::extract::summarize;
 use code_symbols::highlight::{BOLD, ITALIC, ROLE_BITS, Role, UNDERLINE, grammar_of, highlight};
 use code_symbols::language::language_of;
-use code_symbols::navigate::{Access, Position, ReferenceKind, UsagesAt, reference_at, usages_at, usages_of};
+use code_symbols::navigate::{reference_at, usages_at, usages_of};
 use code_symbols::summary_text::render_full;
+use fact_text::{access_counts, arguments, inputs, probes, push, reference_text, take_value, usages_at_text};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
-use std::io::{BufRead, BufReader, BufWriter, Write as _};
+use std::io::{BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
+#[path = "shared/fact_text.rs"]
+mod fact_text;
+
 const FAMILIES: [&str; 3] = ["summary", "highlight", "navigation"];
 
 fn main() {
-  let mut args: Vec<String> = std::env::args().skip(1).collect();
-  if take_flag(&mut args, "--compare") {
-    let show = take_value(&mut args, "--show").map_or(4, |it| it.parse().unwrap_or(4));
-    let family = take_value(&mut args, "--family");
-    let [before, after] = args.as_slice() else {
-      let _ = writeln!(std::io::stderr(), "--compare BEFORE AFTER");
-      std::process::exit(2);
-    };
-    std::process::exit(compare(Path::new(before), Path::new(after), show, family.as_deref()));
-  }
+  let mut args = arguments();
   let families: Vec<String> =
     take_value(&mut args, "--families").map_or_else(|| FAMILIES.iter().map(ToString::to_string).collect(), |it| it.split(',').map(ToString::to_string).collect());
   let threads = take_value(&mut args, "--threads")
     .and_then(|it| it.parse().ok())
     .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from));
-  let probes: usize = take_value(&mut args, "--probes").map_or(8, |it| it.parse().unwrap_or(8));
-  let root = take_value(&mut args, "--root").map(PathBuf::from);
-  let mut paths: Vec<String> = Vec::new();
-  if let Some(list) = take_value(&mut args, "--list") {
-    let text = std::fs::read_to_string(&list).unwrap_or_else(|error| panic!("{list}: {error}"));
-    paths.extend(text.lines().filter(|it| !it.is_empty()).map(|it| it.split('\t').next().unwrap_or(it).to_string()));
-  }
   let nav_max_bytes = take_value(&mut args, "--nav-max-bytes").map_or(1 << 16, |it| it.parse().unwrap_or(1 << 16));
   let nav_max_depth = take_value(&mut args, "--nav-max-depth").map_or(128, |it| it.parse().unwrap_or(128));
-  paths.extend(args);
+  let (probes, root, paths) = inputs(&mut args);
   let options = Options {
     families,
     probes,
@@ -84,17 +72,6 @@ struct Options {
   probes: usize,
   nav_max_bytes: usize,
   nav_max_depth: usize,
-}
-
-/// Whether `flag` is among the arguments, taken out of them
-fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
-  args.iter().position(|it| it == flag).map(|index| args.remove(index)).is_some()
-}
-
-fn take_value(args: &mut Vec<String>, flag: &str) -> Option<String> {
-  let index = args.iter().position(|it| it == flag)?;
-  args.remove(index);
-  (index < args.len()).then(|| args.remove(index))
 }
 
 /// The time of each family: (files, the sum of its calls)
@@ -248,22 +225,6 @@ fn facts_of(path: &str, full: &Path, options: &Options, times: &mut Times) -> St
   out
 }
 
-/// One line of facts; a line break or a tab inside the fact (the qualifier `a⏎.b` of a member, a header with a text
-/// block) as `\n`, `\r`, `\t`, so that every line starts with its path and family
-fn push(out: &mut String, path: &str, family: &str, fact: &str) {
-  let _ = write!(out, "{path}\t{family}\t");
-  for character in fact.chars() {
-    match character {
-      '\n' => out.push_str("\\n"),
-      '\r' => out.push_str("\\r"),
-      '\t' => out.push_str("\\t"),
-      '\\' => out.push_str("\\\\"),
-      _ => out.push(character),
-    }
-  }
-  out.push('\n');
-}
-
 /// A file whose facts take longer is named on stderr, every `SLOW` while it lasts
 const SLOW: Duration = Duration::from_secs(30);
 
@@ -317,231 +278,4 @@ fn bracket_depth(text: &str) -> usize {
     }
   }
   deepest
-}
-
-/// The words of the text to ask about, by the text alone: at most `limit`, spread over it
-fn probes(text: &str, limit: usize) -> Vec<(Position, &str)> {
-  let is_part = |it: char| it.is_alphanumeric() || it == '_' || it == '$';
-  let mut words: Vec<(usize, &str)> = Vec::new();
-  let mut previous: Option<char> = None;
-  for (offset, character) in text.char_indices() {
-    if (character.is_alphabetic() || character == '_' || character == '$') && !previous.is_some_and(is_part) {
-      let end = text[offset..].find(|it: char| !is_part(it)).map_or(text.len(), |it| offset + it);
-      words.push((offset, &text[offset..end]));
-    }
-    previous = Some(character);
-  }
-  let count = words.len();
-  let picked: Vec<(usize, &str)> = if count <= limit {
-    words
-  } else {
-    (0..limit).map(|it| words[it * count / limit]).collect()
-  };
-  picked.into_iter().map(|(offset, word)| (position_of(text, offset), word)).collect()
-}
-
-/// The line from 0 (`\n`, `\r\n` or a lone `\r` ends one, as the view splits them) and the UTF-16 column of an offset
-fn position_of(text: &str, offset: usize) -> Position {
-  let before = &text[..offset];
-  let line_start = before.rfind(['\n', '\r']).map_or(0, |it| it + 1);
-  let mut line = 0u32;
-  let mut previous = '\0';
-  for character in before.chars() {
-    if character == '\r' || (character == '\n' && previous != '\r') {
-      line += 1;
-    }
-    previous = character;
-  }
-  let column = u32::try_from(before[line_start..].encode_utf16().count()).unwrap_or(u32::MAX);
-  Position { line, column }
-}
-
-fn reference_text(reference: &code_symbols::navigate::ReferenceAt) -> String {
-  let kind = match reference.kind {
-    ReferenceKind::Value => "value",
-    ReferenceKind::Call => "call",
-    ReferenceKind::Member => "member",
-    ReferenceKind::MemberCall => "member_call",
-    ReferenceKind::Type => "type",
-    ReferenceKind::Declaration => "declaration",
-  };
-  let local = reference.local.map_or_else(|| "-".to_string(), |it| format!("{}:{}", it.line, it.column));
-  format!(
-    "{kind} {} q={} at {}:{}-{} local={local}",
-    reference.name,
-    reference.qualifier.as_deref().unwrap_or("-"),
-    reference.start.line,
-    reference.start.column,
-    reference.end_column
-  )
-}
-
-fn usages_at_text(usages: &UsagesAt) -> String {
-  format!(
-    "{}{} {} {}",
-    usages.name,
-    if usages.local { " local" } else { "" },
-    usages.usages.len(),
-    access_counts(usages.usages.iter().map(|it| it.access))
-  )
-}
-
-/// `declaration=1 call=2`, the kinds in a fixed order, without those of none
-fn access_counts(accesses: impl Iterator<Item = Access>) -> String {
-  let order = [Access::Declaration, Access::Import, Access::Call, Access::Write, Access::Read];
-  let mut counts = [0usize; 5];
-  for access in accesses {
-    if let Some(index) = order.iter().position(|it| *it == access) {
-      counts[index] += 1;
-    }
-  }
-  let parts: Vec<String> = order
-    .iter()
-    .zip(counts)
-    .filter(|(_, count)| *count > 0)
-    .map(|(access, count)| format!("{}={count}", access.name()))
-    .collect();
-  parts.join(" ")
-}
-
-/// The lines of one file and family in a run, read group by group
-struct Groups {
-  lines: std::io::Lines<BufReader<std::fs::File>>,
-  next: Option<String>,
-}
-
-impl Groups {
-  fn open(path: &Path) -> Self {
-    let file = std::fs::File::open(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    let mut lines = BufReader::new(file).lines();
-    let next = lines.next().and_then(Result::ok);
-    Self { lines, next }
-  }
-
-  /// The next group: (path, family) and its facts
-  fn next_group(&mut self) -> Option<((String, String), Vec<String>)> {
-    let first = self.next.take()?;
-    let key = group_key(&first);
-    let mut facts = vec![fact_of(&first)];
-    loop {
-      self.next = self.lines.next().and_then(Result::ok);
-      match &self.next {
-        Some(line) if group_key(line) == key => facts.push(fact_of(line)),
-        _ => break,
-      }
-    }
-    Some((key, facts))
-  }
-}
-
-fn group_key(line: &str) -> (String, String) {
-  let mut parts = line.splitn(3, '\t');
-  (parts.next().unwrap_or_default().to_string(), parts.next().unwrap_or_default().to_string())
-}
-
-fn fact_of(line: &str) -> String {
-  line.splitn(3, '\t').nth(2).unwrap_or_default().to_string()
-}
-
-/// Prints the moved groups of two runs over the same list and the moved files and lines per family; exit code 1 when
-/// any moved
-fn compare(before: &Path, after: &Path, show: usize, only: Option<&str>) -> i32 {
-  let mut before = Groups::open(before);
-  let mut after = Groups::open(after);
-  // family -> (files, moved files, removed lines, added lines)
-  let mut totals: BTreeMap<String, (usize, usize, usize, usize)> = BTreeMap::new();
-  let mut stdout = BufWriter::new(std::io::stdout().lock());
-  loop {
-    let (old, new) = (before.next_group(), after.next_group());
-    let (old, new) = match (old, new) {
-      (None, None) => break,
-      (old, new) => (old, new),
-    };
-    if let (Some((old_key, _)), Some((new_key, _))) = (&old, &new)
-      && old_key != new_key
-    {
-      let _ = writeln!(
-        stdout,
-        "out of step\t{}\t{}\t!=\t{}\t{}: the runs are not of the same list",
-        old_key.0, old_key.1, new_key.0, new_key.1
-      );
-      let _ = stdout.flush();
-      return 2;
-    }
-    let ((path, family), old_facts, new_facts) = match (old, new) {
-      (Some((key, old)), Some((_, new))) => (key, old, new),
-      (Some((key, old)), None) => (key, old, Vec::new()),
-      (None, Some((key, new))) => (key, Vec::new(), new),
-      (None, None) => break,
-    };
-    if only.is_some_and(|it| it != family) {
-      continue;
-    }
-    let total = totals.entry(family.clone()).or_default();
-    total.0 += 1;
-    if old_facts == new_facts {
-      continue;
-    }
-    let (removed, added) = multiset_difference(&old_facts, &new_facts);
-    total.1 += 1;
-    total.2 += removed.len();
-    total.3 += added.len();
-    let _ = writeln!(stdout, "moved\t{family}\t{path}\t-{} +{}", removed.len(), added.len());
-    for it in removed.iter().take(show) {
-      let _ = writeln!(stdout, "  - {it}");
-    }
-    for it in added.iter().take(show) {
-      let _ = writeln!(stdout, "  + {it}");
-    }
-    if removed.is_empty() && added.is_empty() {
-      let _ = writeln!(stdout, "  (the same lines in another order)");
-    }
-  }
-  let _ = writeln!(stdout, "\nfamily\tfiles\tmoved files\tremoved lines\tadded lines");
-  let mut moved = false;
-  for (family, (files, moved_files, removed, added)) in &totals {
-    moved |= *moved_files > 0;
-    let _ = writeln!(stdout, "{family}\t{files}\t{moved_files}\t{removed}\t{added}");
-  }
-  let _ = stdout.flush();
-  i32::from(moved)
-}
-
-/// The lines only `old` has and those only `new` has, each in its order, counting repeats
-fn multiset_difference<'a>(old: &'a [String], new: &'a [String]) -> (Vec<&'a str>, Vec<&'a str>) {
-  let mut counts: HashMap<&str, isize> = HashMap::new();
-  for it in old {
-    *counts.entry(it).or_default() += 1;
-  }
-  for it in new {
-    *counts.entry(it).or_default() -= 1;
-  }
-  let mut left = counts.clone();
-  let removed = old
-    .iter()
-    .filter(|it| {
-      let count = left.entry(it.as_str()).or_default();
-      if *count > 0 {
-        *count -= 1;
-        true
-      } else {
-        false
-      }
-    })
-    .map(String::as_str)
-    .collect();
-  let added = new
-    .iter()
-    .filter(|it| {
-      let count = counts.entry(it.as_str()).or_default();
-      if *count < 0 {
-        *count += 1;
-        true
-      } else {
-        false
-      }
-    })
-    .map(String::as_str)
-    .collect();
-  (removed, added)
 }

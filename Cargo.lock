@@ -1321,6 +1321,7 @@ dependencies = [
  "psi-builder",
  "serde",
  "serde_json",
+ "sync-utils",
  "tree-sitter",
  "tree-sitter-rust",
  "tree-sitter-typescript",

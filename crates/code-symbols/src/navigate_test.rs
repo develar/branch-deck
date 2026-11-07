@@ -79,6 +79,16 @@ fn finds_a_rust_binding_and_tells_a_method_and_a_path() {
 }
 
 #[test]
+fn finds_the_rust_impl_method_name_before_its_same_named_parameter_and_body_use() {
+  let text = "struct Text;\nimpl Text {\n  fn text(text: &str) -> &str { text }\n}\n";
+  let method = at(Grammar::Rust, text, "text", 0);
+  assert_eq!(
+    (method.kind, method.name.as_str(), method.start, method.end_column),
+    (ReferenceKind::Declaration, "text", Position { line: 2, column: 5 }, 9)
+  );
+}
+
+#[test]
 fn finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property() {
   let typescript = "export function run(items: string[]) {\n  const total = count(items)\n  return this.size + total\n}\nfunction count(list: string[]) { return list.length }\n";
   assert_eq!(local(&at(Grammar::TypeScript, typescript, "items", 1)), Some((0, 20)));
@@ -87,6 +97,24 @@ fn finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property() {
   assert_eq!((count.kind, local(&count)), (ReferenceKind::Call, Some((4, 9))));
   let size = at(Grammar::TypeScript, typescript, "size", 0);
   assert_eq!((size.kind, size.qualifier.as_deref()), (ReferenceKind::Member, Some("this")));
+}
+
+#[test]
+fn finds_each_typescript_overload_signature_and_implementation_at_its_name() {
+  let text = "function parse(value: string): string;\nfunction parse(value: number): number;\nfunction parse(value: string | number) { return value; }\n";
+  for occurrence in 0..3 {
+    let declaration = at(Grammar::TypeScript, text, "parse", occurrence);
+    assert_eq!(declaration.kind, ReferenceKind::Declaration);
+    assert_eq!(declaration.name, "parse");
+    assert_eq!(
+      declaration.start,
+      Position {
+        line: u32::try_from(occurrence).unwrap(),
+        column: 9
+      }
+    );
+    assert_eq!(declaration.end_column, 14);
+  }
 }
 
 #[test]

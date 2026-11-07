@@ -23,6 +23,7 @@ tree-sitter-typescript = { version = "0.23.2", optional = true }
 [dev-dependencies]
 pretty_assertions.workspace = true
 serde_json.workspace = true
+sync-utils = { path = "../sync-utils" }
 
 [features]
 default = ["kotlin", "java", "csharp", "rust", "typescript"]
