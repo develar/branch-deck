@@ -18,6 +18,9 @@ updates:
     cooldown:
       default-days: 3
     groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
       # Vite+ pins its Vite core, Vitest, Oxlint and Oxfmt: they move as one
       vite-plus:
         patterns: ["vite-plus", "vite", "@voidzero-dev/*"]
