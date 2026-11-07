@@ -44,15 +44,15 @@ pub(crate) const NAVIGATION: Reading<csharp_syntax::CSharp, Tree> = Reading {
   name_start,
 };
 
-/// Where the value of a name starts: after the `@` of a verbatim identifier
+/// Where the text that writes a name starts: after the `@` of a verbatim identifier, at the token itself where an
+/// escape makes the value bytes the source does not hold (`C\u733f`)
 fn name_start(tree: &Tree, leaf: NodeId) -> usize {
-  let start = tree.range(leaf).start;
-  if tree.text(leaf).first() == Some(&b'@') { start + 1 } else { start }
+  read::word_at(tree, leaf).map_or_else(|| tree.range(leaf).start, |(_, at)| at)
 }
 
 /// Whether a node lies in a structured trivia: a documentation comment, a directive, tokens the parser skipped
 fn in_structured_trivia(tree: &Tree, node: NodeId) -> bool {
-  std::iter::successors(tree.parent(node), |&it| tree.parent(it)).any(|it| read::is_structured_trivia(tree, it))
+  std::iter::successors(tree.parent(node), |&it| tree.parent(it)).any(|it| tree.is_trivia(it))
 }
 
 /// The value of a name (`count` of `@count`)
@@ -156,7 +156,7 @@ struct CSharpScopes<'t> {
 
 impl Scoping<csharp_syntax::CSharp> for CSharpScopes<'_> {
   fn skips(&self, node: NodeId) -> bool {
-    read::is_structured_trivia(self.tree, node)
+    self.tree.is_trivia(node)
   }
 
   fn binding(&mut self, leaf: NodeId) -> Binding {
@@ -325,7 +325,7 @@ fn access_of(tree: &Tree, leaf: NodeId, kind: ReferenceKind) -> Access {
 
 /// Where a node ends without the trivia after it
 fn own_end(tree: &Tree, node: NodeId) -> usize {
-  tree.own_end(node, |it| read::is_trivia(tree, it), |_| false)
+  tree.declaration_end(node)
 }
 
 #[cfg(test)]

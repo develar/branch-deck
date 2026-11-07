@@ -1,6 +1,6 @@
 //! The summary of a C# file from Roslyn's syntax tree (`FileSummary`), by the rules that the head of `extract.rs`
 //! states for every language (locals dropped) and the JVM model the summary is made of (`jvm`: the stack of supertypes
-//! an `override` overrides, `Shape::Call` of a call, the constructors of a type). What a node answers of its slots comes
+//! an `override` overrides, `Shape::Call` of a call, the constructors of a type). What a node answers of s slots comes
 //! from `csharp_syntax::syntax_getters`; one scan over the preorder ids of the tree (`Walk::run`) with an explicit
 //! stack of frames, so a file nested as deep as the parser allows takes no stack per level.
 //!
@@ -36,7 +36,7 @@ use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, Mem
 use crate::summary_builder::Typed;
 use csharp_syntax::read;
 use csharp_syntax::syntax_getters as sg;
-use csharp_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree, facts};
+use csharp_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree};
 use std::collections::HashMap;
 
 /// The attributes of a method a test framework runs (`Declaration::test`), by the last name of the attribute without
@@ -188,9 +188,9 @@ impl<'t> Walk<'t> {
         false
       }
       // a documentation comment, a directive: no code
-      kind if facts::is_trivia(kind.syntax_kind()) => false,
+      _ if self.tree.is_trivia(id) => false,
       N::IncompleteMember => {
-        let bytes = u32::try_from(self.own_range(id).len()).unwrap_or(u32::MAX).max(1);
+        let bytes = u32::try_from(self.tree.declaration_range(id).len()).unwrap_or(u32::MAX).max(1);
         self.core.out.error_bytes = self.core.out.error_bytes.saturating_add(bytes);
         true
       }
@@ -390,9 +390,9 @@ impl<'t> Walk<'t> {
     self.namespaces.push(full);
     self.core.frame().extra.namespace = true;
     // the lines of the statement: a file-scoped one whole, a block one up to its name
-    let range = self.own_range(id);
+    let range = self.tree.declaration_range(id);
     let end = match (self.kind(id), name) {
-      (Some(N::NamespaceDeclaration), Some(name)) => self.own_range(name).end,
+      (Some(N::NamespaceDeclaration), Some(name)) => self.tree.declaration_range(name).end,
       _ => sg::file_scoped_namespace_declaration::semicolon_token(tree, id).map_or(range.end, |it| tree.range(it).end),
     };
     let span = LineSpan {
@@ -406,7 +406,7 @@ impl<'t> Walk<'t> {
   /// alias's target
   fn import(&mut self, id: NodeId) {
     let tree = self.tree;
-    let range = self.own_range(id);
+    let range = self.tree.declaration_range(id);
     let line = self.core.lines.line(range.start);
     self.core.out.import_lines.push(LineSpan {
       start: line,
@@ -638,7 +638,7 @@ impl<'t> Walk<'t> {
         ..JvmFields::default()
       };
       // the first declarator starts with its field, its attributes and doc comment; a later one at its name
-      let declarator_range = self.own_range(declarator);
+      let declarator_range = self.tree.declaration_range(declarator);
       let start = if index == 0 {
         self.member_span(id, name).start
       } else {
@@ -695,7 +695,7 @@ impl<'t> Walk<'t> {
     let owner = tree.parent(id).and_then(|list| tree.parent(list)).and_then(|it| self.kind(it));
     if matches!(owner, Some(N::RecordDeclaration | N::RecordStructDeclaration)) {
       let Some(name) = name else { return };
-      let range = self.own_range(id);
+      let range = self.tree.declaration_range(id);
       let span = Span {
         start: self.core.lines.line(range.start),
         end: self.core.end_line(range.start, range.end),
@@ -794,7 +794,7 @@ impl<'t> Walk<'t> {
   /// The lines of a declaration: from its first token, or a doc comment above it, to its last
   fn member_span(&self, id: NodeId, name: NodeId) -> Span {
     let doc = read::doc_comment(self.tree, id).map(|it| self.tree.range(it).start);
-    self.core.span(self.own_range(id), self.tree.range(name).start, doc)
+    self.core.span(self.tree.declaration_range(id), self.tree.range(name).start, doc)
   }
 
   // --- the facts of a declaration ---
@@ -965,7 +965,7 @@ impl<'t> Walk<'t> {
             None => continue,
           }
         }
-        Some(_) => tree.children(node).filter(|it| !tree.is_leaf(*it) && !read::is_trivia(tree, *it)).collect(),
+        Some(_) => tree.children(node).filter(|it| !tree.is_leaf(*it) && !tree.is_trivia(*it)).collect(),
         None => continue,
       };
       stack.extend(children.into_iter().rev());
@@ -1032,7 +1032,7 @@ impl<'t> Walk<'t> {
   fn header_tokens(&self, id: NodeId, drop_parameters: bool, tokens: &mut Vec<&'t str>) {
     let tree = self.tree;
     let prune = |node: NodeId| {
-      read::is_trivia(tree, node) || self.kind(node) == Some(N::AttributeList) || (drop_parameters && matches!(self.kind(node), Some(N::ParameterList | N::BracketedParameterList)))
+      tree.is_trivia(node) || self.kind(node) == Some(N::AttributeList) || (drop_parameters && matches!(self.kind(node), Some(N::ParameterList | N::BracketedParameterList)))
     };
     for node in tree.descendants_pruned(id, prune) {
       if node != id && matches!(self.kind(node), Some(N::Block | N::ArrowExpressionClause | N::EqualsValueClause | N::AccessorList)) {
@@ -1393,14 +1393,7 @@ impl<'t> Walk<'t> {
 
   /// Whether a node lies in a structured trivia: a documentation comment, a directive
   fn in_structured_trivia(&self, id: NodeId) -> bool {
-    std::iter::successors(self.tree.parent(id), |it| self.tree.parent(*it)).any(|it| read::is_structured_trivia(self.tree, it))
-  }
-
-  /// A declaration's range from its first token to its last, without the trivia at its edges and a separator
-  fn own_range(&self, id: NodeId) -> std::ops::Range<usize> {
-    self
-      .tree
-      .own_range(id, |it| read::is_trivia(self.tree, it), |it| matches!(it, T::SemicolonToken | T::CommaToken))
+    self.tree.in_doc_comment(id) || std::iter::successors(self.tree.parent(id), |it| self.tree.parent(*it)).any(|it| self.tree.is_trivia(it))
   }
 
   /// Whether the subtree of `id` holds a token the parser skipped or found missing

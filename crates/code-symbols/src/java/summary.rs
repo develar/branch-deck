@@ -107,7 +107,7 @@ impl<'t> Walk<'t> {
       last_head: None,
       final_class: None,
     };
-    walk.errors = tree.errors().map(|(id, _)| id).filter(|id| !walk.in_doc_comment(*id)).map(|id| id.0).collect();
+    walk.errors = tree.errors().map(|(id, _)| id).filter(|id| !tree.in_doc_comment(*id)).map(|id| id.0).collect();
     walk
   }
 
@@ -446,13 +446,13 @@ impl<'t> Walk<'t> {
     let start = tree.range(name).start;
     let mut start_line = self.core.lines.line(start);
     if head.is_some() {
-      for child in tree.children(id).take_while(|it| *it != name).filter(|it| self.is_doc_comment(*it)) {
+      for child in tree.children(id).take_while(|it| *it != name).filter(|it| self.tree.is_doc_comment(*it)) {
         start_line = start_line.min(self.core.line_at(child));
       }
     }
     let span = Span {
       start: start_line,
-      end: self.core.end_line(start, self.own_range(id).end),
+      end: self.core.end_line(start, self.tree.declaration_range(id).end),
       name: self.core.lines.line(start),
     };
     let header = self.header(head, id, false);
@@ -500,7 +500,7 @@ impl<'t> Walk<'t> {
       unstable: self.unstable(id),
       ..JvmFields::default()
     };
-    let span = self.core.span(self.own_range(id), self.tree.range(name).start, None);
+    let span = self.core.span(self.tree.declaration_range(id), self.tree.range(name).start, None);
     let header = self.header(None, id, false);
     self.declare(name, (DeclKind::Value, Reach::Public, MemberKind::Instance), &span, fields, Some(header));
   }
@@ -533,7 +533,7 @@ impl<'t> Walk<'t> {
   fn case_group(&mut self, id: NodeId) {
     let Some(parent) = self.core.frames.len().checked_sub(2) else { return };
     let Some(open) = self.core.frames[parent].extra.switch_group else { return };
-    let previous = std::iter::successors(self.tree.previous_sibling(id), |it| self.tree.previous_sibling(*it)).find(|it| !self.is_trivia(*it));
+    let previous = std::iter::successors(self.tree.previous_sibling(id), |it| self.tree.previous_sibling(*it)).find(|it| !self.tree.is_trivia(*it));
     if previous.is_some_and(|it| self.kind(it) == Some(N::SWITCH_LABEL_STATEMENT)) {
       return;
     }
@@ -593,11 +593,11 @@ impl<'t> Walk<'t> {
     let doc = self
       .tree
       .children(id)
-      .take_while(|child| self.is_trivia(*child))
-      .filter(|child| self.is_doc_comment(*child))
+      .take_while(|child| self.tree.is_trivia(*child))
+      .filter(|child| self.tree.is_doc_comment(*child))
       .map(|child| self.tree.range(child).start)
       .min();
-    self.core.span(self.own_range(id), self.tree.range(name).start, doc)
+    self.core.span(self.tree.declaration_range(id), self.tree.range(name).start, doc)
   }
 
   /// Whether an anonymous class or a local declaration lies between the current node and the declaration around it
@@ -752,7 +752,7 @@ impl<'t> Walk<'t> {
         Some(_) => node,
       };
       let start = stack.len();
-      stack.extend(self.tree.children(parent).filter(|it| !self.is_trivia(*it)));
+      stack.extend(self.tree.children(parent).filter(|it| !self.tree.is_trivia(*it)));
       stack[start..].reverse();
     }
     (!names.is_empty()).then_some(TypeRef { names, nullable: false, arrays })
@@ -811,7 +811,7 @@ impl<'t> Walk<'t> {
 
   /// The header tokens of `id` and below, until a body or the `=` of an initializer
   fn header_tokens(&self, id: NodeId, drop_parameters: bool, tokens: &mut Vec<&'t str>) {
-    let prune = |node: NodeId| self.is_trivia(node) || self.kind(node) == Some(N::ANNOTATION) || (drop_parameters && self.kind(node) == Some(N::PARAMETER_LIST));
+    let prune = |node: NodeId| self.tree.is_trivia(node) || self.kind(node) == Some(N::ANNOTATION) || (drop_parameters && self.kind(node) == Some(N::PARAMETER_LIST));
     let mut parameters_end = 0;
     for node in self.tree.descendants_pruned(id, prune) {
       match self.kind(node) {
@@ -959,7 +959,7 @@ impl<'t> Walk<'t> {
   /// The interned `Shape::Call` of the arguments `list`, `enclosed` by the walk
   fn call_shape(&mut self, list: Option<NodeId>) -> Option<u32> {
     let list = list?;
-    let arguments = self.composite_children(list).map(|it| (None, self.argument(it))).collect();
+    let arguments = self.tree.composite_children(list).map(|it| (None, self.argument(it))).collect();
     let enclosed = self.enclosed();
     Some(self.core.out.intern_shape(Shape::Call {
       arguments,
@@ -981,7 +981,7 @@ impl<'t> Walk<'t> {
       },
       Some(N::PREFIX_EXPRESSION) => {
         let signed = self.tree.children(value).any(|it| matches!(self.tree.token_kind(it), Some(T::MINUS | T::PLUS)));
-        let operand = self.composite_children(value).next();
+        let operand = self.tree.composite_children(value).next();
         if signed && operand.and_then(literal) == Some(T::INTEGER_LITERAL) {
           Argument::Number
         } else {
@@ -1043,7 +1043,7 @@ impl<'t> Walk<'t> {
           node = qualifier;
         }
         Some(N::TYPE) => {
-          let mut children = self.tree.children(node).filter(|it| !self.is_trivia(*it));
+          let mut children = self.tree.children(node).filter(|it| !self.tree.is_trivia(*it));
           match (children.next(), children.next()) {
             (Some(reference), None) if self.kind(reference) == Some(N::JAVA_CODE_REFERENCE) => node = reference,
             _ => return None,
@@ -1080,7 +1080,7 @@ impl<'t> Walk<'t> {
 
   /// The lines of an import or package statement
   fn import_statement(&mut self, id: NodeId) {
-    let range = self.own_range(id);
+    let range = self.tree.declaration_range(id);
     let span = LineSpan {
       start: self.core.lines.line(range.start),
       end: self.core.end_line(range.start, range.end),
@@ -1119,11 +1119,6 @@ impl<'t> Walk<'t> {
     self.tree.first_child_of_kind(id, kind)
   }
 
-  /// The composite children, without doc comments
-  fn composite_children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
-    self.tree.children(id).filter(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it))
-  }
-
   /// The token of the first leaf child
   fn child_token(&self, id: NodeId) -> Option<T> {
     self.tree.children(id).find_map(|it| self.tree.token_kind(it))
@@ -1156,13 +1151,7 @@ impl<'t> Walk<'t> {
   /// `this` and `super` of a delegating call, the `new` of `Type::new`)
   fn name_leaf(&self, id: NodeId) -> Option<NodeId> {
     let tree = self.tree;
-    let name = match self.kind(id)? {
-      N::REFERENCE_EXPRESSION => psi::reference_expression::get_reference_name_element(tree, id),
-      N::JAVA_CODE_REFERENCE => psi::code_reference::get_reference_name_element(tree, id),
-      N::IMPORT_STATIC_REFERENCE => psi::import_static_reference::get_reference_name_element(tree, id),
-      N::METHOD_REF_EXPRESSION => psi::method_reference_expression::get_reference_name_element(tree, id),
-      _ => psi::get_name_identifier(tree, id),
-    };
+    let name = psi::get_reference_name_element(tree, id).or_else(|| psi::get_name_identifier(tree, id));
     name.filter(|it| tree.token_kind(*it) == Some(T::IDENTIFIER))
   }
 
@@ -1172,38 +1161,6 @@ impl<'t> Walk<'t> {
 
   fn text(&self, id: NodeId) -> Option<&'t str> {
     self.core.text_of(id)
-  }
-
-  /// Whitespace, a comment, a doc comment
-  fn is_trivia(&self, id: NodeId) -> bool {
-    self.tree.kind(id).token().is_some_and(T::is_whitespace_or_comment)
-  }
-
-  /// A comment that documents the declaration after it: `/**` (not `/**/`) or `///` (not `////`)
-  fn is_doc_comment(&self, id: NodeId) -> bool {
-    self
-      .text(id)
-      .is_some_and(|it| (it.starts_with("/**") && !it.starts_with("/**/")) || (it.starts_with("///") && !it.starts_with("////")))
-  }
-
-  /// Whether a node lies in a doc comment, a composite of a token type
-  fn in_doc_comment(&self, id: NodeId) -> bool {
-    // a doc comment holds tags, references and types; any other node is of the code
-    let in_doc = |kind: N| kind.debug_name().starts_with("DOC_") || matches!(kind, N::JAVA_CODE_REFERENCE | N::REFERENCE_PARAMETER_LIST | N::TYPE | N::ERROR_ELEMENT);
-    let mut current = self.tree.parent(id);
-    while let Some(node) = current {
-      match self.tree.kind(node).node() {
-        None => return true,
-        Some(kind) if in_doc(kind) => current = self.tree.parent(node),
-        Some(_) => return false,
-      }
-    }
-    false
-  }
-
-  /// A declaration's range from its first token to its last, without the comments at its edges and a separator
-  fn own_range(&self, id: NodeId) -> std::ops::Range<usize> {
-    self.tree.own_range(id, |it| self.is_trivia(it), |it| matches!(it, T::SEMICOLON | T::COMMA))
   }
 
   /// Whether the subtree of `id` holds an error element of the code

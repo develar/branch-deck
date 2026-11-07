@@ -369,11 +369,7 @@ fn interpolated_escapes(tree: &Tree, leaf: NodeId) -> Escapes {
     .parent(leaf)
     .and_then(|text| tree.parent(text))
     .filter(|&it| tree.node_kind(it) == Some(NodeKind::InterpolatedStringExpression));
-  let start = string.and_then(|it| {
-    tree
-      .children(it)
-      .find_map(|child| tree.token_kind(child).filter(|&kind| !csharp_syntax::dump::is_trivia(kind)))
-  });
+  let start = string.and_then(|it| tree.children(it).find_map(|child| (!tree.is_trivia(child)).then(|| tree.token_kind(child)).flatten()));
   match start {
     Some(TokenKind::InterpolatedVerbatimStringStartToken) => Escapes::InterpolatedVerbatim,
     Some(TokenKind::InterpolatedSingleLineRawStringStartToken | TokenKind::InterpolatedMultiLineRawStringStartToken) => Escapes::None,

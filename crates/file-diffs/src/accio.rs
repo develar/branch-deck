@@ -601,10 +601,6 @@ impl<'a> Lenient<'a> {
     }
   }
 
-  pub(crate) fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Vec<SymbolHit>> {
-    Ok(self.answered(self.index.symbols(repository_root, query, revision))?.unwrap_or_default())
-  }
-
   /// The declarations of each name, in their order, as `SymbolIndex::symbols_any`: none where the index did not answer
   pub(crate) fn symbols_any(&self, repository_root: &str, queries: &[&str], revision: Option<&str>) -> Result<Vec<Vec<SymbolHit>>> {
     let answers = self.answered(self.index.symbols_any(repository_root, queries, revision))?;

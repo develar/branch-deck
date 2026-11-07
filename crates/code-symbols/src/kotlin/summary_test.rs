@@ -201,3 +201,28 @@ fn the_tokens_a_parse_error_skipped_are_no_references() {
   assert!(summary.declarations.iter().all(|it| !it.in_error));
   assert_eq!(constructors_of(&summary, "A"), None);
 }
+
+/// An enum entry holds the `,` or `;` that ends it, and that token separates it from the next entry rather than
+/// naming it (`TreeLanguage::is_separator_of`); a property holds the `;` after it, which is its own text.
+#[test]
+fn an_enum_entry_drops_its_separator_and_a_property_keeps_its_semicolon() {
+  let summary = summary(
+    "class Use {
+  val value =
+    compute()
+    ;
+
+  fun compute() = 1
+}
+
+enum class Kind {
+  FIRST,
+  SECOND
+}
+",
+  );
+  let value = declaration(&summary, "value");
+  assert_eq!((value.start_line, value.end_line), (2, 4), "the `;` of a property is its own");
+  let first = declaration(&summary, "FIRST");
+  assert_eq!((first.start_line, first.end_line), (10, 10), "the `,` of an enum entry separates it from the next");
+}

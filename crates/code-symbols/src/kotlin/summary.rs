@@ -269,7 +269,7 @@ impl<'t> Walk<'t> {
 
   /// A token: a doc comment extends the declaration after it
   fn leaf(&mut self, id: NodeId) {
-    if matches!(self.tree.token_kind(id), Some(K::EOL_COMMENT | K::BLOCK_COMMENT)) && self.is_doc_comment(id) {
+    if matches!(self.tree.token_kind(id), Some(K::EOL_COMMENT | K::BLOCK_COMMENT)) && self.tree.is_doc_comment(id) {
       let line = self.line_of(id);
       if let Some(frame) = self.frames.last_mut() {
         frame.leading = Some(frame.leading.map_or(line, |it| it.min(line)));
@@ -650,7 +650,7 @@ impl<'t> Walk<'t> {
     for child in self.tree.children(id) {
       if self.tree.token_kind(child) == Some(K::COLONCOLON) {
         after = true;
-      } else if !self.tree.is_leaf(child) && !self.is_trivia(child) {
+      } else if !self.tree.is_leaf(child) && !self.tree.is_trivia(child) {
         if after {
           name = Some(child);
         } else {
@@ -865,7 +865,7 @@ impl<'t> Walk<'t> {
       match self.tree.token_kind(child) {
         Some(K::LPAR) => inside = true,
         Some(K::RPAR | K::LBRACE) => return None,
-        None if inside && !self.is_trivia(child) => return Some(child),
+        None if inside && !self.tree.is_trivia(child) => return Some(child),
         _ => {}
       }
     }
@@ -1015,10 +1015,10 @@ impl<'t> Walk<'t> {
   fn leading(&self, id: NodeId) -> Option<u32> {
     let mut leading = self.leading_now;
     for child in self.tree.children(id) {
-      if !self.is_trivia(child) {
+      if !self.tree.is_trivia(child) {
         break;
       }
-      if self.tree.kind(child).token() == Some(K::DOC_COMMENT) || self.is_doc_comment(child) {
+      if self.tree.kind(child).token() == Some(K::DOC_COMMENT) || self.tree.is_doc_comment(child) {
         let line = self.line_of(child);
         leading = Some(leading.map_or(line, |it| it.min(line)));
       }
@@ -1496,7 +1496,7 @@ impl<'t> Walk<'t> {
     } else {
       // the composites of the list: an error element beside the entry counts as another
       let entries: Vec<NodeId> = psi::kt_class_or_object_get_super_type_list(tree, class)
-        .map_or_else(Vec::new, |list| tree.children(list).filter(|it| !tree.is_leaf(*it) && !self.is_trivia(*it)).collect());
+        .map_or_else(Vec::new, |list| tree.children(list).filter(|it| !tree.is_leaf(*it) && !self.tree.is_trivia(*it)).collect());
       match entries.as_slice() {
         [only] if self.is(*only, N::SUPER_TYPE_ENTRY) => psi::kt_super_type_list_entry_get_type_as_user_type(tree, *only).and_then(|it| self.type_path(it)),
         _ => None,
@@ -1526,7 +1526,7 @@ impl<'t> Walk<'t> {
       // its last composite, an error element after the value too (`getArgumentExpression` is the first expression)
       let value = tree
         .children(value_argument)
-        .filter(|it| !tree.is_leaf(*it) && !self.is_trivia(*it) && !self.is(*it, N::VALUE_ARGUMENT_NAME))
+        .filter(|it| !tree.is_leaf(*it) && !self.tree.is_trivia(*it) && !self.is(*it, N::VALUE_ARGUMENT_NAME))
         .last();
       arguments.push((name, value.map_or(Argument::Expression, |it| self.argument(it))));
     }
@@ -1552,7 +1552,7 @@ impl<'t> Walk<'t> {
         let operands: Vec<NodeId> = self
           .tree
           .children(value)
-          .filter(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it) && !self.is(*it, N::OPERATION_REFERENCE))
+          .filter(|it| !self.tree.is_leaf(*it) && !self.tree.is_trivia(*it) && !self.is(*it, N::OPERATION_REFERENCE))
           .collect();
         if sign && matches!(operands.as_slice(), [operand] if integer(*operand)) {
           Argument::Number
@@ -1631,7 +1631,7 @@ impl<'t> Walk<'t> {
         if kind == Some(K::EQ) && !in_parameters {
           break;
         }
-        if self.is_trivia(id) || kind == Some(K::SEMICOLON) {
+        if self.tree.is_trivia(id) || kind == Some(K::SEMICOLON) {
           continue;
         }
         if let Some(text) = self.tree.utf8_text(id).filter(|it| !it.is_empty())
@@ -1758,20 +1758,7 @@ impl<'t> Walk<'t> {
 
   /// The first child that is a node (not a token, a comment or a doc comment)
   fn first_composite(&self, id: NodeId) -> Option<NodeId> {
-    self.tree.children(id).find(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it))
-  }
-
-  /// Whitespace, a comment or a doc comment
-  fn is_trivia(&self, id: NodeId) -> bool {
-    matches!(
-      self.tree.kind(id).token(),
-      Some(K::WHITE_SPACE | K::EOL_COMMENT | K::BLOCK_COMMENT | K::SHEBANG_COMMENT | K::DOC_COMMENT)
-    )
-  }
-
-  fn is_doc_comment(&self, id: NodeId) -> bool {
-    let text = self.tree.text(id);
-    (text.starts_with(b"/**") && !text.starts_with(b"/**/")) || (text.starts_with(b"///") && !text.starts_with(b"////"))
+    self.tree.composite_children(id).next()
   }
 
   /// Whether an error element is in the subtree of `id`
@@ -1787,7 +1774,7 @@ impl<'t> Walk<'t> {
   /// The first and the last line of a node, from its first token to its last, without the comments bound at its
   /// edges and the separator after an enum entry
   fn lines_of(&self, id: NodeId) -> (u32, u32) {
-    let range = self.tree.own_range(id, |it| self.is_trivia(it), |it| matches!(it, K::COMMA | K::SEMICOLON));
+    let range = self.tree.declaration_range(id);
     let start = self.lines.line(range.start);
     (start, end_line(|offset| self.lines.line(offset), self.source, range.start, range.end))
   }

@@ -94,7 +94,7 @@ impl Names<'_> {
 
   /// The composite children of a node: an expression's operands
   fn parts(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
-    self.tree.children(id).filter(|&child| !self.tree.is_leaf(child) && self.tree.node_kind(child).is_some())
+    self.tree.composite_children(id)
   }
 
   /// The name at `offset`: the character there, else the one before it, as the end of a name is still the name (`foo|`)

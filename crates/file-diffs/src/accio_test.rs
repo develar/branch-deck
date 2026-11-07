@@ -270,13 +270,27 @@ fn every_name_of_a_lookup_is_asked_in_one_process() {
 
   let answers = search.symbols_any(ROOT, &["Store.outsider", "outsider"], Some("head")).unwrap().unwrap();
   assert_eq!(answers.len(), 2);
-  assert!(answers[0].is_empty());
+  assert_eq!(answers[0].len(), 0, "no declaration of the owner's name");
   assert_eq!(answers[1][0].column, Some(4));
   assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "one accio per lookup");
   let asked: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
   assert_eq!(
     asked,
-    ["symbol", "--no-build", "--format", "json", "--project", ROOT, "--limit", "20", "--ref", "head", "--", "Store.outsider", "outsider"]
+    [
+      "symbol",
+      "--no-build",
+      "--format",
+      "json",
+      "--project",
+      ROOT,
+      "--limit",
+      "20",
+      "--ref",
+      "head",
+      "--",
+      "Store.outsider",
+      "outsider"
+    ]
   );
 }
 

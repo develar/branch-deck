@@ -657,6 +657,26 @@ flowchart TD
     read without preprocessor symbols, as `CSharpSyntaxTree.ParseText` reads it: a branch of `#if` is the code of no
     configuration the summary knows, and a `global using` of another file is not seen.
 
+24. **Decision**: what is trivia, what is a doc comment and where a declaration's own text ends are answers of the
+    language, asked of the tree (`Tree::is_trivia`, `is_doc_comment`, `in_doc_comment`, `declaration_range`,
+    `declaration_end`, `composite_children`), never a list of token kinds in `code-symbols`. A declaration keeps a
+    trailing token that is its own and drops one that separates it from the next element, which only a Kotlin enum
+    entry has (`TreeLanguage::is_separator_of`): a Java and a C# field and an abstract method keep their `;`, a Kotlin
+    property keeps its `;`, a Kotlin enum entry drops its `,`, and a Java enum constant and a C# enum member have
+    nothing to drop, their `,` being the list's. The name a C# token spells and the byte that writes it come from
+    `csharp_syntax::read::word_at`, past a `@` and through a `\u` escape.
+
+    [@test] ../../crates/code-symbols/src/java/summary_test.rs (`a_declaration_ends_at_the_semicolon_that_is_its_own`)
+    [@test] ../../crates/code-symbols/src/kotlin/summary_test.rs (`an_enum_entry_drops_its_separator_and_a_property_keeps_its_semicolon`)
+    [@test] ../../crates/code-symbols/src/csharp/summary_test.rs (`no_separator_is_cut_from_a_declaration`)
+
+    **Rationale**: these questions have one answer per language and two consumers, Branch Deck and accio, which gave
+    different ones: both cut a trailing `;` from every Java and C# declaration, against the PSI, while accio's rule
+    for a Java enum constant could never fire. A list of comment tokens in a consumer is also right only until the
+    language grows one. The summaries did not move (every golden holds): a declaration's `;` is almost always on its
+    last line, so the fix is visible only where it is written on a line of its own, and the new tests are that case.
+    `extractor_version` hashes the revision of psi-syntax, so the summaries cached by an older parser are made again.
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules, the revision of psi-syntax and the

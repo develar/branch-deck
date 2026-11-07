@@ -261,3 +261,27 @@ fn a_deep_file_is_read() {
   assert!(!summary.truncated);
   assert_eq!(declaration(&summary, "v").header.as_deref(), Some("int v"));
 }
+
+/// A field's and an abstract method's `;` is their own text, as `PsiField.getTextRange()` holds it, while the `,`
+/// between enum constants is the class's: the tree answers where a declaration ends (`Tree::declaration_range`), so
+/// a `;` written on a line of its own is the declaration's last line.
+#[test]
+fn a_declaration_ends_at_the_semicolon_that_is_its_own() {
+  let summary = java(
+    "class Use {
+  int field =
+    compute()
+    ;
+  enum Kind {
+    FIRST,
+    SECOND
+  }
+  static int compute() { return 1; }
+}
+",
+  );
+  let field = declaration(&summary, "field");
+  assert_eq!((field.start_line, field.end_line), (2, 4), "the `;` of a field is its own");
+  let first = declaration(&summary, "FIRST");
+  assert_eq!((first.start_line, first.end_line), (6, 6), "the `,` after an enum constant is the class's");
+}

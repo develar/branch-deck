@@ -17,7 +17,7 @@
 //! - **The usages** of a local (declared in a method, a lambda or an initializer) are the names bound to it; those of
 //!   any other name are its names that no local binds, each with how it uses the name (`access_of`).
 
-use super::highlight::{anonymous_body, is_callee, is_class, is_doc_comment, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
+use super::highlight::{anonymous_body, is_callee, is_class, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
 use crate::navigate::{Access, ReferenceKind};
 use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in};
 use java_syntax::psi;
@@ -27,7 +27,7 @@ use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   parse: |text| crate::java::parse(text.as_bytes()),
   psi: |tree| tree,
-  is_name: |tree, leaf| tree.token_kind(leaf) == Some(TokenKind::IDENTIFIER) && !in_doc_comment(tree, leaf),
+  is_name: |tree, leaf| tree.token_kind(leaf) == Some(TokenKind::IDENTIFIER) && !tree.in_doc_comment(leaf),
   name: text_of,
   declares,
   kind_in,
@@ -46,10 +46,6 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   access_of,
   name_start: |tree, leaf| tree.range(leaf).start,
 };
-
-fn in_doc_comment(tree: &Tree, leaf: NodeId) -> bool {
-  std::iter::successors(tree.parent(leaf), |&it| tree.parent(it)).any(|it| is_doc_comment(tree, it))
-}
 
 /// The kind of a name in the node `parent` of the kind `kind`, which declares none, and its qualifier
 fn kind_in(tree: &Tree, leaf: NodeId, parent: NodeId, kind: NodeKind) -> (ReferenceKind, Option<NodeId>) {
@@ -146,7 +142,7 @@ struct JavaScopes<'t> {
 
 impl Scoping<java_syntax::Java> for JavaScopes<'_> {
   fn skips(&self, node: NodeId) -> bool {
-    is_doc_comment(self.tree, node)
+    self.tree.is_doc_comment(node)
   }
 
   fn binding(&mut self, leaf: NodeId) -> Binding {
@@ -261,7 +257,7 @@ fn access_of(tree: &Tree, leaf: NodeId, kind: ReferenceKind) -> Access {
     return access;
   }
   let range = tree.range(leaf);
-  let operand = |node: NodeId| tree.children(node).find(|&it| !tree.is_leaf(it) && !is_doc_comment(tree, it));
+  let operand = |node: NodeId| tree.composite_children(node).next();
   for node in std::iter::successors(tree.parent(leaf), |&it| tree.parent(it)) {
     match tree.node_kind(node) {
       Some(NodeKind::IMPORT_STATEMENT | NodeKind::IMPORT_STATIC_STATEMENT | NodeKind::IMPORT_MODULE_STATEMENT) => return Access::Import,

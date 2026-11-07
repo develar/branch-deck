@@ -197,3 +197,31 @@ fn a_deep_chain_and_deep_nesting_take_no_stack_per_level() {
   assert!(!summary.truncated);
   assert!(summary.error_bytes > 0 || summary.declares("F"));
 }
+
+/// C# has no separator inside a declaration for the summary to drop: Roslyn puts the `;` in the `FieldDeclaration`
+/// around the declarator the summary declares and the `,` in the enum's list, so a declaration ends at its own last
+/// token (`Tree::declaration_range`) and no `,` or `;` is ever cut from it.
+#[test]
+fn no_separator_is_cut_from_a_declaration() {
+  let summary = csharp(
+    "class Use {
+  int field =
+    Compute()
+    ;
+  enum Kind {
+    First,
+    Second
+  }
+  static int Compute() { return 1; }
+}
+",
+  );
+  let field = declaration(&summary, "field");
+  assert_eq!(
+    (field.start_line, field.end_line),
+    (2, 3),
+    "a declarator ends at its value, the `;` being the declaration's around it"
+  );
+  let first = declaration(&summary, "First");
+  assert_eq!((first.start_line, first.end_line), (6, 6), "the `,` after an enum member is the list's");
+}

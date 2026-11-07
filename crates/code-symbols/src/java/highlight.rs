@@ -68,7 +68,7 @@ impl Painter<'_> {
     while id < count {
       let node = NodeId(id);
       let around = close_before(&mut open, id, &mut self.scopes);
-      if is_doc_comment(tree, node) {
+      if tree.is_doc_comment(node) {
         comment_lines(out, tree.range(node).start, text_of(tree, node), around);
         id = tree.subtree_end(node).0;
         continue;
@@ -459,12 +459,6 @@ fn child_after(tree: &Tree, node: NodeId, token: TokenKind) -> Option<NodeId> {
 
 fn has_token(tree: &Tree, node: NodeId, token: TokenKind) -> bool {
   tree.children(node).any(|it| tree.token_kind(it) == Some(token))
-}
-
-/// A Javadoc, a composite of the token `DOC_COMMENT` (`/** … */`) or `DOC_MARKDOWN_COMMENT` (`///` lines): a comment,
-/// whose inside is no code
-pub(super) fn is_doc_comment(tree: &Tree, node: NodeId) -> bool {
-  matches!(tree.kind(node).token(), Some(TokenKind::DOC_COMMENT | TokenKind::DOC_MARKDOWN_COMMENT))
 }
 
 /// The text of a node, empty when it is not UTF-8
