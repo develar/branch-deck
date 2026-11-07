@@ -12,6 +12,7 @@ targets:
   - ../../src/hooks/useSymbolNavigation.ts
   - ../../src/lib/diff/code-menu.ts
   - ../../crates/code-symbols/src/navigate.rs
+  - ../../crates/code-symbols/src/summary_builder.rs
   - ../../crates/code-symbols/src/kotlin/navigate.rs
   - ../../crates/code-symbols/src/java/navigate.rs
   - ../../crates/code-symbols/src/csharp/navigate.rs
@@ -78,13 +79,20 @@ outside it.
   [@test] ../../crates/file-diffs/src/usages_test.rs (`a_canceled_search_answers_nothing`)
   [@test] ../../crates/app-api/src/session/windows_test.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
 - The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected at
-  its exact position on the line (the column from accio when present, the first match for older accio without one), once
-  its row is painted with its text, however long its text takes, and again when a new layout paints the row anew,
-  until the user presses or types in the view or selects elsewhere; the caret of a field (the search that the reveal of
-  a hidden file clears) is no selection elsewhere while the name waits for its paint.
+  its exact position on the line, once its row is painted with its text, however long its text takes, and again when a
+  new layout paints the row anew, until the user presses or types in the view or selects elsewhere; the caret of a
+  field (the search that the reveal of a hidden file clears) is no selection elsewhere while the name waits for its
+  paint.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
+- That position is the one the parser of the file read, never a word found on the line: a declaration of the review is
+  selected at the column its summary carries (`Declaration::name_column`, in UTF-16 units, written by every walk), one
+  outside it at the column accio answers, and the same declaration is at the same column on either side. Only an accio
+  too old to answer a column falls back to the first match of the word on its line, so
+  `#[doc(alias = "needle")] pub fn needle(…)` selects the name of the function, not the word of its attribute.
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`a_declaration_whose_line_writes_its_name_twice_is_found_at_its_own_column`, `a_name_column_counts_the_utf16_units_of_its_line_before_it`, `a_doc_comment_above_a_name_leaves_the_column_of_the_name`)
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review`, `goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
   declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere. A
   Kotlin name after a receiver and `::` (`Foo::bar`, `this::bar`) is a member of that receiver, as after a dot; a label
@@ -111,8 +119,8 @@ outside it.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
 - A name that the files of the review do not declare must be looked for in the index of accio, at the commit of its
   side (the commit or the parent for a commit, the head or the base for a range, the working tree for uncommitted
-  changes), `Owner.name` first when the owner is known; only declarations of the language family and of the kind of
-  the name (a call: a function, a constructor or a type; a type: a type), ranked by the imports of the file, the
+  changes), `Owner.name` first when the owner is known; only declarations of the language family and of a kind the
+  name can mean (a call: a function, a constructor or a type; a type: a type), ranked by the imports of the file, the
   owner, then the top directory. A declaration in a file of the review is shown there. One `cat-file --batch-check` names the blobs of the
   other files and one `cat-file --batch` reads them; nothing runs when accio is missing, and without a usable index of
   the repository accio answers at once (`--no-build`): never an index build, a wait for one or a refresh.
@@ -122,11 +130,17 @@ outside it.
   answers an entry per name in the order asked; the first that declares the name is taken.
   [@test] ../../crates/file-diffs/src/accio_test.rs (`every_name_of_a_lookup_is_asked_in_one_process`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
+- Both sides of the review boundary must judge a candidate by one list of nine words (`class`, `function`, `property`,
+  `constant`, `enum_entry`, `type_alias`, `module`, `macro`, `local`): the review folds the kind of its own summary to
+  them, and the index answers them beside its own kind (accio's `group`), so a method of a Rust `impl` is a candidate
+  for a call and none for a type position wherever it was found. A declaration of the review is named by that word.
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review`, `a_type_alias_and_an_enum_entry_are_named_alike_on_both_sides`)
 - An unrecognized accio declaration kind must not by itself discard a name that otherwise fits the language and query;
-  an unrecognized access kind is shown as `read`, never as a raw string.
-  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
+  an accio too old to answer the shared word keeps every candidate it would have kept before, and an unrecognized
+  access kind is shown as `read`, never as a raw string.
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`, `one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review`)
   [@test] ../../crates/file-diffs/src/usages_test.rs (`an_unknown_accio_access_kind_is_shown_as_read`)
-  [@test] ../../crates/file-diffs/src/accio_test.rs (`unknown_accio_kinds_deserialize_to_unknown`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`unknown_accio_kinds_deserialize_to_unknown`, `a_hit_carries_the_word_a_review_shares_when_accio_answers_one`)
 - A declaration outside the review must open its whole file over the review: its path, "at <commit>, outside the
   review" ("the working tree, outside the review" for uncommitted changes), coloured as the diffs, its name selected,
   and Go to Declaration in it as in the review (a declaration of the review closes the file and shows it there).

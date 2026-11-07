@@ -62,6 +62,8 @@ struct FileFacts {
   grammar: Grammar,
   text: Option<String>,
   words: Vec<(Position, String)>,
+  /// What the summary says of each declaration: its name, the line of the name and its UTF-16 column
+  declarations: Vec<(String, u32, u32)>,
   facts: Vec<(&'static str, String)>,
 }
 
@@ -81,21 +83,24 @@ fn prepare_file(project: &Path, path: String, probes_limit: usize) -> Option<Fil
         grammar,
         text: None,
         words: Vec::new(),
+        declarations: Vec::new(),
         facts: vec![("read", format!("cannot read: {error}"))],
       });
     }
   };
   let summary = summarize(language, &source);
   let mut facts = Vec::new();
+  let mut declarations = Vec::new();
   for declaration in &summary.declarations {
     let name = &summary.names[usize::try_from(declaration.name).unwrap()];
     facts.push((
       "branch-deck-summary",
       format!(
-        "{} {:?}/{:?} at {}-{}",
-        name, declaration.kind, declaration.member, declaration.name_line, declaration.end_line
+        "{} {:?}/{:?} at {}:{}-{}",
+        name, declaration.kind, declaration.member, declaration.name_line, declaration.name_column, declaration.end_line
       ),
     ));
+    declarations.push((name.clone(), declaration.name_line, declaration.name_column));
   }
   facts.push((
     "branch-deck-summary",
@@ -109,6 +114,7 @@ fn prepare_file(project: &Path, path: String, probes_limit: usize) -> Option<Fil
       grammar,
       text: None,
       words: Vec::new(),
+      declarations,
       facts,
     });
   };
@@ -123,6 +129,7 @@ fn prepare_file(project: &Path, path: String, probes_limit: usize) -> Option<Fil
     grammar,
     text: Some(text),
     words,
+    declarations,
     facts,
   })
 }
@@ -151,6 +158,26 @@ fn process_batch(project: &Path, files: &mut [FileFacts]) {
       "accio-symbol",
       format!("kind={} name={} at={}:{} end_line={end_line}", symbol.kind, symbol.name, symbol.line, column),
     ));
+    // where a jump of the review lands against where one of the index does: the summary's own column, not a search.
+    // A line may declare one name several times (the `line` of `line?: { side: number; line: number }`, a field of
+    // each member of a union), and the index holds a symbol of each, so a column of the index is a difference only
+    // when the summary writes no declaration of that name there.
+    let column_diff = symbol.column.and_then(|column| {
+      let columns: Vec<u32> = file
+        .declarations
+        .iter()
+        .filter(|(name, line, _)| *name == symbol.name && *line == symbol.line)
+        .map(|(_, _, summary_column)| *summary_column)
+        .collect();
+      (!columns.is_empty() && !columns.contains(&column)).then_some((column, columns))
+    });
+    if let Some((column, columns)) = column_diff {
+      let summary = columns.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+      file.facts.push((
+        "declaration-column-diff",
+        format!("name={} at line {} accio={column} summary={summary}", symbol.name, symbol.line),
+      ));
+    }
     if let (Some(column), Some(text)) = (symbol.column, file.text.as_deref()) {
       let position = Position {
         line: symbol.line.saturating_sub(1),

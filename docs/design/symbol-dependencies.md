@@ -982,21 +982,25 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `internal` member, a Java field read only of `@JvmField` and `lateinit`, the checks of a getter for a direct call,
     `_` before a digit and no facade of a script) change no link, edge or output of the range.
 
-- The two readers of Rust and TypeScript against each other (`examples/accio_facts.rs`, 2026-11-07, the 2 059 `.rs` and
-  `.ts` files of branch-deck, 189 102 facts: 84 245 of the summaries, 16 216 local probes, 6 112 symbols of accio with
-  the review's answer at each, 21 852 reference queries and 54 564 references). The name a jump lands on is at the
+- The two readers of Rust and TypeScript against each other (`examples/accio_facts.rs`, 2026-11-07, the 2 041 `.rs` and
+  `.ts` files of branch-deck, 189 466 facts: 85 043 of the summaries, 16 320 local probes, 6 129 symbols of accio with
+  the review's answer at each, 21 982 reference queries and 53 862 references). The name a jump lands on is at the
   same place in both for every symbol of the index but one: `impl IntoApiError for &str`
   (`crates/app-api/src/api_error.rs:90`), which accio indexes as a symbol named `str` while inside the review `str`
-  there is a primitive type, a keyword of the grammar, and no reference at all — two questions, not two readings. So
-  the parsers agree on where names are; what differs is what the two sides make of the same declaration, and it is
-  the review's side that guesses:
-  - the kind word of a Rust method in an `impl` is `function` (`kind_name(DeclKind)`, nine words) inside and `method`
-    (`HitKind`, twenty-nine) outside;
+  there is a primitive type, a keyword of the grammar, and no reference at all — two questions, not two readings.
+  The column of the name the two sides answer (`declaration-column-diff`: the column of accio against the columns the
+  summary writes for that name on that line) differs for one symbol of the 6 129, and again because the two sides
+  declare different things: `line?: { side: number; line: number }` (`src/lib/diff/layout.ts:78`) has a symbol of the
+  inner property in the index, which the summary of the review writes no declaration of. So the parsers agree on
+  where names are; what differs is what the two sides make of the same declaration:
+  - the kind word of a Rust method in an `impl` is `function` (nine words inside) and `method` (`HitKind`,
+    twenty-nine, outside). Since 2026-11-07 one list of nine words (`SymbolGroup`, accio's `group`) filters a
+    candidate on both sides, and the word of the index is read where it answers one; the text of `kind` keeps the
+    language's own word, which an agent reads.
   - the column inside used to be the first occurrence of the word on the line (`column_of`), so
     `#[doc(alias = "needle")] pub fn needle(…)` jumped into the attribute inside the review and onto the method's name
     outside. Since 2026-11-07 a summary carries the column its parser read (`Declaration::name_column`), the one the
-    walk counts from the offset of the name node, and both sides answer the same place; the word for the kind is what
-    is left.
+    walk counts from the offset of the name node, and both sides answer the same place.
 
   Both are tests that need no accio, as is the TypeScript overload, whose signatures and implementation the review
   answers one by one.
