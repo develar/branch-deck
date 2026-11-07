@@ -669,3 +669,58 @@ fn a_declared_need_is_in_the_status_off_space_with_the_state_of_the_branch_it_na
   let (_, brief) = run_in(&repo, &["status", "--brief"]);
   assert_eq!(brief["branches"][0].get("landing_needs"), None);
 }
+
+/// A need of a branch of a companion (`brd companion add`, `brd need deploy ci:prepare`) refuses as a need of this
+/// repository does, by the state the last sync of the companion left; once `prepare` landed in the companion and the
+/// companion synced, the next sync here drops the need. A companion nobody added is unreadable, and nothing fails
+#[test]
+fn a_need_of_a_branch_of_a_companion_refuses_until_the_companion_landed_it() {
+  let (app, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(deploy) Download the test data"]);
+  let (ci, _) = repo_with_subjects(&[("README.md", "ci\n")], &["(prepare) Drop the preparation step"]);
+  for repo in [&app, &ci] {
+    let (exit_code, output) = run_in(repo, &["sync"]);
+    assert_eq!(exit_code, 0, "{output}");
+  }
+  let ci_path = ci.path().to_str().unwrap();
+  let (exit_code, output) = run_in(&app, &["companion", "add", ci_path, "--name", "ci"]);
+  assert_eq!(
+    (exit_code, &output["companions"][0]["name"], &output["changed"]),
+    (0, &json!("ci"), &json!(true)),
+    "{output}"
+  );
+  let (_, listed) = run_in(&ci, &["companion", "list"]);
+  assert!(listed["primary"].is_string(), "{listed}");
+  let (exit_code, output) = run_in(&app, &["need", "deploy", "ci:prepare", "web:deploy"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  let states = |repo: &TestRepo| {
+    let (exit_code, status) = run_in(repo, &["status"]);
+    assert_eq!(exit_code, 0, "{status}");
+    let deploy = status["branches"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .find(|branch| branch["name"] == json!("deploy"))
+      .unwrap()
+      .clone();
+    deploy["landing_needs"].as_array().map_or_default(|needs| {
+      needs
+        .iter()
+        .map(|need| (need["needs_branch"].as_str().unwrap().to_string(), need["state"].clone()))
+        .collect::<Vec<_>>()
+    })
+  };
+  assert_eq!(
+    states(&app),
+    [("ci:prepare".to_string(), json!("active")), ("web:deploy".to_string(), json!("companion_unreadable"))]
+  );
+
+  // prepare landed in the companion, and its sync archived it as integrated
+  let head = git(&ci, &["rev-parse", "HEAD"]);
+  git(&ci, &["update-ref", "refs/remotes/origin/master", &head]);
+  let (exit_code, output) = run_in(&ci, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = run_in(&app, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(states(&app), [("web:deploy".to_string(), json!("companion_unreadable"))]);
+}

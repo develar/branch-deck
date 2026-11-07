@@ -16,6 +16,7 @@ fn schema_lists_every_output() {
       "check",
       "commits",
       "commits_brief",
+      "companion",
       "describe",
       "drop",
       "error",

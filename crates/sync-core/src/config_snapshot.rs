@@ -6,7 +6,7 @@ use crate::github_repository::GitHubRepository;
 use crate::push_size::{DEFAULT_PUSH_SIZE_LIMIT, PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
 use crate::remote_url::split_owner_and_name;
 use crate::repository_config::{
-  ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, OriginFacts, RESOLVE_BY_WORDS_CONFIG_KEY, REVIEW_EXPERIMENTAL_CONFIG_KEY, RepositoryConfig, parse_config_entries,
+  ConfigEntry, GLOBAL_PUSH_ROUTE_REASON, OriginFacts, RESOLVE_BY_WORDS_CONFIG_KEY, REVIEW_EXPERIMENTAL_CONFIG_KEY, RepositoryConfig, companion_paths, parse_config_entries,
   repository_config_from_entries,
 };
 use anyhow::{Result, anyhow};
@@ -16,15 +16,15 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::commit_signing::Signing;
 use git_ops::word_resolve::ResolveMode;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
 /// The `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `brd workspace` and
-/// Settings read), `commit.gpgsign`, and every `branch.<name>.description`, as `--get-regexp` matches them: the section
-/// and the key lowercase, the branch name as it is
-const SNAPSHOT_REGEXP: &str =
-  r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|commit\.gpgsign|branch\..+\.description)$";
+/// Settings read), the companion repositories (`branchdeck.companion.<name>.path`, `branchdeck.primary`),
+/// `commit.gpgsign`, and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
+/// lowercase, the branch name and the name of a companion as they are
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental|primary|companion\..+\.path)|commit\.gpgsign|branch\..+\.description)$";
 
 /// The git config key of the symbol mode (`off`, `report`, `on`)
 pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
@@ -63,6 +63,8 @@ pub struct ConfigSnapshot {
   descriptions: HashMap<String, Description>,
   /// The last effective `commit.gpgsign` value; a key without a value is `true`
   signing: Option<String>,
+  /// Name -> path of each companion repository (`branchdeck.companion.<name>.path`), the name as it is written
+  companions: BTreeMap<String, String>,
 }
 
 impl ConfigSnapshot {
@@ -95,8 +97,14 @@ impl ConfigSnapshot {
       .iter()
       .rfind(|entry| entry.key == "commit.gpgsign")
       .map(|entry| entry.value.clone().unwrap_or_else(|| "true".to_string()));
-    let entries = all_entries.into_iter().filter(|entry| entry.key.starts_with("branchdeck.")).collect();
-    Self { entries, descriptions, signing }
+    let entries: Vec<ConfigEntry> = all_entries.into_iter().filter(|entry| entry.key.starts_with("branchdeck.")).collect();
+    let companions = companion_paths(&entries);
+    Self {
+      entries,
+      descriptions,
+      signing,
+      companions,
+    }
   }
 
   /// The settings as Settings → Repository resolves them, without the detected GitHub repository
@@ -190,6 +198,18 @@ impl ConfigSnapshot {
     Some(GitHubRepository::new(owner, name))
   }
 
+  /// Name -> path of each companion repository this repository lists (`branchdeck.companion.<name>.path`): it is their
+  /// primary
+  pub const fn companions(&self) -> &BTreeMap<String, String> {
+    &self.companions
+  }
+
+  /// The path of the primary of a companion repository (`branchdeck.primary`), `None` for a repository that is no
+  /// companion
+  pub fn primary(&self) -> Option<&str> {
+    self.last_value("branchdeck.primary").map(str::trim).filter(|path| !path.is_empty())
+  }
+
   /// Full ref -> description of every branch that has one
   pub const fn descriptions(&self) -> &HashMap<String, Description> {
     &self.descriptions
@@ -199,6 +219,11 @@ impl ConfigSnapshot {
   fn last_value(&self, key: &str) -> Option<&str> {
     self.entries.iter().rfind(|entry| entry.key == key)?.value.as_deref()
   }
+}
+
+/// The name of a companion of the key `branchdeck.companion.<name>.path` (the section and the key lowercase)
+pub fn companion_name(key: &str) -> Option<&str> {
+  key.strip_prefix("branchdeck.companion.")?.strip_suffix(".path").filter(|name| !name.is_empty())
 }
 
 #[cfg(test)]

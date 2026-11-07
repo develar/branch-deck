@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Landing, Agents, Tools, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Landing, Companions, Agents, Tools, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs

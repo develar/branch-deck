@@ -199,7 +199,9 @@ fn parse_needs(branch: &str, value: &str) -> Result<BTreeSet<NeedKey>, String> {
   Ok(needs)
 }
 
-/// The drop of local needed branches that integration detection found; companion references are not touched.
+/// The drop of the needed names whose branches landed (`drop_values`: only those names, a line with its last one): of
+/// this repository the ones its integration detection proved, of a companion (`<companion>:<branch>`) the ones the
+/// last sync of the companion archived as integrated (`sync_core::companions`)
 pub const fn needs_drop<'a>(integrated: &'a [&'a str]) -> StoreDrop<'a> {
   StoreDrop {
     store: &NEEDS,
@@ -209,14 +211,18 @@ pub const fn needs_drop<'a>(integrated: &'a [&'a str]) -> StoreDrop<'a> {
   }
 }
 
-/// The unqualified targets named by the needs store, for the sync's one integration-detection result.
+/// The branches of this repository the lines of the needs store name, for the integration detection of the sync
 pub fn local_targets(entries: &BTreeMap<String, String>) -> BTreeSet<String> {
-  entries
-    .iter()
-    .flat_map(|(branch, value)| parse_needs(branch, value).unwrap_or_default())
-    .filter(|key| key.companion.is_none())
-    .map(|key| key.branch)
-    .collect()
+  targets(entries).filter(|key| key.companion.is_none()).map(|key| key.branch).collect()
+}
+
+/// The branches of companion repositories the lines name, as they are written (`<companion>:<branch>`)
+pub fn companion_targets(entries: &BTreeMap<String, String>) -> BTreeSet<String> {
+  targets(entries).filter(|key| key.companion.is_some()).map(|key| key.to_string()).collect()
+}
+
+fn targets(entries: &BTreeMap<String, String>) -> impl Iterator<Item = NeedKey> + '_ {
+  entries.iter().flat_map(|(branch, value)| parse_needs(branch, value).unwrap_or_default())
 }
 
 /// The store commit `prepare` computed and wrote before the repository lock, moved under it (`write_prepared_lines`),
@@ -255,7 +261,7 @@ fn prepare_lines(
   Ok(PreparedLines::new(git_executor, repository_path, &NEEDS, read, &[(branch, line)], operation, outcome)?)
 }
 
-/// Drop integrated local references from the needs store; each branch keeps its other declared needs.
+/// Drop the needed names of `integrated` from the needs store (`needs_drop`); each branch keeps its other declared needs
 pub fn drop_integrated_needs(git_executor: &GitCommandExecutor, repository_path: &str, integrated: &[&str]) {
   drop_store_lines(git_executor, repository_path, &[needs_drop(integrated)]);
 }

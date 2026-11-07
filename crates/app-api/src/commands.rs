@@ -285,6 +285,14 @@ macro_rules! for_each_command {
       /// (`BranchPrefixes`); a global one forgets the prefix of every other repository, which may take it
       app(SettingsWriter) json set_repository_config(params: $crate::app::repository_config::SetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_repository_config;
 
+      /// Adds a companion repository of the repository, or removes it: `branchdeck.companion.<name>.path` there and
+      /// `branchdeck.primary` in the companion, as `brd companion` writes them; answers the settings read again
+      app(SettingsWriter) json set_companion(params: $crate::app::repository_config::SetCompanionParams) -> sync_core::repository_config::RepositoryConfig = $crate::app::repository_config::set_companion;
+
+      /// Settings → Landing → Add Companion…: the folder dialog picks the companion, named by its directory, then the write
+      /// of `set_companion`; `null` when the user canceled the dialog
+      app(SettingsWriter) json add_companion(params: $crate::app::repository_config::AddCompanionParams) -> Option<sync_core::repository_config::RepositoryConfig> = $crate::app::repository_config::add_companion;
+
       /// Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
       /// on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
       /// settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.

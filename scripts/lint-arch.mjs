@@ -134,6 +134,8 @@ export const APP_COMMAND_CALLERS = {
   clear_activity: "src/stores/activity.ts",
   set_setting: "src/stores/settings/persistent-store.ts",
   set_repository_config: "src/hooks/useConfigWrite.ts",
+  set_companion: "src/hooks/useConfigWrite.ts",
+  add_companion: "src/hooks/useConfigWrite.ts",
   open_sub_window: "src/lib/window-management.ts",
   sub_window_loaded: "src/lib/sub-window.ts",
   sub_window_drawn: "src/lib/sub-window.ts",

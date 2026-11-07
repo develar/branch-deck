@@ -810,8 +810,17 @@ of the branch from it (`domain_policy::declared_needs`), the next step and every
   nothing. A rename carries a need both ways, as the key and as a needed name, in the transaction of the rename
   (`needs:` of the undo token after `parked:`); a rename that would make a branch need itself drops the line.
 - A sync drops a needed name once the integration detection proves its branch landed (`drop_integrated_needs`, in
-  the one drop of the stores, `drop_values`: only that name, the line with its last name). A name of a companion stays:
-  this repository cannot prove a branch of another one landed.
+  the one drop of the stores, `drop_values`: only that name, the line with its last name).
+- A name of a companion (`<companion>:<branch>`) is resolved by the companion registry (`sync_core::companions`): a
+  primary lists its companions (`branchdeck.companion.<name>.path`), each companion its primary (`branchdeck.primary`,
+  the one key Branch Deck writes into another repository's config, `repository_config::write_companion`); a companion
+  names its primary by its directory and the other companions of the primary by their names. Its branch is read of what
+  the last sync of the companion left, never by a sync of it: `ConfigSnapshot::read` (its prefix), one `for-each-ref`
+  of its branches under the prefix and one `log` of the integration notes of their tips (`branch_integration::common`),
+  three processes per companion and none while no need names one. The detection of the sync reads them, drops the
+  names whose newest archived branch the companion's own detection noted integrated, and passes the rest to the table
+  (`SyncReport::companion_needs`, `BranchTable::companion_needs`); `brd status` reads them the same way without a sync.
+  A companion that is gone or no repository is `companionUnreadable` with the reason, and nothing fails on it.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it). The in-process mutexes don't cover the app and parallel `brd` processes. A dry run reads only and takes no

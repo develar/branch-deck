@@ -7,7 +7,7 @@
 //! the request names it (`WriteScope`; never a `push` route), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
-use crate::config_snapshot::{SYMBOLS_CONFIG_KEY, SymbolMode};
+use crate::config_snapshot::{ConfigSnapshot, SYMBOLS_CONFIG_KEY, SymbolMode, companion_name};
 use crate::github_repository::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_of};
 use crate::patronus::parse_space_repository;
 use crate::push_size::{PUSH_SIZE_LIMIT_CONFIG_KEY, parse_push_size_limit};
@@ -17,8 +17,10 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::{is_valid_branch_prefix, normalize_branch_prefix};
 use domain_types::landing_route::{LANDING_CONFIG_KEY, LandingSetting};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::git_common_dir;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -26,7 +28,11 @@ use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
 /// The nine keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental)$";
+const CONFIG_KEYS_REGEXP: &str =
+  r"^branchdeck\.(symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental|primary|companion\..+\.path)$";
+
+/// The key of the primary of a companion repository: the path of its main worktree
+pub const PRIMARY_CONFIG_KEY: &str = "branchdeck.primary";
 
 /// Why a `push` route of the global or the system config is taken as unset: a push into master of every repository of
 /// the user that names no route of its own would be a trap
@@ -153,6 +159,10 @@ pub struct RepositoryConfig {
   pub agent_subject_branch: ConfigSetting<bool>,
   /// `branchdeck.reviewExperimental`, off by default and for a value git refuses
   pub review_experimental: ConfigSetting<bool>,
+  /// The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name
+  pub companions: Vec<CompanionSetting>,
+  /// The primary of this repository when it is a companion (`branchdeck.primary`)
+  pub primary: Option<String>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`)
@@ -161,6 +171,19 @@ pub struct RepositoryConfig {
   /// more writes, so the page keeps it over a smaller one that arrives later. 0 outside `read_repository_config`; `bd`
   /// ignores it
   pub seq: u32,
+}
+
+/// A companion repository of a primary (spec/branch/declared-needs.spec.md#companion-repositories): a need names its
+/// branches as `<name>:<branch>`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct CompanionSetting {
+  pub name: String,
+  /// The main worktree of the companion
+  pub path: String,
+  /// Why it can not be read: its path is gone, or it is no git repository; a need of it refuses with this reason
+  pub problem: Option<String>,
 }
 
 /// The route of a repository that names none, and why: `origin` pushes to Space or not
@@ -206,6 +229,8 @@ pub enum RepositoryConfigKey {
   AgentLease,
   AgentSubjectBranch,
   ReviewExperimental,
+  /// The companion repositories (`branchdeck.companion.<name>.path`), which `write_companion` writes, never a change
+  Companions,
 }
 
 impl RepositoryConfigKey {
@@ -221,6 +246,7 @@ impl RepositoryConfigKey {
       Self::AgentLease => AGENT_LEASE_CONFIG_KEY,
       Self::AgentSubjectBranch => AGENT_SUBJECT_BRANCH_CONFIG_KEY,
       Self::ReviewExperimental => REVIEW_EXPERIMENTAL_CONFIG_KEY,
+      Self::Companions => "branchdeck.companion",
     }
   }
 
@@ -357,6 +383,18 @@ pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> R
   }
 }
 
+/// The key as git canonicalizes it: the section and the name lowercase, a subsection (`branchdeck.companion.<name>.path`)
+/// as it is written
+fn canonical_key(key: &str) -> String {
+  match (key.split_once('.'), key.rsplit_once('.')) {
+    (Some((section, rest)), Some((_, name))) if rest.len() > name.len() => {
+      let subsection = &rest[..rest.len() - name.len() - 1];
+      format!("{}.{subsection}.{}", section.to_ascii_lowercase(), name.to_ascii_lowercase())
+    }
+    _ => key.to_ascii_lowercase(),
+  }
+}
+
 /// `<scope>\0<key>\n<value>\0` per entry, `<scope>\0<key>\0` for a key without a value
 pub fn parse_config_entries(output: &str) -> Vec<ConfigEntry> {
   let mut fields = output.split('\0');
@@ -368,7 +406,7 @@ pub fn parse_config_entries(output: &str) -> Vec<ConfigEntry> {
     };
     entries.push(ConfigEntry {
       scope: ConfigScope::parse(scope),
-      key: key.to_ascii_lowercase(),
+      key: canonical_key(key),
       value,
     });
   }
@@ -399,6 +437,12 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
     review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, false, |value| bool_setting(value, false)),
+    companions: companion_settings(entries),
+    primary: entries
+      .iter()
+      .rfind(|entry| entry.key == "branchdeck.primary")
+      .and_then(|entry| entry.value.clone())
+      .filter(|path| !path.trim().is_empty()),
     detected_github_repository: origin.detected_github_repository,
     landing_default: LandingDefault::of(origin.on_space),
     seq: 0,
@@ -537,6 +581,110 @@ pub fn write_global_config(git: &GitCommandExecutor, change: &RepositoryConfigCh
     bail!("{LANDING_CONFIG_KEY}: {GLOBAL_PUSH_ROUTE_REASON}");
   }
   run_config_write(git, ".", "--global", change.key().config_key(), change.config_value()?.as_deref())
+}
+
+/// The companions of the entries (`branchdeck.companion.<name>.path`), by name, each with the problem of its path
+fn companion_settings(entries: &[ConfigEntry]) -> Vec<CompanionSetting> {
+  companion_paths(entries)
+    .into_iter()
+    .map(|(name, path)| CompanionSetting {
+      problem: companion_problem(&path),
+      name,
+      path,
+    })
+    .collect()
+}
+
+/// Name -> path of the companions of the entries: the last entry of a name wins, an empty path unsets it
+pub fn companion_paths(entries: &[ConfigEntry]) -> BTreeMap<String, String> {
+  let mut paths = BTreeMap::new();
+  for entry in entries {
+    if let Some(name) = companion_name(&entry.key) {
+      match entry.value.as_deref().map_or("", str::trim) {
+        "" => paths.remove(name),
+        path => paths.insert(name.to_string(), path.to_string()),
+      };
+    }
+  }
+  paths
+}
+
+/// Why the companion at `path` can not be read, without a process: its directory is gone, or holds no git repository
+fn companion_problem(path: &str) -> Option<String> {
+  let path = Path::new(path);
+  if !path.is_dir() {
+    Some(format!("{} is gone", path.display()))
+  } else if !path.join(".git").exists() {
+    Some(format!("{} is no git repository", path.display()))
+  } else {
+    None
+  }
+}
+
+/// A name of a companion: a need writes it before `:`, git config keeps it as a subsection
+fn validate_companion_name(name: &str) -> Result<()> {
+  if name.is_empty() || !name.chars().all(|char| char.is_ascii_alphanumeric() || matches!(char, '-' | '_' | '.')) {
+    bail!("{name:?} is no name of a companion: use letters, digits, -, _ and .");
+  }
+  Ok(())
+}
+
+/// The main worktree of the repository at `path` (the parent of its common git dir), the path both sides of a
+/// companion name each other by: a lease and a linked worktree name their repository
+fn main_worktree(git: &GitCommandExecutor, path: &str) -> Result<String> {
+  let common = git_common_dir(git, path)?;
+  let common = Path::new(&common);
+  let main = if common.file_name().is_some_and(|name| name == ".git") {
+    common.parent().unwrap_or(common)
+  } else {
+    common
+  };
+  Ok(main.to_string_lossy().into_owned())
+}
+
+/// Add the repository at `path` as the companion `name` of the repository at `repository_path`, its primary, or remove
+/// it (`None`): `branchdeck.companion.<name>.path` in the local config of the primary, `branchdeck.primary` in the
+/// local config of the companion, both the paths of the main worktrees. A companion has one primary, a primary is no
+/// companion, a repository is no companion of itself. A removal unsets the primary of the companion only while it names
+/// this repository, and of a companion that is gone only the key of the primary
+#[instrument(skip(git))]
+pub fn write_companion(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<()> {
+  validate_companion_name(name)?;
+  let key = format!("branchdeck.companion.{name}.path");
+  let primary = main_worktree(git, repository_path)?;
+  let own = ConfigSnapshot::read(git, repository_path)?;
+  let Some(path) = path.map(str::trim).filter(|path| !path.is_empty()) else {
+    let Some(path) = own.companions().get(name).cloned() else {
+      bail!("{name} is no companion of {primary}");
+    };
+    run_config_write(git, repository_path, "--local", &key, None)?;
+    if companion_problem(&path).is_none() && ConfigSnapshot::read(git, &path)?.primary() == Some(primary.as_str()) {
+      run_config_write(git, &path, "--local", PRIMARY_CONFIG_KEY, None)?;
+    }
+    return Ok(());
+  };
+  if let Some(of) = own.primary() {
+    bail!("{primary} is a companion of {of}: only a primary has companions");
+  }
+  if let Some(problem) = companion_problem(path) {
+    bail!("{problem}");
+  }
+  let companion = main_worktree(git, path)?;
+  if companion == primary {
+    bail!("{primary} can not be a companion of itself");
+  }
+  if let Some(other) = ConfigSnapshot::read(git, &companion)?.primary().filter(|other| *other != primary) {
+    bail!("{companion} is a companion of {other} already: a companion has one primary");
+  }
+  run_config_write(git, repository_path, "--local", &key, Some(&companion))?;
+  run_config_write(git, &companion, "--local", PRIMARY_CONFIG_KEY, Some(&primary))
+}
+
+/// `write_companion`, then the settings read again
+#[instrument(skip(git))]
+pub fn set_companion(git: &GitCommandExecutor, repository_path: &str, name: &str, path: Option<&str>) -> Result<RepositoryConfig> {
+  write_companion(git, repository_path, name, path)?;
+  read_repository_config(git, repository_path)
 }
 
 /// The exit code of `git config` when another writer holds the lock of the file (`config.lock`, `CONFIG_NO_LOCK`)

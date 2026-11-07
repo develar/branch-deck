@@ -18,6 +18,7 @@ use bd_remote::safe_push_command::SafePushOutput;
 use bd_remote::status::{StatusBrief, StatusOutput};
 use bd_rewrite::check_command::CheckOutput;
 use bd_rewrite::commits::{CommitsBrief, CommitsOutput};
+use bd_rewrite::companion_command::CompanionOutput;
 use bd_rewrite::describe::DescribeOutput;
 use bd_rewrite::fold_command::FoldOutput;
 use bd_rewrite::mark_reviewed_command::MarkReviewedOutput;
@@ -70,6 +71,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("land", &["land"]),
   ("mark-reviewed", &["mark_reviewed"]),
   ("need", &["need"]),
+  ("companion", &["companion"]),
   ("park", &["park"]),
   ("pick", &["pick"]),
   ("push", &["push"]),
@@ -186,6 +188,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("land".to_string(), schema_for!(LandOutput)),
     ("mark_reviewed".to_string(), schema_for!(MarkReviewedOutput)),
     ("need".to_string(), schema_for!(NeedOutput)),
+    ("companion".to_string(), schema_for!(CompanionOutput)),
     ("park".to_string(), schema_for!(ParkOutput)),
     ("operation_forget".to_string(), schema_for!(OperationForgetOutput)),
     ("pick".to_string(), schema_for!(PickOutput)),

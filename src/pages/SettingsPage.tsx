@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AgentsPage } from "@/components/settings/AgentsPage"
 import { AppearancePage } from "@/components/settings/AppearancePage"
+import { CompanionsPage } from "@/components/settings/CompanionsPage"
 import { DiffsPage } from "@/components/settings/DiffsPage"
 import { GeneralPage } from "@/components/settings/GeneralPage"
 import { GitHubPage } from "@/components/settings/GitHubPage"
@@ -35,6 +36,7 @@ const PAGE_LABELS: Record<SettingsPageId, string> = {
   github: "GitHub",
   youtrack: "YouTrack",
   landing: "Landing",
+  companions: "Companions",
   agents: "Agents",
   tools: "Tools",
   repository: "Repository",
@@ -135,6 +137,9 @@ export function SettingsPage() {
           </SettingsPanel>
           <SettingsPanel id="landing">
             <LandingPage />
+          </SettingsPanel>
+          <SettingsPanel id="companions">
+            <CompanionsPage />
           </SettingsPanel>
           <SettingsPanel id="agents">
             <AgentsPage openCount={openCount} />

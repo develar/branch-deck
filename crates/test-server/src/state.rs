@@ -103,6 +103,11 @@ impl AppState {
     self.test_root_dir.path().join(format!("{repository_id}.app-data"))
   }
 
+  /// Where the companion repositories of the test repository `repository_id` live (`companion_fixtures`)
+  pub fn companions_of(&self, repository_id: &str) -> PathBuf {
+    self.test_root_dir.path().join(format!("{repository_id}.companions"))
+  }
+
   /// The test repository at `path`, the one a command of its session names; the app's error for a path that no test
   /// repository has
   pub fn repository(&self, path: &str) -> Result<dashmap::mapref::one::Ref<'_, String, TestRepository>, ApiError> {

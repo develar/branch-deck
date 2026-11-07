@@ -54,3 +54,41 @@ export function useConfigWrite(path: string, showWritten: (answer: RepositoryCon
     },
   }
 }
+
+/**
+ * Add Companion… of Settings → Landing: the folder dialog of the app picks the companion of the repository at `path`
+ * (named by its directory), written to both sides (`add_companion`); the answer is the settings read again, handed to
+ * `showWritten`. False when the user canceled or the write failed, a toast then
+ */
+export function addCompanion(path: string, showWritten: (answer: RepositoryConfig) => void): Promise<boolean> {
+  return answered(commands.addCompanion({ repositoryPath: path }), "Cannot add the companion", showWritten)
+}
+
+/** Removes the companion `name` of the repository at `path` (`set_companion`), both sides; as `addCompanion` */
+export function removeCompanion(path: string, name: string, showWritten: (answer: RepositoryConfig) => void): Promise<boolean> {
+  return answered(commands.setCompanion({ repositoryPath: path, name, path: null }), `Cannot remove the companion ${name}`, showWritten)
+}
+
+function answered(
+  call: Promise<{ status: "ok"; data: RepositoryConfig | null } | { status: "error"; error: unknown }>,
+  errorTitle: string,
+  showWritten: (answer: RepositoryConfig) => void,
+): Promise<boolean> {
+  return call.then(
+    result => {
+      if (result.status === "error") {
+        notifyError(errorTitle, result.error)
+        return false
+      }
+      if (result.data === null) {
+        return false
+      }
+      showWritten(result.data)
+      return true
+    },
+    (error: unknown) => {
+      notifyError(errorTitle, error)
+      return false
+    },
+  )
+}

@@ -334,6 +334,16 @@
     "transport": "json"
   },
   {
+    "name": "set_companion",
+    "class": "app",
+    "transport": "json"
+  },
+  {
+    "name": "add_companion",
+    "class": "app",
+    "transport": "json"
+  },
+  {
     "name": "open_sub_window",
     "class": "app",
     "transport": "json"

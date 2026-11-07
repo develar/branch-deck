@@ -1,6 +1,7 @@
-use crate::regroup_test::{assert_waits_for_the_lock, commits, entries, path, plant_store, store_history, stores, sync};
+use crate::regroup_test::{assert_waits_for_the_lock, commits, entries, path, plant_store, rewrite_options, store_history, stores, sync};
 use history_rewrite::needs::{NEEDS, NEEDS_REF, NeedError, NeedKey, NeedOutcome, drop_integrated_needs, need_core, unneed_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -16,11 +17,11 @@ fn history(repo: &TestRepo) -> usize {
 }
 
 fn need(repo: &TestRepo, branch: &str, needed: &[&str]) -> Result<NeedOutcome, NeedError> {
-  need_core(repo.git_executor(), path(repo), branch, needed, &Default::default())
+  need_core(repo.git_executor(), path(repo), branch, needed, &rewrite_options())
 }
 
 fn unneed(repo: &TestRepo, branch: &str, needed: &str) -> Result<NeedOutcome, NeedError> {
-  unneed_core(repo.git_executor(), path(repo), branch, &[needed], &Default::default())
+  unneed_core(repo.git_executor(), path(repo), branch, &[needed], &rewrite_options())
 }
 
 #[test]
@@ -94,7 +95,7 @@ fn a_rename_carries_the_need_as_the_branch_and_as_the_name_it_needs_and_its_undo
   let token = UndoToken::of(&outcome).unwrap();
   assert!(token.to_string().contains("+needs:"), "{token}");
   assert_eq!(UndoToken::parse(&token.to_string()), Some(token.clone()));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, Default::default()).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   assert_eq!(needs(&repo).entries, entries(&[("auth", "docs")]));
 
   // the branch it needs
@@ -148,14 +149,14 @@ fn an_undo_of_a_rename_passes_over_the_drops_of_a_sync() {
   let token = UndoToken::of(&rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap()).unwrap();
   drop_integrated_needs(repo.git_executor(), path(&repo), &["gone"]);
   assert_eq!(needs(&repo).entries, entries(&[("sign-in", "docs")]));
-  undo_regroup_core(repo.git_executor(), path(&repo), &token, Default::default()).unwrap();
+  undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap();
   // the rename is undone, the drop stays
   assert_eq!(needs(&repo).entries, entries(&[("auth", "docs")]));
 
   // a need declared after the token is no drop: the undo refuses
   let token = UndoToken::of(&rename_branch_core(repo.git_executor(), path(&repo), "auth", "sign-in", &RegroupOptions::default()).unwrap()).unwrap();
   need(&repo, "docs", &["sign-in"]).unwrap();
-  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, Default::default()).unwrap_err();
+  let error = undo_regroup_core(repo.git_executor(), path(&repo), &token, LockWait::default()).unwrap_err();
   assert!(matches!(error, RegroupError::NeedsMoved(_)), "{error}");
 }
 

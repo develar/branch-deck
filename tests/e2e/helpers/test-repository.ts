@@ -555,6 +555,14 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * A new repository of one commit beside this one, deleted with it (`companion_fixtures.rs`): its path, for the folder
+   * dialog of Add Companion… (`setDialogPick`)
+   */
+  async addCompanionRepository(name: string): Promise<string> {
+    return (await (await this.postFixture("companion", { name })).json()) as string
+  }
+
+  /**
    * The folder the native dialog of the app picks from now on (`browse_repository`, the Browse button): `path`, or
    * `null`, the user cancels; without the fixture it picks the repository's own path
    */

@@ -4,6 +4,7 @@
 //! - `rewrite`: `brd group`, `brd rename`, `brd restack` and `brd unstack`, and the sync after a rewrite
 //! - `reword_command`, `fold_command`, `move_hunk_command`, `park_command`: `brd reword`, `brd fold`, `brd move-hunk`,
 //!   `brd park` and `brd unpark`
+//! - `companion_command`: `brd companion`, the companion repositories whose branches a need names
 //! - `need_command`: `brd need`, the branches a branch declares land before it (`history_rewrite::needs`)
 //! - `check_command`: `brd check`, the trial sync and builds of a plan
 //! - `suggest`: `brd suggest`, the clustering of commit-clustering checked by `brd check`
@@ -16,6 +17,7 @@
 pub mod block_patch;
 pub mod check_command;
 pub mod commits;
+pub mod companion_command;
 pub mod describe;
 pub mod fold_command;
 pub mod group_plan;

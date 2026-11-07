@@ -230,8 +230,8 @@ Hard rules of the git the app and `brd` run. Each rule in full, with its excepti
 - **Network commands** run through `execute_remote_command`.
 - **Baseline tracking refs**: only `fetch_baseline` and the successful-push witness CAS write them under `fetch.lock`.
 - **Fetch lock**: the baseline is fetched only by `fetch_baseline` (`fetch.lock`); no retry on `cannot lock ref`.
-- **Git config writes**: only the `branchdeck.*` keys of Settings (`repository_config.rs`) and the branch descriptions
-  of `brd describe`.
+- **Git config writes**: only the `branchdeck.*` keys of Settings (`repository_config.rs`, a companion's too) and the
+  branch descriptions of `brd describe`.
 - **GitHub credentials**: the only git is `git credential fill` (`crates/github/src/token.rs`), never `approve` or
   `reject`; the app's tokens go through `sync_utils::secret_store`.
 - **Symbols** (`symbol_scan.rs`): the blobs of the commit diffs by id, never the whole tree.

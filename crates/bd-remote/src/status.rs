@@ -25,8 +25,9 @@ use domain_types::settings::PrefixSource;
 use domain_types::stack::{ParentState, StackBranchUpdate};
 use domain_types::{BranchOrigin, GroupedBranchInfo};
 use git_ops::commit_utils::get_commits_info;
+use history_rewrite::needs::companion_targets;
 use history_rewrite::store_lines::StoreLineProblem;
-use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts, declared_needs};
+use repository_model::branch_table::{BranchTable, RemoteFact, RemoteFacts, declared_needs, unlanded_companions};
 use repository_model::derive::{StepSources, declared_needs_of, grouped_rows, landed_states, next_steps};
 use repository_model::one_shot::OneShot;
 use repository_model::patronus_view::landed_commits;
@@ -34,6 +35,7 @@ use repository_model::table::TableState;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use sync_core::companions::read_companion_needs;
 use sync_core::grouping::BranchGrouping;
 use sync_core::stack_branch::read_stack_branches;
 use tracing::debug;
@@ -515,6 +517,7 @@ pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, s
     stack_branches: stacks.to_vec(),
     parked: grouping.grouping.parked.entries.clone(),
     needs: declared_needs(&grouping.grouping.needs.entries),
+    companion_needs: companion_needs_of(context, grouping),
     // no sync: the remote tips the grouping read, no remote status
     remote: RemoteFacts {
       branches: grouping
@@ -737,6 +740,19 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       .collect(),
     unapplied: unapplied_summaries(context, &grouping)?,
   })
+}
+
+/// How each branch of a companion a need of `grouping` names stands, as the last sync of the companion left it; nothing
+/// while no need names one, or the config can not be read
+fn companion_needs_of(context: &RepoContext, grouping: &BranchGrouping) -> BTreeMap<String, NeedState> {
+  let needed: Vec<String> = companion_targets(&grouping.grouping.needs.entries).into_iter().collect();
+  if needed.is_empty() {
+    return BTreeMap::new();
+  }
+  let Ok(config) = context.config() else {
+    return BTreeMap::new();
+  };
+  unlanded_companions(&read_companion_needs(&context.git, &context.repository, &config, &context.prefix, &needed))
 }
 
 /// What `brd status` says each branch needs before its Safe Push starts, by branch: the declared needs of `declared`

@@ -43,6 +43,10 @@ export function useRepositoryConfigChanges(): void {
         // a conflict of git that its words resolve is a commit of the sync, or a conflict again
         resync()
         break
+      case "companions":
+        // the states of the branches of the companions a need names are read by the sync
+        resync()
+        break
       case "landing":
         // the route into master is read by the sync with its config: the steps of the rows follow it
         resync()

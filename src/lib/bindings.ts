@@ -305,6 +305,16 @@ export const commands = {
 	 */
 	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("set_repository_config", { params })),
 	/**
+	 *  Adds a companion repository of the repository, or removes it: `branchdeck.companion.<name>.path` there and
+	 *  `branchdeck.primary` in the companion, as `brd companion` writes them; answers the settings read again
+	 */
+	setCompanion: (params: SetCompanionParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("set_companion", { params })),
+	/**
+	 *  Settings → Landing → Add Companion…: the folder dialog picks the companion, named by its directory, then the write
+	 *  of `set_companion`; `null` when the user canceled the dialog
+	 */
+	addCompanion: (params: AddCompanionParams) => typedError<RepositoryConfig | null, ApiError>(__TAURI_INVOKE("add_companion", { params })),
+	/**
 	 *  Opens a sub-window, or brings the existing one of `window_id` to the front with new data. A new one is built hidden
 	 *  on the monitor of the main window (the window state plugin restores where it was since) and shows once its page
 	 *  settled its content (`sub_window_ready`). A new window starts from the settings as the writer has them now.
@@ -547,6 +557,10 @@ export type ActivityLog = {
 	journals: RepositoryJournal[],
 	/**  The entries of the page, of every repository, oldest first */
 	page: PageEntry[],
+};
+
+export type AddCompanionParams = {
+	repositoryPath: string,
 };
 
 export type AddIssueReferenceResult = {
@@ -1714,6 +1728,18 @@ export type CommitSync = {
 
 /**  Status of a commit synchronization. */
 export type CommitSyncStatus = "Pending" | "Created" | "Unchanged" | "Error" | "Blocked";
+
+/**
+ *  A companion repository of a primary (spec/branch/declared-needs.spec.md#companion-repositories): a need names its
+ *  branches as `<name>:<branch>`
+ */
+export type CompanionSetting = {
+	name: string,
+	/**  The main worktree of the companion */
+	path: string,
+	/**  Why it can not be read: its path is gone, or it is no git repository; a need of it refuses with this reason */
+	problem: string | null,
+};
 
 /**  A task of the range: parts of its units */
 export type Concern = {
@@ -6394,6 +6420,10 @@ export type RepositoryConfig = {
 	agentSubjectBranch: ConfigSetting<boolean>,
 	/**  `branchdeck.reviewExperimental`, off by default and for a value git refuses */
 	reviewExperimental: ConfigSetting<boolean>,
+	/**  The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name */
+	companions: CompanionSetting[],
+	/**  The primary of this repository when it is a companion (`branchdeck.primary`) */
+	primary: string | null,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**  The route an unset `landing` means, by the host of `origin` (`LandingSetting::default_for`) */
@@ -7672,6 +7702,13 @@ export type SearchState = "complete" |
 
 export type SessionParams = {
 	repositoryPath: string,
+};
+
+export type SetCompanionParams = {
+	repositoryPath: string,
+	name: string,
+	/**  The repository to add as the companion `name`, any worktree of it; `None` removes the companion */
+	path: string | null,
 };
 
 /**  The demand of a window, by its subscription to the session (`ViewSubscription::id`) */

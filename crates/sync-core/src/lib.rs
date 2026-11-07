@@ -48,6 +48,8 @@
 //! - `parked`: park and unpark a branch (no rewrite: the store `refs/branch-deck/parked`), and whether a branch is parked
 //!
 //! Stores and config:
+//! - `companions`: the companion repositories a declared need names, and how their branches stand, read of what their last
+//!   sync left
 //! - `config_snapshot`: `ConfigSnapshot`, the `branchdeck.*` keys and the branch descriptions from one `git config`;
 //!   the symbol mode (`SymbolMode`)
 //! - `github_repository`: the GitHub repository of the branches, from the config, `origin` and the Space mirror, no HTTP
@@ -95,6 +97,7 @@ pub mod branch_prefix;
 pub mod branch_processor;
 pub mod cache_memo;
 pub mod commit_owners;
+pub mod companions;
 pub mod config_snapshot;
 pub mod conflict_chain;
 pub mod delete_archived_branch;

@@ -51,6 +51,11 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
+  companions: [
+    { name: "ci-config", path: "/Users/jane/src/ci-config", problem: null },
+    { name: "deploy-scripts", path: "/Users/jane/src/deploy-scripts", problem: "/Users/jane/src/deploy-scripts is gone" },
+  ],
+  primary: null,
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   landingDefault: { route: "pullRequest", onSpace: false },
   seq: 0,
@@ -169,6 +174,7 @@ test.describe("Settings window", () => {
       "GitHub",
       "YouTrack",
       "Landing",
+      "Companions",
       "Agents",
       "Tools",
       /^Repositoryrepo-\d+$/,
@@ -330,7 +336,7 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page, repo)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Agents", "Tools", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Companions", "Agents", "Tools", "Repository"])
     for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "landing", "agents", "tools", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
@@ -347,7 +353,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Agents", "Tools", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Companions", "Agents", "Tools", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

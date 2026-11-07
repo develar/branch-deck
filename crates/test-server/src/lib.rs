@@ -33,6 +33,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub mod cli_tools_fixtures;
+pub mod companion_fixtures;
 pub mod disk_fixtures;
 pub mod host;
 pub mod invoke;
@@ -312,6 +313,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/windows", get(host::get_windows))
     .route("/repositories/{id}/windows/built", post(host::built_window))
     .route("/repositories/{id}/dialog-pick", post(host::set_dialog_pick))
+    .route("/repositories/{id}/companion", post(companion_fixtures::add_companion))
     // Health check
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback
@@ -1003,6 +1005,12 @@ async fn remove_repository(state: Arc<AppState>, id: String, repo: TestRepositor
     && let Err(e) = fs_retry::remove_dir_all(&repo.app_data)
   {
     tracing::warn!("Failed to remove the app data {}: {}", repo.app_data.display(), e);
+  }
+  let companions = state.companions_of(&id);
+  if companions.exists()
+    && let Err(e) = fs_retry::remove_dir_all(&companions)
+  {
+    tracing::warn!("Failed to remove the companions {}: {}", companions.display(), e);
   }
   let global_config = state.global_config_of(&id);
   if let Err(e) = fs_retry::remove_file(&global_config)

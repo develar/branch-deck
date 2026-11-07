@@ -7,6 +7,7 @@ use crate::baseline::{BaselineCheck, BaselineUpstream, KnownBaseline, check_know
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, build_branch, finish_branch};
 use crate::cache_memo::ConflictMemo;
 use crate::commit_owners::CommitOwners;
+use crate::companions::{CompanionNeed, read_companion_needs};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::{ChainMemo, conflict_ref, move_conflict_refs};
 use crate::issue_navigation::load_issue_navigation_config;
@@ -40,7 +41,7 @@ use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
-use history_rewrite::needs::{local_targets, needs_drop};
+use history_rewrite::needs::{companion_targets, local_targets, needs_drop};
 use history_rewrite::parked::parked_drop;
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
@@ -49,7 +50,7 @@ use history_rewrite::store_lines::drop_store_lines;
 use indexmap::IndexMap;
 use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use sync_utils::commit_subject::parse_subject;
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
@@ -277,6 +278,9 @@ pub struct SyncReport {
   /// The stack branches as the `StackBranchUpdate` events sent them: of each stack that forks, then those kept for
   /// their remote branch
   pub stack_branches: Vec<StackBranchUpdate>,
+  /// `<companion>:<branch>` -> how each branch of a companion repository a declared need names stands
+  /// (`companions::companion_needs`), as the detection read it; empty while no need names a companion
+  pub companion_needs: BTreeMap<String, CompanionNeed>,
   /// Another process moved (or deleted) a virtual branch or a stack branch while this sync built it
   /// (`BranchMove::MovedElsewhere`): the branch reports an error and its tip is not this sync's build, so the app syncs
   /// once more, quietly, and the row says `Syncing` until then. `brd sync` reports the error and leaves the retry to
@@ -332,6 +336,9 @@ struct PreparedSync {
   /// The branches of this repository a declared need names that group no commit on this HEAD: the detection of the
   /// archived branches drops them from the needs that name them (`needs_drop`)
   idle_needs: Vec<String>,
+  /// The branches of companion repositories a declared need names (`<companion>:<branch>`): the detection reads how
+  /// they stand and drops the integrated ones from the needs
+  companion_needed: Vec<String>,
   /// The stack branches: the stacks that fork, and the listed stack branches the sync keeps or deletes
   stack_branches: StackBranchSync,
   /// The unapplied branches the sync listed, newest first
@@ -547,6 +554,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let grouped = prepare_branches_for_ui(&branches, &branch_emails, Some(&stacks), &description_titles);
   let idle_parked: Vec<String> = grouping.parked.entries.keys().filter(|name| !branches.contains_key(*name)).cloned().collect();
   let idle_needs: Vec<String> = local_targets(&grouping.needs.entries).into_iter().filter(|name| !branches.contains_key(name)).collect();
+  let companion_needed: Vec<String> = companion_targets(&grouping.needs.entries).into_iter().collect();
   let mut report = SyncReport {
     baseline: baseline_branch.clone(),
     baseline_commit: facts.baseline_commit.clone(),
@@ -563,6 +571,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     remote_tips: facts.remote_tips.clone(),
     config,
     stack_branches: Vec::new(),
+    companion_needs: BTreeMap::new(),
     retry: false,
     base: None,
   };
@@ -612,6 +621,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     idle_stack_parents,
     idle_parked,
     idle_needs,
+    companion_needed,
     stack_branches,
     unapplied,
     update_check,
@@ -1025,6 +1035,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     idle_stack_parents,
     idle_parked,
     idle_needs,
+    companion_needed,
     stack_branches,
     unapplied,
     update_check,
@@ -1086,6 +1097,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
 
   // Phase 2: integration detection and branch processing run concurrently, beside the update check
   let detection_permits = permits.clone();
+  let config = report.config.clone();
   let detection = task.spawn(move |git_executor, repository_path, branch_prefix, progress| {
     let reported = detect_archived_branches(
       git_executor,
@@ -1098,13 +1110,16 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       &detection_permits,
     )?;
-    // an integrated branch stacks nothing anywhere any more, is parked nowhere, and a declared need of it is met: the
-    // three stores in one drop
+    // a branch of a companion a need names, as the last sync of the companion left it: no process without one
+    let companions = read_companion_needs(git_executor, repository_path, &config, branch_prefix, &companion_needed);
+    // an integrated branch stacks nothing anywhere any more, is parked nowhere, and a declared need of it is met, of
+    // this repository and of a companion: the three stores in one drop
     let stacked = integrated_children(&idle_stack_parents, &reported, branch_prefix);
     let parked = integrated_children(&idle_parked, &reported, branch_prefix);
-    let needed = integrated_children(&idle_needs, &reported, branch_prefix);
+    let mut needed = integrated_children(&idle_needs, &reported, branch_prefix);
+    needed.extend(companions.iter().filter(|(_, need)| **need == CompanionNeed::Integrated).map(|(name, _)| name.as_str()));
     drop_store_lines(git_executor, repository_path, &[stack_parents_drop(&stacked), parked_drop(&parked), needs_drop(&needed)]);
-    anyhow::Ok(())
+    anyhow::Ok(companions)
   });
 
   // the tips the grouped branches have now; the finished ones replace theirs
@@ -1214,7 +1229,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   report.stack_branches = stack_updates;
   report.copies = copies.lock().map_or_default(|copies| copies.clone());
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
-  detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
+  report.companion_needs = detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   Ok(report)
 }
 

@@ -14,6 +14,7 @@ use domain_types::landing::NeedState;
 use domain_types::stack::{BlockReason, StackBranchUpdate};
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use sync_core::companions::CompanionNeed;
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;
 
@@ -37,6 +38,9 @@ pub struct BranchTable {
   /// Branch -> what the user declared lands before it (`brd need`, `refs/branch-deck/needs`), as it is written
   /// (`<companion>:<branch>` for a branch of a companion repository)
   pub needs: BTreeMap<String, Vec<String>>,
+  /// `<companion>:<branch>` -> the state of each branch of a companion a need names that is not in master yet, as the
+  /// last sync of the companion left it (`sync_core::companions`); an integrated one is no line any more
+  pub companion_needs: BTreeMap<String, NeedState>,
   /// What the sync knows of the remote branches of the table and of its stack branches (`remote_facts`); a table read
   /// without a sync (`brd status`) has the remote tips only
   pub remote: RemoteFacts,
@@ -60,6 +64,7 @@ impl BranchTable {
       stack_branches: report.stack_branches.clone(),
       parked: report.grouping.parked.entries.clone(),
       needs: declared_needs(&report.grouping.needs.entries),
+      companion_needs: unlanded_companions(&report.companion_needs),
       remote: remote_facts(prefix, report, statuses),
       in_baseline: in_baseline(landing).map(str::to_string).collect(),
     }
@@ -131,25 +136,38 @@ pub fn declared_needs(entries: &BTreeMap<String, String>) -> BTreeMap<String, Ve
     .collect()
 }
 
-/// The state of every branch a need of `table` names, of this repository: `Active` while it groups a commit,
-/// `Unapplied` while an unapply keeps it, else `Missing`. A branch of a companion is none of them: only the companion
-/// says how it stands (`sync_core::companions`), and a need of one without facts refuses nothing
+/// The state of every branch a need of `table` names that is not in master: of this repository `Active` while it groups
+/// a commit, `Unapplied` while an unapply keeps it, else `Missing`; of a companion as the companion left it
+/// (`companion_needs`). A branch of a companion it does not name is integrated, and refuses nothing
 #[must_use]
 pub fn need_states(table: &BranchTable, unapplied: impl Fn(&str) -> bool) -> BTreeMap<String, NeedFacts> {
   table
     .needs
     .values()
     .flatten()
-    .filter(|need| !need.contains(':'))
-    .map(|need| {
-      let state = if table.branch(need).is_some() {
+    .filter_map(|need| {
+      let state = if need.contains(':') {
+        table.companion_needs.get(need)?.clone()
+      } else if table.branch(need).is_some() {
         NeedState::Active
       } else if unapplied(need) {
         NeedState::Unapplied
       } else {
         NeedState::Missing
       };
-      (need.clone(), NeedFacts::of(state))
+      Some((need.clone(), NeedFacts::of(state)))
+    })
+    .collect()
+}
+
+/// The branches of companions of `read` that are not in master, with their states (`BranchTable::companion_needs`)
+#[must_use]
+pub fn unlanded_companions(read: &BTreeMap<String, CompanionNeed>) -> BTreeMap<String, NeedState> {
+  read
+    .iter()
+    .filter_map(|(need, state)| match state {
+      CompanionNeed::Unlanded(state) => Some((need.clone(), state.clone())),
+      CompanionNeed::Integrated => None,
     })
     .collect()
 }

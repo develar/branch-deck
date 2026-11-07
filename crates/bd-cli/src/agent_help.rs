@@ -38,7 +38,7 @@ Rules
 - A branch `parked` in `brd status` stays local, and so do a branch built on it (`with` names the parked one) and the
   stack that holds it. `brd park <branch> --note '<why>'` and `brd unpark <branch>` only when the user asks (no rewrite;
   `idle_parked` lists the lines of branches without commits here).
-- `brd need <branch> <needed>...` declares what lands before a branch (`brd need --help`); a sync drops a need that landed.
+- `brd need <branch> <needed>...` declares what lands before a branch (`brd need --help`, `brd companion --help`).
 - `brd unapply <branch>` (`--dry-run`, `--expect-head <id>`) takes a branch and its files out of the checked out
   branch, kept as `{prefix}/unapplied/{name}` (`unapplied` of `brd status`); `brd reapply <name>` (`--dry-run`,
   `--expect-head <id>`) puts it back on top; `brd undo <undo_token>` takes either back. Only when the user asks. `brd push` and `brd safe-push`
@@ -670,7 +670,7 @@ Refusals, nothing pushed:
 pub const NEED_HELP: &str = "\
 `brd need <branch> <needed>...` declares that each `needed` branch lands in master before `branch`: no Safe Push,
 Dry Run or land of it starts until they are there (`unlanded_need`). A `needed` is a branch of this repository, or
-`<companion>:<branch>` of a companion repository, whose branch this repository only reads. It
+`<companion>:<branch>` of a companion repository (`brd companion`), whose branch this repository only reads. It
 prints `needs` (what lands before the branch afterwards), `previous_needs` and `changed`; declaring a need twice
 changes nothing (`changed: false`). `brd need <branch> --remove <needed>...` takes needs back.
 No rewrite and no push: the store `refs/branch-deck/needs`, shared by every worktree of the repository, with
@@ -686,6 +686,24 @@ Refusals, nothing written:
   `brd need --remove` names a need the branch never declared.
 - `needs_moved` (exit 3): another process wrote the store meanwhile; run it again.
 - `locked` (exit 3): another operation holds the repository lock; retry once it is done.
+";
+
+/// `brd companion --help`: the companion repositories of a primary
+pub const COMPANION_HELP: &str = "\
+`brd companion add <path> [--name <name>]` makes the repository at <path> a companion of this one, its primary,
+named by its directory unless `brd companion add --name` names it: a need of a branch here can then name its
+branches as `<name>:<branch>`, and the start waits until that branch is in master of the companion. It writes
+`branchdeck.companion.<name>.path` into .git/config here and `branchdeck.primary` into .git/config of the
+companion, both the main worktrees, as Settings → Landing does. In a companion, `<name>:<branch>` names the primary
+by the name of its directory and the other companions of the primary by their names. `brd companion remove <name>`
+takes it back, `brd companion list` prints them. It prints `companions` (`name`, `path`, `problem` when it can not be
+read), `primary` (of a companion) and `changed`.
+How a branch of a companion stands is read of what the last sync of the companion left: run `brd sync` there once its
+branch landed. A companion that can not be read refuses the start of a branch that needs it (`companion_unreadable`
+in `landing_needs`), and `brd status` still answers.
+Refusals, nothing written: `invalid_arguments` (exit 2): <path> is no directory or no git repository, the name is no
+name (letters, digits, -, _ and .), a companion has one primary, a companion has no companions, a repository is no
+companion of itself, or `remove` names no companion.
 ";
 
 /// `brd request-review --help`: whom it asks and its refusals

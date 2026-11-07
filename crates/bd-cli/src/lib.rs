@@ -7,8 +7,8 @@ pub mod install;
 pub mod schema;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP,
-  ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  AGENT_HELP, CHECK_HELP, COMPANION_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP,
+  REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::flag_names::{renamed_in, unknown_argument};
 use crate::install::{InstallArgs, install};
@@ -34,6 +34,7 @@ use bd_remote::safe_push_command::{SafePushArgs, safe_push};
 use bd_remote::status::{StatusArgs, status, status_brief};
 use bd_rewrite::check_command::{CheckArgs, check};
 use bd_rewrite::commits::{CommitsArgs, commits, commits_brief};
+use bd_rewrite::companion_command::{CompanionArgs, CompanionCommand, companion};
 use bd_rewrite::describe::{DescribeArgs, describe};
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
@@ -230,6 +231,12 @@ enum Command {
   /// the store `refs/branch-deck/needs`, shared by every worktree; a sync drops a need that landed
   #[command(after_help = "Outputs and refusals: `brd need --help`", after_long_help = NEED_HELP)]
   Need(NeedArgs),
+  /// The companion repositories of this one: a need names their branches as `<companion>:<branch>`
+  ///
+  /// `add <path>` and `remove <name>` write `branchdeck.companion.<name>.path` here and `branchdeck.primary` in the
+  /// companion, as Settings → Landing; `list` reads them
+  #[command(after_help = "Outputs and refusals: `brd companion --help`", after_long_help = COMPANION_HELP)]
+  Companion(CompanionArgs),
   /// Remember the base and the tip a branch has now as reviewed (experimental), the start of its next review
   ///
   /// No rewrite: the refs `refs/branch-deck/reviewed/<sha256 of the branch>/{base,tip}`, with compare-and-swap; the
@@ -632,6 +639,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| printed(out, &output)),
     Command::Need(args) => context().and_then(|context| need(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Companion(args) => context().and_then(|context| companion(&context, args)).and_then(|output| printed(out, &output)),
     Command::MarkReviewed(args) => context().and_then(|context| mark_reviewed(&context, args)).and_then(|output| printed(out, &output)),
     Command::ReviewPlan(args) => context().and_then(|context| review_plan(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| printed(out, &output)),
@@ -693,6 +701,7 @@ const fn reads_only(command: &Command) -> bool {
       command: LeaseCommand::Status(_) | LeaseCommand::Disk(_),
     }) => true,
     Command::Describe(args) => args.title.is_none() && args.body.is_none() && args.body_file.is_none() && !args.clear,
+    Command::Companion(args) => matches!(args.command, CompanionCommand::List),
     Command::Update(args) => args.dry_run || (args.status && !args.materialize),
     Command::Group(GroupArgs { rewrite, .. })
     | Command::Rename(RenameArgs { rewrite, .. })

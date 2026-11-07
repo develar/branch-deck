@@ -105,6 +105,8 @@ const EMPTY_CONFIG: RepositoryConfig = {
   agentLease: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   agentSubjectBranch: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
+  companions: [],
+  primary: null,
   detectedGithubRepository: null,
   landingDefault: { route: "pullRequest", onSpace: false },
   seq: 0,

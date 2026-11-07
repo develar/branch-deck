@@ -11,7 +11,7 @@ export type RepositoryConfigKey = RepositoryConfigChange["key"]
 /** The payload of `repository_config_changed`, sent to the main window after a write (`RepositoryConfigChanged`) */
 export interface RepositoryConfigChanged {
   readonly repositoryPath: string
-  readonly key: RepositoryConfigKey
+  readonly key: RepositoryConfigKey | "companions"
 }
 
 /** The git config key of each setting, in the case Branch Deck writes it */

@@ -300,7 +300,10 @@ retry on `cannot lock ref`, no clean rule
 Git config writes are only the `branchdeck.*` keys of Settings → Repository, Diffs & Merge, Landing and Agents
 (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
 worktree config or `git -c` sets the key), `--local` (`.git/config`), or `--global` only where the request names the
-global scope (`set_repository_config` with `scope: "global"`); and the branch descriptions of `brd describe`
+global scope (`set_repository_config` with `scope: "global"`); the companion repositories of Settings → Companions
+and `brd companion` (`write_companion`: `branchdeck.companion.<name>.path` in the local config of the primary and
+`branchdeck.primary` in the local config of the companion, the one write of Branch Deck into another repository's
+config); and the branch descriptions of `brd describe`
 ([Repository settings](../design/git-operations.md#repository-settings)).
 
 ## GitHub credentials

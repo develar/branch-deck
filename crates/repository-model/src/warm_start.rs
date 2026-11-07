@@ -27,6 +27,7 @@ use crate::session::SessionKey;
 use crate::table::{TableParts, TableState};
 use domain_types::GroupedBranchInfo;
 use domain_types::commit::Commit;
+use domain_types::landing::NeedState;
 use domain_types::patronus::PatronusStartOptions;
 use domain_types::pull_request::BranchRules;
 use domain_types::session::{BranchView, Fact, PatronusPart, PullRequestsView, ReviewRequestsView, RobotsView, SubjectReadiness, TableHeader, TableSections};
@@ -40,7 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::debug;
 
 /// The version of the schema of a frame: bump it when a type a frame holds changes, and no frame of the old one is read
-pub const FRAME_SCHEMA: u32 = 8;
+pub const FRAME_SCHEMA: u32 = 9;
 
 /// The frame of a session (the module's header)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +103,8 @@ pub struct CachedBuild {
   pub parked: BTreeMap<String, String>,
   /// Branch -> what the user declared lands before it (`brd need`)
   pub needs: BTreeMap<String, Vec<String>>,
+  /// `<companion>:<branch>` -> the state of a branch of a companion a need names, not in master yet
+  pub companion_needs: BTreeMap<String, NeedState>,
   pub remote: RemoteFacts,
   pub in_baseline: BTreeSet<String>,
 }
@@ -123,6 +126,7 @@ impl CachedBuild {
       copies,
       parked: table.parked.clone(),
       needs: table.needs.clone(),
+      companion_needs: table.companion_needs.clone(),
       remote: table.remote.clone(),
       in_baseline: table.in_baseline.clone(),
     }
@@ -142,6 +146,7 @@ impl CachedBuild {
       stack_branches: parts.stacks.values().cloned().collect(),
       parked: self.parked,
       needs: self.needs,
+      companion_needs: self.companion_needs,
       remote: self.remote,
       in_baseline: self.in_baseline,
     }

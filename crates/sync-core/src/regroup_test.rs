@@ -46,6 +46,11 @@ pub(crate) fn assert_waits_for_the_lock<O: std::fmt::Debug, E: StoreError + std:
   assert_eq!(store_history(repo, store_ref), 0);
 }
 
+/// The options of a write of a store that takes the lock as `brd` and the app do
+pub(crate) fn rewrite_options() -> RewriteOptions<'static> {
+  RewriteOptions::default()
+}
+
 /// The inputs of the grouping as a write of a store reads them: the stores among them
 pub(crate) fn stores(repo: &TestRepo) -> GroupingInputs {
   read_grouping_inputs(repo.git_executor(), path(repo)).unwrap()

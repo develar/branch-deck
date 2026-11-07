@@ -9,6 +9,14 @@ targets:
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/sync_inputs.rs
+  - ../../crates/sync-core/src/companions.rs
+  - ../../crates/sync-core/src/repository_config.rs
+  - ../../crates/sync-core/src/config_snapshot.rs
+  - ../../crates/bd-rewrite/src/companion_command.rs
+  - ../../crates/app-api/src/app/repository_config.rs
+  - ../../src/components/settings/CompanionsPage.tsx
+  - ../../src/components/settings/CompanionsSetting.tsx
+  - ../../src/hooks/useConfigWrite.ts
   - ../../crates/domain-types/src/landing.rs
   - ../../crates/domain-types/src/patronus.rs
   - ../../crates/domain-types/src/rewrite.rs
@@ -38,7 +46,7 @@ targets:
 
 # Declared Needs
 
-Status: Implemented (the branches of this repository; companion repositories and the menu of the row are next)
+Status: Implemented (the menu of the row and `brd status --companions` are next)
 Date: 2026-11-07
 
 ## Summary
@@ -107,9 +115,9 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
   no line.
   [@test] ../../crates/sync-core/src/needs_test.rs (`a_rename_carries_the_need_as_the_branch_and_as_the_name_it_needs_and_its_undo_moves_it_back`, `a_rename_of_a_branch_without_needs_leaves_the_store_alone`)
 - A sync must drop a needed name once its newest archived branch is integrated (`integrated_children`, in the one drop
-  of the stores, best effort, only while the lock is free): only that name, the line with its last name. A name of a
-  companion stays: this repository can not prove a branch of another one landed. An undo of a rename passes over
-  those drops.
+  of the stores, best effort, only while the lock is free): only that name, the line with its last name; a name of a
+  companion once the last sync of the companion archived it as integrated ([below](#companion-repositories)). An undo
+  of a rename passes over those drops.
   [@test] ../../crates/sync-core/src/needs_test.rs (`a_sync_keeps_a_need_it_can_not_prove_landed_and_a_drop_takes_only_the_name_that_landed`, `an_undo_of_a_rename_passes_over_the_drops_of_a_sync`)
   [@test] ../../crates/bd-remote/src/landed_test.rs (`a_declared_need_refuses_the_start_of_the_branch_and_of_the_one_built_on_it_until_it_lands`)
 
@@ -176,6 +184,34 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
   "Declaring what lands before auth", "Cannot declare that docs lands before auth", "Removed the need of auth for docs".
   [@test] ../../src/presenters/rewrite.test.ts (`words a rewrite by what it does to what it names`)
 
+### Companion repositories
+
+- A primary must list its companions in its local config (`branchdeck.companion.<name>.path`, the name as it is
+  written), each companion its primary (`branchdeck.primary`), both the paths of the main worktrees, so its leases and
+  linked worktrees name the same repository. `brd companion add <path> [--name]`, `brd companion remove <name>`,
+  Settings → Companions and its Add Companion… (the folder dialog, named by the directory) and Remove write both
+  sides through one writer (`repository_config::write_companion`); `brd companion list` and the page read them with the
+  problem of each path. A companion has one primary, a primary is no companion, a repository no companion of itself,
+  a name is letters, digits, `-`, `_` and `.`; a removal unsets the primary of the companion only while it names this
+  repository.
+  [@test] ../../crates/sync-core/src/companions_test.rs (`a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings`)
+  [@test] ../../tests/e2e/settings/companions-settings.spec.ts (`should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it`)
+- A need of a companion must name it as `<name>:<branch>`: in a primary one of its companions, in a companion its
+  primary (by the name of its directory) or another companion of that primary.
+  [@test] ../../crates/sync-core/src/companions_test.rs (`a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings`)
+- How a branch of a companion stands must be read of what the last sync of the companion left, never by a sync of it:
+  its config, one listing of its branches under its prefix (of its own config, else this one's) and the integration
+  notes of their tips, three processes per companion, none while no need names one. Grouped is `active`, unapplied
+  `unapplied`, a newest archived branch integrated is landed, anything else `missing`; a companion that is gone, no git
+  repository or no companion of this repository is `companionUnreadable` with the reason, and neither `brd status`
+  nor the sync fails on it. The sync reads them in its detection, drops the landed ones from the store and passes the
+  rest to the table; `brd status` reads them without a sync.
+  [@test] ../../crates/sync-core/src/companions_test.rs (`a_branch_of_a_companion_is_active_unapplied_integrated_or_missing_as_its_last_sync_left_it`, `a_companion_that_is_gone_or_unknown_makes_its_needs_unreadable_and_nothing_fails`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`a_need_of_a_branch_of_a_companion_refuses_until_the_companion_landed_it`)
+- A write of the companions must sync the main window again (`repository_config_changed`, `companions`): the states
+  of the branches a need names come with the sync.
+  [@test] ../../tests/e2e/settings/companions-settings.spec.ts (`should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it`)
+
 ## User Experience
 
 | State of the needed branch | The reason (`subject`: "auth" or "the whole auth stack") |
@@ -183,15 +219,21 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
 | `active` | "You declared that docs lands before auth: it is not in master yet, so a start of auth lands them out of order." |
 | `unapplied` | "You declared that docs lands before auth, and it is unapplied: it cannot land at all. Reapply it, or remove the need." |
 | `missing` | "You declared that docs lands before auth, and no branch of that name is here: a start of auth lands what you ordered last. Remove the need, or sync the branch that carries it." |
-| `companionUnreadable` | "You declared that docs lands before auth, and the companion ci-config is not readable: ‹reason›. Make it readable again, or remove the need." |
+| `companionUnreadable` | "You declared that docs lands before auth, and the companion ci-config is not readable: ‹reason›. Fix it in Settings → Companions, or remove the need." |
 | inherited | adds "ui is built on auth, which needs it: they land in one robot. Unstack ui from auth to land it alone." |
 | a robot lands it | adds "docs is landing in its Safe Push, which tests it without this start: a start beside it fails too." |
 
 - `brd need auth docs`, `brd need auth --remove docs`; `brd status` → `landing_needs: [{code: "unlanded_need", …}]`;
   `brd safe-push auth` → `unlanded_need`, `--allow-unlanded` only on the user's word.
+- Settings → Companions: the list (name, path, "Not readable: …"), Add Companion… (the folder dialog), Remove; empty:
+  "No companion repositories. A need can name a branch of another repository once you add one here."; of a companion:
+  "A companion of app: a need here names its branches as app:branch. Add companions there."
+- `brd companion add ../ci-config`, `brd need deploy ci-config:prepare`.
 
 ## Open Questions / Risks
 
-- A need of a branch of a companion refuses nothing yet: only the companion can say how its branch stands, and the
-  companions are not read yet.
+- A branch of a companion lands when the companion syncs after it landed: until then its need still refuses here. The
+  row says "Needs ci-config:prepare", and `brd sync` in the companion meets it.
+- A rename of a branch in a companion does not carry the needs of other repositories that name it (their stores are
+  theirs): such a need becomes `missing`, and the user declares it again.
 - A need of a branch that is nowhere stays until the user removes it (`missing`), as a stack parent of a gone branch.

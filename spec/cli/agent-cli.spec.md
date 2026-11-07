@@ -718,6 +718,12 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `refs/branch-deck/needs`; `--allow-unlanded` of `brd safe-push` and `brd land` starts anyway on the user's word):
   [Declared Needs](../branch/declared-needs.spec.md).
 
+### `brd companion`
+
+- `brd companion add <path> [--name]`, `brd companion remove <name>` and `brd companion list` (the repositories a
+  need names as `<companion>:<branch>`, written to both sides as Settings → Companions does):
+  [Declared Needs](../branch/declared-needs.spec.md#companion-repositories).
+
 ### `brd unapply`, `brd reapply`
 
 - `brd unapply` (a branch and its files out of the checked out branch), `brd reapply` (back on top) and `brd undo

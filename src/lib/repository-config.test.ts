@@ -150,6 +150,8 @@ describe("newer", () => {
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
     reviewExperimental: setting({}),
+    companions: [],
+    primary: null,
     detectedGithubRepository: null,
     landingDefault: { route: "pullRequest", onSpace: false },
     seq,
