@@ -735,6 +735,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     Reason::LandingRefused { refusal } => match **refusal {
       LandingRefusal::DanglingReference { .. } => ErrorCode::DanglingReference,
       LandingRefusal::MissingDeclaration { .. } => ErrorCode::MissingDeclaration,
+      LandingRefusal::UnlandedNeed { .. } => ErrorCode::UnlandedNeed,
     },
     Reason::Blocked { .. } | Reason::LastCommit { .. } | Reason::Descendant { .. } | Reason::Ancestor { .. } | Reason::Held { .. } | Reason::StackHeld { .. } => {
       ErrorCode::RobotRunning

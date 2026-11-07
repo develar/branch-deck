@@ -2611,6 +2611,12 @@ export type ErrorCode =
  *  of what lands on that branch, or move the commit; `--allow-missing` starts anyway
  */
 "missing_declaration" | 
+/**
+ *  `brd safe-push`, `brd land`: the user declared that another branch lands before this one (`brd need`), and it is
+ *  not in master yet; a start now lands them out of that order. Land the branch it needs first, remove the need
+ *  (`brd need <branch> --remove <needed>`), or start anyway with `--allow-unlanded`
+ */
+"unlanded_need" | 
 /**  `brd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin` */
 "not_on_space" | 
 /**
@@ -3966,6 +3972,8 @@ export type LandingAllowances = {
 	allowDangling?: boolean,
 	/**  Start although what lands uses a name a branch outside it adds */
 	allowMissing?: boolean,
+	/**  Start although a branch the user declared lands before it (`brd need`) is not in master yet */
+	allowUnlanded?: boolean,
 	/**  Push away the commits of a remote branch the branch lacks (someone's work, D12) */
 	allowForce?: boolean,
 	/**  Start although GitHub didn't answer the rules of the target for a push into an approved pull request */
@@ -4002,7 +4010,12 @@ export type LandingFix =
  *  Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, or its branch is built
  *  on what lands, so a restack would close a cycle
  */
-{ kind: "moveCommit"; commit: StackCommit; into: string };
+{ kind: "moveCommit"; commit: StackCommit; into: string } | 
+/**
+ *  Unstack `branch` from `from`, the branch whose declared need it inherits: it lands alone then, without the branch
+ *  that is not allowed to land yet
+ */
+{ kind: "unstack"; branch: string; from: string };
 
 /**  The landing whose open pull requests a close of landed pull requests closes (`Intent::CloseLandedPullRequests`) */
 export type LandingKey = 
@@ -4085,6 +4098,23 @@ file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: L
  *  stack): the commit it tests lacks this start's commits, so a start beside it fails all the same; the repository
  *  view says it, a start does not ask it
  */
+landingIn?: RobotOf | null } | 
+/**
+ *  The user declared that `needs` lands before `branch` (`brd need`, `refs/branch-deck/needs`), and it is not in
+ *  master yet: a start now lands them out of the order the user asked for. No commit proves it and no build fails;
+ *  the declaration alone refuses the start
+ */
+{ kind: "unlandedNeed"; branch: string; 
+/**  What lands before it, as it was declared: a branch of this repository, or `<companion>:<branch>` */
+needs: string; state: NeedState; 
+/**
+ *  The branch of the stack whose need this is, when `branch` only inherits it (it is built on that branch, so
+ *  they land in one robot); `None` for a need of its own
+ */
+inheritedFrom?: string | null; 
+/**  `Unstack` for an inherited need; `None` when nothing but the landing of `needs` helps */
+fix?: LandingFix | null; 
+/**  The running Safe Push that lands `needs` already (`MissingDeclaration::landing_in`) */
 landingIn?: RobotOf | null };
 
 /**
@@ -4557,6 +4587,20 @@ export type NeedResult = {
 	/**  Whether the store changed */
 	changed: boolean,
 };
+
+/**
+ *  The branch a declared need names, as the repository that holds it (or a companion of it) left it; `Integrated` is
+ *  none of them: a sync drops such a need, so it never refuses a start
+ */
+export type NeedState = 
+/**  The branch is there, with commits ahead of the baseline */
+{ kind: "active" } | 
+/**  The branch is unapplied: it cannot land at all until it is reapplied */
+{ kind: "unapplied" } | 
+/**  No branch of that name is there, and no archived one either */
+{ kind: "missing" } | 
+/**  The need names a branch of a companion that cannot be read: its path is gone, or it is no git repository */
+{ kind: "companionUnreadable"; companion: string; reason: string };
 
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
 export type NewPullRequest = {

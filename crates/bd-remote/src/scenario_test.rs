@@ -573,6 +573,7 @@ impl Given {
     LandingAllowances {
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
+      allow_unlanded: false,
       allow_force: false,
       allow_unknown_rules: self.has(Flag::AllowUnknownRules),
       allow_unknown_review: false,
@@ -592,6 +593,7 @@ impl Given {
       bypass_rules: self.has(Flag::BypassRules),
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
+      allow_unlanded: false,
     }
   }
 

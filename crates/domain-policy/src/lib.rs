@@ -10,6 +10,8 @@
 //!   surface of the app
 //! - `attention`: the robot that needs the user, the failed robot of a branch or a whole stack as it is that nothing else
 //!   holds (`branch_attention`, `stack_attention`), which the landing overview, Attention and the Dock badge count
+//! - `declared_needs`: the order of landing the user declared (`brd need`): the branch a need refuses to start, and
+//!   the branch built on it, which lands in the same robot and inherits it (`declared_refusals`)
 //! - `facts`: the input of the rules, the branch table as they read it (`Repository`), borrowed from the view of a
 //!   session or from the grouped branches of a sync, the robots of the user by id (`Robots`) and what is known of a
 //!   remote branch (`RemoteBranch`)
@@ -80,6 +82,7 @@
 pub mod actions;
 pub mod admission;
 pub mod attention;
+pub mod declared_needs;
 pub mod facts;
 pub mod github_stack;
 pub mod holds;
@@ -116,6 +119,8 @@ mod attention_test;
 mod branch_name_cases_test;
 #[cfg(test)]
 mod catalog_test;
+#[cfg(test)]
+mod declared_needs_test;
 #[cfg(test)]
 mod holds_test;
 #[cfg(test)]

@@ -38,7 +38,7 @@ Rules
 - A branch `parked` in `brd status` stays local, and so do a branch built on it (`with` names the parked one) and the
   stack that holds it. `brd park <branch> --note '<why>'` and `brd unpark <branch>` only when the user asks (no rewrite;
   `idle_parked` lists the lines of branches without commits here).
-- `brd need <branch> <needed>...` declares what lands before a branch, --remove takes it back; a sync drops it.
+- `brd need <branch> <needed>...` declares what lands before a branch (`brd need --help`); a sync drops a need that landed.
 - `brd unapply <branch>` (`--dry-run`, `--expect-head <id>`) takes a branch and its files out of the checked out
   branch, kept as `{prefix}/unapplied/{name}` (`unapplied` of `brd status`); `brd reapply <name>` (`--dry-run`,
   `--expect-head <id>`) puts it back on top; `brd undo <undo_token>` takes either back. Only when the user asks. `brd push` and `brd safe-push`
@@ -589,6 +589,12 @@ Refusals, nothing pushed or started:
   outside it adds (`missing_declarations` of `brd check`); the message names the restack that lands that branch too
   (`brd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
   alarm, `brd safe-push --allow-missing`.
+- `unlanded_need` (exit 4, also in `refusals`): the user declared that another branch lands before this one
+  (`brd need`), and it is not in master yet; `needs_branch` of `landing_needs` names it and `state` says how it
+  stands (`active`, `unapplied`, `missing`, `companion_unreadable`). Land that branch first, or ask the user:
+  `brd safe-push --allow-unlanded` starts anyway, only when they say the order no longer holds, and
+  `brd need <branch> --remove <needed>` takes the order back. A branch that only inherits the need
+  (`inherited_from`) lands alone after `brd unstack <branch>`.
 - `push_dismisses_approvals` (exit 4, also in `refusals`): the push of new commits into the approved pull request the
   robot starts from dismisses the approvals Patronus counts (`rules`): push first (`brd push <branch>`), then ask for
   the review again (`brd request-review <branch>`). A push that dismisses approvals Patronus doesn't count starts;
@@ -648,14 +654,37 @@ Refusals, nothing pushed:
 - `push_refused` (exit 4): the baseline is a local branch, the branch is not synced, or the required status checks of
   the target (--bypass-rules once the user agrees); `landed` (exit 4): the baseline has all of it already: `brd update`.
 - `dangling_reference`, `missing_declaration`: as for `brd safe-push`; `brd land --allow-dangling` or `brd land
-  --allow-missing` only when the user says it is a false alarm. `parked`, `robot_running`, `stack_not_built`: as
-  for `brd safe-push`.
+  --allow-missing` only when the user says it is a false alarm. `unlanded_need`: as for `brd safe-push`; `brd land
+  --allow-unlanded` only when the user says the declared order no longer holds. `parked`, `robot_running`,
+  `stack_not_built`: as for `brd safe-push`.
 - `busy` (exit 3): another process lands into the same target; retry once it is done.
 - `no_pull_request` (exit 4): a merge needs an open pull request into the target: `brd safe-push <branch>
   --create-pull-request` opens one. `merge_blocked` (exit 4): approvals, required checks, changes requested or a
   draft hold the merge back: tell the user, it lands once they come. `not_mergeable` (exit 4): a conflict, a head
   behind its base (`brd update`, then `brd push`), or GitHub refused the merge (its words). `landing_route_unsupported`
   (exit 4): the pull requests are off GitHub or on a mirror `origin` doesn't push to.
+";
+
+/// `brd need --help`: the declared order of landing, its output and its refusals
+pub const NEED_HELP: &str = "\
+`brd need <branch> <needed>...` declares that each `needed` branch lands in master before `branch`: no Safe Push,
+Dry Run or land of it starts until they are there (`unlanded_need`). A `needed` is a branch of this repository, or
+`<companion>:<branch>` of a companion repository, whose branch this repository only reads. It
+prints `needs` (what lands before the branch afterwards), `previous_needs` and `changed`; declaring a need twice
+changes nothing (`changed: false`). `brd need <branch> --remove <needed>...` takes needs back.
+No rewrite and no push: the store `refs/branch-deck/needs`, shared by every worktree of the repository, with
+compare-and-swap. A sync drops a need once integration detection proves the branch it names landed, so a met order
+clears itself; the user never removes it for that.
+A branch built on one that needs lands with it in one robot, so it inherits the need; `brd unstack <branch>` lands it
+alone (ask the user first).
+Refusals, nothing written:
+- `unknown_branch` (exit 2): no branch of that name groups a commit ahead of the baseline; `brd status --brief`
+  names the branches. A `needed` branch that is nowhere is allowed: the order is often declared before the branch
+  that carries it is synced, and its state in `landing_needs` is `missing` then.
+- `invalid_arguments` (exit 2): a branch cannot need itself, a name is no branch or `<companion>:<branch>` name, or
+  `brd need --remove` names a need the branch never declared.
+- `needs_moved` (exit 3): another process wrote the store meanwhile; run it again.
+- `locked` (exit 3): another operation holds the repository lock; retry once it is done.
 ";
 
 /// `brd request-review --help`: whom it asks and its refusals

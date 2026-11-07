@@ -165,6 +165,8 @@ impl LandingGate {
       .filter(|refusal| match refusal {
         LandingRefusal::DanglingReference { .. } => !allow.allow_dangling,
         LandingRefusal::MissingDeclaration { .. } => !allow.allow_missing,
+        // the gate never builds one: a declared need is a fact of the session, not of a trial build
+        LandingRefusal::UnlandedNeed { .. } => !allow.allow_unlanded,
       })
       .collect()
   }

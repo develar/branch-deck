@@ -224,6 +224,10 @@ pub enum ErrorCode {
   /// Safe Push landed (`brd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
   /// of what lands on that branch, or move the commit; `--allow-missing` starts anyway
   MissingDeclaration,
+  /// `brd safe-push`, `brd land`: the user declared that another branch lands before this one (`brd need`), and it is
+  /// not in master yet; a start now lands them out of that order. Land the branch it needs first, remove the need
+  /// (`brd need <branch> --remove <needed>`), or start anyway with `--allow-unlanded`
+  UnlandedNeed,
   /// `brd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin`
   NotOnSpace,
   /// `brd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
@@ -411,6 +415,7 @@ impl ErrorCode {
       | Self::NothingToReapply
       | Self::DanglingReference
       | Self::MissingDeclaration
+      | Self::UnlandedNeed
       | Self::NotOnSpace
       | Self::NotLoggedIn
       | Self::PatronusRefused

@@ -16,7 +16,7 @@ use domain_policy::next_step::PatronusStanding;
 use domain_policy::parked::parked_state;
 use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_namespace, to_final_branch_name};
 use domain_types::error::ErrorCode;
-use domain_types::landing::{LandingFix, LandingRefusal, Subject};
+use domain_types::landing::{LandingFix, LandingRefusal, NeedState, Subject};
 use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::StepKind;
 use domain_types::repository_view::LandingNeeds;
@@ -284,22 +284,39 @@ pub struct Head {
   pub branch: Option<String>,
 }
 
-/// A commit outside what the Safe Push of a branch lands that its build needs (`landing_needs`)
+/// What the Safe Push of a branch needs before it starts: a commit outside what it lands that its build needs
+/// (`landing_needs`), or a branch the user declared lands before it (`brd need`)
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LandingNeed {
   /// `missing_declaration`: a commit of what lands uses a name that only this commit adds; `dangling_reference`: a
-  /// commit of what lands removes or changes a declaration a use still has, which only this commit changes
+  /// commit of what lands removes or changes a declaration a use still has, which only this commit changes;
+  /// `unlanded_need`: the user declared that another branch lands before this one and it is not in master yet
   pub code: &'static str,
-  pub identifier: String,
-  /// Where the use is: `src/b/Use.kt:3`
-  pub at: String,
-  /// The commit the build needs
-  pub needs: String,
-  /// Its branch; omitted for an unassigned commit
+  /// The name the build needs; omitted for a declared need, which is about a branch, not a name
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub identifier: Option<String>,
+  /// Where the use is: `src/b/Use.kt:3`; omitted for a declared need
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub at: Option<String>,
+  /// The commit the build needs; omitted for a declared need
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub needs: Option<String>,
+  /// The branch it needs: the branch of `needs`, or the branch the user declared lands first
+  /// (`<companion>:<branch>` for one of a companion); omitted for an unassigned commit
   #[serde(skip_serializing_if = "Option::is_none")]
   pub needs_branch: Option<String>,
-  /// What lands it with the branch: `brd restack <root> <branch>` (ask the user first), else `move <commit> into <branch>`
-  pub fix: String,
+  /// Of a declared need: how the branch it names stands, `active`, `unapplied`, `missing` or `companion_unreadable`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub state: Option<&'static str>,
+  /// Of a declared need the branch inherits: the branch of the stack that declared it, which this one lands with
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub inherited_from: Option<String>,
+  /// Why it is refused, in one sentence
+  pub reason: String,
+  /// What lands it with the branch: `brd restack <root> <branch>` (ask the user first), else `move <commit> into
+  /// <branch>`; of a declared need `brd unstack <branch>`, and nothing but its landing for a need of its own
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fix: Option<String>,
   /// The robot id of the running Safe Push that lands `needs_branch`: it tests that branch without this one, so a start
   /// beside it fails all the same
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -308,26 +325,45 @@ pub struct LandingNeed {
 
 impl LandingNeed {
   fn new(context: &RepoContext, refusal: &LandingRefusal, short: &ShortIds) -> Self {
-    let (code, identifier, file, line, fix) = match refusal {
-      LandingRefusal::MissingDeclaration { identifier, file, line, fix, .. } => ("missing_declaration", identifier, file, line, fix),
-      LandingRefusal::DanglingReference { identifier, file, line, fix, .. } => ("dangling_reference", identifier, file, line, fix),
+    let (code, identifier, at) = match refusal {
+      LandingRefusal::MissingDeclaration { identifier, file, line, .. } => ("missing_declaration", Some(identifier.clone()), Some(format!("{file}:{line}"))),
+      LandingRefusal::DanglingReference { identifier, file, line, .. } => ("dangling_reference", Some(identifier.clone()), Some(format!("{file}:{line}"))),
+      LandingRefusal::UnlandedNeed { .. } => ("unlanded_need", None, None),
     };
-    let needs = refusal.needed();
+    let needed = refusal.needed();
+    let (state, inherited_from, declared) = match refusal {
+      LandingRefusal::UnlandedNeed { needs, state, inherited_from, .. } => (Some(state_name(state)), inherited_from.clone(), Some(needs.clone())),
+      _ => (None, None, None),
+    };
     Self {
       code,
-      identifier: identifier.clone(),
-      at: format!("{file}:{line}"),
-      needs: short.get(&needs.id).to_string(),
-      needs_branch: (!needs.branch.is_empty()).then(|| needs.branch.clone()),
-      fix: match fix {
+      identifier,
+      at,
+      needs: needed.map(|needed| short.get(&needed.id).to_string()),
+      needs_branch: declared.or_else(|| needed.filter(|needed| !needed.branch.is_empty()).map(|needed| needed.branch.clone())),
+      state,
+      inherited_from,
+      reason: refusal.reason(),
+      fix: refusal.fix().map(|fix| match fix {
         LandingFix::Restack { branch, onto } => format!("{} restack {branch} {onto}", context.bd),
         LandingFix::MoveCommit { commit, into } => format!("move {} into {into}", short.get(&commit.id)),
-      },
+        LandingFix::Unstack { branch, .. } => format!("{} unstack {branch}", context.bd),
+      }),
       landing_in: match refusal {
-        LandingRefusal::MissingDeclaration { landing_in, .. } => landing_in.as_ref().map(|robot| robot.robot_id.clone()),
+        LandingRefusal::MissingDeclaration { landing_in, .. } | LandingRefusal::UnlandedNeed { landing_in, .. } => landing_in.as_ref().map(|robot| robot.robot_id.clone()),
         LandingRefusal::DanglingReference { .. } => None,
       },
     }
+  }
+}
+
+/// How the branch a declared need names stands (`NeedState`)
+const fn state_name(state: &NeedState) -> &'static str {
+  match state {
+    NeedState::Active => "active",
+    NeedState::Unapplied => "unapplied",
+    NeedState::Missing => "missing",
+    NeedState::CompanionUnreadable { .. } => "companion_unreadable",
   }
 }
 

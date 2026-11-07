@@ -543,6 +543,7 @@ pub(crate) fn gate_blockers(facts: &LandFacts<'_>, land: &Land, decision: &mut L
         .filter(|refusal| match refusal {
           LandingRefusal::DanglingReference { .. } => !land.allow.allow_dangling,
           LandingRefusal::MissingDeclaration { .. } => !land.allow.allow_missing,
+          LandingRefusal::UnlandedNeed { .. } => !land.allow.allow_unlanded,
         })
         .map(|refusal| Reason::LandingRefused {
           refusal: Box::new(refusal.clone()),

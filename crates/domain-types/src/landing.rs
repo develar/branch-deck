@@ -141,6 +141,42 @@ pub enum LandingRefusal {
     #[serde(default)]
     landing_in: Option<RobotOf>,
   },
+  /// The user declared that `needs` lands before `branch` (`brd need`, `refs/branch-deck/needs`), and it is not in
+  /// master yet: a start now lands them out of the order the user asked for. No commit proves it and no build fails;
+  /// the declaration alone refuses the start
+  UnlandedNeed {
+    branch: String,
+    /// What lands before it, as it was declared: a branch of this repository, or `<companion>:<branch>`
+    needs: String,
+    state: NeedState,
+    /// The branch of the stack whose need this is, when `branch` only inherits it (it is built on that branch, so
+    /// they land in one robot); `None` for a need of its own
+    #[serde(default)]
+    inherited_from: Option<String>,
+    /// `Unstack` for an inherited need; `None` when nothing but the landing of `needs` helps
+    #[serde(default)]
+    fix: Option<LandingFix>,
+    /// The running Safe Push that lands `needs` already (`MissingDeclaration::landing_in`)
+    #[serde(default)]
+    landing_in: Option<RobotOf>,
+  },
+}
+
+/// The branch a declared need names, as the repository that holds it (or a companion of it) left it; `Integrated` is
+/// none of them: a sync drops such a need, so it never refuses a start
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum NeedState {
+  /// The branch is there, with commits ahead of the baseline
+  Active,
+  /// The branch is unapplied: it cannot land at all until it is reapplied
+  Unapplied,
+  /// No branch of that name is there, and no archived one either
+  Missing,
+  /// The need names a branch of a companion that cannot be read: its path is gone, or it is no git repository
+  CompanionUnreadable { companion: String, reason: String },
 }
 
 /// What a branch does to the declaration of a dangling reference
@@ -165,14 +201,34 @@ pub enum LandingFix {
   /// Move the commit it needs into `into`, the branch that needs it: the commit is unassigned, or its branch is built
   /// on what lands, so a restack would close a cycle
   MoveCommit { commit: StackCommit, into: String },
+  /// Unstack `branch` from `from`, the branch whose declared need it inherits: it lands alone then, without the branch
+  /// that is not allowed to land yet
+  Unstack { branch: String, from: String },
 }
 
 impl LandingRefusal {
-  /// The commit outside what lands that the start needs: the one that adds the name, or that changes the dangling use
-  pub const fn needed(&self) -> &StackCommit {
+  /// The commit outside what lands that the start needs: the one that adds the name, or that changes the dangling use;
+  /// none for a declared need, which no commit proves
+  pub const fn needed(&self) -> Option<&StackCommit> {
     match self {
-      Self::DanglingReference { fixed_by, .. } => fixed_by,
-      Self::MissingDeclaration { declared_by, .. } => declared_by,
+      Self::DanglingReference { fixed_by, .. } => Some(fixed_by),
+      Self::MissingDeclaration { declared_by, .. } => Some(declared_by),
+      Self::UnlandedNeed { .. } => None,
+    }
+  }
+
+  /// The branch whose start it refuses
+  pub fn branch(&self) -> &str {
+    match self {
+      Self::DanglingReference { branch, .. } | Self::MissingDeclaration { branch, .. } | Self::UnlandedNeed { branch, .. } => branch,
+    }
+  }
+
+  /// How the user gets what the start needs into it; none for a need of its own, which only its landing clears
+  pub const fn fix(&self) -> Option<&LandingFix> {
+    match self {
+      Self::DanglingReference { fix, .. } | Self::MissingDeclaration { fix, .. } => Some(fix),
+      Self::UnlandedNeed { fix, .. } => fix.as_ref(),
     }
   }
 
@@ -219,6 +275,34 @@ impl LandingRefusal {
           format!("; {} is landing in {of}, which tests it without this start", declared_by.branch)
         });
         format!("{} uses {identifier} in {file}, which {} adds{landing}", named(used_by), named(declared_by))
+      }
+      Self::UnlandedNeed {
+        branch,
+        needs,
+        state,
+        inherited_from,
+        landing_in,
+        ..
+      } => {
+        let state = match state {
+          NeedState::Active => String::new(),
+          NeedState::Unapplied => ", and it is unapplied".to_string(),
+          NeedState::Missing => ", and no branch of that name is here".to_string(),
+          NeedState::CompanionUnreadable { companion, reason } => format!(", and the companion {companion} is not readable: {reason}"),
+        };
+        let inherited = inherited_from
+          .as_ref()
+          .map_or_default(|parent| format!("; {branch} is built on {parent}, which needs it, so they land in one robot"));
+        let landing = landing_in.as_ref().map_or_default(|robot| {
+          let subject = robot.subject();
+          let of = if subject.is_branch(needs) {
+            "its Safe Push"
+          } else {
+            &format!("the Safe Push of {}", subject.words())
+          };
+          format!("; {needs} is landing in {of}, which tests it without this start")
+        });
+        format!("you declared that {needs} lands before {branch}{state}{inherited}{landing}")
       }
     }
   }

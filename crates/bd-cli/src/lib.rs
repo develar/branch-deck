@@ -7,7 +7,7 @@ pub mod install;
 pub mod schema;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP,
+  AGENT_HELP, CHECK_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, NEED_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP,
   ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::flag_names::{renamed_in, unknown_argument};
@@ -226,8 +226,9 @@ enum Command {
   Unpark(UnparkArgs),
   /// Declare what lands before a branch: no Safe Push, dry run or land of it starts until those branches are in master
   ///
-  /// Each need is a branch of this repository, or `<companion>:<branch>` of a companion (`brd companion`). No rewrite:
+  /// Each need is a branch of this repository, or `<companion>:<branch>` of a companion repository. No rewrite:
   /// the store `refs/branch-deck/needs`, shared by every worktree; a sync drops a need that landed
+  #[command(after_help = "Outputs and refusals: `brd need --help`", after_long_help = NEED_HELP)]
   Need(NeedArgs),
   /// Remember the base and the tip a branch has now as reviewed (experimental), the start of its next review
   ///

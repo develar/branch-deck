@@ -29,7 +29,7 @@ fn missing(declared_in: &str) -> LandingRefusal {
 
 fn landing_in(refusal: &LandingRefusal) -> Option<&RobotOf> {
   match refusal {
-    LandingRefusal::MissingDeclaration { landing_in, .. } => landing_in.as_ref(),
+    LandingRefusal::MissingDeclaration { landing_in, .. } | LandingRefusal::UnlandedNeed { landing_in, .. } => landing_in.as_ref(),
     LandingRefusal::DanglingReference { .. } => None,
   }
 }

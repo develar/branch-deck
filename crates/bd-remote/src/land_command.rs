@@ -92,6 +92,9 @@ pub struct LandArgs {
   /// Land although a commit of what lands uses a name that a commit of another branch adds
   #[arg(long)]
   pub allow_missing: bool,
+  /// Land although a branch the user declared lands before this one (`brd need`) is not in master yet
+  #[arg(long)]
+  pub allow_unlanded: bool,
 }
 
 /// `brd land`
@@ -243,6 +246,7 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
     dry_run: args.dry_run,
     allow_dangling: args.allow_dangling,
     allow_missing: args.allow_missing,
+    allow_unlanded: args.allow_unlanded,
     ..SafePushArgs::default()
   };
   let output = safe_push(context, &safe_push_args, environment)?;
@@ -367,6 +371,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
     allow: LandingAllowances {
       allow_dangling: args.allow_dangling,
       allow_missing: args.allow_missing,
+      allow_unlanded: args.allow_unlanded,
       allow_without_checks: args.allow_checks_not_passed,
       bypass_rules: args.bypass_rules,
       ..LandingAllowances::default()
@@ -544,9 +549,13 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
     };
     // a flag that lands anyway is the user's word, named in the message, never a step
     let words = match reason {
-      Reason::LandingRefused { refusal } => match **refusal {
+      Reason::LandingRefused { refusal } => match &**refusal {
         LandingRefusal::DanglingReference { .. } => format!("{words}; --allow-dangling only when the user says it is a false alarm"),
         LandingRefusal::MissingDeclaration { .. } => format!("{words}; --allow-missing only when the user says it is a false alarm"),
+        LandingRefusal::UnlandedNeed { needs, .. } => format!(
+          "{words}; land {needs} first, remove the need (`{} need <branch> --remove {needs}`), or --allow-unlanded only when the user says the order no longer holds",
+          context.bd
+        ),
       },
       _ => words,
     };

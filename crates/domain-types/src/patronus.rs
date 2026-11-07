@@ -266,6 +266,9 @@ pub struct LandingAllowances {
   /// Start although what lands uses a name a branch outside it adds
   #[serde(default)]
   pub allow_missing: bool,
+  /// Start although a branch the user declared lands before it (`brd need`) is not in master yet
+  #[serde(default)]
+  pub allow_unlanded: bool,
   /// Push away the commits of a remote branch the branch lacks (someone's work, D12)
   #[serde(default)]
   pub allow_force: bool,

@@ -143,6 +143,10 @@ pub struct SafePushArgs {
   /// the build fails unless the name is a false alarm
   #[arg(long)]
   pub allow_missing: bool,
+  /// Start although a branch the user declared lands before this one (`brd need`) is not in master yet
+  /// (`unlanded_need`): they land out of that order
+  #[arg(long)]
+  pub allow_unlanded: bool,
   /// Start although GitHub didn't answer the rules of the target (`rules_unknown`: no token, no access, an error) for a
   /// push of new commits into a pull request someone approved: the push may dismiss the approvals Patronus counts, and
   /// the robot fails without them
@@ -1076,7 +1080,7 @@ fn stack_not_built_message(update: &StackBranchUpdate) -> String {
 fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]) -> String {
   let short = context.short_ids(missing.iter().flat_map(|refusal| match refusal {
     LandingRefusal::MissingDeclaration { used_by, declared_by, .. } => vec![used_by.id.as_str(), declared_by.id.as_str()],
-    LandingRefusal::DanglingReference { .. } => Vec::new(),
+    LandingRefusal::DanglingReference { .. } | LandingRefusal::UnlandedNeed { .. } => Vec::new(),
   }));
   let named = |commit: &StackCommit| format!("{} ({})", short.get(&commit.id), commit.subject);
   let Some(LandingRefusal::MissingDeclaration {
@@ -1103,6 +1107,7 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
       context.bd
     ),
     LandingFix::MoveCommit { commit, into } => format!("Move {} into {into}", short.get(&commit.id)),
+    LandingFix::Unstack { branch, from } => format!("`{} unstack {branch}` lands it without {from}", context.bd),
   };
   let more = match missing.len() - 1 {
     0 => String::new(),
@@ -1167,6 +1172,7 @@ fn plan(
     allow: LandingAllowances {
       allow_dangling: args.allow_dangling,
       allow_missing: args.allow_missing,
+      allow_unlanded: args.allow_unlanded,
       allow_force: args.force,
       allow_unknown_rules: args.allow_unknown_rules,
       allow_unknown_review: args.allow_unknown_review,

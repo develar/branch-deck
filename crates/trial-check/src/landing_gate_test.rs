@@ -31,12 +31,13 @@ fn needs_of(repo: &TestRepo, landed: &HashSet<String>) -> BTreeMap<String, Vec<L
   landing_needs_of(&GitCommandExecutor::new(), &ObjectCache::disabled(), repo.path_str(), PREFIX, landed).unwrap()
 }
 
-/// The branch the start needs and its fix, of each refusal
+/// The branch the start needs and its fix, of each refusal; the gate builds no declared need, which has neither
 fn needed(refusals: &[LandingRefusal]) -> Vec<(&str, &LandingFix)> {
   refusals
     .iter()
-    .map(|refusal| match refusal {
-      LandingRefusal::MissingDeclaration { declared_by, fix, .. } | LandingRefusal::DanglingReference { fixed_by: declared_by, fix, .. } => (declared_by.branch.as_str(), fix),
+    .map(|refusal| {
+      let needed = refusal.needed().unwrap_or_else(|| panic!("{refusal:?}"));
+      (needed.branch.as_str(), refusal.fix().unwrap_or_else(|| panic!("{refusal:?}")))
     })
     .collect()
 }

@@ -284,6 +284,7 @@ fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
     "at": "src/b/Use.kt:3",
     "needs": declares,
     "needs_branch": "util",
+    "reason": "\"Start with controlUrl\" of flow uses controlUrl in src/b/Use.kt, which \"Add controlUrl\" of util adds",
     "fix": "brd restack flow util",
   }]);
   assert_eq!(status_branch(&status, "flow")["landing_needs"], need);
