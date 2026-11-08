@@ -448,6 +448,7 @@ impl TableState {
         issue_groups,
         stack_parents,
         parked,
+        needs,
         stack_branches,
         target_branch,
         head,
@@ -471,6 +472,7 @@ impl TableState {
         header.issue_groups = issue_groups;
         header.stack_parents = stack_parents;
         header.parked = parked;
+        header.needs = needs;
         self.apply_grouping(branches);
         // the stack branches the grouping announces keep what the last sync said of them until their update
         let announced: HashSet<&String> = stack_branches.iter().collect();

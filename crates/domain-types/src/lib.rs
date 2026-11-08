@@ -274,6 +274,11 @@ pub enum SyncEvent {
     /// branches that group no commit on this HEAD
     #[cfg_attr(feature = "specta", specta(optional))]
     parked: BTreeMap<String, String>,
+    /// Branch -> what the user declared lands before it (`refs/branch-deck/needs`, `brd need`), the names
+    /// space-separated as the store has them; also the lines of branches that group no commit on this HEAD
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    needs: BTreeMap<String, String>,
     /// The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
     /// and the stack branches kept for their remote branch; any other stack branch is gone
     #[cfg_attr(feature = "specta", specta(optional))]

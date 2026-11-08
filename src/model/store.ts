@@ -862,6 +862,7 @@ function toStructure(view: StructureView): BranchStructure {
     mainLine: view.mainLine ?? ROOT_STRUCTURE.mainLine,
     parked: view.parked ?? null,
     stackParked: view.stackParked ?? null,
+    needs: view.needs ?? ROOT_STRUCTURE.needs,
     wholeStack: view.wholeStack ?? null,
     section: view.section ?? "main",
   }

@@ -724,3 +724,39 @@ fn a_need_of_a_branch_of_a_companion_refuses_until_the_companion_landed_it() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(states(&app), [("web:deploy".to_string(), json!("companion_unreadable"))]);
 }
+
+/// `brd status --companions` adds the status of each companion by its own context, from the primary as from a
+/// companion (its primary by the name of its directory), and says why one can not be read
+#[test]
+fn status_with_companions_tells_the_status_of_each_companion_and_why_one_can_not_be_read() {
+  let (app, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(deploy) Download the test data"]);
+  let (ci, _) = repo_with_subjects(&[("README.md", "ci\n")], &["(prepare) Drop the preparation step"]);
+  let (gone, _) = repo_with_subjects(&[("README.md", "gone\n")], &["(web) Serve"]);
+  for (name, repo) in [("ci", &ci), ("gone", &gone)] {
+    let (exit_code, output) = run_in(&app, &["companion", "add", repo.path().to_str().unwrap(), "--name", name]);
+    assert_eq!(exit_code, 0, "{output}");
+  }
+  let gone_path = gone.path().to_path_buf();
+  drop(gone);
+  assert!(!gone_path.exists());
+
+  let (exit_code, status) = run_in(&app, &["status", "--companions"]);
+  assert_eq!(exit_code, 0, "{status}");
+  let companions = status["companions"].as_array().unwrap();
+  let names: Vec<&str> = companions.iter().map(|it| it["name"].as_str().unwrap()).collect();
+  assert_eq!(names, ["ci", "gone"], "{status}");
+  let ci_branches: Vec<&Value> = companions[0]["status"]["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(ci_branches, [&json!("prepare")], "{status}");
+  assert!(companions[1]["error"].as_str().unwrap().ends_with("is gone"), "{status}");
+  assert_eq!(companions[1].get("status"), None);
+
+  // from the companion: its primary, by the name of its directory
+  let (exit_code, from_ci) = run_in(&ci, &["status", "--companions"]);
+  assert_eq!(exit_code, 0, "{from_ci}");
+  let primary = app.path().canonicalize().unwrap();
+  let primary_name = primary.file_name().unwrap().to_str().unwrap();
+  assert!(from_ci["companions"].as_array().unwrap().iter().any(|it| it["name"] == json!(primary_name)), "{from_ci}");
+  // without the flag nothing of the companions is read
+  let (_, plain) = run_in(&app, &["status"]);
+  assert_eq!(plain.get("companions"), None);
+}

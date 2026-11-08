@@ -734,8 +734,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [Stacks of GitHub](stacked-branches.spec.md#stacks-of-github)); the shape ("Rename…" or "Name This Branch…", "Move to…", "Stack On… ›", "Unstack from …", "Ungroup"); on
   every branch of a stack the stack ("Collapse Stack" `⌥←` or "Expand Stack" `⌥→`, "Whole Stack ›", the actions of the
   whole stack of its root: [Whole Stack](whole-stack.spec.md)); the commits ("Amend Changes…", "Add Issue Reference…",
-  "Squash N Fixups…"); what sets the branch aside ("Park Branch…": [Parked Branches](parked-branches.spec.md),
-  "Unapply…"); and last "Copy ›" ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a branch
+  "Squash N Fixups…"); the order of landing ("Add Need…", "Remove Need: docs": [Declared Needs](declared-needs.spec.md));
+  what sets the branch aside ("Park Branch…": [Parked Branches](parked-branches.spec.md), "Unapply…"); and last "Copy ›" ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a branch
   with a pull request, "Copy Retarget Command" for an open one into a virtual branch). Off Space the landing starts
   with the push; before Patronus answers whether the repository is on Space its starts stay, disabled with "Waits for
   the answer of Patronus" ([Next Step](next-step.spec.md#facts-without-an-answer)). A repository that lands by a push

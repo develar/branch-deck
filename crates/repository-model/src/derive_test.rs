@@ -106,6 +106,7 @@ fn a_grouping_places_every_branch_with_its_section() {
       main_line: names(&["login", "oauth"]),
       parked: None,
       stack_parked: None,
+      needs: Vec::new(),
       // the stack forks, and no stack branch of it is known yet
       whole_stack: None,
       section: BranchSection::Main,
@@ -1176,4 +1177,20 @@ fn the_view_names_the_layers_of_the_stacks_of_github_of_a_straight_chain() {
   assert_eq!(github_layers_over(&patronus, &table, &table.remote, &landed, &listing), BTreeMap::new());
   listing.github_stacks = false;
   assert_eq!(github_layers_over(&merge, &table, &table.remote, &landed, &listing), BTreeMap::new());
+}
+
+/// The declared needs of a branch come with the grouping (`BranchesGrouped::needs`) into its structure, which Remove
+/// Need of its menu names; a branch without a line has none
+#[test]
+fn the_structure_of_a_branch_names_the_needs_it_declared() {
+  let mut table = TableState::with_prefix("user");
+  table.begin_sync();
+  let mut event = grouping(vec![on("auth", None), on("docs", None)], &[], &[]);
+  if let SyncEvent::BranchesGrouped { needs, .. } = &mut event {
+    *needs = BTreeMap::from([("auth".to_string(), "ci-config:prepare docs".to_string())]);
+  }
+  table.apply(event);
+  let needs = |name: &str| table.branch(name).map(|branch| branch.structure.needs.clone());
+  assert_eq!(needs("auth"), Some(vec!["ci-config:prepare".to_string(), "docs".to_string()]));
+  assert_eq!(needs("docs"), Some(Vec::new()));
 }

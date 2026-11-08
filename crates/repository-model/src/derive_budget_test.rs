@@ -118,6 +118,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
     issue_groups: BTreeMap::new(),
     stack_parents: BTreeMap::new(),
     parked: BTreeMap::new(),
+    needs: BTreeMap::new(),
     stack_branches: stacks.iter().map(|stack| stack.root.clone()).collect(),
     target_branch: None,
     head: String::new(),

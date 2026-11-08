@@ -109,16 +109,25 @@ fn read_companion(git: &GitCommandExecutor, path: &str, branch_prefix: &str) -> 
     return Err(format!("{path} is gone"));
   }
   let snapshot = ConfigSnapshot::read(git, path).map_err(|error| format!("{path} is no git repository: {error:#}"))?;
-  // a prefix of the companion's own config wins, as the prefix of a repository wins over the app's; else this one's
-  let own = snapshot.branch_prefix();
-  let prefix = if own.repository_scoped && !own.prefix.is_empty() {
-    own.prefix
-  } else {
-    branch_prefix.to_string()
-  };
+  let prefix = prefix_of(&snapshot, branch_prefix);
   let listed = list_branches(git, path, &prefix).map_err(|error| format!("{error:#}"))?;
   let data = branch_data_of(git, path, &prefix, &listed);
   Ok((prefix, data))
+}
+
+/// The branch prefix of the companion at `path`: of its own config, as the prefix of a repository wins over the app's,
+/// else `branch_prefix`, this repository's; `branch_prefix` too when its config can not be read
+pub fn companion_prefix(git: &GitCommandExecutor, path: &str, branch_prefix: &str) -> String {
+  ConfigSnapshot::read(git, path).map_or_else(|_| branch_prefix.to_string(), |snapshot| prefix_of(&snapshot, branch_prefix))
+}
+
+fn prefix_of(snapshot: &ConfigSnapshot, branch_prefix: &str) -> String {
+  let own = snapshot.branch_prefix();
+  if own.repository_scoped && !own.prefix.is_empty() {
+    own.prefix
+  } else {
+    branch_prefix.to_string()
+  }
 }
 
 /// `branch` among the branches of a companion: grouped (its virtual branch), unapplied, its newest archived branch

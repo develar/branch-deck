@@ -111,8 +111,9 @@ pub(crate) fn place(parts: &mut TableParts) {
     let repo = parts_repository(parts);
     repo.order().map(|name| (name.to_string(), structure_of(&repo, &parts.stacks, name))).collect()
   };
-  for (name, structure) in structures {
+  for (name, mut structure) in structures {
     if let Some(branch) = parts.branches.get_mut(&name) {
+      structure.needs = parts.header.needs.get(&name).map_or_default(|line| line.split_whitespace().map(str::to_string).collect());
       branch.structure = structure;
     }
   }
@@ -157,6 +158,8 @@ fn structure_of(repo: &Repository<'_>, stacks: &BTreeMap<String, StackBranchUpda
     section: if parked.is_some() { BranchSection::Parked } else { BranchSection::Main },
     parked,
     stack_parked: stack_parked(repo, stacks.get(name)),
+    // the lines of the store, which `place` writes in
+    needs: Vec::new(),
     whole_stack: whole_stack_view(repo, stacks, name),
   }
 }

@@ -12,12 +12,13 @@ import type { LucideIcon } from "lucide-react"
 import {
   ArchiveRestoreIcon,
   ArchiveXIcon,
+  BotIcon,
+  CheckIcon,
   CirclePauseIcon,
-  CircleSlashIcon,
   CirclePlayIcon,
+  CircleSlashIcon,
   ClipboardCopyIcon,
   ClipboardListIcon,
-  BotIcon,
   CombineIcon,
   DownloadIcon,
   EraserIcon,
@@ -33,10 +34,11 @@ import {
   GitPullRequestIcon,
   Layers2Icon,
   LayersIcon,
+  ListOrderedIcon,
   ListXIcon,
   MessageSquareDiffIcon,
-  PencilIcon,
   PenLineIcon,
+  PencilIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   ShieldCheckIcon,
@@ -48,7 +50,6 @@ import {
   UploadIcon,
   UserCheckIcon,
   UserPlusIcon,
-  CheckIcon,
 } from "lucide-react"
 import type { ActionBlocker, ActionId, ActionState, Availability, NothingBeyond, OperationId, PatronusRobot, RunningOperation } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
@@ -102,6 +103,9 @@ export const ACTION_LOOKS = {
   unapply: { label: "Unapply…", icon: ArchiveXIcon },
   park: { label: "Park Branch…", icon: CirclePauseIcon },
   unpark: { label: "Unpark Branch", icon: CirclePlayIcon },
+  "add-need": { label: "Add Need…", icon: ListOrderedIcon },
+  // one item per need ("Remove Need: docs"), or a submenu of them, each surface by the facts
+  "remove-need": { label: "Remove Need", icon: ListXIcon },
   reapply: { label: "Reapply", icon: ArchiveRestoreIcon },
   // its label names where the branch is kept ("Delete Unapplied Branch…"), each surface by the facts
   "delete-kept-branch": { label: "Delete Branch…", icon: Trash2Icon },

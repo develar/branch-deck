@@ -696,7 +696,8 @@ branches as `<name>:<branch>`, and the start waits until that branch is in maste
 `branchdeck.companion.<name>.path` into .git/config here and `branchdeck.primary` into .git/config of the
 companion, both the main worktrees, as Settings → Landing does. In a companion, `<name>:<branch>` names the primary
 by the name of its directory and the other companions of the primary by their names. `brd companion remove <name>`
-takes it back, `brd companion list` prints them. It prints `companions` (`name`, `path`, `problem` when it can not be
+takes it back, `brd companion list` prints them; `brd status --companions` adds the status of each (`companions`:
+`name`, `path`, its `status`, or the `error` why it can not be read). It prints `companions` (`name`, `path`, `problem` when it can not be
 read), `primary` (of a companion) and `changed`.
 How a branch of a companion stands is read of what the last sync of the companion left: run `brd sync` there once its
 branch landed. A companion that can not be read refuses the start of a branch that needs it (`companion_unreadable`

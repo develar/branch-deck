@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { availableRobots, expectPatronusStarts, startRequest, wholeStackStartRequest } from "../helpers/patronus-helpers"
 import { expectPushedToRemote, pushedBranches, remotePushes } from "../helpers/push-helpers"
-import { openSafePushWithKey, popoverStart, slotSafePush } from "../helpers/safe-push-helpers"
+import { openSafePushWithKey, popoverStart, slotSafePush, startAnyway } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
@@ -119,18 +119,9 @@ test.describe("Landing needs", () => {
 
   test("should start anyway from the Safe Push popover with the override of what refuses it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupNeeds(page, setupRepo, syncAndWaitForBranches)
-    const starts = await recordCommand(page, "execute")
-
     await openSafePushWithKey(page, "lane-run")
-    await expect(popoverStart(page)).toHaveText("Start Anyway")
-    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
     // the start runs with the override, which its plan and the gate of the engine get; nothing else refused it
-    await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
-    expect(starts).toEqual([
-      expect.objectContaining({
-        intent: expect.objectContaining({ subject: { kind: "branch", name: "lane-run" }, allow: expect.objectContaining({ allowDangling: false, allowMissing: true }) }),
-      }),
-    ])
+    await startAnyway(page, "lane-run", { allowDangling: false, allowMissing: true })
     // Patronus got the start of lane-run, past the gate that refused it
     await expectPatronusStarts(repo, [startRequest("lane-run")])
     // it pushed lane-run alone, before the start

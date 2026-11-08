@@ -769,6 +769,10 @@ pub struct TableHeader {
   pub stack_parents: BTreeMap<String, String>,
   /// Branch -> note: the parked branches
   pub parked: BTreeMap<String, String>,
+  /// Branch -> what the user declared lands before it, the names space-separated (`refs/branch-deck/needs`)
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub needs: BTreeMap<String, String>,
   /// The issue links of the IntelliJ IDEA configuration, the last a sync found
   pub issue_navigation_config: Option<IssueNavigationConfig>,
   /// The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a
@@ -875,6 +879,10 @@ pub struct BranchStructure {
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub stack_parked: Option<ParkedMember>,
+  /// What the user declared lands before it (`brd need`), as it is written: Remove Need of its menu names each
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub needs: Vec<String>,
   /// Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
   /// declared parent); absent for a branch alone and for a branch that heads no stack
   #[serde(skip_serializing_if = "Option::is_none")]

@@ -15,6 +15,7 @@ export type InlineActionType =
   | "ungroup"
   | "close-stack-pull-request"
   | "park"
+  | "need"
 
 export interface ActiveInline {
   type: InlineActionType

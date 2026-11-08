@@ -4,6 +4,7 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getBranchNextStep, linkGitHubStackOf } from "@/hooks/useBranchNextStep"
 import { pushRunsOf } from "@/hooks/useBranchPushes"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
+import { removeNeed } from "@/hooks/useDeclareNeed"
 import { ungroupBranch } from "@/hooks/useMoveCommits"
 import { unparkBranch } from "@/hooks/useParkBranch"
 import { requestSafePush } from "@/hooks/useSafePush"
@@ -41,6 +42,7 @@ import {
   getBranch,
   getBranchTableOrder,
   getIssueGroups,
+  getDeclaredNeeds,
   getParkedState,
   getOpenPullRequest,
   getPushOrders,
@@ -230,7 +232,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       openInline("unapply", branch.name)
     },
   })
-  groups.push([...getParkMenuItems(branch), ...present(unapply)])
+  groups.push([...getNeedMenuItems(branch), ...getParkMenuItems(branch), ...present(unapply)])
 
   groups.push([getCopyMenuItem(branch, pullRequest)])
   return groups.filter(group => group.length > 0)
@@ -251,6 +253,25 @@ function getCopyMenuItem(branch: Branch, pullRequest: PullRequest | undefined): 
     children.push({ id: "copy-retarget-command", label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
   }
   return { id: "copy", label: "Copy", icon: CopyIcon, onSelect: () => {}, children }
+}
+
+/**
+ * "Add Need…" (the form of what lands before the branch) and of a branch that declared needs "Remove Need: docs", a
+ * submenu of them for two or more (spec/branch/declared-needs.spec.md): no rewrite, the lines of `refs/branch-deck/needs`
+ */
+function getNeedMenuItems(branch: Branch): MenuItem[] {
+  const name = branch.name
+  const add = branchItem(branch, "add-need", { onSelect: () => openInline("need", name) })
+  const needs = getDeclaredNeeds(name)
+  const removeOf = (need: string, label: string): MenuItem | null =>
+    branchItem(branch, "remove-need", { label, description: `No more waits for ${need}`, onSelect: () => void removeNeed(name, [need]) })
+  const remove =
+    needs.length === 1
+      ? removeOf(needs[0]!, `Remove Need: ${needs[0]}`)
+      : needs.length > 1
+        ? branchItem(branch, "remove-need", { onSelect: () => {}, children: present(...needs.map(need => removeOf(need, need))) })
+        : null
+  return present(add, remove)
 }
 
 /**

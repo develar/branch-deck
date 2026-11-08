@@ -204,6 +204,7 @@ export function placed(table: TestTable): { branches: Record<string, Branch>; ro
         .map(row => row.name),
       parked: state,
       stackParked: member === undefined ? null : { member, parked: parkedState(member)! },
+      needs: branches[name]?.structure.needs ?? [],
       wholeStack: wholeStack(name),
       section: state === null ? "main" : "parked",
     }

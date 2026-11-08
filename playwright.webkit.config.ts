@@ -13,6 +13,7 @@ export default defineConfig({
   testMatch: [
     "move-commits/**/*.spec.ts",
     "parked-branches/**/*.spec.ts",
+    "declared-needs/**/*.spec.ts",
     "stacked-branches/stacked-branches.spec.ts",
     "landing/statistics.spec.ts",
     "command-palette/command-palette.spec.ts",

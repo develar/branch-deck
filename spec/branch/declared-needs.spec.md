@@ -17,6 +17,14 @@ targets:
   - ../../src/components/settings/CompanionsPage.tsx
   - ../../src/components/settings/CompanionsSetting.tsx
   - ../../src/hooks/useConfigWrite.ts
+  - ../../src/hooks/useDeclareNeed.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/components/branch/InlineNeedInput.tsx
+  - ../../src/presenters/actions.ts
+  - ../../src/model/store.ts
+  - ../../crates/domain-policy/src/actions.rs
+  - ../../crates/domain-types/src/actions.rs
+  - ../../crates/repository-model/src/action_view.rs
   - ../../crates/domain-types/src/landing.rs
   - ../../crates/domain-types/src/patronus.rs
   - ../../crates/domain-types/src/rewrite.rs
@@ -46,7 +54,7 @@ targets:
 
 # Declared Needs
 
-Status: Implemented (the menu of the row and `brd status --companions` are next)
+Status: Implemented
 Date: 2026-11-07
 
 ## Summary
@@ -178,6 +186,20 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
   Safe Push popover, which says it and starts anyway; for an inherited need the click runs the unstack ("Unstack ui
   from auth"), which the toast of a refused start offers too.
   [@test] ../../src/presenters/next-step.test.ts (`row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need`)
+  [@test] ../../tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
+- The Safe Push popover must say the reason before the start, and Start Anyway must start with `allowUnlanded`.
+  [@test] ../../tests/e2e/declared-needs/declared-needs.spec.ts (`should say in the Safe Push popover what lands first, and start anyway with the override of the declared order`)
+- The branch menu (right-click and "⋯") must offer "Add Need…" beside "Park Branch…", disabled without commits: a form
+  under the row, "What lands before auth", its field focused ("A branch of this repository, or companion:branch"),
+  the other branches of the table as chips, Enter or Add Need writes it (the rewrite `need`, queued as every rewrite,
+  then the sync and the toast "Declared that docs lands before auth" with Undo, the store back as it was); a refusal
+  of the core keeps the form with the typing. Of a branch that declared needs it must offer "Remove Need: docs", for
+  two or more a submenu "Remove Need ›" of them, each the rewrite `unneed`. Rust decides both actions
+  (`ActionId::AddNeed`, `RemoveNeed`, `domain_policy::actions`) over the declared needs of the branch, which the view
+  carries in its structure (`BranchesGrouped::needs` → `BranchStructure.needs`).
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_need_is_added_to_a_branch_with_commits_and_removed_while_one_is_declared`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_structure_of_a_branch_names_the_needs_it_declared`)
+  [@test] ../../tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
 - The reason must name the state of the needed branch in the words below, and the robot that lands it.
   [@test] ../../src/presenters/landing.test.ts (`words the order the user declared by the state of the branch it names, and Start Anyway lifts it`, `says why a branch built on the one that declared the need inherits it, and unstacks it to land it alone`)
 - A need written by the app's rewrites (`Rewrite(Need)`, `Rewrite(Unneed)`) must be worded as the other rewrites:
@@ -208,6 +230,10 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
   rest to the table; `brd status` reads them without a sync.
   [@test] ../../crates/sync-core/src/companions_test.rs (`a_branch_of_a_companion_is_active_unapplied_integrated_or_missing_as_its_last_sync_left_it`, `a_companion_that_is_gone_or_unknown_makes_its_needs_unreadable_and_nothing_fails`)
   [@test] ../../crates/bd-remote/src/status_test.rs (`a_need_of_a_branch_of_a_companion_refuses_until_the_companion_landed_it`)
+- `brd status --companions` must add the status of every repository a need here can name, each by its own context
+  and its prefix as the companion reader takes it (`companions`: `name`, `path`, `status`, or the `error` why it can
+  not be read); without the flag nothing of the companions is read.
+  [@test] ../../crates/bd-remote/src/status_test.rs (`status_with_companions_tells_the_status_of_each_companion_and_why_one_can_not_be_read`)
 - A write of the companions must sync the main window again (`repository_config_changed`, `companions`): the states
   of the branches a need names come with the sync.
   [@test] ../../tests/e2e/settings/companions-settings.spec.ts (`should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it`)
@@ -228,7 +254,10 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
 - Settings → Companions: the list (name, path, "Not readable: …"), Add Companion… (the folder dialog), Remove; empty:
   "No companion repositories. A need can name a branch of another repository once you add one here."; of a companion:
   "A companion of app: a need here names its branches as app:branch. Add companions there."
-- `brd companion add ../ci-config`, `brd need deploy ci-config:prepare`.
+- `brd companion add ../ci-config`, `brd need deploy ci-config:prepare`, `brd status --companions`.
+- The menu of a row: "Add Need…" → the form "What lands before JIRA-456", chips of the other branches → Enter → toast
+  "Declared that feature-auth lands before JIRA-456" · Undo, the row "Needs feature-auth"; "Remove Need: feature-auth"
+  (two or more: "Remove Need ›").
 
 ## Open Questions / Risks
 

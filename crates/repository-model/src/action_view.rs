@@ -120,6 +120,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
         problem: branch.head.stack.as_ref().and_then(|stack| stack.problems.first()),
         commit_count: row.commit_count,
         parked: branch.structure.parked.as_ref(),
+        needs: &branch.structure.needs,
         declared_parent: branch.head.stack.as_ref().and_then(|stack| stack.declared_parent.as_deref()),
         all_referenced: branch.head.all_commits_have_issue_references,
       },
@@ -179,6 +180,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
         problem: leaf.head.stack.as_ref().and_then(|stack| stack.problems.first()),
         commit_count: row.commit_count,
         parked: None,
+        needs: &[],
         declared_parent: None,
         all_referenced: false,
       })

@@ -721,7 +721,8 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 ### `brd companion`
 
 - `brd companion add <path> [--name]`, `brd companion remove <name>` and `brd companion list` (the repositories a
-  need names as `<companion>:<branch>`, written to both sides as Settings → Companions does):
+  need names as `<companion>:<branch>`, written to both sides as Settings → Companions does), and
+  `brd status --companions`, the status of each:
   [Declared Needs](../branch/declared-needs.spec.md#companion-repositories).
 
 ### `brd unapply`, `brd reapply`

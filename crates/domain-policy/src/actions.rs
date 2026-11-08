@@ -59,6 +59,8 @@ pub struct Row<'a> {
   pub problem: Option<&'a StackProblemView>,
   pub commit_count: usize,
   pub parked: Option<&'a Parked>,
+  /// What the user declared lands before it (`brd need`)
+  pub needs: &'a [String],
   /// The parent it declares (D8)
   pub declared_parent: Option<&'a str>,
   pub all_referenced: bool,
@@ -192,6 +194,11 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   );
   offer(ActionId::SquashFixups, rewrite.clone());
   offer(ActionId::Unapply, rewrite);
+  // a need is a line of a branch that groups commits; one declared is taken back also of a branch without them
+  offer(ActionId::AddNeed, (row.commit_count == 0).then_some(ActionBlocker::NoCommits));
+  if !row.needs.is_empty() {
+    offer(ActionId::RemoveNeed, None);
+  }
   match row.parked {
     // parked with its parent: only the parent's unpark
     Some(parked) if parked.with.is_some() => offer(ActionId::Unpark, None),
@@ -772,7 +779,7 @@ fn overlay(action: ActionState, of: Of<'_>, operations: &[RunningOperation]) -> 
 }
 
 /// The actions that rewrite HEAD or the refs of Branch Deck: their starts queue behind each other in the session
-const REWRITES: [ActionId; 13] = [
+const REWRITES: [ActionId; 15] = [
   ActionId::Rename,
   ActionId::MoveTo,
   ActionId::StackOn,
@@ -784,6 +791,8 @@ const REWRITES: [ActionId; 13] = [
   ActionId::Unapply,
   ActionId::Park,
   ActionId::Unpark,
+  ActionId::AddNeed,
+  ActionId::RemoveNeed,
   ActionId::PickRemoteCommits,
   ActionId::Reapply,
 ];
@@ -865,6 +874,8 @@ fn is_own_rewrite(id: ActionId, name: &str, unparks: &str, rewrite: &RewriteInte
     | (ActionId::Ungroup, RewriteIntent::Ungroup { branch_name, .. })
     | (ActionId::Unapply, RewriteIntent::Unapply { branch_name, .. })
     | (ActionId::PickRemoteCommits, RewriteIntent::PickRemote { branch_name, .. })
+    | (ActionId::AddNeed, RewriteIntent::Need { branch_name, .. })
+    | (ActionId::RemoveNeed, RewriteIntent::Unneed { branch_name, .. })
     | (
       ActionId::SquashFixups,
       RewriteIntent::SquashFixups {

@@ -4,8 +4,9 @@ import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
 import { openBranchPreview } from "./review-status-helpers"
 import { closeMenus, openSubmenu } from "./selection-helpers"
+import { runAndWaitForAnswer } from "./sync-helpers"
 import { closeToast } from "./toast-helpers"
-import { animationsEnded, waitForStepFacts } from "./wait-helpers"
+import { animationsEnded, recordCommand, waitForStepFacts } from "./wait-helpers"
 
 /** The merge profiles of master without any: a start runs the default checks */
 export const DEFAULT_CHECKS_ONLY: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
@@ -143,4 +144,16 @@ export async function startFromPreviewFooter(page: Page, branchName: string, lab
   const preview = await openBranchPreview(page, branchName)
   await preview.getByRole("button", { name: `S ${label}` }).click()
   await expect(preview).toHaveCount(0)
+}
+
+/**
+ * Start Anyway of the open Safe Push popover of `branchName`: the start runs with the overrides of what refused it,
+ * `allow` among those its intent carries, and says it started
+ */
+export async function startAnyway(page: Page, branchName: string, allow: Record<string, boolean>): Promise<void> {
+  const starts = await recordCommand(page, "execute")
+  await expect(popoverStart(page)).toHaveText("Start Anyway")
+  await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
+  await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+  expect(starts).toEqual([expect.objectContaining({ intent: expect.objectContaining({ subject: { kind: "branch", name: branchName }, allow: expect.objectContaining(allow) }) })])
 }

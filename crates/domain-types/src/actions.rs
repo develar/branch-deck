@@ -58,6 +58,11 @@ pub enum ActionId {
   // what sets it aside without a rewrite
   Park,
   Unpark,
+  // the order of landing the user declares (`brd need`)
+  /// What lands before the branch, typed in a form of the row (`RewriteIntent::Need`)
+  AddNeed,
+  /// One declared need of the branch taken back (`RewriteIntent::Unneed`)
+  RemoveNeed,
   // a branch kept outside HEAD (unapplied, archived)
   /// The unapplied branch back on top of HEAD (`RewriteIntent::Reapply`)
   Reapply,
@@ -103,7 +108,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 53] = [
+  pub const ALL: [Self; 55] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -132,6 +137,8 @@ impl ActionId {
     Self::Unapply,
     Self::Park,
     Self::Unpark,
+    Self::AddNeed,
+    Self::RemoveNeed,
     Self::Reapply,
     Self::DeleteKeptBranch,
     Self::SafePushWholeStack,
@@ -188,6 +195,7 @@ impl ActionId {
         | Self::SquashFixups
         | Self::Unapply
         | Self::Park
+        | Self::AddNeed
         | Self::DeleteKeptBranch
         | Self::SafePushWholeStack
         | Self::DryRunWholeStack

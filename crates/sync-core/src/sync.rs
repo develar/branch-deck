@@ -588,6 +588,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     issue_groups: grouping.issue_groups.entries,
     stack_parents: grouping.stack_parents.entries,
     parked: grouping.parked.entries,
+    needs: grouping.needs.entries,
     stack_branches: stack_branches.reported_roots(),
     target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
     landing: Box::new(landing),

@@ -25,6 +25,8 @@ export interface BranchStructure {
   readonly parked: ParkedState | null
   /** Of the root of a stack that forks: the first member of its stack branch that is parked */
   readonly stackParked: ParkedMember | null
+  /** What the user declared lands before it (`brd need`), as it is written */
+  readonly needs: readonly string[]
   /**
    * Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
    * declared parent): its stack branch while it forks, else the last branch of a straight chain; null for a branch
@@ -45,6 +47,7 @@ export const ROOT_STRUCTURE: BranchStructure = {
   mainLine: noBranches,
   parked: null,
   stackParked: null,
+  needs: noBranches,
   wholeStack: null,
   section: "main",
 }

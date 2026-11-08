@@ -410,7 +410,7 @@ export const commands = {
 /* Constants */
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"zoom":1} as const;
 
-export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
+export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
 
 /* Types */
 /**  An account of the app, which a sign-out removes the token of */
@@ -494,6 +494,10 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  joins it, one outside it is linked
  */
 "link-github-stack" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | 
+/**  What lands before the branch, typed in a form of the row (`RewriteIntent::Need`) */
+"add-need" | 
+/**  One declared need of the branch taken back (`RewriteIntent::Unneed`) */
+"remove-need" | 
 /**  The unapplied branch back on top of HEAD (`RewriteIntent::Reapply`) */
 "reapply" | 
 /**
@@ -1279,6 +1283,8 @@ export type BranchStructure = {
 	 *  branch local; absent otherwise
 	 */
 	stackParked?: ParkedMember | null,
+	/**  What the user declared lands before it (`brd need`), as it is written: Remove Need of its menu names each */
+	needs?: string[],
 	/**
 	 *  Of the root of a stack: its whole stack, which one Safe Push lands (`domain_policy::stack::whole_stack_of`, by
 	 *  declared parent); absent for a branch alone and for a branch that heads no stack
@@ -8854,6 +8860,8 @@ export type TableHeader = {
 	stackParents: { [key in string]: string },
 	/**  Branch -> note: the parked branches */
 	parked: { [key in string]: string },
+	/**  Branch -> what the user declared lands before it, the names space-separated (`refs/branch-deck/needs`) */
+	needs?: { [key in string]: string },
 	/**  The issue links of the IntelliJ IDEA configuration, the last a sync found */
 	issueNavigationConfig: IssueNavigationConfig | null,
 	/**

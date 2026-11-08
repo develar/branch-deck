@@ -3,7 +3,7 @@ use crate::landed::{LandedBySummary, landed_branches};
 use crate::robot_list::read_robots;
 use crate::session_facts::know_robots;
 use bd_core::branch_view::{ParentSourceName, StackBlockSummary, StackIssue, read_grouping, stack_issues};
-use bd_core::context::{Environment, RepoContext};
+use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
 use bd_core::next_step_summary::NextStepSummary;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
@@ -35,7 +35,8 @@ use repository_model::table::TableState;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use sync_core::companions::read_companion_needs;
+use std::path::Path;
+use sync_core::companions::{companion_prefix, need_repositories, read_companion_needs};
 use sync_core::grouping::BranchGrouping;
 use sync_core::stack_branch::read_stack_branches;
 use tracing::debug;
@@ -66,6 +67,10 @@ pub struct StatusArgs {
   /// unassigned commits
   #[arg(long, conflicts_with_all = ["branch", "stats"])]
   pub brief: bool,
+  /// The status of each companion repository too (`companions`, `brd companion`): a need of a branch here can name
+  /// their branches
+  #[arg(long, conflicts_with_all = ["branch", "unassigned", "brief"])]
+  pub companions: bool,
 }
 
 /// `brd status`: the branches Branch Deck would sync and the unassigned commits
@@ -122,6 +127,24 @@ pub struct StatusOutput {
   /// nothing; `brd push --unapplied <name>` keeps a copy on the remote
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub unapplied: Vec<UnappliedSummary>,
+  /// With --companions: the status of each companion repository a need here can name (of a companion its primary and
+  /// the other companions of the primary), or why it can not be read
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub companions: Vec<CompanionStatus>,
+}
+
+/// The status of a companion repository (`brd status --companions`)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CompanionStatus {
+  /// The name a need gives it (`<name>:<branch>`)
+  pub name: String,
+  pub path: String,
+  /// Its `brd status`, by its own branch prefix or this one's
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub status: Option<Box<StatusOutput>>,
+  /// Why its status could not be read: its path is gone, it is no git repository, its status failed
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 /// A branch an unapply kept, as the listing of the branches under the prefix has it
@@ -739,7 +762,34 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       .cloned()
       .collect(),
     unapplied: unapplied_summaries(context, &grouping)?,
+    companions: if args.companions { companion_statuses(context, environment)? } else { Vec::new() },
   })
+}
+
+/// The status of every repository a need here can name (`companions::need_repositories`), each by its own context: its
+/// branch prefix as the companion reader takes it (`companion_prefix`), the other options of this command
+fn companion_statuses(context: &RepoContext, environment: &Environment) -> Result<Vec<CompanionStatus>, CliError> {
+  let repositories = need_repositories(&context.git, &context.repository, &context.config()?);
+  let statuses = repositories.into_iter().map(|(name, path)| {
+    let prefix = companion_prefix(&context.git, &path, &context.prefix);
+    let options = RepoOptions {
+      repo: Some(Path::new(&path)),
+      prefix: Some(&prefix),
+      full_ids: !context.short_ids,
+      no_cache: false,
+    };
+    let read = if Path::new(&path).is_dir() {
+      RepoContext::resolve(environment, &options).and_then(|companion| status(&companion, &StatusArgs::default(), environment))
+    } else {
+      Err(CliError::new(ErrorCode::InvalidArguments, format!("{path} is gone")))
+    };
+    let (status, error) = match read {
+      Ok(status) => (Some(Box::new(status)), None),
+      Err(error) => (None, Some(error.message)),
+    };
+    CompanionStatus { name, path, status, error }
+  });
+  Ok(statuses.collect())
 }
 
 /// How each branch of a companion a need of `grouping` names stands, as the last sync of the companion left it; nothing

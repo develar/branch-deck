@@ -14,10 +14,11 @@ use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
 
 use ActionId::{
-  AddIssueReference, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CloseStackPullRequest, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest,
+  AddIssueReference, AddNeed, AmendChanges, CancelAutoMerge, CancelRobot, CheckApprovals, CloseStackPullRequest, CopyRobotFullPrompt, CopyRobotPrompt, CreatePullRequest,
   CreateStackPullRequest, DryRun, DryRunWholeStack, ForgetStart, MergePullRequest, MoveTo, OpenPullRequest, OpenRobot, OpenRobotPullRequest, OpenStackPullRequest,
-  OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges, ReviewWholeStack,
-  SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, StartRobotInAir, Unapply, Ungroup, Unpark, Unstack,
+  OpenUnknownStart, Park, Push, PushAndRestartRobot, PushToBaseline, PushWithChildren, RemoveNeed, Rename, RequestReview, RestartRobot, RetargetPullRequest, ReviewChanges,
+  ReviewWholeStack, SafePush, SafePushMainLine, SafePushWholeStack, SafePushWithProfile, SafePushWithoutReview, SquashFixups, StackOn, StartRobotInAir, Unapply, Ungroup, Unpark,
+  Unstack,
 };
 
 /// The actions as the table reads them: the id and why it can't run, `None` when it can
@@ -71,6 +72,7 @@ fn row(name: &str) -> Row<'_> {
     problem: None,
     commit_count: 2,
     parked: None,
+    needs: &[],
     declared_parent: None,
     all_referenced: false,
   }
@@ -104,8 +106,8 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
 
 const REWRITES: [ActionId; 8] = [Rename, MoveTo, StackOn, Ungroup, AmendChanges, AddIssueReference, SquashFixups, Unapply];
 
-/// A branch ready to land offers every start, its push, the review, Create Pull Request…, the rewrites and the park,
-/// all enabled; off Space no start of Patronus, before its answer each start waits for what its step waits for
+/// A branch ready to land offers every start, its push, the review, Create Pull Request…, the rewrites, Add Need… and
+/// the park, all enabled; off Space no start of Patronus, before its answer each start waits for what its step waits for
 #[test]
 fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus() {
   let step = ready_step();
@@ -129,6 +131,7 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
       AddIssueReference,
       SquashFixups,
       Unapply,
+      AddNeed,
       Park
     ])
   );
@@ -150,6 +153,7 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
       AddIssueReference,
       SquashFixups,
       Unapply,
+      AddNeed,
       Park
     ]
   );
@@ -378,6 +382,29 @@ fn a_rewrite_needs_commits_and_a_build_never_a_sync_and_the_fixes_of_a_stack_pro
   assert_eq!(reason_of(&referenced, AddIssueReference), Some(ActionBlocker::AllReferenced));
   assert_eq!(reason_of(&referenced, Unstack), None, "a stacked branch unstacks");
   assert!(!ids(&branch_actions(&facts(&step, &status))).contains(&Unstack), "a root has nothing to unstack from");
+}
+
+/// Add Need… is a line of a branch that groups commits; Remove Need is offered while the branch declared a need, also
+/// without commits, as the store keeps its line
+#[test]
+fn a_need_is_added_to_a_branch_with_commits_and_removed_while_one_is_declared() {
+  let step = ready_step();
+  let status = remote(PushAction::Push);
+  let plain = branch_actions(&facts(&step, &status));
+  assert_eq!((reason_of(&plain, AddNeed), ids(&plain).contains(&RemoveNeed)), (None, false));
+  let needs = ["docs".to_string()];
+  let without_commits = branch_actions(&BranchFacts {
+    row: Row {
+      commit_count: 0,
+      needs: &needs,
+      ..row("auth")
+    },
+    ..facts(&step, &status)
+  });
+  assert_eq!(
+    (reason_of(&without_commits, AddNeed), reason_of(&without_commits, RemoveNeed)),
+    (Some(ActionBlocker::NoCommits), None)
+  );
 }
 
 /// A park waits for a robot that lands the branch (a merged one landed it: the park goes) and its commits, never for a

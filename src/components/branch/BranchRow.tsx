@@ -49,6 +49,7 @@ import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapse
 
 const InlineRenameBranchInput = lazy(() => import("@/components/branch/InlineRenameBranchInput").then(it => ({ default: it.InlineRenameBranchInput })))
 const InlineParkBranchInput = lazy(() => import("@/components/branch/InlineParkBranchInput").then(it => ({ default: it.InlineParkBranchInput })))
+const InlineNeedInput = lazy(() => import("@/components/branch/InlineNeedInput").then(it => ({ default: it.InlineNeedInput })))
 const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineIssueReferenceInput").then(it => ({ default: it.InlineIssueReferenceInput })))
 const InlineAmendChangesInput = lazy(() => import("@/components/branch/InlineAmendChangesInput").then(it => ({ default: it.InlineAmendChangesInput })))
 const InlineUngroupConfirm = lazy(() => import("@/components/branch/InlineUngroupConfirm").then(it => ({ default: it.InlineUngroupConfirm })))
@@ -58,7 +59,7 @@ const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConfli
 
 const columnCount = 4
 
-const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply", "ungroup", "close-stack-pull-request", "park"])
+const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply", "ungroup", "close-stack-pull-request", "park", "need"])
 
 export interface BranchRowProps {
   name: string
@@ -302,6 +303,7 @@ export const BranchRow = memo(function BranchRow({
               {activeInline.type === "ungroup" && <InlineUngroupConfirm key={`ungroup:${name}`} branchName={name} />}
               {activeInline.type === "close-stack-pull-request" && <InlineCloseStackPullRequest key={`close-stack-pull-request:${name}`} root={name} />}
               {activeInline.type === "park" && <InlineParkBranchInput key={`park:${name}`} branchName={name} />}
+              {activeInline.type === "need" && <InlineNeedInput key={`need:${name}`} branchName={name} />}
             </Suspense>
           </td>
         </tr>

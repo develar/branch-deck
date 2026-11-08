@@ -986,6 +986,11 @@ export function getParkedState(name: string): ParkedState | null {
   return structureIn(branchSyncStore.getState(), name).parked
 }
 
+/** What the user declared lands before the branch (`brd need`, `BranchStructure.needs`), as it is written */
+export function getDeclaredNeeds(name: string): readonly string[] {
+  return structureIn(branchSyncStore.getState(), name).needs
+}
+
 /** `getParkedState` of the row, re-rendered only when it changes */
 export function useParkedState(name: string): ParkedState | null {
   return useBranchSyncEntry("branches", name, branch => (branch?.structure ?? ROOT_STRUCTURE).parked)
