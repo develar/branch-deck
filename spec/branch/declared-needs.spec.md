@@ -14,7 +14,7 @@ targets:
   - ../../crates/sync-core/src/config_snapshot.rs
   - ../../crates/bd-rewrite/src/companion_command.rs
   - ../../crates/app-api/src/app/repository_config.rs
-  - ../../src/components/settings/CompanionsPage.tsx
+  - ../../src/components/settings/LandingPage.tsx
   - ../../src/components/settings/CompanionsSetting.tsx
   - ../../src/components/repository/RepositorySelector.tsx
   - ../../src/hooks/useConfigWrite.ts
@@ -217,9 +217,9 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
 - A primary must list its companions in its local config (`branchdeck.companion.<name>.path`, the name as it is
   written), each companion its primary (`branchdeck.primary`), both the paths of the main worktrees, so its leases and
   linked worktrees name the same repository. `brd companion add <path> [--name]`, `brd companion remove <name>`,
-  Settings → Companions and its Add Companion… (the folder dialog, named by the directory) and Remove write both
-  sides through one writer (`repository_config::write_companion`); `brd companion list` and the page read them with the
-  problem of each path. A companion has one primary, a primary is no companion, a repository no companion of itself,
+  the section Companions of Settings → Landing (the tab of the repository) and its Add Companion… (the folder dialog,
+  named by the directory) and Remove write both sides through one writer (`repository_config::write_companion`);
+  `brd companion list` and the page read them with the problem of each path. A companion has one primary, a primary is no companion, a repository no companion of itself,
   a name is letters, digits, `-`, `_` and `.`; a removal unsets the primary of the companion only while it names this
   repository.
   [@test] ../../crates/sync-core/src/companions_test.rs (`a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings`)
@@ -261,13 +261,13 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
 | `active` | "You declared that docs lands before auth: it is not in master yet, so a start of auth lands them out of order." |
 | `unapplied` | "You declared that docs lands before auth, and it is unapplied: it cannot land at all. Reapply it, or remove the need." |
 | `missing` | "You declared that docs lands before auth, and no branch of that name is here: a start of auth lands what you ordered last. Remove the need, or sync the branch that carries it." |
-| `companionUnreadable` | "You declared that docs lands before auth, and the companion ci-config is not readable: ‹reason›. Fix it in Settings → Companions, or remove the need." |
+| `companionUnreadable` | "You declared that docs lands before auth, and the companion ci-config is not readable: ‹reason›. Fix it in Settings → Landing, or remove the need." |
 | inherited | adds "ui is built on auth, which needs it: they land in one robot. Unstack ui from auth to land it alone." |
 | a robot lands it | adds "docs is landing in its Safe Push, which tests it without this start: a start beside it fails too." |
 
 - `brd need auth docs`, `brd need auth --remove docs`; `brd status` → `landing_needs: [{code: "unlanded_need", …}]`;
   `brd safe-push auth` → `unlanded_need`, `--allow-unlanded` only on the user's word.
-- Settings → Companions: the list (name, path, "Not readable: …"), Add Companion… (the folder dialog), Remove; empty:
+- Settings → Landing, the tab of the repository, section Companions: the list (name, path, "Not readable: …"), Add Companion… (the folder dialog), Remove; empty:
   "No companion repositories. A need can name a branch of another repository once you add one here."; of a companion:
   "A companion of app: a need here names its branches as app:branch. Add companions there."
 - `brd companion add ../ci-config`, `brd need deploy ci-config:prepare`, `brd status --companions`.

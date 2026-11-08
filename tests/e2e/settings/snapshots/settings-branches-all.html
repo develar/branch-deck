@@ -1,0 +1,213 @@
+<div class="flex h-dvh flex-col bg-canvas text-sm" data-testid="settings-window">
+  <header class="@container flex h-10 shrink-0 items-center gap-4 select-none pl-2 pr-2" data-title-bar="native">
+    <div class="flex min-w-0 flex-1 items-center gap-3 has-data-[main-menu=expanded]:*:not-data-main-menu:invisible">
+      Settings
+    </div>
+  </header>
+  <div class="flex min-h-0 flex-1 flex-col gap-2 px-2 pb-2">
+    <div class="group/tabs flex data-horizontal:flex-col min-h-0 flex-1 gap-2" data-activation-direction="down" data-orientation="vertical" data-slot="tabs">
+      <div aria-label="Settings pages" aria-orientation="vertical" class="group/tabs-list inline-flex justify-center rounded-2xl p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none items-stretch gap-0.5 bg-transparent group-data-vertical/tabs:p-0 w-44 shrink-0 self-start" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-list" data-variant="list" role="tablist">
+        <span aria-hidden="true" class="px-2 pt-1.5 pb-0.5 text-xs text-muted-foreground first:pt-0">
+          Branch Deck
+        </span>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-general" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          General
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-appearance" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Appearance
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-diffs" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Diffs
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-notifications" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Notifications
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-accounts" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Accounts
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-tools" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Tools
+          <span aria-hidden="true" class="size-1.5 rounded-full bg-primary" data-testid="setup-dot" />
+        </button>
+        <span aria-hidden="true" class="px-2 pt-1.5 pb-0.5 text-xs text-muted-foreground first:pt-0">
+          Repositories
+        </span>
+        <button aria-controls="base-ui-[ID]" aria-disabled="false" aria-selected="true" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-active="" data-composite-item-active="" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-branches" id="base-ui-[ID]" role="tab" tabindex="0" type="button">
+          Branches
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-landing" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Landing
+        </button>
+        <button aria-disabled="false" aria-selected="false" class="relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20 after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100" data-activation-direction="down" data-orientation="vertical" data-slot="tabs-trigger" data-testid="settings-tab-agents" id="base-ui-[ID]" role="tab" tabindex="-1" type="button">
+          Agents
+        </button>
+      </div>
+      <div class="group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-[min(var(--radius-4xl),24px)] bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/5 [--card-spacing:--spacing(5)] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] dark:ring-foreground/10 *:[img:first-child]:rounded-t-[min(var(--radius-4xl),24px)] *:[img:last-child]:rounded-b-[min(var(--radius-4xl),24px)] min-h-0 flex-1 overflow-y-auto" data-size="default" data-slot="card" data-testid="settings-island">
+        <div class="px-(--card-spacing)">
+          <div class="flex flex-col gap-1.5" data-testid="settings-scope">
+            <div data-activation-direction="left" data-orientation="horizontal">
+              <div aria-label="Scope" class="inline-flex max-w-full items-center gap-0.5 rounded-2xl bg-muted p-[3px]" data-activation-direction="left" data-orientation="horizontal" role="tablist">
+                <button aria-disabled="false" aria-selected="true" class="inline-flex h-6 min-w-0 items-center rounded-xl px-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground focus-visible:bd-focus data-active:bg-background data-active:text-foreground data-active:shadow-xs dark:data-active:bg-input/50" data-activation-direction="left" data-active="" data-composite-item-active="" data-orientation="horizontal" data-testid="settings-scope-all" id="base-ui-[ID]" role="tab" tabindex="0" type="button">
+                  All repositories
+                </button>
+                <button aria-disabled="false" aria-selected="false" class="inline-flex h-6 min-w-0 items-center rounded-xl px-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground focus-visible:bd-focus data-active:bg-background data-active:text-foreground data-active:shadow-xs dark:data-active:bg-input/50" data-activation-direction="left" data-orientation="horizontal" data-testid="settings-scope-repository" id="base-ui-[ID]" role="tab" tabindex="-1" title="[TEMP_PATH]" type="button">
+                  <span class="animate-in truncate duration-700 fade-in">
+                    [REPO_ID]
+                  </span>
+                </button>
+              </div>
+            </div>
+            <p class="text-xs text-muted-foreground" data-testid="settings-scope-line">
+              What every repository uses, in the app and brd
+            </p>
+            <span aria-live="polite" class="sr-only">
+              The repository is [REPO_ID]
+            </span>
+          </div>
+        </div>
+        <div aria-labelledby="base-ui-[ID]" class="flex-1 text-sm outline-none flex flex-col gap-5 px-(--card-spacing) data-ending-style:hidden" data-activation-direction="down" data-index="0" data-orientation="vertical" data-slot="tabs-content" data-testid="settings-page-branches" id="base-ui-[ID]" role="tabpanel" tabindex="0">
+          <section aria-labelledby="[ID]" class="flex flex-col gap-3">
+            <div class="flex flex-col gap-0.5">
+              <h3 class="text-sm font-medium" id="[ID]">
+                Names
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                The prefix of your virtual branches
+              </p>
+            </div>
+            <div class="flex flex-col gap-1.5" data-testid="setting-branch-prefix">
+              <div class="flex items-center gap-2">
+                <input aria-label="Branch prefix" class="min-w-0 rounded-2xl border border-transparent bg-input/50 px-2.5 py-1 text-sm transition-[color,box-shadow] duration-200 outline-none bd-focus-inset file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:[--bd-focus-color:var(--destructive)] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 h-8 w-48" data-settings-focus="branchPrefix" data-slot="input" id="base-ui-[ID]" placeholder="your-name" value="" />
+                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+                  <svg aria-hidden="true" class="lucide lucide-circle-question-mark" data-icon="inline-start" />
+                  View Guide
+                </button>
+              </div>
+              <p class="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground" data-testid="setting-branch-prefix-repository">
+                <span>
+                  This repository uses its own prefix
+                  <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-slot="inline-code">
+                    user-name
+                  </code>
+                </span>
+                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-6 gap-1 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 px-1" data-slot="button" tabindex="0" type="button">
+                  Open [REPO_ID]
+                </button>
+              </p>
+            </div>
+          </section>
+          <section aria-labelledby="[ID]" class="flex flex-col gap-3">
+            <div class="flex flex-col gap-0.5">
+              <h3 class="text-sm font-medium" id="[ID]">
+                Sync
+              </h3>
+              <p class="text-xs text-muted-foreground">
+                How a sync groups the commits, and merges a conflict of git
+              </p>
+            </div>
+            <div class="group @container relative flex flex-col gap-1" data-settings-focus="symbols" data-testid="setting-symbols" tabindex="-1">
+              <div class="flex flex-col gap-2 @md:flex-row @md:items-start @md:justify-between @md:gap-6">
+                <div class="flex min-w-0 flex-col gap-0.5">
+                  <div class="flex min-h-6 items-center gap-1">
+                    <span class="text-sm" id="[ID]">
+                      Symbol dependencies
+                    </span>
+                    <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100">
+                      <button aria-label="Copy branchdeck.symbols" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                        <svg aria-hidden="true" class="lucide lucide-copy" />
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-xs text-muted-foreground">
+                    Shown by brd commits, never used for the branches
+                  </p>
+                </div>
+                <div class="flex shrink-0 items-center gap-2 @md:min-h-6">
+                  <div aria-labelledby="[ID]" class="relative inline-flex items-center *:not-first:-ml-px *:not-first:rounded-l-none *:not-last:rounded-r-none *:focus-visible:z-10" data-slot="field-group" role="group">
+                    <button aria-pressed="false" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+                      Off
+                    </button>
+                    <button aria-pressed="true" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 border-primary/50 text-primary hover:text-primary" data-slot="button" tabindex="0" type="button">
+                      Report Only
+                    </button>
+                    <button aria-pressed="false" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+                      On
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="group @container relative flex flex-col gap-1" data-settings-focus="resolveByWords" data-testid="setting-resolveByWords" tabindex="-1">
+              <div class="flex flex-col gap-2 @md:flex-row @md:items-start @md:justify-between @md:gap-6">
+                <div class="flex min-w-0 flex-col gap-0.5">
+                  <div class="flex min-h-6 items-center gap-1">
+                    <span class="text-sm" id="[ID]">
+                      Resolve conflicts by words
+                    </span>
+                    <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100">
+                      <button aria-label="Copy branchdeck.resolveByWords" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                        <svg aria-hidden="true" class="lucide lucide-copy" />
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-xs text-muted-foreground">
+                    Commit a conflict that its words resolve, in a sync, Update Project and brd update
+                  </p>
+                </div>
+                <div class="flex shrink-0 items-center gap-2 @md:min-h-6" />
+              </div>
+              <p class="flex min-h-6 flex-wrap items-center gap-x-1 text-xs text-muted-foreground" data-testid="setting-resolveByWords-source">
+                [REPO_ID] has its own value: On
+                <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 text-primary underline-offset-4 hover:underline h-6 gap-1 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 px-1" data-slot="button" tabindex="0" type="button">
+                  Open [REPO_ID]
+                </button>
+              </p>
+            </div>
+          </section>
+          <section aria-labelledby="[ID]" class="flex flex-col gap-3">
+            <div class="flex flex-col gap-0.5">
+              <h3 class="text-sm font-medium" id="[ID]">
+                Review
+              </h3>
+            </div>
+            <div class="group @container relative flex flex-col gap-1" data-settings-focus="reviewExperimental" data-testid="setting-reviewExperimental" tabindex="-1">
+              <div class="flex flex-col gap-2 @md:flex-row @md:items-start @md:justify-between @md:gap-6">
+                <div class="flex min-w-0 flex-col gap-0.5">
+                  <div class="flex min-h-6 items-center gap-1">
+                    <span class="text-sm" id="[ID]">
+                      Review plan (experimental)
+                    </span>
+                    <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100">
+                      <button aria-label="Copy branchdeck.reviewExperimental" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                        <svg aria-hidden="true" class="lucide lucide-copy" />
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-xs text-muted-foreground">
+                    Mark Reviewed, Since Your Review and the plan of the files in the review window of a branch
+                  </p>
+                </div>
+                <div class="flex shrink-0 items-center gap-2 @md:min-h-6" />
+              </div>
+              <p class="flex min-h-6 flex-wrap items-center gap-x-1 text-xs text-muted-foreground" data-testid="setting-reviewExperimental-source">
+                Set in the system Git config; a change goes to your global Git config, which wins over it
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-end gap-x-4 gap-y-2 border-border text-xs text-muted-foreground border-t-0 px-1 py-0">
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+        <span class="flex items-center gap-1.5">
+          <kbd class="inline-flex items-center gap-1" data-slot="kbd-group">
+            <kbd class="pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-lg bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=input-group]:bg-input in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3" data-slot="kbd">
+              Esc
+            </kbd>
+          </kbd>
+          Close
+        </span>
+      </div>
+    </div>
+  </div>
+</div>

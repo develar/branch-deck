@@ -144,12 +144,13 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`saves a typed prefix without its trailing slash and refuses one git cannot take`)
 - The alternative is the command `git config --global branchdeck.branchPrefix your-name` with a copy button, and
   "View guide" opens the branch prefix guide: the field of Settings first ("takes precedence over the global Git
-  setting"), with "Open Settings", which opens Settings → General with the field focused (not in the guide Settings
+  setting"), with "Open Settings", which opens Settings → Branches with the field focused (not in the guide Settings
   itself opens), then the global command, the grouping examples, and the prefix of one repository on Settings →
-  Repository, which takes precedence over the one of Branch Deck, with "Open Repository Settings" (its field focused).
+  Branches, the tab of the repository, which takes precedence over the one of Branch Deck, with "Open Repository
+  Settings", which opens Branches on the tab of the repository, its field focused.
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens branch prefix help modal from welcome card`, `opens Settings at the field of the prefix from the guide, and at the one of the repository`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open the guide of the branch prefix without a button that opens Settings`)
-- Once set, the prefix is changed in Settings → General (⌘,), "Branches" ([Settings](settings.spec.md)): the toolbar
+- Once set, the prefix is changed in Settings → Branches (⌘,), "All repositories" ([Settings](settings.spec.md)): the toolbar
   has no field for it, as the prefix is set once and the welcome card asks for it while it is missing. The field saves
   on Enter and when it loses the focus, never on a key (the prefix names the branches of the sync and the robots of
   Patronus), refuses a prefix git cannot take in place, and Escape takes the typing back before it closes the window.
@@ -302,7 +303,7 @@ alert with the reason and the next step, never a raw Git error.
   starts no git process, and the next sync finds the prefix the same way. A Sync the user pressed that comes back so
   for a repository never synced (the Ready to Sync card, while the window kept the focus) is asked again once the window
   holds the session of the new prefix, Sync busy throughout: that session serves it, as no sync of an opened repository
-  does. A prefix written in Settings → Repository subscribes the window again the same way (`repository_config_changed`).
+  does. A prefix written in Settings → Branches subscribes the window again the same way (`repository_config_changed`).
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs the session of a prefix set in a terminal once the focus finds it`, `syncs under a prefix set in a terminal behind the window's back when Sync of the Ready to Sync card is pressed`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should open and sync the session of a prefix written here, for a repository synced before`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_run_under_a_prefix_the_config_left_builds_nothing`)
@@ -405,7 +406,7 @@ alert with the reason and the next step, never a raw Git error.
 - The help of the unassigned commits, where the `(name)` prefix first shows, says whether agents write it here
   (`branchdeck.agentSubjectBranch` of the repository): "Coding agents write (name) when they commit here.", else "Coding
   agents write (name) when they commit once Name the branch in each commit subject is on for this repository.", with
-  "Open Agent Settings".
+  "Open Agent Settings", which opens Settings → Agents on the tab of the repository, the rule focused.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in the help of the unassigned commits whether agents write the prefix here, and opens their settings`)
 - On the way to the first branches, the Ready to Sync card and "No active branches" say where coding agents work: the
   user never picks a worktree, an agent leases one through brd ([brd lease](../cli/lease.spec.md)). By
@@ -413,12 +414,13 @@ alert with the reason and the next step, never a raw Git error.
   agents such as Claude Code lease worktrees of their own and land each commit on your branch." with "Install Agent CLI"
   (the install and the toast of Help → Install Agent CLI…), and once it is installed "You work in this checkout. Coding
   agents such as Claude Code lease worktrees of their own through brd and land each commit on your branch." with "Open
-  Agent Settings"; with the rule off, "With the Agent CLI, coding agents such as Claude Code work in this checkout beside
+  Agent Settings" (Settings → Agents on the tab of the repository, the rule focused); with the rule off, "With the Agent CLI, coding agents such as Claude Code work in this checkout beside
   you." (installed: "Coding agents such as Claude Code work in this checkout beside you, through brd."). The status of the
   Agent CLI is read when the line shows, on each focus and after an install.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in Ready to Sync where coding agents work, installs the Agent CLI there and opens Agent Settings`, `names the baseline and where coding agents work in the empty state, and installs the Agent CLI there`)
   [@test] ../../src/lib/agents-hint.test.ts (`says where agents work by the rule of the repository, and that the Agent CLI lets them`)
-- Settings → Agents without the skill installed offers "Install Agent CLI" ([Settings](settings.spec.md#agents)).
+- Settings → Agents without the skill installed says "Agents read these rules once the skill is installed" with
+  "Install Agent CLI" ([Settings](settings.spec.md#agents)); Settings → Tools names the skill once it is installed.
 
 ### AI and help
 

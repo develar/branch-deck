@@ -39,7 +39,7 @@ export function ResolvedMergeViewer({ commit, copy, resolved, subject }: Resolve
       <div className="flex flex-col gap-3 bd-padding-card">
         <p className="text-xs text-muted-foreground">
           Git stops at {resolved.conflicts === 1 ? "1 conflict" : `${resolved.conflicts} conflicts`} here, and the words of each resolve it: the sync copied the commit with the
-          result, as IntelliJ resolves simple conflicts. Settings → Repository turns this off.
+          result, as IntelliJ resolves simple conflicts. Settings → Branches turns this off.
         </p>
         <ConflictingFilesSection files={files} source={source} labels={{ left: "the branch below", right: `“${subject}”` }} />
       </div>

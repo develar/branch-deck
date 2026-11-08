@@ -28,7 +28,7 @@ targets:
   - ../../src/model/store.ts
   - ../../src/lib/sign-in-run.ts
   - ../../src/components/settings/GitHubSettings.tsx
-  - ../../src/components/settings/GitHubPage.tsx
+  - ../../src/components/settings/AccountsPage.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/components/repository/PullRequestStatusLine.tsx
   - ../../src/components/repository/YourTurnCard.tsx
@@ -152,7 +152,7 @@ redirect and without a client secret.
 
 ### Settings
 
-- The GitHub page of the Settings window ([Settings](settings.spec.md)) says, asked again on every open of the window
+- The GitHub section of Settings → Accounts ([Settings](settings.spec.md)) says, asked again on every open of the window
   and on every sign-in or sign-out of any window (`get_auth_status`, `auth-changed`):
   - signed in: "Signed in as @octocat", with Sign Out and Manage on GitHub; while `gh` or `GH_TOKEN` comes first,
     "; the token of gh comes first while GitHub accepts it";
@@ -179,7 +179,7 @@ redirect and without a client secret.
 
 - The status line of the pull requests ([Pull Requests](../branch/pull-requests.spec.md#landing-overview)) and of Your
   Turn, after the hint "No GitHub token to see pull requests" or "GitHub rejected the token from gh", has "Sign In…",
-  which opens Settings at GitHub; a build without the sign-in has "GitHub Settings…" there, which opens it too: it never names a
+  which opens Settings → Accounts at GitHub; a build without the sign-in has "GitHub Settings…" there, which opens it too: it never names a
   sign-in the build has not. The build decides which, so the button waits for the status, the fact `auth` the session
   of the window reads when it opens. After "SAML SSO" with a URL, "Authorize…", which opens it.
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
@@ -196,7 +196,7 @@ redirect and without a client secret.
 
 ## User Experience
 
-- The section is the GitHub page of Settings: `text-sm` lines, `xs` buttons ("Sign In to GitHub" and "Sign Out" `outline`, "Manage
+- The section is GitHub's on the Accounts page of Settings: `text-sm` lines, `xs` buttons ("Sign In to GitHub" and "Sign Out" `outline`, "Manage
   on GitHub" `ghost`), the code in a nested `rounded-lg border` panel. The hint's button is `outline xs`, before
   Refresh.
 - No sign-in is ever started by itself, and no window opens: the user starts it and opens GitHub.
@@ -233,5 +233,5 @@ redirect and without a client secret.
 
 - [Pull Requests](../branch/pull-requests.spec.md#the-token): the token chain.
 - [Review Requests](review-requests.spec.md): Your Turn and its hint.
-- [Settings](settings.spec.md): the window of the GitHub page.
+- [Settings](settings.spec.md): the window of the Accounts page.
 - [Agent CLI](../cli/agent-cli.spec.md): `brd safe-push --create-pull-request` with the same token.

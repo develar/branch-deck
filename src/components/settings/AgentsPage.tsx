@@ -1,179 +1,93 @@
-import { useEffect, useId, useState } from "react"
-import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { FieldGroup } from "@/components/layout/FieldGroup"
-import { ConfigReadError, ConfigSwitchRow, ConfigWarnings, SettingsSection } from "@/components/settings/SettingRow"
-import { CopyButton } from "@/components/shared/CopyButton"
+import { ConfigSwitch, ScopedConfigSections } from "@/components/settings/ConfigControls"
+import { ScopedConfigRow } from "@/components/settings/ScopedConfigRow"
+import { SettingsSection } from "@/components/settings/SettingRow"
 import { InstallAgentCliButton } from "@/components/shared/InstallAgentCliButton"
 import { useAgentCliStatus } from "@/hooks/useAgentCliStatus"
-import { useConfigWrite } from "@/hooks/useConfigWrite"
-import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
-import { resolveHomeDir, tildePath } from "@/lib/home-path"
-import { describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle } from "@/lib/repository-config"
+import { useSettingsScope } from "@/hooks/useSettingsScope"
 import { openSettings } from "@/lib/settings-window"
-import { useSelectedProjectPath } from "@/stores/repository"
 
-/** The three rules of `brd workspace`: their key, what they do, their default and the title of a failed global write */
+/** The three rules of `brd workspace`: their key, what they do */
 const AGENT_RULES = [
   {
     configKey: "agentLease",
-    label: "Work in their own worktree",
-    description: "Each agent leases a worktree and lands each commit on your branch",
-    defaultValue: true,
-    globalErrorTitle: "Cannot change where agents work in every repository",
+    label: "Work in its own worktree",
+    description: "Each agent leases a worktree; its commits arrive on your branch one by one",
   },
   {
     configKey: "agentSubjectBranch",
     label: "Name the branch in each commit subject",
     description: "(auth) Add login form: the commit goes into the branch auth",
-    defaultValue: true,
-    globalErrorTitle: "Cannot change how agents write commit subjects in every repository",
   },
   {
     configKey: "agentPullRequest",
-    label: "Open a pull request after each pick",
-    description: "The agent pushes the branch and opens its pull request without asking",
-    defaultValue: false,
-    globalErrorTitle: "Cannot change whether agents open pull requests in every repository",
+    label: "Push the branch and open its pull request",
+    description: "After each commit arrives on your branch, the agent pushes it and opens its pull request without asking",
   },
 ] as const
 
-type AgentRuleKey = (typeof AGENT_RULES)[number]["configKey"]
+/** "On" or "Off", as a line names a switch */
+function onOff(value: boolean): string {
+  return value ? "On" : "Off"
+}
 
 /**
- * Settings → Agents (spec/repository/settings.spec.md#agents): whether coding agents find brd through its skill, and how
- * they work, which `brd workspace` tells an agent before its first edit: one value for every repository in the global git
- * config, and the selected repository's own
+ * Settings → Agents (spec/repository/settings.spec.md#agents): how coding agents work, which `brd workspace` tells an
+ * agent before its first edit, one value for every repository in the global git config and the repository's own. The
+ * pull request after a commit is off where the repository lands by a push, as Rust says (`agentPullRequestOff`). While
+ * the skill is not installed no agent asks: one line with the install. The skill itself is on Tools, beside the others
  */
 export function AgentsPage({ openCount }: { openCount: number }) {
-  const path = useSelectedProjectPath() ?? ""
+  const { scope, name } = useSettingsScope()
+  const status = useAgentCliStatus(openCount)
   return (
     <>
-      <SettingsSection title="Coding agents" description="Agents such as Claude Code and Codex ask brd workspace before their first edit; what you tell an agent wins">
-        <AgentSkill openCount={openCount} />
-        {AGENT_RULES.map(rule => (
-          // one read per repository; without one, the global config alone
-          <AgentRuleSetting key={`${rule.configKey}:${path}`} path={path} {...rule} />
-        ))}
-        <p className="text-xs text-muted-foreground" data-testid="agent-tools">
-          Agents also run teamcity and youtrack
-          <Button variant="link" size="xs" className="px-1" onClick={() => openSettings({ page: "tools" })}>
-            Open Tools
-          </Button>
+      {status !== null && status.bd === null && (
+        <p className="flex min-h-6 flex-wrap items-center gap-2 text-xs text-muted-foreground" data-testid="agent-skill">
+          Agents read these rules once the skill is installed
+          <InstallAgentCliButton openAgentSettings={false} />
         </p>
+      )}
+      <SettingsSection title="Coding agents" description="Agents such as Claude Code and Codex ask brd workspace before their first edit; what you tell an agent wins">
+        <ScopedConfigSections>
+          {(config, scoped) =>
+            AGENT_RULES.map(rule => {
+              const off = rule.configKey === "agentPullRequest" ? (config?.agentPullRequestOff ?? null) : null
+              return (
+                <ScopedConfigRow
+                  key={rule.configKey}
+                  configKey={rule.configKey}
+                  label={rule.label}
+                  description={rule.description}
+                  setting={config?.[rule.configKey] ?? null}
+                  words={{ valueText: onOff }}
+                  busy={scoped.writing}
+                  onReset={() => void scoped.write({ key: rule.configKey, value: null })}
+                  focusKey={rule.configKey}
+                  notApplied={
+                    off === null ? null : (
+                      <>
+                        {scope === "all" ? `In ${name}: ${off}` : off}
+                        <Button variant="link" size="xs" className="px-1" onClick={() => openSettings({ page: "landing", scope: "repository", focus: "landing" })}>
+                          Change Route
+                        </Button>
+                      </>
+                    )
+                  }
+                  control={({ value, disabled, labelId }) => (
+                    <ConfigSwitch
+                      value={off !== null && scope === "repository" ? false : value}
+                      disabled={disabled || (off !== null && scope === "repository")}
+                      labelId={labelId}
+                      onChange={on => void scoped.write({ key: rule.configKey, value: on })}
+                    />
+                  )}
+                />
+              )
+            })
+          }
+        </ScopedConfigSections>
       </SettingsSection>
     </>
-  )
-}
-
-/** Whether the skill is installed (`agent_cli_status`, asked on each open and focus), else the install */
-function AgentSkill({ openCount }: { openCount: number }) {
-  const status = useAgentCliStatus(openCount)
-  const [homeDir, setHomeDir] = useState("")
-  useEffect(() => {
-    void resolveHomeDir().then(setHomeDir)
-  }, [])
-
-  if (status === null) {
-    return null
-  }
-  if (status.bd === null) {
-    return (
-      <div className="flex min-h-6 items-center gap-2 text-xs text-muted-foreground" data-testid="agent-skill">
-        The agent skill is not installed
-        <InstallAgentCliButton openAgentSettings={false} />
-      </div>
-    )
-  }
-  const brd = status.bd
-  return (
-    <div className="flex min-h-6 items-center gap-1 text-xs text-muted-foreground" data-testid="agent-skill">
-      <span
-        className="min-w-0 truncate"
-        title={brd}
-      >{`Installed: agents find brd (${tildePath(brd, homeDir)}) through ${status.skills.map(it => tildePath(it, homeDir)).join(", ")}`}</span>
-      <CopyButton text={() => brd} tooltip="Copy the path of brd" alwaysVisible />
-    </div>
-  )
-}
-
-/**
- * One rule: the switch is its value for every repository (the global git config), the buttons the selected
- * repository's own (`.git/config`): "Like Global" removes it there. The worktree config and the command line win over
- * both, so the buttons are disabled then, with that reason
- */
-function AgentRuleSetting({
-  path,
-  configKey,
-  label,
-  description,
-  defaultValue,
-  globalErrorTitle,
-}: {
-  path: string
-  configKey: AgentRuleKey
-  label: string
-  description: string
-  defaultValue: boolean
-  globalErrorTitle: string
-}) {
-  const { state, retry, showWritten } = useRepositoryConfig(path)
-  const { writing, write } = useConfigWrite(path, showWritten)
-  const labelId = useId()
-  const setting = state.status === "loaded" ? state.config[configKey] : null
-  const overridden = setting === null ? null : overriddenReason(setting)
-  // the value of every repository: the global or system one, else the default
-  const everywhere = setting?.fallbackValue ?? defaultValue
-  const own = setting?.scope === "local" ? setting.value : null
-  const choices = [
-    { label: "Like Global", value: null },
-    { label: "On", value: true },
-    { label: "Off", value: false },
-  ] as const
-
-  return (
-    <div className="flex flex-col gap-1">
-      <ConfigSwitchRow
-        configKey={configKey}
-        label={label}
-        description={description}
-        checked={everywhere}
-        disabled={setting === null || writing}
-        onCheckedChange={checked => void write({ key: configKey, value: checked }, "global", globalErrorTitle)}
-      />
-      <div className="flex min-h-6 flex-col justify-center gap-1.5 pl-9 text-xs text-muted-foreground">
-        {state.status === "error" && <ConfigReadError testId={`setting-${configKey}-error`} message={state.message} onRetry={retry} />}
-        {setting !== null && <p data-testid={`setting-${configKey}-source`}>{describeGlobalSource(setting.fallbackScope, defaultValue ? "On" : "Off")}</p>}
-        {setting !== null && path !== "" && (
-          <div className="flex items-center gap-2" data-testid={`setting-${configKey}-repository`}>
-            <span id={labelId}>{`In ${repositoryName(path)}`}</span>
-            <FieldGroup role="group" aria-labelledby={labelId}>
-              {choices.map(choice => {
-                const pressed = overridden === null && own === choice.value
-                return (
-                  <Button
-                    key={choice.label}
-                    size="xs"
-                    variant="outline"
-                    aria-pressed={pressed}
-                    className={cn(pressed && "border-primary/50 text-primary hover:text-primary")}
-                    disabled={overridden !== null || writing}
-                    onClick={() => {
-                      if (!pressed) {
-                        const change = { key: configKey, value: choice.value }
-                        void write(change, "local", writeErrorTitle(change, path))
-                      }
-                    }}
-                  >
-                    {choice.label}
-                  </Button>
-                )
-              })}
-            </FieldGroup>
-          </div>
-        )}
-        <ConfigWarnings configKey={configKey} overridden={overridden} invalid={setting?.invalid} />
-      </div>
-    </div>
   )
 }

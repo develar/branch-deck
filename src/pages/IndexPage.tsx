@@ -22,7 +22,7 @@ import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { notifyError } from "@/lib/errors"
-import { SETTINGS_WINDOW } from "@/lib/settings-window"
+import { SETTINGS_WINDOW, SETTINGS_WINDOW_SIZE } from "@/lib/settings-window"
 import type { SettingsTarget } from "@/lib/settings-window"
 import { openSubWindow } from "@/lib/window-management"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
@@ -43,8 +43,8 @@ const debouncedWindowFocus = pDebounce((focused: boolean) => setSessionWindowFoc
 
 /** Opens the Settings window, or brings it to the front at `target` */
 function openSettingsWindow(target: SettingsTarget): void {
-  openSubWindow({ windowId: SETTINGS_WINDOW, url: "/settings", title: "Settings", width: 720, height: 540, data: target }).catch((error: unknown) =>
-    notifyError("Cannot open Settings", error),
+  openSubWindow({ windowId: SETTINGS_WINDOW, url: "/settings", title: "Settings", width: SETTINGS_WINDOW_SIZE.width, height: SETTINGS_WINDOW_SIZE.height, data: target }).catch(
+    (error: unknown) => notifyError("Cannot open Settings", error),
   )
 }
 

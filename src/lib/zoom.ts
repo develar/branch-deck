@@ -31,8 +31,8 @@ export function minWindowWidth(zoom: number): number {
 
 /** The title bar of a sub-window fits one line from 800 px; the sidebar and the diffs of a review need 640 CSS px */
 const MIN_SUB_WINDOW = { width: 800, height: 500, islandsWidth: 640 } as const
-/** The sidebar of Settings beside a page fits from 600 × 420 px; the page needs 560 CSS px */
-const MIN_SETTINGS_WINDOW = { width: 600, height: 420, islandsWidth: 560 } as const
+/** The sidebar of Settings beside a page fits from 640 × 440 px, a row's control under its label; the page needs 600 CSS px */
+const MIN_SETTINGS_WINDOW = { width: 640, height: 440, islandsWidth: 600 } as const
 /** The search above the entries of Activity fits from 440 × 400 px; the entries need 400 CSS px */
 const MIN_ACTIVITY_WINDOW = { width: 440, height: 400, islandsWidth: 400 } as const
 

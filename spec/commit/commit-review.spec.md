@@ -303,7 +303,7 @@ where a dialog would cover it.
   the header of the block whose diffs it switches: the title bar of a review window, the end of the tabs of a pull
   request review, beside Changes. It is one option set, the stock `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the
   shown layout in its pressed state, no colour of its own (`DiffLayoutButtons`).
-  Soft wraps follow the setting of Settings → Diffs & Merge ([Commit Files](commit-files.spec.md#soft-wraps)).
+  Soft wraps follow the setting of Settings → Diffs ([Commit Files](commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A review may show the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree
   row keeps its width for the name. An owner chip of a branch review ([Branch Review](../branch/branch-review.spec.md#code-owners))

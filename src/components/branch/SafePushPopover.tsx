@@ -578,7 +578,12 @@ function ReviewLine({ read, pullRequest }: { read: SafePushRead; pullRequest: Pu
           )}
           <div className="flex flex-wrap gap-2">
             {mergeRequest === null ? (
-              <Button variant="outline" size="xs" onClick={() => openSettings({ page: "repository", focus: "githubRepository" })} data-testid="safe-push-set-github">
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => openSettings({ page: "landing", scope: "repository", focus: "githubRepository" })}
+                data-testid="safe-push-set-github"
+              >
                 <SettingsIcon data-icon="inline-start" />
                 Set GitHub Repository…
               </Button>

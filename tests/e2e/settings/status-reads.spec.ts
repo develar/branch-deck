@@ -48,7 +48,7 @@ test.describe("Settings: the read of a status", () => {
   test("should say it reads the GitHub sign-in until the answer, and a failed read with Retry", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await expectStatusRead(page, repo, {
-      page: "github",
+      page: "accounts",
       answer: "authStatus",
       reading: "Reading the GitHub sign-in…",
       failure: { testId: "github-auth-error", title: "Cannot read the GitHub sign-in" },
@@ -59,7 +59,7 @@ test.describe("Settings: the read of a status", () => {
   test("should say it reads the YouTrack sign-in until the answer, and a failed read with Retry", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await expectStatusRead(page, repo, {
-      page: "youtrack",
+      page: "accounts",
       answer: "authStatus",
       reading: "Reading the YouTrack sign-in…",
       failure: { testId: "youtrack-auth-error", title: "Cannot read the YouTrack sign-in" },

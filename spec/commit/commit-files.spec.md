@@ -305,8 +305,8 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   [@test] ../../src/lib/diff/highlight/engine.test.ts (`answers a page far into a file first as provisional, then exact, and confirms equal runs without arrays`)
   [@test] ../../src/lib/diff/highlight/client.test.ts (`keeps the pages the engine on the main thread answers, a provisional one confirmed exact`)
 - The section must offer the split, the unified and the inline view. The choice is one setting of every diff view (the
-  section, the reviews, the uncommitted changes, the conflicts and the missing commits), also in Settings → Diffs &
-  Merge. Split is the default, as in IntelliJ; a stored choice keeps winning over it.
+  section, the reviews, the uncommitted changes, the conflicts and the missing commits), also in Settings → Diffs.
+  Split is the default, as in IntelliJ; a stored choice keeps winning over it.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
 - Inline must show each pair of a block that the diff engine finds similar as one row: the new line with the deleted
@@ -338,19 +338,19 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 
 ### Soft Wraps
 
-- "Ligatures" in Settings → Diffs & Merge must draw the ligatures of JetBrains Mono, on by default; each
+- "Ligatures" in Settings → Diffs must draw the ligatures of JetBrains Mono, on by default; each
   character keeps its cell, and a changed character inside a ligature stays visible.
   [@test] ../../tests/e2e/commit-files/diff-font.spec.ts (`keeps the cell width of each character with ligatures on, also where a changed range cuts a ligature`)
 - Inline must strike its deleted parts through, still grey and left out of a copy; Split and Unified strike nothing.
   [@test] ../../tests/e2e/commit-files/diff-font.spec.ts (`strikes the deleted parts of an Inline row through, and no change of Split or Unified`)
-- "Soft wraps" in Settings → Diffs & Merge must break a long line at the edge of the diff. It is off by
+- "Soft wraps" in Settings → Diffs must break a long line at the edge of the diff. It is off by
   default, as IntelliJ's `USE_SOFT_WRAPS`: a long line keeps its shape and scrolls sideways. One setting for every
   diff view.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
 
 ### Whitespace
 
-- The Whitespace menu beside the layout switch (also in Settings → Diffs & Merge, where it names the choice) must
+- The Whitespace menu beside the layout switch (also in Settings → Diffs, where it names the choice) must
   choose what the diff of every view ignores: Do Not Ignore (the default, as IntelliJ), Trim Whitespace, Ignore Whitespace, Ignore Whitespace
   and Blank Lines. The button is marked while it ignores anything. The choice goes to the backend with every read of
   the diffs of the files.

@@ -7,7 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { ReadFailure, SettingsSection } from "@/components/settings/SettingRow"
 import { CommandLine } from "@/components/shared/CommandLine"
+import { CopyButton } from "@/components/shared/CopyButton"
+import { InstallAgentCliButton } from "@/components/shared/InstallAgentCliButton"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { useAgentCliStatus } from "@/hooks/useAgentCliStatus"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import type { CliToolAction, CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
 import {
@@ -37,7 +40,8 @@ import {
 import type { RunningCliToolAction } from "@/stores/cli-tools"
 
 /**
- * Settings → Tools (spec/repository/cli-tools.spec.md): the `teamcity` and `youtrack` CLIs, each with its binary,
+ * Settings → Tools (spec/repository/cli-tools.spec.md): `brd`, whose skill tells coding agents how to work here, then
+ * the `teamcity` and `youtrack` CLIs, each with its binary,
  * version and sign-ins, and the one action Rust picks for it; read again on each open and focus, the last answer shown
  * meanwhile; a failed read says why, with Retry, above them. `server` is the TeamCity server an open names (the server
  * of a robot's build), for the sign-in.
@@ -56,11 +60,46 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
 
   return (
     <SettingsSection title="Command-line tools" description="Agents and Branch Deck run them as you would; each keeps its own sign-in, its skill teaches the agents to use it">
+      <AgentCliRow openCount={openCount} homeDir={homeDir} />
       {readError !== null && <ReadFailure title="Cannot read the tools" message={readError} testId="cli-tools-error" onRetry={retryCliTools} />}
       {statuses === null
         ? readError === null && <LoadingLine>Reading the tools…</LoadingLine>
         : statuses.map(status => <CliToolRow key={status.tool} status={status} homeDir={homeDir} server={server} />)}
     </SettingsSection>
+  )
+}
+
+/**
+ * `brd`, the agent CLI of Branch Deck (spec/repository/settings.spec.md#tools): whether its skill is installed
+ * (`agent_cli_status`, asked on each open and focus) with the path of brd to copy, else Install Agent CLI, the install
+ * of Help → Install Agent CLI…, whose toast has no action here. The rules agents follow are on Agents
+ */
+function AgentCliRow({ openCount, homeDir }: { openCount: number; homeDir: string }) {
+  const status = useAgentCliStatus(openCount)
+  const nameId = useId()
+  const brd = status?.bd ?? null
+  return (
+    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid="agent-skill" data-settings-focus="cli-brd" tabIndex={-1}>
+      <div className="flex min-h-6 items-center gap-2">
+        <span id={nameId} className="font-mono text-sm">
+          brd
+        </span>
+        {brd !== null && (
+          <span className="min-w-0 truncate text-xs text-muted-foreground" title={brd}>
+            {tildePath(brd, homeDir)}
+          </span>
+        )}
+        {brd !== null && <CopyButton text={() => brd} tooltip="Copy the path of brd" alwaysVisible />}
+        <span className="flex-1" />
+        {status !== null && brd === null && <InstallAgentCliButton openAgentSettings={false} />}
+      </div>
+      <p className="text-xs text-muted-foreground">Coding agents ask it how to work in your repositories: Settings → Agents</p>
+      {status !== null && (
+        <p className="min-w-0 truncate text-xs" data-testid="agent-skill-files">
+          {brd === null ? "The agent skill is not installed" : `Agent skill: ${status.skills.map(it => tildePath(it, homeDir)).join(", ")}`}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -75,7 +114,7 @@ function CliToolRow({ status, homeDir, server }: { status: CliToolStatus; homeDi
   const runningHere = running !== undefined && !isSkillAction(running.action) ? running : undefined
   const busy = running === undefined ? undefined : `${status.tool} is busy`
   return (
-    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid={`cli-tool-${status.tool}`} data-settings-focus={status.tool} tabIndex={-1}>
+    <div role="group" aria-labelledby={nameId} className="flex flex-col gap-1.5" data-testid={`cli-tool-${status.tool}`} data-settings-focus={`cli-${status.tool}`} tabIndex={-1}>
       <div className="flex min-h-6 items-center gap-2">
         <span id={nameId} className="font-mono text-sm">
           {status.tool}

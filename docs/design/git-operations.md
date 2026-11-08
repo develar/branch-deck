@@ -4477,12 +4477,15 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 
 #### Repository settings
 
-Settings → Repository shows and writes three keys of the repository's git config, Settings → Diffs & Merge the
-fourth, `branchdeck.resolveByWords`, Settings → Landing the fifth, `branchdeck.pushSizeLimit` (a size, `50M` when
-unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
-`resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, written only to `.git/config`, never globally,
-[Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the three rules of coding agents
-(`crates/sync-core/src/repository_config.rs`):
+Three pages of Settings show and write the `branchdeck.*` keys of the git config
+(`crates/sync-core/src/repository_config.rs`): Settings → Branches the symbols, the repository's own prefix,
+`branchdeck.resolveByWords` and `branchdeck.reviewExperimental`; Settings → Landing the route into master
+(`branchdeck.landing`: `patronus`, `push` or `pull-request`, [Landing Routes](../../spec/branch/landing-routes.spec.md)),
+the GitHub repository, the companions and `branchdeck.pushSizeLimit` (a size, `50M` when unset, `0` or `off` for none:
+see [Push size](#push-size)); Settings → Agents the three rules of coding agents. Their scope tabs decide the config a
+write goes to: "All repositories" the global config (the prefix there is the app's own, of `settings.json`), the tab of
+the repository its `.git/config`; the route, the GitHub repository and the companions are the repository's only, and a
+route is never written to the global config. The keys:
 `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
@@ -4490,12 +4493,11 @@ lands each commit with `brd pick`), `branchdeck.agentSubjectBranch` (a git boole
 each subject with its `(branch)`, which the copies of the virtual branches drop) and `branchdeck.agentPullRequest` (a
 git boolean, off when unset: the landing of an agent's commit includes its pull request, the push of the branch after
 the pick and the `gh pr create` it prints, without asking, off under the Push route of the repository's own config
-(`LandingSetting::agent_pull_request_off`); `lease_config` reads it and `branchdeck.landing` with their scopes too,
-for the `next` of `brd lease get`), and, on Settings → Diffs & Merge →
-Review, the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset and
-for a value git refuses: Mark Reviewed, the local Since Your Review, the overview of the plan and the marks of the files,
-[Review Plan](../../spec/branch/review-plan.spec.md); one value for every repository in the global config, as
-`resolveByWords`; `brd review-plan` and `brd mark-reviewed` work without it). `brd` reads the same keys, so the app keeps nothing of them in its own settings; the
+(`LandingSetting::agent_pull_request_off`); `lease_config` reads it and `branchdeck.landing` with their scopes too, for
+the `next` of `brd lease get`), and the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset
+and for a value git refuses: Mark Reviewed, the local Since Your Review, the overview of the plan and the marks of the
+files, [Review Plan](../../spec/branch/review-plan.spec.md); `brd review-plan` and `brd mark-reviewed` work without
+it). `brd` reads the same keys, so the app keeps nothing of them in its own settings; the
 three agent keys only `brd workspace` and `brd lease get` read ([brd workspace](../../spec/cli/workspace.spec.md)), and their global values
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `brd install` and the app's Install Agent CLI: no sync,
 no operation.

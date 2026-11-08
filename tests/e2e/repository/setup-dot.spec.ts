@@ -108,7 +108,7 @@ test.describe("Setup dot", () => {
     const item = (await openSetup(page)).getByTestId("setup-item")
     await expect(item).toHaveText(/The teamcity sign-in to ci\.example expires Jan 5/)
     await item.getByRole("button", { name: "Sign In" }).click()
-    await expectSettingsOpened(page, { page: "tools", focus: "teamcity" })
+    await expectSettingsOpened(page, { page: "tools", focus: "cli-teamcity" })
 
     const again = (await openSetup(page)).getByTestId("setup-item")
     await again.getByRole("button", { name: "Remind Tomorrow" }).click()

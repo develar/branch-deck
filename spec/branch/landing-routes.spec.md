@@ -118,7 +118,7 @@ target, read before anything is pushed.
 ### Setting
 
 - The route must be `branchdeck.landing` of the git config, `patronus`, `push` or `pull-request` (any case, trimmed),
-  read with the other keys of Settings → Repository in one `git config` and in the one read of an operation
+  read with the other keys of Settings (Branches, Landing, Agents) in one `git config` and in the one read of an operation
   (`ConfigSnapshot`); an empty value is unset, another value is invalid with its reason, and an operation refuses it as
   it refuses a wrong `branchdeck.resolveByWords`. A change goes through `set_repository_config` like the other keys.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`)
@@ -484,5 +484,6 @@ target, read before anything is pushed.
   [@test] ../../src/presenters/outcome.test.ts (`says what GitHub merged, an auto-merge it waits with, and its refusal in its words`)
   [@test] ../../src/presenters/next-step.test.ts (`rows of a merge: Merge #7 and Auto-Merge #7 by the method, merge′ merges by itself, merge″ says why the merge waits, pr creates the pull request`)
 - Settings → Landing must name the route of the selected repository ("Land by": Safe Push · Push · Pull Request) and
-  where it comes from ([Settings](../repository/settings.spec.md#landing)).
+  where it comes from, on the tab of the repository only: a route is never written to the global config
+  ([Settings](../repository/settings.spec.md#landing)).
   [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should land the repository by a push into master once chosen, the main window taking the step, and back to the default`)

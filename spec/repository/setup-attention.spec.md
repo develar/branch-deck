@@ -75,6 +75,7 @@ click lists each item with its action and its skip, then Settings.
   each open and focus; each read tells every window (`setup-changed`), as does a YouTrack sign-in.
   [@test] ../../crates/cli-tools/src/kept_statuses_test.rs (`a_read_that_started_before_the_last_one_kept_keeps_nothing`, `forget_drops_the_statuses_and_the_reads_running`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should mark Tools in the sidebar while a CLI waits for you, until it is done`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should mark Accounts in the sidebar while the YouTrack sign-in of the app stopped working`)
 
 ### The dot
 
@@ -95,9 +96,10 @@ click lists each item with its action and its skip, then Settings.
   agents with it; "The teamcity agent skill 1.4.0 is ready to install" updates the skill.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should update a CLI from the dot, and skip a version until a newer one`)
 - "The teamcity sign-in to ci.example expires Jan 5" and "… expired" open Settings → Tools at the tool to sign in; "The
-  YouTrack sign-in stopped working" opens Settings → YouTrack.
+  YouTrack sign-in stopped working" opens Settings → Accounts.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should remind of an expiring sign-in tomorrow, and open Tools to sign in`)
-- Settings → Tools has the dot in the sidebar while a CLI is an item.
+- Settings → Tools has the dot in the sidebar while a CLI is an item, Settings → Accounts while the app's YouTrack
+  sign-in stopped working.
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should mark Tools in the sidebar while a CLI waits for you, until it is done`)
 
 ### Skips

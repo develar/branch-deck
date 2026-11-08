@@ -82,7 +82,7 @@ describe("describeLandingRefusals", () => {
       "You declared that docs lands before auth, and no branch of that name is here: a start of the whole auth stack lands what you ordered last. Remove the need, or sync the branch that carries it.",
     )
     expect(of({ kind: "companionUnreadable", companion: "ci-config", reason: "/src/ci-config is gone" })).toBe(
-      "You declared that docs lands before auth, and the companion ci-config is not readable: /src/ci-config is gone. Fix it in Settings → Companions, or remove the need.",
+      "You declared that docs lands before auth, and the companion ci-config is not readable: /src/ci-config is gone. Fix it in Settings → Landing, or remove the need.",
     )
     const landing = describeLandingRefusals([{ ...DECLARED_DOCS, landingIn: { branch: "docs", robotId: "r1", wholeStack: false } }], "auth")
     expect(landing?.reason).toContain("out of order. docs is landing in its Safe Push, which tests it without this start: a start beside it fails too.")

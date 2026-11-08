@@ -201,7 +201,7 @@ export function getAvailabilityAction(
   switch (availability?.status) {
     case "signedOut":
     case "notAuthenticated":
-      return auth === null ? null : { label: auth.signInAvailable ? "Sign In…" : "GitHub Settings…", onClick: () => openSettings({ page: "github" }) }
+      return auth === null ? null : { label: auth.signInAvailable ? "Sign In…" : "GitHub Settings…", onClick: () => openSettings({ page: "accounts", focus: "account-github" }) }
     case "noAccess":
       return availability.source === "branchDeck" ? openUrlAction("Request Access…", auth?.manageUrl ?? null) : null
     case "ssoRequired":

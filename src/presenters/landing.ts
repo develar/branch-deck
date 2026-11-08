@@ -79,7 +79,7 @@ function describeUnlandedNeed(refusal: Extract<LandingRefusal, { kind: "unlanded
     case "missing":
       return `${declared}, and no branch of that name is here: a start of ${subject} lands what you ordered last. Remove the need, or sync the branch that carries it.${inherited}`
     case "companionUnreadable":
-      return `${declared}, and the companion ${state.companion} is not readable: ${state.reason}. Fix it in Settings → Companions, or remove the need.${inherited}`
+      return `${declared}, and the companion ${state.companion} is not readable: ${state.reason}. Fix it in Settings → Landing, or remove the need.${inherited}`
   }
 }
 

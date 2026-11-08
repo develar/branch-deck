@@ -52,7 +52,7 @@ export function IssueDetails({ issueKey }: { issueKey: string }) {
             {entry.status === "signInProblem" && entry.problem === "expired" ? "Your YouTrack sign-in expired: sign in again" : "Sign in to YouTrack to see the issue"}
           </p>
           <div>
-            <Button size="xs" variant="outline" onClick={() => openSettings({ page: "youtrack" })}>
+            <Button size="xs" variant="outline" onClick={() => openSettings({ page: "accounts", focus: "account-youtrack" })}>
               YouTrack Settings…
             </Button>
           </div>

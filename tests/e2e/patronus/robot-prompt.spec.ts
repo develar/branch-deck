@@ -57,7 +57,7 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
     // the test server has no teamcity CLI: no build logs, and the way to them
     await expect(toast).toContainText("no build logs: teamcity is not signed in to ci.example")
     await toast.getByRole("button", { name: "Set Up TeamCity CLI" }).click()
-    await expectSettingsOpened(page, { page: "tools", focus: "teamcity", server: "https://ci.example" })
+    await expectSettingsOpened(page, { page: "tools", focus: "cli-teamcity", server: "https://ci.example" })
   })
 
   test("should list the commits of the whole stack for the robot of a stacked branch, each with its branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {

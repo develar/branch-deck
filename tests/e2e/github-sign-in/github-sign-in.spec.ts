@@ -24,8 +24,8 @@ test.describe("GitHub sign-in", () => {
     await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("Sign In…")
     await overview.getByTestId("pull-request-status-line-action").click()
     // Settings opens at GitHub; the window asks the backend itself
-    const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "github" }))
-    const github = settings.getByTestId("settings-page-github")
+    const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "accounts", focus: "account-github" }))
+    const github = settings.getByTestId("settings-page-accounts")
     await expect(github.getByTestId("github-auth")).toHaveAttribute("data-status", "signedOut")
     await expect(github.getByTestId("github-approval-note")).toHaveText(
       "An organization that restricts OAuth apps shows its private repositories only after an admin approves Branch Deck; gh is often approved there already",
@@ -58,8 +58,8 @@ test.describe("GitHub sign-in", () => {
   test("should cancel the sign-in, and sign out", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links", { gitHubSignIn: { clientId: CLIENT_ID, signedIn: false } })
     await syncAndWaitForBranches()
-    const settings = await openSettingsWindow(page, { page: "github" })
-    const github = settings.getByTestId("settings-page-github")
+    const settings = await openSettingsWindow(page, { page: "accounts", focus: "account-github" })
+    const github = settings.getByTestId("settings-page-accounts")
 
     await github.getByRole("button", { name: "Sign In to GitHub" }).click()
     await expect(github.getByTestId("github-user-code")).toHaveText("WDJB-MJHT")
@@ -73,8 +73,8 @@ test.describe("GitHub sign-in", () => {
 
     // signed in elsewhere meanwhile: the next open of the window asks again
     await repo.setGitHubSignIn({ signedIn: true })
-    await emitTauriEvent(page, "open_settings", { page: "github" })
-    await reopenLinkedSubWindow(settings, await expectSettingsOpened(page, { page: "github" }, 2))
+    await emitTauriEvent(page, "open_settings", { page: "accounts", focus: "account-github" })
+    await reopenLinkedSubWindow(settings, await expectSettingsOpened(page, { page: "accounts", focus: "account-github" }, 2))
     await expect(github.getByTestId("github-auth")).toContainText(`Signed in as @${VIEWER_LOGIN}`)
     await github.getByRole("button", { name: "Sign Out" }).click()
     await expect(settings.getByText("Signed out of GitHub")).toBeVisible()
@@ -109,8 +109,8 @@ test.describe("GitHub sign-in", () => {
     const overview = await openLandingOverview(page)
     await expect(overview.getByTestId("pull-request-status-line-action")).toHaveText("GitHub Settings…")
     await overview.getByTestId("pull-request-status-line-action").click()
-    const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "github" }))
-    const auth = settings.getByTestId("settings-page-github").getByTestId("github-auth")
+    const settings = await openLinkedSubWindow(page, await expectSettingsOpened(page, { page: "accounts", focus: "account-github" }))
+    const auth = settings.getByTestId("settings-page-accounts").getByTestId("github-auth")
     await expect(auth).toContainText("No GitHub token: run gh auth login, set GH_TOKEN, or store HTTPS credentials of github.com in git")
     await expect(auth.getByRole("button", { name: "Sign In to GitHub" })).toHaveCount(0)
 

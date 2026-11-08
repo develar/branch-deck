@@ -147,7 +147,7 @@ test.describe("YouTrack issue popover", () => {
     await issueKeyLink(page, "ABC-123").hover()
     await expect(popover.getByTestId("issue-sign-in")).toContainText("Your YouTrack sign-in expired: sign in again")
     await popover.getByRole("button", { name: "YouTrack Settings…" }).click()
-    await expectSettingsOpened(page, { page: "youtrack" })
+    await expectSettingsOpened(page, { page: "accounts", focus: "account-youtrack" })
   })
 
   test("should leave the links of a signed-out user as they are", async ({ page, setupRepo, syncAndWaitForBranches }) => {

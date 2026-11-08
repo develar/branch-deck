@@ -558,8 +558,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 
 ### Mode and measurement
 
-- `branchdeck.symbols` must be `off`, `report` or `on` (the default; Settings → Repository, Symbol dependencies: Off ·
-  Report Only · On, [Settings](../repository/settings.spec.md#repository)); another value is an error. `report` must
+- `branchdeck.symbols` must be `off`, `report` or `on` (the default; Settings → Branches, Symbol dependencies: Off ·
+  Report Only · On, [Settings](../repository/settings.spec.md#branches)); another value is an error. `report` must
   read the summaries for `brd commits` and the dangling-reference check only; `off` must read none.
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_mode_comes_from_git_config_and_is_on_without_it`)
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)

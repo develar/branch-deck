@@ -3,11 +3,11 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 
-test.describe("Settings → Companions", () => {
+test.describe("Settings → Landing, Companions", () => {
   test("should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
-    const window = await openSettingsWindow(page, { page: "companions" })
+    const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })
     const companions = window.getByRole("region", { name: "Companions" })
     const empty = companions.getByTestId("companions-empty")
     await expect(empty).toHaveText("No companion repositories. A need can name a branch of another repository once you add one here.")

@@ -38,7 +38,7 @@ targets:
   - ../../crates/app-api/src/app/mark_reviewed.rs
   - ../../crates/app-api/src/session/windows.rs
   - ../../crates/sync-core/src/repository_config.rs
-  - ../../src/components/settings/DiffsPage.tsx
+  - ../../src/components/settings/BranchesPage.tsx
   - ../../src/lib/review-plan.ts
   - ../../src/lib/range-review.ts
   - ../../src/lib/file-tree.ts
@@ -610,15 +610,15 @@ group at the end. The overview at the top of the document of the review, before 
 - A newer commit of the table of the same repository must supersede the read ahead in flight: its queries of accio are
   killed, and the newer one reads what is left to read.
   [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_newer_commit_supersedes_the_read_ahead_in_flight`)
-- `branchdeck.reviewExperimental` must be off unless git config turns it on (Settings → Diffs & Merge → Review), read
+- `branchdeck.reviewExperimental` must be off unless git config turns it on (Settings → Branches → Review), read
   and written like the other keys of Settings; a value git refuses must be off with its reason and fail no sync: an
   experiment never turns on from a broken value.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_off_until_the_config_turns_them_on`, `nothing_set_is_the_defaults`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_off_unless_the_config_turns_them_on`)
-- The switch "Review plan (experimental)" of Settings → Diffs & Merge → Review must turn it on and off for every
-  repository in the global git config, and a repository's own `.git/config` value must win over it, as
-  `branchdeck.resolveByWords` does (spec/repository/settings.spec.md).
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Diffs & Merge`)
+- The switch "Review plan (experimental)" of Settings → Branches → Review must turn it on and off for every
+  repository in the global git config on "All repositories", and the repository's own `.git/config` value, written on
+  its tab, must win over it, as `branchdeck.resolveByWords` does (spec/repository/settings.spec.md).
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Branches`)
 - The flag must reach the view through each sync (`TableHeader.reviewExperimental`), and a change of it from Settings
   must sync; with the flag off the review windows must look as they do without the review plan. `brd review-plan` and
   `brd mark-reviewed` must work without it, and so must the two commands of the app.

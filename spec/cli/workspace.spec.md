@@ -37,7 +37,8 @@ waits for the user; on, the agent goes on to push the branch and open its pull r
 everywhere by default, since a push publishes; a user who lets agents open their pull requests turns it on, for a
 repository or for all, instead of writing it into the agent instructions of a repository, where it would contradict
 the skill. Nothing that lands into master (a Safe Push, `brd land`) follows from it. The global config gives every repository its value, the repository's own `.git/config` wins,
-and the user changes both in Settings → Agents ([Settings](../repository/settings.spec.md#agents)). What the user says
+and the user changes both in Settings → Agents, the first on its tab "All repositories", the second on the tab of the
+repository ([Settings](../repository/settings.spec.md#agents)). What the user says
 in the session wins over both.
 
 ## Goals

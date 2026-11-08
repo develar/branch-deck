@@ -107,7 +107,7 @@ export function issueKeyLink(page: Page, key: string): Locator {
 
 /** Settings at YouTrack: its page and the sign-in on it */
 export async function openYouTrackSettings(page: Page): Promise<{ settings: Page; youtrack: Locator; auth: Locator }> {
-  const settings = await openSettingsWindow(page, { page: "youtrack" })
-  const youtrack = settings.getByTestId("settings-page-youtrack")
+  const settings = await openSettingsWindow(page, { page: "accounts" })
+  const youtrack = settings.getByTestId("settings-page-accounts")
   return { settings, youtrack, auth: youtrack.getByTestId("youtrack-auth") }
 }

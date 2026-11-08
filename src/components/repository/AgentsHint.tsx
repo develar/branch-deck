@@ -24,7 +24,7 @@ export function AgentsHint() {
       {/* a div: the alert of No active branches spaces its paragraphs */}
       <div>{describeAgentsHere(state.config.agentLease.value, installed)}</div>
       {installed ? (
-        <Button size="xs" variant="outline" onClick={() => openSettings({ page: "agents" })}>
+        <Button size="xs" variant="outline" onClick={() => openSettings({ page: "agents", scope: "repository", focus: "agentLease" })}>
           Open Agent Settings
         </Button>
       ) : (

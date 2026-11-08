@@ -15,7 +15,7 @@ test("should show and switch to a companion that has never been opened @webkit",
 
   const companionPath = await primary.addCompanionRepository("ci-config")
   await primary.setDialogPick(companionPath)
-  const settings = await openSettingsWindow(page, { page: "companions" })
+  const settings = await openSettingsWindow(page, { page: "landing", scope: "repository" })
   const companions = settings.getByRole("region", { name: "Companions" })
   const syncs = await finishedSyncCount(page)
   await companions.getByRole("button", { name: "Add Companion…" }).click()

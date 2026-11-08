@@ -4,29 +4,37 @@ import { RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Callout } from "@/components/shared/Callout"
-import { InlineCode } from "@/components/shared/InlineCode"
-import type { RepositoryConfigKey } from "@/lib/repository-config"
-import { CONFIG_KEYS } from "@/lib/repository-config"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 
-/** A group of settings on a page of Settings: its title, what the group is about, the settings */
-export function SettingsSection({ title, description, children }: { title: string; description: ReactNode; children: ReactNode }) {
+/** A group of settings on a page of Settings: its title, what the group is about (none where its rows say it), the settings */
+export function SettingsSection({
+  title,
+  description,
+  focusKey,
+  children,
+}: {
+  title: string
+  description?: ReactNode
+  /** The `data-settings-focus` of the section, which an open names (an account, a tool) */
+  focusKey?: string
+  children: ReactNode
+}) {
   const titleId = useId()
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3">
+    <section aria-labelledby={titleId} className="flex flex-col gap-3" data-settings-focus={focusKey} tabIndex={focusKey === undefined ? undefined : -1}>
       <div className="flex flex-col gap-0.5">
         <h3 id={titleId} className="text-sm font-medium">
           {title}
         </h3>
-        <p className="text-xs text-muted-foreground">{description}</p>
+        {description !== undefined && <p className="text-xs text-muted-foreground">{description}</p>}
       </div>
       {children}
     </section>
   )
 }
 
-/** A switch with its label and what it does; the whole row toggles it */
+/** A switch with its label and what it does on the left, the switch on the right; the whole row toggles it */
 export function SettingRow({
   testId,
   label,
@@ -43,12 +51,12 @@ export function SettingRow({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-start gap-3 text-sm" data-testid={testId}>
-      <Switch size="sm" className="mt-0.5" checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
-      <span className="flex flex-col gap-0.5">
-        {label}
+    <label className="flex items-start justify-between gap-6 text-sm" data-testid={testId}>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex min-h-6 items-center">{label}</span>
         {description !== undefined && <span className="text-xs text-muted-foreground">{description}</span>}
       </span>
+      <Switch size="sm" className="mt-1 shrink-0" checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
     </label>
   )
 }
@@ -71,53 +79,6 @@ export function ReadFailure({ title, message, testId, onRetry }: { title: string
         </Button>
       </div>
     </Callout>
-  )
-}
-
-/** A switch of a `branchdeck.*` key that one value of the global git config gives every repository: what it does, then the key */
-export function ConfigSwitchRow({
-  configKey,
-  label,
-  description,
-  checked,
-  disabled,
-  onCheckedChange,
-}: {
-  configKey: RepositoryConfigKey
-  label: string
-  description: string
-  checked: boolean
-  disabled: boolean
-  onCheckedChange: (checked: boolean) => void
-}) {
-  return (
-    <SettingRow
-      testId={`setting-${configKey}`}
-      label={label}
-      description={
-        <>
-          {`${description} · `}
-          <InlineCode>{CONFIG_KEYS[configKey]}</InlineCode>
-        </>
-      }
-      checked={checked}
-      disabled={disabled}
-      onCheckedChange={onCheckedChange}
-    />
-  )
-}
-
-/** Under a switch of `configKey`: why the worktree config or the command line keep it as it is, and its invalid value */
-export function ConfigWarnings({ configKey, overridden, invalid }: { configKey: RepositoryConfigKey; overridden: string | null; invalid: string | null | undefined }) {
-  return (
-    <>
-      {overridden !== null && (
-        <p className="text-warning" data-testid={`setting-${configKey}-reason`}>
-          {overridden}
-        </p>
-      )}
-      {invalid != null && <p className="text-warning">{invalid}</p>}
-    </>
   )
 }
 

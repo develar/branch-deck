@@ -23,14 +23,14 @@ import { recordCommand, routeCommandError, waitForStorePersistence } from "../he
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
   await expect(page.getByTestId("configuration-header").getByRole("textbox", { name: "Branch prefix" })).toHaveCount(0)
-  const settings = await openSettingsWindow(page, { page: "general" })
+  const settings = await openSettingsWindow(page, { page: "branches" })
   await expect(settings.getByRole("textbox", { name: "Branch prefix", exact: true })).toHaveValue(prefix)
   await settings.close()
 }
 
-/** Types the app's prefix into Settings → General and saves it with Enter; the window stays open */
+/** Types the app's prefix into Settings → Branches and saves it with Enter; the window stays open */
 async function saveAppPrefix(page: Page, prefix: string): Promise<Page> {
-  const settings = await openSettingsWindow(page, { page: "general" })
+  const settings = await openSettingsWindow(page, { page: "branches" })
   const field = settings.getByRole("textbox", { name: "Branch prefix", exact: true })
   await field.fill(prefix)
   await field.press("Enter")
@@ -91,7 +91,7 @@ test.describe("Onboarding", () => {
 
   test("changes the prefix in Settings on Enter or when the field is left, not on every key", async ({ page, setupRepo, testStore }) => {
     await setupRepo("simple", { prepopulateStore: true })
-    const settings = await openSettingsWindow(page, { page: "general" })
+    const settings = await openSettingsWindow(page, { page: "branches" })
     const field = settings.getByRole("textbox", { name: "Branch prefix", exact: true })
     await field.fill("jane doe")
     await expect(field).toHaveAttribute("aria-invalid", "true")
@@ -289,7 +289,7 @@ test.describe("Onboarding", () => {
     await expect(hint).toContainText("You work in this checkout. Coding agents such as Claude Code lease worktrees of their own through brd and land each commit on your branch.")
     await expect(hint.getByRole("button", { name: "Install Agent CLI" })).toHaveCount(0)
     await hint.getByRole("button", { name: "Open Agent Settings" }).click()
-    await expectSettingsOpened(page, { page: "agents" })
+    await expectSettingsOpened(page, { page: "agents", scope: "repository", focus: "agentLease" })
   })
 
   test("names the baseline and where coding agents work in the empty state, and installs the Agent CLI there", async ({ page, setupRepo }) => {
@@ -302,7 +302,7 @@ test.describe("Onboarding", () => {
     await hint.getByRole("button", { name: "Install Agent CLI" }).click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
     await hint.getByRole("button", { name: "Open Agent Settings" }).click()
-    await expectSettingsOpened(page, { page: "agents" })
+    await expectSettingsOpened(page, { page: "agents", scope: "repository", focus: "agentLease" })
   })
 
   test("says in the help of the unassigned commits whether agents write the prefix here, and opens their settings", async ({ page, setupRepo }) => {
@@ -312,7 +312,7 @@ test.describe("Onboarding", () => {
     const line = page.getByTestId("unassigned-commits-agent-subjects")
     await expect(line).toContainText("Coding agents write (name) when they commit here.")
     await line.getByRole("button", { name: "Open Agent Settings" }).click()
-    await expectSettingsOpened(page, { page: "agents" })
+    await expectSettingsOpened(page, { page: "agents", scope: "repository", focus: "agentSubjectBranch" })
   })
 
   test("refuses a bare repository with the reason", async ({ page, setupRepo }) => {

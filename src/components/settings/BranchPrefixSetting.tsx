@@ -8,6 +8,7 @@ import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { commands } from "@/lib/bindings"
 import type { ResolvedBranchPrefix } from "@/lib/bindings"
 import { appPrefixOf, INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { repositoryName } from "@/lib/repository-config"
 import { onSettingFieldKey } from "@/lib/setting-field"
 import { openSettings } from "@/lib/settings-window"
 import { setGlobalUserBranchPrefix, useAppSettings } from "@/stores/settings/appSettings"
@@ -15,7 +16,7 @@ import { onWriterChange, snapshotValueOf } from "@/stores/settings/persistent-st
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /**
- * The branch prefix of every repository (`globalUserBranchPrefix`), saved on Enter and when the field loses the focus,
+ * The branch prefix of every repository (`globalUserBranchPrefix`, Settings → Branches, All repositories), saved on Enter and when the field loses the focus,
  * not on every key: the prefix names the branches of the sync and the robots of Patronus. Escape takes the typing back.
  * Empty, the prefix of the global git config (`branchdeck.branchPrefix`) applies, its value the placeholder. The selected
  * repository's own git prefix wins over it, which the field says, with the way to its page: what Rust resolved for the
@@ -83,8 +84,8 @@ export function BranchPrefixSetting() {
             {"This repository uses its own prefix "}
             <InlineCode>{repositoryPrefix}</InlineCode>
           </span>
-          <Button variant="link" size="xs" className="px-1" onClick={() => openSettings({ page: "repository", focus: "branchPrefix" })}>
-            Open Repository Settings
+          <Button variant="link" size="xs" className="px-1" onClick={() => openSettings({ page: "branches", scope: "repository", focus: "branchPrefix" })}>
+            {`Open ${repositoryName(path ?? "")}`}
           </Button>
         </p>
       )}

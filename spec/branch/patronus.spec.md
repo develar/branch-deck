@@ -314,7 +314,7 @@ reports in it and closes it once merged.
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_running_robot_have_the_estimate_of_its_running_checks`, `the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
-- With Settings → Landing, "New Patronus API" (`appSettings.patronusNewApi`, off by default; Rust reads it from the
+- With Settings → Landing, All repositories, "New Patronus API" (`appSettings.patronusNewApi`, off by default; Rust reads it from the
   settings writer for each command, the page sends nothing), the same estimate comes from one request, `GET /robots/progress?robotId=…`, which Patronus
   folds from the same cache of a minute: the latest estimated finish over the running checks (`estimatedFinishAt`,
   the time left or the overtime against now), the check that ends last and its fraction done, the queued checks (also
@@ -1284,8 +1284,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   and its files ("Air Plugin Release Team (suggested: Alice) · 2 files", "· all files" for a branch-wide group), and
   "Open IJ-CR-7"; without a merge request "… They count in the GitHub pull request of the branch, and its GitHub
   repository is unknown." with
-  "Set GitHub Repository…", which opens Settings → Repository at the field of `branchdeck.githubRepository`
-  ([Settings](../repository/settings.spec.md#repository)); "Review Changes" beside it. No button creates anything.
+  "Set GitHub Repository…", which opens Settings → Landing on the tab of the repository at the field of
+  `branchdeck.githubRepository` ([Settings](../repository/settings.spec.md#landing)); "Review Changes" beside it. No button creates anything.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`, `should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
 - Each group names the files it has to review: `paths` and `branchWide` of the group when Patronus sends them (a
   branch-wide group comes without `paths`: every file of the branch is its), else the changed paths whose owner by the
@@ -1923,7 +1923,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   a REST start counts none. Until Patronus evaluates pull requests in the pre-check (its flag), an approval in the
   pull request makes the readiness `unknown`, and the robot decides.
 - A mirror configured only in Space, not in its committed settings, needs `branchdeck.githubRepository` (Settings →
-  Repository, GitHub repository); without it the branches are treated as on Space.
+  Landing, GitHub repository); without it the branches are treated as on Space.
 
 - The REST API is marked unstable (PAT-A-11): an unknown status or push mode shows as "Unknown status" instead of
   failing the list.

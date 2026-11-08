@@ -133,6 +133,6 @@ export async function copyRobotFullPrompt(robot: PatronusRobot): Promise<void> {
     title: `Copied the prompt for ${branch}`,
     description: `${contents} · no build logs: teamcity is not signed in to ${hostOf(server)}`,
     timeout: ACTION_TOAST_TIMEOUT_MS,
-    actionProps: { children: "Set Up TeamCity CLI", onClick: () => openSettings({ page: "tools", focus: "teamcity", server }) },
+    actionProps: { children: "Set Up TeamCity CLI", onClick: () => openSettings({ page: "tools", focus: "cli-teamcity", server }) },
   })
 }

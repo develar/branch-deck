@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Landing, Companions, Agents, Tools, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages in two groups (Branch Deck - General, Appearance, Diffs, Notifications, Accounts, Tools; Repositories - Branches, Landing, Agents), the pages of the git config under the scope tabs All repositories | the selected repository, opened by the main window from the menu, the keys and the buttons that name a page; the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -34,8 +34,16 @@ targets:
   - ../../src/pages/IndexPage.tsx
   - ../../src/components/ui/tabs.tsx
   - ../../src/components/settings/SettingRow.tsx
+  - ../../src/components/settings/ScopedConfigRow.tsx
+  - ../../src/components/settings/ScopeTabs.tsx
+  - ../../src/components/settings/ConfigControls.tsx
+  - ../../src/components/settings/AccountsPage.tsx
+  - ../../src/components/settings/BranchesPage.tsx
+  - ../../src/hooks/useScopedConfig.ts
+  - ../../src/hooks/useSettingsScope.ts
+  - ../../src/hooks/useConfigDraft.ts
+  - ../../src/lib/settings-close.ts
   - ../../src/components/settings/GeneralPage.tsx
-  - ../../src/components/settings/PushSizeLimitSetting.tsx
   - ../../src/components/settings/AppearancePage.tsx
   - ../../src/components/settings/DiffsPage.tsx
   - ../../src/components/settings/AgentsPage.tsx
@@ -45,15 +53,12 @@ targets:
   - ../../src/hooks/useConfigWrite.ts
   - ../../src/components/shared/DiffViewToggle.tsx
   - ../../src/components/settings/NotificationsPage.tsx
-  - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/settings/GitHubSettings.tsx
-  - ../../src/components/settings/YouTrackPage.tsx
   - ../../src/components/settings/YouTrackSettings.tsx
   - ../../src/stores/auth.ts
   - ../../src/stores/youtrack-issues.ts
   - ../../src/stores/cli-tools.ts
   - ../../src/components/settings/LandingPage.tsx
-  - ../../src/components/settings/ConfigRow.tsx
   - ../../src/hooks/useRepositoryConfigChanges.ts
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/YourTurnCard.tsx
@@ -83,7 +88,6 @@ targets:
   - ../../src/lib/branch-prefix.ts
   - ../../src/hooks/useRepositoryConfig.ts
   - ../../src/hooks/useStackIndependence.ts
-  - ../../src/components/settings/RepositoryPage.tsx
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../tests/e2e/setup/tauri-mocks.ts
   - ../../tests/e2e/helpers/settings-helpers.ts
@@ -97,21 +101,27 @@ Date: 2026-10-17
 
 ## Summary
 
-Settings is a window of its own, as in IntelliJ and the macOS apps: a sidebar of pages on the canvas (General,
-Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, and Repository for the selected repository) beside one island with the page. It is
-not modal: the main window stays usable, and a change applies at once in every window. The main window opens it, from
-the menu (⌘,), the keys of a custom title bar and the buttons that need a setting ("Notification Settings…", "Sign
-In…", "Set GitHub Repository…"), which name the page they need. Repository shows the `branchdeck.*` git config of the
-repository, which `brd` reads too, and writes it to its `.git/config`.
+Settings is a window of its own, as in IntelliJ and the macOS apps: a sidebar of pages on the canvas beside one island
+with the page. The sidebar has two groups: "Branch Deck", the settings of the app (General, Appearance, Diffs,
+Notifications, Accounts, Tools), and "Repositories", the `branchdeck.*` git config that the app and `brd` read
+(Branches, Landing, Agents). A page of the git config has the scope tabs "All repositories | <repository>": the value
+every repository uses, written to the global git config, and the selected repository's own, written to its
+`.git/config`. It is not modal: the main window stays usable, and a change applies at once in every window. The main
+window opens it, from the menu (⌘,), the keys of a custom title bar and the buttons that need a setting ("Notification
+Settings…", "Sign In…", "Set GitHub Repository…"), which name the page they need.
 
-The settings were a modal dialog before, whose six sections scrolled in a 32rem column; the toolbar had a popover of its
-own for one switch. The toolbar has one Settings button now, after Sync.
+The pages were fitted to 720 × 540 without scrolling, so every setting that did not fit got a page of its own (11 of
+them), and three pages showed where a value lives in three ways: a switch that wrote wherever the value was, a global
+switch with "In <repository>: Like Global · On · Off" under it, a row of `.git/config` only. Nobody could tell what
+held in a repository. One model now: a tab names the scope, a row shows the value of that tab and says only what
+differs (the repository's own value, with Reset).
 
 ## Goals
 
-- Every setting of the app in one place, one page per subject, each page without scrolling at the size the window
-  opens with (but Diffs & Merge and Agents, below).
-- A button that needs a setting opens the page that has it, not the top of a long list.
+- Every setting of the app in one place, one page per subject, each page in its usual state without scrolling at the
+  size the window opens with.
+- One way to see and change where a value of the git config lives: the scope tab; a row says what holds there.
+- A button that needs a setting opens the page, the scope and the field that have it.
 - The same settings in every window: every window writes them through the backend, which owns `settings.json`.
 - `settings.json` changes only when the user changes a setting or the list of projects: what a sync, a fetch or Update
   Project records of a repository lives beside it.
@@ -119,19 +129,21 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ## Non-goals
 
 - A search over the settings, Reset All.
-- A write of the worktree or the system git config. Repository writes `.git/config` only, and says where a value of
-  another config comes from; Diffs & Merge writes two keys to the global config.
-- A Light/Dark choice: the theme follows the system.
+- A write of the worktree or the system git config. "All repositories" writes the global config, the tab of the
+  repository its `.git/config`; a row says where a value of another config comes from.
+- A route into master for every repository: a route is the repository's own.
 - A settings dialog inside another window.
 
 ## Requirements
 
 ### The window
 
-- Settings is the sub-window `settings` at `/settings` (`SettingsPage`, lazy), titled "Settings", 720 × 540 when it
-  opens. Its minimum is 600 × 420 (the sidebar beside a page); a page needs 560 CSS px, so a zoom above 107% widens
-  it: `max(600, 560 × level)` (`sub_window_min_size` in `src-tauri/src/zoom.rs`, `minSubWindowSize` in
-  `src/lib/zoom.ts`, which `useZoom` sets by the label of the window).
+- Settings is the sub-window `settings` at `/settings` (`SettingsPage`, lazy), titled "Settings", 880 × 640 every time
+  it opens (`SETTINGS_WINDOW_SIZE`): the window-state plugin does not restore its size (`with_denylist` in
+  `src-tauri/src/lib.rs`), so a size saved by a build of a smaller window never keeps its pages cramped. Its minimum is
+  640 × 440, where a row puts its control under its label (a container query); a page needs 600 CSS px, so a zoom
+  above 107% widens it: `max(640, 600 × level)` (`sub_window_min_size` in `src-tauri/src/zoom.rs`, `minSubWindowSize`
+  in `src/lib/zoom.ts`, which `useZoom` sets by the label of the window).
   [@test] ../../src-tauri/src/zoom_test.rs (`the_settings_window_is_smaller_and_widens_above_107_percent`)
   [@test] ../../src/lib/zoom.test.ts (`is smaller for Settings, and wider above 107%`)
 - Only the main window opens it (`openSettingsWindow` of `IndexPage`, the handler of `open_settings`); the window starts
@@ -162,36 +174,44 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should open from the keyboard and run the items`, `should take the keys of the native menu: Ctrl+R syncs, Ctrl+, opens the settings`, `should send Sync and Settings from a sub-window to the main window`)
 - "Notification Settings…" of the Your Turn card opens Notifications.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`)
-- "Open Settings" of the branch prefix guide opens General with the field focused; the guide that Settings itself
-  opens has no such button.
+- "Open Settings" of the branch prefix guide opens Branches, All repositories, with the field focused; the guide that
+  Settings itself opens has no such button.
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide, and at the one of the repository`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open the guide of the branch prefix without a button that opens Settings`)
-- "Sign In…" of the GitHub hint (no token, or a rejected one) opens GitHub; a build without the sign-in names it
-  "GitHub Settings…".
+- "Sign In…" of the GitHub hint (no token, or a rejected one) opens Accounts at GitHub (`account-github`); a build
+  without the sign-in names it "GitHub Settings…". "YouTrack Settings…" of an issue and the Setup dot's YouTrack item
+  open Accounts at YouTrack (`account-youtrack`); a CLI's item of the dot opens Tools at its row (`cli-teamcity`,
+  `cli-youtrack`).
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
 - "Set GitHub Repository…" of the Safe Push popover, on its review line of a repository only on Space whose GitHub
-  repository is unknown ([Patronus](../branch/patronus.spec.md#code-owner-review)), opens Repository at the field of the GitHub repository; "Open Repository
-  Settings" of the General field (a repository with a prefix of its own) and of the prefix guide opens Repository at the
-  field of the branch prefix.
+  repository is unknown ([Patronus](../branch/patronus.spec.md#code-owner-review)), opens Landing on the tab of the
+  repository at the field of the GitHub repository; "Open <repository>" of the prefix of all repositories (a repository
+  with a prefix of its own) and "Open Repository Settings" of the prefix guide open Branches on the tab of the
+  repository at the field of its prefix. "Open Agent Settings" of the hints of the main window open Agents on the tab of
+  the repository at the rule they name; its toast after Install Agent CLI opens Agents.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
   [@test] ../../tests/e2e/welcome-card/welcome-card.spec.ts (`opens Settings at the field of the prefix from the guide, and at the one of the repository`)
+- An open names its scope (`SettingsTarget.scope`, `"repository"` for a field of the repository); without one it shows
+  All repositories, never the scope of an open before, where a change could go to the repository unseen.
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should open a page of the git config at the scope an open names, else at All repositories, never the one of before`)
+  [@test] ../../src/lib/settings-window.test.ts (`shows all repositories unless an open names the repository, never the scope of an open before`)
 - Every entry point shows `SettingsIcon` ([UI Theme](../../docs/design/ui-theme.md): one icon per concept).
 
 ### Pages
 
-- The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Diffs & Merge, Notifications, GitHub, YouTrack, Landing, Agents, Tools, a separator, then Repository with the name of the selected repository muted beside it (the
-  name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
-  switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
+- The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`) in two groups, each under its
+  muted name: "Branch Deck" (General, Appearance, Diffs, Notifications, Accounts, Tools) and "Repositories" (Branches,
+  Landing, Agents), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓ switch the page
+  (`activateOnFocus`). The page is one island (`Card`), which scrolls where its tallest state or a large zoom leaves it
   no room; the page left is hidden at once (`data-ending-style`), so two never stack.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
-- General: "Branches", the branch prefix of every repository without one of its own (`BranchPrefixSetting`,
-  [Onboarding](onboarding.spec.md), [Branch prefix order](#branch-prefix-order));
-  "Sync", Auto-sync on Focus, the setting of the item of the File menu, whose check the main window keeps; "AI",
-  Suggest branch names ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
-  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
+- General: "Sync", Auto-sync on Focus, the setting of the item of the File menu, whose check the main window keeps;
+  "AI", Suggest branch names ([Branch Name Suggestions](../branch/branch-name-suggestions.spec.md)).
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`checks Auto-sync on Focus in the native menu as the setting is, whichever window changed it`)
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
+- A row has what it does on the left and its control on the right (a switch, the buttons of a few values, a field), as
+  in IntelliJ and System Settings; below 28rem of the row the control goes under its label.
 - Appearance: "Theme", System · Light · Dark (`appSettings.theme`, System by default): every window shows the tokens
   of the choice at once (`data-theme` of the root, `useTheme`), System those of the system, again whenever the system
   changes; the frame of the window follows (the theme of Tauri, `null` for System), set only once the choice differs
@@ -203,82 +223,63 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   ([Zoom](zoom.spec.md)); "Title bar" (Windows, Linux), the system title bar ([Title Bar](title-bar.spec.md#setting)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should offer the system title bar in Settings → Appearance, applied after a restart`, `should show a fixed system title bar in the settings with its reason`)
-- Diffs & Merge: "Diffs", one setting of every diff view in each row, as IntelliJ's diff settings: Layout (Split ·
-  Unified · Inline) and Whitespace (the menu above the diffs, which says the choice here), the controls above every
-  diff too; then "Soft wraps" and "Ligatures", each with what it does
-  ([Commit Files](../commit/commit-files.spec.md#soft-wraps)). The diffs had a section of Appearance before; a page of
-  their own leaves room for the merge.
+- Diffs: one setting of every diff view in each row, as IntelliJ's diff settings: Layout (Split · Unified · Inline)
+  and Whitespace (the menu above the diffs, which says the choice here), the controls above every diff too; then "Soft
+  wraps" and "Ligatures", each with what it does ([Commit Files](../commit/commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs & Merge, the Whitespace menu naming its choice`)
-- Diffs & Merge, "Merge": "Resolve conflicts by words", the git key `branchdeck.resolveByWords`, on by default (the
-  sync, Update Project and `brd update` commit a conflict of git that its words resolve,
-  [Git Operations](../../docs/design/git-operations.md#resolve-by-words)). It is one value for every repository, so
-  the switch writes the global git config (`set_repository_config` with `scope: "global"`), which `brd` reads too. The
-  line under it says where the value comes from and where a change goes: "On by default. A change goes to your global
-  Git config, which brd reads too", "Set in your global Git config, which brd reads too", "Set in the system Git config.
-  A change goes to your global Git config, which wins over it". A repository whose `.git/config` sets the key keeps
-  its own value, as git reads it: the line says "Set in .git/config of <repository>, which overrides your global Git
-  config" (or "…, for this repository only"), the switch changes that value, and "Use Global" (or "Use Default")
-  removes it, with the result in its tooltip. The worktree config and the command line disable the switch with the
-  reason of Repository; an invalid value says why. The page reads the key for the selected repository
-  (`get_repository_config`), again when the window gets the focus; without a repository the backend reads the global
-  config alone. After a write the main window syncs a repository synced before (`repository_config_changed`). A failed
-  write is a toast: "Cannot change how every repository resolves conflicts by words", or for the local value "Cannot
-  change how <repository> resolves conflicts by words".
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should resolve conflicts by words in the global config, and say where the repository's own value wins`)
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
-- Diffs & Merge, "Review": "Review plan (experimental)", the git key `branchdeck.reviewExperimental`, off by default:
-  Mark Reviewed, Since Your Review, the overview of the plan and the marks of the files in the branch review
-  ([Review Plan](../branch/review-plan.spec.md)). The page reads it with "Resolve conflicts by words" in one
-  `get_repository_config`, and the switch behaves as that one: the global config for every repository, the lines of
-  where the value comes from, a repository's own `.git/config` value with "Use Global" (or "Use Default"), the
-  reasons of the worktree config, the command line and an invalid value. After a write the main window syncs, and a
-  review window opened after the sync takes the new value. A failed write is a toast: "Cannot change whether every
-  repository shows the review plan", or for the local value "Cannot change whether <repository> shows the review
-  plan". With this section the page scrolls at 720 × 540.
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Diffs & Merge`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs, the Whitespace menu naming its choice`)
 - Notifications: the four switches of the OS notifications, the permission of the OS, and "Dock icon" (not Windows)
   ([Review Requests](review-requests.spec.md#settings)). The permission is asked when the page shows, on each open of
   the window and when the window gets the focus.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should ask the OS for the permission to notify again when the window gets the focus`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open Settings at Notifications from the card menu, whose switches the main window keeps`, `should count the review requests, behind its switch`)
-- GitHub: the token and the app's own sign-in ([GitHub Sign-in](github-sign-in.spec.md)), asked again on each open of
-  the window and when any window signs in or out (`get_auth_status`: at the start of the window, again on each later
-  open, `useAuthStatusOnOpen` of the Settings page, and on `auth-changed`, `useAuthSync` of every window).
+- Accounts: the sign-ins of the app. "GitHub", the token and the app's own sign-in ([GitHub
+  Sign-in](github-sign-in.spec.md)), asked again on each open of the window and when any window signs in or out
+  (`get_auth_status`: at the start of the window, again on each later open, `useAuthStatusOnOpen` of the Settings page,
+  and on `auth-changed`, `useAuthSync` of every window); "YouTrack", the sign-in to the YouTrack of the issue links
+  ([YouTrack](youtrack.spec.md)), the `youtrack` part of the same status, read with GitHub's in one read. The tab has
+  the dot of the setup while the app's YouTrack sign-in stopped working ([Setup Dot](setup-attention.spec.md)).
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
-- YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), the `youtrack` part of the
-  same status, read with GitHub's in one read.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
-- Landing: how the selected repository lands into master, the robots of Patronus while a Safe Push lands it, the size
-  limit of every push ([Landing](#landing)).
-- Agents: how coding agents work ([Agents](#agents)).
-- Tools: the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
-  ([Command-Line Tools](cli-tools.spec.md)).
-- Repository: the settings of the selected repository ([Repository](#repository)).
-- A page that reads a status (GitHub, YouTrack, Tools) says it reads until the first answer ("Reading the GitHub
-  sign-in…", "Reading the YouTrack sign-in…", "Reading the tools…", once the read took 300 ms, `LoadingLine`), never an
+- Tools: first `brd`, whose skill coding agents read: its path with a copy button and the skill files, paths under the
+  home directory as `~` (`agent_cli_status`, asked on each open of the window and when it gets the focus), or "The agent
+  skill is not installed" with Install Agent CLI, the install of Help → Install Agent CLI…, whose toast has no action
+  here; then the `teamcity` and `youtrack` CLIs, their version, sign-ins and the action each needs
+  ([Command-Line Tools](cli-tools.spec.md)). The sign-ins of the CLIs are their own, not those of Accounts.
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, which Tools then names`)
+- Branches, Landing and Agents: the git config ([Scope](#scope), [Branches](#branches), [Landing](#landing),
+  [Agents](#agents)).
+- A page that reads a status (Accounts, Tools) says it reads until the first answer ("Reading the GitHub sign-in…",
+  "Reading the YouTrack sign-in…", "Reading the tools…", once the read took 300 ms, `LoadingLine`), never an
   empty section or a spinner without end. A failed read says why, with Retry ("Cannot read the GitHub sign-in" and the
   reason, `ReadFailure`), above the last status when one is known, until a read answers (`readError` of each store);
   Retry says it reads again until the answer.
   [@test] ../../tests/e2e/settings/status-reads.spec.ts (`should say it reads the GitHub sign-in until the answer, and a failed read with Retry`, `should say it reads the YouTrack sign-in until the answer, and a failed read with Retry`, `should say it reads the tools until the answer, and a failed read with Retry`)
   [@test] ../../src/stores/auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
-- Every page but Diffs & Merge and Agents fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
-  OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
-  of Repository can show, on Tools a CLI on two servers and the install command of the other. Agents, with its three
-  rules, the installed skill, a value of the worktree config and an invalid one, scrolls.
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`, `should fit every page at 720 × 540 without scrolling, the Dock badge too`)
+- Every page but Tools and Landing fits 880 × 640 without scrolling in its tallest state, a page of the git config on
+  both tabs: the code of the GitHub sign-in, the warning that the OS refused the notifications (one line with Open
+  System Settings), the Dock group on macOS and Linux, every line a row can show (the repository's own value with
+  Reset, the system config, a value of the worktree config, an invalid value, the pull request off by the route). Tools
+  with a CLI on two servers and the install command of the other, and Landing with the companions of a repository, may
+  scroll. No page is wider than the island, also at 640 × 440.
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 880 × 640 without scrolling`, `should fit every page at 880 × 640 without scrolling, the Dock badge too`, `should keep every page within the island at the smallest window`)
 
 ### The page an open shows
 
-- An open says what it shows (`SettingsTarget`, the data of the window): `{ page?, focus? }`. With a page it shows that
-  page; without one it keeps the page shown, and a new window opens at the page shown last (`appSettings.settingsPage`,
-  General by default). A page the sidebar doesn't know (an event of an older build) is General. A new open switches
-  the page during the render, not in an effect; the saved page follows the page shown.
-  [@test] ../../src/lib/settings-window.test.ts (`shows the page an open names`, `keeps the current page for an open without one`, `shows General for a page the sidebar doesn't know`)
+- An open says what it shows (`SettingsTarget`, the data of the window): `{ page?, scope?, focus?, server? }`. With a
+  page it shows that page; without one it keeps the page shown, and a new window opens at the page shown last
+  (`appSettings.settingsPage`, General by default). A page of an older build is the page that has its settings now
+  (`github` and `youtrack` Accounts, `repository` Branches, `companions` Landing; `currentSettingsPage`, also for the
+  saved page), one the sidebar doesn't know is General. A new open switches the page and the scope during the render,
+  not in an effect; the saved page follows the page shown, the scope is never saved.
+  [@test] ../../src/lib/settings-window.test.ts (`shows the page an open names`, `keeps the current page for an open without one`, `shows the page that has the settings of a page of before, and General for a page the sidebar doesn't know`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should show the page that has the settings of a page of an older build`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
-- Each open focuses the field it names on the page it shows (`data-settings-focus`: `branchPrefix` on General;
-  `githubRepository` and `branchPrefix` on Repository, once its settings are read), else the tab of the page, once Base
-  UI registered the tabs: a tab focused before keeps a stale highlight, and the first ↓ would go nowhere.
+- Each open focuses the field it names on the page it shows (`data-settings-focus`: `branchPrefix` on Branches,
+  `githubRepository` and `landing` on Landing, a rule on Agents, once their settings are read and the field is enabled;
+  `account-github` and `account-youtrack` on Accounts; `cli-brd`, `cli-teamcity` and `cli-youtrack` on Tools), else
+  the tab of the page, once Base UI registered the tabs: a tab focused before keeps a stale highlight, and the first ↓
+  would go nowhere. A field the page never shows is waited for 5 s at most.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should focus the field an open names`, `should open at the page an open names, else at the page shown last, its tab focused`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`)
 
@@ -370,66 +371,52 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   branches of the next one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
 
-### Repository
+### Scope
 
-- The page shows the `branchdeck.*` git config of the selected repository (`get_repository_config`, one
+- Branches, Landing and Agents show the `branchdeck.*` git config, which `brd` reads too (`get_repository_config`, one
   `git config --show-scope --get-regexp`, [Git Operations](../../docs/design/git-operations.md#repository-settings)),
   read when the page shows, when the window gets the focus (a `git config` or `brd` meanwhile) and on a switch of the
-  repository, under the line "Saved in `.git/config` of <repository>, which brd reads too". Without a repository it says
-  "Select a repository to see its settings"; a failed read is a `destructive` callout "Cannot read the settings of
-  <repository>" with the reason and Retry.
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should say what to do without a repository`, `should write nothing when the repository is switched while a field holds typing`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
-- Three rows, each with its git key (muted `InlineCode`) after what it does, one line each: Symbol dependencies
-  (Off · Report Only · On, `aria-pressed`
-  buttons, the sentence of the mode chosen: "Commits depend only on the lines they change", "Shown by brd commits,
-  never used for the branches", "Commits also depend on the commits that add the
-  symbols they use"; `branchdeck.symbols`, [Symbol Dependencies](../commit/symbol-dependencies.spec.md)), GitHub
-  repository (`owner/name`, "Where pull requests are opened", the detected one as the placeholder;
-  `branchdeck.githubRepository`, [Pull Requests](../branch/pull-requests.spec.md)) and Branch prefix ("Used here
-  instead of the prefix in General", `branchdeck.branchPrefix`, [Branch prefix order](#branch-prefix-order)).
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
-- The route into master, `branchdeck.landing` (`patronus`, `push`, `pull-request`; unset: Patronus on Space, the pull
-  request elsewhere), is read and written with these keys (`RepositoryConfig.landing`, the change `landing`; "Cannot
-  change how app lands into master"), and a sync and every `brd` command read it in their one read of the config; its
-  row is on Landing ([Landing](#landing), [Landing Routes](../branch/landing-routes.spec.md)). A `push` is taken only from the
-  repository's own config: a global or system one reads as unset, with the reason. A global write of the route is
-  refused, whatever its value: a global route would apply to every repository without its own.
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_route_is_written_only_to_the_local_config`)
-  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`, `a_push_route_of_the_global_config_is_none`)
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_default_route_follows_the_host_of_origin_in_the_one_read_of_its_push_url`)
-  [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
-- A row names where its value comes from only when it is not the default, without the value its control shows: "Set
-  in this repository" for `.git/config`, "Set in your global Git config", "Set in the system Git config"
-  (`describeSource`). Two rows also name the source of their default: the GitHub repository the remote it was detected
-  from ("Detected from origin", "Detected from the Space mirror", "None detected: neither origin nor its Space mirror
-  is on GitHub"), the branch prefix the prefix of General below. While `.git/config` sets the key, "Use Default" (or
-  "Use Global", when a global or system value applies then) unsets it there, its tooltip the result ("Removes it from
-  .git/config: back to On, the default", "… back to On, set in your global Git config", "… back to acme/app, detected
-  from origin", "… back to no GitHub repository"; `fallbackValue`, `fallbackScope` of the read). A value of the
-  worktree config or of `git -c` and `GIT_CONFIG_*` wins over `.git/config`: its control is disabled with that reason
-  ("Set in config.worktree, which overrides .git/config: change it there", "Set by git -c or GIT_CONFIG_*, which
-  overrides .git/config"), as the backend refuses the write. An invalid value says why; a
-  boolean is invalid exactly when `git config --type=bool` refuses it (` true `, `08`, `1kb`), and `0x10`, `1k` or
-  `-1` are true as git reads them; `0b1` is invalid on every platform, though the git of glibc 2.38+ reads it as true.
-  [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `says where the GitHub repository comes from while no config sets it`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
+  repository. Above the page the scope tabs (Base UI `Tabs`, ←/→): "All repositories" and the name of the selected
+  repository (its path in the tooltip), with the line under them: "What every repository uses, in the app and brd", or
+  "Changes here apply only to <repository>, saved in its .git/config". Without a repository there are no tabs, only
+  the value of every repository (the global config alone); a failed read is a `destructive` callout ("Cannot read the
+  settings of <repository>", "Cannot read your global Git config") with the reason and Retry. A switch of the repository
+  in the main window flashes its name in the tab and says it to a screen reader.
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should show only the value of every repository without a repository, and say how to set the rest`, `should write nothing when the repository is switched while a field holds typing`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
+- On "All repositories" a row shows the value of every repository (`everyRepositoryValue`: the global or system entry,
+  else the default, whatever the repository sets) and a change writes the global config (`set_repository_config` with
+  `scope: "global"`). A row says only what differs (`describeScopedSource`): "<repository> has its own value: Off" with
+  Open <repository>, which shows its tab, or "Set in the system Git config; a change goes to your global Git config,
+  which wins over it". The prefix of the app and the API of Patronus, settings of the app that every repository uses,
+  are on this tab too.
+- On the tab of the repository a row shows the value that holds there and a change writes its `.git/config`. The value
+  of every repository has no line, as an unmodified setting of VS Code; the repository's own value has a bar beside the
+  row and "Only in <repository>" (or "Same as all repositories", which can go) with Reset, which removes it there, its
+  tooltip the result ("Removes it from .git/config: back to On, from all repositories", "… back to Off, the default").
+  A row only a repository has (the route, the GitHub repository) says its default instead ("Detected from origin",
+  "Pull Request by default: the repository is not on Space"), and a global value of it "Set in your global Git config,
+  which applies to every repository".
+  [@test] ../../src/lib/repository-config.test.ts (`says on the tab of the repository when the value is its own, with what Reset gives back`, `says on the tab of every repository where the selected one keeps a value of its own, and the system config`, `shows on the tab of every repository its value, whatever the repository sets`, `names the default of a row only a repository has, and a global value of it as one of every repository`)
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should change a rule for every repository in the global config, and give the repository its own value`)
+- A value of the worktree config or of `git -c` and `GIT_CONFIG_*` wins over `.git/config`: on the tab of the
+  repository its control is disabled with that reason ("Set in config.worktree, which overrides .git/config: change it
+  there", "Set by git -c or GIT_CONFIG_*, which overrides .git/config"), as the backend refuses the write; the value of
+  every repository can still change. An invalid value says why, where it holds; a boolean is invalid exactly when `git
+  config --type=bool` refuses it (` true `, `08`, `1kb`), and `0x10`, `1k` or `-1` are true as git reads them; `0b1`
+  is invalid on every platform, though the git of glibc 2.38+ reads it as true.
+  [@test] ../../src/lib/repository-config.test.ts (`can't change a key the worktree config or the command line sets`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_fallback_is_the_last_global_or_system_value_parsed`, `a_value_of_the_worktree_config_refuses_the_write`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`a_boolean_is_what_git_makes_of_it`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the symbol dependencies off, and back to the default, the main window syncing each change`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`)
-- The branch prefix row follows the [Branch prefix order](#branch-prefix-order): with a prefix in General, a global or
-  system `branchdeck.branchPrefix` is not the row's value (the field stays empty, General's prefix its placeholder),
-  the row says "Set in General" ("Set in General, which overrides your global Git config" when a global or system one
-  gives way), and "Use Default" gives General's prefix back ("Removes it from .git/config: back to jane, the prefix of
-  General"; `withAppPrefix`, `describeAppPrefixSource`).
-  [@test] ../../src/lib/repository-config.test.ts (`takes the prefix of General over a global git one, as the branches are named`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should give the prefix back to General once the repository's own is unset, and say so`)
-- A write goes to `.git/config` only (`set_repository_config`) and answers the settings read again; a switch or a
-  button writes at once, a field on Enter and when it is left, never on a key, and Escape takes the typing back before
-  it closes the window. The typing is checked before a write as the backend checks it (`isValidGitHubRepository`,
-  `isValidBranchPrefix`), refused in place by what is wrong, without "Cannot …", since nothing was written: "acme/app/x
-  is not a GitHub repository: use owner/name", and for a prefix the words of General ("A prefix cannot contain spaces,
-  "..", "@{" or any of ~ ^ : ? * [ \", `INVALID_PREFIX_TEXT`). A field writes to the repository the typing began in: a
-  switch of the repository drops the typing (one page per repository, `key={path}`) and writes nothing. A window closed
-  with valid typing (⌘W, the close button) saves it first (`onCloseRequested`).
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should disable the rule of the repository while its worktree config sets it, and say so`)
+- The git key of a row is its copy button beside the label ("Copy branchdeck.agentLease"), which the keyboard reaches.
+- A switch or a button writes at once, a field on Enter and when it is left, never on a key, and Escape takes the
+  typing back before it closes the window. The typing is checked before a write as the backend checks it
+  (`isValidGitHubRepository`, `isValidBranchPrefix`, `isValidPushSizeLimit`), refused in place by what is wrong,
+  without "Cannot …", since nothing was written: "acme/app/x is not a GitHub repository: use owner/name", for a prefix
+  the words of the prefix of all repositories (`INVALID_PREFIX_TEXT`). A field writes to the repository the typing began
+  in: a switch of the repository or of the tab drops the typing (one page per repository and tab, `key`) and writes
+  nothing. A window closed with valid typing (⌘W, the close button) saves it first: one listener of the window waits for
+  the saves the fields registered (`saveBeforeClose`).
   [@test] ../../src/lib/repository-config.test.ts (`takes owner/name without whitespace, as the backend does`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should write nothing when the repository is switched while a field holds typing`, `should save valid typing when the window closes, and nothing else`)
 - Two writes at once both land: a write of the app never fails on another write of the app, and a `config.lock` of
@@ -443,97 +430,117 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   changes nothing shown, and an answer for another repository is dropped.
   [@test] ../../src/lib/repository-config.test.ts (`keeps the newest of answers that arrive in reverse order`, `takes an answer of as many writes: a read again finds a git config of meanwhile`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should keep a prefix saved while a mode's write runs, when the mode's older answer comes last`)
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`two_writes_at_once_both_succeed`)
-- A failed write is a toast in the words of the change (`notifyError`): "Cannot change the symbol dependencies of app",
-  "Cannot change the GitHub repository of app", "Cannot change the branch prefix of app".
+- A failed write is a toast in the words of the change (`notifyError`): for the repository "Cannot change the symbol
+  dependencies of app", "Cannot change the GitHub repository of app", "Cannot change the branch prefix of app" (and the
+  rest of `writeErrorTitle`), for every repository "Cannot change how every repository resolves conflicts by words",
+  "Cannot change the push size limit of every repository" (`globalWriteErrorTitle`).
   [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should tell a failed write in a toast`)
 - After a write the backend tells the main window (`repository_config_changed` `{ repositoryPath, key }`), which acts
   for the selected repository only: the branch prefix loads again, and a changed one is another session, which the
-  window opens and syncs for a repository synced before ([Onboarding](onboarding.spec.md)); the symbol mode a sync, and
-  the stack-independence checks of the Safe Push popover ask again; the GitHub repository a sync and the
-  pull requests (`refreshPullRequests("manual")`). A repository never synced only loads its prefix: its first sync is
-  the user's. A write waits for no sync: during one it is written at once, and the sync it asks for runs once after
-  that one.
+  window opens and syncs for a repository synced before ([Onboarding](onboarding.spec.md)); the symbol mode, the
+  resolve by words, the review plan and the route a sync, and the stack-independence checks of the Safe Push popover
+  ask again; the GitHub repository a sync and the pull requests (`refreshPullRequests("manual")`); the push size limit
+  and the rules of agents nothing (a push reads the limit as it starts, only agents read the rules). A repository never
+  synced only loads its prefix: its first sync is the user's. A write waits for no sync: during one it is written at
+  once, and the sync it asks for runs once after that one.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the symbol dependencies off, and back to the default, the main window syncing each change`, `should write the symbol dependencies during a held sync at once, the main window syncing it once after that sync`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
+
+### Branches
+
+- "Names": on All repositories the prefix of every repository without one of its own (`BranchPrefixSetting`,
+  `globalUserBranchPrefix` of the settings, which `brd` reads too; [Onboarding](onboarding.spec.md), [Branch prefix
+  order](#branch-prefix-order)), which says a repository's own prefix with Open <repository>; on the tab of the
+  repository "Branch prefix" ("Used here instead of the prefix of all repositories", `branchdeck.branchPrefix`), whose
+  placeholder and Reset give the prefix of all repositories back ("Removes it from .git/config: back to jane, the
+  default"): the prefix of the app wins over a global or system git one (`withAppPrefix`).
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
+  [@test] ../../src/lib/repository-config.test.ts (`takes the prefix of all repositories over a global git one, as the branches are named`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should give the prefix back to all repositories once the repository's own is unset, and say so`)
+- "Sync": "Symbol dependencies", Off · Report Only · On (`aria-pressed`, the sentence of the mode chosen: "Commits
+  depend only on the lines they change", "Shown by brd commits, never used for the branches", "Commits also depend on
+  the commits that add the symbols they use"; `branchdeck.symbols`, [Symbol
+  Dependencies](../commit/symbol-dependencies.spec.md)); "Resolve conflicts by words", `branchdeck.resolveByWords`, on by
+  default (the sync, Update Project and `brd update` commit a conflict of git that its words resolve, [Git
+  Operations](../../docs/design/git-operations.md#resolve-by-words)).
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should resolve conflicts by words in the global config, and say where the repository's own value wins`)
+- "Review": "Review plan (experimental)", `branchdeck.reviewExperimental`, off by default: Mark Reviewed, Since Your
+  Review, the overview of the plan and the marks of the files in the branch review ([Review
+  Plan](../branch/review-plan.spec.md)); a review window opened after the sync takes the new value.
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Branches`)
 
 ### Landing
 
-- First a section "Route into master", "How the work of the repository lands into master, in the app and bd", with one
-  row of the selected repository, "Land by": Safe Push · Push · Pull Request (`branchdeck.landing`), the route in
-  effect pressed and its sentence under it ("A push of its copy lands each piece, without a robot or the CI of a pull
-  request; a straight stack is a stack of GitHub"), which says where the pull requests of a stack go: into master on
-  Safe Push, a stack of GitHub off it ([Stacks of GitHub](../branch/stacked-branches.spec.md#stacks-of-github)). Unset, the default of the host of `origin` is pressed and the
-  line says why (`RepositoryConfig.landingDefault`, Rust's one default: "Safe Push by default: the repository is on
-  Space", "Pull Request by default: the repository is not on Space"); a click on it names it in `.git/config`. A write
-  goes to `.git/config` only (a `push` never to the global config), "Use Default" removes it ("Removes it from
-  .git/config: back to Pull Request, the default off Space"), a global `push` reads as unset with its reason, the
-  worktree config and the command line disable the row as on Repository. After a write the main window syncs a
-  repository synced before (`repository_config_changed`, `landing`), so its rows take the steps of the route. The
-  window has no session of the repository: the write access and the rules of the target are said by the step of each
-  row, not here. Without a repository the section is not shown.
+- On the tab of the repository, "Route into master" ("How the work of the repository lands into master, in the app and
+  brd"): "Land by", Safe Push · Push · Pull Request (`branchdeck.landing`; `patronus`, `push`, `pull-request`), the
+  route in effect pressed and its sentence under the label ("A push of its copy lands each piece, without a robot or the
+  CI of a pull request; a straight stack is a stack of GitHub"), which says where the pull requests of a stack go: into
+  master on Safe Push, a stack of GitHub off it ([Stacks of
+  GitHub](../branch/stacked-branches.spec.md#stacks-of-github)). Unset, the default of the host of `origin` is pressed
+  and the line says why (`RepositoryConfig.landingDefault`, Rust's one default: "Safe Push by default: the repository
+  is on Space", "Pull Request by default: the repository is not on Space"); a click on it names it in `.git/config`, and
+  Reset removes it ("Removes it from .git/config: back to Pull Request, the default off Space"). After a write the main
+  window syncs a repository synced before, so its rows take the steps of the route. The window has no session of the
+  repository: the write access and the rules of the target are said by the step of each row, not here. Then "GitHub
+  repository" (`owner/name`, "Where pull requests are opened", the detected one as the placeholder and its line,
+  "Detected from origin", "Detected from the Space mirror", "None detected: neither origin nor its Space mirror is on
+  GitHub"; `branchdeck.githubRepository`, [Pull Requests](../branch/pull-requests.spec.md)).
   [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should land the repository by a push into master once chosen, the main window taking the step, and back to the default`)
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
-- Below "Land by", only while a Safe Push lands the repository (and without a repository, or before its settings
-  answer), how Branch Deck and brd read the robots of Patronus: the switch "New Patronus API"
-  (`appSettings.patronusNewApi`, off by default): the progress of a running robot in one request and its merge profile
-  in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `brd` reads
-  the setting from the settings file ([Agent CLI](../../docs/contributing/agent-cli.md)).
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
-  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
-- A last section, "Push" ("A push of the app or brd that adds more files is refused before it is sent ·
-  `branchdeck.pushSizeLimit`"), after it: "Push size limit", a size (`50M` the placeholder and the default, `1G`, `512K`), `0` or `off` for none
-  ([Outgoing](outgoing.spec.md#push)). As "Resolve conflicts by words", it is one value for every repository, written
-  to the global git config, which `brd` reads too, and the line under it says where the value comes from ("50M by
-  default. A change goes to your global Git config, which brd reads too", "Set in your global Git config, which brd
-  reads too", "Set in .git/config of <repository>, which overrides your global Git config"); a repository whose
-  `.git/config` sets the key keeps its own value, which the field changes, and "Use Global" (or "Use Default") removes
-  it. The worktree config and the command line disable the field with the reason of Repository; an invalid value says
-  why, in the words of the field. The field saves on Enter and when it is left, never on a key, and Escape takes the
-  typing back; typing the backend would refuse is refused in place (`isValidPushSizeLimit`): "lots is not a size such as
-  50M or 1G, nor 0 or off", the backend's words for an invalid value too. A write syncs nothing: a push reads the limit as
-  it starts. A failed write is a toast: "Cannot change the push size limit of every repository", or for the local
-  value "Cannot change the push size limit of <repository>". The section is here, beside the route into master, because
-  Repository and General with it would not fit 720 × 540; it is shown on every route, as it is about every push.
-  [@test] ../../src/lib/repository-config.test.ts (`takes a size with a binary unit, 0 or off, as the backend does`, `says where the value of every repository comes from, and that a change goes to the global config`, `titles a failed write by what it changes`)
+  [@test] ../../src/lib/repository-config.test.ts (`says where the GitHub repository comes from while no config sets it`)
+- A route is the repository's own: the tab of every repository shows no route, GitHub repository nor companions, only
+  "The route into master, the GitHub repository and the companions are set for each repository" with Open
+  <repository> ("Select a repository to set its route into master, its GitHub repository and its companions" without
+  one). The backend refuses a write of `branchdeck.landing` to the global config whatever its value: a global
+  `patronus` would refuse every repository off Space (`notOnSpace`), a global `pull-request` would take Safe Push from
+  the monorepo; a global `push` reads as unset with its reason ([Landing Routes](../branch/landing-routes.spec.md)).
+  The route is read and written with the other keys (`RepositoryConfig.landing`, the change `landing`; "Cannot change
+  how app lands into master"), and a sync and every `brd` command read it in their one read of the config.
+  [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should refuse a route for every repository, which would break the repositories off Space`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_route_is_written_only_to_the_local_config`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`, `a_push_route_of_the_global_config_is_none`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_default_route_follows_the_host_of_origin_in_the_one_read_of_its_push_url`)
+- "Companions" on the tab of the repository: the repositories whose branches land in an order with it
+  ([Declared Needs](../branch/declared-needs.spec.md#companion-repositories), `CompanionsSetting`).
+  [@test] ../../tests/e2e/settings/companions-settings.spec.ts (`should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it`)
+- "Push" ("A push of the app or brd that adds more files is refused before it is sent") on both tabs: "Push size
+  limit", a size (`50M` the placeholder and the default, `1G`, `512K`), `0` or `off` for none
+  ([Outgoing](outgoing.spec.md#push)), the value of every repository with the repository's own as every key of the git
+  config ([Scope](#scope)). Typing the backend would refuse is refused in place (`isValidPushSizeLimit`): "lots is not
+  a size such as 50M or 1G, nor 0 or off", the backend's words for an invalid value too. A write syncs nothing: a push
+  reads the limit as it starts.
+  [@test] ../../src/lib/repository-config.test.ts (`takes a size with a binary unit, 0 or off, as the backend does`, `titles a failed write by what it changes`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`invalid_values_are_refused_before_git_runs`, `the_push_size_limit_is_a_size_or_off_as_written`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push over the push size limit before it is sent, saying what it adds, and push once the limit is off`)
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+- "Safe Push" on All repositories, how Branch Deck and brd read the robots of Patronus: the switch "New Patronus API"
+  (`appSettings.patronusNewApi`, off by default, a setting of the app): the progress of a running robot in one request
+  and its merge profile in the robot list, the old requests while Patronus has them off
+  ([Patronus](../branch/patronus.spec.md)). `brd` reads the setting from the settings file ([Agent
+  CLI](../../docs/contributing/agent-cli.md)).
+  [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
 
 ### Agents
 
 - One section, "Coding agents", "Agents such as Claude Code and Codex ask brd workspace before their first edit; what
-  you tell an agent wins" ([brd workspace](../cli/workspace.spec.md)). Its first line says whether the skill is
-  installed (`agent_cli_status`, asked on each open of the window and when it gets the focus): "Installed: agents find
-  brd (<bd>) through <the skill files>" with a copy button of the path of bd, paths under the home directory as `~`; or
-  "The agent skill is not installed" with "Install Agent CLI", the install of Help → Install Agent CLI…, whose toast
-  has no action here. The same status and button tell the main window where agents work on the way to the first
-  branches ([Onboarding](onboarding.spec.md#agents)).
-  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, and then name it`)
-- Three rules, each a switch with what it does and its git key: "Work in their own worktree" ("Each agent leases a
-  worktree and lands each commit on your branch", `branchdeck.agentLease`, on by default), "Name the branch in each
-  commit subject" ("(auth) Add login form: the commit goes into the branch auth", `branchdeck.agentSubjectBranch`, on
-  by default) and "Open a pull request after each pick" ("The agent pushes the branch and opens its pull request
-  without asking", `branchdeck.agentPullRequest`, off by default). The switch is the value of every repository: it writes the global git config (`set_repository_config`
-  with `scope: "global"`), and shows the global or system value, else the default, with the line of Diffs & Merge ("On
-  by default. A change goes to your global Git config, which brd reads too", "Off by default. …" for a rule off by
-  default, "Set in your global Git
-  config, which brd reads too", "Set in the system Git config. …"). With a repository selected, "In <repository>" has
-  Like Global · On · Off (`aria-pressed`): On and Off write `.git/config`, Like Global removes the value there; the
-  repository's value is read again when the window gets the focus.
-  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should change a rule for every repository in the global config, and give the repository its own value`)
-  [@test] ../../src/lib/repository-config.test.ts (`says where the value of every repository comes from, and that a change goes to the global config`)
-- A value of the worktree config or of `git -c` disables the buttons of the repository with the reason of Repository
-  ("Set in config.worktree, which overrides .git/config: change it there"); the switch of every repository stays. An
-  invalid value says why. A failed write is a toast: "Cannot change where agents work in every repository", "Cannot
-  change how agents write commit subjects in every repository", "Cannot change whether agents open pull requests in
-  every repository", or for the repository "Cannot change where agents work in <repository>", "Cannot change how
-  agents write commit subjects in <repository>", "Cannot change whether agents open pull requests in <repository>". No write syncs: only agents read
-  the rules.
-- The last line, "Agents also run teamcity and youtrack" with Open Tools, opens Tools ([Command-Line
-  Tools](cli-tools.spec.md#where-it-is)).
-  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should disable the buttons of the repository while its worktree config sets the rule, and say so`)
-  [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
+  you tell an agent wins" ([brd workspace](../cli/workspace.spec.md)), with three rules, each a switch with what it
+  does: "Work in its own worktree" ("Each agent leases a worktree; its commits arrive on your branch one by one",
+  `branchdeck.agentLease`, on by default), "Name the branch in each commit subject" ("(auth) Add login form: the commit
+  goes into the branch auth", `branchdeck.agentSubjectBranch`, on by default) and "Push the branch and open its pull
+  request" ("After each commit arrives on your branch, the agent pushes it and opens its pull request without asking",
+  `branchdeck.agentPullRequest`, off by default), each the value of every repository with the repository's own
+  ([Scope](#scope)). No write syncs: only agents read the rules. A failed write is a toast: "Cannot change where agents
+  work in every repository", "Cannot change how agents write commit subjects in <repository>", and so on.
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should change a rule for every repository in the global config, and give the repository its own value`, `should disable the rule of the repository while its worktree config sets it, and say so`)
+- The pull request after a commit does not apply where the repository lands by a push: Rust says so
+  (`RepositoryConfig.agentPullRequestOff`, the reason `brd workspace` gives too, [brd workspace](../cli/workspace.spec.md)),
+  and the row shows the reason with Change Route, which opens Landing on the tab of the repository at "Land by"; on its
+  tab the switch is off and disabled, on All repositories it stays the value of every repository and the line says "In
+  <repository>: …".
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should turn the pull request of agents off where the repository lands by a push, with the way to its route`)
+- While the agent skill is not installed (`agent_cli_status`), the page starts with "Agents read these rules once the
+  skill is installed" and Install Agent CLI, whose toast has no action here; the skill itself is on Tools. The same
+  status and button tell the main window where agents work on the way to the first branches
+  ([Onboarding](onboarding.spec.md#agents)).
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, which Tools then names`)
 
 ### Branch prefix order
 
@@ -557,9 +564,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   process for it. Each read of the git config keeps its git prefix there: the subscription of a window, which reads the
   config now (`session_key_now`), the `resolve_branch_prefix` of Settings, the config snapshot of every sync of a
   session, and a write of `branchdeck.branchPrefix` in
-  Settings → Repository (a write to the global config forgets every repository's). The views of the last sync are kept
+  Settings → Branches (a write to the global config forgets every repository's). The views of the last sync are kept
   by the resolved prefix; a sync of a repository without a prefix is refused ("Cannot sync without a branch prefix: set
-  one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
+  one in Settings → Branches"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
   independence of a stack name the repository only too and resolve the prefix the same way (`PrefixInputs` of
   `crates/app-api/src/context.rs`, [Patronus](../branch/patronus.spec.md)). The conflict fix
   (`find_conflict_fix`), whose parameters `brd` shares, gets the prefix the page shows, the one of the view of its
@@ -571,10 +578,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - The page shows the names with what Rust resolved, deciding nothing: the main window takes the prefix of the view of
   the session it subscribed to (`TableHeader.prefix`), which Rust resolves for each subscription from the git config
   as it is then, and reads none of its own. It subscribes again, holding the view it shows (`resubscribeSession`),
-  after a write of the key in Settings → Repository (`repository_config_changed`), once the writer has another app
+  after a write of the key in Settings → Branches (`repository_config_changed`), once the writer has another app
   prefix (`onWriterChange` of `src/stores/settings/persistent-store.ts`: the change of any window, its own once
   answered), and when a run of its session answers `prefix_changed`: the same session answers nothing new, the session
-  of another prefix its view. General asks `resolve_branch_prefix` itself and shows the repository's own prefix and the
+  of another prefix its view. Branches, All repositories, asks `resolve_branch_prefix` itself and shows the repository's own prefix and the
   global git one from the answer's source.
   [@test] ../../src/model/store.test.ts (`subscribes again holding its view: the same session answers nothing, another one's view replaces the rows`, `subscribes again when the git config names another prefix than the session's, quietly`)
   [@test] ../../src/stores/settings/persistent-store.test.ts (`tells a reader of Rust the value the writer has: another window's change, its own once answered, no late echo`)
@@ -589,11 +596,14 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ## User Experience
 
-- Window title "Settings"; pages "General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository";
-  sections in sentence case ("Branches", "Sync", "AI", "Zoom", "Title bar", "Diffs", "Merge", "Notifications",
-  "Dock icon", "GitHub").
+- Window title "Settings"; groups "Branch Deck" and "Repositories"; pages "General", "Appearance", "Diffs",
+  "Notifications", "Accounts", "Tools", "Branches", "Landing", "Agents"; the scope tabs "All repositories" and the name
+  of the repository; sections in sentence case ("Sync", "AI", "Zoom", "Title bar", "Diffs", "Notifications", "Dock
+  icon", "GitHub", "YouTrack", "Names", "Review", "Route into master", "Companions", "Push", "Safe Push", "Coding
+  agents").
 - Menu item "Settings…", buttons "Notification Settings…", "Sign In…", "GitHub Settings…", "Set GitHub Repository…",
-  "Open Repository Settings", "Use Default", "Use Global", "Retry"; the modes "Off", "Report Only", "On".
+  "Open Repository Settings", "Open <repository>", "Reset", "Change Route", "Retry"; the modes "Off", "Report Only",
+  "On".
 - A failed open is "Cannot open Settings" with the reason (`notifyError`).
 
 ## Testing / Local Run
@@ -620,8 +630,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   the app).
   [@test] ../../crates/app-api/src/events_test.rs (`a_config_write_goes_to_the_main_window_and_a_journal_change_to_every_window`)
 - By hand: `pnpm tauri dev`; ⌘, from the menu, from a review window and again with the window open (it comes to the
-  front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: a symbol
-  mode syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.
+  front); every page at 100% and 150%; closing the main window closes Settings; Branches on the tab of a repository: a
+  symbol mode syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables
+  a row; Agents of a repository that lands by a push: the pull request rule off with Change Route.
 
 ## References
 

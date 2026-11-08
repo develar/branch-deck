@@ -34,7 +34,7 @@ export function DiffViewToggle() {
 
 /**
  * Split · Unified · Inline, one option set (the stock `ToggleGroup`), the pressed one the layout of every diff view; also
- * in Settings → Diffs & Merge. A press of the pressed one keeps it
+ * in Settings → Diffs. A press of the pressed one keeps it
  */
 export function DiffLayoutButtons() {
   const current = useDiffViewMode()
@@ -64,7 +64,7 @@ export function DiffLayoutButtons() {
 
 /**
  * "Whitespace": what the diff engine ignores; the button is marked while it ignores anything. `named`: the button
- * says the choice instead, as a row of Settings → Diffs & Merge labelled "Whitespace"
+ * says the choice instead, as a row of Settings → Diffs labelled "Whitespace"
  */
 export function WhitespaceMenu({ named = false }: { named?: boolean }) {
   const policy = useDiffWhitespacePolicy()

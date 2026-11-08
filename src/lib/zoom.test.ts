@@ -43,9 +43,9 @@ describe("minSubWindowSize", () => {
   })
 
   it("is smaller for Settings, and wider above 107%", () => {
-    expect(minSubWindowSize("settings", 1)).toEqual({ width: 600, height: 420 })
-    expect(minSubWindowSize("settings", 1.25)).toEqual({ width: 700, height: 420 })
-    expect(minSubWindowSize("settings", 1.5)).toEqual({ width: 840, height: 420 })
+    expect(minSubWindowSize("settings", 1)).toEqual({ width: 640, height: 440 })
+    expect(minSubWindowSize("settings", 1.25)).toEqual({ width: 750, height: 440 })
+    expect(minSubWindowSize("settings", 1.5)).toEqual({ width: 900, height: 440 })
   })
 
   it("is smaller still for Activity, and wider above 110%", () => {

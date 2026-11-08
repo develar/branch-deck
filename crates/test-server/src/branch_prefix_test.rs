@@ -73,6 +73,6 @@ async fn the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_sy
   // the command's error, as the app's command rejects
   let (_, body) = sync(&client, addr, &bare).await;
   let failure: Value = serde_json::from_str(&body).unwrap();
-  assert_eq!(failure["error"]["message"], "Cannot sync without a branch prefix: set one in Settings → General", "{body}");
+  assert_eq!(failure["error"]["message"], "Cannot sync without a branch prefix: set one in Settings → Branches", "{body}");
   assert_eq!(virtual_branches(&bare), [] as [String; 0]);
 }

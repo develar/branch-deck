@@ -1,8 +1,8 @@
 import type { ConfigScope, ConfigSetting, DetectedGitHubRepository, LandingDefault, LandingSetting, RepositoryConfig, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
 
 /*
- * Settings → Repository (spec/repository/settings.spec.md#repository): the `branchdeck.*` git config of the selected
- * repository, read and written by the backend (`crates/sync-core/src/repository_config.rs`), which `bd` reads too.
+ * The pages of the git config, Settings → Branches, Landing and Agents (spec/repository/settings.spec.md#scope): the
+ * `branchdeck.*` git config of every repository and of the selected one, read and written by the backend (`crates/sync-core/src/repository_config.rs`), which `brd` reads too.
  */
 
 /** A key of the page, as `RepositoryConfigChange` and the `repository_config_changed` event name it */
@@ -117,14 +117,6 @@ function scopeText(scope: ConfigScope): string {
 }
 
 /**
- * Where the value comes from, only when it is not the default: "Set in this repository", "Set in your global Git
- * config"; not the value, which the control shows. Null for the default
- */
-export function describeSource(setting: ConfigSetting<unknown>): string | null {
-  return setting.scope === null ? null : scopeText(setting.scope)
-}
-
-/**
  * Why the page cannot change the key, which also says where its value comes from: the worktree config or the command
  * line sets it, which wins over `.git/config` (the backend refuses the write); null when it can
  */
@@ -139,55 +131,75 @@ export function overriddenReason(setting: ConfigSetting<unknown>): string | null
   }
 }
 
-/**
- * Where the value of a setting with one value for every repository comes from (`scope` of the global or system entry,
- * null for the default, `defaultText` its value: "On", "50M"), and where a change goes: the global git config, which bd
- * reads too
- */
-export function describeGlobalSource(scope: ConfigScope | null, defaultText: string): string {
-  switch (scope) {
-    case "global":
-      return "Set in your global Git config, which bd reads too"
-    case "system":
-      return "Set in the system Git config. A change goes to your global Git config, which wins over it"
-    default:
-      return `${defaultText} by default. A change goes to your global Git config, which bd reads too`
-  }
+/** A scope of the repository itself, which wins over the value of every repository */
+function isRepositoryScope(scope: ConfigScope | null): boolean {
+  return scope === "local" || scope === "worktree" || scope === "command"
 }
 
 /**
- * Where the value of a setting of every repository comes from, and where a change goes: the global git config, unless
- * `.git/config` of the repository `name` sets the key (then the control changes that value, and the reset removes it);
- * empty for the worktree config or the command line, whose reason says it (`overriddenReason`)
+ * The value of every repository (the tab "All repositories"): the global or system entry, else the default, whatever
+ * the repository itself sets; with its scope, null for the default
  */
-export function describeEveryRepositorySource(setting: ConfigSetting<unknown>, name: string, defaultText: string): string {
-  switch (setting.scope) {
-    case null:
-    case "global":
-    case "system":
-      return describeGlobalSource(setting.scope, defaultText)
-    case "local":
-      return setting.fallbackScope === null ? `Set in .git/config of ${name}, for this repository only` : `Set in .git/config of ${name}, which overrides your global Git config`
-    default:
-      return ""
-  }
-}
-
-/** "Use Global" when a global or system value applies once the local one is unset, else "Use Default" */
-export function resetLabel(setting: ConfigSetting<unknown>): string {
-  return setting.fallbackScope === null ? "Use Default" : "Use Global"
+export function everyRepositoryValue<T>(setting: ConfigSetting<T>): { value: T; scope: ConfigScope | null } {
+  return isRepositoryScope(setting.scope) ? { value: setting.fallbackValue, scope: setting.fallbackScope } : { value: setting.value, scope: setting.scope }
 }
 
 /**
- * What unsetting the local value gives, for the tooltip of its button after "back to": "On, set in your global Git
- * config", else the default ("Off, the default", or the words of the row: "acme/app, detected from origin")
+ * The line under a row of a page of the git config (spec/repository/settings.spec.md#scope), at most one:
+ * - `inherited`: the repository tab shows the default of a row only a repository has (the value of every repository has
+ *   no line);
+ * - `own`: the repository's `.git/config` sets it; `reset` is the tooltip of Reset, which removes it there;
+ * - `elsewhere`: the tab of every repository, while the selected repository has a value of its own;
+ * - `note`: the tab of every repository, while the system config sets the value;
+ * - `locked`: the worktree config or the command line set it, which the page cannot change
  */
-export function describeFallback(setting: ConfigSetting<unknown>, valueText: string, defaultText = `${valueText}, the default`): string {
-  if (setting.fallbackScope === null) {
-    return defaultText
+export type ScopedLine =
+  | { kind: "inherited"; text: string }
+  | { kind: "own"; text: string; reset: string }
+  | { kind: "elsewhere"; text: string }
+  | { kind: "note"; text: string }
+  | { kind: "locked"; text: string }
+
+/** How a row names a value and its default (`valueText`); `defaultText` is what an unset row only a repository has means */
+export interface ScopedRowWords<T> {
+  /** The value as the line names it: "On", "50M", "Pull Request, the default off Space" for an unset route */
+  valueText: (value: T) => string
+  /** A row only a repository has (the route, the GitHub repository): its line while no config sets it */
+  repositoryOnly?: { defaultText: string | null }
+}
+
+/**
+ * The line under a row of `setting` on the tab `scope`, for the repository `name` (empty without one): what holds there
+ * and where it comes from, in the words of `words`; null when nothing needs saying
+ */
+export function describeScopedSource<T>(setting: ConfigSetting<T>, scope: "all" | "repository", name: string, words: ScopedRowWords<T>): ScopedLine | null {
+  if (scope === "all") {
+    if (name !== "" && isRepositoryScope(setting.scope)) {
+      return { kind: "elsewhere", text: `${name} has its own value: ${words.valueText(setting.value)}` }
+    }
+    return everyRepositoryValue(setting).scope === "system"
+      ? { kind: "note", text: "Set in the system Git config; a change goes to your global Git config, which wins over it" }
+      : null
   }
-  const source = scopeText(setting.fallbackScope)
-  return `${valueText}, ${source.charAt(0).toLowerCase()}${source.slice(1)}`
+  const overridden = overriddenReason(setting)
+  if (overridden !== null) {
+    return { kind: "locked", text: overridden }
+  }
+  const repositoryOnly = words.repositoryOnly
+  if (setting.localSet) {
+    const same = setting.value === setting.fallbackValue
+    const text = same ? (repositoryOnly !== undefined && setting.fallbackScope === null ? "Same as the default" : "Same as all repositories") : `Only in ${name}`
+    const origin = setting.fallbackScope === null ? (repositoryOnly === undefined ? ", the default" : "") : ", from all repositories"
+    return { kind: "own", text, reset: `Removes it from .git/config: back to ${words.valueText(setting.fallbackValue)}${origin}` }
+  }
+  // the value of every repository, unmarked as in VS Code: only a value of its own has a line and a bar
+  if (repositoryOnly === undefined) {
+    return null
+  }
+  if (setting.scope === "global" || setting.scope === "system") {
+    return { kind: "inherited", text: `${scopeText(setting.scope)}, which applies to every repository` }
+  }
+  return repositoryOnly.defaultText === null ? null : { kind: "inherited", text: repositoryOnly.defaultText }
 }
 
 /** Where the GitHub repository comes from while no config sets it: the remote it was detected from, or why there is none */
@@ -224,25 +236,6 @@ export function withAppPrefix(setting: ConfigSetting<string | null>, appPrefix: 
   }
 }
 
-/**
- * Where the branch prefix comes from while the repository has none of its own and General has one: "Set in General",
- * "Set in General, which overrides your global Git config" when a global or system prefix gives way. Null otherwise
- */
-export function describeAppPrefixSource(setting: ConfigSetting<string | null>, appPrefix: string): string | null {
-  if (appPrefix === "") {
-    return null
-  }
-  switch (setting.scope) {
-    case null:
-      return "Set in General"
-    case "global":
-    case "system":
-      return `Set in General, which overrides ${scopeName(setting.scope)}`
-    default:
-      return null
-  }
-}
-
 /** The title of a failed write, in the words of the change (ux-writing: "Cannot <verb> <object>") */
 export function writeErrorTitle(change: RepositoryConfigChange, repositoryPath: string): string {
   const name = repositoryName(repositoryPath)
@@ -270,12 +263,38 @@ export function writeErrorTitle(change: RepositoryConfigChange, repositoryPath: 
   }
 }
 
+/** The title of a failed write of the value of every repository (the global config), in the words of the change */
+export function globalWriteErrorTitle(key: RepositoryConfigKey): string {
+  switch (key) {
+    case "symbols":
+      return "Cannot change the symbol dependencies of every repository"
+    case "githubRepository":
+      return "Cannot change the GitHub repository of every repository"
+    case "branchPrefix":
+      return "Cannot change the branch prefix of every repository"
+    case "pushSizeLimit":
+      return "Cannot change the push size limit of every repository"
+    case "resolveByWords":
+      return "Cannot change how every repository resolves conflicts by words"
+    case "landing":
+      return "Cannot change how every repository lands into master"
+    case "agentLease":
+      return "Cannot change where agents work in every repository"
+    case "agentSubjectBranch":
+      return "Cannot change how agents write commit subjects in every repository"
+    case "agentPullRequest":
+      return "Cannot change whether agents open pull requests in every repository"
+    case "reviewExperimental":
+      return "Cannot change whether every repository shows the review plan"
+  }
+}
+
 /**
  * Whether the page takes `answer`, the settings a read or a write of Settings answered, over the settings it shows. Two
  * writes at once (a prefix saved on blur, then a switch) answer in any order, and so does a read that a focus started
  * beside a write: each answer counts the config writes of the backend before its read (`seq`), so one that counts
  * fewer lacks a write the shown settings hold. One that counts as many holds the same writes and is taken: a read
- * again on focus finds a `git config` or a `bd` of meanwhile
+ * again on focus finds a `git config` or a `brd` of meanwhile
  */
 export function newer(shown: RepositoryConfig, answer: RepositoryConfig): boolean {
   return answer.seq >= shown.seq

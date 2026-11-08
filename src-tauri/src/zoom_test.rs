@@ -43,9 +43,9 @@ fn a_zoom_above_125_percent_widens_the_minimum_sub_window() {
 
 #[test]
 fn the_settings_window_is_smaller_and_widens_above_107_percent() {
-  assert_size(sub_window_min_size("settings", 1.0), (600.0, 420.0));
-  assert_size(sub_window_min_size("settings", 1.25), (700.0, 420.0));
-  assert_size(sub_window_min_size("settings", 1.5), (840.0, 420.0));
+  assert_size(sub_window_min_size("settings", 1.0), (640.0, 440.0));
+  assert_size(sub_window_min_size("settings", 1.25), (750.0, 440.0));
+  assert_size(sub_window_min_size("settings", 1.5), (900.0, 440.0));
   assert_size(sub_window_min_size("activity", 1.0), (440.0, 400.0));
   assert_size(sub_window_min_size("activity", 1.25), (500.0, 400.0));
 }

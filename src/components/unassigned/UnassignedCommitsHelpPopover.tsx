@@ -58,7 +58,7 @@ function AgentSubjects() {
           ? "Coding agents write (name) when they commit here."
           : "Coding agents write (name) when they commit once Name the branch in each commit subject is on for this repository."}
       </p>
-      <Button size="xs" variant="outline" onClick={() => openSettings({ page: "agents" })}>
+      <Button size="xs" variant="outline" onClick={() => openSettings({ page: "agents", scope: "repository", focus: "agentSubjectBranch" })}>
         Open Agent Settings
       </Button>
     </div>

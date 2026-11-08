@@ -3,7 +3,7 @@ import { useStore } from "zustand"
 import { APP_SETTINGS_DEFAULTS } from "@/lib/bindings"
 import type { AppSettings as RustAppSettings, StatsPeriod } from "@/lib/bindings"
 import { STATS_PERIODS } from "@/lib/robot-stats"
-import { SETTINGS_PAGES } from "@/lib/settings-pages"
+import { currentSettingsPage, SETTINGS_PAGES } from "@/lib/settings-pages"
 import type { SettingsPageId } from "@/lib/settings-pages"
 import { THEMES } from "@/lib/theme"
 import type { Theme } from "@/lib/theme"
@@ -25,16 +25,16 @@ const RustFields = {
   // Settings → Appearance → Title bar (Windows, Linux): the system title bar and menu bar instead of the page's, read by the backend at
   // startup (`init_title_bar` in src-tauri/src/title_bar.rs)
   systemTitleBar: z.boolean().default(APP_SETTINGS_DEFAULTS.systemTitleBar),
-  // Settings → Landing: the new API of Patronus, the progress of a running robot in one request and the
-  // merge profile in the robot list (`new_api` of the Patronus commands; `bd` reads it from the settings file too)
+  // Settings → Landing, All repositories: the new API of Patronus, the progress of a running robot in one request and the
+  // merge profile in the robot list (`new_api` of the Patronus commands; `brd` reads it from the settings file too)
   patronusNewApi: z.boolean().default(APP_SETTINGS_DEFAULTS.patronusNewApi),
 } satisfies { [K in keyof RustAppSettings]-?: z.ZodType }
 
 /** `appSettings`: the fields Rust reads, then the fields only the page reads, with the page's defaults */
 const AppSettingsSchema = z.object({
   ...RustFields,
-  // the page of Settings shown last, where the window opens again
-  settingsPage: z.enum(SETTINGS_PAGES).catch("general"),
+  // the page of Settings shown last, where the window opens again; a page of before is the page that has its settings now
+  settingsPage: z.preprocess(currentSettingsPage, z.enum(SETTINGS_PAGES)).catch("general"),
   // Settings → Appearance → Theme: the system's, Light or Dark, in every window (`useTheme`)
   theme: z.enum(THEMES).catch("system"),
   // Settings → Notifications: the OS notifications in the background (`src/lib/os-notification.ts`)

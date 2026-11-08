@@ -196,11 +196,12 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 
 ### Where it is
 
-- Settings → Tools, after Agents; Agents says "Agents also run teamcity and youtrack" with Open Tools.
-  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should open from the line of Settings → Agents`)
-- The page reads the status on each open and focus and shows the last answer meanwhile; it fits 720 × 540 in its
+- Settings → Tools, its first row `brd`, whose skill coding agents read (installed, with the path of brd, else Install
+  Agent CLI), then teamcity and youtrack.
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, which Tools then names`)
+- The page reads the status on each open and focus and shows the last answer meanwhile; it fits 880 × 640 in its
   tallest state (a CLI on two servers, the command of the other).
-  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 880 × 640 without scrolling`)
 
 ## User Experience
 

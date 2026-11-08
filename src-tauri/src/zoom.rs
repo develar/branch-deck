@@ -16,12 +16,13 @@ const MIN_SUB_WINDOW_HEIGHT: f64 = 500.0;
 /// Keep in sync with `minSubWindowSize` in `src/lib/zoom.ts`.
 const MIN_SUB_WINDOW_ISLANDS_WIDTH: f64 = 640.0;
 
-/// The Settings window: its sidebar beside a page of settings fits from 600 × 420 px; the page needs 560 CSS px, so a
-/// zoom above 107% widens it. Keep in sync with `minSubWindowSize` in `src/lib/zoom.ts`.
-const SETTINGS_WINDOW_LABEL: &str = "settings";
-const MIN_SETTINGS_WINDOW_WIDTH: f64 = 600.0;
-const MIN_SETTINGS_WINDOW_HEIGHT: f64 = 420.0;
-const MIN_SETTINGS_ISLANDS_WIDTH: f64 = 560.0;
+/// The Settings window: its sidebar beside a page of settings fits from 640 × 440 px, where a row puts its control
+/// under its label; the page needs 600 CSS px, so a zoom above 107% widens it. Keep in sync with `minSubWindowSize` in
+/// `src/lib/zoom.ts`.
+pub(crate) const SETTINGS_WINDOW_LABEL: &str = "settings";
+const MIN_SETTINGS_WINDOW_WIDTH: f64 = 640.0;
+const MIN_SETTINGS_WINDOW_HEIGHT: f64 = 440.0;
+const MIN_SETTINGS_ISLANDS_WIDTH: f64 = 600.0;
 
 /// The Activity window: its search above one column of entries fits from 440 × 400 px; the entries need 400 CSS px, so
 /// a zoom above 110% widens it. Keep in sync with `minSubWindowSize` in `src/lib/zoom.ts`.

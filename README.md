@@ -164,7 +164,8 @@ publisher: choose More info → Run anyway.
   per subject ([settings](spec/repository/settings.spec.md)); ⌘K finds a branch, a view or a command
   ([command palette](spec/repository/command-palette.spec.md)). Signed in to YouTrack, an issue key shows the issue on
   hover and marks it fixed once its work landed ([YouTrack](spec/repository/youtrack.spec.md)). Settings → Tools
-  installs and updates the `teamcity` and `youtrack` CLIs your agents use, with their agent skills ([tools](spec/repository/cli-tools.spec.md)).
+  shows the skill of `brd`, and installs and updates the `teamcity` and `youtrack` CLIs your agents use, with their
+  agent skills ([tools](spec/repository/cli-tools.spec.md)).
   Disk Usage shows what the worktrees of your agents take on this Mac and on your build hosts, and trims them to their
   limit ([disk usage](spec/repository/disk-usage.spec.md)).
 
@@ -188,8 +189,9 @@ brd lease get --holder lane-1                            # a worktree of its own
 
 Help → Install Agent CLI… (or `brd install`) puts `brd` on `PATH` and a skill into `~/.claude/skills` and
 `~/.agents/skills`, so agents know when to use it; `brd help agent` prints the workflow. Agents then work in a worktree
-of their own, land each commit on your branch and name its branch in the subject: both are yours to switch in
-Settings → Agents ([brd workspace](spec/cli/workspace.spec.md)). On macOS and Linux `brd` is
+of their own, land each commit on your branch and name its branch in the subject; once asked, they push the branch and
+open its pull request. Each rule is yours to switch in Settings → Agents, for every repository or for one
+([brd workspace](spec/cli/workspace.spec.md)). On macOS and Linux `brd` is
 the app binary (`branch-deck cli`), on Windows `brd.exe` next to it. See the [Agent CLI](docs/contributing/agent-cli.md).
 
 ## Compared To

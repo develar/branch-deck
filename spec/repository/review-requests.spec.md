@@ -648,8 +648,8 @@ Safe Push it allows.
   Notifications"; refused, a one-line `warning` callout "Notifications are off in System Settings" with "Open System
   Settings"; granted, "Send Test Notification".
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should ask the OS for the permission to notify again when the window gets the focus`)
-- The other pages of Settings: the branch prefix and "Suggest branch names" on General, the GitHub token and sign-in
-  on GitHub ([GitHub Sign-In](github-sign-in.spec.md#settings)).
+- The other pages of Settings: "Suggest branch names" on General, the branch prefix on Branches, the GitHub token and
+  sign-in on Accounts ([GitHub Sign-In](github-sign-in.spec.md#settings)).
 
 ## User Experience
 

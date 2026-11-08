@@ -354,8 +354,8 @@ test.describe("Push size", () => {
     const window = await openSettingsWindow(page, { page: "landing" })
     const setting = window.getByTestId("setting-pushSizeLimit")
     const field = setting.getByRole("textbox", { name: "Push size limit" })
-    const source = setting.getByTestId("setting-pushSizeLimit-source")
-    await expect(source).toHaveText("50M by default. A change goes to your global Git config, which bd reads too")
+    // All repositories: the default, a change goes to the global config
+    await expect(window.getByTestId("settings-scope-line")).toHaveText("What every repository uses, in the app and brd")
     await expect(field).toHaveAttribute("placeholder", "50M")
     // typing the backend would refuse is refused in place
     await field.fill("lots")
@@ -363,7 +363,8 @@ test.describe("Push size", () => {
     await expect(setting.getByTestId("setting-pushSizeLimit-typing")).toHaveText("lots is not a size such as 50M or 1G, nor 0 or off")
     await field.fill("1")
     await field.press("Enter")
-    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await expect(field).toHaveValue("1")
+    await expect(field).not.toHaveAttribute("aria-invalid")
 
     // the push of the main window reads the limit as it starts: refused before it talks to the remote
     const row = findBranchRow(page, "feature-auth")

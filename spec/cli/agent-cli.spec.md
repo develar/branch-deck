@@ -721,7 +721,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 ### `brd companion`
 
 - `brd companion add <path> [--name]`, `brd companion remove <name>` and `brd companion list` (the repositories a
-  need names as `<companion>:<branch>`, written to both sides as Settings → Companions does), and
+  need names as `<companion>:<branch>`, written to both sides as Settings → Landing does), and
   `brd status --companions`, the status of each:
   [Declared Needs](../branch/declared-needs.spec.md#companion-repositories).
 
@@ -1716,7 +1716,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   from now on, paths under the home directory as `~`, with "Open Agent Settings" from the main window
   ([Onboarding](../repository/onboarding.spec.md#agents)); a failure is the error toast "Cannot install the Agent
   CLI". `agent_cli_status` must name the skill files that exist and the command they name, `null` without one, writing
-  nothing (Settings → Agents).
+  nothing (the row `brd` of Settings → Tools, the install line of Settings → Agents).
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
 - The symlink must outlive the running app: on Linux, with `APPIMAGE` set, it must point at the AppImage file, not at
   the binary in its temporary mount; on macOS an app run translocated (its path under `AppTranslocation/`) must be

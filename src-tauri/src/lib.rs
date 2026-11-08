@@ -143,8 +143,15 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     // not the decorations: the page draws the title bar (`with_title_bar`), a saved `decorated` would bring the native
     // one back on Windows; not the visibility: a window shows once its title bar is set (`prepare_title_bar`, GTK takes
-    // the titlebar of a custom one only before it is shown) and its page drew its content (`sub_window_ready`)
-    .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(window_state_flags()).build())
+    // the titlebar of a custom one only before it is shown) and its page drew its content (`sub_window_ready`). Settings
+    // opens at its size every time (`SETTINGS_WINDOW_SIZE` of src/lib/settings-window.ts), as System Settings does: a
+    // saved size of before would keep the pages of a smaller window
+    .plugin(
+      tauri_plugin_window_state::Builder::new()
+        .with_state_flags(window_state_flags())
+        .with_denylist(&[zoom::SETTINGS_WINDOW_LABEL])
+        .build(),
+    )
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_clipboard_manager::init());

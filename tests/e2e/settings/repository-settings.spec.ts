@@ -15,11 +15,23 @@ function nameOf(path: string): string {
   return path.split("/").at(-1)!
 }
 
-/** Opens Settings → Repository and waits for the settings of the repository */
+/** Opens Settings → Branches on the tab of the repository and waits for its settings */
 async function openRepositorySettings(page: Page, focus?: string): Promise<Page> {
-  const window = await openSettingsWindow(page, focus === undefined ? { page: "repository" } : { page: "repository", focus })
-  await expect(window.getByTestId("repository-setting-symbols")).toBeVisible()
+  const window = await openSettingsWindow(page, focus === undefined ? { page: "branches", scope: "repository" } : { page: "branches", scope: "repository", focus })
+  await expect(window.getByTestId("setting-symbols").getByRole("button", { name: "Off", exact: true })).toBeEnabled()
   return window
+}
+
+/** Opens Settings → Landing on the tab of the repository and waits for its settings */
+async function openRepositoryLanding(page: Page): Promise<Page> {
+  const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })
+  await expect(window.getByTestId("setting-githubRepository").getByRole("textbox")).toBeEnabled()
+  return window
+}
+
+/** The line of a row of the repository's own value, with its Reset */
+function ownLine(path: string): string {
+  return `Only in ${nameOf(path)}Reset`
 }
 
 /** Selects the repository in the main window, whose recent projects reach the window as a change of the writer */
@@ -33,38 +45,43 @@ async function selectRepository(page: Page, window: Page, testStore: { get: (key
 }
 
 function row(window: Page, key: string): Locator {
-  return window.getByTestId(`repository-setting-${key}`)
+  return window.getByTestId(`setting-${key}`)
 }
 
-test.describe("Settings → Repository", () => {
+/** The line under the row of `key`: where its value comes from */
+function source(window: Page, key: string): Locator {
+  return window.getByTestId(`setting-${key}-source`)
+}
+
+test.describe("Settings → Branches and Landing, the tab of a repository", () => {
   test("should turn the symbol dependencies off, and back to the default, the main window syncing each change", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("simple")
     await syncAndWaitForBranches()
 
     const window = await openRepositorySettings(page)
-    await expect(window.getByTestId("repository-settings")).toContainText(`Saved in .git/config of ${nameOf(repo.path)}, which bd reads too`)
+    await expect(window.getByTestId("settings-scope-line")).toHaveText(`Changes here apply only to ${nameOf(repo.path)}, saved in its .git/config`)
     const symbols = row(window, "symbols")
     const on = symbols.getByRole("button", { name: "On", exact: true })
     const off = symbols.getByRole("button", { name: "Off", exact: true })
     await expect(on).toHaveAttribute("aria-pressed", "true")
-    await expect(symbols.getByRole("button", { name: "Use Default" })).toHaveCount(0)
+    await expect(source(window, "symbols")).toHaveCount(0)
 
     // off: the main window syncs
     let syncs = await finishedSyncCount(page)
     await off.click()
     await expect(off).toHaveAttribute("aria-pressed", "true")
-    await expect(symbols.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
+    await expect(source(window, "symbols")).toHaveText(ownLine(repo.path))
     await waitForSyncComplete(page, syncs)
 
-    // Use Default removes the line of .git/config: On, the default, and no source to name; the main window syncs again
-    const reset = symbols.getByRole("button", { name: "Use Default" })
+    // Reset removes the line of .git/config: On, the default; the main window syncs again
+    const reset = symbols.getByRole("button", { name: "Reset" })
     await reset.hover()
     await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to On, the default")
     syncs = await finishedSyncCount(page)
     await reset.click()
     await expect(on).toHaveAttribute("aria-pressed", "true")
     await expect(reset).toHaveCount(0)
-    await expect(symbols.getByTestId("repository-setting-source")).toHaveCount(0)
+    await expect(source(window, "symbols")).toHaveCount(0)
     await waitForSyncComplete(page, syncs)
   })
 
@@ -94,13 +111,13 @@ test.describe("Settings → Repository", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    await setupRepo("simple")
+    const repo = await setupRepo("simple")
     await syncAndWaitForBranches()
     const window = await openRepositorySettings(page)
     const symbols = row(window, "symbols")
-    // the default: On, no source
+    // the default: On, from all repositories
     await expect(symbols.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "true")
-    await expect(symbols.getByTestId("repository-setting-source")).toHaveCount(0)
+    await expect(source(window, "symbols")).toHaveCount(0)
 
     const syncs = await finishedSyncCount(page)
     await symbols.getByRole("button", { name: "Report Only" }).click()
@@ -108,7 +125,7 @@ test.describe("Settings → Repository", () => {
     // the mode decides how the branches stack: the main window syncs
     await waitForSyncComplete(page, syncs)
     await expect(symbols.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "false")
-    await expect(symbols.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
+    await expect(source(window, "symbols")).toHaveText(ownLine(repo.path))
     await expect(symbols).toContainText("Shown by brd commits, never used for the branches")
 
     // read from git again: the write is in .git/config
@@ -120,25 +137,25 @@ test.describe("Settings → Repository", () => {
 
   test("should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
-    const window = await openRepositorySettings(page)
+    const window = await openRepositoryLanding(page)
     const writes = recordWrites(window)
     const github = row(window, "githubRepository")
     const field = github.getByRole("textbox", { name: "GitHub repository" })
     // unset: the row says why no repository was detected
-    await expect(github.getByTestId("repository-setting-source")).toHaveText("None detected: neither origin nor its Space mirror is on GitHub")
+    await expect(source(window, "githubRepository")).toHaveText("None detected: neither origin nor its Space mirror is on GitHub")
 
     await field.fill("acme/app/x")
     await expect(field).toHaveAttribute("aria-invalid", "true")
     await field.press("Enter")
-    await expect(github.getByTestId("repository-setting-error")).toHaveText("acme/app/x is not a GitHub repository: use owner/name")
+    await expect(window.getByTestId("setting-githubRepository-typing")).toHaveText("acme/app/x is not a GitHub repository: use owner/name")
 
     const pullRequestCalls = await repo.getPullRequestCalls()
     await field.fill("acme/app")
-    await expect(github.getByTestId("repository-setting-error")).toHaveCount(0)
+    await expect(window.getByTestId("setting-githubRepository-typing")).toHaveCount(0)
     await field.press("Enter")
-    await expect(github.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
+    await expect(source(window, "githubRepository")).toHaveText(ownLine(repo.path))
     // one write: the refused text never reached the backend
-    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "githubRepository", value: "acme/app" } }])
+    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "githubRepository", value: "acme/app" }, scope: "local" }])
     await expect(field).toHaveValue("acme/app")
     // the main window asks GitHub for the pull requests of the repository it names now
     await expect.poll(() => repo.getPullRequestCalls()).toBeGreaterThan(pullRequestCalls)
@@ -217,12 +234,12 @@ test.describe("Settings → Repository", () => {
     await page.getByTestId("ready-to-sync-button").click()
     await expect(findBranchRow(page, "test-branch")).toBeVisible()
 
-    // General says so, with the way back here
-    await settingsTab(window, "General").click()
+    // All repositories says so, with the way back here
+    await window.getByTestId("settings-scope-all").click()
     const general = window.getByTestId("setting-branch-prefix-repository")
     await expect(general).toContainText("This repository uses its own prefix team")
-    await general.getByRole("button", { name: "Open Repository Settings" }).click()
-    await expectSettingsOpened(page, { page: "repository", focus: "branchPrefix" }, 2)
+    await general.getByRole("button", { name: /^Open repo-\d+$/ }).click()
+    await expectSettingsOpened(page, { page: "branches", scope: "repository", focus: "branchPrefix" }, 2)
   })
 
   test("should open and sync the session of a prefix written here, for a repository synced before", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -245,28 +262,28 @@ test.describe("Settings → Repository", () => {
     await expectTeamSessionSyncedOnOpen(page, repo, synced, syncs)
   })
 
-  test("should give the prefix back to General once the repository's own is unset, and say so", async ({ page, setupRepo }) => {
+  test("should give the prefix back to all repositories once the repository's own is unset, and say so", async ({ page, setupRepo }) => {
     // the template sets branchdeck.branchPrefix user-name in .git/config
-    await setupRepo("simple", { prepopulateStore: true })
-    const window = await openSettingsWindow(page, { page: "general" })
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    const window = await openSettingsWindow(page, { page: "branches" })
     const general = window.getByRole("textbox", { name: "Branch prefix", exact: true })
     await general.fill("jane")
     await general.press("Enter")
     await expect(window.getByTestId("setting-branch-prefix-repository")).toContainText("This repository uses its own prefix user-name")
 
-    await settingsTab(window, "Repository").click()
+    await window.getByTestId("settings-scope-repository").click()
     const prefix = row(window, "branchPrefix")
     const field = prefix.getByRole("textbox", { name: "Branch prefix" })
     await expect(field).toHaveValue("user-name")
-    await expect(prefix.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
-    const reset = prefix.getByRole("button", { name: "Use Default" })
+    await expect(source(window, "branchPrefix")).toHaveText(ownLine(repo.path))
+    const reset = prefix.getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to jane, the prefix of General")
+    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to jane, the default")
     await reset.click()
     await expect(reset).toHaveCount(0)
     await expect(field).toHaveValue("")
     await expect(field).toHaveAttribute("placeholder", "jane")
-    await expect(prefix.getByTestId("repository-setting-source")).toHaveText("Set in General")
+    await expect(source(window, "branchPrefix")).toHaveCount(0)
     // the main window names the branches by General's prefix now
     await expect(page.getByTestId("ready-to-sync-card")).toContainText("jane/virtual/<name>")
   })
@@ -281,14 +298,14 @@ test.describe("Settings → Repository", () => {
     }, otherPath)
     await page.reload()
     await expect(page.getByTestId("ready-to-sync-card")).toBeVisible()
-    const window = await openRepositorySettings(page)
+    const window = await openRepositoryLanding(page)
     const writes = recordWrites(window)
     const field = row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" })
     await field.fill("acme/typed")
 
     await selectRepository(page, window, testStore, otherPath)
     // the page of the other repository: its read fails, with Retry
-    const error = window.getByTestId("repository-settings-error")
+    const error = window.getByTestId("settings-config-error")
     await expect(error).toContainText(`Cannot read the settings of ${nameOf(otherPath)}`)
     await expect(error.getByRole("button", { name: "Retry" })).toBeVisible()
 
@@ -304,48 +321,52 @@ test.describe("Settings → Repository", () => {
 
   test("should save valid typing when the window closes, and nothing else", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
-    const window = await openRepositorySettings(page)
+    const window = await openRepositoryLanding(page)
     const writes = recordWrites(window)
     await row(window, "githubRepository").getByRole("textbox", { name: "GitHub repository" }).fill("acme/app")
-    // a prefix git cannot take stays typed, unsaved
-    await row(window, "branchPrefix").getByRole("textbox", { name: "Branch prefix" }).fill("jane doe")
+    // a limit git cannot take stays typed, unsaved
+    await row(window, "pushSizeLimit").getByRole("textbox", { name: "Push size limit" }).fill("lots")
 
     // ⌘W or the close button: the window asks before it closes, the page saves first, then the window goes
     await emitTauriEvent(window, "tauri://close-requested")
     await expect.poll(() => windowCalls(window)).toContain("destroy")
-    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "githubRepository", value: "acme/app" } }])
+    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "githubRepository", value: "acme/app" }, scope: "local" }])
   })
 
-  test("should say what to do without a repository", async ({ page, setupRepo }) => {
+  test("should show only the value of every repository without a repository, and say how to set the rest", async ({ page, setupRepo }) => {
     await setupRepo("NO_REPO", { prepopulateStore: false })
-    const window = await openSettingsWindow(page, { page: "repository" })
-    await expect(window.getByTestId("repository-settings-empty")).toHaveText("Select a repository to see its settings")
-    await expect(settingsTab(window, "Repository")).toHaveAttribute("aria-selected", "true")
+    const window = await openSettingsWindow(page, { page: "landing", scope: "repository" })
+    await expect(settingsTab(window, "Landing")).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByTestId("settings-scope-all")).toHaveCount(0)
+    await expect(window.getByTestId("settings-scope-line")).toHaveText("What every repository uses, in the app and brd")
+    await expect(window.getByTestId("landing-per-repository")).toHaveText("Select a repository to set its route into master, its GitHub repository and its companions")
+    // the global config alone
+    await expect(row(window, "pushSizeLimit").getByRole("textbox", { name: "Push size limit" })).toBeEnabled()
   })
 })
 
-/** Settings → Diffs & Merge: the row of the switch of `key`, its switch, the line of where its value comes from, the writes */
+/** Settings → Branches, All repositories: the row of the switch of `key`, its switch, the line of where its value comes from, the writes */
 async function openDiffsSwitch(page: Page, key: string) {
-  const window = await openSettingsWindow(page, { page: "diffs" })
+  const window = await openSettingsWindow(page, { page: "branches" })
   const writes = recordWrites(window)
   const setting = window.getByTestId(`setting-${key}`)
   return { window, writes, setting, toggle: setting.getByRole("switch"), source: window.getByTestId(`setting-${key}-source`) }
 }
 
-test.describe("Settings → Diffs & Merge", () => {
+test.describe("Settings → Branches, a switch of every repository", () => {
   test("should resolve conflicts by words in the global config, and say where the repository's own value wins", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await syncAndWaitForBranches()
     const { window, writes, setting, toggle, source } = await openDiffsSwitch(page, "resolveByWords")
-    await expect(source).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
-    await expect(setting).toContainText("branchdeck.resolveByWords")
+    await expect(source).toHaveCount(0)
+    await expect(setting.getByRole("button", { name: "Copy branchdeck.resolveByWords" })).toBeAttached()
     await expect(toggle).toBeChecked()
 
     // off for every repository: the global config of the test repository (its own file), and the main window syncs
     const syncs = await finishedSyncCount(page)
-    await setting.click()
+    await toggle.click()
     await expect(toggle).not.toBeChecked()
-    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await expect(source).toHaveCount(0)
     await waitForSyncComplete(page, syncs)
     expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "resolveByWords", value: false }, scope: "global" }])
 
@@ -356,37 +377,41 @@ test.describe("Settings → Diffs & Merge", () => {
     })
     expect(local.ok()).toBe(true)
     await emitTauriEvent(window, "tauri://focus")
-    await expect(source).toHaveText(`Set in .git/config of ${nameOf(repo.path)}, which overrides your global Git configUse Global`)
-    await expect(toggle).toBeChecked()
+    // the value of every repository stays off; the repository's own is on
+    await expect(source).toHaveText(`${nameOf(repo.path)} has its own value: OnOpen ${nameOf(repo.path)}`)
+    await expect(toggle).not.toBeChecked()
 
-    // the switch changes the repository's own value, not the global one
-    await setting.click()
+    // its tab: the switch changes the repository's own value, not the global one
+    await source.getByRole("button", { name: `Open ${nameOf(repo.path)}` }).click()
+    await expect(toggle).toBeChecked()
+    await toggle.click()
     await expect(toggle).not.toBeChecked()
     await expect.poll(() => writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "resolveByWords", value: false }, scope: "local" })
+    await expect(source).toHaveText(`Same as all repositoriesReset`)
 
-    // Use Global removes it from .git/config: the global value applies again
-    const reset = source.getByRole("button", { name: "Use Global" })
+    // Reset removes it from .git/config: the global value applies again
+    const reset = source.getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Off, set in your global Git config")
+    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Off, from all repositories")
     await reset.click()
-    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await expect(source).toHaveCount(0)
     await expect(toggle).not.toBeChecked()
     expect(writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "resolveByWords", value: null }, scope: "local" })
   })
 
-  test("should turn the review plan on and off for every repository from Diffs & Merge", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should turn the review plan on and off for every repository from Branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await syncAndWaitForBranches()
     const { writes, setting, toggle, source } = await openDiffsSwitch(page, "reviewExperimental")
     await expect(setting).toContainText("Review plan (experimental)")
-    await expect(setting).toContainText("branchdeck.reviewExperimental")
-    // on by default, off in the global config of the test machine
-    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await expect(setting.getByRole("button", { name: "Copy branchdeck.reviewExperimental" })).toBeAttached()
+    // off by default
+    await expect(source).toHaveCount(0)
     await expect(toggle).not.toBeChecked()
 
     // on for every repository: the global config, and the main window syncs, whose header the review windows read
     let syncs = await finishedSyncCount(page)
-    await setting.click()
+    await toggle.click()
     await expect(toggle).toBeChecked()
     await waitForSyncComplete(page, syncs)
     expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "reviewExperimental", value: true }, scope: "global" }])
@@ -402,7 +427,7 @@ test.describe("Settings → Diffs & Merge", () => {
 
     // off again, in the same global config
     syncs = await finishedSyncCount(page)
-    await setting.click()
+    await toggle.click()
     await expect(toggle).not.toBeChecked()
     await waitForSyncComplete(page, syncs)
     expect(writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "reviewExperimental", value: false }, scope: "global" })

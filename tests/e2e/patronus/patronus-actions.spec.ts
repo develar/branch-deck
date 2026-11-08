@@ -931,7 +931,7 @@ test.describe("Patronus actions", () => {
       )
       await expect(popover.getByRole("button", { name: /Merge Request/ })).toHaveCount(0)
       await popover.getByRole("button", { name: "Set GitHub Repository…" }).click()
-      await expectSettingsOpened(page, { page: "repository", focus: "githubRepository" })
+      await expectSettingsOpened(page, { page: "landing", scope: "repository", focus: "githubRepository" })
       // Review Changes opens the branch in its review window, the groups as its filters
       await popover.getByTestId("safe-push-review-changes").click()
       await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.windowId)).toEqual(["settings", "review"])

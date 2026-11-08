@@ -127,7 +127,8 @@ pub fn patronus_error(message: String) -> ApiError {
 /// as `bd` answers it, in words that say where to set one, with the prefix the git identity suggests (`suggestion`,
 /// `sync_core::git_setup::prefix_suggestion`), which the welcome card offers
 pub fn no_branch_prefix(suggestion: String) -> ApiError {
-  ApiError::new(ErrorCode::NoBranchPrefix, "Cannot sync without a branch prefix: set one in Settings → General").with_details(ErrorDetails::PrefixSuggestion { prefix: suggestion })
+  ApiError::new(ErrorCode::NoBranchPrefix, "Cannot sync without a branch prefix: set one in Settings → Branches")
+    .with_details(ErrorDetails::PrefixSuggestion { prefix: suggestion })
 }
 
 /// `api_error` with the clock at `now` (seconds since the epoch), which `held_for` of a lock holder counts from

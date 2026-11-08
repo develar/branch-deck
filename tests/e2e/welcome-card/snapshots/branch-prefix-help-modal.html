@@ -16,7 +16,7 @@
           In Branch Deck
         </h3>
         <p class="text-muted-foreground">
-          Settings → General, Branches. It applies to every repository without a prefix of its own, takes precedence over the global Git setting below, and the Agent CLI (bd) uses it too.
+          Settings → Branches, All repositories. It applies to every repository without a prefix of its own, takes precedence over the global Git setting below, and the Agent CLI (brd) uses it too.
         </p>
         <div class="flex">
           <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
@@ -113,11 +113,11 @@
           For one repository
         </h3>
         <p class="text-muted-foreground">
-          Settings → Repository, Branch prefix: saved as
+          Settings → Branches, the tab of the repository: saved as
           <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-slot="inline-code">
             branchdeck.branchPrefix
           </code>
-          in the .git/config of the repository, where bd reads it too. It takes precedence over the prefix of Branch Deck.
+          in the .git/config of the repository, where brd reads it too. It takes precedence over the prefix of Branch Deck.
         </p>
         <div class="flex">
           <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 border-input bg-background font-normal hover:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] hover:text-foreground aria-expanded:bg-[color-mix(in_oklch,var(--background),var(--foreground)_5%)] aria-expanded:text-foreground dark:bg-transparent dark:hover:bg-input/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">

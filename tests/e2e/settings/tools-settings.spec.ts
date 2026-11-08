@@ -2,9 +2,9 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
+import { openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
-import { completeYouTrackSignIn, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
+import { completeYouTrackSignIn, issueKeyLink, linkIssuesToYouTrack, openIssue, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 test.describe("Settings → Tools", () => {
   test("should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in", async ({ page, setupRepo }) => {
@@ -121,13 +121,6 @@ test.describe("Settings → Tools", () => {
     await expect(window.locator("[data-slot=toast]")).toHaveCount(0)
   })
 
-  test("should open from the line of Settings → Agents", async ({ page, setupRepo }) => {
-    await setupRepo("simple", { prepopulateStore: true })
-    const window = await openSettingsWindow(page, { page: "agents" })
-    await window.getByTestId("agent-tools").getByRole("button", { name: "Open Tools" }).click()
-    await expectSettingsOpened(page, { page: "tools" }, 2)
-  })
-
   test("should mark Tools in the sidebar while a CLI waits for you, until it is done", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({
@@ -147,11 +140,25 @@ test.describe("Settings → Tools", () => {
     await expect(tab.getByTestId("setup-dot")).toHaveCount(0)
   })
 
+  test("should mark Accounts in the sidebar while the YouTrack sign-in of the app stopped working", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the access token expired, and the Hub no longer knows the refresh token: the first lookup finds it out
+    const repo = await setupRepo("issue_links", { youtrack: { issues: [openIssue("JIRA-456")], signedIn: "expired" } })
+    await linkIssuesToYouTrack(repo, await youTrackUrlOf(repo))
+    await syncAndWaitForBranches()
+    await issueKeyLink(page, "JIRA-456").hover()
+    await expect(page.getByTestId("issue-popover").getByTestId("issue-sign-in")).toContainText("Your YouTrack sign-in expired: sign in again")
+
+    const window = await openSettingsWindow(page, { page: "general" })
+    await expect(window.getByTestId("settings-tab-accounts").getByTestId("setup-dot")).toBeVisible()
+    // the sign-in of the app, not a CLI: Tools has none
+    await expect(window.getByTestId("settings-tab-tools").getByTestId("setup-dot")).toHaveCount(0)
+  })
+
   test("should sign teamcity in through its own browser sign-in, to the server an open names", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools({ installed: [{ tool: "teamcity", version: "1.6.3" }] })
     // the server of a robot's build, as the toast of a copied prompt opens it
-    const window = await openSettingsWindow(page, { page: "tools", focus: "teamcity", server: "https://ci.example" })
+    const window = await openSettingsWindow(page, { page: "tools", focus: "cli-teamcity", server: "https://ci.example" })
     const row = window.getByTestId("cli-tool-teamcity")
     const field = row.getByRole("textbox", { name: "TeamCity server" })
     await expect(field).toHaveValue("https://ci.example")

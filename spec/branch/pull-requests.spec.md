@@ -110,8 +110,9 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 
 ### Reading pull requests
 
-- The repository is `git config branchdeck.githubRepository` (`owner/name`; Settings → Repository, GitHub repository,
-  which shows the detected one as its placeholder, [Settings](../repository/settings.spec.md#repository)), if set;
+- The repository is `git config branchdeck.githubRepository` (`owner/name`; Settings → Landing, the tab of the repository,
+  GitHub repository, which shows the detected one as its placeholder, [Settings](../repository/settings.spec.md#landing)),
+  if set;
   else the one `origin` pushes to
   (`git remote get-url --push origin`), as the virtual branches are pushed to `origin`; else the GitHub mirror that the Space
   settings committed in the repository name (`mirror.url` of `.space/repository-settings.json`, read from `HEAD` with
@@ -126,7 +127,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - The app must resolve it once per repository and keep it while the repository's `config` and the worktree's
   `config.worktree` stay as they are, at most 10 minutes (the global config and the Space settings may name it too):
   a refresh of the pull requests, the review requests and the user search runs no git for it, and a change in
-  Settings → Repository is read at the next one.
+  Settings → Landing is read at the next one.
   [@test] ../../crates/app-api/src/repository_state_test.rs (`the_github_repository_is_kept_until_the_config_changes`)
 - Otherwise a remote on another host, a local path or no `origin` must report "not on GitHub" without asking GitHub.
   [@test] ../../crates/sync-core/src/github_repository_test.rs (`rejects_remote_urls_outside_github`)
@@ -659,7 +660,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   Patronus line has a Refresh button too). When GitHub can't be asked, the line is a quiet hint instead: "No GitHub
   token to see pull requests", "GitHub rejected the token from gh" (the source of the last token tried: `GH_TOKEN`,
   `gh`, the Branch Deck sign-in, the git credentials), both with "Sign In…" ("GitHub Settings…" in a build without the
-  sign-in), which opens Settings at GitHub ([GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
+  sign-in), which opens Settings → Accounts at GitHub ([GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered)); "GitHub: the organization requires SAML SSO,
   authorize the token for it", with "Authorize…" when GitHub gave the URL; "GitHub: <message> (the token from gh)" (no
   access; for the token of the Branch Deck sign-in it adds that an organization that restricts OAuth apps has to
   approve Branch Deck, with "Request Access…": [GitHub Sign-In](../repository/github-sign-in.spec.md#where-it-is-offered));
@@ -710,7 +711,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - Only the 50 most recent pull requests of the user are read; an old pull request of a long-lived branch may be missed.
 - A branch pushed to a fork as `origin`, with the pull request on the upstream repository, is not matched.
 - The Space settings file is a snapshot committed by the repository's admins: a mirror configured only in Space, not in
-  the file, needs `branchdeck.githubRepository` (Settings → Repository).
+  the file, needs `branchdeck.githubRepository` (Settings → Landing).
 
 ## References
 

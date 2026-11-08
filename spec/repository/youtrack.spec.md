@@ -36,7 +36,7 @@ targets:
   - ../../crates/app-api/src/app/sign_in.rs
   - ../../crates/test-server/src/remote_host.rs
   - ../../src/components/settings/YouTrackSettings.tsx
-  - ../../src/components/settings/YouTrackPage.tsx
+  - ../../src/components/settings/AccountsPage.tsx
   - ../../src/components/commit/LinkedText.tsx
   - ../../src/components/issue/IssueHoverHost.tsx
   - ../../src/components/issue/IssueDetails.tsx
@@ -217,7 +217,7 @@ client takes a pasted token.
   (`src/stores/youtrack-issues.ts`).
   [@test] ../../src/stores/youtrack-issues.test.ts (`forgets the answers once the YouTrack sign-in changed, not for a problem of the same sign-in`)
   [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should leave the links of a signed-out user as they are`)
-- The YouTrack page of Settings ([Settings](settings.spec.md)) says what the sign-in is for: "Hover an issue key to see
+- The YouTrack section of Settings → Accounts ([Settings](settings.spec.md)) says what the sign-in is for: "Hover an issue key to see
   the issue, and mark it fixed once its work lands".
   - Signed out: the URL with its source ("From .idea/vcs.xml of <repository>"), or, empty, "The address you open
     YouTrack at, e.g. https://youtrack.example.com"; "Sign In to YouTrack" (disabled without a URL) with "Opens
@@ -273,7 +273,7 @@ client takes a pasted token.
   a field is told by its `$type`, never by its name. It asks when it opens (`get_youtrack_issue`, the backend keeps an
   answer a minute; a second ask while one runs waits for it); "Not found, or no access" (YouTrack answers 404 for both),
   "Cannot load ABC-1: <reason>" with Try Again, and for a rejected or expired sign-in the reason with "YouTrack
-  Settings…", which opens Settings at YouTrack; such an answer has the window read the sign-ins again, so every surface
+  Settings…", which opens Settings → Accounts at YouTrack; such an answer has the window read the sign-ins again, so every surface
   of it knows the problem.
   [@test] ../../src/stores/youtrack-issues.test.ts (`asks an issue once while it is asked, and a sign-in problem has the window read the sign-ins again`)
   [@test] ../../crates/youtrack/src/issue_test.rs (`an_issue_shows_its_state_and_its_single_value_fields_by_type`, `a_resolved_issue_does_not_ask_for_the_values_of_its_state`)
@@ -352,4 +352,4 @@ client takes a pasted token.
   (`linkIssuesToYouTrack(page, url)`), plays the browser of a sign-in (`completeYouTrackSignIn`: the Hub page redirects
   back to the app's listener) and asserts what reached the fake (`getYouTrack`: the commands, the lookups, the tokens
   of `users/me`); no test answers a YouTrack command in the page (`tests/e2e/helpers/youtrack-helpers.ts`).
-- By hand: `pnpm tauri dev`, Settings → YouTrack → Sign In to YouTrack with `https://youtrack.jetbrains.com`.
+- By hand: `pnpm tauri dev`, Settings → Accounts → Sign In to YouTrack with `https://youtrack.jetbrains.com`.

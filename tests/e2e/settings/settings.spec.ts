@@ -12,12 +12,11 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls, windowTheme } from "../helpers/title-bar-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
-const WINDOW_SIZE = { width: 720, height: 540 }
+const WINDOW_SIZE = { width: 880, height: 640 }
 
 /**
- * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, a value of the
- * worktree config, an invalid value; on Diffs & Merge a value of the repository with Use Global and an invalid one; on
- * Agents a value of the worktree config and an invalid one of the repository
+ * Every line a row of the pages of the git config can show at once: the repository's own value with Reset, a value of
+ * the worktree config, an invalid value, the system config; on Agents the pull request off by the route
  */
 const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   symbols: { value: "report", scope: "global", localSet: false, invalid: null, fallbackValue: "report", fallbackScope: "global" },
@@ -51,8 +50,8 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
   agentPullRequest: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: null },
-  agentPullRequestOff: null,
-  reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
+  reviewExperimental: { value: true, scope: "system", localSet: false, invalid: null, fallbackValue: true, fallbackScope: "system" },
+  agentPullRequestOff: "The route into master is Push (branchdeck.landing): the work lands without a pull request",
   companions: [
     { name: "ci-config", path: "/Users/jane/src/ci-config", problem: null },
     { name: "deploy-scripts", path: "/Users/jane/src/deploy-scripts", problem: "/Users/jane/src/deploy-scripts is gone" },
@@ -75,8 +74,8 @@ function webviewZoom(page: Page): Promise<number | undefined> {
 }
 
 /**
- * The window at 720 × 540 with the tallest state of each page: the code of the GitHub sign-in, the warning that the OS
- * refused the notifications, every line of the rows of Repository. The sign-in runs against the fake GitHub, which
+ * The window at 880 × 640 with the tallest state of each page: the code of the GitHub sign-in, the warning that the OS
+ * refused the notifications, every line of the rows of the pages of the git config. The sign-in runs against the fake GitHub, which
  * never gets the code; the window's other commands are answered in its page.
  */
 async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Promise<Page> {
@@ -109,53 +108,78 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
       },
     },
   )
-  await window.getByTestId("settings-tab-github").click()
+  await window.getByTestId("settings-tab-accounts").click()
   await window.getByRole("button", { name: "Sign In to GitHub" }).click()
   await expect(window.getByTestId("github-user-code")).toHaveText("WDJB-MJHT")
   return window
 }
 
-/**
- * The pages that scroll at 720 × 540: Diffs & Merge with its Review section, Agents with its three rules
- * (spec/repository/settings.spec.md)
- */
-const SCROLLING_PAGES = new Set(["Diffs & Merge", "Agents"])
+/** The pages of the sidebar, in its order */
+const PAGES = ["General", "Appearance", "Diffs", "Notifications", "Accounts", "Tools", "Branches", "Landing", "Agents"]
 
-/** Each page of the sidebar in its tallest state fits the island: nothing to scroll at 720 × 540, but `SCROLLING_PAGES` */
+/** The pages that may scroll in their tallest state at 880 × 640 (spec/repository/settings.spec.md#the-window) */
+const SCROLLING_PAGES = new Set(["Tools", "Landing"])
+
+/** The pages of the git config, each shown on both scope tabs */
+const SCOPED_PAGES = new Set(["Branches", "Landing", "Agents"])
+
+/**
+ * Each page of the sidebar in its tallest state, a page of the git config on both tabs, fits the island: nothing to
+ * scroll at 880 × 640, but `SCROLLING_PAGES`; nothing wider than the island at any size
+ */
 async function expectEveryPageFits(window: Page, pages: string[]): Promise<void> {
   const island = window.getByTestId("settings-island")
   for (const name of pages) {
     await settingsTab(window, name).click()
     await expect(settingsTab(window, name)).toHaveAttribute("aria-selected", "true")
-    if (name === "Notifications") {
-      await expect(window.getByTestId("notification-permission")).toHaveAttribute("data-status", "denied")
+    for (const scope of SCOPED_PAGES.has(name) ? ["all", "repository"] : ["all"]) {
+      if (SCOPED_PAGES.has(name)) {
+        await window.getByTestId(`settings-scope-${scope}`).click()
+        await expect(window.getByTestId(`settings-scope-${scope}`)).toHaveAttribute("aria-selected", "true")
+      }
+      await expectTallestState(window, name, scope)
+      const { scrollHeight, clientHeight, scrollWidth, clientWidth } = await island.evaluate(element => ({
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }))
+      expect(scrollWidth, `${name} (${scope}) is no wider than the island`).toBeLessThanOrEqual(clientWidth)
+      if (!SCROLLING_PAGES.has(name)) {
+        expect(scrollHeight, `${name} (${scope}) fits`).toBeLessThanOrEqual(clientHeight)
+      }
     }
-    if (name === "Diffs & Merge") {
-      await expect(window.getByTestId("setting-resolveByWords-source").getByRole("button", { name: "Use Global" })).toBeVisible()
-      await expect(window.getByText("maybe is not a boolean (true or false)")).toBeVisible()
-    }
-    if (name === "Landing") {
-      // the route of the repository with its source, Use Default and its invalid value; the push size limit of Repository's
-      await expect(window.getByTestId("repository-setting-landing").getByRole("button", { name: "Use Default" })).toBeVisible()
-      await expect(window.getByTestId("setting-pushSizeLimit-source")).toBeVisible()
-    }
-    if (name === "Agents") {
-      await expect(window.getByTestId("setting-agentLease-reason")).toBeVisible()
-      await expect(window.getByTestId("agent-skill")).toContainText("Installed")
-    }
-    if (name === "Tools") {
-      await expect(window.getByTestId("cli-tool-teamcity").getByTestId("cli-tool-server")).toHaveCount(2)
-      await expect(window.getByTestId("cli-tool-youtrack").locator("pre")).toBeVisible()
-    }
-    if (name === "Repository") {
-      // the GitHub repository the worktree config sets, which the page can't change
-      await expect(window.getByTestId("repository-setting-reason")).toHaveCount(1)
-    }
-    if (SCROLLING_PAGES.has(name)) {
-      continue
-    }
-    const { scrollHeight, clientHeight } = await island.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }))
-    expect(scrollHeight, `${name} fits`).toBeLessThanOrEqual(clientHeight)
+  }
+}
+
+/** What the tallest state of the page shows, before its height is measured */
+async function expectTallestState(window: Page, name: string, scope: string): Promise<void> {
+  if (name === "Notifications") {
+    await expect(window.getByTestId("notification-permission")).toHaveAttribute("data-status", "denied")
+  }
+  if (name === "Branches" && scope === "repository") {
+    // its own prefix, invalid; resolve by words its own, invalid; the review plan of the system config
+    await expect(window.getByTestId("setting-resolveByWords-source").getByRole("button", { name: "Reset" })).toBeVisible()
+    await expect(window.getByText("maybe is not a boolean (true or false)")).toBeVisible()
+  }
+  if (name === "Branches" && scope === "all") {
+    await expect(window.getByTestId("setting-reviewExperimental-source")).toContainText("Set in the system Git config")
+  }
+  if (name === "Landing" && scope === "repository") {
+    // the route of the repository with Reset and its invalid value, the companions, the push size limit of its own
+    await expect(window.getByTestId("setting-landing-source").getByRole("button", { name: "Reset" })).toBeVisible()
+    await expect(window.getByTestId("setting-githubRepository-reason")).toBeVisible()
+    await expect(window.getByTestId("companion-row")).toHaveCount(2)
+    await expect(window.getByTestId("setting-pushSizeLimit-source")).toBeVisible()
+  }
+  if (name === "Agents" && scope === "repository") {
+    await expect(window.getByTestId("setting-agentLease-reason")).toBeVisible()
+    await expect(window.getByTestId("setting-agentPullRequest-not-applied")).toBeVisible()
+  }
+  if (name === "Tools") {
+    await expect(window.getByTestId("agent-skill")).toContainText("/Users/test/.local/bin/brd")
+    await expect(window.getByTestId("cli-tool-teamcity").getByTestId("cli-tool-server")).toHaveCount(2)
+    await expect(window.getByTestId("cli-tool-youtrack").locator("pre")).toBeVisible()
   }
 }
 
@@ -170,20 +194,8 @@ test.describe("Settings window", () => {
     const window = await openSettingsWindow(page)
     const tabs = window.getByRole("tablist", { name: "Settings pages" })
     await expect(tabs).toHaveAttribute("aria-orientation", "vertical")
-    // the page of the selected repository last, its name beside it
-    await expect(tabs.getByRole("tab")).toHaveText([
-      "General",
-      "Appearance",
-      "Diffs & Merge",
-      "Notifications",
-      "GitHub",
-      "YouTrack",
-      "Landing",
-      "Companions",
-      "Agents",
-      "Tools",
-      /^Repositoryrepo-\d+$/,
-    ])
+    // the pages of the app, then those of the git config of the repositories
+    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs", "Notifications", "Accounts", "Tools", "Branches", "Landing", "Agents"])
     await expect(settingsTab(window, "General")).toBeFocused()
     await expect(window.getByTestId("settings-page-general")).toBeVisible()
 
@@ -200,9 +212,9 @@ test.describe("Settings window", () => {
     await expect.poll(async () => ((await testStore.get("appSettings")) as { settingsPage?: string } | null)?.settingsPage).toBe("appearance")
 
     // a button that names a page: the open window shows it, its tab focused
-    await reopenSettings(page, window, { page: "github" }, 2)
-    await expect(settingsTab(window, "GitHub")).toHaveAttribute("aria-selected", "true")
-    await expect(settingsTab(window, "GitHub")).toBeFocused()
+    await reopenSettings(page, window, { page: "accounts" }, 2)
+    await expect(settingsTab(window, "Accounts")).toHaveAttribute("aria-selected", "true")
+    await expect(settingsTab(window, "Accounts")).toBeFocused()
     // the menu item again: the page stays
     await settingsTab(window, "Notifications").click()
     await reopenSettings(page, window, {}, 3)
@@ -217,21 +229,47 @@ test.describe("Settings window", () => {
     await expect(settingsTab(next, "Notifications")).toBeFocused()
   })
 
+  test("should open a page of the git config at the scope an open names, else at All repositories, never the one of before", async ({ page }) => {
+    const window = await openSettingsWindow(page, { page: "agents", scope: "repository" })
+    const repository = window.getByTestId("settings-scope-repository")
+    await expect(repository).toHaveAttribute("aria-selected", "true")
+    await expect(repository).toHaveText(/^repo-\d+$/)
+    await expect(window.getByTestId("settings-scope-line")).toHaveText(/^Changes here apply only to repo-\d+, saved in its \.git\/config$/)
+    // ⌘, again: every repository, where a change can't go to the repository unseen
+    await reopenSettings(page, window, {}, 2)
+    await expect(window.getByTestId("settings-scope-all")).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByTestId("settings-scope-line")).toHaveText("What every repository uses, in the app and brd")
+    // ← and → switch the scope
+    await window.getByTestId("settings-scope-all").focus()
+    await window.keyboard.press("ArrowRight")
+    await expect(repository).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should show the page that has the settings of a page of an older build", async ({ page }) => {
+    const window = await openSettingsWindow(page, { page: "repository" as never })
+    await expect(settingsTab(window, "Branches")).toHaveAttribute("aria-selected", "true")
+  })
+
   test("should focus the field an open names", async ({ page }) => {
-    const window = await openSettingsWindow(page, { page: "general", focus: "branchPrefix" })
+    const window = await openSettingsWindow(page, { page: "branches", focus: "branchPrefix" })
     await expect(window.getByRole("textbox", { name: "Branch prefix", exact: true })).toBeFocused()
+    // a tool, an account: their section
+    await reopenSettings(page, window, { page: "tools", focus: "cli-teamcity" }, 2)
+    await expect(window.getByTestId("cli-tool-teamcity")).toBeFocused()
+    await reopenSettings(page, window, { page: "accounts", focus: "account-youtrack" }, 3)
+    await expect(window.locator('[data-settings-focus="account-youtrack"]')).toBeFocused()
   })
 
   test("should open the guide of the branch prefix without a button that opens Settings", async ({ page }) => {
-    const window = await openSettingsWindow(page, { page: "general" })
+    const window = await openSettingsWindow(page, { page: "branches" })
     await window.getByRole("button", { name: "View Guide" }).click()
     const guide = window.getByTestId("branch-prefix-help-dialog")
-    await expect(guide).toContainText("Settings → General, Branches")
+    await expect(guide).toContainText("Settings → Branches, All repositories")
     await expect(guide.getByRole("button", { name: "Open Settings" })).toHaveCount(0)
   })
 
   test("should close on Escape, which takes the typing of a field back first", async ({ page }) => {
-    const window = await openSettingsWindow(page, { page: "general" })
+    const window = await openSettingsWindow(page, { page: "branches" })
     const field = window.getByRole("textbox", { name: "Branch prefix", exact: true })
     const saved = await field.inputValue()
     await field.fill("jane")
@@ -290,7 +328,7 @@ test.describe("Settings window", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
   })
 
-  test("should set every diff from Diffs & Merge, the Whitespace menu naming its choice", async ({ page, testStore }) => {
+  test("should set every diff from Diffs, the Whitespace menu naming its choice", async ({ page, testStore }) => {
     const window = await openSettingsWindow(page, { page: "diffs" })
     // the main window saves what differs from the defaults
     await window.getByTestId("setting-diffViewMode").getByRole("button", { name: "Unified" }).click()
@@ -338,13 +376,32 @@ test.describe("Settings window", () => {
     await expect(permission).toHaveAttribute("data-status", "notAsked")
   })
 
-  test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
+  test("should fit every page at 880 × 640 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page, repo)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Companions", "Agents", "Tools", "Repository"])
-    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "landing", "agents", "tools", "repository"]) {
+    await expectEveryPageFits(window, PAGES)
+    for (const id of ["general", "appearance", "diffs", "notifications", "tools"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
+    }
+    // Accounts without the GitHub sign-in, whose code counts down
+    await window.getByTestId("settings-tab-accounts").click()
+    await captureHtmlSnapshot(window.locator('[data-settings-focus="account-youtrack"]'), "settings-accounts-youtrack")
+    for (const id of ["branches", "landing", "agents"]) {
+      await window.getByTestId(`settings-tab-${id}`).click()
+      for (const scope of ["all", "repository"]) {
+        await window.getByTestId(`settings-scope-${scope}`).click()
+        await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}-${scope}`)
+      }
+    }
+  })
+
+  test("should keep every page within the island at the smallest window", async ({ page }) => {
+    const window = await openSettingsWindow(page, {}, { beforeLoad: window => window.setViewportSize({ width: 640, height: 440 }) })
+    for (const name of PAGES) {
+      await settingsTab(window, name).click()
+      const { scrollWidth, clientWidth } = await window.getByTestId("settings-island").evaluate(element => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }))
+      expect(scrollWidth, `${name} at 640 × 440`).toBeLessThanOrEqual(clientWidth)
     }
   })
 })
@@ -352,13 +409,13 @@ test.describe("Settings window", () => {
 test.describe("Settings window on macOS", () => {
   test.use({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" })
 
-  test("should fit every page at 720 × 540 without scrolling, the Dock badge too", async ({ page, setupRepo }) => {
+  test("should fit every page at 880 × 640 without scrolling, the Dock badge too", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     const window = await openTallestSettings(page, repo)
-    await expect(window.getByTestId("settings-page-github")).toBeVisible()
+    await expect(window.getByTestId("settings-page-accounts")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Landing", "Companions", "Agents", "Tools", "Repository"])
+    await expectEveryPageFits(window, PAGES)
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

@@ -35,8 +35,8 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
         <div className="flex flex-col gap-6 text-sm">
           <HelpBlock title="In Branch Deck">
             <p className="text-muted-foreground">
-              Settings → General, Branches. It applies to every repository without a prefix of its own, takes precedence over the global Git setting below, and the Agent CLI (bd)
-              uses it too.
+              Settings → Branches, All repositories. It applies to every repository without a prefix of its own, takes precedence over the global Git setting below, and the Agent
+              CLI (brd) uses it too.
             </p>
             {!inSettings && (
               <div className="flex">
@@ -45,7 +45,7 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
                   variant="outline"
                   onClick={() => {
                     onOpenChange(false)
-                    openSettings({ page: "general", focus: "branchPrefix" })
+                    openSettings({ page: "branches", focus: "branchPrefix" })
                   }}
                 >
                   <SettingsIcon data-icon="inline-start" />
@@ -76,9 +76,9 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
 
           <HelpBlock title="For one repository">
             <p className="text-muted-foreground">
-              {"Settings → Repository, Branch prefix: saved as "}
+              {"Settings → Branches, the tab of the repository: saved as "}
               <InlineCode>branchdeck.branchPrefix</InlineCode>
-              {" in the .git/config of the repository, where bd reads it too. It takes precedence over the prefix of Branch Deck."}
+              {" in the .git/config of the repository, where brd reads it too. It takes precedence over the prefix of Branch Deck."}
             </p>
             <div className="flex">
               <Button
@@ -86,7 +86,7 @@ export function BranchPrefixHelpDialog({ open, onOpenChange, inSettings = false 
                 variant="outline"
                 onClick={() => {
                   onOpenChange(false)
-                  openSettings({ page: "repository", focus: "branchPrefix" })
+                  openSettings({ page: "branches", scope: "repository", focus: "branchPrefix" })
                 }}
               >
                 <SettingsIcon data-icon="inline-start" />

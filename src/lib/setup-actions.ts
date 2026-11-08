@@ -7,7 +7,7 @@ import { runCliToolAction } from "@/stores/cli-tools"
 import { skipSetupItem } from "@/stores/settings/appSettings"
 import { refreshSetup } from "@/stores/setup"
 
-/** The action of an item of the Setup dot, as its row and Settings → Tools run it */
+/** The action of an item of the Setup dot, as its row and Settings → Tools and Accounts run it */
 export function runSetupItem(entry: SetupEntry): void {
   const item = entry.item
   switch (item.kind) {
@@ -25,10 +25,10 @@ export function runSetupItem(entry: SetupEntry): void {
       return
     case "signInExpiring":
     case "signInExpired":
-      openSettings({ page: "tools", focus: item.tool })
+      openSettings({ page: "tools", focus: `cli-${item.tool}` })
       return
     case "youTrackSignIn":
-      openSettings({ page: "youtrack" })
+      openSettings({ page: "accounts", focus: "account-youtrack" })
   }
 }
 
