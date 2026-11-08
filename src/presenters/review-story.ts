@@ -391,9 +391,10 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
     }),
     newApi: list(declared(addedChanges.filter(change => !change.widened))),
     opensWider: list(declared(addedChanges.filter(change => change.widened))),
-    moduleEdges: list(edges),
+    // the contents leave to the map the new uses between modules, and to the opening the units shown in another step
+    moduleEdges: contents ? { places: [], more: 0 } : list(edges),
     takenOutBy,
-    shownElsewhere,
+    shownElsewhere: contents ? [] : shownElsewhere,
     unproven: answered && unreached.length > 0 && reached === 0 && scenarios.length === 0 ? { names: noneFact().names } : null,
   }
 }

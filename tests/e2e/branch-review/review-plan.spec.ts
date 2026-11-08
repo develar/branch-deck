@@ -691,6 +691,8 @@ test.describe("The review plan in the branch review", () => {
     const overview = window.getByTestId("review-overview")
     await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
     await expect(overview.getByTestId("review-plan-unbroken")).toContainText("No use left outside breaks · 1 API change")
+    // the map names the new module; a range of no told step names the new use between the modules in its facts
+    await expect(overview.getByTestId("review-map-module").filter({ hasText: "New module" })).toContainText("src/b")
     const moduleLink = overview.getByTestId("review-step-module-edge")
     await expect(moduleLink).toHaveAttribute("data-path", "src/a/Reader.kt")
     await expect(moduleLink).toHaveText("(root) → src/b")

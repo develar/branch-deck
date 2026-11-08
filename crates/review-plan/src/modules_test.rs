@@ -169,3 +169,16 @@ fn a_label_is_the_shortest_suffix_no_other_module_shares() {
     ["view.gui", "view.gui.media", "air/shared/code", "other/shared/code", "review-plan", "plugins/air", "(root)"]
   );
 }
+
+/// A file the range adds counts the lines its commits leave, as the diff of the range does, though a later commit
+/// changed what an earlier one added
+#[test]
+fn a_file_the_range_adds_counts_the_lines_its_commits_leave() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add the GUI", &[("gui/BUILD.bazel", "# gui\n")]);
+  repo.create_commit_with_files("Add the box", &[("gui/src/Box.kt", "package a\n\nclass Box\n\nfun one() = 1\n")]);
+  let head = repo.create_commit_with_files("Shrink the box", &[("gui/src/Box.kt", "package a\n\nclass Box(val size: Int)\n")]);
+  let plan = plan_of_range(&repo, &base, &head);
+  let gui = plan.modules.iter().find(|module| module.root == "gui").unwrap();
+  assert_eq!((gui.additions, gui.deletions), (3, 0));
+}

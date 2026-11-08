@@ -377,12 +377,17 @@ pub(crate) fn is_prose(path: &str) -> bool {
 
 /// The lines the range adds and removes in `file`: of its blocks, else of its commits
 fn line_counts(file: &ChangedFile<'_>, pair: Option<&PairBlocks>) -> (u32, u32) {
+  let (added, removed) = file
+    .changes
+    .iter()
+    .fold((0u32, 0u32), |(added, removed), change| (added + change.additions, removed + change.deletions));
   match pair {
     Some(PairBlocks::Blocks(blocks)) => blocks.iter().fold((0, 0), |(added, removed), block| (added + span(&block.new), removed + span(&block.old))),
-    _ => file
-      .changes
-      .iter()
-      .fold((0, 0), |(added, removed), change| (added + change.additions, removed + change.deletions)),
+    // a file the range adds has the lines its commits leave, one it deletes the lines it had: as the diff of the range
+    // counts them, though a later commit changed what an earlier one added
+    Some(PairBlocks::Added) => (added.saturating_sub(removed), 0),
+    Some(PairBlocks::Deleted) => (0, removed.saturating_sub(added)),
+    _ => (added, removed),
   }
 }
 

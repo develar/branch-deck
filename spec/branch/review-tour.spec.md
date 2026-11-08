@@ -421,7 +421,9 @@ it added a module.
   of the change reaches load"),
   "Proven by …", "New API: Cache and Reader", "Opens wider: mediaDuration" (a declaration whose reach alone opened
   wider, `widened`, no new API), "New use between modules: view.gui.media → view.gui, 38 links" (a pair of modules once, by their labels,
-  never the pairs of their files), each name showing its place; a step
+  never the pairs of their files; in the opening only, the map of the overview names the modules and their uses), each
+  name showing its place; the units of a step another step's stop shows ("Adds hooks, shown in step 2") in the opening
+  only; a step
   accio answered for whose code no test of the change reaches, every way walked, and no scenario proves
   says so in the warning tone ("No test of the change reaches paint"); code accio did not walk every way of is never
   named there; a list of names in the facts

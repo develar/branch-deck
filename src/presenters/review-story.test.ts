@@ -781,6 +781,15 @@ describe("the document of a review", () => {
       // a pair of modules once, at the first use of its first link, in the file that uses
       [["src/a → src/b", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
     ])
+    // the contents leave the new uses between modules to the map: the opening names them
+    const contents = presentPrologue(
+      plan([step("a", [commit("the rule")], [["u:rule", "src/a/Rule.kt"]], {}, { moduleEdges: [{ from: 0, to: 1, links: [0] }] })], [], {
+        links: [{ from: "src/a/Reader.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 3 }], state: "added", crossModule: true, newBetweenModules: true }],
+        modules: [moduleShape("src/a", "src/a"), moduleShape("src/b", "src/b")],
+      }),
+      false,
+    )
+    expect(contents.steps[0]!.facts.moduleEdges.places).toEqual([])
     const untold = openings.get("no-story")!
     expect([untold.title, untold.story, untold.commits.map(it => it.title)]).toEqual(["Changes without a story", null, ["tidy"]])
   })

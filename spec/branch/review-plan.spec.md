@@ -572,10 +572,11 @@ and what each newly uses. The review opens on it ([Review Tour](review-tour.spec
   [@test] ../../crates/review-plan/src/modules_test.rs (`a_label_is_the_shortest_suffix_no_other_module_shares`, `the_files_of_a_module_the_commits_delete_stay_in_it`)
 - A module must count its changed `files` by role: `build` (the build model, a manifest, a `moduleList`), `prose`
   (Markdown, reStructuredText, AsciiDoc, text), `tests` (the paths of [Files](#files)), `code` (a language the summaries
-  parse), the rest `resources`; its lines `additions` and `deletions` over the range, by the blocks of each file; its
+  parse), the rest `resources`; its lines `additions` and `deletions` over the range, by the blocks of each file, of a
+  file the range adds or deletes the lines it leaves or had, as the diff of the range counts them; its
   `directories` below the root without a leading source directory (`src`, `testSrc`, `main`, `kotlin`, `java`,
   `resources`, …), by their first two levels, the most files first.
-  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`)
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`, `a_file_the_range_adds_counts_the_lines_its_commits_leave`)
 - A module must list the modules of the review it newly `uses`: by the links the commits add from its files to theirs
   (`new_between_modules`), and `declared` when a dependency entry its build files add, or one a build file the commits
   add declares, names that module; `usedBy` the reverse; `contentOf` the plugin modules whose descriptors the commits
