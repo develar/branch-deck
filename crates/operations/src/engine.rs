@@ -26,7 +26,7 @@ use crate::land_execute::{self, Accepted, Planned, StartHost, StartServices, Ste
 use crate::land_session::{SessionStart, pull_request_start, session_start};
 use crate::registry::{Admitted, Answer, OperationRequest, Registry, RunningGuard};
 use crate::rewrite::{RewriteHost, execute_rewrite, prepare_rewrite, rewrite_request};
-use crate::run_frame::{self, wait_for_facts};
+use crate::run_frame::{self, SyncWait, wait_for_facts};
 use crate::witness::{Witness, check};
 use crate::{auto_merge, close, forget, issue, land, pull_request, push, review, review_fetch, robot, update};
 use domain_policy::land_direct::update_after;
@@ -249,8 +249,8 @@ pub(crate) async fn run_planned_in(guard: &RunningGuard, start: (SessionStart, S
 /// admitted over the operations of the session with what the plan as the session has it now reserves, then run
 /// (`land_execute::execute`) over the session and the services of `hosts` (`session_start`; a push into the target,
 /// which starts no robot, `pull_request_start`) with its steps in the view and its progress and outcome to `events`, on
-/// what the operations it queued behind left (the push of its branch pressed just before it: the start pushes nothing
-/// more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
+/// the table of the last sync and what the operations it queued behind left (the push of its branch pressed just before
+/// it: the start pushes nothing more); stopped by `Registry::cancel`. Once a push into the target landed, Update Project follows under the start's
 /// guard (`land_direct::update_after`): its steps and, after the start's `Done`, its outcome go to `events`, while the
 /// target stays held until its sync; the answer is the start's. The journal contains one operation for both phases
 ///
@@ -264,16 +264,14 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
   let request = land_request(&key.prefix, &land, planned.as_ref());
   let pushes_into_target = planned.as_ref().is_some_and(pushes_into_target);
   run(registry, key, request, Arc::clone(&events), async |guard| {
-    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head]).await;
+    // A start lands the table of the last sync; it needs nothing a running sync writes.
+    let waited = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Never).await;
     let (mut host, run) = if pushes_into_target {
       pull_request_start(services, sessions, key).await?
     } else {
       session_start(services, sessions, key).await?
     };
     host.exclude_operation(guard.id().clone());
-    if let Some(error) = waited.failed {
-      return Err(error);
-    }
     let steps = steps_of(guard);
     let started = match land_execute::execute(&host, &run, &steps, guard.id().clone(), &land, &accepted, waited.waited).await {
       Ok(started) => started,

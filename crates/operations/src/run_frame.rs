@@ -1,5 +1,5 @@
-//! The prologue shared by operations whose plans depend on the session's branches: wait for earlier rewrites and the
-//! session sync that runs, then decide again on the facts they left.
+//! The prologue shared by operations whose plans depend on the session's branches: wait for earlier rewrites, then for
+//! a running sync only when the caller's plan depends on the table it builds, before deciding again on those facts.
 
 use crate::engine::Hosts;
 use crate::registry::RunningGuard;
@@ -14,18 +14,35 @@ use tracing::debug;
 pub struct Waited {
   /// It waited: the plan must be decided again
   pub waited: bool,
-  /// The error of the last sync it waited for, none when that one committed
+  /// The error of the last sync it waited for, if any
   pub failed: Option<ApiError>,
 }
 
-/// Waits behind operations holding `resources`, then for a sync of the session that runs, including its quiet follow-up
-/// (`SYNCS_TO_WAIT`); the operation's admission may have queued too. A sync asked later is not waited for
-pub async fn wait_for_facts(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, resources: Vec<Resource>) -> Waited {
+/// Whether the operation depends on the table a running sync is building
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SyncWait {
+  /// Wait for a running sync and its quiet follow-up (`SYNCS_TO_WAIT`)
+  Running,
+  /// Keep the table of the last sync; the operation needs nothing a running sync writes
+  Never,
+}
+
+/// Waits behind operations holding `resources`, then for a running sync only when `sync` is `Running`; the operation's
+/// admission may have queued too. A sync asked later is not waited for
+pub async fn wait_for_facts(sessions: &Sessions, key: &SessionKey, guard: &RunningGuard, resources: Vec<Resource>, sync: SyncWait) -> Waited {
   let behind = guard.wait_behind(resources, OperationStep::Checking).await;
-  let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
-  Waited {
-    waited: behind || synced.waited || guard.queued(),
-    failed: synced.failed,
+  match sync {
+    SyncWait::Running => {
+      let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
+      Waited {
+        waited: behind || synced.waited || guard.queued(),
+        failed: synced.failed,
+      }
+    }
+    SyncWait::Never => Waited {
+      waited: behind || guard.queued(),
+      failed: None,
+    },
   }
 }
 

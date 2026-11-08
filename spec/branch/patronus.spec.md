@@ -70,6 +70,8 @@ targets:
   - ../../crates/operations/src/land_execute.rs
   - ../../crates/operations/src/land_session.rs
   - ../../crates/operations/src/engine.rs
+  - ../../crates/operations/src/pull_request.rs
+  - ../../crates/operations/src/run_frame.rs
   - ../../crates/domain-policy/src/push.rs
   - ../../crates/domain-policy/src/holds.rs
   - ../../crates/domain-policy/src/land.rs
@@ -657,6 +659,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_with_nothing_in_its_way_pushes_what_it_lands_root_first_then_starts`, `every_fact_without_an_answer_waits_or_confirms_and_never_refuses`, `the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`, `the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`, `a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`, `missing_approvals_refuse_unless_skipped_and_approvals_judged_at_the_start_confirm`, `the_pull_request_decides_the_route_a_draft_refuses_and_another_base_refuses_only_counted_approvals`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_profile_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
   [@test] ../../crates/operations/src/land_test.rs (`a_start_is_planned_over_what_the_session_holds_and_reads_the_review_its_first_decision_waits_for`, `the_fingerprint_of_a_plan_changes_with_its_intent_and_the_tips_it_was_decided_on`, `the_plan_of_a_session_waits_for_its_patronus_view`)
+- A Safe Push start pressed while a sync is running starts at once on the table of the last sync. It does not wait for that
+  sync or start another one: the held sync ends once.
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push pressed during a sync at once, on the table of the last sync, the sync ending once`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should comment once for a start pressed during a sync, the sync ending once`)
 - A click waits for the facts its plan needs, its button busy with "Checking…": the session answers each of them,
   a failure too (the review it asks at once, `unavailable` while Patronus can't be asked), so the wait ends; then it
   starts at once, says the refusal in an `info` toast ("Push Branch" its action where the push alone is the step), or opens

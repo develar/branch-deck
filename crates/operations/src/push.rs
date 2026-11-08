@@ -23,7 +23,7 @@ use crate::events::EventSink;
 use crate::land_execute::{Accepted, Planned, PushLease, PushedRef, refusal_of};
 use crate::land_session::push_start;
 use crate::registry::{Answer, OperationRequest, Registry};
-use crate::run_frame::wait_for_facts;
+use crate::run_frame::{SyncWait, wait_for_facts};
 use crate::witness::Witness;
 use anyhow::Result;
 use domain_policy::github_stack::{rebased_by_github, stack_writes};
@@ -877,7 +877,7 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
   run(registry, key, request, events, async |guard| {
     // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask; the
     // robots are asked meanwhile, as no wait changes what Patronus has
-    let waits = wait_for_facts(sessions, key, guard, vec![Resource::Head]);
+    let waits = wait_for_facts(sessions, key, guard, vec![Resource::Head], SyncWait::Running);
     let (robots, waited) = tokio::join!(robots_to_check(services, key, &push), waits);
     // the rows are still the frame of an earlier run: no tip of this process to push. Its first sync failed (the one it
     // waited for, or one before it) or git deferred it, and that error says why: nothing waits for a sync any more
