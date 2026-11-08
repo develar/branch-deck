@@ -4,8 +4,8 @@
 //! process: the texts of these files are in the memory of the plan.
 
 use crate::files::{ChangedFile, blob_lines, lines_in};
-use crate::prose::{ProseChange, ProseForm, ProseParagraph, apply_substitutions, paragraph_spans, paragraphs, prose_changes, utf16_slice};
-use crate::units::{OtherReason, ReviewUnit, UnitKind};
+use crate::prose::{ProseChange, ProseForm, ProseParagraph, apply_substitutions, front_matter_end, paragraph_spans, paragraphs, prose_changes, utf16_slice};
+use crate::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind};
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_utils::issue_pattern::leading_issue_keys;
@@ -73,7 +73,8 @@ pub struct ContractEntry {
   /// The commits delete the file
   pub deleted: bool,
   /// The whole paragraphs its blocks add, remove or change, in their order, without the markers of a list and the
-  /// `[@test]` lines (`prose::prose_changes`): a paragraph wrapped anew is none
+  /// `[@test]` lines (`prose::prose_changes`): a paragraph wrapped anew is none, and so is what reads as no prose (the
+  /// front matter, a line of values or of metadata, a table of a doc)
   pub paragraphs: Vec<ProseParagraph>,
   /// The tests the `[@test]` lines its blocks add name, by the path they give
   pub proven_by: Vec<String>,
@@ -159,14 +160,22 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
         paragraphs: Vec::new(),
         proven_by: Vec::new(),
       };
+      // the front matter of a file is no rule: its lines are no part of a block
+      let (old_front, new_front) = (front_matter_end(&old), front_matter_end(&new));
       match unit.kind {
         UnitKind::NewFile => {
           let mut added = entry(Vec::new());
           if kind == ContractKind::Spec {
             added.new_spec = Some(new_spec(&new));
           } else {
-            let (texts, proven_by) = paragraphs(&new);
-            added.paragraphs = prose_changes(&[], &texts[..texts.len().min(1)], &slice.path, |_| true);
+            // its first paragraph of prose says what it is
+            let (texts, proven_by) = paragraphs(&new[new_front.min(new.len())..]);
+            let first: Vec<_> = texts
+              .into_iter()
+              .find(|text| text.form == ProseForm::Prose && reads_as_prose(&text.text))
+              .into_iter()
+              .collect();
+            added.paragraphs = prose_changes(&[], &first, &slice.path);
             added.proven_by = proven_by;
           }
           contract.push(added);
@@ -177,31 +186,38 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
           contract.push(deleted);
         }
         _ => {
-          // of a doc, only prose tells what changed: a line of a value (`dark: #88aaff`) says nothing beside the
-          // heading of its section, which names the change then
+          // only prose tells what changed: a line of a value (`dark: #88aaff`) says nothing beside the heading of its
+          // section, which names the change then; a table of a doc is its bookkeeping, which its diff shows (a table
+          // of a spec, a decision or a guide holds its rules, a row of it each)
           let doc = kind == ContractKind::Doc;
-          for (old_range, new_range, blocks) in paragraph_spans(&old, &new, &slice.blocks) {
-            let mut changed = entry(blocks.clone());
+          let quoted = |paragraph: &ProseParagraph| match &paragraph.form {
+            ProseForm::Prose => reads_as_prose(&paragraph.text),
+            ProseForm::Code { .. } => true,
+            ProseForm::Row { .. } => !doc,
+          };
+          let blocks: Vec<UnitBlock> = slice.blocks.iter().filter_map(|block| below_front_matter(block, old_front, new_front)).collect();
+          for (old_range, new_range, indexes) in paragraph_spans(&old, &new, &blocks) {
+            let mut changed = entry(indexes.clone());
             let (before, _) = paragraphs(&old[old_range.clone()]);
             let (after, _) = paragraphs(&new[new_range.clone()]);
             changed.heading = if !markdown {
               None
             } else if !new_range.is_empty() {
-              heading_above(&new, u32::try_from(new_range.start).unwrap_or(u32::MAX))
+              heading_above(&new, new_front, new_range.start)
             } else {
-              heading_above(&old, u32::try_from(old_range.start).unwrap_or(u32::MAX))
+              heading_above(&old, old_front, old_range.start)
             };
-            changed.paragraphs = prose_changes(&before, &after, &slice.path, |paragraph| {
-              matches!(&paragraph.form, ProseForm::Code { .. }) || !doc || reads_as_prose(&paragraph.text)
-            });
+            let (paragraphs_of_prose, unquoted): (Vec<ProseParagraph>, Vec<ProseParagraph>) =
+              prose_changes(&before, &after, &slice.path).into_iter().partition(|paragraph| quoted(paragraph));
+            let values = unquoted.iter().any(|paragraph| paragraph.form == ProseForm::Prose);
+            changed.paragraphs = paragraphs_of_prose;
             // the tests of the `[@test]` lines the blocks add, not of the ones the widened paragraphs kept
-            changed.proven_by = slice
-              .blocks
+            changed.proven_by = blocks
               .iter()
-              .filter(|it| blocks.contains(&it.index))
+              .filter(|it| indexes.contains(&it.index))
               .flat_map(|it| paragraphs(&lines_in(&new, it.new_start..it.new_end)).1)
               .collect();
-            if !changed.paragraphs.is_empty() || !changed.proven_by.is_empty() || (doc && changed.heading.is_some()) {
+            if !changed.paragraphs.is_empty() || !changed.proven_by.is_empty() || (values && changed.heading.is_some()) {
               contract.push(changed);
             }
           }
@@ -277,19 +293,35 @@ fn is_substitution_word(text: &str) -> bool {
   (2..=40).contains(&length) && !text.chars().any(char::is_whitespace)
 }
 
-/// The nearest heading (`#`) above line `line` (from 0) of `lines`, without its marks
-fn heading_above(lines: &[&str], line: u32) -> Option<String> {
+/// The nearest heading (`#`) above line `line` (from 0) of `lines` and below the front matter (its lines up to
+/// `front`), without its marks
+fn heading_above(lines: &[&str], front: usize, line: usize) -> Option<String> {
+  let end = line.min(lines.len());
   lines
-    .get(..(line as usize).min(lines.len()))?
+    .get(front.min(end)..end)?
     .iter()
     .rev()
     .find(|text| text.starts_with('#'))
     .map(|text| text.trim_start_matches('#').trim().to_string())
 }
 
+/// `block` without its lines in the front matter of either side (the first `old_front` and `new_front` lines), `None`
+/// for a block that changes the front matter alone
+fn below_front_matter(block: &UnitBlock, old_front: usize, new_front: usize) -> Option<UnitBlock> {
+  let (old_front, new_front) = (u32::try_from(old_front).unwrap_or(u32::MAX), u32::try_from(new_front).unwrap_or(u32::MAX));
+  let below = UnitBlock {
+    index: block.index,
+    old_start: block.old_start.max(old_front),
+    old_end: block.old_end.max(old_front),
+    new_start: block.new_start.max(new_front),
+    new_end: block.new_end.max(new_front),
+  };
+  (below.old_start < below.old_end || below.new_start < below.new_end).then_some(below)
+}
+
 /// Whether a paragraph reads as prose: three words or more of letters alone, its punctuation aside, that are no key
 /// (`primary:`) and no value right after one, so a line of values (`primary: #3366ff, secondary: #ff8800`, `color:
-/// red; background: blue`) is none
+/// red; background: blue`) is none, of every kind of file
 fn reads_as_prose(paragraph: &str) -> bool {
   let mut words = 0;
   let mut after_key = false;

@@ -18,7 +18,7 @@ import { joinNames } from "@/lib/text"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
-import type { FactList, StepFacts, StoryView } from "@/presenters/review-story"
+import type { ContractFile, ContractParagraph, FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
 
@@ -81,6 +81,31 @@ function prose(text: string, change: ProseParagraph["change"] = { kind: "added" 
   return { text, form: { kind: "prose" }, code: [], links, change, excerpt: null }
 }
 
+/**
+ * A row of a table as Rust reads it (`review_plan::prose`, `ProseForm::Row`): the cells of its header, a line break, then
+ * its own, each ` | ` apart; the header row itself (no `header`) its cells alone
+ */
+function row(header: string[], cells: string[], change: ProseParagraph["change"] = { kind: "added" }): ProseParagraph {
+  const ranges = (parts: string[], from: number) => {
+    let at = from
+    return parts.map((part, index) => {
+      at += index === 0 ? 0 : 3
+      const range = { start: at, end: at + part.length }
+      at = range.end
+      return range
+    })
+  }
+  const head = header.join(" | ")
+  const text = header.length === 0 ? cells.join(" | ") : `${head}\n${cells.join(" | ")}`
+  const form: ProseParagraph["form"] = { kind: "row", header: ranges(header, 0), cells: ranges(cells, header.length === 0 ? 0 : head.length + 1) }
+  return { text, form, code: [], links: [], change, excerpt: null }
+}
+
+/** The paragraphs of a section of What Changes, the rows of its tables among them in their order */
+function paragraphsOf(entry: ContractFile["entries"][number]): ContractParagraph[] {
+  return entry.blocks.flatMap(block => (block.kind === "paragraph" ? [block.paragraph] : [...(block.head === null ? [] : [block.head]), ...block.rows]))
+}
+
 function contract(path: string, heading: string | null, added: (string | ProseParagraph)[], provenBy: string[] = [], block = 0): ContractEntry {
   return {
     kind: "spec",
@@ -130,7 +155,7 @@ describe("the document of a review", () => {
     expect(
       view.contract.map(it => [
         it.path,
-        it.entries.map(entry => [entry.heading, entry.paragraphs.map(paragraph => [paragraph.text, paragraph.change?.kind ?? null]), entry.provenBy]),
+        it.entries.map(entry => [entry.heading, paragraphsOf(entry).map(paragraph => [paragraph.text, paragraph.change?.kind ?? null]), entry.provenBy]),
       ]),
     ).toEqual([
       [
@@ -152,10 +177,54 @@ describe("the document of a review", () => {
       ["spec/old.spec.md", [[null, [["Deleted", null]], null]]],
     ])
     // a link to a changed file shows it at its top, one to a page opens it, one to a file the review does not show is text
-    expect(view.contract[0]!.entries[0]!.paragraphs[0]!.links).toEqual([
+    expect(paragraphsOf(view.contract[0]!.entries[0]!)[0]!.links).toEqual([
       { start: 4, end: 9, place: { path: "spec/store.spec.md", side: "new", line: null, name: null }, href: null },
       { start: 10, end: 15, place: null, href: "https://example.com/keeps" },
       { start: 16, end: 18, place: null, href: null },
+    ])
+  })
+
+  it("words the rows of a table under their header once, a changed header row heading them, a paragraph between two tables apart", () => {
+    const limits = ["Limit", "Value"]
+    const owners = ["Topic", "Owner"]
+    const view = presentPrologue(
+      plan([], [], {
+        files: [{ path: "spec/a.spec.md", oldPath: null } as FileFacts],
+        brief: {
+          issue: null,
+          substitutions: [],
+          contract: [
+            contract("spec/a.spec.md", "Limits", [
+              "The limits of the window.",
+              row(limits, ["Tool windows", "40"]),
+              row(limits, ["Projects", "600"], { kind: "changed", inserted: [{ start: 26, end: 29 }], deleted: [{ at: 26, text: "500" }], substitutions: [] }),
+              "The owners of the window.",
+              row([], owners, { kind: "changed", inserted: [{ start: 8, end: 13 }], deleted: [{ at: 8, text: "Owning spec" }], substitutions: [] }),
+              row(owners, ["Focus", "focus.spec.md"]),
+              row(["Name", "Since"], ["Layout", "2026"], { kind: "removed" }),
+            ]),
+          ],
+        },
+      }),
+      false,
+    )
+    expect(
+      view.contract[0]!.entries[0]!.blocks.map(block =>
+        block.kind === "paragraph" ? ["paragraph", block.paragraph.text] : ["table", block.head?.text ?? null, block.rows.map(it => [it.text, it.change?.kind ?? null])],
+      ),
+    ).toEqual([
+      ["paragraph", "The limits of the window."],
+      [
+        "table",
+        null,
+        [
+          ["Limit | Value\nTool windows | 40", "added"],
+          ["Limit | Value\nProjects | 600", "changed"],
+        ],
+      ],
+      ["paragraph", "The owners of the window."],
+      ["table", "Topic | Owner", [["Topic | Owner\nFocus | focus.spec.md", "added"]]],
+      ["table", null, [["Name | Since\nLayout | 2026", "removed"]]],
     ])
   })
 
@@ -181,7 +250,7 @@ describe("the document of a review", () => {
       }),
       false,
     )
-    const presented = view.contract[0]!.entries[0]!.paragraphs[0]!
+    const presented = paragraphsOf(view.contract[0]!.entries[0]!)[0]!
     expect([presented.form, presented.substitutions]).toEqual([form, [{ start: 0, end: 3, from: "bd" }]])
     expect(view.substitutions).toEqual([
       {
@@ -271,7 +340,7 @@ describe("the document of a review", () => {
       false,
     )
     expect([view.issue, view.title, view.untold, view.source]).toEqual([null, "feature/layout", null, null])
-    expect(view.contract.map(file => [file.path, file.kind, file.entries.map(entry => [entry.heading, entry.paragraphs.map(it => it.text), entry.provenBy])])).toEqual([
+    expect(view.contract.map(file => [file.path, file.kind, file.entries.map(entry => [entry.heading, paragraphsOf(entry).map(it => it.text), entry.provenBy])])).toEqual([
       [
         "spec/a.spec.md",
         "Spec rule",

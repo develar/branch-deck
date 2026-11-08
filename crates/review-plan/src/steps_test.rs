@@ -3,7 +3,7 @@ use crate::brief::{ContractKind, Substitution, contract_kind, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
-use crate::prose::{ProseChange, ProseForm, utf16_slice};
+use crate::prose::{ProseChange, ProseForm, TextRange, utf16_slice};
 use crate::steps::{
   CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ShownElsewhere, StepSource, StepStop, StepTest, TestWay, commit_title, join_units, tells_a_story,
 };
@@ -794,6 +794,67 @@ The dark theme takes a blue accent, and the doc says why.",
     [
       (Some("Colours"), vec![]),
       (Some("Why"), vec!["The theme follows the system, its accent blue as the logo is."])
+    ]
+  );
+}
+
+/// The brief quotes no front matter and no line of metadata of any file, and of a spec a line of values names its
+/// section alone; a table of a spec is its changed rows, each under its header, while a table of a doc is its
+/// bookkeeping, which only its diff shows
+#[test]
+fn the_brief_quotes_no_front_matter_no_metadata_and_a_table_of_a_spec_by_its_changed_rows() {
+  let spec = |targets: &str, refs: &str, rows: &str, timeout: &str| {
+    format!(
+      "---\nname: Window\ntargets:\n  - ../src/Window.kt\n{targets}---\n\n# Window\n\n## Limits\n\nrefs: flow:layout, spec:store{refs}\n\n| Limit | Value |\n| --- | --- |\n| Projects | 500 |\n{rows}\nThe window opens on its last project.\n\n## Timing\n\ntimeout: {timeout}\n"
+    )
+  };
+  let guide = |refs: &str, rows: &str, end: &str| {
+    format!(
+      "# Guide\n\n## Ownership\n\nrefs: flow:layout{refs}\n\n| Topic | Owning spec |\n| --- | --- |\n| Window | spec/window.spec.md |\n{rows}\nThe guide says who owns what{end}.\n"
+    )
+  };
+  let plan = prose_plan(
+    &spec("", "", "", "30 s"),
+    &spec("  - ../src/Layout.kt\n", ", spec:focus", "| Tool windows | 40 |\n", "60 s"),
+    &guide("", "", ""),
+    &guide(", spec:focus", "| Focus | spec/focus.spec.md |\n", ", and where"),
+  );
+  // each paragraph by its text, its form and what the change wrote in it
+  type Written<'a> = (&'a str, &'a ProseForm, Vec<&'a str>);
+  let entries: Vec<(ContractKind, Option<&str>, Vec<Written<'_>>)> = plan
+    .brief
+    .contract
+    .iter()
+    .map(|entry| {
+      let paragraphs = entry.paragraphs.iter().map(|paragraph| {
+        let written = match &paragraph.change {
+          ProseChange::Added => vec![paragraph.text.as_str()],
+          ProseChange::Changed { inserted, .. } => inserted.iter().filter_map(|range| utf16_slice(&paragraph.text, *range)).collect(),
+          ProseChange::Removed | ProseChange::Substituted { .. } => Vec::new(),
+        };
+        (paragraph.text.as_str(), &paragraph.form, written)
+      });
+      (entry.kind, entry.heading.as_deref(), paragraphs.collect())
+    })
+    .collect();
+  let row = ProseForm::Row {
+    header: vec![TextRange { start: 0, end: 5 }, TextRange { start: 8, end: 13 }],
+    cells: vec![TextRange { start: 14, end: 26 }, TextRange { start: 29, end: 31 }],
+  };
+  assert_eq!(
+    entries,
+    [
+      (
+        ContractKind::Spec,
+        Some("Limits"),
+        vec![("Limit | Value\nTool windows | 40", &row, vec!["Limit | Value\nTool windows | 40"])]
+      ),
+      (ContractKind::Spec, Some("Timing"), vec![]),
+      (
+        ContractKind::Doc,
+        Some("Ownership"),
+        vec![("The guide says who owns what, and where.", &ProseForm::Prose, vec![", and where"])]
+      ),
     ]
   );
 }

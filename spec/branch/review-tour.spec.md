@@ -293,11 +293,20 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   or `adrs/`), a guide of agents (`AGENTS.md`, `CLAUDE.md`, below `.ai/`), a doc (below `docs/` or `doc/`, a README);
   of Markdown, text, reStructuredText and AsciiDoc only. An entry per place of a file (`prose`): its changed blocks
   widened to whole paragraphs on both sides, never the changed lines of a hard-wrapped one, the blocks whose
-  paragraphs meet one entry (`blocks`); the heading of its section of Markdown, the paths that the test links its
-  blocks add name (`provenBy`), and its `paragraphs`, each whole, its lines joined without the marker of an item and
-  the test links. A fenced code block is one paragraph of form `code`, its contents preserving line breaks and its
+  paragraphs meet one entry (`blocks`); the front matter of a file (from a first line `---` to the next) is no rule,
+  its lines no part of a block, a block of the front matter alone no entry; the heading of its section of Markdown
+  below the front matter, the paths that the test links its blocks add name (`provenBy`), and its `paragraphs`, each
+  whole, its lines joined without the marker of an item and the test links. A thematic break (`---`, `***`, `___`) and
+  a line of metadata (one key, then only references `kind:name` and paths, comma-separated: `refs: flow:x, spec:y`,
+  `targets: ../../a.kt`) end a paragraph and are no paragraph of their own; a key alone (`Look closely:`) or followed
+  by words is prose. A table (a header row, a delimiter row, then its rows up to a break or a line without a `|`; a
+  line of pipes without a delimiter row is prose) is its header row and each of its rows, a paragraph of form `row`
+  each: its text the cells of its header, a line break, then its own cells, as many as its header has, each ` | `
+  apart, `header` and `cells` their ranges, the header row itself its cells alone; a row is compared and diffed by its
+  own cells, so a table one row is added to is that row under its header, a renamed column the header row changed. A
+  fenced code block is one paragraph of form `code`, its contents preserving line breaks and its
   language when named; a test-link marker inside it is code, not a test reference. Code paragraphs have no inline code
-  spans or links, pair only with code paragraphs, and bypass the prose filter of docs; a changed block is diffed by
+  spans or links, pair only with code paragraphs, and bypass the prose filter; a changed block is diffed by
   word. A code block longer than eight lines, changed on multiple lines, first shows the changed lines with one line
   of context on either side. A paragraph wrapped anew is no change; a removed paragraph and the first similar added one
   after the last pair (half of the shorter kept and a third of the longer, by word) are one `changed` paragraph with the words
@@ -307,17 +316,20 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   once, ordered by places descending, with distinct `paths`. Its index and the range of its new word are in a
   paragraph's substitution marks; the pair is removed from `inserted` and `deleted`, and a paragraph changed only by
   substitutions is `substituted`. A link of Markdown reads as its text with its target (`links`: a path of the repository
-  resolved against the file, without its anchor, or a URL as written); of a paragraph longer than 280 UTF-16 code
-  units changed in a few sentences, the sentences that hold its changes (`excerpt`) when they leave out a quarter of it
-  at least. A new spec its `description:` and the count of the items of its "Requirements"; a deleted file `deleted`.
-  Of a doc only prose (three words or more of letters, no key and no value after one) is quoted: a changed line of
-  values (`dark: #88aaff`, `color: red; background: blue`) says nothing, the heading of its section names the change;
-  the spans of code of each paragraph (`code`) as a body has them.
-  [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`, `the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose`, `a_substitution_repeated_across_paragraphs_is_named_once_and_marked_in_place`, `a_pair_seen_twice_is_no_substitution`, `a_fenced_code_change_in_the_brief_keeps_its_code_form_and_lines`)
-  [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_long_paragraph_changed_in_one_sentence_shows_it_first`)
+  resolved against the file, without its anchor, or a URL as written); of a changed paragraph of two sentences or
+  more, whatever its length, the sentences that hold its changes (`excerpt`) when they leave out a quarter of it at
+  least. A new spec its `description:` and the count of the items of its "Requirements"; another new file its first
+  paragraph of prose below its front matter; a deleted file `deleted`. Of every kind of file only prose (three words
+  or more of letters, no key and no value after one), its code blocks and the rows of the tables of a spec, a decision
+  or a guide are quoted: a changed line of values (`dark: #88aaff`, `color: red; background: blue`) says nothing, the
+  heading of its section names the change; a table of a doc is its bookkeeping (a map of the specs that own a topic),
+  which only its diff card shows, as the front matter and the lines of metadata of every file, and no heading names
+  it; the spans of code of each paragraph (`code`, of a row those of each cell) as a body has them.
+  [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`, `the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose`, `the_brief_quotes_no_front_matter_no_metadata_and_a_table_of_a_spec_by_its_changed_rows`, `a_substitution_repeated_across_paragraphs_is_named_once_and_marked_in_place`, `a_pair_seen_twice_is_no_substitution`, `a_fenced_code_change_in_the_brief_keeps_its_code_form_and_lines`)
+  [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_paragraph_changed_in_one_of_its_sentences_shows_it_first`, `a_short_paragraph_of_two_sentences_changed_in_one_shows_that_sentence`, `the_front_matter_is_the_lines_up_to_its_closing_rule`, `a_thematic_break_ends_a_paragraph`, `a_line_of_metadata_is_no_prose`, `a_table_with_one_added_row_is_its_header_and_that_row`, `a_changed_row_is_diffed_by_word_in_its_cells`, `a_line_of_pipes_without_a_delimiter_row_is_prose`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 20`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 21`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -342,7 +354,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   replacements stays muted in place without a change bar. A code span keeps one chip with its inserted and deleted
   words diffed inside it. A fenced code block is a `pre`, preserves line breaks, and diffed by words without code
   heuristics; a long block changed in several lines first shows changed lines and one line of context, with a button
-  "⋯ N more lines" that opens the whole paragraph and has the tooltip "Show the whole paragraph". A link shows the
+  "⋯ N more lines" that opens the whole paragraph and has the tooltip "Show the whole paragraph". The rows of one
+  table stand in one compact table (`text-sm`) under its header once, muted (`text-xs`, the header row with its
+  marks when the change touched it, else the cells of the header of its first row), each row the change adds,
+  removes or changes with the bar of its change at its first cell on the quote line, a removed one muted and struck
+  through, the words of its cells marked as a paragraph's, the words removed between two cells at the end of the
+  first. A link shows the
   file it names at its header when the review shows that file, opens a page, else stays text; then the Steps, each its number and its full
   title (the title Rust gives the commit that starts it; a step of the concerns
   its concern), wrapping, never cut, which shows its opening; "Other changes" remains as a rest item without a number
@@ -378,9 +395,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   a step of the contents `font-medium`, its facts `text-xs` muted (docs/design/ui-theme.md). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`, `should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`, `should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`, `should quote no front matter and no line of metadata in What Changes, a table of a spec by its added row under its header, and no table of a doc`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`, `should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
-  [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `passes paragraph forms and resolves substitution marks to their original words`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `does not give Other changes a number in the overview`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+  [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `words the rows of a table under their header once, a changed header row heading them, a paragraph between two tables apart`, `passes paragraph forms and resolves substitution marks to their original words`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `does not give Other changes a number in the overview`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - The opening of a step (`ChapterOpening`) must be a card of prose a gap above the card of its first section (each
   opening of a layer its own card), as tall as its words (the diffs measure it), its words in the reading column of
   the overview (`ReadingColumn`) in the middle of the card: "Step 2" muted for a numbered step, none for "Other changes", then its full title in `text-base`, wrapping, which a click shows

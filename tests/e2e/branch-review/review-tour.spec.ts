@@ -1127,6 +1127,35 @@ test.describe("Review tour", () => {
     await captureHtmlSnapshot(overview.getByTestId("review-brief-contract"), "review-brief-prose")
   })
 
+  test("should quote no front matter and no line of metadata in What Changes, a table of a spec by its added row under its header, and no table of a doc", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("review_prose"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
+    const contract = window.getByTestId("review-overview").getByTestId("review-brief-contract")
+    const spec = contract.getByTestId("review-brief-contract-entry").filter({ hasText: "spec/window.spec.md" })
+    await expect(spec.getByRole("heading", { name: "Storage", exact: true })).toBeVisible()
+    // the path the change adds to the `targets:` of its front matter is no rule
+    await expect(spec).not.toContainText("Layout.kt")
+    await expect(spec).not.toContainText("targets")
+    // the table of the spec: its header once, muted, then the row the change adds, its cells as cells
+    const limits = spec.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Limits", exact: true }) })
+    const table = limits.getByRole("table")
+    await expect(table.getByRole("columnheader")).toHaveText(["Limit", "Value"])
+    const row = table.getByTestId("review-brief-row")
+    await expect(row).toHaveCount(1)
+    await expect(row).toHaveAttribute("data-change", "added")
+    await expect(row.getByRole("cell")).toHaveText([/Tool windows$/, "40"])
+    // the reference the change adds to its `refs:` line is bookkeeping, as the table of a doc is: only their diffs show them
+    await expect(limits).not.toContainText("flow:layout")
+    await expect(contract).not.toContainText("spec:focus")
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "docs/ownership.md", exact: true })).toBeVisible()
+    await expect(contract.getByTestId("review-brief-contract-entry").filter({ hasText: "ownership.md" })).toHaveCount(0)
+    await captureHtmlSnapshot(limits, "review-brief-table")
+  })
+
   test("should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code", async ({
     page,
     setupRepo,

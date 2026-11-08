@@ -1978,7 +1978,8 @@ export type ContractEntry = {
 	deleted: boolean,
 	/**
 	 *  The whole paragraphs its blocks add, remove or change, in their order, without the markers of a list and the
-	 *  `[@test]` lines (`prose::prose_changes`): a paragraph wrapped anew is none
+	 *  `[@test]` lines (`prose::prose_changes`): a paragraph wrapped anew is none, and so is what reads as no prose (the
+	 *  front matter, a line of values or of metadata, a table of a doc)
 	 */
 	paragraphs: ProseParagraph[],
 	/**  The tests the `[@test]` lines its blocks add name, by the path they give */
@@ -5751,7 +5752,13 @@ export type ProseForm =
 /**  Markdown prose, with inline code spans */
 { kind: "prose" } | 
 /**  The lines inside a fenced code block */
-{ kind: "code"; language: string | null };
+{ kind: "code"; language: string | null } | 
+/**
+ *  A row of a table of Markdown (a header row, a delimiter row, then its rows): the ranges of `text` the cells of
+ *  its header take, then those of its own cells, as many as its header has; the header row itself has no header.
+ *  Its changes are those of its own cells
+ */
+{ kind: "row"; header: TextRange[]; cells: TextRange[] };
 
 /**
  *  A link of Markdown in a paragraph: the range of its text and its target, a path of the repository resolved against
@@ -5767,19 +5774,20 @@ export type ProseLink = {
 export type ProseParagraph = {
 	/**
 	 *  Its text after the commits, its lines joined, without the marker of its item, a link as its text; of a removed
-	 *  paragraph its text before them
+	 *  paragraph its text before them; of a row of a table the cells of its header, a line break, then its own cells,
+	 *  each ` | ` apart
 	 */
 	text: string,
-	/**  Whether this paragraph is prose or the contents of a fenced code block */
+	/**  Whether this paragraph is prose, the contents of a fenced code block or a row of a table */
 	form: ProseForm,
-	/**  Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by */
+	/**  Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by; of a row those of each cell */
 	code: CodeSpan[],
 	/**  Its links of Markdown (`[text](target)`), each the range of its text in `text` */
 	links: ProseLink[],
 	change: ProseChange,
 	/**
-	 *  Of a long paragraph changed in a few places, the range of `text` of the sentences that hold its changes, which the
-	 *  page shows until the reader opens the paragraph whole; `None` shows it whole
+	 *  Of a paragraph of several sentences changed in a few of them, the range of `text` of the sentences that hold its
+	 *  changes, which the page shows until the reader opens the paragraph whole; `None` shows it whole
 	 */
 	excerpt: TextRange | null,
 };

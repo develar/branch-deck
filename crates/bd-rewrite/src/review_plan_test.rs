@@ -146,7 +146,7 @@ fn prints_the_api_and_the_files_of_a_range() {
 
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["schema"], json!(20), "{output}");
+  assert_eq!(output["schema"], json!(REVIEW_PLAN_SCHEMA_VERSION), "{output}");
   assert_eq!(
     (&output["api"], &output["files"]),
     (

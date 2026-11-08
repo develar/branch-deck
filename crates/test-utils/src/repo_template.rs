@@ -464,14 +464,19 @@ pub mod templates {
   /// The prose of What Changes (spec/branch/review-tour.spec.md, "Brief"): the branch `prose` of two commits of the issue
   /// `IJAI-5640`, the second subject starting with two keys. It rewrites a word of a long hard-wrapped paragraph of the
   /// Storage section, adds a linked paragraph and a fenced command block, and repeats `bd` → `brd` across five prose files;
-  /// the second commit appends words to the next paragraph
+  /// what is no prose beside it: a path added to the `targets:` of the front matter of the spec, a row added to the
+  /// table of its Limits and a reference to their `refs:` line, a row and a reference added to a doc of a table alone
+  /// (`docs/ownership.md`); the second commit appends words to the next paragraph
   pub fn review_prose() -> RepoTemplate {
     let old_cli = concat!("b", "d");
-    let storage = |order: &str, bound: &str, focus: &str, commands: &str| {
+    let storage = |order: &str, bound: &str, focus: &str, commands: &str, targets: &str, limits: &str| {
       format!(
-        "---\nname: Window\n---\n\n# Window\n\n## Storage\n\nThe window keeps its layout in a file of the IDE in the config directory, not in the project, so a checkout of\nanother branch never changes it. The file holds the tool windows of each project: their side, their size{order}.\nIt is written when the window closes, and read once when it opens. A file that cannot be read is renamed aside, and\nthe window opens with the default layout.\n\nThe store keeps at most 500 projects. A write above the bound drops the layouts of the projects with the oldest\nopen{bound}.\n{focus}\n## Requirements\n\n- The window opens on its last project.\n{commands}"
+        "---\nname: Window\ntargets:\n  - ../src/Window.kt\n{targets}---\n\n# Window\n\n## Storage\n\nThe window keeps its layout in a file of the IDE in the config directory, not in the project, so a checkout of\nanother branch never changes it. The file holds the tool windows of each project: their side, their size{order}.\nIt is written when the window closes, and read once when it opens. A file that cannot be read is renamed aside, and\nthe window opens with the default layout.\n\nThe store keeps at most 500 projects. A write above the bound drops the layouts of the projects with the oldest\nopen{bound}.\n{focus}\n{limits}\n## Requirements\n\n- The window opens on its last project.\n{commands}"
       )
     };
+    let limits = |refs: &str, rows: &str| format!("## Limits\n\nrefs: flow:layout, spec:store{refs}\n\n| Limit | Value |\n| --- | --- |\n| Projects | 500 |\n{rows}");
+    let ownership =
+      |refs: &str, rows: &str| format!("# Ownership\n\nrefs: flow:layout, spec:window{refs}\n\n| Topic | Owning spec |\n| --- | --- |\n| Window | spec/window.spec.md |\n{rows}");
     let commands = |cli: &str, workspace: &str, flag: &str, added: &str| {
       format!(
         "\n## Commands\n\n- Run `{cli} {workspace} {flag} -C <repo>` from the project root.{added}\n\n- Use `{cli} review-plan` to read the whole change.\n\n```sh\npwd\n{cli} workspace -C <repo>\nprintf 'checking'\n{cli} review-plan\nprintf 'ready'\n{cli} report --json\ngit status\nprintf 'done'\nprintf 'ok'\nprintf 'complete'\n```\n"
@@ -487,11 +492,15 @@ pub mod templates {
       .commit_with_timestamp(
         "Initial project setup",
         &[
-          ("spec/window.spec.md", &storage(" and their order", "", "", &commands(old_cli, "workspace", "--short", ""))),
+          (
+            "spec/window.spec.md",
+            &storage(" and their order", "", "", &commands(old_cli, "workspace", "--short", ""), "", &limits("", "")),
+          ),
           ("spec/focus.spec.md", &focus_spec(&old_focus)),
           ("spec/cli.spec.md", &substitution_spec("CLI", old_cli)),
           ("spec/terminal.spec.md", &substitution_spec("Terminal", old_cli)),
           ("docs/agent-guide.md", &guide(old_cli)),
+          ("docs/ownership.md", &ownership("", "")),
         ],
         Some(1704117600),
       )
@@ -505,6 +514,8 @@ pub mod templates {
               "",
               linked,
               &commands("brd", "workspace", "--compact", " Verify the status."),
+              "  - ../src/Layout.kt\n",
+              &limits(", spec:focus", "| Tool windows | 40 |\n"),
             ),
           ),
           (
@@ -514,6 +525,7 @@ pub mod templates {
           ("spec/cli.spec.md", &substitution_spec("CLI", "brd")),
           ("spec/terminal.spec.md", &substitution_spec("Terminal", "brd")),
           ("docs/agent-guide.md", &guide("brd")),
+          ("docs/ownership.md", &ownership(", spec:focus", "| Focus | spec/focus.spec.md |\n")),
         ],
         Some(1704118200),
       )
@@ -526,6 +538,8 @@ pub mod templates {
             " that pin no tool window",
             linked,
             &commands("brd", "workspace", "--compact", " Verify the status."),
+            "  - ../src/Layout.kt\n",
+            &limits(", spec:focus", "| Tool windows | 40 |\n"),
           ),
         )],
         Some(1704118800),

@@ -7,7 +7,7 @@ import { InlineCode } from "@/components/shared/InlineCode"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { CodeSpan, ProseDeletion, TextRange } from "@/lib/bindings"
 import { glueAfter, glueBefore, isCodeChip } from "@/lib/inline-code"
-import type { ContractParagraph, ProseLinkView } from "@/presenters/review-story"
+import type { ContractParagraph, ContractTable, ProseLinkView } from "@/presenters/review-story"
 
 /** A run of a paragraph between two places where its marks change */
 interface Run {
@@ -70,30 +70,15 @@ function LinkRun({ link, children }: { link: ProseLinkView; children: ReactNode 
 }
 
 /**
- * A paragraph of What Changes (spec/branch/review-tour.spec.md, "In the Review Window"), whole: a paragraph the change
- * adds with the bar of an addition in the gutter, one it removes muted and struck through beside the bar of a removal,
- * one it changes in places with what it wrote tinted and what it removed struck through where it stood; its code set
- * as code, its links showing a changed file or opening a page. Of a long paragraph changed in a few places the
- * sentences that hold the changes, an ellipsis that opens it whole on either side
+ * The words of `paragraph` in `from..to` with their marks: its code set as code, its links, what the change wrote
+ * tinted, and the words of `deleted` (each at an offset in `from..to`) struck through where they stood
  */
-export function ContractParagraphView({ paragraph }: { paragraph: ContractParagraph }) {
-  const [whole, setWhole] = useState(false)
-  const { change, excerpt, text } = paragraph
+function ParagraphWords({ paragraph, from, to, deleted }: { paragraph: ContractParagraph; from: number; to: number; deleted: readonly ProseDeletion[] }) {
+  const { change, text } = paragraph
   const inserted = change?.kind === "changed" ? change.inserted : []
-  const deleted = change?.kind === "changed" ? change.deleted : []
-  let from = whole || excerpt === null ? 0 : excerpt.start
-  let to = whole || excerpt === null ? text.length : excerpt.end
-  for (const code of paragraph.code) {
-    if (code.start < from && from < code.end) {
-      from = code.start
-    }
-    if (code.start < to && to < code.end) {
-      to = code.end
-    }
-  }
   const runs = runsOf(paragraph, inserted, deleted, from, to)
   const removed = new Map<number, ProseDeletion[]>()
-  for (const deletion of deleted.filter(it => it.at >= from && it.at <= to)) {
+  for (const deletion of deleted) {
     removed.set(deletion.at, [...(removed.get(deletion.at) ?? []), deletion])
   }
   const removedAt = (at: number) => {
@@ -106,25 +91,6 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
       </del>
     ))
   }
-  const hiddenLines = text.slice(0, from).split("\n").length - 1 + (to < text.length ? text.slice(to).split("\n").length : 0)
-  const more = (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label="Show the whole paragraph"
-            className="rounded-sm px-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:bd-focus"
-            data-testid="review-brief-more"
-            onClick={() => setWhole(true)}
-          />
-        }
-      >
-        {paragraph.form.kind === "code" ? `⋯ ${hiddenLines} more lines` : "…"}
-      </TooltipTrigger>
-      <TooltipContent>Show the whole paragraph</TooltipContent>
-    </Tooltip>
-  )
   const codeGlue = new Map<number, { readonly before: string; readonly after: string }>()
   paragraph.code.forEach((code, index) => {
     const previousEnd = Math.max(from, paragraph.code[index - 1]?.end ?? from)
@@ -218,11 +184,58 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
       </CodeGlue>,
     )
   }
+  return (
+    <>
+      {rendered}
+      {removedAt(to)}
+    </>
+  )
+}
+
+/**
+ * A paragraph of What Changes (spec/branch/review-tour.spec.md, "In the Review Window"), whole: a paragraph the change
+ * adds with the bar of an addition in the gutter, one it removes muted and struck through beside the bar of a removal,
+ * one it changes in places with what it wrote tinted and what it removed struck through where it stood; its code set
+ * as code, its links showing a changed file or opening a page. Of a paragraph of several sentences changed in a few of
+ * them the sentences that hold the changes, an ellipsis that opens it whole on either side
+ */
+export function ContractParagraphView({ paragraph }: { paragraph: ContractParagraph }) {
+  const [whole, setWhole] = useState(false)
+  const { change, excerpt, text } = paragraph
+  let from = whole || excerpt === null ? 0 : excerpt.start
+  let to = whole || excerpt === null ? text.length : excerpt.end
+  for (const code of paragraph.code) {
+    if (code.start < from && from < code.end) {
+      from = code.start
+    }
+    if (code.start < to && to < code.end) {
+      to = code.end
+    }
+  }
+  const deleted = (change?.kind === "changed" ? change.deleted : []).filter(it => it.at >= from && it.at <= to)
+  const hiddenLines = text.slice(0, from).split("\n").length - 1 + (to < text.length ? text.slice(to).split("\n").length : 0)
+  const more = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Show the whole paragraph"
+            className="rounded-sm px-1 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:bd-focus"
+            data-testid="review-brief-more"
+            onClick={() => setWhole(true)}
+          />
+        }
+      >
+        {paragraph.form.kind === "code" ? `⋯ ${hiddenLines} more lines` : "…"}
+      </TooltipTrigger>
+      <TooltipContent>Show the whole paragraph</TooltipContent>
+    </Tooltip>
+  )
   const content = (
     <>
       {from > 0 && more}
-      {rendered}
-      {removedAt(to)}
+      <ParagraphWords paragraph={paragraph} from={from} to={to} deleted={deleted} />
       {to < text.length && more}
     </>
   )
@@ -284,4 +297,77 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
         </p>
       )
   }
+}
+
+/** The cells of a row of a table (`ProseForm::Row`), none of another paragraph */
+function cellsOf(paragraph: ContractParagraph): readonly TextRange[] {
+  return paragraph.form.kind === "row" ? paragraph.form.cells : []
+}
+
+/** The bar of a change on the quote line of What Changes: an addition, a removal, else none */
+function changeBar(change: ContractParagraph["change"]): string {
+  return change?.kind === "added" ? "border-success" : change?.kind === "removed" ? "border-destructive/70" : "border-transparent"
+}
+
+/**
+ * A row of a table of What Changes: each cell its words with their marks, the words the change removed in a cell or
+ * after it struck through at its end; the bar of its change on the quote line, a removed row muted and struck through,
+ * one changed only by repeated replacements muted
+ */
+function TableRow({ row, cells, change, header = false }: { row: ContractParagraph; cells: readonly TextRange[]; change: ContractParagraph["change"]; header?: boolean }) {
+  const deleted = change?.kind === "changed" ? change.deleted : []
+  const Cell = header ? "th" : "td"
+  return (
+    <tr
+      className={cn(
+        header ? "text-xs text-muted-foreground" : "border-t border-border",
+        change?.kind === "removed" && "text-muted-foreground line-through decoration-muted-foreground/70",
+        change?.kind === "substituted" && "text-muted-foreground",
+      )}
+      data-testid={header ? "review-brief-table-head" : "review-brief-row"}
+      data-change={change?.kind}
+    >
+      {cells.map((cell, index) => {
+        // the words removed between this cell and the next stand at its end
+        const end = cells[index + 1]?.start ?? Number.MAX_SAFE_INTEGER
+        const removed = deleted.filter(it => it.at >= cell.start && it.at < end).map(it => ({ ...it, at: Math.min(it.at, cell.end) }))
+        return (
+          <Cell
+            key={cell.start}
+            scope={header ? "col" : undefined}
+            className={cn("py-1 pr-4 text-left align-baseline font-normal [overflow-wrap:anywhere]", index === 0 && cn("border-l-2 pl-3", changeBar(change)))}
+          >
+            {index === 0 && change?.kind === "added" && <span className="sr-only">Added: </span>}
+            {index === 0 && change?.kind === "removed" && <span className="sr-only">Removed: </span>}
+            <ParagraphWords paragraph={row} from={cell.start} to={cell.end} deleted={removed} />
+          </Cell>
+        )
+      })}
+    </tr>
+  )
+}
+
+/**
+ * The rows of one table of What Changes (spec/branch/review-tour.spec.md, "In the Review Window") under their header
+ * once, muted: the header row with its marks when the change touched it, else the cells of the header of its first
+ * row; then each row the change adds, removes or changes, marked as a paragraph is
+ */
+export function ContractTableView({ table }: { table: ContractTable }) {
+  const first = table.rows[0]
+  const head = table.head ?? first
+  const headCells = table.head !== null ? cellsOf(table.head) : first?.form.kind === "row" ? first.form.header : []
+  return (
+    <table className="-ml-[14px] max-w-[calc(100%+14px)] border-collapse self-start text-sm" data-testid="review-brief-table">
+      {head !== undefined && headCells.length > 0 && (
+        <thead>
+          <TableRow row={head} cells={headCells} change={table.head?.change ?? null} header />
+        </thead>
+      )}
+      <tbody>
+        {table.rows.map(row => (
+          <TableRow key={row.key} row={row} cells={cellsOf(row)} change={row.change} />
+        ))}
+      </tbody>
+    </table>
+  )
 }

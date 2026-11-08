@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CommitCard } from "@/components/commit/CommitCard"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { ContractParagraphView } from "@/components/review/ContractParagraphView"
+import { ContractParagraphView, ContractTableView } from "@/components/review/ContractParagraphView"
 import { MessageChangeView } from "@/components/review/MessageChangeView"
 import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
@@ -262,7 +262,7 @@ function PrologueSections({ view }: { view: PrologueView }) {
                 </span>
                 <div className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
                   {file.entries.map(entry => (
-                    // the heading of the section once, its tests, then its paragraphs whole, half a line apart
+                    // the heading of the section once, its tests, then its paragraphs whole and its tables, half a line apart
                     <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
                       {(entry.heading !== null || entry.provenBy !== null) && (
                         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
@@ -270,9 +270,13 @@ function PrologueSections({ view }: { view: PrologueView }) {
                           {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
                         </div>
                       )}
-                      {entry.paragraphs.map(paragraph => (
-                        <ContractParagraphView key={paragraph.key} paragraph={paragraph} />
-                      ))}
+                      {entry.blocks.map(block =>
+                        block.kind === "table" ? (
+                          <ContractTableView key={block.key} table={block} />
+                        ) : (
+                          <ContractParagraphView key={block.paragraph.key} paragraph={block.paragraph} />
+                        ),
+                      )}
                     </div>
                   ))}
                 </div>

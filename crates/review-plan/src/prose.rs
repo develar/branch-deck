@@ -1,7 +1,9 @@
 //! The prose a change rewrites, as a reader of the brief reads it (spec/branch/review-tour.spec.md, "Brief"): whole
 //! paragraphs, never the changed lines of a hard-wrapped one; a paragraph changed in a few words once, with what the
 //! commits wrote and removed in it by word (`text_diff::by_word`); a link of Markdown as its text with its target; of a
-//! long paragraph the sentences that hold its changes. No git: the texts are in the memory of the plan.
+//! paragraph of several sentences the sentences that hold its changes; a row of a table one paragraph under the cells
+//! of its header. The front matter of a file, a thematic break and a line of metadata (`refs: flow:x, spec:y`) are no
+//! prose. No git: the texts are in the memory of the plan.
 
 use crate::units::UnitBlock;
 use domain_types::commit_body::CodeSpan;
@@ -21,17 +23,18 @@ use text_diff::policy::ComparisonPolicy;
 #[serde(rename_all = "camelCase")]
 pub struct ProseParagraph {
   /// Its text after the commits, its lines joined, without the marker of its item, a link as its text; of a removed
-  /// paragraph its text before them
+  /// paragraph its text before them; of a row of a table the cells of its header, a line break, then its own cells,
+  /// each ` | ` apart
   pub text: String,
-  /// Whether this paragraph is prose or the contents of a fenced code block
+  /// Whether this paragraph is prose, the contents of a fenced code block or a row of a table
   pub form: ProseForm,
-  /// Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by
+  /// Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by; of a row those of each cell
   pub code: Vec<CodeSpan>,
   /// Its links of Markdown (`[text](target)`), each the range of its text in `text`
   pub links: Vec<ProseLink>,
   pub change: ProseChange,
-  /// Of a long paragraph changed in a few places, the range of `text` of the sentences that hold its changes, which the
-  /// page shows until the reader opens the paragraph whole; `None` shows it whole
+  /// Of a paragraph of several sentences changed in a few of them, the range of `text` of the sentences that hold its
+  /// changes, which the page shows until the reader opens the paragraph whole; `None` shows it whole
   pub excerpt: Option<TextRange>,
 }
 
@@ -45,6 +48,10 @@ pub enum ProseForm {
   Prose,
   /// The lines inside a fenced code block
   Code { language: Option<String> },
+  /// A row of a table of Markdown (a header row, a delimiter row, then its rows): the ranges of `text` the cells of
+  /// its header take, then those of its own cells, as many as its header has; the header row itself has no header.
+  /// Its changes are those of its own cells
+  Row { header: Vec<TextRange>, cells: Vec<TextRange> },
 }
 
 /// A paragraph parsed from Markdown, before its word changes are computed
@@ -151,17 +158,166 @@ pub struct ProseLink {
   pub target: String,
 }
 
-/// A paragraph longer than this (UTF-16 code units) changed in a few sentences shows them alone first
-const EXCERPT_MIN_LENGTH: usize = 280;
 /// An excerpt is shown only when it leaves out at least this share of the paragraph, as `(numerator, denominator)`
 const EXCERPT_MAX_SHARE: (usize, usize) = (3, 4);
 /// The word diff of one pair of paragraphs gets this long, then the pair is a removal and an addition
 const WORD_DIFF_BUDGET: Duration = Duration::from_millis(50);
+/// What stands between two cells of a row in the text of its paragraph
+const CELL_SEPARATOR: &str = " | ";
 
-/// Whether a line ends a paragraph by itself: a blank line, a heading, a fence of code
+/// The lines of the front matter of a file of Markdown: a file whose first line is `---` has YAML up to the next line
+/// `---`, both of them its own; 0 for a file without one (a `---` never closed is a thematic break)
+pub(crate) fn front_matter_end(lines: &[&str]) -> usize {
+  if lines.first().map(|line| line.trim_end()) != Some("---") {
+    return 0;
+  }
+  lines.iter().skip(1).position(|line| line.trim_end() == "---").map_or(0, |at| at + 2)
+}
+
+/// Whether a line ends a paragraph by itself and is no prose: a blank line, a heading, a fence of code, a thematic
+/// break, a line of metadata
 fn is_break(line: &str) -> bool {
   let trimmed = line.trim();
-  trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("```")
+  trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("```") || is_thematic_break(trimmed) || is_metadata(trimmed)
+}
+
+/// Whether a trimmed line is a thematic break of Markdown: three or more of one of `-`, `*` and `_`, spaces between
+/// them allowed
+fn is_thematic_break(trimmed: &str) -> bool {
+  let mut marks = trimmed.chars().filter(|c| !c.is_whitespace());
+  let Some(mark @ ('-' | '*' | '_')) = marks.next() else {
+    return false;
+  };
+  let mut count = 1;
+  for other in marks {
+    if other != mark {
+      return false;
+    }
+    count += 1;
+  }
+  count >= 3
+}
+
+/// Whether a trimmed line is a line of metadata: one key (`refs:`) and after it only references (`flow:x`) and paths
+/// (`../../src/a.kt`), comma-separated (`refs: flow:x, spec:y, flag:z`); a key alone is a label of prose
+fn is_metadata(trimmed: &str) -> bool {
+  let Some((key, rest)) = trimmed.split_once(':') else {
+    return false;
+  };
+  if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') || !rest.starts_with(char::is_whitespace) {
+    return false;
+  }
+  let mut tokens = rest.split(|c: char| c == ',' || c.is_whitespace()).filter(|token| !token.is_empty()).peekable();
+  tokens.peek().is_some() && tokens.all(|token| is_reference(token.trim_matches('`')))
+}
+
+/// Whether a token is a reference of metadata: `kind:name` (`spec:landing`, a URL) or a path (`a/b`, `file.kt`)
+fn is_reference(token: &str) -> bool {
+  let reference = token.split_once(':').is_some_and(|(kind, name)| !kind.is_empty() && !name.is_empty());
+  let path = token.contains('/')
+    || token
+      .rsplit_once('.')
+      .is_some_and(|(stem, extension)| !stem.is_empty() && extension.starts_with(|c: char| c.is_ascii_alphabetic()) && extension.chars().all(|c| c.is_ascii_alphanumeric()));
+  reference || path
+}
+
+/// The cells of a row of a table of Markdown: its line split at each `|` but an escaped one (`\|`, read as `|`), the
+/// pipes at its ends dropped, each cell trimmed
+fn table_cells(line: &str) -> Vec<String> {
+  let trimmed = line.trim();
+  let trimmed = trimmed.strip_prefix('|').unwrap_or(trimmed);
+  let trimmed = if trimmed.ends_with('|') && !trimmed.ends_with("\\|") {
+    &trimmed[..trimmed.len() - 1]
+  } else {
+    trimmed
+  };
+  let mut cells = Vec::new();
+  let mut cell = String::new();
+  let mut chars = trimmed.chars().peekable();
+  while let Some(character) = chars.next() {
+    if character == '\\' && chars.peek() == Some(&'|') {
+      cell.push('|');
+      chars.next();
+    } else if character == '|' {
+      cells.push(cell.trim().to_string());
+      cell.clear();
+    } else {
+      cell.push(character);
+    }
+  }
+  cells.push(cell.trim().to_string());
+  cells
+}
+
+/// Whether a line is the delimiter row of a table (`| --- | :---: |`): every cell of it dashes, a colon at either end
+/// allowed
+fn is_delimiter_row(line: &str) -> bool {
+  line.contains('-')
+    && table_cells(line).iter().all(|cell| {
+      let dashes = cell.strip_prefix(':').unwrap_or(cell);
+      let dashes = dashes.strip_suffix(':').unwrap_or(dashes);
+      !dashes.is_empty() && dashes.chars().all(|c| c == '-')
+    })
+}
+
+/// The cells of the header of the table line `index` of `lines` starts: a line with a `|`, then a delimiter row of as
+/// many cells; `None` for a line that starts none (a line of pipes alone is prose)
+fn table_header(lines: &[&str], index: usize) -> Option<Vec<String>> {
+  let line = lines[index];
+  if !line.contains('|') || is_break(line) || !lines.get(index + 1).is_some_and(|next| is_delimiter_row(next)) {
+    return None;
+  }
+  let header = table_cells(line);
+  (header.len() == table_cells(lines[index + 1]).len()).then_some(header)
+}
+
+/// The text of a row of a table and the ranges the cells of its header and its own take in it: the cells of the header,
+/// a line break, then its own, each `CELL_SEPARATOR` apart; the header row itself (`header` empty) its cells alone
+fn row_text<S: AsRef<str>>(header: &[S], cells: &[S]) -> (String, Vec<TextRange>, Vec<TextRange>) {
+  fn push<S: AsRef<str>>(cells: &[S], text: &mut String) -> Vec<TextRange> {
+    let mut ranges = Vec::with_capacity(cells.len());
+    for (index, cell) in cells.iter().enumerate() {
+      if index > 0 {
+        text.push_str(CELL_SEPARATOR);
+      }
+      let start = utf16(text);
+      text.push_str(cell.as_ref());
+      ranges.push(TextRange { start, end: utf16(text) });
+    }
+    ranges
+  }
+
+  let mut text = String::new();
+  let header_ranges = push(header, &mut text);
+  if !header.is_empty() {
+    text.push('\n');
+  }
+  let cell_ranges = push(cells, &mut text);
+  (text, header_ranges, cell_ranges)
+}
+
+/// A row of a table under `header` as a paragraph, as many cells as its header has (GFM: the missing ones empty, the
+/// rest dropped); the header row itself under no header
+fn row_paragraph(header: &[String], mut cells: Vec<String>) -> ParagraphText {
+  if !header.is_empty() {
+    cells.resize(header.len(), String::new());
+  }
+  let (text, header, cells) = row_text(header, &cells);
+  ParagraphText {
+    text,
+    form: ProseForm::Row { header, cells },
+  }
+}
+
+/// The part of a paragraph its changes are read in, and its offset in its text: of a row its own cells, its header
+/// aside; of another paragraph its whole text
+fn compared<'a>(text: &'a str, form: &ProseForm) -> (u32, &'a str) {
+  let ProseForm::Row { cells, .. } = form else {
+    return (0, text);
+  };
+  let end = utf16(text);
+  let start = cells.first().map_or(end, |cell| cell.start);
+  (start, utf16_slice(text, TextRange { start, end }).unwrap_or_default())
 }
 
 /// The text of an item of a list without its marker (`- `, `* `, `+ `, `1. `), `None` for a line that starts none
@@ -272,15 +428,36 @@ pub(crate) fn paragraph_spans(old: &[&str], new: &[&str], blocks: &[UnitBlock]) 
 }
 
 /// The paragraphs of `lines`: a break and the start of an item of a list end one; each prose paragraph's lines are
-/// joined by a space, code fence contents keep their line breaks; the `[@test]` lines apart, as the paths they name
+/// joined by a space, code fence contents keep their line breaks, a table is its header row and each of its rows
+/// under it (`ProseForm::Row`); the `[@test]` lines apart, as the paths they name
 pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<ParagraphText>, Vec<String>) {
   let (mut paragraphs, mut proven_by) = (Vec::new(), Vec::new());
   let mut current = String::new();
   let mut code_lines: Vec<&str> = Vec::new();
   let mut code_language = None;
   let mut in_code = false;
-  for line in lines {
+  // the cells of the header of the table the lines are in: its rows go on up to a break or a line without a `|`
+  let mut table: Option<Vec<String>> = None;
+  let mut index = 0;
+  while index < lines.len() {
+    let line = lines[index];
+    index += 1;
     let trimmed = line.trim();
+    if let Some(header) = &table {
+      if !in_code && !is_break(line) && trimmed.contains('|') && !trimmed.starts_with("[@test]") {
+        paragraphs.push(row_paragraph(header, table_cells(line)));
+        continue;
+      }
+      table = None;
+    }
+    if !in_code && let Some(header) = table_header(lines, index - 1) {
+      flush_prose(&mut paragraphs, &mut current);
+      paragraphs.push(row_paragraph(&[], header.clone()));
+      table = Some(header);
+      // the delimiter row
+      index += 1;
+      continue;
+    }
     if in_code {
       if trimmed.starts_with("```") {
         paragraphs.push(ParagraphText {
@@ -330,30 +507,28 @@ pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<ParagraphText>, Vec<String>) {
 }
 
 /// The paragraphs `new` has that `old` lacks, in their order: an equal paragraph is no change (a paragraph wrapped
-/// anew says the same), a removed paragraph and the first similar added one at its place one changed paragraph by
-/// word, the rest added or removed.
-/// `path` is the file of the paragraphs, the base of the paths their links name; `keep` filters the paragraphs by
-/// their text
-pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: &str, keep: impl Fn(&ProseParagraph) -> bool) -> Vec<ProseParagraph> {
+/// anew says the same, a row under a header changed alike), a removed paragraph and the first similar added one of its
+/// form at its place one changed paragraph by word, the rest added or removed.
+/// `path` is the file of the paragraphs, the base of the paths their links name
+pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: &str) -> Vec<ProseParagraph> {
   let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
-  let prepare = |paragraph: &ParagraphText| {
-    let (text, links) = if matches!(&paragraph.form, ProseForm::Code { .. }) {
-      (paragraph.text.clone(), Vec::new())
-    } else {
-      strip_links(&paragraph.text, directory)
-    };
-    (text, links, paragraph.form.clone())
+  let prepare = |paragraph: &ParagraphText| match &paragraph.form {
+    ProseForm::Prose => {
+      let (text, links) = strip_links(&paragraph.text, directory);
+      (text, links, ProseForm::Prose)
+    }
+    ProseForm::Code { .. } => (paragraph.text.clone(), Vec::new(), paragraph.form.clone()),
+    ProseForm::Row { header, cells } => strip_row_links(&paragraph.text, header, cells, directory),
   };
   let old: Vec<(String, Vec<ProseLink>, ProseForm)> = old.iter().map(&prepare).collect();
   let new: Vec<(String, Vec<ProseLink>, ProseForm)> = new.iter().map(&prepare).collect();
-  let old_keys: Vec<String> = old
-    .iter()
-    .map(|(text, _, form)| format!("{}{}", if matches!(form, ProseForm::Code { .. }) { "\0code\0" } else { "\0prose\0" }, text))
-    .collect();
-  let new_keys: Vec<String> = new
-    .iter()
-    .map(|(text, _, form)| format!("{}{}", if matches!(form, ProseForm::Code { .. }) { "\0code\0" } else { "\0prose\0" }, text))
-    .collect();
+  let key = |(text, _, form): &(String, Vec<ProseLink>, ProseForm)| match form {
+    ProseForm::Prose => format!("\0prose\0{text}"),
+    ProseForm::Code { .. } => format!("\0code\0{text}"),
+    ProseForm::Row { .. } => format!("\0row\0{}", compared(text, form).1),
+  };
+  let old_keys: Vec<String> = old.iter().map(key).collect();
+  let new_keys: Vec<String> = new.iter().map(key).collect();
   let old_texts: Vec<&str> = old_keys.iter().map(String::as_str).collect();
   let new_texts: Vec<&str> = new_keys.iter().map(String::as_str).collect();
   let changes = build_changes(&old_texts, &new_texts).unwrap_or_else(|_| {
@@ -373,11 +548,12 @@ pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: 
     let mut next = 0;
     for (before, before_links, before_form) in removed {
       let pair = (next..added.len()).find_map(|at| {
-        if same_form_kind(before_form, &added[at].2) {
-          word_change(before, &added[at].0).map(|change| (at, change))
-        } else {
-          None
+        let (after, _, after_form) = &added[at];
+        if !same_form_kind(before_form, after_form) {
+          return None;
         }
+        let (offset, after_part) = compared(after, after_form);
+        word_change(compared(before, before_form).1, after_part).map(|(inserted, deleted)| (at, shifted(inserted, deleted, offset)))
       });
       let Some((at, (inserted, deleted))) = pair else {
         result.push(paragraph(before, before_form.clone(), before_links, ProseChange::Removed, None));
@@ -387,10 +563,10 @@ pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: 
         result.push(paragraph(text, form.clone(), links, ProseChange::Added, None));
       }
       let (after, links, after_form) = &added[at];
-      let excerpt = if matches!(after_form, ProseForm::Code { .. }) {
-        code_excerpt(after, &inserted, &deleted)
-      } else {
-        excerpt(after, &inserted, &deleted)
+      let excerpt = match after_form {
+        ProseForm::Prose => excerpt(after, &inserted, &deleted),
+        ProseForm::Code { .. } => code_excerpt(after, &inserted, &deleted),
+        ProseForm::Row { .. } => None,
       };
       result.push(paragraph(
         after,
@@ -409,12 +585,58 @@ pub(crate) fn prose_changes(old: &[ParagraphText], new: &[ParagraphText], path: 
       result.push(paragraph(text, form.clone(), links, ProseChange::Added, None));
     }
   }
-  result.retain(keep);
   result
 }
 
 const fn same_form_kind(left: &ProseForm, right: &ProseForm) -> bool {
-  matches!((left, right), (ProseForm::Prose, ProseForm::Prose) | (ProseForm::Code { .. }, ProseForm::Code { .. }))
+  matches!(
+    (left, right),
+    (ProseForm::Prose, ProseForm::Prose) | (ProseForm::Code { .. }, ProseForm::Code { .. }) | (ProseForm::Row { .. }, ProseForm::Row { .. })
+  )
+}
+
+/// The changes of the part of a paragraph `compared` read, moved to their places in its text
+fn shifted(mut inserted: Vec<TextRange>, mut deleted: Vec<ProseDeletion>, offset: u32) -> (Vec<TextRange>, Vec<ProseDeletion>) {
+  for range in &mut inserted {
+    range.start += offset;
+    range.end += offset;
+  }
+  for deletion in &mut deleted {
+    deletion.at += offset;
+  }
+  (inserted, deleted)
+}
+
+/// A row of a table with the links of each of its cells as their text (`strip_links`), the ranges of its cells moved
+/// to match
+fn strip_row_links(text: &str, header: &[TextRange], cells: &[TextRange], directory: &str) -> (String, Vec<ProseLink>, ProseForm) {
+  let strip =
+    |ranges: &[TextRange]| -> Vec<(String, Vec<ProseLink>)> { ranges.iter().map(|range| strip_links(utf16_slice(text, *range).unwrap_or_default(), directory)).collect() };
+  let (header, cells) = (strip(header), strip(cells));
+  fn texts(cells: &[(String, Vec<ProseLink>)]) -> Vec<&str> {
+    cells.iter().map(|(text, _)| text.as_str()).collect()
+  }
+  let (text, header_ranges, cell_ranges) = row_text(&texts(&header), &texts(&cells));
+  let links = header
+    .iter()
+    .zip(&header_ranges)
+    .chain(cells.iter().zip(&cell_ranges))
+    .flat_map(|((_, links), range)| {
+      links.iter().map(move |link| ProseLink {
+        start: link.start + range.start,
+        end: link.end + range.start,
+        target: link.target.clone(),
+      })
+    })
+    .collect();
+  (
+    text,
+    links,
+    ProseForm::Row {
+      header: header_ranges,
+      cells: cell_ranges,
+    },
+  )
 }
 
 /// Moves repeated replacement pairs out of the word diff and marks their new words
@@ -474,12 +696,30 @@ pub(crate) fn apply_substitutions(paragraphs: &mut [ProseParagraph], table: &[cr
 }
 
 fn paragraph(text: &str, form: ProseForm, links: &[ProseLink], change: ProseChange, excerpt: Option<TextRange>) -> ProseParagraph {
-  let is_code = matches!(&form, ProseForm::Code { .. });
+  let (code, links) = match &form {
+    ProseForm::Prose => (code_spans(text), links.to_vec()),
+    ProseForm::Code { .. } => (Vec::new(), Vec::new()),
+    // the spans of each cell, so no span runs from one cell into the next
+    ProseForm::Row { header, cells } => (
+      header
+        .iter()
+        .chain(cells)
+        .flat_map(|range| {
+          code_spans(utf16_slice(text, *range).unwrap_or_default()).into_iter().map(move |span| CodeSpan {
+            start: span.start + range.start,
+            end: span.end + range.start,
+            ..span
+          })
+        })
+        .collect(),
+      links.to_vec(),
+    ),
+  };
   ProseParagraph {
     text: text.to_string(),
     form,
-    code: if is_code { Vec::new() } else { code_spans(text) },
-    links: if is_code { Vec::new() } else { links.to_vec() },
+    code,
+    links,
     change,
     excerpt,
   }
@@ -622,13 +862,14 @@ fn sentences(text: &[u16]) -> Vec<Range<usize>> {
   result
 }
 
-/// Of a long paragraph, the sentences that hold its changes, when they leave out enough of it (`EXCERPT_MAX_SHARE`)
+/// Of a paragraph of several sentences, the sentences that hold its changes, when they leave out enough of it
+/// (`EXCERPT_MAX_SHARE`)
 fn excerpt(text: &str, inserted: &[TextRange], deleted: &[ProseDeletion]) -> Option<TextRange> {
   let units: Vec<u16> = text.encode_utf16().collect();
-  if units.len() <= EXCERPT_MIN_LENGTH {
+  let sentences = sentences(&units);
+  if sentences.len() < 2 {
     return None;
   }
-  let sentences = sentences(&units);
   // the sentence a position of a change is in: the one it starts in, the last one for the end of the text
   let sentence_of = |at: usize| sentences.iter().position(|sentence| at < sentence.end).unwrap_or_else(|| sentences.len().saturating_sub(1));
   let touched = inserted

@@ -532,10 +532,27 @@ export interface ContractFile {
     readonly key: string
     /** The heading of its section of Markdown */
     readonly heading: string | null
-    readonly paragraphs: readonly ContractParagraph[]
+    /** Its paragraphs, the rows of one table one block */
+    readonly blocks: readonly ContractBlock[]
     /** "Proven by restart.json" */
     readonly provenBy: string | null
   }[]
+}
+
+/** A block of a section of What Changes: a paragraph, or the rows of one table the change touches */
+export type ContractBlock = { readonly kind: "paragraph"; readonly paragraph: ContractParagraph } | ContractTable
+
+/**
+ * The rows of one table of What Changes the change adds, removes or changes (`ProseForm::Row`), in their order, under
+ * their header once: the header row itself when the change touched it (its cells with their marks), else the cells of
+ * the header of its first row
+ */
+export interface ContractTable {
+  readonly kind: "table"
+  readonly key: string
+  /** The header row the change adds, removes or changes, `null` when it kept it */
+  readonly head: ContractParagraph | null
+  readonly rows: readonly ContractParagraph[]
 }
 
 /**
@@ -769,8 +786,47 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">): ContractFil
   })
   return files.map(file => ({
     ...file,
-    entries: file.entries.map(entry => ({ ...entry, provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}` })),
+    entries: file.entries.map(entry => ({
+      key: entry.key,
+      heading: entry.heading,
+      blocks: contractBlocks(entry.paragraphs),
+      provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}`,
+    })),
   }))
+}
+
+/** The words of the cells `ranges` of a row of a table, one string to tell one header from another */
+function cellWords(row: ContractParagraph, ranges: readonly TextRange[]): string {
+  return ranges.map(range => row.text.slice(range.start, range.end)).join("\u0000")
+}
+
+/**
+ * The paragraphs of a section as its blocks: a run of rows of one table one block, the rows under one header together;
+ * the header row itself (a row of no header) heads the rows whose header it is
+ */
+function contractBlocks(paragraphs: readonly ContractParagraph[]): ContractBlock[] {
+  const blocks: ContractBlock[] = []
+  let table: { key: string; head: ContractParagraph | null; header: string; rows: ContractParagraph[] } | null = null
+  for (const paragraph of paragraphs) {
+    const form = paragraph.form
+    if (form.kind !== "row") {
+      table = null
+      blocks.push({ kind: "paragraph", paragraph })
+      continue
+    }
+    if (form.header.length === 0) {
+      table = { key: paragraph.key, head: paragraph, header: cellWords(paragraph, form.cells), rows: [] }
+      blocks.push({ kind: "table", key: table.key, head: paragraph, rows: table.rows })
+      continue
+    }
+    const header = cellWords(paragraph, form.header)
+    if (table?.header !== header) {
+      table = { key: paragraph.key, head: null, header, rows: [] }
+      blocks.push({ kind: "table", key: table.key, head: null, rows: table.rows })
+    }
+    table.rows.push(paragraph)
+  }
+  return blocks
 }
 
 /** The repeated replacements the changed paragraphs share, with names for the row and places only for changed files */

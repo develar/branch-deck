@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 20` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 21` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -36,7 +36,9 @@
 //! version 19 added the repeated word replacements of the brief (`brief.substitutions`) and their marks in the changed
 //! paragraphs, including paragraphs changed only by those replacements;
 //! version 20 a widening (the reach alone opened wider, of a declaration no subtype may override) as an `added` entry
-//! with `widened` and its form `before`, the reach in the forms as the language writes it, and the `verdict` of the plan
+//! with `widened` and its form `before`, the reach in the forms as the language writes it, and the `verdict` of the plan;
+//! version 21 the form `row` of a paragraph of the brief (a row of a table under the cells of its header), the
+//! `excerpt` of every changed paragraph of several sentences, and no paragraph of front matter or of metadata
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -61,7 +63,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 20;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 21;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
