@@ -150,10 +150,32 @@ test.describe("Review tour", () => {
           "spec/window.spec.md",
           "tests/restart.json",
         ])
+      const firstStep = tree.getByRole("treeitem", { name: "1 · the manager drops the hooks nothing sets", exact: true })
+      const secondStep = tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })
+      const viewport = window.viewportSize()!
+      await expect(firstStep).not.toHaveAttribute("data-active-group")
+      await window.setViewportSize({ width: viewport.width, height: 480 })
+      await captureHtmlSnapshot(secondStep, "review-step-tree-row")
+      await expect(firstStep).toHaveCSS("position", "sticky")
+      const scrollportTop = await tree.evaluate(element => element.parentElement!.getBoundingClientRect().top)
+      const secondStepTop = await secondStep.evaluate(element => element.getBoundingClientRect().top)
+      const scrollTop = Math.max(0, secondStepTop - scrollportTop + 1)
+      await window.getByTestId("review-sidebar").evaluate((sidebar, top) => {
+        const scrollport = sidebar.querySelector('[role="tree"]')?.parentElement
+        if (scrollport !== null && scrollport !== undefined) {
+          scrollport.scrollTop = top
+        }
+      }, scrollTop)
+      await expect
+        .poll(async () => {
+          const rowTop = await secondStep.evaluate(element => element.getBoundingClientRect().top)
+          const portTop = await tree.evaluate(element => element.parentElement!.getBoundingClientRect().top)
+          return Math.round(rowTop - portTop)
+        })
+        .toBe(0)
       // each step opens on the canvas right above the card of its first section, "Step 2" above its full title; a header
       // names its file alone, so the name of every file stands at one x (every card of the story on screen: the view
       // renders the cards it shows)
-      const viewport = window.viewportSize()!
       await window.setViewportSize({ width: 1280, height: 2400 })
       const dividers = window.getByTestId("review-concern-heading")
       await expect(dividers).toHaveText([
@@ -234,10 +256,16 @@ test.describe("Review tour", () => {
       await second.click()
       await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
       await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
+      await expect(tree.getByRole("treeitem", { name: "src/b/Welcome.kt" })).toHaveAttribute("data-active-group", "")
       await expect.poll(() => topOf(second)).toBe(10)
       // a file of its tests shows its test in the diffs, the file selected in the tree
       await opening.getByTestId("review-step-tested").filter({ hasText: "ManagerTest.kt" }).click()
       await expect(window.getByRole("treeitem", { name: "ManagerTest.kt" })).toHaveAttribute("aria-selected", "true")
+      await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("data-active-group", "")
+      await expect(tree.getByRole("treeitem", { name: "4 · the restart story checks the layout", exact: true })).not.toHaveAttribute("data-active-group")
+      await firstStep.focus()
+      await window.keyboard.press("ArrowDown")
+      await expect(tree.getByRole("treeitem").nth(1)).toBeFocused()
     },
   )
 
@@ -748,18 +776,16 @@ test.describe("Review tour", () => {
     await expect(commitRow("the open keeps a stored layout")).toHaveCount(0)
     await expect(commitRow("2 · the open keeps a stored layout")).toHaveAttribute("aria-description", /^4 files, \+\d+ −\d+, commit [0-9a-f]{7,}$/)
     await captureHtmlSnapshot(commitRow("2 · the open keeps a stored layout"), "review-tree-step-commit")
-    // the row of a step is its commit: its hash in its card, no native hover over the card, and no box of its own that
-    // takes the width of the title: the title runs to the mark at the end of the row
+    // the row of a step is its commit: its hash in its card, no native hover over the card, and the mark in the metadata line
     const stepRow = commitRow("2 · the open keeps a stored layout")
     const stepTitle = stepRow.locator("[data-group]")
     await expect(stepTitle).not.toHaveAttribute("title")
     const titleRoom = await stepRow.evaluate(row => {
       const title = row.querySelector("[data-group]")!.getBoundingClientRect()
       const mark = row.querySelector("[data-testid=commit-row-mark]")!.getBoundingClientRect()
-      return { gap: mark.left - title.right, sameLine: Math.abs(mark.top - title.top) < 8 }
+      return mark.top >= title.bottom - 1
     })
-    expect(titleRoom.sameLine).toBe(true)
-    expect(titleRoom.gap).toBeLessThan(12)
+    expect(titleRoom).toBe(true)
     // no title of a step or a commit is cut by the width: a title wraps as many lines as needed at 1440 and 1024
     await window.setViewportSize({ width: 1440, height: 900 })
     await expect.poll(() => cutTreeTitles(tree)).toBe(0)
@@ -797,11 +823,11 @@ test.describe("Review tour", () => {
     await stepMark.hover()
     await expect(card).toBeVisible()
     await expect(card.getByTestId("commit-header-meta")).toContainText(/^[0-9a-f]{7,}/)
-    const markBox = (await stepMark.boundingBox())!
+    const stepBox = (await commitRow("2 · the open keeps a stored layout").boundingBox())!
     const treeBox = (await tree.boundingBox())!
     const atTheLine = async () => {
       const box = await card.boundingBox()
-      return box !== null && box.x >= treeBox.x + treeBox.width - 1 && Math.abs(box.y - markBox.y) < 24
+      return box !== null && box.x >= treeBox.x + treeBox.width - 1 && Math.abs(box.y - stepBox.y) < 24
     }
     await expect.poll(atTheLine).toBe(true)
     await window.mouse.move(0, 0)
@@ -895,11 +921,7 @@ test.describe("Review tour", () => {
     await expect(paint.getByTestId("review-commit-since")).toHaveCount(0)
   })
 
-  test("should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
+  test("should show only the steps and files of an owner chip, and navigate within its story", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("review_tour")
     turnOnReviewPlan(repo)
     // Design owns src/b and src/a/Frame.kt: the files of steps 2 and 3, none of steps 1 and 4
@@ -920,47 +942,30 @@ test.describe("Review tour", () => {
       "4 · the restart story checks the layout",
     ]
     const frameAlso = row("src/a/Frame.kt, also in 3 · the view paints with the first frame")
-    // the steps, each its commit, their files (Manager.kt also in step 1) and the round of step 2
-    await expect(tree.getByRole("treeitem")).toHaveCount(13)
-
     await window.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
     await expect(window.getByTestId("branch-review-owner").filter({ hasText: "Design" })).toHaveAttribute("aria-pressed", "true")
-    // a chip hides nothing: every step and file stays, the steps with its files count them, the others are muted, their
-    // commits with them
-    await expect(tree.getByRole("treeitem")).toHaveCount(13)
-    await expect(row(steps[1]!).getByTestId("review-owner-mark")).toHaveText("Design2")
-    await expect(row(steps[1]!)).toHaveAttribute("aria-description", /, 2 files of Design$/)
-    await expect(row(steps[2]!).getByTestId("review-owner-mark")).toHaveText("Design1")
-    await expect(row(steps[1]!)).not.toHaveAttribute("data-muted")
-    for (const muted of [steps[0]!, steps[3]!, "src/a/Manager.kt", "test/a/ManagerTest.kt"]) {
-      await expect(row(muted)).toHaveAttribute("data-muted", "")
-    }
-    await expect(row("the rule names its flag again")).not.toHaveAttribute("data-muted")
-    await expect(row(steps[0]!).getByTestId("review-owner-mark")).toHaveCount(0)
-    await expect(row("src/b/Welcome.kt")).not.toHaveAttribute("data-muted")
-    await expect(window.locator('[data-testid="review-file-header"][data-path="src/a/Manager.kt"]').first()).toHaveAttribute("data-muted", "")
-    await expect(window.locator('[data-testid="review-file-header"][data-path="src/a/Frame.kt"]').first()).not.toHaveAttribute("data-muted")
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Frame.kt", "src/b/Welcome.kt", "src/a/Frame.kt"])
+    await expect(row(steps[0]!)).toHaveCount(0)
+    await expect(row(steps[1]!)).toBeVisible()
+    await expect(row(steps[2]!)).toBeVisible()
+    await expect(row(steps[3]!)).toHaveCount(0)
+    await expect(row(steps[1]!).getByTestId("review-owner-mark")).toHaveText("2 of 4")
+    await expect(row(steps[1]!)).toHaveAttribute("aria-description", /, 2 of 4 files, Design$/)
+    await expect(row(steps[2]!).getByTestId("review-owner-mark")).toHaveText(/1 of \d+/)
+    await expect(row("src/a/Manager.kt")).toHaveCount(0)
+    await expect(row("test/a/ManagerTest.kt")).toHaveCount(0)
+    await expect(window.getByTestId("review-files-header")).toContainText(/2 of \d+/)
+    const position = window.getByTestId("review-position")
 
-    // N from the first section passes the blocks of Manager.kt to the first of Frame.kt
+    // N, J and K move only through the two files the chip keeps
     await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
     await window.keyboard.press("n")
-    await expect(row("src/a/Frame.kt")).toHaveAttribute("aria-selected", "true")
-    // J goes on through the sections of Design: Welcome.kt, then past ManagerTest.kt to the part of Frame.kt in step 3
+    await expect(position).toHaveText(/File \d+ \/ 2/)
     await window.keyboard.press("j")
-    await expect(row("src/b/Welcome.kt")).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText(/File \d+ \/ 2/)
     await window.keyboard.press("j")
-    await expect(frameAlso).toHaveAttribute("aria-selected", "true")
-    await expect(window.getByTestId("review-step-bar").getByTestId("review-step-position")).toHaveText("Step 3 / 4")
-    // none of Design is left: J moves nothing, so with All it goes on from Frame.kt to the opening of step 4, then to
-    // its first card
-    await window.keyboard.press("j")
-    await window.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
-    await expect(row(steps[0]!)).not.toHaveAttribute("data-muted")
-    await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
-    await window.keyboard.press("j")
-    await expect(row(steps[3]!)).toHaveAttribute("aria-selected", "true")
-    await window.keyboard.press("j")
-    await expect(row("spec/window.spec.md")).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText(/File \d+ \/ 2/)
+    await expect(frameAlso).toBeVisible()
   })
 
   test("should start a step at a commit with a story of its own though it rewrites the code of others, and name it in a step it took the code of, which shows its step", async ({

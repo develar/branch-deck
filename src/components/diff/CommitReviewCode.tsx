@@ -64,8 +64,6 @@ export interface CommitReviewCodeProps {
   fileOwners?: ReadonlyMap<string, string>
   /** The commits of the sides: a declaration outside the review is read at them */
   revisions: DiffRevisions
-  /** The files an owner chip marks: the headers of the others are muted; none muted without */
-  marked?: ReadonlySet<string> | null
   /** A click on the title of the opening of a step: the opening at the top, as the bar of the step above the diffs */
   onShowStep?: (step: string) => void
   /** The overview before the first section: always mounted, measured in place */
@@ -104,7 +102,6 @@ export function CommitReviewCode({
   onFirstScreen,
   fileOwners,
   revisions,
-  marked = null,
   onShowStep,
   prologue,
   openings,
@@ -187,12 +184,11 @@ export function CommitReviewCode({
         onFirstScreen={onFirstScreen}
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
-        renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
+        renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={false} />}
         prologue={prologue}
         epilogue={after === undefined || after.length === 0 ? undefined : <LayerOfOpenings steps={after} openings={openings} group={null} onShowStep={onShowStep} />}
         renderOpening={section => <SectionOpenings section={section} openings={openings} onShowStep={onShowStep} />}
         renderDivider={section => <ReviewDivider section={section} />}
-        muted={marked === null ? undefined : path => !marked.has(path)}
         renderFooter={
           nextSection === undefined
             ? undefined

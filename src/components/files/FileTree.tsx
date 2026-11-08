@@ -42,8 +42,10 @@ interface FileTreeBaseProps {
   fileOwners?: ReadonlyMap<string, string>
   /** The facts of the review plan on the rows, one mark each (`FileRowMark`); none without a plan */
   badges?: FileTreeBadges | null
-  /** The files of the chosen owner chip: the other rows are muted; none muted without */
+  /** The counts of files from the chosen owner chip on each step */
   marks?: FileTreeMarks | null
+  /** The step of the selected file or step; its rows form one highlighted group */
+  activeGroupKey?: string | null
   /** What the commit rows of the story of a range review do (`FileTreeCommit`); a tree without them has none */
   commitRows?: FileTreeCommitRows | null
 }
@@ -60,12 +62,10 @@ export interface FileTreeCommitRows {
 
 /** What an owner chip marks in a tree (spec/branch/branch-review.spec.md, "Code owners") */
 export interface FileTreeMarks {
-  /** The name of the chip, on the rows of the steps: "Design 2" */
+  /** The name of the chip, for the step's accessible description */
   readonly label: string
-  /** The paths of its files */
-  readonly paths: ReadonlySet<string>
-  /** How many of its files each step shows, by the key of the step's row (`presentOwnerMarks`); 0 mutes the step */
-  readonly counts: ReadonlyMap<string, number>
+  /** How many of its files each step shows, by the key of the step's row (`presentOwnerMarks`) */
+  readonly counts: ReadonlyMap<string, { shown: number; total: number }>
 }
 
 /** The badges of the rows of a tree, by the key of the row */
@@ -117,7 +117,7 @@ const CHEVRON_MIDDLE = "7px"
  * fold it, Enter, ⌘C, `I` and its menu are the commit's.
  */
 export function FileTree(props: FileTreeProps) {
-  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, commitRows = null } = props
+  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, activeGroupKey = null, commitRows = null } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null
@@ -272,31 +272,59 @@ export function FileTree(props: FileTreeProps) {
     }
   }
 
+  const renderRow = (node: FileTreeNode, sticky: boolean, activeGroup: boolean) => (
+    <FileTreeRow
+      key={node.key}
+      node={node}
+      isOpen={isRowOpen(node, collapsed, expandedFiles)}
+      isSelected={mode === "navigate" ? node.key === selectedKey : undefined}
+      inTabOrder={node.key === tabKey}
+      rowElements={rowElements}
+      onToggle={toggle}
+      onActivate={activate}
+      onFocusRow={setFocusedKey}
+      owner={node.kind === "directory" || node.kind === "commit" ? undefined : fileOwners?.get(node.file.path)}
+      fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
+      dependencyBadge={badges?.dependencies.get(node.key)}
+      onSelectPlace={badges?.onSelectPlace}
+      card={card?.key === node.key ? (card.byKey ? "key" : "hover") : null}
+      onCardChange={changeCard}
+      ownerMark={marks === null ? null : ownerMarkOf(node, marks)}
+      commitMenu={isCommitRow(node) ? commitRows?.menu : undefined}
+      content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
+      sticky={sticky}
+      activeGroup={activeGroup}
+    />
+  )
+  const renderedRows: ReactNode[] = []
+  for (let index = 0; index < rows.length; index++) {
+    const node = rows[index]!
+    if (node.kind === "directory" && node.group === "concern") {
+      const group: FileTreeNode[] = [node]
+      const activeGroup = activeGroupKey === node.key
+      while (rows[index + 1] !== undefined && rows[index + 1]!.depth > node.depth) {
+        group.push(rows[++index]!)
+      }
+      renderedRows.push(
+        <div key={node.key} role="none" className="relative">
+          {activeGroup && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 z-20 w-0.5 rounded-full bg-primary/60"
+              style={{ left: `calc(${ROW_START} + ${node.depth * INDENT_REM}rem + ${CHEVRON_MIDDLE})` }}
+            />
+          )}
+          {group.map(row => renderRow(row, row.key === node.key, activeGroup))}
+        </div>,
+      )
+    } else {
+      renderedRows.push(renderRow(node, false, false))
+    }
+  }
+
   return (
     <div role="tree" aria-label={label} className="flex flex-col" onKeyDown={handleKeyDown}>
-      {rows.map(node => (
-        <FileTreeRow
-          key={node.key}
-          node={node}
-          isOpen={isRowOpen(node, collapsed, expandedFiles)}
-          isSelected={mode === "navigate" ? node.key === selectedKey : undefined}
-          inTabOrder={node.key === tabKey}
-          rowElements={rowElements}
-          onToggle={toggle}
-          onActivate={activate}
-          onFocusRow={setFocusedKey}
-          owner={node.kind === "directory" || node.kind === "commit" ? undefined : fileOwners?.get(node.file.path)}
-          fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
-          dependencyBadge={badges?.dependencies.get(node.key)}
-          onSelectPlace={badges?.onSelectPlace}
-          card={card?.key === node.key ? (card.byKey ? "key" : "hover") : null}
-          onCardChange={changeCard}
-          muted={marks !== null && isMuted(node, marks)}
-          ownerMark={marks === null ? null : ownerMarkOf(node, marks)}
-          commitMenu={isCommitRow(node) ? commitRows?.menu : undefined}
-          content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
-        />
-      ))}
+      {renderedRows}
     </div>
   )
 }
@@ -339,37 +367,16 @@ function cardCommitOf(node: FileTreeNode): CardCommit | null {
   return commit?.hasBody === true ? toCardCommit(commit) : null
 }
 
-/**
- * A row the chosen owner chip plays down: one without its files; a commit of a step as its step, a commit of no step
- * never (it holds no file)
- */
-function isMuted(node: FileTreeNode, marks: FileTreeMarks): boolean {
-  if (node.kind === "commit") {
-    return node.chapter !== null && marks.counts.get(node.parentKey ?? "") === 0
-  }
-  return node.kind === "directory" && node.group === "commits" ? false : markedCount(node, marks) === 0
-}
-
-/** The files of the chosen owner in a row: of a step its count, of a directory or a group its files, of a file 1 or 0, of a commit none */
-function markedCount(node: FileTreeNode, marks: FileTreeMarks): number {
-  if (node.kind === "commit") {
-    return 0
-  }
-  if (node.kind !== "directory") {
-    return marks.paths.has(node.file.path) ? 1 : 0
-  }
-  return marks.counts.get(node.key) ?? node.children.reduce((sum, child) => sum + markedCount(child, marks), 0)
-}
-
-/** The count chip of a step row that shows files of the chosen owner: "Design" and 2 */
+/** The count chip of a step row that shows files of the chosen owner: "4 of 7" */
 function ownerMarkOf(node: FileTreeNode, marks: FileTreeMarks): OwnerMark | null {
-  const count = node.kind === "directory" ? (marks.counts.get(node.key) ?? 0) : 0
-  return count === 0 ? null : { label: marks.label, count }
+  const count = node.kind === "directory" ? marks.counts.get(node.key) : undefined
+  return count === undefined || count.shown === 0 ? null : { label: marks.label, count: count.shown, total: count.total }
 }
 
 interface OwnerMark {
   label: string
   count: number
+  total: number
 }
 
 /**
@@ -408,10 +415,10 @@ interface FileTreeRowProps {
   card: "hover" | "key" | null
   /** Opens or closes the card of a row's mark; must keep its identity */
   onCardChange: (key: string, open: boolean) => void
-  /** Holds no file of the chosen owner chip: played down, it stays in the story */
-  muted: boolean
-  /** The files of the chosen owner a step row shows: "Design 2" */
+  /** The files of the chosen owner a step row shows: "4 of 7" */
   ownerMark: OwnerMark | null
+  sticky: boolean
+  activeGroup: boolean
   /** The right-click menu of a commit row and of the group of a step of the commits */
   commitMenu: FileTreeCommitRows["menu"] | undefined
   /** The diff under an expanded file */
@@ -433,12 +440,14 @@ const FileTreeRow = memo(function FileTreeRow({
   onSelectPlace,
   card,
   onCardChange,
-  muted,
   ownerMark,
   commitMenu,
   content,
+  sticky,
+  activeGroup,
 }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
+  const isConcern = node.kind === "directory" && node.group === "concern"
   const facts = presentRowFacts(fileBadges, dependencyBadge)
   const cardCommit = cardCommitOf(node)
   // the one card of the row's mark, of its facts or of its commit
@@ -459,9 +468,42 @@ const FileTreeRow = memo(function FileTreeRow({
   const counts = rowCounts(node)
   // the mark is no tab stop: the description says every fact of its card
   const described = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
-  const description = ownerMark === null ? described : `${described}, ${formatFileCount(ownerMark.count)} of ${ownerMark.label}`
+  const description = ownerMark === null ? described : `${described}, ${ownerMark.count} of ${formatFileCount(ownerMark.total)}, ${ownerMark.label}`
   // a file of a review also in another concern: the row tells it from the row of the file
   const label = node.kind === "also" ? `${node.name}, ${node.also}` : node.name
+  const disclosure =
+    isOpen === undefined ? (
+      // a file of a navigation tree opens nothing: the space keeps the names aligned
+      <span className="my-[3px] size-3.5 shrink-0" />
+    ) : (
+      // the chevron folds the row, also where a click on a row selects it (the group of a step of the commits)
+      <ChevronRightIcon
+        className={cn("my-[3px] size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")}
+        data-testid="tree-row-chevron"
+        onClick={event => {
+          event.stopPropagation()
+          onToggle(node)
+        }}
+      />
+    )
+  const rowMark =
+    facts !== null && onSelectPlace !== undefined ? (
+      <FileRowMark facts={facts} onSelectPlace={onSelectPlace} selected={isSelected === true} {...cardState} />
+    ) : (
+      commitCard !== null && node.kind === "directory" && <CommitRowMark commit={commitCard.commit} size="tree" menu={commitCard.menu} popupHover={hover.popup} {...cardState} />
+    )
+  const lineCounts =
+    node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />
+  const rowContent =
+    node.kind === "directory" ? (
+      <DirectoryRowContent node={node} isOpen={isOpen === true} titleHover={commitCard === null ? undefined : hover.text} />
+    ) : node.kind === "also" ? (
+      <AlsoRowContent node={node} owner={owner} />
+    ) : node.kind === "commit" ? (
+      <CommitRowContent node={node} card={commitCard} />
+    ) : (
+      <FileRowContent node={node} owner={owner} />
+    )
   return (
     <div
       ref={element => {
@@ -480,8 +522,8 @@ const FileTreeRow = memo(function FileTreeRow({
       aria-description={description}
       tabIndex={inTabOrder ? 0 : -1}
       data-tree-key={node.key}
-      data-muted={muted ? "" : undefined}
-      className="group/tree-item flex flex-col outline-none"
+      data-active-group={activeGroup ? "" : undefined}
+      className={cn("group/tree-item flex flex-col outline-none", sticky && "sticky top-0 z-10 bg-canvas")}
       onFocus={event => {
         if (event.target === event.currentTarget) {
           onFocusRow(node.key)
@@ -498,9 +540,9 @@ const FileTreeRow = memo(function FileTreeRow({
             className={cn(
               // a title of a step or a commit wraps as needed: the row grows, its chevron, icon and end stay on the first
               "group/row relative flex min-h-6 cursor-default items-start gap-1.5 rounded-md py-0.5 pr-1 text-sm transition-colors select-none bd-focus-inset group-focus-visible/tree-item:bd-focus hover:bg-muted",
+              isConcern && "flex-col items-stretch gap-0",
+              activeGroup && "bg-primary/5",
               isSelected && "bg-primary/15 hover:bg-primary/15",
-              // its parts fade, not the row: the selection and the hover keep their colour
-              muted && "*:opacity-60",
             )}
             style={{ paddingLeft: `calc(${indent} + ${ROW_START})` }}
             onClick={() => onActivate(node, isOpen)}
@@ -520,36 +562,33 @@ const FileTreeRow = memo(function FileTreeRow({
             }}
           />
         )}
-        {isOpen === undefined ? (
-          // a file of a navigation tree opens nothing: the space keeps the names aligned
-          <span className="my-[3px] size-3.5 shrink-0" />
+        {isConcern ? (
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex min-w-0 items-start gap-1.5">
+              {disclosure}
+              {rowContent}
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5 pl-5">
+              {ownerMark !== null && (
+                <Badge variant="secondary" data-testid="review-owner-mark" className="shrink-0 text-muted-foreground">
+                  <span className="tabular-nums">
+                    {ownerMark.count} of {ownerMark.total}
+                  </span>
+                </Badge>
+              )}
+              {node.commit !== undefined && <CommitRowBadges facts={factsOf(node.commit)} />}
+              {rowMark}
+              {lineCounts}
+            </span>
+          </span>
         ) : (
-          // the chevron folds the row, also where a click on the row selects it (the group of a step of the commits)
-          <ChevronRightIcon
-            className={cn("my-[3px] size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")}
-            data-testid="tree-row-chevron"
-            onClick={event => {
-              event.stopPropagation()
-              onToggle(node)
-            }}
-          />
+          <>
+            {disclosure}
+            {rowContent}
+            {rowMark}
+            {lineCounts}
+          </>
         )}
-        {node.kind === "directory" ? (
-          <DirectoryRowContent node={node} isOpen={isOpen === true} ownerMark={ownerMark} titleHover={commitCard === null ? undefined : hover.text} />
-        ) : node.kind === "also" ? (
-          <AlsoRowContent node={node} owner={owner} />
-        ) : node.kind === "commit" ? (
-          <CommitRowContent node={node} card={commitCard} />
-        ) : (
-          <FileRowContent node={node} owner={owner} />
-        )}
-        {facts !== null && onSelectPlace !== undefined ? (
-          <FileRowMark facts={facts} onSelectPlace={onSelectPlace} selected={isSelected === true} {...cardState} />
-        ) : (
-          commitCard !== null &&
-          node.kind === "directory" && <CommitRowMark commit={commitCard.commit} size="tree" menu={commitCard.menu} popupHover={hover.popup} {...cardState} />
-        )}
-        {node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </RowMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -654,12 +693,10 @@ function groupTitle(node: FileTreeDirectory): string {
 function DirectoryRowContent({
   node,
   isOpen,
-  ownerMark,
   titleHover,
 }: {
   node: FileTreeDirectory
   isOpen: boolean
-  ownerMark: OwnerMark | null
   /** The hover of the title of the step of a commit: it opens the card of the commit (`useRowCardHover`) */
   titleHover: RowCardHover["text"] | undefined
 }) {
@@ -678,7 +715,7 @@ function DirectoryRowContent({
         className={cn(
           "min-w-0 flex-1",
           // the title of a step or a task wraps as many lines as needed; a path is cut
-          node.group === "concern" ? "font-medium [overflow-wrap:anywhere]" : "truncate",
+          node.group === "concern" ? "font-medium" : "truncate",
           // a code name at the size of the row: JetBrains Mono has the x-height of Inter (docs/design/ui-theme.md)
           node.code === true && "font-mono",
         )}
@@ -700,13 +737,6 @@ function DirectoryRowContent({
           name
         )}
       </span>
-      {ownerMark !== null && (
-        <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">
-          <span className="min-w-0 truncate">{ownerMark.label}</span>
-          <span className="tabular-nums">{ownerMark.count}</span>
-        </Badge>
-      )}
-      {node.commit !== undefined && <CommitRowBadges facts={factsOf(node.commit)} />}
     </>
   )
 }

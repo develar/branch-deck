@@ -84,7 +84,7 @@ outside it.
   field (the search that the reveal of a hidden file clears) is no selection elsewhere while the name waits for its
   paint.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should reveal an overview file under a text search while retaining its owner chip`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 - That position is the one the parser of the file read, never a word found on the line: a declaration of the review is
   selected at the column its summary carries (`Declaration::name_column`, in UTF-16 units, written by every walk), one

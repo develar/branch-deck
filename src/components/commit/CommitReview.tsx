@@ -75,8 +75,8 @@ export interface FilesCount {
 }
 
 /**
- * The files of the chosen owner chip (spec/branch/branch-review.spec.md, "Code owners"): every file stays, the others are
- * muted, J/K and N/P move through these only; empty (the owner has no files here) mutes nothing and steers nothing
+ * The files of the chosen owner chip (spec/branch/branch-review.spec.md, "Code owners"): they filter the tree and diffs;
+ * empty (the owner has no files here) does not filter
  */
 export interface OwnerMarks {
   /** The name of the chip: "Design" */
@@ -110,8 +110,10 @@ export interface CommitReviewProps {
   initialLink?: ReviewLink | null
   /** The selected file, for the footer ("File 3 / 12") and for a review that starts again at it */
   onPositionChange: (position: ReviewPosition) => void
-  /** The files of the chosen owner chip: marked in the whole story, the keys move through them; none without */
+  /** The files of the chosen owner chip: the tree and diffs show only these; none without */
   ownerMarks?: OwnerMarks | null
+  /** Clears the chosen owner chip before revealing a file it hides */
+  onClearOwnerFilter?: () => void
   /** The code owner of a file by its path, in the header of its diff */
   fileOwners?: ReadonlyMap<string, string>
   /** What the range is, in the error: "Cannot read the changes of the pull request" */
@@ -162,7 +164,7 @@ export interface EmptyRange {
  * The tree follows the diffs as they scroll, a file selected in the tree scrolls the diffs to it. J and K step through
  * the files, N and P through the blocks of changed lines. From `FILE_FILTER_MIN_FILES` files on the sidebar has a
  * search of the files ("/"): the tree and the diffs show the files with every word in their path, also of the next
- * commit (⌥↑/⌥↓). An owner chip (`ownerMarks`) hides no file: it mutes the others and steers the keys.
+ * commit (⌥↑/⌥↓). An owner chip (`ownerMarks`) filters the tree and diffs to its files and steers the same keys.
  */
 export function CommitReview({
   subject,
@@ -170,6 +172,7 @@ export function CommitReview({
   initialLink = null,
   onPositionChange,
   ownerMarks = null,
+  onClearOwnerFilter,
   fileOwners,
   rangeNoun = "pull request",
   sidebarTop,
@@ -187,7 +190,13 @@ export function CommitReview({
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
   const [filterText, setFilterText] = useState("")
   const allFiles = commitFiles?.files
-  const shownFiles = useMemo(() => (allFiles === undefined ? undefined : filterFilesByText(allFiles, filterText)), [allFiles, filterText])
+  const ownerPaths = ownerMarks === null || ownerMarks.paths.size === 0 ? null : ownerMarks.paths
+  const ownerFiles = useMemo(
+    () =>
+      allFiles === undefined || ownerPaths === null ? allFiles : allFiles.filter(file => ownerPaths.has(file.path) || (file.oldPath !== null && ownerPaths.has(file.oldPath))),
+    [allFiles, ownerPaths],
+  )
+  const shownFiles = useMemo(() => (ownerFiles === undefined ? undefined : filterFilesByText(ownerFiles, filterText)), [ownerFiles, filterText])
   // the count of the last subject read: the search stays while the next one loads
   const [fileCount, setFileCount] = useState(0)
   if (allFiles !== undefined && allFiles.length !== fileCount) {
@@ -196,8 +205,7 @@ export function CommitReview({
   const isSearchShown = filterText !== "" || fileCount >= FILE_FILTER_MIN_FILES
 
   // a file a link of a mark selects while the search hides it: the search is cleared, then it is selected once, and the
-  // tree reports that (`onRevealApplied`); a subject or search other than those the click left forgets it before. An
-  // owner chip hides nothing
+  // tree reports that (`onRevealApplied`); a subject or search other than those the click left forgets it before
   const [reveal, setReveal] = useState<PendingReveal | null>(null)
   if (reveal !== null && (reveal.subjectId !== subjectId || reveal.filterText !== filterText)) {
     setReveal(null)
@@ -210,13 +218,17 @@ export function CommitReview({
       if (file === undefined) {
         return
       }
+      const hiddenByOwner = ownerPaths !== null && !ownerPaths.has(file.path) && (file.oldPath === null || !ownerPaths.has(file.oldPath))
+      if (hiddenByOwner) {
+        onClearOwnerFilter?.()
+      }
       const hiddenBySearch = filterFilesByText([file], filterText).length === 0
       if (hiddenBySearch) {
         setFilterText("")
       }
       setReveal({ subjectId, place: { ...place, path: file.path }, filterText: hiddenBySearch ? "" : filterText })
     },
-    [commitFiles, filterText, subjectId],
+    [commitFiles, filterText, subjectId, ownerPaths, onClearOwnerFilter],
   )
   const revealPlace = reveal !== null && shownFiles?.some(file => file.path === reveal.place.path) === true ? reveal.place : null
   const revealPath = revealPlace?.path ?? null
@@ -438,10 +450,11 @@ interface ReviewLayoutProps {
   onRevealApplied: () => void
 }
 
-/** The tree state of one loaded subject (`LoadedReview.key`) and one search text */
+/** The tree state of one loaded subject (`LoadedReview.key`) and its active filters */
 interface TreeSelection {
   key: string | null
   filterText: string
+  ownerFilterKey: string
   collapsed: ReadonlySet<string>
   selectedPath: string | null
   /** The row of the selected file when it is not its main row: the file "also in" another concern of a review */
@@ -456,15 +469,35 @@ interface TreeSelection {
   revealed: string | null
 }
 
-function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: readonly FileTreeNode[], fileCount: number, firstPath: string | null): TreeSelection {
+function initialSelection(
+  loaded: LoadedReview | null,
+  filterText: string,
+  ownerFilterKey: string,
+  nodes: readonly FileTreeNode[],
+  fileCount: number,
+  firstPath: string | null,
+): TreeSelection {
   if (loaded === null) {
-    return { key: null, filterText, collapsed: new Set(), selectedPath: null, selectedRow: null, grouped: false, initialPath: null, defaultPath: null, revealed: null }
+    return {
+      key: null,
+      filterText,
+      ownerFilterKey,
+      collapsed: new Set(),
+      selectedPath: null,
+      selectedRow: null,
+      grouped: false,
+      initialPath: null,
+      defaultPath: null,
+      revealed: null,
+    }
   }
-  // what a search found shows whole: its directories open
-  const initial = filterText.trim() === "" ? getInitiallyCollapsed(nodes, fileCount) : new Set<string>()
+  // what a filter found shows whole: its directories open
+  const narrowed = filterText.trim() !== "" || ownerFilterKey !== ""
+  const initial = narrowed ? new Set<string>() : getInitiallyCollapsed(nodes, fileCount)
   return {
     key: loaded.key,
     filterText,
+    ownerFilterKey,
     collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath, nodes),
     selectedPath: loaded.initialPath ?? firstPath,
     selectedRow: null,
@@ -476,16 +509,25 @@ function initialSelection(loaded: LoadedReview | null, filterText: string, nodes
 }
 
 /**
- * Another search text: the directories as a new tree has them, the selected file kept while the search keeps it; the
- * file a link revealed (`revealPath`) selected
+ * Another filter: the directories as a new tree has them, the selected file kept while the filter keeps it; the file a
+ * link revealed (`revealPath`) selected
  */
-function searchedSelection(previous: TreeSelection, filterText: string, nodes: readonly FileTreeNode[], files: readonly CommitFile[], revealPath: string | null): TreeSelection {
+function filteredSelection(
+  previous: TreeSelection,
+  filterText: string,
+  ownerFilterKey: string,
+  nodes: readonly FileTreeNode[],
+  files: readonly CommitFile[],
+  revealPath: string | null,
+): TreeSelection {
   const kept = revealPath ?? previous.selectedPath
   const selectedPath = files.some(file => file.path === kept) ? kept : (files[0]?.path ?? null)
-  const collapsed = filterText.trim() === "" ? getInitiallyCollapsed(nodes, files.length) : new Set<string>()
+  const narrowed = filterText.trim() !== "" || ownerFilterKey !== ""
+  const collapsed = narrowed ? new Set<string>() : getInitiallyCollapsed(nodes, files.length)
   return {
     ...previous,
     filterText,
+    ownerFilterKey,
     collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
     selectedPath,
     selectedRow: null,
@@ -515,6 +557,29 @@ function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[
     defaultPath: moved ? firstPath : previous.defaultPath,
     collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
   }
+}
+
+/** The concern of the selected tree row, or the main row of the selected path */
+function activeConcernGroup(nodes: readonly FileTreeNode[], selectedKey: string | null): string | null {
+  if (selectedKey === null) {
+    return null
+  }
+  const visit = (items: readonly FileTreeNode[], concernKey: string | null): string | null => {
+    for (const node of items) {
+      const currentConcern = node.kind === "directory" && node.group === "concern" ? node.key : concernKey
+      if (node.key === selectedKey || (node.kind === "file" && node.file.path === selectedKey)) {
+        return currentConcern
+      }
+      if (node.kind === "directory") {
+        const found = visit(node.children, currentConcern)
+        if (found !== null) {
+          return found
+        }
+      }
+    }
+    return null
+  }
+  return visit(nodes, null)
 }
 
 const NO_MECHANICAL: ReadonlyMap<string, MechanicalKind> = new Map()
@@ -663,25 +728,30 @@ function ReviewLayout({
     [reviewFacts, commitItems],
   )
   const filterText = search?.text ?? ""
-  // what a search found: the commits of the groups it keeps
+  // what a search or owner chip found: the commits of the groups it keeps
   const searched = filterText.trim() !== ""
+  const ownerPaths = ownerMarks === null || ownerMarks.paths.size === 0 ? null : ownerMarks.paths
+  const ownerFiltered = ownerPaths !== null
+  const ownerFilterKey = ownerPaths === null ? "" : [...ownerPaths].sort().join("\n")
+  const narrowed = searched || ownerFiltered
   const nodes = useMemo(() => {
     if (loadedFiles === undefined) {
       return []
     }
-    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters, commitPlaces, searched)
-  }, [loadedFiles, reviewFacts, mechanical, chapters, commitPlaces, searched])
+    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters, commitPlaces, narrowed)
+  }, [loadedFiles, reviewFacts, mechanical, chapters, commitPlaces, narrowed])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
-  const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
+  const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, ownerFilterKey, nodes, files.length, files[0]?.path ?? null))
   const loadedKey = loaded?.key ?? null
   if (selection.key !== loadedKey) {
-    setSelection(initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
-  } else if (selection.filterText !== filterText) {
-    setSelection(searchedSelection(selection, filterText, nodes, files, loaded?.revealPath ?? null))
+    setSelection(initialSelection(loaded, filterText, ownerFilterKey, nodes, files.length, files[0]?.path ?? null))
+  } else if (selection.filterText !== filterText || selection.ownerFilterKey !== ownerFilterKey) {
+    setSelection(filteredSelection(selection, filterText, ownerFilterKey, nodes, files, loaded?.revealPath ?? null))
   } else if (selection.grouped !== hasReviewGroups(nodes)) {
     setSelection(groupedSelection(selection, nodes, files[0]?.path ?? null))
   }
   const { collapsed, selectedPath, selectedRow } = selection
+  const activeGroupKey = useMemo(() => activeConcernGroup(nodes, selectedRow ?? selectedPath), [nodes, selectedRow, selectedPath])
   // the file of a link is selected once: a later key or search does not select it again
   const revealApplied = loaded !== null && loaded.revealPath !== null && selection.revealed === loaded.revealPath
   const code = useRef<CommitReviewCodeHandle>(null)
@@ -1012,20 +1082,22 @@ function ReviewLayout({
     return { files: presentFileBadges(reviewFacts), dependencies, onSelectPlace: selectChangedFile }
   }, [reviewFacts, nodes, selectChangedFile])
 
-  // the files of the chosen owner chip: the tree mutes the other rows and counts them on the steps, the diffs mute the
-  // headers of the others, the keys move through these only; an owner without files here marks nothing
-  const marked = ownerMarks === null || ownerMarks.paths.size === 0 ? null : ownerMarks.paths
+  // the files of the chosen owner chip: the tree counts them on the steps; an owner without files here marks nothing
   const treeMarks = useMemo<FileTreeMarks | null>(() => {
-    if (ownerMarks === null || marked === null) {
+    if (ownerMarks === null || ownerMarks.paths.size === 0) {
       return null
     }
-    const counts = new Map([...presentOwnerMarks(chapters, marked)].map(([chapter, count]) => [concernRowKey(chapter), count]))
-    return { label: ownerMarks.label, paths: marked, counts }
-  }, [ownerMarks, marked, chapters])
+    const counts = new Map([...presentOwnerMarks(chapters, ownerMarks.paths)].map(([chapter, count]) => [concernRowKey(chapter), count]))
+    return { label: ownerMarks.label, counts }
+  }, [ownerMarks, chapters])
 
   // the order J and K step through: with the plan the document, its overview, then the sections of the story, a step
   // at its opening, then at its card; else the files of the tree
   const hasPrologue = prologue !== undefined && prologue !== null
+  const visibleChapters = useMemo(
+    () => new Set(chapters.filter(chapter => !ownerFiltered || (ownerPaths !== null && chapter.paths.some(path => ownerPaths.has(path)))).map(chapter => chapter.id)),
+    [chapters, ownerFiltered, ownerPaths],
+  )
   const stepOrder = useMemo<readonly NextSection[]>(() => {
     if (reviewFacts === null || viewFiles === null) {
       return files.map(file => ({ key: file.path, path: file.path, part: "card" }))
@@ -1037,7 +1109,9 @@ function ReviewLayout({
       if (step != null) {
         // the openings of the steps of no card told before it, each a stop, then its own
         for (const it of [...(file.section?.before ?? []), step]) {
-          stops.push({ key, path: file.file.path, part: "opening", step: it.id })
+          if (visibleChapters.has(it.id)) {
+            stops.push({ key, path: file.file.path, part: "opening", step: it.id })
+          }
         }
       }
       stops.push({ key, path: file.file.path, part: "card" })
@@ -1046,13 +1120,14 @@ function ReviewLayout({
     const last = viewFiles.at(-1)
     if (last !== undefined) {
       for (const step of withoutCard.after) {
-        stops.push({ key: last.section?.key ?? last.file.path, path: last.file.path, part: "opening", step: step.id })
+        if (visibleChapters.has(step.id)) {
+          stops.push({ key: last.section?.key ?? last.file.path, path: last.file.path, part: "opening", step: step.id })
+        }
       }
     }
     return stops
-  }, [reviewFacts, viewFiles, files, hasPrologue, withoutCard])
-  // what J (1) and K (-1) show after the stop at the top (none: from before the first), under an owner chip the next
-  // card of its files; undefined when none is left
+  }, [reviewFacts, viewFiles, files, hasPrologue, withoutCard, visibleChapters])
+  // what J (1) and K (-1) show after the stop at the top (none: from before the first), only steps and cards of shown files
   const stepSection = useCallback(
     (from: { key: string; part: LayoutPart; step?: string } | null, direction: 1 | -1): NextSection | undefined => {
       const at =
@@ -1065,13 +1140,11 @@ function ReviewLayout({
             )
       for (let index = at + direction; index >= 0 && index < stepOrder.length; index += direction) {
         const stop = stepOrder[index]!
-        if (marked === null || (stop.part === "card" && marked.has(stop.path))) {
-          return stop
-        }
+        return stop
       }
       return undefined
     },
-    [stepOrder, marked],
+    [stepOrder],
   )
   // the line at the end of a card names the section J shows after it
   const nextSection = useCallback((key: string) => stepSection({ key, part: "card" }, 1), [stepSection])
@@ -1088,14 +1161,9 @@ function ReviewLayout({
     },
     [showVisibleSection],
   )
-  const accept = marked === null ? undefined : (path: string) => marked.has(path)
-
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
-  // the part of the chosen owner chip in the footer: the place of the file among its files in the order of the tree
-  const ownerFiles = useMemo(() => (marked === null ? null : files.filter(file => marked.has(file.path))), [marked, files])
-  const ownerLabel = ownerFiles === null ? null : (ownerMarks?.label ?? null)
-  const ownerIndex = ownerFiles === null ? -1 : ownerFiles.findIndex(file => file.path === selectedPath)
-  const ownerCount = ownerFiles?.length ?? 0
+  // the chosen owner chip is named in the footer; the file count is already there
+  const ownerLabel = treeMarks === null ? null : (ownerMarks?.label ?? null)
   // the overview of the plan at the top is no file; else the step of the story at the top, then its file. The message
   // of a commit shown without the plan heads its files as before: the first file is the one shown
   const [planned, setPlanned] = useState(false)
@@ -1107,17 +1175,16 @@ function ReviewLayout({
   const stepAtTop = topStep !== null && topStep.chapter.told ? topStep.chapter.number : undefined
   useEffect(() => {
     if (loadedKey !== null) {
-      const owner = ownerLabel === null ? undefined : { label: ownerLabel, index: ownerIndex, count: ownerCount }
       onPositionChange({
         path: selectedPath,
         index: selectedIndex,
         count: files.length,
-        ...(owner !== undefined && { owner }),
+        ...(ownerLabel !== null && { owner: ownerLabel }),
         ...(overviewAtTop && { overview: true }),
         ...(stepAtTop !== undefined && { step: stepAtTop }),
       })
     }
-  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, ownerIndex, ownerCount, overviewAtTop, stepAtTop])
+  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, overviewAtTop, stepAtTop])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) {
@@ -1156,7 +1223,7 @@ function ReviewLayout({
         break
       case "KeyN":
       case "KeyP": {
-        const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1, accept)
+        const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
         if (path !== undefined) {
           select(path, null)
           // a change shown on purpose: the reader is at its file, also while the overview still shows above it
@@ -1217,6 +1284,7 @@ function ReviewLayout({
                     onToggleDirectory={toggleDirectory}
                     // the overview at the top selects no row: no file is shown
                     selectedKey={overviewAtTop ? null : (selectedRow ?? selectedPath)}
+                    activeGroupKey={overviewAtTop ? null : activeGroupKey}
                     onSelectFile={selectInTree}
                     fileOwners={fileOwners}
                     badges={badges}
@@ -1263,7 +1331,6 @@ function ReviewLayout({
                         onVisibleSectionChange={showVisibleSection}
                         onFirstScreen={showWindow}
                         fileOwners={fileOwners}
-                        marked={marked}
                         onShowStep={showStep}
                         prologue={prologue}
                         openings={openings}

@@ -42,7 +42,7 @@ export function FilePathLabel({ path, oldPath = null, status, directory = true, 
       <span className={cn("flex h-[1lh] min-w-0 flex-wrap items-baseline gap-x-1.5 overflow-hidden", className)}>
         <span className="flex max-w-full min-w-0 items-baseline gap-1.5">
           {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
-          <span className={cn("min-w-0 truncate", statusClass)}>{label.name}</span>
+          {emphasis ? <span className={cn("min-w-0 truncate", statusClass)}>{label.name}</span> : <MidTruncatedName name={label.name} className={statusClass} />}
           {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
         </span>
         <span className="shrink-0 text-muted-foreground" data-testid="file-label-directory">
@@ -54,22 +54,43 @@ export function FilePathLabel({ path, oldPath = null, status, directory = true, 
   return (
     <span className={cn("flex min-w-0 items-baseline gap-1.5", className)}>
       {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
-      <span
-        className={cn(
-          "min-w-0 truncate",
-          statusClass,
-          // the width of the label less the letter and its gap: a name longer than that truncates as the last resort
-          emphasis && ["shrink-0 font-semibold", status === undefined ? "max-w-full" : letterSlot === "icon" ? "max-w-[calc(100%-1.375rem)]" : "max-w-[calc(100%-1.125rem)]"],
-        )}
-      >
-        {label.name}
-      </span>
+      {emphasis ? (
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            statusClass,
+            // the width of the label less the letter and its gap: a name longer than that truncates as the last resort
+            "shrink-0 font-semibold",
+            status === undefined ? "max-w-full" : letterSlot === "icon" ? "max-w-[calc(100%-1.375rem)]" : "max-w-[calc(100%-1.125rem)]",
+          )}
+        >
+          {label.name}
+        </span>
+      ) : (
+        <MidTruncatedName name={label.name} className={statusClass} />
+      )}
       {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
       {parent !== "" && (
         <span className="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">
           <bdi dir="ltr">{emphasis ? <EmphasizedDirectory directory={parent} /> : parent}</bdi>
         </span>
       )}
+    </span>
+  )
+}
+
+/** A filename cut in the middle when needed: the start truncates, the extension and its suffix never do */
+function MidTruncatedName({ name, className }: { name: string; className?: string }) {
+  const dot = name.lastIndexOf(".")
+  const suffixStart = dot > 0 ? Math.max(0, dot - 6) : Math.max(0, name.length - 6)
+  return (
+    <span className={cn("flex min-w-0 flex-1 items-baseline", className)} data-testid="file-path-label-name">
+      <span className="min-w-0 truncate" data-testid="file-path-label-name-start">
+        {name.slice(0, suffixStart)}
+      </span>
+      <span className="shrink-0" data-testid="file-path-label-name-suffix">
+        {name.slice(suffixStart)}
+      </span>
     </span>
   )
 }

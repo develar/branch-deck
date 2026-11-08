@@ -724,9 +724,10 @@ group at the end. The overview at the top of the document of the review, before 
   commits, by its old path too), the first use of a link between modules in the file that uses, a declaration of the
   new API; a file of What Changes at its header. A search that
   hides the file is cleared as for a link of a mark, also when it hides every file, and the place is shown once the
-  file is; an owner chip hides no file and stays ([Branch Review](branch-review.spec.md#code-owners)).
+  file is; an owner chip filters the files, and a link to a file it hides clears the chip before selecting that file
+  ([Branch Review](branch-review.spec.md#code-owners)). A chip that already keeps the linked file stays selected.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should reveal an overview file under a text search while retaining its owner chip`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
 - The tree must list the concerns of the plan, in All Changes and in "Since Your Review" as one range, and the story
   of the diffs follow them ([Review Concerns](review-concerns.spec.md#in-the-review-window)); with no concern but the
@@ -758,11 +759,10 @@ group at the end. The overview at the top of the document of the review, before 
   state Added, Removed or Kept. A click on a link must select that file, close the card and show the file: a file
   that uses this one at its first use, the name selected, a file it uses at its header.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`)
-- A click on a file in a card must select it also when the search hides it: the search is then cleared, a search
-  that shows the file stays. An owner chip hides no file: the click selects a file of another owner, muted, and the
-  chip stays. The click selects the file once: a later change of the owner chip or the search must not select it
-  again.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file under an owner chip, which hides none, and clear only a search that hides it`)
+- A click on a file in a card must select it also when a filter hides it: a text search is cleared only when it hides the
+  file, and an owner chip is cleared only when the file belongs to another owner. A filter that keeps the file stays.
+  The click selects the file once: a later change of the owner chip or the search must not select it again.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should reveal a linked file from another owner by clearing its chip and clear a search that hides the target`, `should reveal an overview file under a text search while retaining its owner chip`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
 - The card of a file must say under Breaks `breaks N` in the warning tone and why, for the uses left outside the
   change of the API it removes or changes. When `breaks_complete` is false it must say `breaks N+` ("At least 3 uses

@@ -227,18 +227,18 @@ export function alsoRowKey(concern: string, path: string): string {
  * follow this order, so the mechanical files come last. With `commits` (a range of several commits shown whole), the
  * group of a step of the commits is the commit that starts it (`FileTreeDirectory.commit`); each group lists its other
  * commits first, then its files, a step that lands nothing its commits alone; the commits no group lists (of no step,
- * of what no evidence joined) close the tree in Other commits. While a search narrows `files` (`searched`), the tree is
- * what it found: only a group with a file it kept is its commit and lists its commits, and no Other commits
+ * of what no evidence joined) close the tree in Other commits. When a search or owner chip narrows `files` (`narrowed`),
+ * the tree is what it found: only a group with a file it kept is its commit and lists its commits, and no Other commits
  */
 export function buildReviewTree(
   files: readonly CommitFile[],
   mechanical: ReadonlyMap<string, MechanicalKind>,
   chapters: readonly Chapter[],
   commits?: CommitPlaces<ReviewCommitItem>,
-  searched = false,
+  narrowed = false,
 ): FileTreeNode[] {
   const tasks = chapters.filter(chapter => chapter.told)
-  const otherCommits = searched ? undefined : commits
+  const otherCommits = narrowed ? undefined : commits
   if (tasks.length === 0) {
     return withOtherCommits(withMechanicalGroup(buildFileTree(files.filter(file => !mechanical.has(file.path))), files, mechanical), otherCommits, new Set(), COMMITS)
   }
@@ -320,7 +320,7 @@ export function buildReviewTree(
       }
     }
     children.push(...kindGroups(folded, mechanical, key, 1))
-    const listed = !searched || children.length > 0
+    const listed = !narrowed || children.length > 0
     const head = listed ? commits?.heads.get(chapter.id) : undefined
     const commitRows = listed ? commitNodes(commits?.steps.get(chapter.id) ?? [], key, chapter.id) : []
     if (children.length > 0 || commitRows.length > 0 || head !== undefined) {

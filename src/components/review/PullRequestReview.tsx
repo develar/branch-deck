@@ -483,6 +483,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           initialLink={link}
           onPositionChange={showPosition}
           ownerMarks={reviewOwnerMarks(ownerFilter, owners)}
+          onClearOwnerFilter={() => setOwnerFilter({ kind: "all" })}
           fileOwners={fileOwners}
           rangeNoun="pull request"
           filesHeader={count => <ReviewOwnerChips of={owners} filter={ownerFilter} onFilterChange={setOwnerFilter} count={count} />}

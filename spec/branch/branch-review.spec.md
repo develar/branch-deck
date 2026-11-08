@@ -140,7 +140,8 @@ session, a form of a row by the main window at that row; the footer holds the ke
   review login" and the reason, an `info` toast: the dialog holds what the user typed. It reads the repository it was
   opened for, not the one selected later in the main window (`getDiffRepositoryPath`).
 - A move to a commit of the chain on screen (`move` of the window data) keeps the part when it has the commit, else it
-  is the commit's segment; the owner chip stays, it hides no file; the file of `path` shows. A move waits while the
+  is the commit's segment; the owner chip stays and applies to the new range. The file of `path` shows when it is in
+  the shown set; otherwise selection follows the first file the chip keeps. A move waits while the
   "Create pull request" dialog of the window is open, and the dialog keeps what was typed.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes`)
   [@test] ../../src/lib/branch-review.test.ts (`keeps the part that has the commit, else shows the commit's segment`, `shows all changes of the commit's branch when the segments don't have the commit`)
@@ -341,36 +342,32 @@ session, a form of a row by the main window at that row; the footer holds the ke
   files in the part, all of them for a branch-wide group, disabled when nobody tells which files), the other owners
   most files first, and "No Owner". A file of a group matches by its path or by the old path of a rename.
   [@test] ../../src/lib/review-owners.test.ts (`lists all files, the groups the check asks for, then the other owners and the files without one`, `marks the files of a group (a rename by its old path), of an owner, or without an owner`)
-- A chosen chip must filter nothing: a filter cuts the story, so an owner would approve a part read without the
-  declarations it uses and the uses it changes. The tree, the diffs and the story keep every file, the selection and
-  the collapsed directories. The rows of the tree and the headers of the diffs of the other files are muted, a
-  directory or a group of the tree without a file of the chip too; the chosen owner's keep their full weight. With
-  the review plan, a step that shows files of the chip says how many on its row, a muted chip "Design 2" (its
-  description "2 files of Design"), and a step without one is muted. J and K (the sections of the story, or the files
-  without the plan) and N and P (the blocks) move through the chip's files only; when none is left in that direction,
-  nothing moves. The line at the end of a long card names the next file of the chip, the one J shows
-  ([Commit Review](../commit/commit-review.spec.md#requirements)). A link of a mark or of the card selects a file of
-  another owner as any file, and the chip stays.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`, `should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
-  [@test] ../../src/presenters/review-steps.test.ts (`counts the files of the chosen owner each step shows, 0 for a step without one`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file under an owner chip, which hides none, and clear only a search that hides it`)
+- A chosen chip filters the files by their current or old path: a `ReviewFilter` holds the tree, the diffs, the file
+  count and J/K/N/P to the same shown files. The text search intersects that set; the selection and collapsed
+  directories follow the same rules as search. Empty steps and groups disappear. A partial step says "4 of 7" on its
+  row, with the accessible description "4 of 7 files, Go Engineering"; the files header says "Files 4 of 22" and offers
+  "Show All Files". A chip whose paths are empty does not narrow the range: its note says "No files of Design in this
+  range" and the files remain visible. A link from a mark or the overview to a file hidden by the chip clears the chip
+  and shows the file; it also clears the text search only when that hides the target. A long card names the next file in
+  the shown set, the one J shows ([Commit Review](../commit/commit-review.spec.md#requirements)).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should filter tree, diffs and navigation to the files of an owner chip`, `should navigate the long card to the next visible file of the chosen owner chip`, `should keep the chip of an owner with no files in the range and show no chips when one owner has them all`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should show only the steps and files of an owner chip, and navigate within its story`)
+  [@test] ../../src/presenters/review-steps.test.ts (`counts the files of the chosen owner and all files each step shows`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should reveal a linked file from another owner by clearing its chip and clear a search that hides the target`, `should reveal an overview file under a text search while retaining its owner chip`)
 - While a chip is chosen, the chips must show, its own too when the shown changes have none of its files ("Design
-  0"), so it can be turned off; it then mutes nothing, the keys move as without it, and the header of the files says
-  "No files of Design in this range" ("Every file in this range has an owner" for No Owner). With All chosen there
+  0"), so it can be turned off; an empty path set does not filter, the keys move as without it, and the header of the
+  files says "No files of Design in this range" ("Every file in this range has an owner" for No Owner). With All chosen there
   are no chips when one owner (or none) has every file and no group asks for an approval: the header of the files
   says "1 file · Auth Team".
   [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chosen chip when the files have none of its own, so it can be turned off`, `names the chosen owner, and says when it has no files in the part`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all`)
-- While a chip that marks files of the shown changes is chosen, the footer must add the part of its owner after the
-  file: "All Changes · File 3 / 12 · Design 2 / 5" when the file shown is the second of Design's five in the order of
-  the tree, "… · Design 5" when it is another owner's. A branch-wide group's part is every file ("Design 3 / 12"),
-  as its chip counts them, and it mutes nothing. A chip at 0 and a group whose files nobody tells add nothing, nor does
-  All; the search of the files counts among the files it keeps.
-  [@test] ../../src/lib/review-position.test.ts (`counts the part of the chosen owner chip after the file: its place on a file of its own, its files on another`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner with no files in the range and show no chips when one owner has them all`)
+- While a chip is chosen, the footer names its owner after the position of the shown file, without repeating the
+  owner's count: "All Changes · File 3 / 12 · Design". A chip at 0, a group whose files nobody tells and All add no
+  owner name. The file count is the same filtered set the tree and diffs show.
+  [@test] ../../src/lib/review-position.test.ts (`names the chosen owner chip without duplicating the file count`)
   [@test] ../../src/lib/review-owners.test.ts (`never opens on a group whose files Patronus doesn't tell, and opens on a branch-wide one`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count every file as the part of a branch-wide group, in the footer and in Approve`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`, `should review a stacked branch on its parent, then the whole stack, by owner`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep every file visible for a branch-wide group and count it in Approve`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should filter tree, diffs and navigation to the files of an owner chip`, `should review a stacked branch on its parent, then the whole stack, by owner`)
 - The chips, their marks and their keys must be the same in the review window of a pull request
   ([Review Requests](../repository/review-requests.spec.md#owner-chips)): one header of the files and one reading of
   the owners for both windows.
@@ -417,11 +414,15 @@ session, a form of a row by the main window at that row; the footer holds the ke
 - A segment is an outline `xs` button, the selected ones `border-primary/50 bg-primary/10 text-primary`. A chip is a
   `FilterChip` of `FilterChips`, as the state chips of the branch filter: the stock `ToggleGroup`, the chosen one in
   its pressed state (`aria-pressed`), the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,
-  is the search of the files ([Commit Review](../commit/commit-review.spec.md#the-search-of-the-files)); it keeps the
-  files whose path has its words, the chip marks among them. A muted row or header fades its parts (`*:opacity-60`,
-  `data-muted`), so the selection and the background of a sticky header keep their colour; the count of a step is a
-  `secondary` `Badge` in `text-muted-foreground` after its name (`review-owner-mark`); the note of a chip at 0 is a
-  line of the header (`branch-review-owner-empty`). "From Root" and "Whole Stack" are a `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the shown scope
+  is the search of the files ([Commit Review](../commit/commit-review.spec.md#the-search-of-the-files)); it intersects
+  the chip's files. The header shows "Files 4 of 22" while a chip narrows the range, and "Show All Files" returns to All.
+  The row of a step uses two lines: its number, title and icon first, its owner count, New/Rewritten, branch and
+  `+662 −58` below; ordinary titles wrap at words, only a code title breaks inside a word. The step row sticks to the
+  top of the tree's scroll area on an opaque `bg-canvas`. The active step's whole group has a soft tint and an accent
+  line at its indent. Its owner badge is a `secondary` `Badge` in `text-muted-foreground` (`review-owner-mark`), with
+  "4 of 7" visible and "4 of 7 files, Go Engineering" in its `aria-description`; the note of a chip at 0 is a line of
+  the header (`branch-review-owner-empty`). A long tree filename truncates in the middle, keeping its extension visible;
+  hover and Copy Path keep the full path. "From Root" and "Whole Stack" are a `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the shown scope
   pressed (`aria-pressed`). A Whole Stack that can't open is announced as unavailable (`aria-disabled`), dimmed
   (`opacity-50`) and takes no press, its reason in its tooltip, whose trigger is the item itself, so the group keeps
   its joined edges.

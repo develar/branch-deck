@@ -133,6 +133,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       initialPath={model.lastPath}
       onPositionChange={model.showPosition}
       ownerMarks={reviewOwnerMarks(model.filter, owners)}
+      onClearOwnerFilter={() => model.setFilter({ kind: "all" })}
       fileOwners={loaded.owners}
       rangeNoun="branch"
       filesHeader={count => <ReviewOwnerChips of={owners} filter={model.filter} onFilterChange={model.setFilter} count={count} />}

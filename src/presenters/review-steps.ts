@@ -137,10 +137,10 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
 
 /**
  * The marks of an owner chip on the steps (spec/branch/branch-review.spec.md, "Code owners"): for each chapter by its
- * id, how many of the files it shows (its own rows and those "also in" it) the chip marks; 0 mutes the step
+ * id, the files it shows (its own rows and those "also in" it) and the ones the chip marks
  */
-export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlySet<string>): Map<string, number> {
-  return new Map(chapters.map(chapter => [chapter.id, new Set(chapter.paths.filter(path => paths.has(path))).size]))
+export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlySet<string>): Map<string, { shown: number; total: number }> {
+  return new Map(chapters.map(chapter => [chapter.id, { shown: new Set(chapter.paths.filter(path => paths.has(path))).size, total: new Set(chapter.paths).size }]))
 }
 
 /** A commit of the range as a row of the tree: in the step it tells or follows up, else in Other commits */

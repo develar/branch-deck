@@ -1041,23 +1041,24 @@ test.describe("Owner chips", () => {
     await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
     await ownerChip(window, "Auth Team").hover()
     await expect(window.getByRole("tooltip", { name: "Approved" })).toBeVisible()
-    // nothing remembered: the window opens on Design, its file marked, the others muted
+    // nothing remembered: the window opens on Design and shows only its file
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "ui/login.css")).not.toHaveAttribute("data-muted")
-    await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "ui/login.css")).toBeVisible()
+    await expect(diffHeader(window, "README.md")).toHaveCount(0)
 
     // a chip the user chooses is remembered for the repository: the next request opens on it
     await ownerChip(window, "UI Team").click()
-    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "ui/login.css")).toHaveCount(0)
     await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "UI Team" } }])
     await showOtherRequest(window, review, "ArrowDown", "Style the login form")
     await expect(ownerChip(window, "UI Team")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "ui/login.js")).not.toHaveAttribute("data-muted")
+    await expect(diffHeader(window, "ui/login.js")).toBeVisible()
+    await expect(diffHeader(window, "ui/login.css")).toHaveCount(0)
     await expect(ownerChip(window, "Design")).toHaveAttribute("data-yours", "")
 
     // All forgets it: the first request opens on the user's group again
     await ownerChip(window, "All").click()
-    await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
+    await expect(diffHeader(window, "README.md")).toBeVisible()
     await expect.poll(async () => ((await testStore.get("recentProjects")) as { reviewOwnerChip?: unknown }[])[0]?.reviewOwnerChip).toBeUndefined()
     await showOtherRequest(window, review, "ArrowUp", "Add the login form")
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
@@ -1073,7 +1074,8 @@ test.describe("Owner chips", () => {
     await repo.holdRemoteAnswers({ release: ["readiness"] })
     await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
     await expect(ownerChip(window, "Monorepo")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "ui/login.css")).toHaveCount(0)
+    await expect(diffHeader(window, "README.md")).toBeVisible()
   })
 
   test("should make the owner chip chosen or remembered before the groups came the group of its name once they come, one chip the user can choose", async ({
@@ -1092,8 +1094,8 @@ test.describe("Owner chips", () => {
       await expect(design).toHaveAttribute("data-yours", "")
       await expect(design).toHaveAttribute("aria-pressed", "true")
       await expect(window.locator("[data-testid=branch-review-owner][aria-pressed=true]")).toHaveCount(1)
-      await expect(diffHeader(window, "ui/login.css")).not.toHaveAttribute("data-muted")
-      await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+      await expect(diffHeader(window, "ui/login.css")).toBeVisible()
+      await expect(diffHeader(window, "README.md")).toHaveCount(0)
     }
 
     // the user chooses the owner Design of the OWNERSHIP files before Patronus answers
@@ -1117,7 +1119,7 @@ test.describe("Owner chips", () => {
     await expectOneDesignGroup()
     // another chip, then the group again: the user reaches it
     await ownerChip(window, "UI Team").click()
-    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "ui/login.css")).toHaveCount(0)
     await design.click()
     await expectOneDesignGroup()
   })
@@ -1128,10 +1130,10 @@ test.describe("Owner chips", () => {
     await expect.poll(() => ownerChips(window)).toEqual(OWNERSHIP_CHIPS)
     await expect(ownerChip(window, "All")).toHaveAttribute("aria-pressed", "true")
     expect((await repo.getReviewChecks()).checks).toEqual([])
-    // an owner chip marks as in the review of a branch
+    // an owner chip filters as in the review of a branch
     await ownerChip(window, "Design").click()
-    await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
-    await expect(diffHeader(window, "ui/login.css")).not.toHaveAttribute("data-muted")
+    await expect(diffHeader(window, "README.md")).toHaveCount(0)
+    await expect(diffHeader(window, "ui/login.css")).toBeVisible()
   })
 
   test("should move from All to the user's group when the groups of the request come later, unless the user chose All", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1141,7 +1143,8 @@ test.describe("Owner chips", () => {
     // Patronus answers: nothing chosen yet, the window moves to the user's group
     await repo.holdRemoteAnswers({ release: ["readiness"] })
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "README.md")).toHaveCount(0)
+    await expect(diffHeader(window, "ui/login.css")).toBeVisible()
 
     // the next request, its answer held: All the user chooses stays when the groups come
     await repo.holdRemoteAnswers({ hold: ["readiness"] })
@@ -1151,7 +1154,7 @@ test.describe("Owner chips", () => {
     await repo.holdRemoteAnswers({ release: ["readiness"] })
     await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
     await expect(ownerChip(window, "All")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
+    await expect(diffHeader(window, "README.md")).toBeVisible()
   })
 
   test("should open again on the remembered chip when the main window opens the same request again, a chip chosen in the review of a branch in between", async ({
@@ -1178,8 +1181,8 @@ test.describe("Owner chips", () => {
     await reopenLinkedSubWindow(window, await openedReview<PullRequestReviewWindowData>(page, 3))
     await showChanges(window, review)
     await expect(ownerChip(window, "UI Team")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "ui/login.js")).not.toHaveAttribute("data-muted")
-    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "ui/login.js")).toBeVisible()
+    await expect(diffHeader(window, "ui/login.css")).toHaveCount(0)
   })
 
   test("should count the chips by the files of the scope shown, Since Your Review too, and keep the chip on a new head of the request", async ({
@@ -1260,7 +1263,7 @@ async function approveDescription(window: Page, review: ReturnType<Page["getByTe
 
 test.describe("Owner part and Approve", () => {
   test(
-    "should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened",
+    "should show owner-filtered file positions and say in Approve what it counts for and what the user opened",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
@@ -1269,13 +1272,13 @@ test.describe("Owner part and Approve", () => {
       await expect.poll(() => ownerChips(window)).toEqual(["All4", "Design· You2", "Auth Team1", "Monorepo1", "UI Team1"])
       await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
 
-      // the first file of the tree is Auth Team's: the footer counts Design's files, Approve names the group, none opened
-      await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
-      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 2 files")
+      // the chip filters the files to Design: the first visible file has already been opened
+      await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 2 · Design")
+      expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 2 files")
 
-      // J moves through Design's files: the footer counts the place among them, Approve what the window showed
-      await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 1 / 2")
-      await pressFileKey(window, "j", "All Changes · File 3 / 4 · Design 2 / 2")
+      // J moves through Design's filtered files; Approve counts what the window showed
+      await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
+      await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
       expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
       // All: no owner part
       await ownerChip(window, "All").click()
@@ -1326,9 +1329,9 @@ test.describe("Owner part and Approve", () => {
     })
     const { window, review } = await openOwnedChanges(page)
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
-    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
-    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 1 / 2")
-    await pressFileKey(window, "j", "All Changes · File 3 / 4 · Design 2 / 2")
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 2 · Design")
+    await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
+    await pressFileKey(window, "j", "All Changes · File 2 / 2 · Design")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
 
     // a new head with a third file of Design: of what the window showed, only the file on screen counts for it
@@ -1337,9 +1340,9 @@ test.describe("Owner part and Approve", () => {
     })
     await commitNewHead(page, repo, syncAndWaitForBranches)
     await expect.poll(() => ownerChips(window)).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
-    await expect(reviewPosition(window)).toHaveText("All Changes · File 4 / 5 · Design 3 / 3")
+    await expect(reviewPosition(window)).toHaveText(/All Changes · File \d+ \/ 3 · Design$/)
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 3 files")
-    await pressFileKey(window, "k", "All Changes · File 3 / 5 · Design 2 / 3")
+    await pressFileKey(window, "k", "All Changes · File 2 / 3 · Design")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
 
     // #8: the user is in no group that still needs an approval
@@ -1355,17 +1358,17 @@ test.describe("Owner part and Approve", () => {
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
   })
 
-  test("should count every file as the part of a branch-wide group, in the footer and in Approve", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep every file visible for a branch-wide group and count it in Approve", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
     const wide = evaluatedGroup("Design", false, [codeOwner("Test User", "user-name", { suggested: true, approvalState: "reviewing" })], { paths: [], branchWide: true })
     await repo.setReviewAnswers({ answers: { "request:7": { ...LOGIN_GROUPS, groups: [LOGIN_GROUPS.groups[0]!, wide] } } })
     const { window, review } = await openOwnedChanges(page)
-    // the window opens on the user's branch-wide group: every file is its, none is muted
+    // the window opens on the user's branch-wide group: every file is in its filtered set
     await expect.poll(() => ownerChips(window)).toEqual(["All4", "Design· You4", "Auth Team1", "Monorepo1", "UI Team1"])
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
-    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 1 / 4")
-    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 2 / 4")
+    await expect(diffHeader(window, "README.md")).toBeVisible()
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design")
+    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 4 files")
   })
 

@@ -3,11 +3,8 @@ export interface ReviewPosition {
   path: string | null
   index: number
   count: number
-  /**
-   * The part of the chosen owner chip that marks files: its name, the place of the file among the owner's files in the
-   * order of the tree (-1 for a file of another owner) and their number; none without such a chip
-   */
-  owner?: { label: string; index: number; count: number }
+  /** The name of the chosen owner chip, without a second file count */
+  owner?: string
   /** The overview of the plan is at the top: no file is, the footer says "Overview" */
   overview?: boolean
   /** The number of the step of the story at the top, from 1: "Step 2 · File 3 / 9" */
@@ -25,8 +22,8 @@ export function shownPath(position: ReviewPosition): string | null {
 /**
  * The footer of a review: "File 3 / 12", after the commit ("Commit 2 / 5 · File 3 / 12") or the scope of a range
  * ("All Changes · File 3 / 12") when there is one, after the step of the story at the top ("Step 2 · File 3 / 12"),
- * then the part of the chosen owner chip: "Design 2 / 5" on a file of its own, "Design 5" on another; "Overview" in
- * place of the file while the overview is at the top; empty until the review reports its first file
+ * then the name of the chosen owner chip; "Overview" in place of the file while the overview is at the top; empty until
+ * the review reports its first file
  */
 export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosition | null; commit?: { index: number; count: number }; scope?: string }): string {
   const parts: string[] = []
@@ -42,9 +39,8 @@ export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosi
       parts.push(`Step ${file.step}`)
     }
     parts.push(`File ${file.index + 1} / ${file.count}`)
-    const owner = file.owner
-    if (owner !== undefined && owner.count > 0) {
-      parts.push(owner.index < 0 ? `${owner.label} ${owner.count}` : `${owner.label} ${owner.index + 1} / ${owner.count}`)
+    if (file.owner !== undefined) {
+      parts.push(file.owner)
     }
   }
   return parts.join(" · ")

@@ -467,8 +467,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   several branches, which the column heads by branch); the row of a step and a commit row their subject whole and
   their hash in their card (a commit without a body in the native hover of its title), never a box on the row that
   takes the width of the title; a title of a step, a task or a commit wraps as many lines as needed at the width of the
-  sidebar (24rem at first), its chevron, icon, mark and line counts on its first line; a file row stays one line. A
-  commit-derived step dims its conventional prefix, as the commit row does. A row of a file whose own row is in another
+  sidebar (24rem at first), its chevron, icon and title on the first line; its owner count, mark, New/Rewritten, branch
+  and line counts follow below. The title wraps at words; only a code name breaks within a word. The row sticks to the
+  top of the tree's scroll area on an opaque background; a file row stays one line. A commit-derived step dims its
+  conventional prefix, as the commit row does. A row of a file whose own row is in another
   step says
   where after its name ("in step 2", a task of no number by its name, cut at half the row), its hover in words; either, of a
   commit with a body, the mark of its card, which its hover and `I` on the focused row open as in the main window
@@ -483,10 +485,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`, `should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes`)
   [@test] ../../src/presenters/review-steps.test.ts (`places each commit of the range in the step it tells or follows up, the one that starts a step of the commits as its step, a commit of the concerns once, the rest in Other commits`)
-  [@test] ../../src/lib/file-tree.test.ts (`lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them`, `keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step`, `makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key, in the case its author wrote it`, `keeps the group of a step that lands nothing as its commit, lists a step under a search only with a file it found, and its commit in Commits without a step`)
+  [@test] ../../src/lib/file-tree.test.ts (`lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them`, `keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step`, `makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key, in the case its author wrote it`, `keeps the group of a step that lands nothing until narrowed, then lists only steps with shown files`)
   [@test] ../../src/lib/range-review.test.ts (`lists in the story of Since Your Review only the commits after the review, in All Changes every commit, the reviewed one marked`, `lists all changes, then the commits of the reviewed branch first, each branch headed by its name`)
-- While the search of the files has text, the tree is what it found: only a group with a file it kept lists its
-  commits, and no "Other commits". While the tree lists no commit (the search kept none of their groups or no file,
+- While a search or owner chip narrows the files, the tree is what it found: only a group with a file it kept lists its
+  commits, and no "Other commits". While the tree lists no commit (the filter kept none of their groups or no file,
   the range has no changed file, the plan is still read) the column must list every commit again, so a commit can
   still be chosen.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
@@ -534,9 +536,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 - J and K must walk the document: from the overview J shows the opening of the first step, from an opening its card,
   from a card the next card or the opening of the next step; K the same way back, from the opening of the first step
   to the overview. While an opening is at the top the tree selects the row of its step, while a card is its file's;
-  the overview keeps the selection. Under an owner chip J and K step through the cards of its files only. A row of a
-  file of the tree shows its card, the opening of its step above the view.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
+  the overview keeps the selection. An owner chip filters the tree and diffs to its files; J and K step only through
+  cards and openings of steps with shown files. A row of a file of the tree shows its card, the opening of its step
+  above the view.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should show only the steps and files of an owner chip, and navigate within its story`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 
 ### Anchors

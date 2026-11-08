@@ -471,9 +471,9 @@ Safe Push it allows.
   in the header of the files: All; the reviewer groups of the pull request, the user's first, with "· You" (a member
   whose approval can count) and a `success` check once the group has its approvals ("Approved" on hover; the warning
   shield and "Needs approval for a Safe Push" before); the owners by the `OWNERSHIP` files of the baseline (of the
-  base of the pull request until the main window names its baseline), most files first; No Owner. A chosen chip marks
-  as there: nothing is hidden, the other owners' rows, diffs and steps are muted, a step says "Design 2", J/K and N/P
-  move through its files, and a chip at 0 says so. All Changes, Since Your Review and a commit keep the chip; its
+  base of the pull request until the main window names its baseline), most files first; No Owner. A chosen chip filters
+  the tree and diffs to its paths, and J/K/N/P move through that same set; a partial step shows its files out of the
+  step total. A chip at 0 does not filter and says so. All Changes, Since Your Review and a commit keep the chip; its
   counts are of the files of the shown changes, of a new head of the request too, which keeps the chip.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open on the user's group that needs an approval, then on the chip the user chose, which All forgets`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chips by the files of the scope shown, Since Your Review too, and keep the chip on a new head of the request`)
@@ -503,11 +503,11 @@ Safe Push it allows.
   The chips are told apart by their filter, not their name (`ownerChipKey`).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should make the owner chip chosen or remembered before the groups came the group of its name once they come, one chip the user can choose`)
   [@test] ../../src/lib/review-owners.test.ts (`makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files`)
-- While a chip that marks files is chosen, the footer adds the part of its owner as in the branch window: "All Changes
-  · File 1 / 4 · Design 2" on a file of another owner, "All Changes · File 2 / 4 · Design 1 / 2" on the first of
-  Design's two; J moves through them, "Design 2 / 2". A branch-wide group's part is every file ("Design 1 / 4"). All
-  adds nothing.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count every file as the part of a branch-wide group, in the footer and in Approve`)
+- While a chip is chosen, the footer adds its name without duplicating its count: "All Changes · File 1 / 2 · Design";
+  the file index and total are those of the filtered files. A branch-wide group keeps every file visible because its
+  paths include all files, but its name remains in the footer. All adds no owner name. Approve still says how many of the user's group
+  files the window has shown, including while a chip narrows the review.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show owner-filtered file positions and say in Approve what it counts for and what the user opened`, `should keep every file visible for a branch-wide group and count it in Approve`)
 
 ### Reviews
 
@@ -541,7 +541,7 @@ Safe Push it allows.
   is never disabled by it.
   [@test] ../../src/lib/review-request-actions.test.ts (`says in Approve what it counts for after the reason it waits, never disabling it, and nothing once approved or in the row menu`)
   [@test] ../../src/presenters/reviews.test.ts (`names the user's groups that still need an approval and how many of their files the window showed`, `leaves out the groups of others and the approved ones`, `says when the approval counts for no group that still needs one`, `names the groups alone when their files are unknown or none here, and says nothing without groups`, `says nothing while the sign-in names no login, rather than no group`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`, `should count every file as the part of a branch-wide group, in the footer and in Approve`, `should say nothing of what Approve counts for while the GitHub sign-in names no login`, `should count no file for Approve while the overview of the plan is at the top of the changes, and the first file J shows`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show owner-filtered file positions and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`, `should keep every file visible for a branch-wide group and count it in Approve`, `should say nothing of what Approve counts for while the GitHub sign-in names no login`, `should count no file for Approve while the overview of the plan is at the top of the changes, and the first file J shows`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`SubmitReview`, its effect `submitReview`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)),
   in the repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
@@ -583,7 +583,7 @@ Safe Push it allows.
   "Approve and Safe Push" (↵, focused on each open) and Esc Cancel; the keys of the review wait while it is open. After
   an approval of the commit it is "Safe Push…" and the text starts with "Comments". Before the approval, a muted line
   below says what it counts for, as Approve does ("Counts for Design · You opened 2 of its 2 files").
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show owner-filtered file positions and say in Approve what it counts for and what the user opened`)
 - One operation (`SubmitReview` with `thenLand`; once the user approved that commit, without a verdict: the Safe Push
   alone): the approval first, said as soon as it is in; then one `GET repos/<owner>/<name>/pulls/<n>` for its
   `head.sha`: a head other than the approved commit skips the start (`plan_changed`), "Cannot start the Safe Push" /

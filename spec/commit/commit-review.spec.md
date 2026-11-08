@@ -232,13 +232,13 @@ where a dialog would cover it.
   [@test] ../../src/lib/diff/layout.test.ts (`ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count`)
   [@test] ../../src/presenters/review-card-end.test.ts (`names the next file as its header does, its name and its directory, and the next part of the same file as continued`, `names after the last card the opening of a step of no card below it by the words of the step`, `ends the review at the last card, and the files of an owner chip before it`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should navigate the long card to the next visible file of the chosen owner chip`)
 - The diffs must have a map of the files in place of their scrollbar: a column at their right, beside the diffs and
   not above them, the whole review scaled to its height (never shorter than the view, so a short review keeps its
   files where its cards are). It has a tick at the start of each section, one across it at the start of a step of the
   plan; where the pixels are too few for every section, the ticks of several are one. The section at the top is
-  filled, the files an owner chip plays down are paler, and the window of the view is its thumb, the strongest mark of
-  the map and never thinner than a mark to grab, even for a review of 500 files. A drag of the thumb
+  filled, and the window of the view is its thumb, the strongest mark of the map and never thinner than a mark to grab,
+  even for a review of 500 files. An owner chip filters the map to its files with the diffs. A drag of the thumb
   and the wheel over the map scroll the diffs, the tree and the footer following the file at the top; a click shows the
   section under the pointer as a row of the tree does, the diffs taking the focus, so J goes on from there; the hover
   names its file, the directory after the name, and its step. What comes before the first section is a band of the map
@@ -248,7 +248,7 @@ where a dialog would cover it.
   [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `leaves the prologue above the first section a band without a tick, which the hover and a click tell from the sections and the map fills at the top`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should filter tree, diffs and navigation to the files of an owner chip`)
 - The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
   "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file
   reads its texts by blob id as it comes into view, and its rows show plain text until the tokens of their page
@@ -306,12 +306,13 @@ where a dialog would cover it.
   Soft wraps follow the setting of Settings → Diffs & Merge ([Commit Files](commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A review may show the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree
-  row keeps its width for the name. It may mark the files of one owner (the owner chips of the branch review,
-  [Branch Review](../branch/branch-review.spec.md#code-owners)): every file stays, the rows and the headers of the
-  others muted, a step of the story with its count ("Design 2"), and J, K, N and P move through the marked files only;
-  none left in that direction, nothing moves. An owner without files there marks nothing.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`, `should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
+  row keeps its width for the name. An owner chip of a branch review ([Branch Review](../branch/branch-review.spec.md#code-owners))
+  filters the tree and diffs to its files, and J, K, N and P move through that same shown set; none left in that
+  direction, nothing moves. A step with only some of its files shows the owner count out of the step total, and the
+  footer names the selected owner without repeating its count. A link to a file hidden by the chip clears the chip;
+  an owner with no files in this range does not filter.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`, `should filter tree, diffs and navigation to the files of an owner chip`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should show only the steps and files of an owner chip, and navigate within its story`)
 
 ### The search of the files
 
@@ -322,8 +323,8 @@ where a dialog would cover it.
 - The tree and the diffs must show the files with every word of the text in their path or the old path of a rename,
   ignoring case, as it is typed; the header says "Files 3 of 9". The directories of what it found are open, the
   selected file stays while the search keeps it, else the first one is selected, and the diffs show it at the top.
-  It is the only filter of the files (the owner chips of a branch review mark, they hide nothing) and holds for the
-  next commit (⌥↑/⌥↓) until the window closes.
+  The search intersects an owner chip of a branch review, and both narrow the same tree and diffs; the text filter holds
+  for the next commit (⌥↑/⌥↓) until the window closes.
   [@test] ../../src/lib/file-filter.test.ts (`keeps the files with every word in their path, ignoring case`, `finds a renamed file by its old path`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter`)
 - `/` must focus the search from anywhere in the window and select its text, except in another input, a menu or a
@@ -339,7 +340,7 @@ where a dialog would cover it.
 - The sidebar has the commits of a range above a `border-b` (with the plan only its scopes while the tree lists the
   commits in its steps), then the search of the files (`SearchField` `w-full`: the
   `SearchIcon`, the placeholder "Filter files", `Kbd` `/` while empty, the X "Clear the filter text" once typed), then
-  the header of the files ("Files 5", "Files 3 of 9" while searched, a muted `text-xs font-medium`
+  the header of the files ("Files 5", "Files 3 of 9" while narrowed by search or owner chip, a muted `text-xs font-medium`
   `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
   chevron, its name keeps the indent.
 - A file header is 48 px, the band `--diff-file-header` (`color-mix` of `--card` and 60% `--canvas`) in the
@@ -363,7 +364,7 @@ where a dialog would cover it.
   colour, the directory muted, its last folder not), then `Kbd` `J`.
 - The map of the files is 10 px wide on the canvas at the right of the diffs, which hide their own scrollbar, its
   track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-map-tick` (`--foreground` 26% into
-  the canvas), 2 px from its sides, 35% opaque when an owner chip plays it down; a step a tick of 2 px in `--diff-map-step`
+  the canvas), 2 px from its sides; an owner chip filters the map to the shown files. A step a tick of 2 px in `--diff-map-step`
   (`--foreground` 55% into the canvas) across it; the section at the top `--primary` at 20%; the thumb `--foreground` at
   30% with an inset 1-px edge at 50%, 38% under the pointer, 45% dragged, `--radius-sm`, at least 16 px, a thicker one
   centred on the window of the view and kept inside the track. Its hover is a popover at its left, its middle at the height of the pointer: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
@@ -374,7 +375,7 @@ where a dialog would cover it.
   review read again starts at) and the step of
   the story at the top before the file ("All Changes · Step 2 · File 3 / 12"), one hook for every window of a review
   (`useReviewPosition`) (the windows
-  of a branch and of a pull request add the part of a chosen owner chip, "· Design 2 / 5", [Branch
+  of a branch and of a pull request add the chosen owner chip's name, "· Design", [Branch
   Review](../branch/branch-review.spec.md#code-owners); the window of a commit has no chips), and on the
   right the hints `J K Files`, `N P Changes`, `F Sidebar`, `I Details` while a row of the tree has the focus
   ([Review Plan](../branch/review-plan.spec.md)), `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and

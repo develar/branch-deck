@@ -36,6 +36,8 @@ export interface RangeReviewProps {
   onPositionChange: (position: ReviewPosition) => void
   /** The files of the chosen owner chip, marked in the whole story */
   ownerMarks?: CommitReviewProps["ownerMarks"]
+  /** Clears the chosen owner chip before revealing a file it hides */
+  onClearOwnerFilter?: CommitReviewProps["onClearOwnerFilter"]
   fileOwners?: ReadonlyMap<string, string>
   /** What the range is, in the error: "Cannot read the changes of the branch" */
   rangeNoun: string
@@ -73,6 +75,7 @@ export function RangeReview({
   initialLink = null,
   onPositionChange,
   ownerMarks,
+  onClearOwnerFilter,
   fileOwners,
   rangeNoun,
   filesHeader,
@@ -124,6 +127,7 @@ export function RangeReview({
         initialLink={initialLink}
         onPositionChange={onPositionChange}
         ownerMarks={ownerMarks}
+        onClearOwnerFilter={onClearOwnerFilter}
         fileOwners={fileOwners}
         rangeNoun={rangeNoun}
         neighbours={neighbours}

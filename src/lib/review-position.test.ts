@@ -10,12 +10,10 @@ describe("formatReviewPosition", () => {
     expect(formatReviewPosition({ file, scope: "All Changes" })).toBe("All Changes · File 3 / 12")
   })
 
-  it("counts the part of the chosen owner chip after the file: its place on a file of its own, its files on another", () => {
-    const own = { ...file, owner: { label: "Design", index: 1, count: 5 } }
-    expect(formatReviewPosition({ file: own, scope: "All Changes" })).toBe("All Changes · File 3 / 12 · Design 2 / 5")
-    const other = { ...file, owner: { label: "Design", index: -1, count: 5 } }
-    expect(formatReviewPosition({ file: other, scope: "All Changes" })).toBe("All Changes · File 3 / 12 · Design 5")
-    expect(formatReviewPosition({ file: { ...file, owner: { label: "Design", index: -1, count: 0 } } })).toBe("File 3 / 12")
+  it("names the chosen owner chip without duplicating the file count", () => {
+    const own = { ...file, owner: "Design" }
+    expect(formatReviewPosition({ file: own, scope: "All Changes" })).toBe("All Changes · File 3 / 12 · Design")
+    expect(formatReviewPosition({ file: { ...file, owner: "Design" } })).toBe("File 3 / 12 · Design")
   })
 
   it("leaves the file out until the review reports one", () => {

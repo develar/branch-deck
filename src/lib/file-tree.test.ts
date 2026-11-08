@@ -175,6 +175,7 @@ describe("the tree of a review with its plan", () => {
     expect([group.key, group.group, group.fileCount, group.additions, group.deletions]).toEqual([MECHANICAL_GROUP_KEY, "mechanical", 3, 4, 5])
     // a tree without a mechanical file has no group
     expect(outline(buildReviewTree(files.slice(0, 2), mechanical, []))).toEqual(outline(buildFileTree(files.slice(0, 2))))
+    expect(outline(buildReviewTree([files[2]!], mechanical, []))).toEqual(["Mechanical (1)/", "  Build files (1)/", "    src/b/b.iml"])
   })
 
   it("orders the kinds as the units of the plan, the order Rust gave the story", () => {
@@ -543,7 +544,7 @@ describe("the steps of the commits in the tree of a review", () => {
     expect(listsCommits(tree)).toBe(true)
   })
 
-  it("keeps the group of a step that lands nothing as its commit, lists a step under a search only with a file it found, and its commit in Commits without a step", () => {
+  it("keeps the group of a step that lands nothing until narrowed, then lists only steps with shown files", () => {
     // a step of its commit alone that lands nothing in the scope: the group is its commit, and holds no row
     const alone = buildReviewTree(
       files.filter(it => it.path === "src/Rule.kt"),
@@ -564,10 +565,10 @@ describe("the steps of the commits in the tree of a review", () => {
       "Other commits/",
       "  @ IJAI-1 tidy",
     ])
-    const searched = buildReviewTree(paint, new Map(), chapters, places, true)
-    expect(outline(searched)).toEqual(["2 · the paint/", "  src/Paint.kt"])
+    const narrowed = buildReviewTree(paint, new Map(), chapters, places, true)
+    expect(outline(narrowed)).toEqual(["2 · the paint/", "  src/Paint.kt"])
     // the step alone is its commit: the tree lists a commit
-    expect(listsCommits(searched)).toBe(true)
+    expect(listsCommits(narrowed)).toBe(true)
     expect(outline(buildReviewTree(files, new Map(), [], places))).toEqual([
       "src/",
       "  Paint.kt",

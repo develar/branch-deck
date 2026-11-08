@@ -402,18 +402,17 @@ test.describe("Branch review window", () => {
     await expect(page.getByTestId("review-sidebar").getByTestId("branch-review-owners")).toBeVisible()
     await expect(fileHeader(page, "ui/login.css").getByTestId("review-file-owner")).toHaveText("Design")
 
-    // a chip hides no file: the review stays at the file it shows, the other owners' files muted
+    // a chip filters the files to UI Team: login.js is the only one, and the footer counts that set
     await page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "login.js" }).click()
     await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4")
     await page.getByTestId("branch-review-owner").filter({ hasText: "UI Team" }).click()
-    await expect(fileHeader(page, "README.md")).toHaveAttribute("data-muted", "")
-    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
-    // the footer counts the part of the chip too: login.js is the one file of UI Team
-    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4 · UI Team 1 / 1")
+    await expect(fileHeader(page, "README.md")).toHaveCount(0)
+    await expect.poll(() => reviewedPaths(page)).toEqual(["ui/login.js"])
+    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 1 / 1 · UI Team")
 
-    // all files again: nothing muted, the review still at the file it showed
+    // all files again: the same path remains selected at its place in the whole range
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
-    await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
+    await expect(fileHeader(page, "README.md")).toBeVisible()
     await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4")
 
     // the parent alone, one commit: the bar shows the part at once, the review keeps the files on screen until the files
@@ -467,112 +466,100 @@ test.describe("Branch review window", () => {
     await expect(commits).toBeFocused()
   })
 
-  test(
-    "should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only",
-    { tag: "@webkit" },
-    async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      await setupRepo("stacked_ownership")
-      await syncAndWaitForBranches()
-      await openReviewOf(page, "login")
-      const tree = page.getByRole("tree", { name: "Changed files" })
-      const position = page.getByTestId("review-position")
-      const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
-      const focusDiffs = () => page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
-      await expect(position).toHaveText("All Changes · File 1 / 4")
+  test("should filter tree, diffs and navigation to the files of an owner chip", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    await openReviewOf(page, "login")
+    const tree = page.getByRole("tree", { name: "Changed files" })
+    const position = page.getByTestId("review-position")
+    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+    const focusDiffs = () => page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
+    await expect(position).toHaveText("All Changes · File 1 / 4")
 
-      // Monorepo has README.md, the last file: every file stays, the rows and the headers of the others muted
-      await owner("Monorepo").click()
-      await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
-      await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
-      for (const muted of ["auth", "token.js", "ui", "login.js"]) {
-        await expect(tree.getByRole("treeitem", { name: muted, exact: true })).toHaveAttribute("data-muted", "")
-      }
-      await expect(tree.getByRole("treeitem", { name: "README.md" })).not.toHaveAttribute("data-muted")
-      await expect(fileHeader(page, "auth/token.js")).toHaveAttribute("data-muted", "")
-      await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
-      // the map of the files plays the others down too
-      const map = page.getByTestId("review-file-map")
-      await expect(map).toHaveAttribute("data-muted", "3")
-      // the footer counts the files of Monorepo, the file shown being another owner's
-      await expect(position).toHaveText("All Changes · File 1 / 4 · Monorepo 1")
+    // Monorepo owns README.md: its chip filters the tree and diffs, and the header says how many files are hidden
+    await owner("Monorepo").click()
+    await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => reviewedPaths(page)).toEqual(["README.md"])
+    await expect(tree.getByRole("treeitem")).toHaveCount(1)
+    await expect(tree.getByRole("treeitem", { name: "README.md" })).toBeVisible()
+    await expect(fileHeader(page, "auth/token.js")).toHaveCount(0)
+    await expect(page.getByTestId("review-files-header")).toContainText("1 of 4")
+    await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
+    await page.getByRole("button", { name: "Show All Files" }).click()
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
 
-      // N from the first file passes the blocks of the others to README.md; P finds none of Monorepo before it, and moves
-      // nothing: with All it goes back to ui/login.js
-      await focusDiffs()
-      await page.keyboard.press("n")
-      await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
-      await page.keyboard.press("p")
-      await owner("All").click()
-      await expect(map).toHaveAttribute("data-muted", "0")
-      await focusDiffs()
-      await page.keyboard.press("p")
-      await expect(position).toHaveText("All Changes · File 3 / 4")
+    // the one file of Monorepo stays selected under its chip; J, K, N and P do not reach any hidden file
+    await owner("Monorepo").click()
+    await focusDiffs()
+    await page.keyboard.press("j")
+    await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
+    await page.keyboard.press("k")
+    await page.keyboard.press("n")
+    await page.keyboard.press("p")
+    await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
+    await page.getByRole("button", { name: "Show All Files" }).click()
+    await focusDiffs()
+    await page.keyboard.press("p")
+    await expect(position).toHaveText("All Changes · File 3 / 4")
 
-      // J from auth/token.js passes the files of the others to README.md, K finds none of Monorepo before it: with All it
-      // goes back to ui/login.js
-      await tree.getByRole("treeitem", { name: "token.js" }).click()
-      await expect(position).toHaveText("All Changes · File 1 / 4")
-      await owner("Monorepo").click()
-      await focusDiffs()
-      await page.keyboard.press("j")
-      await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
-      await page.keyboard.press("k")
-      await owner("All").click()
-      await expect(tree.getByRole("treeitem", { name: "auth", exact: true })).not.toHaveAttribute("data-muted")
-      await focusDiffs()
-      await page.keyboard.press("k")
-      await expect(position).toHaveText("All Changes · File 3 / 4")
-    },
-  )
+    // J and K under the chip stay within its one file; with All they reach the other files
+    await tree.getByRole("treeitem", { name: "token.js" }).click()
+    await expect(position).toHaveText("All Changes · File 1 / 4")
+    await owner("Monorepo").click()
+    await focusDiffs()
+    await page.keyboard.press("j")
+    await page.keyboard.press("k")
+    await expect(position).toHaveText("All Changes · File 1 / 1 · Monorepo")
+    await page.getByRole("button", { name: "Show All Files" }).click()
+    await focusDiffs()
+    await page.keyboard.press("k")
+    await expect(position).toHaveText("All Changes · File 3 / 4")
+  })
 
-  test(
-    "should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does",
-    { tag: "@webkit" },
-    async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupRepo("stacked_ownership")
-      // a long file of Auth Team first in the tree, before the files of the others
-      const lines = Array.from({ length: 40 }, (_, index) => `export const step${index + 1} = ${index + 1}\n`).join("")
-      await repo.commit("(login) Keep the session", { "auth/session.js": lines }, 1704124800)
-      await syncAndWaitForBranches()
-      await openReviewOf(page, "login")
-      const position = page.getByTestId("review-position")
-      const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
-      const session = page.locator("[data-testid=diff-view-file][data-path='auth/session.js']")
-      await expect(position).toHaveText("All Changes · File 1 / 5")
-      // the next file of all
-      await expect(session.getByRole("button", { name: "Next: token.js auth", exact: true })).toBeVisible()
+  test("should navigate the long card to the next visible file of the chosen owner chip", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_ownership")
+    // a long file of Auth Team first in the tree, before the files of the others
+    const lines = Array.from({ length: 40 }, (_, index) => `export const step${index + 1} = ${index + 1}\n`).join("")
+    await repo.commit("(login) Keep the session", { "auth/session.js": lines }, 1704124800)
+    await syncAndWaitForBranches()
+    await openReviewOf(page, "login")
+    const position = page.getByTestId("review-position")
+    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+    const session = page.locator("[data-testid=diff-view-file][data-path='auth/session.js']")
+    await expect(position).toHaveText("All Changes · File 1 / 5")
+    // the next file of all
+    await expect(session.getByRole("button", { name: "Next: token.js auth", exact: true })).toBeVisible()
 
-      // Monorepo has README.md, the last file: J and the line at the end of the card pass the files of the others
-      await owner("Monorepo").click()
-      const next = session.getByRole("button", { name: "Next: README.md", exact: true })
-      await expect(next).toBeVisible()
-      await next.click()
-      await expect(position).toHaveText("All Changes · File 5 / 5 · Monorepo 1 / 1")
-      await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "README.md" })).toHaveAttribute("aria-selected", "true")
-      await expect(page.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
-    },
-  )
+    // Auth Team has the current file and token.js: its chip keeps the next file in the same team
+    await owner("Auth Team").click()
+    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/session.js", "auth/token.js"])
+    await expect(page.getByTestId("review-files-header")).toContainText("2 of 5")
+    const next = session.getByRole("button", { name: "Next: token.js auth", exact: true })
+    await expect(next).toBeVisible()
+    await next.click()
+    await expect(position).toHaveText("All Changes · File 2 / 2 · Auth Team")
+    await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "token.js" })).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("[data-testid=diff-view-file][data-path='auth/token.js']").getByTestId("review-card-end")).toHaveText("End of the review")
+  })
 
-  test("should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
+  test("should keep the chip of an owner with no files in the range and show no chips when one owner has them all", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     await openReviewOf(page, "login")
     await page.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
-    await expect(fileHeader(page, "README.md")).toHaveAttribute("data-muted", "")
-    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
+    await expect.poll(() => reviewedPaths(page)).toEqual(["ui/login.css"])
+    await expect(fileHeader(page, "README.md")).toHaveCount(0)
+    await expect(page.getByTestId("review-files-header")).toContainText("1 of 4")
     await expect(page.getByTestId("branch-review-owner-empty")).toHaveCount(0)
 
-    // the parent alone has no file of Design: its chip stays, at 0, so it can be turned off; nothing is muted
+    // the parent alone has no file of Design: it stays selected, but no filter removes the one file of the range
     await page.getByTestId("branch-review-segment").first().click()
     await expect.poll(() => ownerChips(page)).toEqual(["All1", "Auth Team1", "Design0"])
     await expect(page.getByTestId("branch-review-owner-empty")).toHaveText("No files of Design in this range")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
-    await expect(fileHeader(page, "auth/token.js")).not.toHaveAttribute("data-muted")
-    await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "token.js" })).not.toHaveAttribute("data-muted")
+    await expect(fileHeader(page, "auth/token.js")).toBeVisible()
+    await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "token.js" })).toBeVisible()
 
     // all files: one owner has them all, so no chip would mark less; the header of the files names the owner
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
@@ -594,23 +581,25 @@ test.describe("Branch review window", () => {
     await expect.poll(() => ownerChips(first)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
     await expect(owner(first, "All")).toHaveAttribute("aria-pressed", "true")
     await owner(first, "Design").click()
-    await expect(fileHeader(first, "README.md")).toHaveAttribute("data-muted", "")
+    await expect.poll(() => reviewedPaths(first)).toEqual(["ui/login.css"])
+    await expect(fileHeader(first, "README.md")).toHaveCount(0)
     // remembered for the repository by the writer of the settings
     await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
     await first.close()
 
-    // the next review window opens on it, its files marked
+    // the next review window opens with only its files shown
     const second = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
     await expect(owner(second, "Design")).toHaveAttribute("aria-pressed", "true")
-    await expect(fileHeader(second, "README.md")).toHaveAttribute("data-muted", "")
-    await expect(fileHeader(second, "ui/login.css")).not.toHaveAttribute("data-muted")
+    await expect.poll(() => reviewedPaths(second)).toEqual(["ui/login.css"])
+    await expect(fileHeader(second, "README.md")).toHaveCount(0)
+    await expect(fileHeader(second, "ui/login.css")).toBeVisible()
     await second.close()
 
     // auth has no file of Design: the window opens on All, which needs no chip here (one owner has every file)
     const third = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
     await expect(third.getByTestId("branch-review-files")).toHaveText("Files1Auth Team")
     await expect(third.getByTestId("branch-review-owners")).toHaveCount(0)
-    await expect(fileHeader(third, "auth/token.js")).not.toHaveAttribute("data-muted")
+    await expect(fileHeader(third, "auth/token.js")).toBeVisible()
   })
 
   test("should save the diff view the window chooses through the writer of the backend", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {

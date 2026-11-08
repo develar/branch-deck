@@ -31,6 +31,19 @@ function matchesPath(paths: ReadonlySet<string>, file: CommitFile): boolean {
   return paths.has(file.path) || (file.oldPath !== null && paths.has(file.oldPath))
 }
 
+function ownersOf(file: CommitFile, owners: ReadonlyMap<string, string>): ReadonlySet<string> {
+  const result = new Set<string>()
+  const current = owners.get(file.path)
+  const previous = file.oldPath === null ? undefined : owners.get(file.oldPath)
+  if (current !== undefined) {
+    result.add(current)
+  }
+  if (previous !== undefined) {
+    result.add(previous)
+  }
+  return result
+}
+
 function sameName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
@@ -61,9 +74,9 @@ export function ownerPaths(
       return new Set(files.filter(file => matchesPath(paths, file)).map(file => file.path))
     }
     case "owner":
-      return new Set(files.filter(file => owners.get(file.path) === filter.name).map(file => file.path))
+      return new Set(files.filter(file => ownersOf(file, owners).has(filter.name)).map(file => file.path))
     case "unowned":
-      return new Set(files.filter(file => !owners.has(file.path)).map(file => file.path))
+      return new Set(files.filter(file => ownersOf(file, owners).size === 0).map(file => file.path))
   }
 }
 
@@ -98,10 +111,11 @@ export function reviewFilterChips(
     const counts = new Map<string, number>()
     let unowned = 0
     for (const file of files) {
-      const owner = owners.get(file.path)
-      if (owner === undefined) {
+      const fileOwners = ownersOf(file, owners)
+      if (fileOwners.size === 0) {
         unowned++
-      } else {
+      }
+      for (const owner of fileOwners) {
         counts.set(owner, (counts.get(owner) ?? 0) + 1)
       }
     }

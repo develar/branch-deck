@@ -135,7 +135,7 @@ describe("review steps", () => {
     expect(presentChapters(messagePlan)[0]?.code).toBe(false)
   })
 
-  it("counts the files of the chosen owner each step shows, 0 for a step without one", () => {
+  it("counts the files of the chosen owner and all files each step shows", () => {
     const chapters = presentChapters(
       plan([
         step(
@@ -151,13 +151,13 @@ describe("review steps", () => {
         step("c", [commit("the look")], [["u:look", "ui/look.css"]]),
       ]),
     )
-    const marks = presentOwnerMarks(chapters, new Set(["ui/style.css", "ui/look.css", "src/Rule.kt"]))
+    const marks = presentOwnerMarks(chapters, new Set(["ui/style.css", "ui/look.css"]))
     expect([...marks]).toEqual([
-      ["a", 2],
-      ["b", 0],
-      ["c", 1],
+      ["a", { shown: 1, total: 2 }],
+      ["b", { shown: 0, total: 1 }],
+      ["c", { shown: 1, total: 1 }],
     ])
-    expect([...presentOwnerMarks(chapters, new Set())].map(([, count]) => count)).toEqual([0, 0, 0])
+    expect([...presentOwnerMarks(chapters, new Set()).values()].map(({ shown }) => shown)).toEqual([0, 0, 0])
   })
 
   it("places each commit of the range in the step it tells or follows up, the one that starts a step of the commits as its step, a commit of the concerns once, the rest in Other commits", () => {

@@ -172,6 +172,21 @@ async function markReviewed(window: Page): Promise<void> {
 }
 
 test.describe("The review plan in the branch review", () => {
+  test("should truncate a long tree filename in the middle and keep its extension visible", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    const name = "KotlinDocumentCollectorExtension.kt"
+    await repo.commit("(plan) add a Kotlin document collector", { [`src/${name}`]: "package src\n\nclass KotlinDocumentCollectorExtension\n" }, 1704124800)
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    await window.setViewportSize({ width: 960, height: 900 })
+    const row = window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name, exact: true })
+    const start = row.getByTestId("file-path-label-name-start")
+    await expect(start).toHaveCSS("text-overflow", "ellipsis")
+    await expect.poll(() => start.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+    await expect(row.getByTestId("file-path-label-name-suffix")).toHaveText("ension.kt")
+    await captureHtmlSnapshot(row, "review-tree-long-file-name")
+  })
+
   test("should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree", async ({
     page,
     setupRepo,
@@ -434,7 +449,7 @@ test.describe("The review plan in the branch review", () => {
     },
   )
 
-  test("should select a linked file under an owner chip, which hides none, and clear only a search that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should reveal a linked file from another owner by clearing its chip and clear a search that hides the target", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
     const { reader, cache } = planRows(window)
@@ -445,18 +460,16 @@ test.describe("The review plan in the branch review", () => {
     }
     const position = window.getByTestId("review-position")
 
-    // the chip of Monorepo keeps Cache, of Cache Team, muted: a click on its link selects it, the chip stays
+    // the chip of Monorepo hides Cache, of Cache Team: a click on its link clears the chip and selects Cache
     await owner("Monorepo").click()
-    await expect(cache).toHaveAttribute("data-muted", "")
-    await expect(reader).not.toHaveAttribute("data-muted")
+    await expect(cache).toHaveCount(0)
+    await expect(reader).toBeVisible()
     await selectCacheFromReader()
-    await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 7 \/ 8 · Monorepo \d+$/)
-    await owner("All").click()
-    await expect(cache).not.toHaveAttribute("data-muted")
+    await expect(position).toHaveText(/File 7 \/ 8$/)
 
-    // a search that hides Cache is cleared, and Cache selected; the search does not select it again
+    // a search that hides Cache is cleared, and Cache selected; All stays selected
     await search.fill("Reader")
     await expect(cache).toHaveCount(0)
     await selectCacheFromReader()
@@ -471,13 +484,6 @@ test.describe("The review plan in the branch review", () => {
     await expect(reader).toHaveAttribute("aria-selected", "true")
     await search.fill("")
     await expect(reader).toHaveAttribute("aria-selected", "true")
-    // a chip away and back keeps the selection: it starts nothing over
-    await owner("Monorepo").click()
-    await expect(cache).toHaveAttribute("data-muted", "")
-    await owner("All").click()
-    await expect(cache).not.toHaveAttribute("data-muted")
-    await expect(reader).toHaveAttribute("aria-selected", "true")
-    await expect(cache).toHaveAttribute("aria-selected", "false")
   })
 
   test("should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu", async ({
@@ -519,11 +525,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(column).toHaveCount(1)
   })
 
-  test("should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
+  test("should reveal an overview file under a text search while retaining its owner chip", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     // every text of the diffs held from before the window opens: a text once read is never asked again (the store keeps
     // it by blob id), so a hold installed later may never see the read of Store the reveal waits for
@@ -556,7 +558,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(header("src/Store.kt")).toBeInViewport()
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
 
-    // an owner chip and a search that hides every file: the entry of Cache clears the search, the chip stays
+    // a search and the matching owner chip: the entry of Cache clears the search, but keeps its chip
     await search.fill("nothing matches this")
     await owner("Cache Team").click()
     await expect(noMatch).toBeVisible()
@@ -564,21 +566,20 @@ test.describe("The review plan in the branch review", () => {
     await expect(search).toHaveValue("")
     await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 7 \/ 8 · Cache Team \d+ \/ \d+$/)
+    await expect(position).toHaveText("All Changes · File 1 / 1 · Cache Team")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
 
-    // the chip of Cache Team hides nothing: the search keeps Store, muted, and the entry selects it; chip and search stay
+    // a search and Cache Team together hide Store; its overview link clears both filters, then selects Store
     await owner("All").click()
-    await search.fill("Store")
+    await search.fill("nothing matches this")
     await owner("Cache Team").click()
-    await expect(header("src/Store.kt")).toHaveAttribute("data-muted", "")
-    await expect(noMatch).toHaveCount(0)
-    await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
+    await expect(noMatch).toBeVisible()
     await card.getByTestId("review-plan-breakage-file").click()
-    await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
-    await expect(search).toHaveValue("Store")
+    await expect(owner("All")).toHaveAttribute("aria-pressed", "true")
+    await expect(search).toHaveValue("")
     await expect(store).toHaveAttribute("aria-selected", "true")
     await expect(header("src/Store.kt")).toBeInViewport()
+    await expect.poll(() => reviewedPaths(window)).toHaveLength(8)
   })
 
   test("should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module", async ({

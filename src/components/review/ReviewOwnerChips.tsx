@@ -1,4 +1,5 @@
 import { CheckIcon, ShieldAlertIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { FilesCount } from "@/components/commit/CommitReview"
 import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
@@ -12,8 +13,8 @@ import type { ReviewFilter, ReviewFilterChip, ReviewOwners } from "@/lib/review-
  */
 
 /**
- * The header of the files: the owner chips, under a chosen one that has no files here the note that says so; or the owner
- * of them all ("18 files · Air Plugin")
+ * The header of the files: the owner chips, the count of files shown under a filter, and the note that says when the
+ * chosen chip has no files here; or the owner of them all ("18 files · Air Plugin")
  */
 export function ReviewOwnerChips({
   of,
@@ -32,10 +33,23 @@ export function ReviewOwnerChips({
   }
   const chips = reviewFilterChips(files, groups, owners, filter)
   if (chips.length > 1) {
-    const empty = ownerPaths(filter, files, groups, owners)?.size === 0 ? ownerEmptyText(filter) : null
+    const paths = ownerPaths(filter, files, groups, owners)
+    const empty = paths?.size === 0 ? ownerEmptyText(filter) : null
+    const shownCount = count !== null && count.shown !== count.total ? count : null
+    const showAll = filter.kind !== "all" && paths !== null && paths.size > 0
     return (
       <>
         <OwnerFilter chips={chips} filter={filter} onFilterChange={onFilterChange} />
+        {shownCount !== null && (
+          <div className="flex w-full min-w-0 items-center gap-2">
+            <SectionLabel title="Files" count={shownCount.shown} of={shownCount.total} className="flex-1" />
+            {showAll && (
+              <Button variant="link" size="xs" className="h-auto px-0" onClick={() => onFilterChange({ kind: "all" })}>
+                Show All Files
+              </Button>
+            )}
+          </div>
+        )}
         {empty !== null && (
           <span data-testid="branch-review-owner-empty" className="w-full">
             {empty}
