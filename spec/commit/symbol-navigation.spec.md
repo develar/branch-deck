@@ -18,6 +18,7 @@ targets:
   - ../../crates/code-symbols/src/csharp/navigate.rs
   - ../../crates/code-symbols/src/starlark/navigate.rs
   - ../../crates/code-symbols/src/js/navigate.rs
+  - ../../crates/code-symbols/src/rust/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
   - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
@@ -110,7 +111,14 @@ outside it.
   type qualified by `a`, a name after `import("m")` a member of it, a name of an import a value whose declaration is
   in its module; a JSX attribute, a lowercase JSX tag, a label and the parameter of an index signature are no names
   of a declaration of the file.
+  A Rust file is read by rust-analyzer's parser: the binding of any pattern (`if let`,
+  a `for`, a match arm, a closure's parameter, a field of a struct pattern) and an alias (`as e`) are declarations, a
+  capitalized name alone in a pattern (`None`) a value; an attribute's names are in the scopes of its item
+  (`#[instrument(skip(ctx))]` names the parameter); a lifetime, a label, `Self`, `_`, a predicate of `#[cfg]`, a
+  metavariable and a fragment of a macro and a keyword among its tokens are no names; a method called with type
+  arguments is a call, a name with type arguments before `::` a type.
   [@test] ../../crates/code-symbols/src/js/navigate_test.rs (`a_call_with_type_arguments_and_a_new_are_calls`, `a_bare_name_is_no_member_of_the_class_around_it`, `a_var_is_seen_in_its_function_and_a_let_in_its_block`, `the_names_of_members_are_declarations`, `type_parameters_infer_and_a_predicate_go_to_their_declarations`, `a_name_of_an_import_goes_to_its_module`, `a_qualified_type_is_a_type_with_its_qualifier`, `a_jsx_tag_goes_to_its_component`, `a_typescript_file_reads_a_type_assertion`, `the_names_after_an_import_type_are_members_of_its_module`, `deep_nesting_is_navigated_on_a_small_stack`)
+  [@test] ../../crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `a_variant_in_a_pattern_is_no_declaration`, `the_names_of_an_attribute_are_in_the_scopes_of_its_item`, `what_is_no_name`, `the_kinds_of_paths_and_calls`, `deep_nesting_is_navigated_on_a_small_stack`)
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_a_kotlin_local_a_parameter_that_shadows_a_property_and_a_member_declared_after_its_use`, `finds_a_java_field_a_local_and_tells_a_static_call_by_its_qualifier`, `finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`, `has_no_reference_outside_a_name`)
   [@test] ../../crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_parameter_used_in_the_body_goes_to_the_parameter`, `the_parameter_of_a_catch_is_a_local_declaration`, `a_name_after_a_receiver_and_colons_is_its_member`, `the_subject_of_a_where_clause_is_the_type_parameter`, `a_label_and_a_doc_comment_have_no_names_but_the_label_of_this`, `a_script_declares_its_top_level_names_for_its_functions`)
   [@test] ../../crates/code-symbols/src/java/navigate_test.rs (`a_loop_variable_a_pattern_variable_a_resource_and_a_lambda_parameter_declare_their_name`, `a_use_before_the_declaration_of_a_local_is_the_field`, `the_members_of_an_anonymous_class_are_its_own`, `a_break_goes_to_its_label`, `an_argument_of_an_annotation_goes_to_the_element_of_its_type_in_the_file`, `var_and_this_are_no_names`, `a_call_through_super_of_an_interface_has_that_interface_for_its_qualifier`, `a_compact_constructor_reads_the_record_component_and_a_record_pattern_names_a_type`, `the_dotted_names_of_an_import_and_a_module_are_a_value_and_members_without_a_qualifier`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`, `the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members`)

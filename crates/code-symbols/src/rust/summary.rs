@@ -34,7 +34,7 @@
 //!   has no bytes (an expected token); a declaration is `in_error` when one lies between the start of its node, after
 //!   its attributes, and its name.
 
-use super::{Lines, PRIMITIVES, is_outer_doc, leading_start, span};
+use super::{CONTEXTUAL_KEYWORDS, Lines, PRIMITIVES, is_callee, is_outer_doc, leading_start, span};
 use crate::summary::{DeclKind, Declaration, FileSummary, LineSpan, MemberKind, Reach, Role};
 use crate::summary_builder::{Bindings, SummaryBuilder, blank_declaration, column_at, end_line};
 use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxElement, SyntaxError, SyntaxKind as K, SyntaxNode, SyntaxToken, WalkEvent, ast};
@@ -97,10 +97,6 @@ const BUILTIN_ATTRIBUTES: &[&str] = &[
   "warn",
   "windows_subsystem",
 ];
-
-/// Words rust-analyzer lexes as identifiers that a macro's tokens use as keywords (`union`, `default`, and `gen`, a
-/// keyword of edition 2024): no references there
-const CONTEXTUAL_KEYWORDS: &[&str] = &["union", "default", "gen"];
 
 /// The keyword of an item among the tokens of a macro: what it declares, and what it is to its members
 const ITEM_KEYWORDS: &[(&str, DeclKind, Holder)] = &[
@@ -926,15 +922,11 @@ impl<'t> Walk<'t> {
   /// A token tree: its tokens are read by `token`; the pattern of a `macro_rules!` rule and the arguments of a
   /// `macro` are skipped, and the body of a macro in item position declares its `pub` items
   fn token_tree(&mut self, node: &SyntaxNode) -> bool {
-    let parent = node.parent();
-    let grandparent = parent.as_ref().and_then(SyntaxNode::parent);
-    let rule_pattern = parent.as_ref().is_some_and(|it| it.kind() == K::TOKEN_TREE)
-      && grandparent.as_ref().is_some_and(|it| matches!(it.kind(), K::MACRO_RULES | K::MACRO_DEF))
-      && next_significant_of(node).is_some_and(|it| it.kind() == K::EQ);
-    let macro_arguments = parent.as_ref().is_some_and(|it| it.kind() == K::MACRO_DEF) && node.next_sibling().is_some_and(|it| it.kind() == K::TOKEN_TREE);
-    if rule_pattern || macro_arguments {
+    if is_rule_pattern(node) {
       return false;
     }
+    let parent = node.parent();
+    let grandparent = parent.as_ref().and_then(SyntaxNode::parent);
     // a group ends the path before it: a name after it is a member of an expression
     let index = self.frames.len() - 1;
     if let Some(around) = index.checked_sub(1).and_then(|it| self.frames[it].tokens.as_mut()) {
@@ -1319,6 +1311,20 @@ const fn is_comment(kind: K) -> bool {
   matches!(kind, K::COMMENT | K::OUTER_DOC_COMMENT | K::INNER_DOC_COMMENT)
 }
 
+/// Whether a token tree is the pattern of a `macro_rules!` rule (the group before a `=>`) or the arguments of a
+/// `macro`, whose names are the macro's own (`$x:expr`), not the code's
+pub(crate) fn is_rule_pattern(tree: &SyntaxNode) -> bool {
+  let parent = tree.parent();
+  let rule = parent.as_ref().is_some_and(|it| it.kind() == K::TOKEN_TREE)
+    && parent
+      .as_ref()
+      .and_then(SyntaxNode::parent)
+      .is_some_and(|it| matches!(it.kind(), K::MACRO_RULES | K::MACRO_DEF))
+    && next_significant_of(tree).is_some_and(|it| it.kind() == K::EQ);
+  let arguments = parent.as_ref().is_some_and(|it| it.kind() == K::MACRO_DEF) && tree.next_sibling().is_some_and(|it| it.kind() == K::TOKEN_TREE);
+  rule || arguments
+}
+
 /// The name of a declaration: its `NAME`, or the `_` of `const _`
 fn name_token(node: &SyntaxNode) -> Option<SyntaxToken> {
   if let Some(name) = node.children().find(|it| it.kind() == K::NAME) {
@@ -1332,15 +1338,6 @@ fn name_token(node: &SyntaxNode) -> Option<SyntaxToken> {
 /// Whether a name in a pattern binds: a capitalized one is a variant or a constant (`None`, `MAX`)
 fn binds(name: &str) -> bool {
   !name.starts_with(|it: char| it.is_ascii_uppercase())
-}
-
-/// Whether the expression is the callee of a call
-fn is_callee(expression: &SyntaxNode) -> bool {
-  expression
-    .parent()
-    .and_then(ast::CallExpr::cast)
-    .and_then(|call| call.expr())
-    .is_some_and(|callee| callee.syntax() == expression)
 }
 
 /// Whether a function is a test: an attribute `test` (`#[test]`, `#[tokio::test]`, `#[test_log::test]`) or `rstest`

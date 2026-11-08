@@ -15,12 +15,15 @@
 //!   are spaces, a CRLF's `\r` a `\n`), so a walk slices that text by the tree's ranges and counts lines and columns on
 //!   the file's own bytes.
 
+pub(crate) mod navigate;
 pub(crate) mod summary;
 
 #[cfg(test)]
+mod navigate_test;
+#[cfg(test)]
 mod summary_test;
 
-use rust_syntax::ra_ap_syntax::{SyntaxKind, SyntaxNode, TextRange};
+use rust_syntax::ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode, TextRange, ast};
 
 /// The 1-based line of each byte offset of a file: rowan's tree gives offsets, a summary records lines
 pub(crate) struct Lines(Vec<usize>);
@@ -47,6 +50,10 @@ pub(crate) const PRIMITIVES: &[&str] = &[
   "bool", "char", "f32", "f64", "i8", "i16", "i32", "i64", "i128", "isize", "str", "u8", "u16", "u32", "u64", "u128", "usize",
 ];
 
+/// Words rust-analyzer lexes as identifiers that a macro's tokens use as keywords (`union`, `default`, and `gen`, a
+/// keyword of edition 2024): no references there
+pub(crate) const CONTEXTUAL_KEYWORDS: &[&str] = &["union", "default", "gen"];
+
 /// Where a declaration's own text starts, with the outer attributes and doc comments above it that rust-analyzer keeps
 /// in its node, without the plain comments before them (which the parser attaches too): its first line
 pub(crate) fn leading_start(node: &SyntaxNode) -> usize {
@@ -59,4 +66,13 @@ pub(crate) fn leading_start(node: &SyntaxNode) -> usize {
 /// Whether a comment's text is a doc comment of the item after it: `///` and `/**`, not `////` or `/**/`
 pub(crate) fn is_outer_doc(text: &str) -> bool {
   (text.starts_with("/**") && !text.starts_with("/**/")) || (text.starts_with("///") && !text.starts_with("////"))
+}
+
+/// Whether the expression is the callee of a call
+pub(crate) fn is_callee(expression: &SyntaxNode) -> bool {
+  expression
+    .parent()
+    .and_then(ast::CallExpr::cast)
+    .and_then(|call| call.expr())
+    .is_some_and(|callee| callee.syntax() == expression)
 }

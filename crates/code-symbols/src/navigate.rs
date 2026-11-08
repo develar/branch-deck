@@ -8,12 +8,11 @@
 //!
 //! Kotlin, Java and C# answer from their PSI and Roslyn's tree (`kotlin::navigate`, `java::navigate`,
 //! `csharp::navigate`: one pass over the leaves files each declaration under the scopes that see it, by the language's
-//! own scope rules), TypeScript and JavaScript from oxc's tree (`js::navigate`), Rust from a tree-sitter tree by the
-//! kinds of its grammar below. Both give their answers through `reference_answer` and
-//! `usage_answers`, with the positions of the view.
+//! own scope rules), TypeScript and JavaScript from oxc's tree (`js::navigate`), Rust from rust-analyzer's
+//! (`rust::navigate`). All give their answers through `reference_answer` and `usage_answers`, with the positions of the
+//! view.
 
 use crate::highlight::Grammar;
-use tree_sitter::Node;
 
 /// A place in a text: a line from 0 and a UTF-16 column, as the view counts them
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,22 +50,6 @@ pub struct ReferenceAt {
   /// Its declaration in this file, by the scopes around it: where the declared name starts
   pub local: Option<Position>,
 }
-
-/// The kinds of the names of the tree-sitter grammar
-const NAMES: &[&str] = &["type_identifier", "identifier", "field_identifier", "shorthand_field_identifier"];
-
-/// The nodes that open a scope: a name declared inside is not visible outside
-const SCOPES: &[&str] = &[
-  // Rust
-  "block",
-  "function_item",
-  "closure_expression",
-  "impl_item",
-  "trait_item",
-  "mod_item",
-  "match_arm",
-  "for_expression",
-];
 
 /// How a usage uses its name, as IntelliJ labels it
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,35 +91,8 @@ pub struct UsagesAt {
   pub usages: Vec<Usage>,
 }
 
-/// The node of the name at `offset`: the character at the place, else the one before it, as the end of a name is still
-/// the name (`foo|`)
-fn name_at<'tree>(root: Node<'tree>, text: &str, offset: usize) -> Option<Node<'tree>> {
-  let at = |start: usize, end: usize| root.named_descendant_for_byte_range(start, end).filter(|it| NAMES.contains(&it.kind()));
-  at(offset, (offset + 1).min(text.len())).or_else(|| offset.checked_sub(1).and_then(|before| at(before, offset)))
-}
-
-/// The declaration a name is bound to by the scopes: the name itself when it is the name of a declaration; none for a
-/// member after a qualifier, which the scopes do not bind
-fn binding_of<'tree>(node: Node<'tree>, kind: ReferenceKind, name: &str, text: &str) -> Option<Node<'tree>> {
-  match kind {
-    ReferenceKind::Declaration => Some(node),
-    ReferenceKind::Value | ReferenceKind::Call | ReferenceKind::Type => local_declaration(node, name, text),
-    ReferenceKind::Member | ReferenceKind::MemberCall => None,
-  }
-}
-
-/// The node of the name at `position` of a parse of `text`, its text and what the syntax says it is, for `answer`
-fn with_name_at<T>(grammar: Grammar, text: &str, position: Position, answer: impl FnOnce(Node<'_>, String, ReferenceKind, Option<String>) -> T) -> Option<T> {
-  let offset = byte_offset(text, position)?;
-  let tree = crate::highlight::parse_text(grammar, text)?;
-  let node = name_at(tree.root_node(), text, offset)?;
-  let name = text.get(node.byte_range())?.to_string();
-  let (kind, qualifier) = kind_of(node, text);
-  Some(answer(node, name, kind, qualifier))
-}
-
 /// The name at `position` of `text` and what its syntax says; `None` where no name is or the grammar is not in this
-/// build. Kotlin, Java and C# by psi-syntax's trees (`kotlin`, `java`, `csharp`), the others by tree-sitter's
+/// build
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   match grammar {
     #[cfg(feature = "kotlin")]
@@ -149,21 +105,11 @@ pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<
     Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::reference_at(&crate::starlark::navigate::NAVIGATION, text, position),
     #[cfg(feature = "typescript")]
     Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::reference_at(crate::js::dialect_of_grammar(grammar), text, position),
-    _ => reference_at_tree_sitter(grammar, text, position),
+    #[cfg(feature = "rust")]
+    Grammar::Rust => crate::rust::navigate::reference_at(text, position),
+    #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]
+    _ => None,
   }
-}
-
-/// `reference_at` by the tree-sitter tree
-fn reference_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
-  with_name_at(grammar, text, position, |node, name, kind, qualifier| reference_of(node, name, kind, qualifier, text))
-}
-
-fn reference_of(node: Node<'_>, name: String, kind: ReferenceKind, qualifier: Option<String>, text: &str) -> ReferenceAt {
-  let local = match kind {
-    ReferenceKind::Declaration => None,
-    _ => binding_of(node, kind, &name, text).map(|it| it.start_byte()),
-  };
-  reference_answer(text, node.start_byte(), name, kind, qualifier, local)
 }
 
 /// The answer of `reference_at` of any parser: the name `name` that starts at byte `start` of `text`, what the syntax
@@ -248,30 +194,10 @@ pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<Usa
     Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::usages_at(&crate::starlark::navigate::NAVIGATION, text, position),
     #[cfg(feature = "typescript")]
     Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::usages_at(crate::js::dialect_of_grammar(grammar), text, position),
-    _ => usages_at_tree_sitter(grammar, text, position),
-  }
-}
-
-/// `usages_at` by the tree-sitter tree
-fn usages_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
-  with_name_at(grammar, text, position, |node, name, kind, _| usages_of_name(node, name, kind, text))
-}
-
-fn usages_of_name(node: Node<'_>, name: String, kind: ReferenceKind, text: &str) -> UsagesAt {
-  let mut root = node;
-  while let Some(parent) = root.parent() {
-    root = parent;
-  }
-  let local = binding_of(node, kind, &name, text).filter(|it| is_local(*it));
-  let usages = names_in(root, text, &name, |binding| match (local, binding) {
-    (Some(local), Some(binding)) => binding.id() == local.id(),
-    (Some(_), None) => false,
-    (None, binding) => binding.is_none_or(|it| !is_local(it)),
-  });
-  UsagesAt {
-    name,
-    local: local.is_some(),
-    usages,
+    #[cfg(feature = "rust")]
+    Grammar::Rust => crate::rust::navigate::usages_at(text, position),
+    #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]
+    _ => None,
   }
 }
 
@@ -288,233 +214,11 @@ pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
     Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::usages_of(&crate::starlark::navigate::NAVIGATION, text, name),
     #[cfg(feature = "typescript")]
     Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::usages_of(crate::js::dialect_of_grammar(grammar), text, name),
-    _ => usages_of_tree_sitter(grammar, text, name),
+    #[cfg(feature = "rust")]
+    Grammar::Rust => crate::rust::navigate::usages_of(text, name),
+    #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]
+    _ => Vec::new(),
   }
-}
-
-/// `usages_of` by the tree-sitter tree
-fn usages_of_tree_sitter(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
-  // a cheap test first: most files of a review do not have the word
-  if !text.contains(name) {
-    return Vec::new();
-  }
-  crate::highlight::parse_text(grammar, text).map_or_else(Vec::new, |tree| names_in(tree.root_node(), text, name, |binding| binding.is_none_or(|it| !is_local(it))))
-}
-
-/// The names `name` of the tree whose binding `keep` takes, with how each uses it, in the order of the text
-fn names_in<'tree>(root: Node<'tree>, text: &str, name: &str, keep: impl Fn(Option<Node<'tree>>) -> bool) -> Vec<Usage> {
-  let mut usages = Vec::new();
-  let mut cursor = root.walk();
-  let mut descend = true;
-  loop {
-    let node = cursor.node();
-    if descend && NAMES.contains(&node.kind()) && text.get(node.byte_range()) == Some(name) {
-      let (kind, _) = kind_of(node, text);
-      if keep(binding_of(node, kind, name, text)) {
-        usages.push((node.start_byte(), access_of(node, kind)));
-      }
-    }
-    if descend && cursor.goto_first_child() {
-      continue;
-    }
-    if cursor.goto_next_sibling() {
-      descend = true;
-      continue;
-    }
-    if !cursor.goto_parent() {
-      break;
-    }
-    descend = false;
-  }
-  usage_answers(text, name, usages)
-}
-
-/// The nodes of a function, whose names no other function sees
-const FUNCTIONS: &[&str] = &["function_item", "closure_expression"];
-
-/// Whether the name of a declaration is a local: a function around the declaration, not the function it names
-fn is_local(declared: Node<'_>) -> bool {
-  let mut current = declared.parent().and_then(|it| it.parent());
-  while let Some(node) = current {
-    if FUNCTIONS.contains(&node.kind()) {
-      return true;
-    }
-    current = node.parent();
-  }
-  false
-}
-
-/// How a name is used: declared, imported, called, written (the end of the left side of an assignment), else read
-fn access_of(node: Node<'_>, kind: ReferenceKind) -> Access {
-  match kind {
-    ReferenceKind::Declaration => return Access::Declaration,
-    ReferenceKind::Call | ReferenceKind::MemberCall => return Access::Call,
-    _ => {}
-  }
-  let mut current = node.parent();
-  while let Some(parent) = current {
-    match parent.kind() {
-      "use_declaration" => return Access::Import,
-      "assignment_expression" | "compound_assignment_expr" => {
-        let left = parent.child_by_field_name("left");
-        return if left.is_some_and(|it| it.end_byte() == node.end_byte() && it.start_byte() <= node.start_byte()) {
-          Access::Write
-        } else {
-          Access::Read
-        };
-      }
-      kind if SCOPES.contains(&kind) => return Access::Read,
-      _ => {}
-    }
-    current = parent.parent();
-  }
-  Access::Read
-}
-
-/// The kind of a name by its parent, and the qualifier before it
-fn kind_of(node: Node<'_>, text: &str) -> (ReferenceKind, Option<String>) {
-  let Some(parent) = node.parent() else { return (ReferenceKind::Value, None) };
-  let text_of = |it: Node<'_>| text.get(it.byte_range()).unwrap_or_default().to_string();
-  let is_callee = |expression: Node<'_>| {
-    expression
-      .parent()
-      .is_some_and(|call| call.kind() == "call_expression" && call.child_by_field_name("function") == Some(expression))
-  };
-  if declared_name(parent).is_some_and(|it| it == node) || is_pattern_name(node) {
-    return (ReferenceKind::Declaration, None);
-  }
-  match parent.kind() {
-    // Rust `a.b`
-    "field_expression" if parent.child_by_field_name("field") == Some(node) => {
-      let object = parent.child_by_field_name("value");
-      let kind = if is_callee(parent) { ReferenceKind::MemberCall } else { ReferenceKind::Member };
-      (kind, object.map(text_of))
-    }
-    // Rust `a::b`
-    "scoped_identifier" | "scoped_type_identifier" if parent.child_by_field_name("name") == Some(node) => {
-      let kind = if parent.kind() == "scoped_type_identifier" {
-        ReferenceKind::Type
-      } else if is_callee(parent) {
-        ReferenceKind::MemberCall
-      } else {
-        ReferenceKind::Member
-      };
-      (kind, parent.child_by_field_name("path").map(text_of))
-    }
-    _ if node.kind() == "type_identifier" => (ReferenceKind::Type, None),
-    _ if is_callee(node) => (ReferenceKind::Call, None),
-    _ => (ReferenceKind::Value, None),
-  }
-}
-
-/// The declaration of `name` in the scopes around `node`: the nearest scope that declares it, the last declaration before
-/// the name in it, else the first (a member declared after its use, a hoisted function)
-fn local_declaration<'tree>(node: Node<'tree>, name: &str, text: &str) -> Option<Node<'tree>> {
-  let mut scope = node.parent();
-  while let Some(current) = scope {
-    if SCOPES.contains(&current.kind()) || current.parent().is_none() || current.kind().ends_with("_body") {
-      let mut found: Vec<Node<'tree>> = Vec::new();
-      collect_declarations(current, name, text, &mut found);
-      let before = found.iter().rev().find(|it| it.start_byte() <= node.start_byte()).copied();
-      if let Some(declaration) = before.or_else(|| found.first().copied()) {
-        return Some(declaration);
-      }
-    }
-    scope = current.parent();
-  }
-  None
-}
-
-/// The names `scope` declares as `name`, without those of the scopes inside it but with their own names (a function
-/// in a class declares its name in the class)
-fn collect_declarations<'tree>(scope: Node<'tree>, name: &str, text: &str, found: &mut Vec<Node<'tree>>) {
-  let mut stack: Vec<Node<'tree>> = Vec::new();
-  let mut cursor = scope.walk();
-  stack.extend(scope.named_children(&mut cursor));
-  stack.extend(parameters_of(scope));
-  while let Some(node) = stack.pop() {
-    if let Some(declared) = declared_name(node)
-      && text.get(declared.byte_range()) == Some(name)
-    {
-      found.push(declared);
-    }
-    for pattern_name in pattern_names(node) {
-      if text.get(pattern_name.byte_range()) == Some(name) {
-        found.push(pattern_name);
-      }
-    }
-    if SCOPES.contains(&node.kind()) {
-      continue;
-    }
-    let mut inner = node.walk();
-    stack.extend(node.named_children(&mut inner));
-  }
-  found.sort_by_key(Node::start_byte);
-  found.dedup_by_key(|it| it.id());
-}
-
-/// The parameters of a function scope, which lie beside its body
-fn parameters_of(scope: Node<'_>) -> Option<Node<'_>> {
-  scope.child_by_field_name("parameters")
-}
-
-/// The name a declaration node declares
-fn declared_name(node: Node<'_>) -> Option<Node<'_>> {
-  if is_declaration_kind(node.kind()) {
-    node.child_by_field_name("name").filter(|it| NAMES.contains(&it.kind()))
-  } else {
-    None
-  }
-}
-
-/// A node that declares the name in its `name` field: not a call or a path, which have one too
-fn is_declaration_kind(kind: &str) -> bool {
-  let suffix = [
-    "_declaration",
-    "_declarator",
-    "_definition",
-    "_signature",
-    "parameter",
-    "_constant",
-    "_variant",
-    "_component",
-  ]
-  .iter()
-  .any(|it| kind.ends_with(it));
-  suffix || (kind.ends_with("_item") && !matches!(kind, "use_item" | "macro_invocation"))
-}
-
-/// Whether a name is one that a pattern around it binds (`total` of `let mut total`, of `let (total, _)`)
-fn is_pattern_name(node: Node<'_>) -> bool {
-  let mut current = node.parent();
-  for _ in 0..6 {
-    let Some(ancestor) = current else { return false };
-    if pattern_names(ancestor).contains(&node) {
-      return true;
-    }
-    current = ancestor.parent();
-  }
-  false
-}
-
-/// The names a pattern binds: a Rust `let`, a parameter
-fn pattern_names(node: Node<'_>) -> Vec<Node<'_>> {
-  let pattern = match node.kind() {
-    "let_declaration" | "parameter" => node.child_by_field_name("pattern"),
-    _ => None,
-  };
-  let Some(pattern) = pattern else { return Vec::new() };
-  let mut names = Vec::new();
-  let mut stack = vec![pattern];
-  while let Some(it) = stack.pop() {
-    if it.kind() == "identifier" {
-      names.push(it);
-    } else if !matches!(it.kind(), "type_annotation" | "type_identifier" | "primitive_type") {
-      let mut cursor = it.walk();
-      stack.extend(it.named_children(&mut cursor));
-    }
-  }
-  names
 }
 
 /// The byte offset of a line and UTF-16 column, with the lines as the view splits them; `None` past the last line

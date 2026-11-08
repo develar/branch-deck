@@ -743,6 +743,22 @@ flowchart TD
     same before and after. On one thread the checkout's Rust files take 7.3 to 7.7 s against tree-sitter's 8.0 s,
     rust-analyzer's validation included.
 
+    The navigation of the diffs (`rust/navigate.rs`, [Symbol Navigation](../../spec/commit/symbol-navigation.spec.md))
+    reads the same tree by the scopes of the tree-sitter one (a block, a function, a closure, an `impl`, a trait, a
+    module, a match arm, a `for`): a binding of any pattern is a declaration (tree-sitter's read only a `let`'s and a
+    typed parameter's), a capitalized name alone in a pattern is a value (tree-sitter's took `Some` of `let Some(x)` for
+    a declaration), an item's attributes are in its scopes (`skip(ctx)` of `#[instrument]` names the parameter), and a
+    lifetime, a label, `Self`, `_`, a `#[cfg]` predicate, a metavariable or fragment of a macro and a keyword among its
+    tokens are no names (tree-sitter's read `'a` as the value `a`); an associated type is a declaration, a generic
+    callee (`transmute::<A, B>(x)`) a call, the crate of `extern crate` a value, and a word that edition 2021 reserves
+    (`async`, `try`, `dyn` of 2015 code) no name. On Branch Deck's 1 332 `.rs` files the probes of 414 moved, on the
+    checkout's 21 092 those of 6 045, each by one of these readings (3 472 probes that were values are no names now,
+    lifetimes, `Self`, `#[cfg]` predicates and keywords; 934 values and 371 types are declarations, pattern bindings and
+    associated types); the navigation takes 25.9 s summed against tree-sitter's 82.4 s on Branch Deck, 25.9 s against
+    966 s on the checkout (tree-sitter's spent over 300 s on one file, a type nested a thousand generics deep).
+
+    [@test] ../../crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `a_variant_in_a_pattern_is_no_declaration`, `the_names_of_an_attribute_are_in_the_scopes_of_its_item`, `what_is_no_name`, `the_kinds_of_paths_and_calls`, `deep_nesting_is_navigated_on_a_small_stack`)
+
 27. **Decision**: a TypeScript, TSX or JavaScript file is read by psi-syntax's `js-syntax`, oxc's parser with what every
     reader of psi-syntax shares of its parse (the dialect of the extension, decision 6, the options, the recovery of a
     fatal parse by blanking the region of its error, the stack of a parse and its walks; accio decision
