@@ -576,8 +576,9 @@ and what each newly uses. The review opens on it ([Review Tour](review-tour.spec
   parse), the rest `resources`; its lines `additions` and `deletions` over the range, by the blocks of each file, of a
   file the range adds or deletes the lines it leaves or had, as the diff of the range counts them; its
   `directories` below the root without a leading source directory (`src`, `testSrc`, `main`, `kotlin`, `java`,
-  `resources`, …), by their first two levels, the most files first.
-  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`, `a_file_the_range_adds_counts_the_lines_its_commits_leave`)
+  `resources`, …) and the folders every file of it shares (the packages `com/example/player` of a module of Java or
+  Kotlin), by their first two levels, the most files first.
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`, `a_file_the_range_adds_counts_the_lines_its_commits_leave`, `the_folders_of_a_module_start_below_the_packages_its_files_share`)
 - A module must list the modules of the review it newly `uses`: by the links the commits add from its files to theirs
   (`new_between_modules`), and `declared` when a dependency entry its build files add, or one a build file the commits
   add declares, names that module; `usedBy` the reverse; `contentOf` the plugin modules whose descriptors the commits

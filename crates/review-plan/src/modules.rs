@@ -14,8 +14,9 @@
 //! - **Its files** by role: `build` (the build model, a manifest, the list of a module: `MechanicalKind::BuildModel` and
 //!   `ModuleList`), `prose` (Markdown and the like), `tests` (the test paths of `files::test_subject`), `code` (a
 //!   language `code_symbols` parses), the rest `resources`; its lines added and removed over the range.
-//! - **Its directories**: below the root, without a leading source directory (`src`, `testSrc`, `main`, `kotlin`, …),
-//!   by their first two levels, the most files first.
+//! - **Its directories**: below the root, without a leading source directory (`src`, `testSrc`, `main`, `kotlin`, …)
+//!   and the folders every file of it shares (the packages `com/example/player`), by their first two levels, the most
+//!   files first.
 //! - **What it newly uses**: the modules of the review its files link to by links the commits add
 //!   (`FileLink::new_between_modules`), and those a dependency entry its build files add names (`declared`); the plugin
 //!   modules whose descriptors add it as content (`content_of`); the entries its build files add that name no module
@@ -211,7 +212,19 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
     let (additions, deletions) = line_counts(file, input.pairs.get(index));
     shape.additions += additions;
     shape.deletions += deletions;
-    *directories[module].entry(directory_below(file.path, &roots[index])).or_default() += 1;
+  }
+  // the folders of each module below the directories every file of it shares (`com/example/player` of a package)
+  for (module, root) in distinct.iter().enumerate() {
+    let paths: Vec<&str> = changed
+      .iter()
+      .enumerate()
+      .filter(|(index, _)| place[roots[*index].as_str()] == module)
+      .map(|(_, file)| file.path)
+      .collect();
+    let shared = shared_folders(&paths, root);
+    for path in paths {
+      *directories[module].entry(directory_below(path, root, shared)).or_default() += 1;
+    }
   }
   for (shape, found) in shapes.iter_mut().zip(directories) {
     let mut found: Vec<ModuleDirectory> = found.into_iter().map(|(path, files)| ModuleDirectory { path, files }).collect();
@@ -391,21 +404,35 @@ fn line_counts(file: &ChangedFile<'_>, pair: Option<&PairBlocks>) -> (u32, u32) 
   }
 }
 
-/// The directory of `path` below `root`, without a leading source directory, at most two levels
-pub(crate) fn directory_below(path: &str, root: &str) -> String {
+/// The folders of `path` below `root`, without a leading source directory (`src`, `testSrc`, `main`, …)
+fn folders_below<'a>(path: &'a str, root: &str) -> Vec<&'a str> {
   let below = if root.is_empty() {
     path
   } else {
     path.strip_prefix(root).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path)
   };
   let directory = below.rsplit_once('/').map_or("", |(directory, _)| directory);
-  let segments: Vec<&str> = directory
+  directory
     .split('/')
     .filter(|segment| !segment.is_empty())
     .skip_while(|segment| SOURCE_DIRECTORIES.contains(segment))
-    .take(2)
-    .collect();
-  segments.join("/")
+    .collect()
+}
+
+/// How many folders below `root` every one of `paths` shares, as the packages of a Java or Kotlin module do
+/// (`com/example/player`), the last folder of the deepest kept: what tells them apart is below them
+pub(crate) fn shared_folders(paths: &[&str], root: &str) -> usize {
+  let folders: Vec<Vec<&str>> = paths.iter().map(|path| folders_below(path, root)).collect();
+  let Some(first) = folders.first() else { return 0 };
+  let shared = (0..first.len()).take_while(|&at| folders.iter().all(|other| other.get(at) == first.get(at))).count();
+  // a module whose files share every folder keeps its last one, so its one folder still has a name
+  shared.min(folders.iter().map(Vec::len).min().unwrap_or(0).saturating_sub(1))
+}
+
+/// The directory of `path` below `root`, without a leading source directory and the `shared` folders of its module, at
+/// most two levels
+pub(crate) fn directory_below(path: &str, root: &str, shared: usize) -> String {
+  folders_below(path, root).into_iter().skip(shared).take(2).collect::<Vec<_>>().join("/")
 }
 
 /// The shortest suffix of each root no other root shares, of two directories at least when the last has no `.`, `-`

@@ -222,6 +222,7 @@ fn a_large_step_of_one_module_reads_by_its_folders() {
     .collect();
   assert_eq!(
     found,
-    [(GroupKind::Folder, "ui/embeds".to_string(), 14), (GroupKind::Folder, "ui/markdown".to_string(), 12)]
+    // the folder every file shares (`ui`) names none of them
+    [(GroupKind::Folder, "embeds".to_string(), 14), (GroupKind::Folder, "markdown".to_string(), 12)]
   );
 }
