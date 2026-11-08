@@ -1,5 +1,6 @@
 import { Fragment } from "react"
 import { cn } from "cn"
+import { ContractList } from "@/components/review/ContractList"
 import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBody, SubjectBefore } from "@/components/review/StoryBody"
 import { BreakableCode } from "@/components/shared/CodeText"
@@ -86,6 +87,8 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         </p>
       )}
       <StepFactsLine facts={facts} testId="review-opening-facts" lines />
+      {/* What Changes of the step: the rules of its specs and the prose of its docs, under its story */}
+      <ContractList contract={opening.contract} title="Contract" />
       {group !== null && (
         <span data-testid="review-section-heading" className="text-xs text-muted-foreground">
           {group}

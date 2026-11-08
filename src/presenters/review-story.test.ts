@@ -351,17 +351,9 @@ describe("the document of a review", () => {
       false,
     )
     expect([view.issue, view.title, view.untold, view.source]).toEqual([null, "feature/layout", null, null])
-    expect(view.contract.map(file => [file.path, file.kind, file.entries.map(entry => [entry.heading, paragraphsOf(entry).map(it => it.text), entry.provenBy])])).toEqual([
-      [
-        "spec/a.spec.md",
-        "Spec rule",
-        [
-          ["Startup", ["The window keeps its layout."], "Proven by restart.json"],
-          ["Restart", ["The restart keeps it."], null],
-        ],
-      ],
-      ["docs/b.md", "Spec rule", [["Why", ["Because."], null]]],
-    ])
+    // the steps are told: What Changes is quoted in the opening of the step that changes it, the map names it in one line
+    expect(view.contract).toEqual([])
+    expect(view.map.contract).toEqual({ newSpecs: [], changed: "2 specs changed" })
     expect(
       view.steps.map(it => [
         it.number,
@@ -716,6 +708,38 @@ describe("the document of a review", () => {
       ["Reworded Style: message changed", 1],
       ["Rewritten Log out: src/Out.kt +0 −1", null],
     ])
+  })
+
+  it("quotes What Changes in the opening of the step whose stops show its entry, each entry in one step", () => {
+    const steps = [
+      step("a", [commit("the rule")], [["other:spec/a.spec.md", "spec/a.spec.md"]]),
+      step(
+        "b",
+        [commit("the doc")],
+        [
+          ["other:docs/b.md", "docs/b.md"],
+          ["other:spec/a.spec.md", "spec/a.spec.md"],
+        ],
+      ),
+    ]
+    const openings = presentOpenings(
+      plan(steps, [story("the rule", [paragraph("One rule decides.")]), story("the doc", [paragraph("The doc says why.")])], {
+        files: [{ path: "spec/a.spec.md", oldPath: null } as FileFacts, { path: "docs/b.md", oldPath: null } as FileFacts],
+        brief: {
+          issue: null,
+          substitutions: [],
+          contract: [
+            contract("spec/a.spec.md", "Startup", ["The window keeps its layout."], ["tests/restart.json"]),
+            { ...contract("docs/b.md", "Why", ["Because."]), kind: "doc" },
+          ],
+        },
+      }),
+    )
+    const quoted = (id: string) =>
+      openings.get(id)!.contract.map(file => [file.path, file.kind, file.entries.map(entry => [entry.heading, paragraphsOf(entry).map(it => it.text), entry.provenBy])])
+    expect(quoted("a")).toEqual([["spec/a.spec.md", "Spec rule", [["Startup", ["The window keeps its layout."], "Proven by restart.json"]]]])
+    // the spec is quoted in the first step that shows it, the doc in its own
+    expect(quoted("b")).toEqual([["docs/b.md", "Doc", [["Why", ["Because."], null]]]])
   })
 
   it("opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places", () => {

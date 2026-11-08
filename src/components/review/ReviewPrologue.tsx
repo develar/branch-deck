@@ -3,12 +3,12 @@ import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { ContractParagraphView, ContractTableView } from "@/components/review/ContractParagraphView"
+import { ContractList, FileButton } from "@/components/review/ContractList"
 import { MessageChangeView } from "@/components/review/MessageChangeView"
+import { ReviewMap } from "@/components/review/ReviewMap"
 import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
 import { BreakableCode } from "@/components/shared/CodeText"
@@ -21,8 +21,6 @@ import { useRowCardHover } from "@/hooks/useRowCardHover"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewCommit } from "@/lib/bindings"
 import { toCardCommit } from "@/lib/commit"
-import type { ReviewPlace } from "@/lib/review-place"
-import { fileTop } from "@/lib/review-place"
 import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { BreakageEntry } from "@/presenters/review-plan"
 import type { ContentsStep, PrologueView, StoryView } from "@/presenters/review-story"
@@ -92,6 +90,7 @@ export function ReviewPrologue({
           <StoryBody story={view.untold.story} />
         </div>
       )}
+      {view !== null && <ReviewMap view={view.map} />}
       {view !== null && <PrologueSections view={view} />}
     </ReadingColumn>
   )
@@ -193,122 +192,12 @@ function CommitPart({ commit: { commit, action, menu }, story }: { commit: Prolo
   )
 }
 
-/** What Changes, the steps, Possible Breakage and what changed since the review */
+/** Possible Breakage, the steps, What Changes of a review whose steps are not told, and what changed since the review */
 function PrologueSections({ view }: { view: PrologueView }) {
   const navigator = useSelectReviewFile()
   const { breakage, since } = view
   return (
     <>
-      {view.contract.length > 0 && (
-        <div className="flex flex-col gap-2" data-testid="review-brief-contract">
-          <SectionLabel title="What Changes" className="text-sm font-semibold text-foreground" />
-          {view.substitutions.map(substitution => (
-            <div key={substitution.key} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm" data-testid="review-brief-substitution">
-              <span>
-                Renames <code>{substitution.from}</code> → <code>{substitution.to}</code> · {substitution.summary}
-              </span>
-              {substitution.files.length > 0 && (
-                <span className="flex flex-wrap items-baseline gap-x-1.5">
-                  <span aria-hidden="true">·</span>
-                  {substitution.files.slice(0, 3).map(file =>
-                    file.place === null ? (
-                      <span key={file.path} className="text-muted-foreground">
-                        {file.name}
-                      </span>
-                    ) : (
-                      <FileButton key={file.path} place={file.place} title={file.path} testId="review-brief-substitution-file">
-                        <span className="text-foreground">{file.name}</span>
-                      </FileButton>
-                    ),
-                  )}
-                  {substitution.files.length > 3 && (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <button
-                            type="button"
-                            className="rounded-sm px-1 text-muted-foreground underline decoration-dotted underline-offset-2 outline-none hover:bg-muted hover:text-foreground focus-visible:bd-focus"
-                            aria-label={`Show ${substitution.files.length - 3} more files`}
-                            data-testid="review-brief-substitution-more"
-                          />
-                        }
-                      >
-                        and {substitution.files.length - 3} more
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-sm whitespace-pre-line">{substitution.allFiles}</TooltipContent>
-                    </Tooltip>
-                  )}
-                </span>
-              )}
-            </div>
-          ))}
-          <ul className="flex flex-col gap-5">
-            {view.contract.map(file => (
-              <li key={file.key} className="flex min-w-0 flex-col gap-3" data-testid="review-brief-contract-entry" data-path={file.path}>
-                <span className="flex min-w-0 items-center gap-2 text-sm">
-                  <Badge variant="secondary">{file.kind}</Badge>
-                  <FileButton place={fileTop(file.path)} title={file.path} testId="review-brief-contract-file">
-                    <span className="min-w-0">
-                      {file.path.includes("/") && (
-                        <span className="text-muted-foreground">
-                          <BreakableCode text={file.path.slice(0, file.path.lastIndexOf("/") + 1)} />
-                        </span>
-                      )}
-                      <span className="font-semibold text-foreground">
-                        <BreakableCode text={file.path.slice(file.path.lastIndexOf("/") + 1)} />
-                      </span>
-                    </span>
-                  </FileButton>
-                </span>
-                <div className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
-                  {file.entries.map(entry => (
-                    // the heading of the section once, its tests, then its paragraphs whole and its tables, half a line apart
-                    <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-                      {(entry.heading !== null || entry.provenBy !== null) && (
-                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                          {entry.heading !== null && <h3 className="min-w-0 text-sm font-semibold">{entry.heading}</h3>}
-                          {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
-                        </div>
-                      )}
-                      {entry.blocks.map(block =>
-                        block.kind === "table" ? (
-                          <ContractTableView key={block.key} table={block} />
-                        ) : (
-                          <ContractParagraphView key={block.paragraph.key} paragraph={block.paragraph} />
-                        ),
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {view.steps.length > 0 && (
-        <div className="flex flex-col gap-2" data-testid="review-contents">
-          <div className="flex flex-col gap-0.5">
-            <SectionLabel title="Steps" count={view.steps.filter(step => step.number !== null).length} className="text-sm font-semibold text-foreground" />
-            {/* why the steps are tasks, right under their count, not at the far end of the column */}
-            {view.source !== null && (
-              <p className="text-xs text-muted-foreground" data-testid="review-contents-source">
-                {view.source}
-              </p>
-            )}
-          </div>
-          <ol className="flex flex-col gap-3">
-            {view.steps.map(step => (
-              <ContentsItem key={step.id} step={step} onShow={navigator === null ? null : () => navigator.showStep(step.id)} />
-            ))}
-          </ol>
-        </div>
-      )}
-      {view.facts !== null && <StepFactsLine facts={view.facts} testId="review-overview-facts" lines />}
-      {view.indexNote !== null && !view.indexNote.underBreakage && (
-        <p className="text-xs text-muted-foreground" data-testid="review-plan-index-note">
-          {view.indexNote.text}
-        </p>
-      )}
       {(breakage.entries.length > 0 || breakage.unbroken !== null || view.indexNote?.underBreakage === true) && (
         <div className="flex flex-col gap-1.5" data-testid="review-plan-breakage">
           {breakage.entries.length > 0 && (
@@ -347,6 +236,31 @@ function PrologueSections({ view }: { view: PrologueView }) {
           )}
         </div>
       )}
+      {view.steps.length > 0 && (
+        <div className="flex flex-col gap-2" data-testid="review-contents">
+          <div className="flex flex-col gap-0.5">
+            <SectionLabel title="Steps" count={view.steps.filter(step => step.number !== null).length} className="text-sm font-semibold text-foreground" />
+            {/* why the steps are tasks, right under their count, not at the far end of the column */}
+            {view.source !== null && (
+              <p className="text-xs text-muted-foreground" data-testid="review-contents-source">
+                {view.source}
+              </p>
+            )}
+          </div>
+          <ol className="flex flex-col gap-3">
+            {view.steps.map(step => (
+              <ContentsItem key={step.id} step={step} onShow={navigator === null ? null : () => navigator.showStep(step.id)} />
+            ))}
+          </ol>
+        </div>
+      )}
+      {view.facts !== null && <StepFactsLine facts={view.facts} testId="review-overview-facts" lines />}
+      {view.indexNote !== null && !view.indexNote.underBreakage && (
+        <p className="text-xs text-muted-foreground" data-testid="review-plan-index-note">
+          {view.indexNote.text}
+        </p>
+      )}
+      <ContractList contract={view.contract} substitutions={view.substitutions} title={view.contract.length === 0 ? null : "What Changes"} />
       {since !== null && (
         <div className="flex flex-col gap-0.5" data-testid="review-plan-since">
           <span>{since.summary}</span>
@@ -495,32 +409,5 @@ function EntryForm({ sign, form, testId }: { sign: string; form: string; testId:
       </span>
       <span className="min-w-0 [overflow-wrap:anywhere] whitespace-pre-line">{form}</span>
     </code>
-  )
-}
-
-/**
- * What a click shows in the review: a changed file, by its path or its old path, at the line of the entry; plain text
- * outside a review
- */
-function FileButton({ place, title, testId = "review-plan-file", children }: { place: ReviewPlace; title: string; testId?: string; children: ReactNode }) {
-  const navigator = useSelectReviewFile()
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            className="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
-            disabled={navigator === null}
-            data-testid={testId}
-            data-path={place.path}
-            onClick={() => navigator?.show(place)}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{title}</TooltipContent>
-    </Tooltip>
   )
 }

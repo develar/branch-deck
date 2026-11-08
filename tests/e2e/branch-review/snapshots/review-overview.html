@@ -4,51 +4,58 @@
       layout
     </h2>
   </div>
-  <div class="flex flex-col gap-2" data-testid="review-brief-contract">
-    <div class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
-      <span class="truncate">
-        What Changes
+  <div class="flex min-w-0 flex-col gap-2" data-testid="review-map">
+    <div class="flex min-w-0 items-baseline gap-2 text-sm" data-testid="review-map-contract">
+      <h3 class="w-20 shrink-0 font-semibold">
+        Contract
+      </h3>
+      <span class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span class="flex min-w-0 items-baseline gap-1 text-muted-foreground">
+          <span class="truncate">
+            1 spec changed
+          </span>
+        </span>
       </span>
     </div>
-    <ul class="flex flex-col gap-5">
-      <li class="flex min-w-0 flex-col gap-3" data-path="spec/window.spec.md" data-testid="review-brief-contract-entry">
-        <span class="flex min-w-0 items-center gap-2 text-sm">
-          <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
-            Spec rule
-          </span>
-          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="spec/window.spec.md" data-slot="tooltip-trigger" data-testid="review-brief-contract-file" id="base-ui-[ID]" type="button">
-            <span class="min-w-0">
-              <span class="text-muted-foreground">
-                spec/
-              </span>
-              <span class="font-semibold text-foreground">
-                window.spec.md
-              </span>
-            </span>
-          </button>
+    <div class="flex min-w-0 items-baseline gap-2 text-sm" data-testid="review-map-api">
+      <h3 class="w-20 shrink-0 font-semibold">
+        API
+      </h3>
+      <span class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span class="flex min-w-0 items-baseline gap-1 text-muted-foreground" data-testid="review-map-verdict">
+          No use left outside breaks
         </span>
-        <div class="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
-          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <h3 class="min-w-0 text-sm font-semibold">
-                Requirements
-              </h3>
-              <span class="text-xs text-muted-foreground">
-                Proven by restart.json
+      </span>
+    </div>
+  </div>
+  <div class="flex flex-col gap-1.5" data-testid="review-plan-breakage">
+    <div class="flex min-w-0 flex-col gap-1.5 text-xs font-medium" data-closed="" data-slot="collapsible" data-testid="review-plan-unbroken">
+      <button aria-expanded="false" class="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:bd-focus text-muted-foreground hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
+        <span class="min-w-0">
+          No use left outside breaks · 1 API change
+        </span>
+      </button>
+      <div class="pl-[1.125rem]" data-closed="" data-slot="collapsible-content" data-starting-style="" hidden="until-found" id="base-ui-[ID]">
+        <ul aria-label="API changes no use left outside breaks" class="flex flex-col gap-0.5">
+          <li class="flex min-w-0 items-center gap-2" data-name="hooks" data-testid="review-plan-unbroken-entry">
+            <span class="group/badge inline-flex h-5 w-fit items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-destructive/10 text-destructive dark:bg-destructive/20 [a]:hover:bg-destructive/20 shrink-0" data-slot="badge" data-variant="destructive">
+              Removed
+            </span>
+            <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="src/a/Manager.kt" data-slot="tooltip-trigger" data-testid="review-plan-file" id="base-ui-[ID]" type="button">
+              <code class="shrink-0 font-mono">
+                hooks
+              </code>
+              <span class="min-w-0 truncate text-xs text-muted-foreground" dir="rtl">
+                <bdi dir="ltr">
+                  src/a/Manager.kt:6
+                </bdi>
               </span>
-            </div>
-            <p class="-ml-[14px] border-l-2 border-success pl-3" data-change="added" data-testid="review-brief-paragraph">
-              <span class="sr-only">
-                Added:
-              </span>
-              <span>
-                The window keeps its stored layout across a restart, and the project view does not take the place of another tool window.
-              </span>
-            </p>
-          </div>
-        </div>
-      </li>
-    </ul>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
   </div>
   <div class="flex flex-col gap-2" data-testid="review-contents">
     <div class="flex flex-col gap-0.5">
@@ -216,34 +223,5 @@
         </div>
       </li>
     </ol>
-  </div>
-  <div class="flex flex-col gap-1.5" data-testid="review-plan-breakage">
-    <div class="flex min-w-0 flex-col gap-1.5 text-xs font-medium" data-closed="" data-slot="collapsible" data-testid="review-plan-unbroken">
-      <button aria-expanded="false" class="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:bd-focus text-muted-foreground hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
-        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
-        <span class="min-w-0">
-          No use left outside breaks · 1 API change
-        </span>
-      </button>
-      <div class="pl-[1.125rem]" data-closed="" data-slot="collapsible-content" data-starting-style="" hidden="until-found" id="base-ui-[ID]">
-        <ul aria-label="API changes no use left outside breaks" class="flex flex-col gap-0.5">
-          <li class="flex min-w-0 items-center gap-2" data-name="hooks" data-testid="review-plan-unbroken-entry">
-            <span class="group/badge inline-flex h-5 w-fit items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-destructive/10 text-destructive dark:bg-destructive/20 [a]:hover:bg-destructive/20 shrink-0" data-slot="badge" data-variant="destructive">
-              Removed
-            </span>
-            <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="src/a/Manager.kt" data-slot="tooltip-trigger" data-testid="review-plan-file" id="base-ui-[ID]" type="button">
-              <code class="shrink-0 font-mono">
-                hooks
-              </code>
-              <span class="min-w-0 truncate text-xs text-muted-foreground" dir="rtl">
-                <bdi dir="ltr">
-                  src/a/Manager.kt:6
-                </bdi>
-              </span>
-            </button>
-          </li>
-        </ul>
-      </div>
-    </div>
   </div>
 </section>

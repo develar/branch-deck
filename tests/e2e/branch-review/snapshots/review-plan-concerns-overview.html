@@ -38,106 +38,19 @@
       </div>
     </div>
   </div>
-  <div class="flex flex-col gap-2" data-testid="review-brief-contract">
-    <div class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
-      <span class="truncate">
-        What Changes
+  <div class="flex min-w-0 flex-col gap-2" data-testid="review-map">
+    <div class="flex min-w-0 items-baseline gap-2 text-sm" data-testid="review-map-contract">
+      <h3 class="w-20 shrink-0 font-semibold">
+        Contract
+      </h3>
+      <span class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span class="flex min-w-0 items-baseline gap-1 text-muted-foreground">
+          <span class="truncate">
+            2 docs changed
+          </span>
+        </span>
       </span>
     </div>
-    <ul class="flex flex-col gap-5">
-      <li class="flex min-w-0 flex-col gap-3" data-path="docs/guide.md" data-testid="review-brief-contract-entry">
-        <span class="flex min-w-0 items-center gap-2 text-sm">
-          <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
-            Doc
-          </span>
-          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="docs/guide.md" data-slot="tooltip-trigger" data-testid="review-brief-contract-file" id="base-ui-[ID]" type="button">
-            <span class="min-w-0">
-              <span class="text-muted-foreground">
-                docs/
-              </span>
-              <span class="font-semibold text-foreground">
-                guide.md
-              </span>
-            </span>
-          </button>
-        </span>
-        <div class="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
-          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <h3 class="min-w-0 text-sm font-semibold">
-                Guide
-              </h3>
-            </div>
-            <p data-change="changed" data-testid="review-brief-paragraph">
-              <span>
-                Search the source with
-              </span>
-              <span class="whitespace-nowrap [&_*]:whitespace-normal">
-                <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-explicit="" data-slot="inline-code" data-testid="review-brief-code-chip">
-                  <del class="me-0.5 text-muted-foreground decoration-destructive/70" data-testid="review-brief-deleted">
-                    grep
-                  </del>
-                  <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
-                    accio
-                  </ins>
-                </code>
-                .
-              </span>
-              <span />
-            </p>
-          </div>
-          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <h3 class="min-w-0 text-sm font-semibold">
-                Servers
-              </h3>
-            </div>
-          </div>
-        </div>
-      </li>
-      <li class="flex min-w-0 flex-col gap-3" data-path="docs/tools.md" data-testid="review-brief-contract-entry">
-        <span class="flex min-w-0 items-center gap-2 text-sm">
-          <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
-            Doc
-          </span>
-          <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="docs/tools.md" data-slot="tooltip-trigger" data-testid="review-brief-contract-file" id="base-ui-[ID]" type="button">
-            <span class="min-w-0">
-              <span class="text-muted-foreground">
-                docs/
-              </span>
-              <span class="font-semibold text-foreground">
-                tools.md
-              </span>
-            </span>
-          </button>
-        </span>
-        <div class="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
-          <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-            <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <h3 class="min-w-0 text-sm font-semibold">
-                Tools
-              </h3>
-            </div>
-            <p data-change="changed" data-testid="review-brief-paragraph">
-              <span class="whitespace-nowrap [&_*]:whitespace-normal">
-                <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-explicit="" data-slot="inline-code" data-testid="review-brief-code-chip">
-                  <del class="me-0.5 text-muted-foreground decoration-destructive/70" data-testid="review-brief-deleted">
-                    grep
-                  </del>
-                  <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
-                    accio
-                  </ins>
-                </code>
-                :
-              </span>
-              <span>
-                the text of the source
-              </span>
-            </p>
-          </div>
-        </div>
-      </li>
-    </ul>
   </div>
   <div class="flex flex-col gap-2" data-testid="review-contents">
     <div class="flex flex-col gap-0.5">

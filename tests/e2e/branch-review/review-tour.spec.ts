@@ -101,12 +101,15 @@ test.describe("Review tour", () => {
       const overview = window.getByTestId("review-overview")
       const bar = window.getByTestId("review-step-bar")
 
-      // the document opens on its overview: the branch, what changes in the words of the spec, proven by the test its
-      // link names
+      // the document opens on its overview: the branch, its contract in one line; the opening of its step quotes the rule
+      // in the words of the spec, proven by the test its link names
       await expect(bar).toHaveText("Overview·4 steps")
       // the branch as the title bar names it
       await expect(overview.getByTestId("review-overview-headline")).toHaveText("layout")
-      const rule = overview.getByTestId("review-brief-contract-entry")
+      // the map names the contract in one line; the rule itself is quoted in the opening of the step that changes it
+      await expect(overview.getByTestId("review-map-contract")).toHaveText("Contract1 spec changed")
+      await expect(overview.getByTestId("review-brief-contract-entry")).toHaveCount(0)
+      const rule = window.getByTestId("review-opening").getByTestId("review-brief-contract-entry")
       await expect(rule).toContainText("Spec rule")
       await expect(rule).toContainText("The window keeps its stored layout across a restart, and the project view does not take the place of another tool window.")
       await expect(rule).toContainText("Proven by restart.json")
@@ -1100,9 +1103,14 @@ test.describe("Review tour", () => {
       "the layout file keeps the tool window in focus",
       "IJAI-1184 the store drops only the layouts no pinned tool window holds",
     ])
-    // one section once, its paragraphs whole: never the changed lines of a hard-wrapped paragraph
-    const storage = overview.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Storage", exact: true }) })
-    await expect(storage).toHaveCount(1)
+    // What Changes of the steps in their openings, the map names the contract in one line
+    await expect(overview.getByTestId("review-map-contract")).toBeVisible()
+    await expect(overview.getByTestId("review-brief-contract-entry")).toHaveCount(0)
+    const openings = window.getByTestId("review-opening")
+    // a section in the opening of each step that changes it, its paragraphs whole: never the changed lines of a
+    // hard-wrapped paragraph
+    const storage = openings.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Storage", exact: true }) })
+    await expect(storage).toHaveCount(2)
     const paragraphs = storage.getByTestId("review-brief-paragraph")
     await expect(paragraphs).toHaveCount(3)
     // the long paragraph shows the sentence of its change, what the change wrote and what it removed in place
@@ -1124,7 +1132,7 @@ test.describe("Review tour", () => {
     await expect(added).toContainText("The focus of a tool window is a fact the window derives from the last click. Window Focus owns its rules.")
     await added.getByTestId("review-brief-link").click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "spec/focus.spec.md", exact: true })).toHaveAttribute("aria-selected", "true")
-    await captureHtmlSnapshot(overview.getByTestId("review-brief-contract"), "review-brief-prose")
+    await captureHtmlSnapshot(openings.first().getByTestId("review-brief-contract"), "review-brief-prose")
   })
 
   test("should quote no front matter and no line of metadata in What Changes, a table of a spec by its added row under its header, and no table of a doc", async ({
@@ -1134,12 +1142,16 @@ test.describe("Review tour", () => {
   }) => {
     turnOnReviewPlan(await setupRepo("review_prose"))
     const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
-    const contract = window.getByTestId("review-overview").getByTestId("review-brief-contract")
+    const contract = window.getByTestId("review-opening").getByTestId("review-brief-contract")
     const spec = contract.getByTestId("review-brief-contract-entry").filter({ hasText: "spec/window.spec.md" })
-    await expect(spec.getByRole("heading", { name: "Storage", exact: true })).toBeVisible()
+    // the spec quoted in the opening of each step that changes it
+    await expect(spec).toHaveCount(2)
+    await expect(spec.getByRole("heading", { name: "Storage", exact: true }).first()).toBeVisible()
     // the path the change adds to the `targets:` of its front matter is no rule
-    await expect(spec).not.toContainText("Layout.kt")
-    await expect(spec).not.toContainText("targets")
+    for (const entry of await spec.all()) {
+      await expect(entry).not.toContainText("Layout.kt")
+      await expect(entry).not.toContainText("targets")
+    }
     // the table of the spec: its header once, muted, then the row the change adds, its cells as cells
     const limits = spec.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Limits", exact: true }) })
     const table = limits.getByRole("table")
@@ -1150,7 +1162,9 @@ test.describe("Review tour", () => {
     await expect(row.getByRole("cell")).toHaveText([/Tool windows$/, "40"])
     // the reference the change adds to its `refs:` line is bookkeeping, as the table of a doc is: only their diffs show them
     await expect(limits).not.toContainText("flow:layout")
-    await expect(contract).not.toContainText("spec:focus")
+    for (const quoted of await contract.all()) {
+      await expect(quoted).not.toContainText("spec:focus")
+    }
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "docs/ownership.md", exact: true })).toBeVisible()
     await expect(contract.getByTestId("review-brief-contract-entry").filter({ hasText: "ownership.md" })).toHaveCount(0)
     await captureHtmlSnapshot(limits, "review-brief-table")
@@ -1164,6 +1178,7 @@ test.describe("Review tour", () => {
     turnOnReviewPlan(await setupRepo("review_prose"))
     const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
     const overview = window.getByTestId("review-overview")
+    // the replacement is of the whole change: once in the overview, its paragraphs quiet in the openings of their steps
     const contract = overview.getByTestId("review-brief-contract")
     const substitution = contract.getByTestId("review-brief-substitution")
     await expect(substitution).toContainText("Renames bd → brd · 9 places in 5 files")
@@ -1184,7 +1199,10 @@ test.describe("Review tour", () => {
     await summaryFile.click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: path, exact: true })).toHaveAttribute("aria-selected", "true")
 
-    const commands = overview.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Commands", exact: true }) })
+    const commands = window
+      .getByTestId("review-opening")
+      .getByTestId("review-brief-section")
+      .filter({ has: window.getByRole("heading", { name: "Commands", exact: true }) })
     const quiet = commands.getByTestId("review-brief-paragraph").filter({ hasText: "to read the whole change." })
     await expect(quiet).toHaveAttribute("data-change", "substituted")
     const quietWord = quiet.getByTestId("review-brief-substitution-word")

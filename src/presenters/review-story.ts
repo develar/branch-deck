@@ -1,4 +1,5 @@
 import type {
+  ContractEntry,
   ApiChange,
   CodeSpan,
   CommitBodyBlock,
@@ -26,6 +27,8 @@ import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
 import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 import type { EvidencePart } from "@/presenters/review-concerns"
 import { presentConcernEvidence } from "@/presenters/review-concerns"
+import type { MapView } from "@/presenters/review-map"
+import { presentMap } from "@/presenters/review-map"
 import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
 import { formatStepNumber, headOf, presentChapters } from "@/presenters/review-steps"
@@ -621,6 +624,12 @@ export interface PrologueView {
    * step; null otherwise
    */
   readonly untold: { readonly subject: string; readonly story: StoryView } | null
+  /** The shape of the change, its contract in one line and the API it opens wider (`presentMap`) */
+  readonly map: MapView
+  /**
+   * What Changes whole: of a review whose steps are not told; with steps each entry is quoted in the opening of the
+   * step that changes it (`OpeningView.contract`) and the map names the contract in one line
+   */
   readonly contract: readonly ContractFile[]
   /** The mechanical replacements shared by the paragraphs of What Changes */
   readonly substitutions: readonly SubstitutionView[]
@@ -700,7 +709,8 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     }
   })
   const since = plan.interdiff === null ? null : formatSinceReview(plan.interdiff)
-  const contract = presentContract(plan)
+  const contract = told ? [] : presentContract(plan)
+  // a repeated replacement is of the whole change: named once in the overview, its paragraphs quiet where they are quoted
   const substitutions = presentSubstitutions(plan)
   const breakage = presentBreakage(plan.api, pending, plan.verdict)
   return {
@@ -708,6 +718,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     title: plan.title,
     // without a step of a task the diffs have no opening: the whole story is told here
     untold: one === null ? null : { subject: one.title, story: presentStory(one, part => part.told.kind === "overview", words) },
+    map: presentMap(plan),
     contract,
     substitutions,
     steps,
@@ -743,10 +754,13 @@ function contractNote(key: string, text: string): ContractParagraph {
  * heading once (the entries of one section, which Rust tells apart by their blocks, one), its paragraphs whole; a link
  * of a paragraph shows a changed file of the review or opens a page
  */
-function presentContract(plan: Pick<ReviewPlan, "brief" | "files">): ContractFile[] {
+function presentContract(plan: Pick<ReviewPlan, "brief" | "files">, keep: (entry: ContractEntry, index: number) => boolean = () => true): ContractFile[] {
   const shown = new Set(plan.files.flatMap(file => (file.oldPath === null ? [file.path] : [file.path, file.oldPath])))
   const files: { key: string; path: string; kind: string; entries: { key: string; heading: string | null; paragraphs: ContractParagraph[]; provenBy: string[] }[] }[] = []
   plan.brief.contract.forEach((entry, index) => {
+    if (!keep(entry, index)) {
+      return
+    }
     const key = `${entry.unit}:${entry.blocks[0] ?? "file"}:${index}`
     const paragraphs =
       entry.newSpec !== null
@@ -914,11 +928,17 @@ export interface OpeningView {
   /** The commits after the one that starts it: those that follow it up, then those of no story whose lines are mostly in it */
   readonly commits: readonly OpeningCommit[]
   readonly facts: StepFacts
+  /**
+   * The entries of the brief the step changes, quoted under its story (What Changes of the step): each entry in the
+   * first step whose stops show its unit and one of its blocks
+   */
+  readonly contract: readonly ContractFile[]
 }
 
 /** The opening of each step of `plan` by its id (`OpeningView`) */
-export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "modules" | "units">): Map<string, OpeningView> {
+export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "modules" | "units" | "brief" | "files">): Map<string, OpeningView> {
   const chapters = presentChapters(plan)
+  const stepOfEntry = contractSteps(plan)
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   const one = storyByParts(plan)
   return new Map(
@@ -957,9 +977,19 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
             commitOf(commit.id, commit.title, commit.role),
           ),
           facts: presentStepFacts(step, plan),
+          contract: plan.steps.told ? presentContract(plan, (_, entry) => stepOfEntry[entry] === index) : [],
         },
       ]
     }),
+  )
+}
+
+/** The step of each entry of the brief, by its place: the first whose stops show its unit and one of its blocks, else -1 */
+function contractSteps(plan: Pick<ReviewPlan, "steps" | "brief">): number[] {
+  return plan.brief.contract.map(entry =>
+    plan.steps.steps.findIndex(step =>
+      step.stops.some(stop => stop.unit === entry.unit && (stop.blocks === null || entry.blocks.length === 0 || entry.blocks.some(block => stop.blocks!.includes(block)))),
+    ),
   )
 }
 

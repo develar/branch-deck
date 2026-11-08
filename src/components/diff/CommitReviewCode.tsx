@@ -331,6 +331,7 @@ function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap
         shownElsewhere: [],
         unproven: null,
       },
+      contract: [],
     }
   )
 }

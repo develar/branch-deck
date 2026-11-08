@@ -1,4 +1,4 @@
-import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ReviewPlan, ReviewStep, StepCommit, StepSource, StoryRef } from "@/lib/bindings"
+import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ModuleShape, ReviewPlan, ReviewStep, StepCommit, StepSource, StoryRef } from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
@@ -21,6 +21,12 @@ export const WITHOUT_A_STORY = "Changes without a story"
 export interface ChapterPart extends ConcernPart {
   readonly joined: readonly JoinedUnit[]
   readonly marks: readonly StoryRef[]
+  /**
+   * Of the first part of a group of a large step (`ReviewStep.groups`), and of the first test of a group: the words of
+   * the divider above its card ("view.gui.media · New module · 59 files", "view.gui.media · Tests · 18 files"); null
+   * for the other parts, for a step read as one list and for the mechanical group, whose kinds head their sections
+   */
+  readonly groupHeading: string | null
 }
 
 /**
@@ -65,13 +71,21 @@ export function headOf(step: ReviewStep): StepCommit | undefined {
 }
 
 /** The chapters of the story of `plan`, from its steps in their order (`Chapter`) */
-export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): Chapter[] {
+export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & { readonly modules?: readonly ModuleShape[] }): Chapter[] {
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   // of the steps of a message, a concern may be a step in part: its files are those of the step
   const message = plan.steps.source.kind === "message"
   return plan.steps.steps.map((step, index) => {
     const number = index + 1
-    const parts = step.stops.map(stop => ({ unit: stop.unit, path: stop.path, blocks: stop.blocks, joined: stop.joined, marks: stop.marks }))
+    const headings = groupHeadings(step, plan.modules ?? [])
+    const parts = step.stops.map((stop, at) => ({
+      unit: stop.unit,
+      path: stop.path,
+      blocks: stop.blocks,
+      joined: stop.joined,
+      marks: stop.marks,
+      groupHeading: headings.get(at) ?? null,
+    }))
     const concern = step.concern === null ? undefined : concerns.get(step.concern)
     if (concern !== undefined) {
       // the author's name of the task, the label of the section of the body told in it, else the name of its evidence
@@ -133,6 +147,43 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
       elsewhere: step.elsewhere,
     }
   })
+}
+
+/**
+ * The words of the divider of each group of a large step (spec/branch/review-tour.spec.md, "Groups of a Step"), by the
+ * place of its first stop, and of the tests of a group by the place of the first: the contract, a module by its label
+ * ("New module" when the change adds it, the small modules it holds), a folder; the mechanical group none, the kinds of
+ * its sections head them
+ */
+export function groupHeadings(step: ReviewStep, modules: readonly ModuleShape[]): Map<number, string> {
+  const headings = new Map<number, string>()
+  const filesOf = (start: number, end: number) => {
+    const count = new Set(step.stops.slice(start, end).map(stop => stop.path)).size
+    return count === 1 ? "1 file" : `${count} files`
+  }
+  for (const group of step.groups) {
+    const module = group.module === null ? undefined : modules[group.module]
+    const name =
+      group.kind === "contract"
+        ? "Contract"
+        : group.kind === "folder"
+          ? group.folder === null || group.folder === ""
+            ? (module?.label ?? "")
+            : group.folder
+          : (module?.label ?? "Other files")
+    if (group.kind === "mechanical") {
+      continue
+    }
+    if (group.tests > group.start) {
+      const state = module?.state === "added" ? " · New module" : module?.state === "deleted" ? " · Deleted module" : ""
+      const also = group.also.flatMap(place => modules[place]?.label ?? [])
+      headings.set(group.start, `${name}${state} · ${filesOf(group.start, group.tests)}${also.length === 0 ? "" : ` · also ${also.join(", ")}`}`)
+    }
+    if (group.end > group.tests) {
+      headings.set(group.tests, `${name} · Tests · ${filesOf(group.tests, group.end)}`)
+    }
+  }
+  return headings
 }
 
 /**
@@ -281,7 +332,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       told: !rest,
       code: isCodeName(concern.name),
       titleInBody: false,
-      parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS })),
+      parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS, groupHeading: null })),
       paths: concern.paths,
       elsewhere: concern.elsewhere,
     }

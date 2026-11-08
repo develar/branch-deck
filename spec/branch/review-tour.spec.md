@@ -14,6 +14,10 @@ targets:
   - ../../src/presenters/review-steps.ts
   - ../../src/presenters/review-story.ts
   - ../../src/components/review/ReviewPrologue.tsx
+  - ../../src/components/review/ReviewMap.tsx
+  - ../../src/presenters/review-map.ts
+  - ../../src/components/review/ContractList.tsx
+  - ../../crates/review-plan/src/groups.rs
   - ../../src/components/review/ChapterOpening.tsx
   - ../../src/components/review/ContractParagraphView.tsx
   - ../../src/components/shared/ReadingColumn.tsx
@@ -355,6 +359,29 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
 
+### The Map
+The shape of the change on one screen before any of its words (`ReviewMap`, `presentMap` of `ReviewPlan.modules`):
+the reviewer of a pull request of 141 files read eight screens of prose before the first diff and could not see that
+it added a module.
+- The overview must show, after its lead, the shape: "Shape" with the count of the files and lines of the change, then a
+  row per module with code, tests or resources in the order Rust gives (a module the change adds first): "New module"
+  or "Deleted module" when the change adds or deletes it, its label in the code font, a bar of its share of the changed
+  lines against the largest row, its lines and files; under it, muted, of a new module what it newly uses and the
+  plugins that hold it as content ("uses view.gui and shared/code · content of com.intellij.air"), of a changed one its
+  three largest folders ("ui/embeds 29 · ui/markdown 11 · ui/util 2"), and what it adds beside its code ("+ depends on
+  intellij.platform.ide.util.io", "Opens wider: isNightlyBuild"). A module of build files or prose alone has no row. A
+  change of one module shows its folders as the rows when it holds more than 12 files there, else no shape. At most 6
+  rows, then "and N more modules" with their labels in its hover; every line truncates at the edge of the reading
+  column, never wraps. A click on a row shows its first file in the story.
+  [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names the rows past its budget once, and the folders of a large change of one module; a small change has no shape`)
+- The map must name the contract in one line, "Contract": each new spec by its name and the count of its requirements
+  ("New spec Transcript Media Playback (14 requirements)", a click its top), then how many specs and docs the change
+  changes ("3 specs and 3 docs changed"); and the API: "Opens wider:" the declarations whose reach alone opened wider,
+  each showing its declaration, and "No use left outside breaks" muted when Rust's verdict says so of a change of the
+  API, never in the tone of a warning.
+  [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names a spec by its file`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+
 ### In the Review Window
 - With the review plan, the right column must be one document that scrolls, one canvas of cards, the bar of the step
   above it on that canvas: the overview first (`ReviewPrologue`), a card of prose at the inset of the file cards, the
@@ -363,7 +390,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   range of the commits), the issue key a chip after it, a link with the popover of its issue; none under the title of
   a pull request, which names it already; a commit shown alone its
   whole heading and message instead (`range-review-commit-header`: its subject, meta line, action and menu, its body
-  whole, of the concerns of its own plan the parts of it told before the steps). Then What Changes: one row per repeated
+  whole, of the concerns of its own plan the parts of it told before the steps). Then the map ([The Map](#the-map)),
+  then Possible Breakage, then the Steps; What Changes stands in the opening of each step for the entries that step
+  changes (`OpeningView.contract`, under the label "Contract"), and in the overview only of a review whose steps are not
+  told, and its repeated replacements always in the overview, the change's. What Changes: one row per repeated
   replacement ("Renames `bd` → `brd` · 23 places in 5 files"), the first three file names buttons and the rest in a
   tooltip; one header per file ("Spec rule", "Decision", "Agent guide", "Doc" and its `text-sm` path, filename in the
   foreground and directory muted), which opens it. Under each header its sections stand behind a muted quote line;
@@ -371,7 +401,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   apart: one added with the bar of an addition on that quote line, one removed muted and struck through beside the bar
   of a removal, one changed with inserted words tinted and deletions struck through in place; a repeated replacement is
   dotted-underlined with the old word in its tooltip and screen-reader text, and a paragraph changed only by
-  replacements stays muted in place without a change bar. A code span keeps one chip with its inserted and deleted
+  replacements stays muted in place without a change bar; an entry of the brief is quoted in the first step whose
+  stops show its unit and one of its blocks, so a section two commits change has its part in the opening of each. A code span keeps one chip with its inserted and deleted
   words diffed inside it. A fenced code block is a `pre`, preserves line breaks, and diffed by words without code
   heuristics; a long block changed in several lines first shows changed lines and one line of context, with a button
   "⋯ N more lines" that opens the whole paragraph and has the tooltip "Show the whole paragraph". The rows of one
@@ -418,7 +449,14 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`, `should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`, `should quote no front matter and no line of metadata in What Changes, a table of a spec by its added row under its header, and no table of a doc`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`, `should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+  [@test] ../../src/presenters/review-story.test.ts (`quotes What Changes in the opening of the step whose stops show its entry, each entry in one step`)
   [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `words the rows of a table under their header once, a changed header row heading them, a paragraph between two tables apart`, `passes paragraph forms and resolves substitution marks to their original words`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `does not give Other changes a number in the overview`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+- A group of a large step ([Groups of a Step](#groups-of-a-step)) must open with a divider above the card of its first
+  section, one muted line: the contract ("Contract · 5 files"), a module by its label, "New module" or "Deleted
+  module" when the change adds or deletes it, its files and the small modules it holds ("view.gui.media · New module ·
+  59 files · also shared/code"), a folder by its path; the tests of a group a divider of their own ("view.gui.media ·
+  Tests · 18 files"); the mechanical group none, its kinds head their sections as before (`groupHeadings`).
+  [@test] ../../src/presenters/review-steps.test.ts (`words the divider of each group and of its tests: the contract, a module by its label and state with the small modules it holds, a folder; the mechanical group none`)
 - The opening of a step (`ChapterOpening`) must be a card of prose a gap above the card of its first section (each
   opening of a layer its own card), as tall as its words (the diffs measure it), its words in the reading column of
   the overview (`ReadingColumn`) in the middle of the card: "Step 2" muted for a numbered step, none for "Other changes", then its full title in `text-base`, wrapping, which a click shows

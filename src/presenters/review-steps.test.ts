@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
+import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, StepGroup } from "@/lib/bindings"
 import { headingText } from "@/lib/diff/rows"
 import {
   commitTitleOf,
   formatCommitRole,
   formatStepDivider,
   formatStepNumber,
+  groupHeadings,
   placeCommits,
   presentChapters,
   presentOwnerMarks,
@@ -13,7 +14,7 @@ import {
   withCommitTitles,
 } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
-import { reviewStep, stepCommit } from "@/test-support/review-step"
+import { moduleShape, reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -320,5 +321,42 @@ describe("withCommitTitles", () => {
     expect(commitTitleOf(second, "2222222222")).toBe("the rule names its flag again")
     expect(withCommitTitles(second, [reviewStep("b", [{ id: "2222222222", title: "the rule names its flag again", role: "starts" }], [])])).toBe(second)
     expect(commitTitleOf(second, "3333333")).toBeUndefined()
+  })
+})
+
+describe("the groups of a large step", () => {
+  it("words the divider of each group and of its tests: the contract, a module by its label and state with the small modules it holds, a folder; the mechanical group none", () => {
+    const stops: [string, string][] = [
+      ["other:spec/player.spec.md", "spec/player.spec.md"],
+      ["new:gui/src/Embed.kt", "gui/src/Embed.kt"],
+      ["new:gui/media/src/Player.kt", "gui/media/src/Player.kt"],
+      ["new:shared/src/Flag.kt", "shared/src/Flag.kt"],
+      ["new:gui/media/testSrc/PlayerTest.kt", "gui/media/testSrc/PlayerTest.kt"],
+      ["mechanical:buildModel", "gui/media/BUILD.bazel"],
+    ]
+    const groups: StepGroup[] = [
+      { kind: "contract", module: null, folder: null, also: [], start: 0, tests: 1, end: 1 },
+      { kind: "module", module: 1, folder: null, also: [], start: 1, tests: 2, end: 2 },
+      { kind: "module", module: 0, folder: null, also: [2], start: 2, tests: 4, end: 5 },
+      { kind: "mechanical", module: null, folder: null, also: [], start: 5, tests: 6, end: 6 },
+    ]
+    const step = reviewStep("a", [stepCommit("Play a video")], stops, {}, { groups })
+    const modules = [moduleShape("gui/media", "gui/media", { state: "added" }), moduleShape("gui", "gui"), moduleShape("shared", "shared")]
+    expect([...groupHeadings(step, modules)]).toEqual([
+      [0, "Contract · 1 file"],
+      [1, "gui · 1 file"],
+      [2, "gui/media · New module · 2 files · also shared"],
+      [4, "gui/media · Tests · 1 file"],
+    ])
+    // the chapter carries each divider on the part that starts its group
+    const [chapter] = presentChapters({ steps: { ...reviewPlan().steps, steps: [step] }, concerns: [], modules })
+    expect(chapter!.parts.map(part => part.groupHeading)).toEqual([
+      "Contract · 1 file",
+      "gui · 1 file",
+      "gui/media · New module · 2 files · also shared",
+      null,
+      "gui/media · Tests · 1 file",
+      null,
+    ])
   })
 })

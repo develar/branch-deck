@@ -155,6 +155,8 @@ interface Step {
   readonly joined: ReadonlyMap<string, readonly JoinedUnit[]>
   /** The lines of the told bodies that name its stops (`StepStop.marks`), by the path of the slice */
   readonly marks: ReadonlyMap<string, readonly StoryRef[]>
+  /** It starts a group of its step, or the tests of one: the words of the divider above its section (`ChapterPart.groupHeading`) */
+  readonly groupHeading?: string | null
 }
 
 const NO_JOINED: ReadonlyMap<string, readonly JoinedUnit[]> = new Map()
@@ -199,7 +201,13 @@ function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]):
           marks: new Map([...last.marks, [slice.path, part.marks]]),
         }
       } else {
-        steps.push({ concern, unit: { ...unit, slices: [cut] }, joined: new Map([[slice.path, part.joined]]), marks: new Map([[slice.path, part.marks]]) })
+        steps.push({
+          concern,
+          unit: { ...unit, slices: [cut] },
+          joined: new Map([[slice.path, part.joined]]),
+          marks: new Map([[slice.path, part.marks]]),
+          groupHeading: part.groupHeading,
+        })
       }
     }
   }
@@ -309,10 +317,10 @@ export function presentNarrative(
   }
   // the section of each file shown whole, which the units of the file are of
   const wholeDrafts = new Map<string, Draft>()
-  const placeWhole = (path: string, unit?: string) => {
+  const placeWhole = (path: string, unit?: string, heading: string | null = null) => {
     if (!placed.has(path)) {
       placed.add(path)
-      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading: null, folded: null, ghosts: [] }))
+      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading, folded: null, ghosts: [] }))
     }
     const draft = wholeDrafts.get(path)
     if (draft !== undefined && unit !== undefined) {
@@ -323,6 +331,11 @@ export function presentNarrative(
   let last = null as { draft: Draft; unit: string } | null
   for (const step of steps) {
     const unit = step.unit
+    // a group of a large step starts its own sections, its divider above the first
+    const startsGroup = step.groupHeading ?? null
+    if (startsGroup !== null) {
+      last = null
+    }
     if (step.concern !== concern) {
       // a concern starts its own sections, under its name
       last = null
@@ -346,7 +359,7 @@ export function presentNarrative(
           blocks: slice.whole ? null : new Set(slice.blocks.map(block => block.index)),
           marks: new Map(),
           // a generated file at the end of the concern of its source says why it is folded, no group
-          heading: first && (concern === null || unit.kind.kind !== "mechanical") ? groupHeading(unit) : null,
+          heading: first && startsGroup !== null ? startsGroup : first && (concern === null || unit.kind.kind !== "mechanical") ? groupHeading(unit) : null,
           folded,
           ghosts: [],
         })
@@ -362,7 +375,7 @@ export function presentNarrative(
     const joined = step.joined.get(slice.path) ?? []
     if (whole.has(slice.path) || slice.whole) {
       last = null
-      tell(placeWhole(slice.path, unit.id), step, slice.path)
+      tell(placeWhole(slice.path, unit.id, startsGroup), step, slice.path)
       for (const it of joined) {
         placeWhole(slice.path, it.unit)
       }
@@ -373,7 +386,7 @@ export function presentNarrative(
     const heading = unit.kind.kind === "other" && unit.kind.reason === "noLanguage" ? null : formatUnitHeading(unit)
     let draft: Draft | undefined = last?.draft.path === slice.path ? last.draft : undefined
     if (draft === undefined) {
-      draft = push({ key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: null, folded: null, ghosts: [] })
+      draft = push({ key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: startsGroup, folded: null, ghosts: [] })
     }
     tell(draft, step, slice.path)
     const first = slice.blocks[0]
