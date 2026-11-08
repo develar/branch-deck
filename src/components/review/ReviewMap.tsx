@@ -10,19 +10,21 @@ import { BreakableCode } from "@/components/shared/CodeText"
 import { DisclosureChevron } from "@/components/shared/Disclosure"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewPlace } from "@/lib/review-place"
-import type { MapApi, MapRegistration, MapRow, MapView } from "@/presenters/review-map"
+import { MAP_TEXTS } from "@/presenters/review-map"
+import type { MapApi, MapRegistration, MapRow, MapText, MapTexts, MapView } from "@/presenters/review-map"
 
 /**
  * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change before its words, a row per
  * module (its badge when the change adds or deletes it, its label, a bar of its share of the changed lines, its counts),
- * under it what it uses or its folders and what it adds beside its code; then the contract in one line and the API:
+ * under it what it uses or its folders and what it adds beside its code; then the contract in one line, the texts of
+ * the UI the change adds, removes or changes (the first quoted, all of them under the line), and the API:
  * what it opens wider that no row names, the verdict that no use left outside breaks folding the changes it covers.
  * Each row ends at the edge of the reading column and truncates, never wraps; a click on a row shows its first file, on
  * a spec its top, on a name its declaration
  */
 export function ReviewMap({ view }: { view: MapView }) {
-  const { rows, more, contract, api, total } = view
-  if (rows.length === 0 && contract === null && api === null) {
+  const { rows, more, contract, texts, api, total } = view
+  if (rows.length === 0 && contract === null && texts === null && api === null) {
     return null
   }
   return (
@@ -58,6 +60,7 @@ export function ReviewMap({ view }: { view: MapView }) {
           )}
         </MapLine>
       )}
+      {texts !== null && <TextsLine texts={texts} />}
       {api !== null && <ApiLine api={api} />}
     </div>
   )
@@ -186,15 +189,96 @@ function RegistrationLine({ registration }: { registration: MapRegistration }) {
       data-testid="review-map-registration"
       onClick={() => navigator?.show(registration.place)}
     >
-      <span
-        aria-hidden="true"
-        className={cn("w-2 shrink-0 font-mono", registration.sign === "+" ? "text-success" : registration.sign === "−" ? "text-destructive" : "text-muted-foreground")}
-      >
-        {registration.sign}
-      </span>
+      <ChangeSign sign={registration.sign} />
       <span className="shrink-0 text-muted-foreground">{registration.kind}</span>
       <span className="min-w-0 truncate font-mono">{registration.name}</span>
     </button>
+  )
+}
+
+/**
+ * The line of the texts of the UI: their counts, the first `MAP_TEXTS` quoted, each showing its entry in its bundle,
+ * then "and N more", which opens all of them under the line, a line each: the sign of what the change does to it, its
+ * words (of a change the old ones struck through before them), its key muted
+ */
+function TextsLine({ texts }: { texts: MapTexts }) {
+  const quoted = texts.texts.slice(0, MAP_TEXTS)
+  const rest = texts.texts.length - quoted.length
+  const line = (
+    <MapLine label="UI texts" testId="review-map-texts">
+      <span className="shrink-0 text-muted-foreground">{texts.counts}:</span>
+      {quoted.map((text, index) => (
+        <span key={text.key} className="flex min-w-0 items-baseline">
+          <TextQuote text={text} />
+          {index < quoted.length - 1 && <span className="text-muted-foreground">,</span>}
+        </span>
+      ))}
+      {rest > 0 && (
+        <CollapsibleTrigger
+          className="group flex shrink-0 items-baseline gap-1 rounded-sm text-left text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:bd-focus"
+          data-testid="review-map-texts-more"
+        >
+          <DisclosureChevron />
+          {`and ${rest} more`}
+        </CollapsibleTrigger>
+      )}
+    </MapLine>
+  )
+  if (rest === 0) {
+    return line
+  }
+  return (
+    <Collapsible className="flex min-w-0 flex-col gap-1">
+      {line}
+      <CollapsibleContent hiddenUntilFound className="pl-22">
+        <ul aria-label="Texts of the UI" className="flex min-w-0 flex-col gap-0.5 text-xs">
+          {texts.texts.map(text => (
+            <li key={text.key} className="flex min-w-0 items-baseline gap-1.5" data-testid="review-map-text">
+              <ChangeSign sign={text.change === "added" ? "+" : text.change === "removed" ? "−" : "~"} />
+              {text.before !== null && (
+                <>
+                  <span className="min-w-0 shrink truncate text-muted-foreground line-through">{`“${text.before}”`}</span>
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+                    →
+                  </span>
+                </>
+              )}
+              <TextQuote text={text} />
+              <span className="min-w-0 shrink-[2] truncate font-mono text-muted-foreground">{text.name}</span>
+            </li>
+          ))}
+        </ul>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+/** A text of the UI quoted, a removed one struck through, a click showing its entry in its bundle */
+function TextQuote({ text }: { text: MapText }) {
+  const navigator = useSelectReviewFile()
+  return (
+    <button
+      type="button"
+      className={cn(
+        "max-w-64 min-w-0 truncate rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline",
+        text.change === "removed" && "text-muted-foreground line-through",
+      )}
+      title={text.title}
+      disabled={navigator === null}
+      data-testid="review-map-text-quote"
+      onClick={() => navigator?.show(text.place)}
+    >
+      {`“${text.words}”`}
+    </button>
+  )
+}
+
+/** "+", "−" or "~" before a line of what the change adds, removes or changes, in the tone of the change */
+function ChangeSign({ sign }: { sign: "+" | "−" | "~" }) {
+  return (
+    <span aria-hidden="true" className={cn("w-2 shrink-0 font-mono", sign === "+" ? "text-success" : sign === "−" ? "text-destructive" : "text-muted-foreground")}>
+      {sign}
+    </span>
   )
 }
 

@@ -395,6 +395,15 @@ it added a module.
   and its place (Possible Breakage lists them no more).
   [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names the rows past its budget once, and the folders of a large change of one module; a small change has no shape`, `names a spec by its file`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration`)
+- The map must name the texts of the UI the change adds, changes or removes ([UI Texts](review-plan.spec.md#ui-texts))
+  in one line between the contract and the API, "UI texts": their counts ("2 new, 1 changed and 1 removed"), the first
+  two quoted ("“Play”, “Download…”"; a removed one struck through, of a changed one its new words with its key and its
+  bundle at its line in the hover), each showing its entry in its bundle (of a removed one at its old line), then "and
+  N more", which opens all of them under the line, a line each: the sign of what the change does to it ("+", "−",
+  "~"), its words (of a changed one the old words struck through, "→", the new), its key muted; no line without a
+  bundle the change touches. What the user reads is a fact of the change, not a card of a `.properties` diff.
+  [@test] ../../src/presenters/review-map.test.ts (`counts the texts of the UI a change adds, changes and removes, each its words at its entry, a removed one at its old line; no bundle, no line`)
+  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should quote on a line of the map the texts of the UI the change adds, all of them under it on a click, a quote showing its entry in its bundle`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 ### In the Review Window

@@ -1,4 +1,4 @@
-import type { ModuleShape, Registered, Registration, ReviewPlan } from "@/lib/bindings"
+import type { ModuleShape, Registered, Registration, ReviewPlan, UiText, UiTextChange } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import { joinNames } from "@/lib/text"
@@ -8,7 +8,8 @@ import { presentBreakage } from "@/presenters/review-plan"
 /**
  * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change on one screen before any
  * of its words, which modules it adds, changes or deletes, how large each part is and what each newly uses
- * (`ReviewPlan.modules`, Rust's, in its order), the contract it changes in one line, and the API it opens wider. Rust
+ * (`ReviewPlan.modules`, Rust's, in its order), the contract it changes in one line, the texts of the UI it adds,
+ * removes or changes (`ReviewPlan.texts`), and the API it opens wider. Rust
  * decides the modules, their order and their facts; this words them and keeps the map inside its budget: a list longer
  * than it ends with "and N more", never cut silently
  */
@@ -21,6 +22,8 @@ export interface MapView {
   readonly more: { readonly count: number; readonly labels: string } | null
   /** "New spec Transcript Media Playback (14 requirements) · 3 specs and 3 docs changed"; null without prose */
   readonly contract: MapContract | null
+  /** "4 new: “Video: {0}”, “Sound: {0}” and 2 more"; null when no bundle changes */
+  readonly texts: MapTexts | null
   /** The declarations the change opens wider, and whether a use left outside can break */
   readonly api: MapApi | null
 }
@@ -71,6 +74,29 @@ export interface MapContract {
   readonly changed: string | null
 }
 
+export interface MapTexts {
+  /** "4 new", "3 new, 1 changed and 1 removed" */
+  readonly counts: string
+  /** Every text in Rust's order (the bundles in tree order, then by line): the first `MAP_TEXTS` quoted on the line, all under it */
+  readonly texts: readonly MapText[]
+}
+
+/** A text of the UI the change adds, removes or changes */
+export interface MapText {
+  readonly key: string
+  /** Its key in its bundle: "embed.media.download" */
+  readonly name: string
+  readonly change: UiTextChange
+  /** What the user reads after the change; of a removal what they read before it */
+  readonly words: string
+  /** Of a change, what they read before it; null otherwise */
+  readonly before: string | null
+  /** Its key and its bundle at its line, for the hover */
+  readonly title: string
+  /** Its entry in its bundle: after the change, before it for a removal */
+  readonly place: ReviewPlace
+}
+
 export interface MapApi {
   /** The names the change opens wider that no row of the shape names, each at its declaration */
   readonly widened: readonly { readonly key: string; readonly name: string; readonly place: ReviewPlace }[]
@@ -80,6 +106,9 @@ export interface MapApi {
    */
   readonly verdict: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
 }
+
+/** The texts of the UI quoted on the line of the map before "and N more" */
+export const MAP_TEXTS = 2
 
 /** The rows of the shape before "and N more" */
 export const MAP_ROWS = 6
@@ -92,7 +121,7 @@ const MAP_FOLDERS = 3
 const MIN_FOLDER_FILES = 12
 
 /** The map of `plan` (`MapView`) */
-export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" | "steps" | "api" | "verdict" | "dependencies" | "brief" | "registrations">): MapView {
+export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" | "steps" | "api" | "verdict" | "dependencies" | "brief" | "registrations" | "texts">): MapView {
   const firstFile = new Map<number, string>()
   const moduleOf = new Map(plan.files.map(file => [file.path, file.module]))
   const story = storyOrder(plan)
@@ -120,6 +149,7 @@ export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" 
     rows: shown,
     more: left.length === 0 ? null : { count: left.length, labels: left.map(row => row.label).join(", ") },
     contract: contractOf(plan),
+    texts: textsOf(plan.texts),
     api: apiOf(plan, module => module !== null && named.has(module)),
   }
 }
@@ -245,6 +275,30 @@ export function specName(path: string): string {
     .filter(word => word !== "")
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ")
+}
+
+/** The texts of the UI the change adds, removes or changes, counted by what it does to them, each at its entry */
+function textsOf(texts: readonly UiText[]): MapTexts | null {
+  if (texts.length === 0) {
+    return null
+  }
+  const count = (change: UiTextChange, words: string) => {
+    const found = texts.filter(text => text.change === change).length
+    return found === 0 ? null : `${found} ${words}`
+  }
+  const counts = [count("added", "new"), count("changed", "changed"), count("removed", "removed")].filter(part => part !== null)
+  return {
+    counts: joinNames(counts),
+    texts: texts.map(text => ({
+      key: `${text.path}:${text.key}`,
+      name: text.key,
+      change: text.change,
+      words: (text.change === "removed" ? text.before : text.after) ?? "",
+      before: text.change === "changed" ? text.before : null,
+      title: `${text.key}\n${text.path}:${text.line}`,
+      place: { path: text.path, side: text.change === "removed" ? ("old" as const) : ("new" as const), line: text.line, name: null },
+    })),
+  }
 }
 
 function apiOf(plan: Pick<ReviewPlan, "api" | "verdict" | "files">, onRow: (module: number | null) => boolean): MapApi | null {

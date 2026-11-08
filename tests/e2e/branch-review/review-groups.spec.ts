@@ -187,4 +187,36 @@ test.describe("Review groups", () => {
     await registrations.first().click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: decoder, exact: true })).toHaveAttribute("aria-selected", "true")
   })
+
+  test("should quote on a line of the map the texts of the UI the change adds, all of them under it on a click, a quote showing its entry in its bundle", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_modules")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
+    const bundle = `${ROOT}/view.gui/resources/messages/PlayerBundle.properties`
+
+    // the counts and the first two quoted, the rest folded under "and 2 more"
+    const line = window.getByTestId("review-map-texts")
+    await expect(line).toContainText("4 new:")
+    await expect(line.getByTestId("review-map-text-quote")).toHaveText(["“Video: {0}”", "“Sound: {0}”"])
+    const texts = window.getByTestId("review-map-text")
+    // folded until found: in the page for ⌘F, out of sight
+    await expect(texts.first()).toBeHidden()
+    await line.getByTestId("review-map-texts-more").click()
+    // each its sign of an addition, its words and its key
+    await expect(texts).toHaveText([
+      "+“Video: {0}”embed.video.accessible.name",
+      "+“Sound: {0}”embed.audio.accessible.name",
+      "+“The chat cannot play this file”embed.media.cannot.play",
+      "+“Download…”embed.media.download",
+    ])
+    await expect(texts.nth(2).getByTestId("review-map-text-quote")).toHaveAttribute("title", `embed.media.cannot.play\n${bundle}:6`)
+
+    // a quote shows the bundle, its file selected in the tree
+    await texts.nth(3).getByTestId("review-map-text-quote").click()
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: bundle, exact: true })).toHaveAttribute("aria-selected", "true")
+  })
 })

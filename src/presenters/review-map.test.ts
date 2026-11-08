@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, ContractEntry, DependencyChange, Registration } from "@/lib/bindings"
+import type { ApiChange, ContractEntry, DependencyChange, Registration, UiText } from "@/lib/bindings"
 import { MAP_ROWS, presentMap, specName } from "@/presenters/review-map"
 import { fileFacts as file, moduleShape, reviewPlan, reviewStep } from "@/test-support/review-step"
 
@@ -227,5 +227,36 @@ describe("the map of a review", () => {
     ])
     expect(view.rows[0]!.registrations[0]!.place).toEqual({ path: "gui/media/src/PlayersImpl.kt", side: "new", line: 4, name: null })
     expect(view.rows[0]!.registrations[1]!.title).toBe("Plays inline\ngui/media/resources/media.xml")
+  })
+
+  it("counts the texts of the UI a change adds, changes and removes, each its words at its entry, a removed one at its old line; no bundle, no line", () => {
+    const text = (key: string, change: UiText["change"], before: string | null, after: string | null, line: number): UiText => ({
+      path: "gui/resources/messages/PlayerBundle.properties",
+      key,
+      change,
+      before,
+      after,
+      line,
+      module: 0,
+    })
+    const view = presentMap(
+      reviewPlan({
+        texts: [
+          text("media.play", "added", null, "Play", 4),
+          text("media.download", "added", null, "Download…", 5),
+          text("media.cannot", "changed", "Cannot play", "The chat cannot play this file", 6),
+          text("media.open", "removed", "Open", null, 2),
+        ],
+      }),
+    )
+    expect(view.texts?.counts).toBe("2 new, 1 changed and 1 removed")
+    expect(view.texts?.texts.map(it => [it.name, it.change, it.words, it.before, it.place.side, it.place.line])).toEqual([
+      ["media.play", "added", "Play", null, "new", 4],
+      ["media.download", "added", "Download…", null, "new", 5],
+      ["media.cannot", "changed", "The chat cannot play this file", "Cannot play", "new", 6],
+      ["media.open", "removed", "Open", null, "old", 2],
+    ])
+    expect(view.texts?.texts[0]?.title).toBe("media.play\ngui/resources/messages/PlayerBundle.properties:4")
+    expect(presentMap(reviewPlan()).texts).toBeNull()
   })
 })
