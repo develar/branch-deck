@@ -1,9 +1,11 @@
 // @spec spec/repository/update-project.spec.md
 // @spec spec/repository/settings.spec.md
 // @spec spec/repository/activity.spec.md
+// @spec spec/repository/title-bar.spec.md
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { activityButton, activityEntry, openActivityWindow } from "../helpers/activity-helpers"
+import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { pushFromRowMenu } from "../helpers/branch-helpers"
 import type { Box } from "../helpers/header-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_HEIGHT, headerBoxes, MIN_WINDOW } from "../helpers/header-helpers"
@@ -119,6 +121,14 @@ test.describe("Repository selector", () => {
     expect(await shown.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     return text
   }
+
+  test("should show the unlabelled recent-project list when there are no companions", async ({ page, setupRepo }) => {
+    await setupRepo("behind_upstream")
+    await header(page).getByRole("combobox").click()
+    const list = page.getByRole("listbox")
+    await expect(list.getByRole("option")).toHaveCount(1)
+    await captureHtmlSnapshot(list, "repository-selector-without-companions")
+  })
 
   test("should cut the path at its separators behind one …, more of it as the room grows", async ({ page, setupRepo }) => {
     const repo = await setupRepo("NO_REPO", { prepopulateStore: false })

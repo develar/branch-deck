@@ -22,6 +22,7 @@ targets:
   - ../../src/lib/sub-window.ts
   - ../../src/components/shared/ActionButton.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
+  - ../../src/components/repository/RepositorySelector.tsx
   - ../../src/pages/ReviewPage.tsx
   - ../../src/components/review/ReviewBackButton.tsx
   - ../../src/components/review/PullRequestReview.tsx
@@ -242,6 +243,10 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   and the count over the repository selector and Update: from 1032 to 1080px, and to 1152px once the time of the last
   sync kept the room of its widest text and Activity stayed in an empty log.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
+- The repository selector keeps the selected path and its width in the toolbar; its pop-up grows downward. With linked
+  repositories it separates them from Recent under their group labels; without links, the recent-project list remains
+  unlabelled.
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should show the unlabelled recent-project list when there are no companions`)
 
 ### Windows
 

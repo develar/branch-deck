@@ -460,6 +460,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let signing = config.signing()?;
   let landing = facts.landing_remote(config.landing()?);
   let review_experimental = config.review_experimental();
+  let companions = crate::companions::repository_links(git_executor, repository_path, &config);
   // the conflict views of the unchanged branches come from the object cache, the new ones go there
   let tree_id_cache = if object_cache.is_enabled() {
     TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache.clone(), resolve)))
@@ -593,6 +594,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     target_branch: crate::patronus::target_branch_of(facts.upstream.as_ref()),
     landing: Box::new(landing),
     review_experimental,
+    companions,
   })?;
 
   let tree_id_cache = seeded_tree_cache(tree_id_cache, branches.values().flatten());

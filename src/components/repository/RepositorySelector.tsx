@@ -2,55 +2,64 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { cn } from "cn"
 import { FolderSearchIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { pathForms, resolveHomeDir, tildePath } from "@/lib/home-path"
 import { formatRelativeTime } from "@/lib/time"
+import { projectSections } from "@/presenters/repository-links"
+import type { ProjectItem, ProjectSection } from "@/presenters/repository-links"
+import { useBranchSyncField } from "@/stores/branch-sync"
 import { browseRepository, selectProject, useRepository } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
-import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
 
 interface RepositorySelectorProps {
   disabled?: boolean
 }
 
-interface ProjectItem {
+interface ProjectOption extends ProjectItem {
   label: string
   value: string
   error?: string | null
-  project: ProjectMetadata
+}
+
+interface ProjectOptionSection extends ProjectSection {
+  items: ProjectOption[]
 }
 
 export function RepositorySelector({ disabled }: RepositorySelectorProps) {
   const pathValidation = useRepository(state => state.pathValidation)
   const recentProjects = useRecentProjects(projects => projects)
+  const companions = useBranchSyncField("companions", links => links)
   const homeDir = useHomeDir()
+  const value = !pathValidation.valid && pathValidation.path ? pathValidation.path : (recentProjects[0]?.path ?? null)
 
-  const items = useMemo<ProjectItem[]>(() => {
-    const result: ProjectItem[] = recentProjects.map(project => ({
-      label: formatPathWithTruncation(project.path, homeDir),
-      value: project.path,
-      error: undefined,
-      project,
+  const sections = useMemo<ProjectOptionSection[]>(() => {
+    const result = projectSections(value, companions, recentProjects).map(section => ({
+      label: section.label,
+      items: section.items.map(item => projectOption(item, homeDir)),
     }))
 
     // an invalid path is not added to recent projects, but it is shown as the current value together with its error
     if (!pathValidation.valid && pathValidation.path) {
       const invalidPath = pathValidation.path
-      result.unshift({
+      const invalidItem: ProjectOption = {
+        project: { path: invalidPath },
+        link: null,
+        isRecent: false,
         label: formatPathWithTruncation(invalidPath, homeDir),
         value: invalidPath,
         // the message of the error, under the path
         error: pathValidation.errorDetails ?? pathValidation.error,
-        project: { path: invalidPath },
-      })
+      }
+      const [first, ...rest] = result
+      return first === undefined ? [{ label: null, items: [invalidItem] }] : [{ ...first, items: [invalidItem, ...first.items] }, ...rest]
     }
     return result
-  }, [recentProjects, pathValidation, homeDir])
+  }, [value, companions, recentProjects, pathValidation, homeDir])
 
-  const value = !pathValidation.valid && pathValidation.path ? pathValidation.path : (recentProjects[0]?.path ?? null)
+  const items = useMemo(() => sections.flatMap(section => section.items), [sections])
 
   const onValueChange = (newValue: string | null) => {
     if (!newValue) {
@@ -58,7 +67,11 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
       return
     }
     // the path is validated explicitly on browse; an invalid saved path is reported on prefix load or sync
-    const project = items.find(item => item.value === newValue)?.project ?? { path: newValue }
+    const selected = items.find(item => item.value === newValue)
+    if (selected?.link?.problem != null) {
+      return
+    }
+    const project = selected?.project ?? { path: newValue }
     selectProject(project)
   }
 
@@ -79,13 +92,18 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
             <TooltipContent>{shownPath !== null && <WrappedPath path={shownPath} />}</TooltipContent>
           </Tooltip>
           <SelectContent alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
-            {items.map(item => (
-              <SelectItem key={item.value} value={item.value}>
-                <div className="flex flex-col">
-                  <div className="whitespace-nowrap">{item.label}</div>
-                  {item.error ? <div className="truncate text-xs text-destructive">{item.error}</div> : <LastSyncLine path={item.value} />}
-                </div>
-              </SelectItem>
+            {sections.map((section, index) => (
+              <Fragment key={section.label ?? "recent"}>
+                {index > 0 && <SelectSeparator />}
+                {section.label === null ? (
+                  section.items.map(item => renderProjectOption(item, homeDir))
+                ) : (
+                  <SelectGroup>
+                    <SelectLabel>{section.label}</SelectLabel>
+                    {section.items.map(item => renderProjectOption(item, homeDir))}
+                  </SelectGroup>
+                )}
+              </Fragment>
             ))}
           </SelectContent>
         </Select>
@@ -103,6 +121,32 @@ export function RepositorySelector({ disabled }: RepositorySelectorProps) {
       </TooltipTrigger>
       <TooltipContent>{pathValidation.error || "Select a Git repository to manage branches"}</TooltipContent>
     </Tooltip>
+  )
+}
+
+function projectOption(item: ProjectItem, homeDir: string): ProjectOption {
+  return {
+    ...item,
+    label: formatPathWithTruncation(item.project.path, homeDir),
+    value: item.project.path,
+    error: undefined,
+  }
+}
+
+function renderProjectOption(item: ProjectOption, homeDir: string) {
+  return (
+    <SelectItem key={item.value} value={item.value} disabled={item.link?.problem != null}>
+      <div className="flex flex-col">
+        <div className="whitespace-nowrap">{item.label}</div>
+        {item.error ? (
+          <div className="truncate text-xs text-destructive">{item.error}</div>
+        ) : item.link?.problem ? (
+          <div className="truncate text-xs text-warning">{`Not readable: ${item.link.problem}`}</div>
+        ) : (
+          <LastSyncLine path={item.value} unsyncedPath={item.link === null ? undefined : tildePath(item.value, homeDir)} />
+        )}
+      </div>
+    </SelectItem>
   )
 }
 
@@ -234,11 +278,15 @@ function WrappedPath({ path }: { path: string }) {
 }
 
 /** How many branches the last sync of the repository at `path` had and when it ran; nothing for one never synced */
-function LastSyncLine({ path }: { path: string }) {
+function LastSyncLine({ path, unsyncedPath }: { path: string; unsyncedPath?: string }) {
   const lastSyncTime = useRepositoryStateField(path, "lastSyncTime")
   const lastBranchCount = useRepositoryStateField(path, "lastBranchCount") ?? 0
   if (!lastSyncTime) {
-    return null
+    return unsyncedPath === undefined ? null : (
+      <div className="text-xs text-muted-foreground">
+        <WrappedPath path={unsyncedPath} />
+      </div>
+    )
   }
   return (
     <div className="text-xs whitespace-nowrap text-muted-foreground">

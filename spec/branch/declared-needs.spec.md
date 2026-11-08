@@ -16,12 +16,18 @@ targets:
   - ../../crates/app-api/src/app/repository_config.rs
   - ../../src/components/settings/CompanionsPage.tsx
   - ../../src/components/settings/CompanionsSetting.tsx
+  - ../../src/components/repository/RepositorySelector.tsx
   - ../../src/hooks/useConfigWrite.ts
   - ../../src/hooks/useDeclareNeed.ts
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/components/branch/InlineNeedInput.tsx
   - ../../src/presenters/actions.ts
   - ../../src/model/store.ts
+  - ../../src/stores/branch-sync.ts
+  - ../../src/presenters/repository-links.ts
+  - ../../crates/domain-types/src/session.rs
+  - ../../crates/domain-types/src/lib.rs
+  - ../../crates/repository-model/src/table.rs
   - ../../crates/domain-policy/src/actions.rs
   - ../../crates/domain-types/src/actions.rs
   - ../../crates/repository-model/src/action_view.rs
@@ -218,6 +224,16 @@ or GitHub. Once integration detection proves the needed branch landed, the sync 
   repository.
   [@test] ../../crates/sync-core/src/companions_test.rs (`a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings`)
   [@test] ../../tests/e2e/settings/companions-settings.spec.ts (`should add a companion repository from the folder dialog, refuse a folder that is no repository, and remove it`)
+- The main-window project selector shows the selected repository's links from its session: a primary labels the group
+  "Companions of app", a companion "Primary and companions" with the primary first. A linked repository appears only
+  once, apart from the remaining "Recent" projects; with no links the existing list has no labels. The trigger keeps
+  the selected path and its width. Opening the pop-up starts no Git process; a sync carries the linked paths and why
+  one is unreadable. A linked project outside Recent can be selected; it shows the full path under its shortened path
+  until its first sync, then the usual sync data. A path that is gone or no Git repository is disabled and says
+  "Not readable: …".
+  [@test] ../../src/presenters/repository-links.test.ts (`puts linked repositories after Recent and removes their duplicate recent entries`, `names a companion's primary group and keeps the primary first`, `returns one unnamed section when there are no links`)
+  [@test] ../../tests/e2e/repository/header.spec.ts (`should show the unlabelled recent-project list when there are no companions`)
+  [@test] ../../tests/e2e/repository/companion-links.spec.ts (`should show and switch to a companion that has never been opened @webkit`)
 - A need of a companion must name it as `<name>:<branch>`: in a primary one of its companions, in a companion its
   primary (by the name of its directory) or another companion of that primary.
   [@test] ../../crates/sync-core/src/companions_test.rs (`a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings`)

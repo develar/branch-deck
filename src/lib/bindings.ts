@@ -4243,6 +4243,9 @@ export type LinkPullRequestParams = {
 	input: string,
 };
 
+/**  Whether this repository is the primary or one of its companions */
+export type LinkRole = "primary" | "companion";
+
 /**  Whether the commits added, removed or kept a link */
 export type LinkState = 
 /**  Only after the commits */
@@ -6462,6 +6465,17 @@ export type RepositoryJournal = {
 	available: boolean,
 	/**  Oldest first, as the file has them */
 	entries: JournalEntry[],
+};
+
+export type RepositoryLink = {
+	/**  The directory name of the linked repository */
+	name: string,
+	/**  Its main worktree path */
+	path: string,
+	/**  Whether this is the primary or one of its companions */
+	role: LinkRole,
+	/**  Why it can not be read; `None` when the path is a Git repository */
+	problem: string | null,
 };
 
 /**
@@ -8862,6 +8876,8 @@ export type TableHeader = {
 	parked: { [key in string]: string },
 	/**  Branch -> what the user declared lands before it, the names space-separated (`refs/branch-deck/needs`) */
 	needs?: { [key in string]: string },
+	/**  Repositories related to this one, as the last grouping read them */
+	companions?: RepositoryLink[],
 	/**  The issue links of the IntelliJ IDEA configuration, the last a sync found */
 	issueNavigationConfig: IssueNavigationConfig | null,
 	/**

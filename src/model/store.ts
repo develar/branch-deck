@@ -40,6 +40,7 @@ import type {
   News,
   NextStepView,
   Outcome,
+  RepositoryLink,
   RepositoryView,
   ReviewerGroupView,
   StackBranchUpdate,
@@ -762,7 +763,13 @@ function headerFields(state: BranchSyncState, view: RepositoryView): Partial<Bra
     issueGroups: sameFields(header.issueGroups, state.issueGroups) ? state.issueGroups : header.issueGroups,
     stackParents: sameFields(header.stackParents, state.stackParents) ? state.stackParents : header.stackParents,
     parked: sameFields(header.parked, state.parked) ? state.parked : header.parked,
+    companions: sameRepositoryLinks(state.companions, header.companions ?? []) ? state.companions : (header.companions ?? []),
   }
+}
+
+/** The same linked repositories: one link's fields are primitives, so `sameFields` keeps their list's reference stable */
+function sameRepositoryLinks(shown: readonly RepositoryLink[], links: readonly RepositoryLink[]): boolean {
+  return shown.length === links.length && shown.every((link, index) => sameFields(link, links[index]!))
 }
 
 /**
@@ -984,6 +991,7 @@ function resetTable(): void {
     issueGroups: {},
     stackParents: {},
     parked: {},
+    companions: [],
     stackBranches: {},
     ...NO_SUBJECT_PARTS,
   })

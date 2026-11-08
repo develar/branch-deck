@@ -4519,6 +4519,9 @@ no operation.
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it
   before each sync of a session and keeps its git prefix for the commands after it (`BranchPrefixes`); `brd` reads it once per command (`RepoContext::config`), for the branch prefix and then for its sync, `brd push` and `brd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
+  The sync also sends the linked repositories for project selection: a primary validates each companion with one
+  `git config --local --list`, and a companion reads the primary's snapshot to list its siblings and validates each
+  linked path the same way. An unreadable path stays in the view with its reason; it does not fail the sync.
   `brd commits` takes its symbol setting from the same `RepoContext::config`. The configured GitHub
   repository of the pull requests is one snapshot, for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
   errors (a repository that is not accessible).

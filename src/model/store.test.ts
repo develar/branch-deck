@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import { commands } from "@/lib/bindings"
-import type { AuthStatus, Fact, RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
+import type { AuthStatus, Fact, RepositoryLink, RunningOperation, StackBranchUpdate, TableChanges, Version } from "@/lib/bindings"
 import { toRemoteStatus } from "@/lib/remote-status"
 import { resetDemand } from "@/model/demand"
 import { applyViewPatch } from "@/model/patch"
@@ -117,6 +117,22 @@ describe("the view of the session", () => {
     sync.answer()
     await synced
     expect(branchSyncStore.getState()).toMatchObject({ branchOrder: ["a", "b"], syncError: null, syncedRepositoryPath: "/repo" })
+  })
+
+  it("keeps the linked repositories of its header and reuses their list when they do not change", async () => {
+    const link: RepositoryLink = { name: "ci", path: "/work/ci", role: "companion", problem: null }
+    const view = emptyView()
+    fakeSessions.views.set("/repo", { ...view, header: { ...view.header, companions: [link] } })
+    await open()
+
+    const shown = branchSyncStore.getState().companions
+    expect(shown).toEqual([link])
+    const nextHeader = { ...view.header, companions: [{ ...link }] }
+    await send({ header: nextHeader })
+    expect(branchSyncStore.getState().companions).toBe(shown)
+
+    closeSession()
+    expect(branchSyncStore.getState().companions).toEqual([])
   })
 
   it("puts the fact auth of its session into the status of the sign-ins of the window, from its first view and from each patch of it", async () => {

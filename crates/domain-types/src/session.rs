@@ -753,6 +753,29 @@ pub struct RobotsHead {
   pub github_repository: Option<String>,
 }
 
+/// Whether this repository is the primary or one of its companions
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum LinkRole {
+  Primary,
+  Companion,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryLink {
+  /// The directory name of the linked repository
+  pub name: String,
+  /// Its main worktree path
+  pub path: String,
+  /// Whether this is the primary or one of its companions
+  pub role: LinkRole,
+  /// Why it can not be read; `None` when the path is a Git repository
+  pub problem: Option<String>,
+}
+
 /// What the table as a whole was grouped and checked with
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -773,6 +796,10 @@ pub struct TableHeader {
   #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub needs: BTreeMap<String, String>,
+  /// Repositories related to this one, as the last grouping read them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub companions: Vec<RepositoryLink>,
   /// The issue links of the IntelliJ IDEA configuration, the last a sync found
   pub issue_navigation_config: Option<IssueNavigationConfig>,
   /// The branch of origin the baseline tracks, which Patronus pushes into; none before the first grouping and for a

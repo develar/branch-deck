@@ -278,6 +278,7 @@ pub fn branches_grouped(branches: Vec<crate::GroupedBranchInfo>) -> crate::SyncE
     stack_parents: std::collections::BTreeMap::new(),
     parked: std::collections::BTreeMap::new(),
     needs: std::collections::BTreeMap::new(),
+    companions: Vec::new(),
     stack_branches: Vec::new(),
     target_branch: None,
     head: String::new(),

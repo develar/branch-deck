@@ -10,6 +10,7 @@ use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
+use crate::repository_config::write_companion;
 use crate::review_target::ReviewMemo;
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
@@ -56,6 +57,40 @@ async fn a_first_sync() {
   // so their budgets end in the same processes: a change of one count shows in both
   assert_processes(&git, FIRST_SYNC);
   // jscpd:ignore-end
+}
+
+#[tokio::test]
+async fn a_primary_sync_checks_each_companion_repository() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  let (companion, _) = alpha_and_beta_on_origin();
+  let repository_path = path(&repo);
+  let companion_path = path(&companion);
+  write_companion(repo.git_executor(), &repository_path, "ci", Some(&companion_path)).unwrap();
+  let git = counting();
+
+  sync(&git, &repo).await;
+
+  let mut expected = FIRST_SYNC.to_vec();
+  let (_, config_count) = expected.iter_mut().find(|(command, _)| *command == "config").unwrap();
+  *config_count += 1;
+  assert_processes(&git, &expected);
+}
+
+#[tokio::test]
+async fn a_companion_sync_reads_its_primary_and_checks_the_primary_repository() {
+  let (primary, _) = alpha_and_beta_on_origin();
+  let (companion, _) = alpha_and_beta_on_origin();
+  let primary_path = path(&primary);
+  let companion_path = path(&companion);
+  write_companion(primary.git_executor(), &primary_path, "ci", Some(&companion_path)).unwrap();
+  let git = counting();
+
+  sync(&git, &companion).await;
+
+  let mut expected = FIRST_SYNC.to_vec();
+  let (_, config_count) = expected.iter_mut().find(|(command, _)| *command == "config").unwrap();
+  *config_count += 2;
+  assert_processes(&git, &expected);
 }
 
 fn assert_signed_virtual_branches(repo: &TestRepo, base: &str) -> String {

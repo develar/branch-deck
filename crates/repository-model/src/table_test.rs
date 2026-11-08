@@ -3,7 +3,7 @@ use domain_types::commit::{Commit, SubjectParts};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::branches_grouped;
 use domain_types::operation::OperationId;
-use domain_types::session::{BranchStatus, CommitSync, SyncState, SyncStep};
+use domain_types::session::{BranchStatus, CommitSync, LinkRole, RepositoryLink, SyncState, SyncStep};
 use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate, StackProblem, StackProblemView};
 use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, RemoteStatusUpdate, SyncEvent, UnappliedBranchInfo};
 use pretty_assertions::assert_eq;
@@ -51,6 +51,24 @@ pub(crate) fn grouped(name: &str, commits: &[&str]) -> GroupedBranchInfo {
 
 pub(crate) fn grouping(branches: Vec<GroupedBranchInfo>) -> SyncEvent {
   branches_grouped(branches)
+}
+
+#[test]
+fn a_grouping_carries_repository_links_into_the_header() {
+  let link = RepositoryLink {
+    name: "ci".to_string(),
+    path: "/work/ci".to_string(),
+    role: LinkRole::Companion,
+    problem: None,
+  };
+  let mut event = grouping(Vec::new());
+  if let SyncEvent::BranchesGrouped { companions, .. } = &mut event {
+    *companions = vec![link.clone()];
+  }
+  let mut state = TableState::new();
+  state.begin_sync();
+  state.apply(event);
+  assert_eq!(&state.header().companions, &[link]);
 }
 
 /// A grouping of no branch, which announces the stack branches of `roots`

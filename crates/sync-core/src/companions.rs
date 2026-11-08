@@ -10,6 +10,7 @@ use branch_integration::common::{BranchData, branch_data_of, list_branches};
 use domain_types::branch_integration::BranchIntegrationStatus;
 use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
 use domain_types::landing::NeedState;
+use domain_types::session::{LinkRole, RepositoryLink};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -54,6 +55,43 @@ pub fn need_repositories(git: &GitCommandExecutor, repository_path: &str, snapsh
     repositories.insert(directory_name(primary), primary.to_string());
   }
   repositories
+}
+
+/// The repositories linked to this one: its companions, or its primary followed by that primary's other companions
+pub fn repository_links(git: &GitCommandExecutor, repository_path: &str, snapshot: &ConfigSnapshot) -> Vec<RepositoryLink> {
+  let primary = snapshot.primary();
+  let mut links: Vec<_> = need_repositories(git, repository_path, snapshot)
+    .into_iter()
+    .map(|(name, path)| {
+      let role = if primary.is_some_and(|primary| same_path(Path::new(primary), Path::new(&path))) {
+        LinkRole::Primary
+      } else {
+        LinkRole::Companion
+      };
+      let problem = repository_problem(git, &path);
+      RepositoryLink { name, path, role, problem }
+    })
+    .collect();
+  links.sort_by(|a, b| link_role_order(a.role).cmp(&link_role_order(b.role)).then_with(|| a.name.cmp(&b.name)));
+  links
+}
+
+const fn link_role_order(role: LinkRole) -> u8 {
+  match role {
+    LinkRole::Primary => 0,
+    LinkRole::Companion => 1,
+  }
+}
+
+fn repository_problem(git: &GitCommandExecutor, path: &str) -> Option<String> {
+  if !Path::new(path).is_dir() {
+    return Some(format!("{path} is gone"));
+  }
+  match git.execute_command_with_status(&["config", "--local", "--list"], path) {
+    Ok((_, 0)) => None,
+    Ok(_) => Some(format!("{path} is no git repository")),
+    Err(error) => Some(format!("{path} is no git repository: {error:#}")),
+  }
 }
 
 /// The name a repository goes by in the needs of its companions: the name of its directory

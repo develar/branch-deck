@@ -1,10 +1,11 @@
-use crate::companions::{CompanionNeed, companion_needs, need_repositories, read_companion_needs};
+use crate::companions::{CompanionNeed, companion_needs, need_repositories, read_companion_needs, repository_links};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::regroup_test::{commits, path, sync};
 use crate::repository_config::{read_repository_config, write_companion};
 use branch_integration::detection_notes::{CacheOps, CachedDetection};
 use domain_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use domain_types::landing::NeedState;
+use domain_types::session::{LinkRole, RepositoryLink};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_log::test;
@@ -107,7 +108,44 @@ fn a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings() {
 
   let from_ci = need_repositories(ci.git_executor(), path(&ci), &snapshot(&ci));
   let app_name = std::path::Path::new(&main(&app)).file_name().unwrap().to_str().unwrap().to_string();
-  assert_eq!(from_ci, BTreeMap::from([(app_name, main(&app)), ("web".to_string(), main(&web))]));
+  assert_eq!(from_ci, BTreeMap::from([(app_name.clone(), main(&app)), ("web".to_string(), main(&web))]));
+
+  let from_app = repository_links(app.git_executor(), path(&app), &snapshot(&app));
+  assert_eq!(
+    from_app,
+    [
+      RepositoryLink {
+        name: "ci".to_string(),
+        path: main(&ci),
+        role: LinkRole::Companion,
+        problem: None
+      },
+      RepositoryLink {
+        name: "web".to_string(),
+        path: main(&web),
+        role: LinkRole::Companion,
+        problem: None
+      },
+    ]
+  );
+  let from_ci = repository_links(ci.git_executor(), path(&ci), &snapshot(&ci));
+  assert_eq!(
+    from_ci,
+    [
+      RepositoryLink {
+        name: app_name,
+        path: main(&app),
+        role: LinkRole::Primary,
+        problem: None
+      },
+      RepositoryLink {
+        name: "web".to_string(),
+        path: main(&web),
+        role: LinkRole::Companion,
+        problem: None
+      },
+    ]
+  );
 
   // a companion has one primary, a primary is no companion, a repository is no companion of itself
   let other = baseline_repo();
@@ -121,6 +159,40 @@ fn a_companion_writes_both_sides_and_resolves_the_primary_and_its_siblings() {
   write_companion(app.git_executor(), path(&app), "ci", None).unwrap();
   assert_eq!(snapshot(&app).companions().keys().collect::<Vec<_>>(), ["web"]);
   assert_eq!(snapshot(&ci).primary(), None);
+}
+
+#[test]
+fn repository_links_report_missing_and_non_repository_paths() {
+  let app = baseline_repo();
+  let temporary = tempfile::tempdir().unwrap();
+  let missing = temporary.path().join("gone").to_str().unwrap().to_string();
+  let not_repository = temporary.path().join("not-a-repository").to_str().unwrap().to_string();
+  std::fs::create_dir_all(&not_repository).unwrap();
+  app.git(&["config", "--local", "--replace-all", "branchdeck.companion.gone.path", &missing]);
+  app.git(&["config", "--local", "--replace-all", "branchdeck.companion.not-a-repository.path", &not_repository]);
+
+  let config = snapshot(&app);
+  let git = counting();
+  let links = repository_links(&git, path(&app), &config);
+
+  assert_eq!(
+    links,
+    [
+      RepositoryLink {
+        name: "gone".to_string(),
+        path: missing.clone(),
+        role: LinkRole::Companion,
+        problem: Some(format!("{missing} is gone")),
+      },
+      RepositoryLink {
+        name: "not-a-repository".to_string(),
+        path: not_repository.clone(),
+        role: LinkRole::Companion,
+        problem: Some(format!("{not_repository} is no git repository")),
+      },
+    ]
+  );
+  assert_processes(&git, &[("config", 1)]);
 }
 
 /// The main worktree of `repo` as git names it (the parent of its common git dir)

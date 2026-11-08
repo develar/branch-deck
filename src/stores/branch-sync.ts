@@ -24,6 +24,7 @@ import type {
   PullRequestView,
   PushAction,
   Reason,
+  RepositoryLink,
   ReviewerGroupView,
   RobotAttention,
   RunningOperation,
@@ -273,6 +274,8 @@ export interface BranchSyncState {
    * also the lines of branches without commits here
    */
   parked: Readonly<Record<string, string>>
+  /** The repositories linked to this one, as the last grouping read them */
+  companions: readonly RepositoryLink[]
   /**
    * Root -> its stack branch, as the last sync reported it. A grouping keeps the ones it announces, as they were until
    * their update comes, and drops the others.
@@ -391,6 +394,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   issueGroups: {},
   stackParents: {},
   parked: {},
+  companions: [],
   stackBranches: {},
   ...NO_SUBJECT_PARTS,
 }))

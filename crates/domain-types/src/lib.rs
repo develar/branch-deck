@@ -279,6 +279,10 @@ pub enum SyncEvent {
     #[serde(default)]
     #[cfg_attr(feature = "specta", specta(optional))]
     needs: BTreeMap<String, String>,
+    /// The repositories linked to this one, checked as the grouping read them
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    companions: Vec<session::RepositoryLink>,
     /// The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
     /// and the stack branches kept for their remote branch; any other stack branch is gone
     #[cfg_attr(feature = "specta", specta(optional))]

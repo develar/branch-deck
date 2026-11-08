@@ -640,6 +640,36 @@ async fn test_branches_grouped_carries_the_description_titles() -> anyhow::Resul
   Ok(())
 }
 
+#[tokio::test]
+async fn branches_grouped_carries_related_repositories() -> anyhow::Result<()> {
+  let primary = repo_with_initial_commit();
+  let companion = repo_with_initial_commit();
+  let primary_path = primary.path().to_str().unwrap().to_string();
+  let companion_path = companion.path().to_str().unwrap().to_string();
+  crate::repository_config::write_companion(primary.git_executor(), &primary_path, "ci", Some(&companion_path))?;
+  let config = crate::config_snapshot::ConfigSnapshot::read(primary.git_executor(), &primary_path)?;
+  let linked_path = config.companions().get("ci").unwrap().clone();
+
+  let events = sync_events(&GitCommandExecutor::new(), &primary).await?;
+  let links = events
+    .iter()
+    .find_map(|event| match event {
+      SyncEvent::BranchesGrouped { companions, .. } => Some(companions),
+      _ => None,
+    })
+    .unwrap();
+  assert_eq!(
+    links,
+    &[domain_types::session::RepositoryLink {
+      name: "ci".to_string(),
+      path: linked_path,
+      role: domain_types::session::LinkRole::Companion,
+      problem: None,
+    }]
+  );
+  Ok(())
+}
+
 #[test]
 fn test_detect_baseline_branch_scenarios() {
   let test_repo = TestRepo::new();
