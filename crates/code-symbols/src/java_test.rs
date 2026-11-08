@@ -1,7 +1,6 @@
-use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach};
-use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, signatures, summary_of, supertypes_of};
+use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, signatures, summarize, summary_of, supertypes_of};
 
 #[test]
 fn a_method_a_test_framework_runs_is_a_test() {

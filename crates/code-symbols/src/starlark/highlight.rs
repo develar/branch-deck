@@ -6,12 +6,13 @@
 
 use crate::highlight::lines::LineRuns;
 use crate::highlight::{COMMENT, Role};
-use starlark_syntax::{NodeId, NodeKind, TokenKind, Tree};
+use starlark_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 
-/// The highlighting of a Starlark text (its size within `highlight::MAX_BYTES`); `top_level_calls_declare`: a BUILD or
-/// MODULE file (`Grammar::StarlarkBuild`). Any bytes parse, so it always has one
-pub(crate) fn highlight(text: &str, top_level_calls_declare: bool) -> LineRuns {
-  let tree = super::parse(text.as_bytes());
+/// The highlighting of a Starlark text (its size within `highlight::MAX_BYTES`); the file kind says whether top-level
+/// calls declare targets. Any bytes parse, so it always has one
+pub(crate) fn highlight(text: &str, kind: FileKind) -> LineRuns {
+  let tree = super::parse(text.as_bytes(), kind);
+  let top_level_calls_declare = kind.top_level_calls_declare();
   let mut out = LineRuns::builder(text);
   let len = u32::try_from(tree.len()).unwrap_or(u32::MAX);
   for leaf in (0..len).map(NodeId).filter(|&id| tree.is_leaf(id)) {

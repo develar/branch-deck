@@ -2,10 +2,9 @@
 //! rules of `java_test.rs`: each test here is a construct whose facts moved from tree-sitter's walk, a misread of it or
 //! a regression of the port fixed, with the reading of PSI.
 
-use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{FileSummary, ImportTarget, MemberKind, Reach};
-use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs, signatures, supertypes_of};
+use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs, signatures, summarize, supertypes_of};
 
 fn java(source: &str) -> FileSummary {
   summarize(Language::Java, source.as_bytes())

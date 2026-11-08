@@ -37,6 +37,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
+#[path = "bazel_resolution.rs"]
+mod bazel_resolution;
 #[path = "declaration_checks.rs"]
 pub mod declaration_checks;
 #[path = "dotnet_resolution.rs"]
@@ -293,7 +295,8 @@ impl SymbolInput {
       namespace: match summary.language.family() {
         Family::Jvm | Family::Dotnet => summary.package.as_deref().map_or_else(Vec::new, |package| package.split('.').map(str::to_string).collect()),
         Family::Rust => rust_module(path, crate_root),
-        Family::Script => vec![path.to_string()],
+        // a Bazel file and a script are named by their path: a `load` and an `import` name a file, not a package
+        Family::Script | Family::Bazel => vec![path.to_string()],
       },
       module_root: self.roots.module_of(path),
       crate_root,
@@ -1651,6 +1654,7 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
     Family::Rust => resolve_rust(input, use_site, reference, qualifier, site),
     Family::Script => resolve_script(use_site, reference, qualifier, site),
     Family::Dotnet => dotnet_resolution::resolve_dotnet(use_site, reference, qualifier, site),
+    Family::Bazel => bazel_resolution::resolve_bazel(use_site, reference, qualifier, site),
   }
 }
 

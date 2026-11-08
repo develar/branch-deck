@@ -28,7 +28,7 @@ use crate::worktree::{read_worktree_blob, uncommitted_entries};
 use anyhow::{Result, bail};
 use code_symbols::extract::{extractor_version, summarize};
 use code_symbols::highlight::lines::LineRuns;
-use code_symbols::language::{Language, language_of};
+use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::{FileSummary, LineSpan};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
@@ -637,12 +637,12 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
       // the blocks first: the parse of the scopes costs more than the comparison
       send(content_event(DiffContent::Text(diff.clone())));
       let old_imports = old_side.map(|(language, id)| {
-        let (scopes, imports) = side_facts(context.summaries, language, id, old_text, &mut summaries);
+        let (scopes, imports) = side_facts(context.summaries, language, entry.old_path.as_deref().unwrap_or(&entry.path), id, old_text, &mut summaries);
         diff.old_scopes = scopes;
         imports
       });
       let new_imports = new_side.map(|(language, id)| {
-        let (scopes, imports) = side_facts(context.summaries, language, id, new_text, &mut summaries);
+        let (scopes, imports) = side_facts(context.summaries, language, &entry.path, id, new_text, &mut summaries);
         diff.new_scopes = scopes;
         imports
       });
@@ -672,24 +672,21 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
   send(content_event(content));
 }
 
-/// The scopes of a side: from its cached summary, else from a summary made now, kept for the store unless truncated
-pub(crate) fn scopes(summaries: &HashMap<(u8, String), FileSummary>, language: Language, id: &str, text: &str, made: &mut Vec<((u8, String), FileSummary)>) -> Vec<Scope> {
-  side_facts(summaries, language, id, text, made).0
-}
-
-/// The scopes and the lines of the import statements of a side (`scopes`); no lines of a truncated summary
-fn side_facts(
+/// The scopes and the lines of the import statements of a side: from its cached summary, else from a summary made
+/// now, kept for the store unless truncated; no lines of a truncated summary
+pub(crate) fn side_facts(
   summaries: &HashMap<(u8, String), FileSummary>,
   language: Language,
+  path: &str,
   id: &str,
   text: &str,
   made: &mut Vec<((u8, String), FileSummary)>,
 ) -> (Vec<Scope>, Vec<LineSpan>) {
-  let key = (language.id(), id.to_string());
+  let key = (summary_key(language, path), id.to_string());
   if let Some(summary) = summaries.get(&key) {
     return (scopes_of_summary(summary), summary.import_lines.clone());
   }
-  let summary = summarize(language, text.as_bytes());
+  let summary = summarize(language, path, text.as_bytes());
   let facts = (scopes_of_summary(&summary), summary.import_lines.clone());
   if !summary.truncated {
     made.push((key, summary));

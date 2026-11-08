@@ -58,8 +58,10 @@ pub(crate) enum SymbolGroup {
 }
 
 impl SymbolGroup {
-  const fn of_declaration(kind: DeclKind) -> Self {
-    match kind {
+  /// `None` for a declaration that is no code a name may mean, as `Kind::group` of accio answers none for a Bazel
+  /// target: a label names it, never a reference of the tree
+  const fn of_declaration(kind: DeclKind) -> Option<Self> {
+    Some(match kind {
       DeclKind::Type => Self::Class,
       DeclKind::Function => Self::Function,
       DeclKind::Value => Self::Property,
@@ -69,7 +71,8 @@ impl SymbolGroup {
       DeclKind::Module => Self::Module,
       DeclKind::Macro => Self::Macro,
       DeclKind::Binding => Self::Local,
-    }
+      DeclKind::Target => return None,
+    })
   }
 
   /// The word the index answered, else the kind folded the way accio folds it; `None` where neither says a group
@@ -144,7 +147,7 @@ struct Scored<'a> {
   /// The UTF-16 column the name starts at, as the parser of the file read it
   column: u32,
   container: Option<String>,
-  kind: DeclKind,
+  group: SymbolGroup,
 }
 
 impl FileDiffs {
@@ -187,13 +190,14 @@ impl FileDiffs {
 
     let candidates: Vec<Candidate<'_>> = params.files.iter().filter_map(|file| candidate(file, site.side, language)).collect();
     let summaries = self.summaries_of(git, cache, &params.repository_path, &candidates)?;
-    let site_summary = summarize(language, text.as_bytes());
+    let site_summary = summarize(language, &site.path, text.as_bytes());
     let owner = expected_owner(&site_summary, reference.qualifier.as_deref(), site.line);
     let mut scored: Vec<Scored<'_>> = Vec::new();
     for candidate in &candidates {
       let Some(summary) = summaries.get(&candidate.request.id) else { continue };
       for declaration in &summary.declarations {
-        if summary.name(declaration.name) != reference.name || !fits(reference.kind, SymbolGroup::of_declaration(declaration.kind)) {
+        let Some(group) = SymbolGroup::of_declaration(declaration.kind) else { continue };
+        if summary.name(declaration.name) != reference.name || !fits(reference.kind, group) {
           continue;
         }
         let container = declaration
@@ -224,7 +228,7 @@ impl FileDiffs {
           name_line: declaration.name_line,
           column: declaration.name_column,
           container,
-          kind: declaration.kind,
+          group,
         });
       }
     }
@@ -244,7 +248,7 @@ impl FileDiffs {
         line: it.name_line.saturating_sub(1),
         column: it.column,
         end_column: it.column + u32::try_from(reference.name.encode_utf16().count()).unwrap_or(0),
-        kind: SymbolGroup::of_declaration(it.kind).name().to_string(),
+        kind: it.group.name().to_string(),
         container: it.container,
         outside: None,
       })
@@ -425,7 +429,7 @@ impl FileDiffs {
     let mut made: Vec<((u8, String), FileSummary)> = Vec::new();
     for (candidate, blob) in missing.into_iter().zip(texts) {
       if let BlobText::Text { text, .. } = blob {
-        let summary = summarize(candidate.language, text.as_bytes());
+        let summary = summarize(candidate.language, candidate.path, text.as_bytes());
         if !summary.truncated {
           made.push(((candidate.language.id(), candidate.request.id.clone()), summary.clone()));
         }

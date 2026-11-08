@@ -12,6 +12,8 @@ targets:
   - ../../crates/code-symbols/src/kotlin/summary.rs
   - ../../crates/code-symbols/src/csharp/summary.rs
   - ../../crates/trial-check/src/dotnet_resolution.rs
+  - ../../crates/code-symbols/src/starlark/summary.rs
+  - ../../crates/trial-check/src/bazel_resolution.rs
   - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/code-symbols/src/typescript.rs
   - ../../crates/trial-check/src/symbol_scan.rs
@@ -237,6 +239,17 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   body stay references. A macro in a function body must declare nothing.
   [@test] ../../crates/code-symbols/src/rust_test.rs (`declarations`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- The summary of a Bazel file (`BUILD`, `BUILD.bazel`, `MODULE.bazel`, `WORKSPACE*`, `REPO.bazel`, `.bzl`, `.star`,
+  `*.BUILD`, which name the language, not an extension) must hold its top-level `def`s with their parameters, the
+  names its top-level `=` assigns (a constant in capitals, a value otherwise), and, where the plugin's own rule says
+  its top-level calls declare targets (`BUILD`, `BUILD.bazel`, `MODULE.bazel`), a target per call with a non-empty
+  literal `name`, the rule it calls as its type (`jps_test`, `native.cc_library`). Each name a `load` binds must be an
+  import of the label as written, the bound name its alias where it differs. A label in a string (`"//pkg:x"`,
+  `":x"`) must be no reference: a reference is a name of the tree, and a label needs a package model the summary does
+  not have. The rules of the tree must be those of `starlark-syntax`, which accio's extractor reads too, so that one
+  answer serves both.
+  [@test] ../../crates/code-symbols/src/starlark/summary_test.rs (`a_top_level_call_with_a_literal_name_is_a_target_of_its_rule`, `a_name_that_is_no_literal_or_is_empty_declares_no_target`, `only_a_build_file_declares_targets_from_its_top_level_calls`, `a_bzl_file_declares_its_top_level_defs_and_assignments`, `a_load_is_an_import_per_name_it_binds_under_the_label_it_names`, `a_call_is_a_reference_of_the_rule_it_names_and_a_label_in_a_string_is_none`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`, `language_by_extension`)
 - The module roots (the nearest directory with an `*.iml`, a Bazel, Gradle or Maven build file, a `Cargo.toml` or a
   `package.json`), the crate names and the TypeScript path aliases must come from HEAD's tree, the directories with
   one `cat-file --batch`, never a command line that lists them.
@@ -268,6 +281,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   the type's path resolved as for a static member. A member on a value (`manifest.stills`, `self.stills`) or through
   `Self` must be no edge: the summary knows no type of a Rust value.
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_item_of_an_item_macro_and_a_field_by_its_struct_are_edges`, `a_rust_field_on_a_value_is_no_edge`)
+- A commit whose Bazel file `load`s a name another commit declares in a `.bzl` of the range must depend on it: the
+  label names the file from the root of the repository (`//pkg:defs.bzl` is `pkg/defs.bzl`, `:defs.bzl` and
+  `defs.bzl` the package of the file that loads them), and where no file of the range has that exact path, a path
+  that ends in it counts, as a Bazel workspace below the root names its packages from its own root. A label of
+  another repository (`@repo//…`) must name no file of this one. A Bazel file must see the declarations of Bazel
+  files alone: a Kotlin or Java declaration of the same name is another family. A target must be no declaration a use
+  can mean and must raise no dangling reference: it is a name of the build graph, not callable code.
+  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_bazel_load_of_a_macro_another_commit_adds_is_an_edge`, `a_kotlin_function_of_the_name_a_build_file_loads_is_no_edge`, `a_label_of_a_workspace_below_the_root_matches_by_the_tail_of_the_path`, `a_bazel_load_from_another_repository_is_no_edge`, `a_bazel_target_is_no_declaration_a_use_can_mean`)
+  [@test] ../../crates/trial-check/src/bazel_resolution.rs (`a_label_names_a_file_from_the_root_of_the_repository`, `a_relative_label_names_a_file_of_the_package_that_loads_it`, `a_workspace_below_the_root_of_the_repository_matches_by_the_tail_of_the_path`, `a_label_of_another_repository_names_no_file_of_this_one`)
 - A name that a private import of the range binds (a Rust `use`, a TypeScript import, a Kotlin alias) must be an edge
   by a bare use where the import reaches: its own file, and in Rust its module and the modules below it, through
   `use super::*`, `use super::Path` or `super::Path` (`Path` of a `use std::path::{Path, PathBuf}` in `execute.rs`,

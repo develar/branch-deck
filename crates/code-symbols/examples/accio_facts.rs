@@ -88,7 +88,7 @@ fn prepare_file(project: &Path, path: String, probes_limit: usize) -> Option<Fil
       });
     }
   };
-  let summary = summarize(language, &source);
+  let summary = summarize(language, &path, &source);
   let mut facts = Vec::new();
   let mut declarations = Vec::new();
   for declaration in &summary.declarations {

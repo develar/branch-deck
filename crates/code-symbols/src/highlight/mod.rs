@@ -196,21 +196,16 @@ impl Grammar {
   }
 }
 
-/// The grammar of a file by its extension, if this build can highlight it
+/// The grammar of a file by its name or extension, if this build can highlight it
 pub fn grammar_of(path: &str) -> Option<Grammar> {
   let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-  // Bazel's files are named, not suffixed: `BUILD` has no extension (`starlark_syntax::FileKind::from_path`)
-  let named = match file_name {
-    "BUILD" | "BUILD.bazel" | "MODULE.bazel" => Some(Grammar::StarlarkBuild),
-    "WORKSPACE" | "WORKSPACE.bazel" | "WORKSPACE.bzlmod" | "REPO.bazel" => Some(Grammar::Starlark),
-    _ => None,
-  };
-  if let Some(grammar) = named {
+  #[cfg(feature = "starlark")]
+  if let Some(kind) = starlark_syntax::FileKind::from_path(path) {
+    let grammar = if kind.top_level_calls_declare() { Grammar::StarlarkBuild } else { Grammar::Starlark };
     return grammar.is_enabled().then_some(grammar);
   }
   let (_, extension) = file_name.rsplit_once('.')?;
   let grammar = match extension {
-    "bzl" | "bazel" | "star" | "BUILD" => Grammar::Starlark,
     "kt" => Grammar::Kotlin,
     "kts" => Grammar::KotlinScript,
     "java" => Grammar::Java,
@@ -266,7 +261,14 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
     #[cfg(feature = "csharp")]
     Grammar::CSharp => Some(crate::csharp::highlight::highlight(text)),
     #[cfg(feature = "starlark")]
-    Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::starlark::highlight::highlight(text, grammar == Grammar::StarlarkBuild)),
+    Grammar::Starlark | Grammar::StarlarkBuild => {
+      let kind = if grammar == Grammar::StarlarkBuild {
+        starlark_syntax::FileKind::Build
+      } else {
+        starlark_syntax::FileKind::Bzl
+      };
+      Some(crate::starlark::highlight::highlight(text, kind))
+    }
     _ => highlight_tree_sitter(grammar, text),
   }
 }

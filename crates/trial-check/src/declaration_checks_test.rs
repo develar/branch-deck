@@ -442,7 +442,8 @@ fn a_removed_member_whose_name_the_file_imports_is_no_use() {
 
 /// `(name, test, surface)` of every declaration of `source` but its bindings, in the order of the summary
 fn surfaces(language: Language, source: &str) -> Vec<(String, bool, Surface)> {
-  let summary = summarize(language, source.as_bytes());
+  // the path says the kind of a Bazel file alone; these are JVM and Rust texts of no file
+  let summary = summarize(language, "", source.as_bytes());
   summary
     .declarations
     .iter()

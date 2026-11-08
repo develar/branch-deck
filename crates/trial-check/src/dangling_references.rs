@@ -112,7 +112,7 @@ impl SyntaxMemo {
       return known.clone();
     }
     let summary = symbols_language_of(path)
-      .map(|language| summarize(language, text.as_bytes()))
+      .map(|language| summarize(language, path, text.as_bytes()))
       .filter(|summary| !summary.is_degraded() && !summary.truncated)
       .map(Arc::new);
     self.summaries.lock().ok()?.insert(name.to_string(), summary.clone());

@@ -8,14 +8,15 @@ use text_diff::model::Scope;
 /// Between the names of a scope and the scopes around it
 const SEPARATOR: &str = " › ";
 
-/// The types, functions and modules of `text`, in source order; empty when the language has no grammar here or the
-/// summary is truncated
+/// The scopes of the file at `path`, in source order; empty when the language has no grammar here or the summary is
+/// truncated
 #[cfg(test)]
-pub(crate) fn scopes_of(language: Language, text: &str) -> Vec<Scope> {
-  scopes_of_summary(&code_symbols::extract::summarize(language, text.as_bytes()))
+pub(crate) fn scopes_of(language: Language, path: &str, text: &str) -> Vec<Scope> {
+  scopes_of_summary(&code_symbols::extract::summarize(language, path, text.as_bytes()))
 }
 
-/// The types, functions and modules of a summary, in source order; empty for a truncated one
+/// The types, functions, modules and Bazel targets of a summary, in source order; empty for a truncated one. A target
+/// is a scope so that the folded lines inside its call (`deps = […]`) carry its name
 pub(crate) fn scopes_of_summary(summary: &FileSummary) -> Vec<Scope> {
   if summary.truncated {
     return Vec::new();
@@ -23,7 +24,7 @@ pub(crate) fn scopes_of_summary(summary: &FileSummary) -> Vec<Scope> {
   summary
     .declarations
     .iter()
-    .filter(|declaration| matches!(declaration.kind, DeclKind::Type | DeclKind::Function | DeclKind::Module) && !declaration.in_error)
+    .filter(|declaration| matches!(declaration.kind, DeclKind::Type | DeclKind::Function | DeclKind::Module | DeclKind::Target) && !declaration.in_error)
     .map(|declaration| Scope {
       // the summary has 1-based lines, the last one included
       start_line: declaration.start_line.saturating_sub(1),

@@ -21,9 +21,9 @@ proposed `brd move-hunk` would have broken a branch.
 
 ## Solution Overview
 
-`crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Rust, TypeScript and JavaScript; Kotlin on the
-compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on Roslyn's, decision 23, the others
-on tree-sitter): its
+`crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Starlark, Rust, TypeScript and JavaScript; Kotlin
+on the compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on Roslyn's, decision 23,
+Starlark on the Bazel plugin's, decision 25, the others on tree-sitter): its
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
@@ -677,6 +677,26 @@ flowchart TD
     last line, so the fix is visible only where it is written on a line of its own, and the new tests are that case.
     `extractor_version` hashes the revision of psi-syntax, so the summaries cached by an older parser are made again.
 
+25. **Decision**: a Bazel file (`BUILD`, `MODULE.bazel`, a `.bzl`) is read by psi-syntax's `starlark-syntax`, a port of
+    the IntelliJ Bazel plugin's lexer and parser, and the rules of that plugin's PSI live in `starlark_syntax::psi`,
+    not in the consumer: what a top-level call declares (`is_bazel_file_top_level_call`, `rule_target`), what a `load`
+    binds, what a string literal means, and which file kinds declare targets (`FileKind::top_level_calls_declare`).
+    A target is `DeclKind::Target` with the rule it calls as its `value_type`, a kind no rule of callable code
+    mentions, so it is no overload, no dangling reference and no candidate of Go to Declaration. A label in a string
+    is no reference. A `load` is an import whose `specifier` is the label as written, which `bazel_resolution.rs`
+    turns into the file it means: a path from the root of the repository, with a tail match for a Bazel workspace
+    below it.
+
+    [@test] ../../crates/code-symbols/src/starlark/summary_test.rs (`a_top_level_call_with_a_literal_name_is_a_target_of_its_rule`, `only_a_build_file_declares_targets_from_its_top_level_calls`)
+    [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_bazel_load_of_a_macro_another_commit_adds_is_an_edge`, `a_bazel_target_is_no_declaration_a_use_can_mean`)
+
+    **Rationale**: the same rules have two consumers, accio's extractor and Branch Deck, and they had already drifted:
+    accio read targets of `BUILD` and `BUILD.bazel`, Branch Deck's highlighting also of `MODULE.bazel`, and the list
+    of Bazel file names was written three times. One home for the plugin's PSI rules (accio's decision
+    2026-11-08-starlark-psi-rules) settles such a question once for both. A separate `DeclKind` makes "a target is no
+    code" the default: every `match` over the kinds is exhaustive, so the compiler names each place that must decide,
+    and none of them took a target for a function.
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules, the revision of psi-syntax and the
@@ -696,6 +716,9 @@ flowchart TD
   (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
   decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
   shorthand by `emit_text` beside its local).
+  Starlark (`starlark/summary.rs`): one pass over the PSI, reading it only through `starlark_syntax::psi`, with the
+  file kind from the path (`summarize` takes it; `language::summary_key` keys the cache by it, as the same bytes are
+  one summary as a `BUILD` and another as a `.bzl`).
 - `crates/trial-check/src/symbol_scan.rs`: the summaries through the cache, the crate names and the TypeScript aliases;
   the mode (`branchdeck.symbols`, `SymbolMode`) is `crates/sync-core/src/config_snapshot.rs`.
 - `crates/trial-check/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,

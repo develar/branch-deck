@@ -1,12 +1,12 @@
-use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version, spec_of, summarize, summarize_with_budget};
+use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version, spec_of};
 use crate::language::{Family, Language, language_of};
 use crate::summary::{DeclKind, FileSummary, Role};
 use crate::summary_text::render;
-use crate::test_support::{check_golden, declaration, fixture, summary_of};
+use crate::test_support::{check_golden, declaration, fixture, summarize, summarize_in, summary_of};
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
 /// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 167_471_443;
+const EXTRACTOR_VERSION: u32 = 4_226_877_175;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -77,7 +77,7 @@ fn the_psi_syntax_revision_is_the_one_cargo_builds() {
 fn extractor_version_is_stable() {
   let version = extractor_version();
   assert_eq!(version, extractor_version());
-  if cfg!(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript")) {
+  if cfg!(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript", feature = "starlark")) {
     assert_eq!(
       version, EXTRACTOR_VERSION,
       "RULES_VERSION {RULES_VERSION} or a grammar changed: set EXTRACTOR_VERSION to {version}"
@@ -86,7 +86,7 @@ fn extractor_version_is_stable() {
 }
 
 #[test]
-#[cfg(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"))]
+#[cfg(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript", feature = "starlark"))]
 fn language_by_extension() {
   assert_eq!(language_of("a/b/Foo.kt"), Some(Language::Kotlin));
   assert_eq!(language_of("build.gradle.kts"), Some(Language::Kotlin));
@@ -96,6 +96,9 @@ fn language_by_extension() {
   for path in ["a.ts", "a.tsx", "a.mts", "a.cts", "a.js", "a.jsx", "a.mjs", "a.cjs"] {
     assert_eq!(language_of(path), Some(Language::TypeScript), "{path}");
   }
+  for path in ["pkg/BUILD", "pkg/BUILD.bazel", "MODULE.bazel", "WORKSPACE", "defs.bzl", "rules.BUILD"] {
+    assert_eq!(language_of(path), Some(Language::Starlark), "{path}");
+  }
   assert_eq!(language_of("README.md"), None);
   assert_eq!(language_of("Makefile"), None);
   assert_eq!(language_of("dir.kt/file"), None);
@@ -104,8 +107,9 @@ fn language_by_extension() {
   assert_eq!(Language::Rust.family(), Family::Rust);
   assert_eq!(Language::TypeScript.family(), Family::Script);
   assert_eq!(Language::CSharp.family(), Family::Dotnet);
+  assert_eq!(Language::Starlark.family(), Family::Bazel);
   let ids: Vec<u8> = Language::ALL.iter().map(|it| it.id()).collect();
-  assert_eq!(ids, [0, 1, 2, 3, 4]);
+  assert_eq!(ids, [0, 1, 2, 3, 4, 5]);
 }
 
 #[cfg(any(feature = "kotlin", feature = "rust", feature = "typescript"))]
@@ -151,15 +155,15 @@ fn a_minified_file_is_not_parsed() {
 fn the_parse_budget_truncates_deterministically() {
   // the budget is tree-sitter's (Rust, TypeScript); psi-syntax bounds a parse by its nesting limit
   let (_, source) = fixture("rust/references.rs");
-  let full = summarize_with_budget(Language::Rust, &source, u32::MAX);
+  let full = summarize_in(Language::Rust, &source, u32::MAX);
   assert!(!full.truncated);
   assert_ne!(full.references.len(), 0);
-  let cut = summarize_with_budget(Language::Rust, &source, 1);
+  let cut = summarize_in(Language::Rust, &source, 1);
   assert!(cut.truncated);
   assert_eq!((cut.declarations.len(), cut.references.len()), (0, 0));
-  assert_eq!(summarize_with_budget(Language::Rust, &source, 1), cut);
+  assert_eq!(summarize_in(Language::Rust, &source, 1), cut);
   // the parser starts afresh after a cancelled parse
-  assert_eq!(summarize_with_budget(Language::Rust, &source, u32::MAX), full);
+  assert_eq!(summarize_in(Language::Rust, &source, u32::MAX), full);
 }
 
 #[test]

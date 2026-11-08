@@ -167,6 +167,8 @@ pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<
     Grammar::Java => crate::psi_navigate::reference_at(&crate::java::navigate::NAVIGATION, text, position),
     #[cfg(feature = "csharp")]
     Grammar::CSharp => crate::psi_navigate::reference_at(&crate::csharp::navigate::NAVIGATION, text, position),
+    #[cfg(feature = "starlark")]
+    Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::reference_at(&crate::starlark::navigate::NAVIGATION, text, position),
     _ => reference_at_tree_sitter(grammar, text, position),
   }
 }
@@ -262,6 +264,8 @@ pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<Usa
     Grammar::Java => crate::psi_navigate::usages_at(&crate::java::navigate::NAVIGATION, text, position),
     #[cfg(feature = "csharp")]
     Grammar::CSharp => crate::psi_navigate::usages_at(&crate::csharp::navigate::NAVIGATION, text, position),
+    #[cfg(feature = "starlark")]
+    Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::usages_at(&crate::starlark::navigate::NAVIGATION, text, position),
     _ => usages_at_tree_sitter(grammar, text, position),
   }
 }
@@ -298,6 +302,8 @@ pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
     Grammar::Java => crate::psi_navigate::usages_of(&crate::java::navigate::NAVIGATION, text, name),
     #[cfg(feature = "csharp")]
     Grammar::CSharp => crate::psi_navigate::usages_of(&crate::csharp::navigate::NAVIGATION, text, name),
+    #[cfg(feature = "starlark")]
+    Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::usages_of(&crate::starlark::navigate::NAVIGATION, text, name),
     _ => usages_of_tree_sitter(grammar, text, name),
   }
 }

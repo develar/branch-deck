@@ -29,6 +29,7 @@
 
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
 use crate::kotlin::parse;
+use crate::psi_tree::error_bytes;
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, column_at, end_line};
 use kotlin_syntax::psi;
@@ -54,19 +55,6 @@ fn parse_file(source: &[u8]) -> Tree {
   }
   let script = parse(source, FileKind::Kts);
   if error_bytes(&script) < error_bytes(&file) { script } else { file }
-}
-
-/// The bytes under the outermost error elements, one for an empty one (an expected token)
-fn error_bytes(tree: &Tree) -> usize {
-  let mut bytes = 0;
-  let mut end = 0;
-  for (id, _) in tree.errors() {
-    if id.0 >= end {
-      bytes += tree.range(id).len().max(1);
-      end = tree.subtree_end(id).0;
-    }
-  }
-  bytes
 }
 
 /// The functions whose lambda argument is a coroutine: a suspend call is allowed in it

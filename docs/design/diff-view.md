@@ -170,7 +170,9 @@ width. Unified and Inline type a deleted line deleted and an inserted line inser
 
 **Context and folds.** The context is 4 lines, as IntelliJ's default. Two blocks whose context touches share one
 span. The unchanged lines outside the context become a fold. The label of a fold is the innermost scope around the
-folded lines, the new side first.
+folded lines, the new side first. A scope is a type, a function or a module of the file's summary, and in a Bazel
+file a target as well (`scopes_of_summary`), so the folded lines inside `jps_test(name = "monolith", …)` carry
+`monolith` rather than nothing.
 
 The folds nest as in IntelliJ (`FoldingModelSupport`: `getRangeShift`, `FoldingBuilderBase.addGroup`). Around each
 change they start at 4, 8 and 16 lines of context. So the unchanged lines between two changes have up to three levels:
@@ -500,8 +502,9 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 
 ### Syntax highlighting
 
-**Two engines.** Kotlin, Java, C#, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree
-(Kotlin's and Java's PSI, Roslyn's tree for C#, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Backend
+**Two engines.** Kotlin, Java, C#, Starlark, Rust, TypeScript and JavaScript are coloured by the backend from a syntax
+tree (Kotlin's and Java's PSI, Roslyn's tree for C#, the Bazel plugin's tree for Starlark, tree-sitter's for the
+others), as IntelliJ colours them without resolving names ("Backend
 highlighting" below); the other languages by Shiki in a worker. The two sides of a file always share
 an engine: a file the backend cannot colour goes to the worker whole.
 

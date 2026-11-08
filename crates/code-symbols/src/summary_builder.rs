@@ -1,5 +1,5 @@
 //! The half of a summary walk that knows no parser: what any walk over any syntax tree (tree-sitter's in `extract.rs`,
-//! psi-syntax's in `kotlin/` and `java/`) collects and how it becomes a `FileSummary`.
+//! psi-syntax's in `kotlin/`, `java/` and `starlark/`) collects and how it becomes a `FileSummary`.
 //!
 //! - `SummaryBuilder`: the names (interned in the order the walk meets them, sorted by `finish`), the package, imports
 //!   and import lines, the declarations in source order, the references, the interned shapes, the error bytes, the
@@ -15,6 +15,7 @@
 
 use crate::language::Language;
 use crate::summary::{Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 /// The last names of the annotations of a JVM function a test framework runs (`Declaration::test`)
@@ -147,8 +148,8 @@ enum TypedReceiver {
 
 /// What a walk found, before `finish` makes it a `FileSummary`
 pub(crate) struct SummaryBuilder<'t> {
-  name_ids: HashMap<&'t str, u32>,
-  names: Vec<&'t str>,
+  name_ids: HashMap<Cow<'t, str>, u32>,
+  names: Vec<Cow<'t, str>>,
   pub(crate) package: Option<String>,
   pub(crate) jvm_name: Option<String>,
   pub(crate) imports: Vec<Import>,
@@ -194,8 +195,19 @@ impl<'t> SummaryBuilder<'t> {
       return *id;
     }
     let id = u32::try_from(self.names.len()).unwrap_or(u32::MAX);
-    self.names.push(name);
-    self.name_ids.insert(name, id);
+    self.names.push(Cow::Borrowed(name));
+    self.name_ids.insert(Cow::Borrowed(name), id);
+    id
+  }
+
+  /// The id of an owned, decoded name; `intern` keeps source-backed names borrowed
+  pub(crate) fn intern_owned(&mut self, name: String) -> u32 {
+    if let Some(id) = self.name_ids.get(name.as_str()) {
+      return *id;
+    }
+    let id = u32::try_from(self.names.len()).unwrap_or(u32::MAX);
+    self.names.push(Cow::Owned(name.clone()));
+    self.name_ids.insert(Cow::Owned(name), id);
     id
   }
 
@@ -211,7 +223,15 @@ impl<'t> SummaryBuilder<'t> {
 
   /// The name of an id; empty for an unknown one
   pub(crate) fn name(&self, id: u32) -> &'t str {
-    self.names.get(id as usize).copied().unwrap_or_default()
+    self.names.get(id as usize).map_or("", |name| match name {
+      Cow::Borrowed(name) => *name,
+      Cow::Owned(_) => "",
+    })
+  }
+
+  /// The text of an id, including an owned decoded name
+  pub(crate) fn name_text(&self, id: u32) -> &str {
+    self.names.get(id as usize).map_or("", |name| name.as_ref())
   }
 
   /// The id of a shape, one per distinct shape
@@ -302,6 +322,11 @@ impl<'t> SummaryBuilder<'t> {
     });
   }
 
+  /// An import a walk built itself: a TypeScript or Starlark one, whose module is a `specifier`
+  pub(crate) fn add_import(&mut self, import: Import) {
+    self.imports.push(import);
+  }
+
   /// `import a.b.*`
   pub(crate) fn add_import_all(&mut self, path: &[&'t str], exported: bool, line: u32) {
     let path = self.ids(path);
@@ -357,9 +382,7 @@ impl<'t> SummaryBuilder<'t> {
   /// Whether a parameter type is not nullable and of these last names and array dimensions (`[String]` and 1 of Java
   /// `String[]`)
   pub(crate) fn type_is(&self, type_ref: Option<&TypeRef>, names: &[&str], arrays: u8) -> bool {
-    type_ref.is_some_and(|it| {
-      !it.nullable && it.arrays == arrays && it.names.len() == names.len() && it.names.iter().zip(names).all(|(id, name)| self.names.get(*id as usize) == Some(name))
-    })
+    type_ref.is_some_and(|it| !it.nullable && it.arrays == arrays && it.names.len() == names.len() && it.names.iter().zip(names).all(|(id, name)| self.name(*id) == *name))
   }
 
   /// The summary of the walk into `summary`, made by `empty_summary`; the reach of the implicit `()` of a JVM class
@@ -374,7 +397,7 @@ impl<'t> SummaryBuilder<'t> {
     }
     self.receiver_types();
     let mut order: Vec<u32> = (0..u32::try_from(self.names.len()).unwrap_or(u32::MAX)).collect();
-    order.sort_unstable_by_key(|it| self.names[*it as usize]);
+    order.sort_unstable_by(|left, right| self.name_text(*left).cmp(self.name_text(*right)));
     let mut remap = vec![0u32; order.len()];
     for (new, old) in order.iter().enumerate() {
       remap[*old as usize] = u32::try_from(new).unwrap_or(u32::MAX);
@@ -415,7 +438,7 @@ impl<'t> SummaryBuilder<'t> {
     }
     self.references.sort_unstable();
     self.references.dedup();
-    summary.names = order.iter().map(|it| self.names[*it as usize].to_string()).collect();
+    summary.names = order.iter().map(|it| self.name_text(*it).to_string()).collect();
     summary.package = self.package;
     summary.jvm_name = self.jvm_name;
     summary.imports = self.imports;

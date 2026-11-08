@@ -211,7 +211,9 @@ fn by_key_named<'a>(ctx: &'a FileCtx<'a>, names: Option<&HashSet<&str>>, min_nam
   let mut keys: BTreeMap<String, Vec<usize>> = BTreeMap::new();
   for (index, declaration) in ctx.summary.declarations.iter().enumerate() {
     let name = ctx.summary.name(declaration.name);
-    if declaration.kind == DeclKind::Binding || declaration.in_error || name.len() < min_name_length || names.is_some_and(|names| !names.contains(name)) {
+    // a binding is a local name, and a Bazel target is no callable code: neither has a form a use is judged by
+    if matches!(declaration.kind, DeclKind::Binding | DeclKind::Target) || declaration.in_error || name.len() < min_name_length || names.is_some_and(|names| !names.contains(name))
+    {
       continue;
     }
     keys.entry(site_of(ctx, declaration).key).or_default().push(index);

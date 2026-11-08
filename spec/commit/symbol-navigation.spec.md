@@ -16,6 +16,7 @@ targets:
   - ../../crates/code-symbols/src/kotlin/navigate.rs
   - ../../crates/code-symbols/src/java/navigate.rs
   - ../../crates/code-symbols/src/csharp/navigate.rs
+  - ../../crates/code-symbols/src/starlark/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
   - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
@@ -105,6 +106,12 @@ outside it.
   [@test] ../../crates/code-symbols/src/java/navigate_test.rs (`a_loop_variable_a_pattern_variable_a_resource_and_a_lambda_parameter_declare_their_name`, `a_use_before_the_declaration_of_a_local_is_the_field`, `the_members_of_an_anonymous_class_are_its_own`, `a_break_goes_to_its_label`, `an_argument_of_an_annotation_goes_to_the_element_of_its_type_in_the_file`, `var_and_this_are_no_names`, `a_call_through_super_of_an_interface_has_that_interface_for_its_qualifier`, `a_compact_constructor_reads_the_record_component_and_a_record_pattern_names_a_type`, `the_dotted_names_of_an_import_and_a_module_are_a_value_and_members_without_a_qualifier`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`, `the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members`)
   [@test] ../../crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`, `a_member_after_a_qualifier_has_its_qualifier_and_no_declaration`, `the_names_of_a_namespace_and_a_using_are_values_and_members`, `a_name_in_a_documentation_comment_or_a_directive_is_none`, `a_goto_goes_to_the_label_of_its_name_in_the_blocks_around_it`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_to_a_local_by_the_scopes_and_nowhere_from_a_declaration`)
+- A Bazel file has two scopes, the file and the body of a `def`: a name must go to the `def`, the assignment or the
+  `load` of the file that binds it, and a name declared inside a `def` (a parameter, a name the body assigns) is a
+  local, whose usages stay in that `def`. A name a `load` binds is written as a string (`load(":a.bzl", "macro")`),
+  so that string is the declaration a use goes to, at the name inside its quotes, and the use counts as an import. A
+  label in a string (`":x"`, `"//pkg:x"`) is no name: a target is reached by the build graph, not by the tree.
+  [@test] ../../crates/code-symbols/src/starlark/navigate_test.rs (`a_call_of_a_loaded_macro_goes_to_the_line_that_loads_it`, `a_call_of_a_def_of_the_file_goes_to_the_def`, `a_read_of_an_assigned_name_goes_to_its_assignment`, `a_qualified_call_names_its_receiver_and_has_no_declaration_of_its_own`, `the_usages_of_a_parameter_stay_inside_its_def`, `the_usages_of_a_loaded_name_are_its_import_and_its_calls`, `a_bzl_file_reads_the_same_names_as_a_build_file`, `a_label_in_a_string_is_no_name`)
 - Else the declarations of the name in the files of the review, on the side of the name, in a language that sees it,
   ranked by what the name says of its owner: a member reached through a type, `this` or `self`, or a property of a
   declared type (`items.add` of `val items: Store`) prefers that type; then the same file, the files that import its

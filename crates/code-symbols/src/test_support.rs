@@ -4,8 +4,8 @@
 //! A golden file is the whole summary of its fixture, one line per import, declaration and line of references, so a
 //! rule change shows as a diff. `CODE_SYMBOLS_UPDATE=1 cargo nextest run -p code-symbols` rewrites them; review the diff.
 
-use crate::extract::summarize;
-use crate::language::language_of;
+use crate::extract::{PARSE_BUDGET, summarize_with_budget};
+use crate::language::{Language, language_of};
 use crate::summary::{Declaration, FileSummary};
 use crate::summary_text::{constructor_text, modality_text, path_text, reference_text, render, signature_text};
 use std::path::PathBuf;
@@ -45,7 +45,30 @@ pub(crate) fn assert_leaves_tile<L: psi_builder::language::TreeLanguage>(tree: &
 pub(crate) fn summary_of(name: &str) -> FileSummary {
   let (path, source) = fixture(name);
   let language = language_of(&path).unwrap_or_else(|| panic!("no language for {path}"));
-  summarize(language, &source)
+  summarize_with_budget(language, &path, &source, PARSE_BUDGET)
+}
+
+/// The summary of a text with no fixture file, as a file of the language's own name: `summarize` takes a path, which
+/// only Starlark reads (a `BUILD` declares targets, a `.bzl` does not)
+pub(crate) fn summarize(language: Language, source: &[u8]) -> FileSummary {
+  summarize_with_budget(language, path_of(language), source, PARSE_BUDGET)
+}
+
+/// `summarize` within a parse budget, for the tests of a parse that runs out of it
+pub(crate) fn summarize_in(language: Language, source: &[u8], budget: u32) -> FileSummary {
+  summarize_with_budget(language, path_of(language), source, budget)
+}
+
+/// A file name of the language, which `language_of` answers with it
+pub(crate) const fn path_of(language: Language) -> &'static str {
+  match language {
+    Language::Kotlin => "Test.kt",
+    Language::Java => "Test.java",
+    Language::Rust => "test.rs",
+    Language::TypeScript => "test.ts",
+    Language::CSharp => "Test.cs",
+    Language::Starlark => "BUILD",
+  }
 }
 
 /// Compares the rendering of a fixture's summary with its golden file

@@ -1,0 +1,18 @@
+import jps_test from "//defs:jvm.bzl" @1
+import kotlin_library as kt from "//defs:jvm.bzl" @1
+import helper from ":local.bzl" @2
+Constant PACKAGE_VISIBILITY in - Public TopLevel 4-4 @4
+Target monolith in - Public TopLevel 6-11 @7 <jps_test>
+Target runtime in - Public TopLevel 13-17 @14 <kt>
+Target native_bridge in - Public TopLevel 19-22 @20 <native.cc_library>
+Function _tagged in - File TopLevel 28-29 @28 (name: _, tags: _ =)
+@1 ^jps_test ^kotlin_library
+@2 ^helper
+@6 jps_test(name=Text,srcs=_,deps=_,visibility=_)
+@10 PACKAGE_VISIBILITY
+@13 kt(name=Text,srcs=_,testonly=Boolean)
+@19 native.cc_library(name=Text,srcs=_)
+@24 helper(name=Text)
+@26 exports_files(_)
+@31 alias(name=_,actual=Text)
+@32 _tagged(Text,_)

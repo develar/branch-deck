@@ -1,0 +1,14 @@
+import java_library from "@rules_java//java:defs.bzl" @1
+Constant MAX_HEAP in - Public TopLevel 3-3 @3
+Constant _PRIVATE_TAGS in - File TopLevel 4-4 @4
+Value default_jvm_flags in - Public TopLevel 5-5 @5
+Value extra_flags in - Public TopLevel 5-5 @5
+Function jps_test in - Public TopLevel 7-15 @7 (name: _, srcs: _ =, deps: _ =, vararg extra: _, vararg kwargs: _)
+Function _tagged in - File TopLevel 17-21 @17 (name: _)
+@1 ^java_library
+@5 MAX_HEAP
+@8 _tagged(_)
+@9 java_library(name=_,srcs=_,deps=_,tags=_)*
+@12 extra_flags
+@18 _PRIVATE_TAGS
+@23 jps_test(name=Text)

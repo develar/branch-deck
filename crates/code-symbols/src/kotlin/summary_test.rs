@@ -2,10 +2,9 @@
 //! the rules of `kotlin_test.rs`: each test here is a construct whose reading moved from tree-sitter's to the
 //! compiler's, the reason in its name.
 
-use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{DeclKind, FileSummary};
-use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs};
+use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs, summarize};
 
 fn summary(source: &str) -> FileSummary {
   summarize(Language::Kotlin, source.as_bytes())

@@ -76,7 +76,7 @@ impl Range {
     self.blobs += 1;
     let id = format!("blob{}", self.blobs);
     if let Some(language) = language_of(path) {
-      self.summaries.insert(id.clone(), Arc::new(summarize(language, content.as_bytes())));
+      self.summaries.insert(id.clone(), Arc::new(summarize(language, path, content.as_bytes())));
     }
     id
   }
@@ -1038,14 +1038,14 @@ fn a_misread_before_side_changes_no_state() {
   };
   // a `)` after the last `}` is an error of its own: the interface and its function are read
   let stray = callback("{ fun call() } )");
-  let summary = summarize(Language::Kotlin, stray.as_bytes());
+  let summary = summarize(Language::Kotlin, "Callback.kt", stray.as_bytes());
   assert!(
     summary.error_bytes > 0 && !summary.is_degraded() && summary.declarations.iter().all(|it| !it.in_error),
     "{summary:?}"
   );
   // tokens no declaration starts with, over 5 % of the bytes, degrade the file
   let misread = callback(&format!("{{ fun call() }} {}", ")".repeat(60)));
-  assert!(summarize(Language::Kotlin, misread.as_bytes()).is_degraded());
+  assert!(summarize(Language::Kotlin, "Callback.kt", misread.as_bytes()).is_degraded());
   let graph = |before: &str| {
     let mut range = Range::default();
     range
@@ -1723,7 +1723,7 @@ fn entries_go_with_their_file_into_a_version_the_parser_cannot_read() {
     ),
   ];
   for (without, with, unreadable, unread) in &versions {
-    let summary = summarize(Language::Kotlin, unreadable.as_bytes());
+    let summary = summarize(Language::Kotlin, "Unreadable.kt", unreadable.as_bytes());
     let helper = summary.declarations.iter().find(|declaration| summary.name(declaration.name) == "helper");
     assert_eq!((summary.is_degraded(), helper.map(|declaration| declaration.in_error)), *unread, "{summary:?}");
     // a move to a file whose summary lacks the declaration is a removal
@@ -2866,7 +2866,7 @@ fn long_class(header: &str, more: &str) -> String {
   let functions = (0..80).map(|it| format!("\n  fun function{it}() = {it}\n")).collect::<Vec<_>>().concat();
   let text = format!("package p\n\n{header} {{\n{more}{functions}}}\n");
   if more.contains(PARSE_ERRORS) {
-    let summary = summarize(Language::Kotlin, text.as_bytes());
+    let summary = summarize(Language::Kotlin, "Big.kt", text.as_bytes());
     let class = summary.declarations.iter().find(|it| it.kind == DeclKind::Type && it.container.is_none()).unwrap();
     assert!(class.constructors.is_none() && !class.in_error && !summary.is_degraded(), "{summary:?}");
   }
@@ -4070,4 +4070,55 @@ fn a_csharp_member_on_a_receiver_of_its_type_and_an_override_are_edges() {
   assert_eq!(found[0], (1, 0, vec![link("Open", Evidence::Receiver), link("Store", Evidence::SamePackageType)]));
   assert_eq!(found[1].0, 2);
   assert!(found[1].2.contains(&link("Size", Evidence::Override)), "{found:?}");
+}
+
+/// The `.bzl` of a macro and the `BUILD` that loads it: `//defs:jvm.bzl` is the path `defs/jvm.bzl`
+#[test]
+fn a_bazel_load_of_a_macro_another_commit_adds_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .commit(&[("defs/jvm.bzl", Some("def jps_test(name, srcs = []):\n    native.java_test(name = name, srcs = srcs)\n"))])
+    .commit(&[("pkg/BUILD", Some("load(\"//defs:jvm.bzl\", \"jps_test\")\n\njps_test(\n    name = \"monolith\",\n)\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("jps_test", Evidence::Import)])]);
+}
+
+/// A Bazel file sees the declarations of Bazel files alone: a Kotlin function of the name is another family
+#[test]
+fn a_kotlin_function_of_the_name_a_build_file_loads_is_no_edge() {
+  let mut range = Range::default();
+  range
+    .commit(&[("defs/Jvm.kt", Some("package defs\n\nfun jps_test(name: String) = name\n"))])
+    .commit(&[("pkg/BUILD", Some("load(\"//defs:jvm.bzl\", \"jps_test\")\n\njps_test(\n    name = \"monolith\",\n)\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), []);
+}
+
+/// A Bazel workspace below the root of the repository names its packages from its own root: the tail of the path
+/// matches where no file has the exact one
+#[test]
+fn a_label_of_a_workspace_below_the_root_matches_by_the_tail_of_the_path() {
+  let mut range = Range::default();
+  range
+    .commit(&[("community/defs/jvm.bzl", Some("def jps_test(name):\n    pass\n"))])
+    .commit(&[("community/pkg/BUILD", Some("load(\"//defs:jvm.bzl\", \"jps_test\")\n\njps_test(name = \"monolith\")\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("jps_test", Evidence::Import)])]);
+}
+
+/// A label of another repository names no file of this one
+#[test]
+fn a_bazel_load_from_another_repository_is_no_edge() {
+  let mut range = Range::default();
+  range
+    .commit(&[("java/defs.bzl", Some("def java_test(name):\n    pass\n"))])
+    .commit(&[("pkg/BUILD", Some("load(\"@rules_java//java:defs.bzl\", \"java_test\")\n\njava_test(name = \"x\")\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), []);
+}
+
+/// A target is no code: a `BUILD` that calls a rule of its own file links by the rule, never by the target's name
+#[test]
+fn a_bazel_target_is_no_declaration_a_use_can_mean() {
+  let mut range = Range::default();
+  range
+    .commit(&[("pkg/BUILD", Some("jps_test(\n    name = \"monolith\",\n)\n"))])
+    .commit(&[("other/BUILD", Some("alias(\n    name = \"alias\",\n    actual = \"//pkg:monolith\",\n)\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), []);
 }

@@ -9,7 +9,7 @@ use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
 use anyhow::Result;
 use code_symbols::extract::{MAX_BYTES, extractor_version, summarize};
-use code_symbols::language::{Language, language_of};
+use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::object_texts::read_blob_bytes;
@@ -64,7 +64,7 @@ pub struct TsAliases {
 
 /// The source blobs of `diffs`, each with its language: the old blob in the language of the old path, the new one in
 /// the language of the new path
-fn source_blobs(diffs: &[CommitDiff]) -> Vec<(String, Language)> {
+fn source_blobs(diffs: &[CommitDiff]) -> Vec<SourceBlob> {
   let mut seen: HashSet<&str> = HashSet::new();
   let mut blobs = Vec::new();
   for change in diffs.iter().flat_map(|diff| &diff.files) {
@@ -72,11 +72,23 @@ fn source_blobs(diffs: &[CommitDiff]) -> Vec<(String, Language)> {
     for (blob, path) in [(&change.old_blob, old_path), (&change.new_blob, change.path.as_str())] {
       let (Some(blob), Some(language)) = (blob.as_deref(), language_of(path)) else { continue };
       if seen.insert(blob) {
-        blobs.push((blob.to_string(), language));
+        blobs.push(SourceBlob {
+          id: blob.to_string(),
+          language,
+          path: path.to_string(),
+        });
       }
     }
   }
   blobs
+}
+
+/// A blob to summarize: its id, its language, and the path it is of — which says the kind of a Bazel file, as the
+/// same bytes summarize differently as a `BUILD` and as a `.bzl` (`summary_key`)
+struct SourceBlob {
+  id: String,
+  language: Language,
+  path: String,
 }
 
 /// The summaries of the source files `diffs` change, with the module structure above them
@@ -105,16 +117,16 @@ pub fn read_symbol_input_with(
     .map(|change| change.path.as_str());
   let roots = ModuleRoots::read(git, repository_path, paths)?;
 
-  let keys: Vec<(u8, &str)> = wanted.iter().map(|(blob, language)| (language.id(), blob.as_str())).collect();
+  let keys: Vec<(u8, &str)> = wanted.iter().map(|blob| (summary_key(blob.language, &blob.path), blob.id.as_str())).collect();
   let cached: Vec<Option<FileSummary>> = cache.get_blob_summaries(version, &keys);
   let mut summaries: HashMap<String, Arc<FileSummary>> = HashMap::with_capacity(wanted.len());
-  let mut missing: Vec<(String, Language)> = Vec::new();
-  for ((blob, language), summary) in wanted.into_iter().zip(cached) {
+  let mut missing: Vec<SourceBlob> = Vec::new();
+  for (blob, summary) in wanted.into_iter().zip(cached) {
     match summary {
       Some(summary) => {
-        summaries.insert(blob, Arc::new(summary));
+        summaries.insert(blob.id, Arc::new(summary));
       }
-      None => missing.push((blob, language)),
+      None => missing.push(blob),
     }
   }
   let cached_count = summaries.len();
@@ -124,7 +136,7 @@ pub fn read_symbol_input_with(
   let tsconfigs: Vec<(String, String)> = roots.all_tsconfigs().map(|(path, blob)| (path, blob.to_string())).collect();
   let names: Vec<String> = missing
     .iter()
-    .map(|(blob, _)| blob.clone())
+    .map(|blob| blob.id.clone())
     .chain(manifests.iter().map(|(_, blob)| blob.clone()))
     .chain(tsconfigs.iter().map(|(_, blob)| blob.clone()))
     .chain(extra.iter().cloned())
@@ -157,18 +169,18 @@ pub fn read_symbol_input_with(
   let fresh: Vec<((u8, &str), &FileSummary)> = missing
     .iter()
     .zip(&parsed)
-    .filter_map(|((blob, language), summary)| {
+    .filter_map(|(blob, summary)| {
       summary
         .as_ref()
         .filter(|summary| !summary.truncated)
-        .map(|summary| ((language.id(), blob.as_str()), summary))
+        .map(|summary| ((summary_key(blob.language, &blob.path), blob.id.as_str()), summary))
     })
     .collect();
   cache.put_blob_summaries(version, &fresh);
   let parsed_count = parsed.iter().flatten().count();
-  for ((blob, _), summary) in missing.into_iter().zip(parsed) {
+  for (blob, summary) in missing.into_iter().zip(parsed) {
     if let Some(summary) = summary {
-      summaries.insert(blob, Arc::new(summary));
+      summaries.insert(blob.id, Arc::new(summary));
     }
   }
 
@@ -200,8 +212,8 @@ pub fn read_symbol_input_with(
 
 /// The summaries of `blobs` from their `sources` (`None` for a blob that is missing, binary or too large), parsed by
 /// one thread per core, each with its own parsers
-fn parse_all(blobs: &[(String, Language)], sources: Vec<Option<Vec<u8>>>) -> Vec<Option<FileSummary>> {
-  let jobs: Vec<(Language, Option<Vec<u8>>)> = blobs.iter().map(|(_, language)| *language).zip(sources).collect();
+fn parse_all(blobs: &[SourceBlob], sources: Vec<Option<Vec<u8>>>) -> Vec<Option<FileSummary>> {
+  let jobs: Vec<(&SourceBlob, Option<Vec<u8>>)> = blobs.iter().zip(sources).collect();
   let results: Vec<Mutex<Option<FileSummary>>> = jobs.iter().map(|_| Mutex::new(None)).collect();
   let next = AtomicUsize::new(0);
   let threads = std::thread::available_parallelism().map_or(1, usize::from).min(jobs.len().max(1));
@@ -210,9 +222,9 @@ fn parse_all(blobs: &[(String, Language)], sources: Vec<Option<Vec<u8>>>) -> Vec
       scope.spawn(in_current_span(|| {
         loop {
           let index = next.fetch_add(1, Ordering::Relaxed);
-          let Some((language, source)) = jobs.get(index) else { break };
+          let Some((blob, source)) = jobs.get(index) else { break };
           let Some(source) = source else { continue };
-          let summary = summarize(*language, source);
+          let summary = summarize(blob.language, &blob.path, source);
           if let Ok(mut slot) = results[index].lock() {
             *slot = Some(summary);
           }

@@ -186,6 +186,8 @@ pub enum DeclKind {
   /// A name an import binds in this file: Rust `use` and `pub use`, a Kotlin import alias, TypeScript imports and
   /// `export … from`; the `Import` with this line and name (or alias) says what it binds
   Binding,
+  /// A Bazel target declared by a top-level rule call; targets are not callable code
+  Target,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

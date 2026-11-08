@@ -1,4 +1,4 @@
-//! The languages a summary can be made of, chosen by file extension. A language whose grammar feature is off is not
+//! The languages a summary can be made of, chosen by file name or extension. A language whose grammar feature is off is not
 //! offered by `language_of`, so a caller never asks for a summary it cannot get.
 
 use serde::{Deserialize, Serialize};
@@ -13,20 +13,22 @@ pub enum Language {
   /// TypeScript and JavaScript, both parsed by the TSX grammar (a superset of both, JSX included)
   TypeScript = 3,
   CSharp = 4,
+  Starlark = 5,
 }
 
-/// Languages whose files see each other's declarations: Kotlin and Java call each other on the JVM; C# sees only C#
-/// (a .NET assembly of another language is a reference, never a source of the branch)
+/// Languages whose files see each other's declarations: Kotlin and Java call each other on the JVM; C# sees only C#;
+/// Bazel Starlark files see declarations loaded from other Bazel Starlark files
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Family {
   Jvm,
   Rust,
   Script,
   Dotnet,
+  Bazel,
 }
 
 impl Language {
-  pub const ALL: [Self; 5] = [Self::Kotlin, Self::Java, Self::Rust, Self::TypeScript, Self::CSharp];
+  pub const ALL: [Self; 6] = [Self::Kotlin, Self::Java, Self::Rust, Self::TypeScript, Self::CSharp, Self::Starlark];
 
   pub const fn family(self) -> Family {
     match self {
@@ -34,6 +36,7 @@ impl Language {
       Self::Rust => Family::Rust,
       Self::TypeScript => Family::Script,
       Self::CSharp => Family::Dotnet,
+      Self::Starlark => Family::Bazel,
     }
   }
 
@@ -50,13 +53,32 @@ impl Language {
       Self::Rust => cfg!(feature = "rust"),
       Self::TypeScript => cfg!(feature = "typescript"),
       Self::CSharp => cfg!(feature = "csharp"),
+      Self::Starlark => cfg!(feature = "starlark"),
     }
   }
 }
 
-/// The language of a file by its extension, if this build can parse it
+/// The bit of a summary key of a Starlark file whose top-level calls declare targets
+const DECLARES_TARGETS: u8 = 0x80;
+
+/// The key a cached summary of the file at `path` is kept under, beside the id of its bytes: the language, and for
+/// Starlark whether the file declares targets — the same bytes summarize differently as a `BUILD` and as a `.bzl`
+pub fn summary_key(language: Language, path: &str) -> u8 {
+  #[cfg(feature = "starlark")]
+  if language == Language::Starlark && starlark_syntax::FileKind::from_path(path).is_some_and(starlark_syntax::FileKind::top_level_calls_declare) {
+    return language.id() | DECLARES_TARGETS;
+  }
+  let _ = path;
+  language.id()
+}
+
+/// The language of a file by its name or extension, if this build can parse it
 pub fn language_of(path: &str) -> Option<Language> {
   let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+  #[cfg(feature = "starlark")]
+  if starlark_syntax::FileKind::from_path(path).is_some() {
+    return Some(Language::Starlark);
+  }
   let (_, extension) = file_name.rsplit_once('.')?;
   let language = match extension {
     "kt" | "kts" => Language::Kotlin,

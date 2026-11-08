@@ -1609,7 +1609,7 @@ dependencies = [
 [[package]]
 name = "csharp-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=89a15eaad1914c1352435620601e5e367401eddf#89a15eaad1914c1352435620601e5e367401eddf"
+source = "git+https://github.com/develar/psi-syntax?rev=e8b02180bf43fe457fa60f795da10f0157f284a6#e8b02180bf43fe457fa60f795da10f0157f284a6"
 dependencies = [
  "psi-builder",
 ]
@@ -3487,7 +3487,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "java-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=89a15eaad1914c1352435620601e5e367401eddf#89a15eaad1914c1352435620601e5e367401eddf"
+source = "git+https://github.com/develar/psi-syntax?rev=e8b02180bf43fe457fa60f795da10f0157f284a6#e8b02180bf43fe457fa60f795da10f0157f284a6"
 dependencies = [
  "psi-builder",
 ]
@@ -3709,7 +3709,7 @@ dependencies = [
 [[package]]
 name = "kotlin-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=89a15eaad1914c1352435620601e5e367401eddf#89a15eaad1914c1352435620601e5e367401eddf"
+source = "git+https://github.com/develar/psi-syntax?rev=e8b02180bf43fe457fa60f795da10f0157f284a6#e8b02180bf43fe457fa60f795da10f0157f284a6"
 dependencies = [
  "psi-builder",
 ]
@@ -5142,7 +5142,7 @@ dependencies = [
 [[package]]
 name = "psi-builder"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=89a15eaad1914c1352435620601e5e367401eddf#89a15eaad1914c1352435620601e5e367401eddf"
+source = "git+https://github.com/develar/psi-syntax?rev=e8b02180bf43fe457fa60f795da10f0157f284a6#e8b02180bf43fe457fa60f795da10f0157f284a6"
 
 [[package]]
 name = "pxfm"
@@ -6319,7 +6319,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "starlark-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=89a15eaad1914c1352435620601e5e367401eddf#89a15eaad1914c1352435620601e5e367401eddf"
+source = "git+https://github.com/develar/psi-syntax?rev=e8b02180bf43fe457fa60f795da10f0157f284a6#e8b02180bf43fe457fa60f795da10f0157f284a6"
 dependencies = [
  "psi-builder",
 ]

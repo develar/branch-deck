@@ -1,0 +1,9 @@
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+RULES_JAVA_VERSION = "8.6.1"
+
+http_archive(
+    name = "rules_java",
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000",
+    urls = ["https://example.invalid/rules_java-" + RULES_JAVA_VERSION + ".tar.gz"],
+)

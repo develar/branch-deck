@@ -1,0 +1,9 @@
+module(
+    name = "branch_deck",
+    version = "0.1.0",
+)
+
+bazel_dep(name = "rules_java", version = "8.6.1")
+
+java_toolchains = use_extension("@rules_java//java:extensions.bzl", "toolchains")
+use_repo(java_toolchains, "local_jdk")

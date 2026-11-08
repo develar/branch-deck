@@ -115,7 +115,7 @@ fn file_patch(pair: &BlobPair<'_>, diff: &TextDiff, old: &str, new: &str) -> Vec
   if !diff.old_scopes.is_empty() || !diff.new_scopes.is_empty() {
     return block_patches(old, new, diff, &diff.old_scopes, &diff.new_scopes);
   }
-  let parse = |path: &str, text: &str| language_of(path).map_or_else(Vec::new, |language| scopes_of_summary(&summarize(language, text.as_bytes())));
+  let parse = |path: &str, text: &str| language_of(path).map_or_else(Vec::new, |language| scopes_of_summary(&summarize(language, path, text.as_bytes())));
   let old_scopes = parse(pair.old_path.unwrap_or(pair.path), old);
   block_patches(old, new, diff, &old_scopes, &parse(pair.path, new))
 }

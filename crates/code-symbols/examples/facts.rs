@@ -155,7 +155,7 @@ fn facts_of(path: &str, full: &Path, options: &Options, times: &mut Times) -> St
     && let Some(language) = language_of(path)
   {
     let start = Instant::now();
-    let summary = summarize(language, &source);
+    let summary = summarize(language, path, &source);
     time(times, "summary", start);
     for it in render_full(&summary).lines() {
       push(&mut out, path, "summary", it);

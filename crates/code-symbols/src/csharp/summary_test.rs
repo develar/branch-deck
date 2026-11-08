@@ -1,10 +1,9 @@
 //! The summaries of C# files from Roslyn's tree, beside the golden files of `testdata/csharp/` (`summary_test.rs`): each
 //! test here is a construct of C# the model of the summary reads in its own way
 
-use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{DeclKind, FileSummary, ImportTarget, MemberKind, Reach};
-use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs};
+use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs, summarize};
 use pretty_assertions::assert_eq;
 
 fn csharp(source: &str) -> FileSummary {

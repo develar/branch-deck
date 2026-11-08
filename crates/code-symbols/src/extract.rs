@@ -31,7 +31,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 23;
+pub const RULES_VERSION: u32 = 24;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -43,14 +43,17 @@ pub const MAX_AVERAGE_LINE: u32 = 500;
 /// recovery, which this cuts at 5 million operations.
 pub const PARSE_BUDGET: u32 = 50_000;
 
-/// The summary of one file; never fails, a file that cannot be summarized gives a `truncated` summary
-pub fn summarize(language: Language, source: &[u8]) -> FileSummary {
-  summarize_with_budget(language, source, PARSE_BUDGET)
+/// The summary of one file, at `path` (which names the kind of a Bazel file: `BUILD` declares targets, a `.bzl`
+/// does not); never fails, a file that cannot be summarized gives a `truncated` summary
+pub fn summarize(language: Language, path: &str, source: &[u8]) -> FileSummary {
+  summarize_with_budget(language, path, source, PARSE_BUDGET)
 }
 
 /// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`kotlin`), Java
-/// (`java`) and C# (`csharp`), tree-sitter's with `budget` for the others
-pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u32) -> FileSummary {
+/// (`java`), C# (`csharp`) and Starlark (`starlark`), tree-sitter's with `budget` for the others
+pub(crate) fn summarize_with_budget(language: Language, path: &str, source: &[u8], budget: u32) -> FileSummary {
+  #[cfg(not(feature = "starlark"))]
+  let _ = path;
   let mut summary = empty_summary(language, source);
   let lines = summary.lines;
   if !language.is_enabled() || source.len() > MAX_BYTES || lines > MAX_LINES || summary.total_bytes > lines.saturating_mul(MAX_AVERAGE_LINE) {
@@ -63,6 +66,8 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
     Language::Java => crate::java::summary::summarize(source, &mut summary),
     #[cfg(feature = "csharp")]
     Language::CSharp => crate::csharp::summary::summarize(source, &mut summary),
+    #[cfg(feature = "starlark")]
+    Language::Starlark => crate::starlark::summary::summarize(source, starlark_syntax::FileKind::from_path(path).unwrap_or_default(), &mut summary),
     _ => summarize_tree_sitter(source, budget, &mut summary),
   };
   summary.truncated = !read;
@@ -81,10 +86,11 @@ fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) 
   true
 }
 
-/// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#: the
-/// `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`) of the four psi-syntax crates in `Cargo.toml`
+/// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#, and
+/// whose `starlark-syntax` reads Starlark: the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`)
+/// of the five psi-syntax dependencies in `Cargo.toml`
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub(crate) const PSI_SYNTAX_REVISION: &str = "89a15eaad1914c1352435620601e5e367401eddf";
+pub(crate) const PSI_SYNTAX_REVISION: &str = "e8b02180bf43fe457fa60f795da10f0157f284a6";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
 /// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax (Kotlin, Java, C#) or the

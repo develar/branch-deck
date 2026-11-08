@@ -202,7 +202,8 @@ pub(crate) fn reference_at<L: TreeLanguage, T>(reading: &Reading<L, T>, text: &s
     psi.utf8_text(leaf).unwrap_or(name).to_string(),
     kind,
     qualifier.map(|it| (reading.qualifier_text)(&tree, it)),
-    local.map(|it| psi.range(it).start),
+    // where the name of the declaration starts, not its leaf: the text may spell more (C#'s `@`, a Starlark `load`'s quotes)
+    local.map(|it| (reading.name_start)(&tree, it)),
   ))
 }
 

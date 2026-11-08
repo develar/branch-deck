@@ -1,7 +1,6 @@
-use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach, Role};
-use crate::test_support::{NONE, bare_refs, declaration, declarations_of, refs, summary_of};
+use crate::test_support::{NONE, bare_refs, declaration, declarations_of, refs, summarize, summary_of};
 
 #[test]
 fn a_function_under_a_test_attribute_is_a_test() {

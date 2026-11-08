@@ -20,7 +20,7 @@ fn main() {
   if stats {
     // the first parse of a grammar pages in its tables; keep that out of the first file's time
     for language in Language::ALL {
-      summarize(language, b"x");
+      summarize(language, "warmup", b"x");
     }
   }
   for path in &args {
@@ -40,7 +40,7 @@ fn main() {
       continue;
     }
     let start = Instant::now();
-    let summary = summarize(language, &source);
+    let summary = summarize(language, path, &source);
     let millis = start.elapsed().as_secs_f64() * 1000.0;
     if stats {
       let error_share = f64::from(summary.error_bytes) / f64::from(summary.total_bytes.max(1));

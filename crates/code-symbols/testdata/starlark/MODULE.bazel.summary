@@ -1,0 +1,7 @@
+Target branch_deck in - Public TopLevel 1-4 @2 <module>
+Target rules_java in - Public TopLevel 6-6 @6 <bazel_dep>
+Value java_toolchains in - Public TopLevel 8-8 @8
+@1 module(name=Text,version=Text)
+@6 bazel_dep(name=Text,version=Text)
+@8 use_extension(Text,Text)
+@9 java_toolchains use_repo(_,Text)

@@ -1,8 +1,7 @@
-use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{Argument, DeclKind, ImportTarget, MemberKind, Reach, Role, Shape, TypeRef};
 use crate::summary_text::reference_text;
-use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, lines_of, modalities, refs, signatures, summary_of, supertypes_of};
+use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, lines_of, modalities, refs, signatures, summarize, summary_of, supertypes_of};
 
 #[test]
 fn declarations() {

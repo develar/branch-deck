@@ -37,8 +37,10 @@ mod java;
 mod jvm;
 #[cfg(feature = "kotlin")]
 mod kotlin;
-#[cfg(any(feature = "java", feature = "csharp"))]
+#[cfg(any(feature = "java", feature = "csharp", feature = "starlark"))]
 mod psi_navigate;
+#[cfg(any(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark"))]
+mod psi_tree;
 #[cfg(any(feature = "java", feature = "csharp"))]
 mod psi_walk;
 #[cfg(feature = "rust")]

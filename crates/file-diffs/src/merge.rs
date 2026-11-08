@@ -10,9 +10,9 @@
 //!   `file_merge` store. A merge that the time cut short stays in memory only.
 
 use crate::model::{BlobText, FileMerge, FileMergeEvent, FileMergeHeader, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
-use crate::service::{FileDiffs, keep_stored, options, priority_order, read_summaries, scopes, spawn_workers, to_u32, write_summaries};
+use crate::service::{FileDiffs, keep_stored, options, priority_order, read_summaries, side_facts, spawn_workers, to_u32, write_summaries};
 use anyhow::{Result, bail};
-use code_symbols::language::language_of;
+use code_symbols::language::{language_of, summary_key};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::object_ids_and_types;
@@ -160,12 +160,13 @@ impl FileDiffs {
     let summary_keys: Vec<(u8, &str)> = pending
       .iter()
       .flat_map(|&index| {
-        let language = language_of(&paths[index].path);
+        let path = &paths[index].path;
+        let language = language_of(path);
         paths[index]
           .ids
           .iter()
           .flatten()
-          .filter_map(move |id| language.map(|language| (language.id(), id.as_str())))
+          .filter_map(move |id| language.map(|language| (summary_key(language, path), id.as_str())))
       })
       .collect();
     let summaries = read_summaries(cache, &summary_keys);
@@ -381,10 +382,10 @@ impl MergeWork<'_> {
       let mut diff = diff_texts(texts[0], remaining, self.policy, &budget);
       if let Some(language) = language {
         if let Some(id) = base_id {
-          diff.old_scopes = scopes(self.summaries, language, id, texts[0], &mut made);
+          diff.old_scopes = side_facts(self.summaries, language, &path.path, id, texts[0], &mut made).0;
         }
         if let Some(id) = remaining_id {
-          diff.new_scopes = scopes(self.summaries, language, id, remaining, &mut made);
+          diff.new_scopes = side_facts(self.summaries, language, &path.path, id, remaining, &mut made).0;
         }
       }
       let cut_short = diff.line_level_only && fits_inner(&texts);
@@ -399,7 +400,7 @@ impl MergeWork<'_> {
     if let Some(language) = language {
       send(content_event(MergeContent::Text(merge.clone())));
       let side_scopes = |id: Option<&str>, text: &str, made: &mut Vec<((u8, String), FileSummary)>| -> Vec<Scope> {
-        id.map_or_else(Vec::new, |id| scopes(self.summaries, language, id, text, made))
+        id.map_or_else(Vec::new, |id| side_facts(self.summaries, language, &path.path, id, text, made).0)
       };
       merge.base_scopes = side_scopes(base_id, texts[0], &mut made);
       merge.left_scopes = side_scopes(left_id, texts[1], &mut made);
