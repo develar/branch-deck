@@ -32,6 +32,19 @@ fn every_window_gets_the_permissions_of_the_title_bar() {
   }
 }
 
+/// Settings listens to its close request (`useSaveBeforeClose` of `src/pages/SettingsPage.tsx`): with a JS listener
+/// Tauri no longer closes the window, `onCloseRequested` destroys it after the handler, and without
+/// `core:window:allow-destroy` Escape, ⌘W and the close button keep it open. E2E can't tell: the mock grants every call.
+#[test]
+fn the_settings_window_may_destroy_itself_after_its_close_request() {
+  let settings = capability("settings");
+  assert_eq!(strings(&settings, "windows"), ["settings"]);
+  assert!(
+    strings(&settings, "permissions").iter().any(|it| it == "core:window:allow-destroy"),
+    "core:window:allow-destroy is not in settings.json"
+  );
+}
+
 mod decision {
   use crate::title_bar::{
     ButtonStyle, DoubleClick, NativeReason, TitleBarEnvironment, WindowButton, decoration_layout_or_default, gtk_double_click, linux_button_style, macos_double_click,

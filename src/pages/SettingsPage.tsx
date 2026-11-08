@@ -188,7 +188,8 @@ function useSaveBeforeClose(): void {
     let unlisten: UnlistenFn | null = null
     let cancelled = false
     getCurrentWindow()
-      .onCloseRequested(() => saveAllBeforeClose())
+      // a failed save never keeps the window open: Tauri destroys it only after the handler resolved
+      .onCloseRequested(() => saveAllBeforeClose().catch((error: unknown) => logError("Cannot save the settings before the window closes", error)))
       .then(
         fn => {
           if (cancelled) {

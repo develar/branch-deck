@@ -416,8 +416,11 @@ differs (the repository's own value, with Reset).
   the words of the prefix of all repositories (`INVALID_PREFIX_TEXT`). A field writes to the repository the typing began
   in: a switch of the repository or of the tab drops the typing (one page per repository and tab, `key`) and writes
   nothing. A window closed with valid typing (⌘W, the close button) saves it first: one listener of the window waits for
-  the saves the fields registered (`saveBeforeClose`).
+  the saves the fields registered (`saveBeforeClose`), then destroys the window, a failed save too: the window may
+  destroy itself (`core:window:allow-destroy` of `src-tauri/capabilities/settings.json`), since with that listener Tauri
+  no longer closes it.
   [@test] ../../src/lib/repository-config.test.ts (`takes owner/name without whitespace, as the backend does`)
+  [@test] ../../src-tauri/src/title_bar_test.rs (`the_settings_window_may_destroy_itself_after_its_close_request`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should write nothing when the repository is switched while a field holds typing`, `should save valid typing when the window closes, and nothing else`)
 - Two writes at once both land: a write of the app never fails on another write of the app, and a `config.lock` of
   another process is waited for up to a second.

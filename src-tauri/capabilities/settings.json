@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings",
-  "description": "The Settings window: the test notification and its permission, the code of the GitHub sign-in on the clipboard, the notification settings of the system",
+  "description": "The Settings window: the test notification and its permission, the code of the GitHub sign-in on the clipboard, the notification settings of the system, its own destroy after a close request (a JS listener of close-requested, `useSaveBeforeClose` of SettingsPage, closes the window by `destroy()`; without it Escape, ⌘W and the close button keep the window open)",
   "windows": ["settings"],
   "permissions": [
+    "core:window:allow-destroy",
     "notification:default",
     "clipboard-manager:allow-write-text",
     {
