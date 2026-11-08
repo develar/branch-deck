@@ -17,6 +17,9 @@ pub struct CommitBody {
   pub trailers: Vec<String>,
   /// Whether `blocks[0]` is a paragraph, before any label or heading: the summary of the body
   pub lead: bool,
+  /// The block that sums the body up in a line: the lead, else the first paragraph of its first plain section (a body
+  /// that opens with `## Goal`, a pull request's); `None` without one
+  pub summary: Option<u32>,
   /// The parts of the body in its order, each block in one: the lead alone; a labelled section (a label or a heading
   /// and its blocks up to the next one; a run-in `Look closely: text` its paragraph and what is written right under
   /// it); a run of the other blocks, two where the fold cuts it. Each says whether a reader folds it, so Rust alone says
@@ -39,7 +42,8 @@ pub struct CommitBody {
 pub struct LineCode {
   /// Its block in `CommitBody::blocks`
   pub block: u32,
-  /// The line of a paragraph, the item of a list; 0 for a heading or a label
+  /// The line of a paragraph, the item of a list, the cell of a table (its header row first, then row by row: the
+  /// cell of row `r` of the body and column `c` is `(r + 1) * columns + c`); 0 for a heading or a label
   pub item: u32,
   pub spans: Vec<CodeSpan>,
 }
@@ -100,7 +104,7 @@ pub enum CommitBodyPartKind {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CommitBodyBlock {
   /// Prose, a line per line it reads as: hard-wrapped lines joined by a space; a line after a hard break (two spaces,
-  /// `\`), a quote line and a table row each a line of their own
+  /// `\`), a quote line and a line that starts with `|` but is no row of a table each a line of their own
   Paragraph { lines: Vec<String> },
   /// A bullet (`-`, `*`, `+`, `•`) or numbered (`1.`, `1)`) list: the items without their markers, their wrapped and
   /// indented lines joined, nested items flattened
@@ -129,6 +133,27 @@ pub enum CommitBodyBlock {
   },
   /// A thematic break (`---`, `***`, `___`), a block of the section it is in: it ends no section
   Rule,
+  /// A table of GitHub Markdown: its header row, the alignment of each column and its rows, each as wide as the header
+  /// (a short row filled with empty cells, the cells past the header dropped); a cell is a line of prose, its `\|`
+  /// read as `|`
+  Table {
+    header: Vec<String>,
+    align: Vec<ColumnAlign>,
+    rows: Vec<Vec<String>>,
+  },
+}
+
+/// The alignment of a column of a table, by the colons of its delimiter cell (`:--`, `:-:`, `--:`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ColumnAlign {
+  /// `---`: as the text runs
+  None,
+  Left,
+  Center,
+  Right,
 }
 
 /// What a label says its section is, by its words: a leading "The", the case and what follows a comma aside, so "The

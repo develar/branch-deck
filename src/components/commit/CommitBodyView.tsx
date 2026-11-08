@@ -9,7 +9,7 @@ import { DisclosureChevron } from "@/components/shared/Disclosure"
 import { useBodyFold } from "@/hooks/useBodyFold"
 import type { BodyFoldState } from "@/hooks/useBodyFold"
 import { useCommitBody } from "@/hooks/useCommitBody"
-import type { CommitBody, CommitBodyBlock } from "@/lib/bindings"
+import type { ColumnAlign, CommitBody, CommitBodyBlock } from "@/lib/bindings"
 import type { BodyPart, BodyParts, PlacedBlock, RemovedBlocks } from "@/presenters/commit-body"
 import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 
@@ -384,10 +384,14 @@ export function NoDescription() {
   return <p className="text-sm text-muted-foreground">No description</p>
 }
 
+/** The alignment of the cells of a column of a table, by the colons of its delimiter row */
+const CELL_ALIGN: Record<ColumnAlign, string> = { none: "text-start", left: "text-left", center: "text-center", right: "text-right" }
+
 /**
- * A block of a body as `CommitBody` reads it: a paragraph its lines, a list its items, preformatted text, a rule; the
- * text of each line by `text` (its code by `CodeText`; the review links the code names of a story). A label and a
- * heading head their section, never a block
+ * A block of a body as `CommitBody` reads it: a paragraph its lines, a list its items, preformatted text, a rule, a
+ * table its cells (each a line of prose, its item the header row first, then row by row: `LineCode.item`); the text of
+ * each line by `text` (its code by `CodeText`; the review links the code names of a story). A label and a heading head
+ * their section, never a block
  */
 export function CommitBodyBlockView({ block, text = plainText }: { block: CommitBodyBlock; text?: BodyTextRenderer }) {
   switch (block.type) {
@@ -422,6 +426,37 @@ export function CommitBodyBlockView({ block, text = plainText }: { block: Commit
       )
     case "rule":
       return <hr className="border-border" />
+    case "table": {
+      const width = block.header.length
+      const cell = (column: number) => cn("px-3 py-1.5 first:pl-0 last:pr-0", CELL_ALIGN[block.align[column] ?? "none"])
+      return (
+        // a table wider than its column scrolls in it; its text stays at the edge of the blocks around it
+        <div className="max-w-full overflow-x-auto">
+          <table className="border-collapse tabular-nums">
+            <thead>
+              <tr className="border-b border-border">
+                {block.header.map((value, column) => (
+                  <th key={column} scope="col" className={cn(cell(column), "align-bottom font-semibold")}>
+                    {text(value, column)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, at) => (
+                <tr key={at} className="border-b border-border last:border-b-0">
+                  {row.map((value, column) => (
+                    <td key={column} className={cn(cell(column), "align-top")}>
+                      {text(value, (at + 1) * width + column)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
     case "label":
     case "heading":
       return null

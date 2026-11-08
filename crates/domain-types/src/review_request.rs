@@ -16,8 +16,9 @@ pub struct ReviewRequest {
   #[cfg_attr(feature = "specta", specta(optional))]
   pub title_lead: Option<IssueLead>,
   pub url: String,
-  /// The description as plain text; empty without one
-  pub body_text: String,
+  /// The description as its author wrote it, GitHub Markdown (`sync_utils::commit_body` reads it as the body of a
+  /// commit, its headings and tables too); empty without one
+  pub body: String,
   /// The login of the author; None for a deleted user
   pub author: Option<String>,
   /// The login of who asked the user for the review (the actor of the newest review request of the user); None if

@@ -1,30 +1,40 @@
 //! The grammar of a commit body (`CommitBody`), one for the commit preview of the page (`commit_body`), the body of a
-//! pull request (`remote_facts::pull_request_text`), which writes the blocks as Markdown, and the steps of a review
-//! (`review_plan`):
+//! pull request Branch Deck writes (`remote_facts::pull_request_text`, from `markdown_blocks`), the description of a
+//! pull request to review, which GitHub keeps as Markdown, and the steps of a review (`review_plan`):
+//! - its HTML comments are no text (`markdown_comments`): the hints of a template of a pull request;
 //! - blocks are separated by blank lines; a fence (```` ``` ```` or `~~~`) starts a preformatted block that runs to the
 //!   closing fence or the end of the body, blank lines included;
 //! - a last block whose lines are all trailers (`Token: value`, the token letters, digits and `-`, an indented line
 //!   continuing one; `(cherry picked from commit …)`), at least one of them a token of words joined by `-` or the
 //!   cherry-pick note, is the trailers: a one-word `Note: …` alone is prose;
 //! - inside a block, a line starting with `- `, `* `, `+ `, `• `, `1. ` or `1) ` (not a rule) starts a list, and every
-//!   following line starts an item or continues the last one, until a heading, a quote, a table row, a rule or a label
-//!   line right before an item; a change between bullets and numbers starts another list;
+//!   following line starts an item or continues the last one, until a heading, a quote, a line that starts with `|`, a
+//!   table, a rule or a label line right before an item; a change between bullets and numbers starts another list;
+//! - a header row and a delimiter row start a table of GitHub Markdown (`markdown_table`), its rows up to the first
+//!   line that is no row;
 //! - a run of lines indented by four spaces or a tab is preformatted, without the common indent;
 //! - a heading and a rule are blocks of their own;
-//! - the other lines are prose: hard-wrapped lines joined, a line after a hard break, a quote line and a table row a
-//!   line of their own;
+//! - the other lines are prose: hard-wrapped lines joined, a line after a hard break, a quote line and a line that
+//!   starts with `|` (no row of a table) a line of their own;
+//! - the inline Markdown of a line of prose, a heading or a cell is read by its text (`markdown_inline`: an image by
+//!   its alt text, a link by its text, strong emphasis without its marks), so a `**Why:**` is a label too; the body of a
+//!   pull request Branch Deck writes keeps them as written (`markdown_blocks`);
 //! - a label (`LEAD_IN_MAX`, `RUN_IN_MAX`) heads the blocks after it: a paragraph that is only `Label:` followed by a
-//!   block, a `Label:` line right before a list item, a `Label:` line that starts its block (or follows a list) right
-//!   before a line of prose or code, or the 1–3 words of a paragraph that starts `Label: text`; its kind is by its
+//!   block, a `Label:` line right before a list item or a table, a `Label:` line that starts its block (or follows a
+//!   list) right before a line of prose or code, or the 1–3 words of a paragraph that starts `Label: text`; its kind is by its
 //!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`, `LEFT_OUT`); a run-in `Look closely: text` heads its paragraph and the list or
 //!   code right under it (no blank line between) alone;
-//! - the code of each line of prose (`CommitBody::code`) by the grammar of `code_spans`;
+//! - the code of each line of prose (`CommitBody::code`) by the grammar of `code_spans`, a cell of a table a line;
+//! - the summary (`CommitBody::summary`): the lead, else the first paragraph of a plain section;
 //! - the parts and the fold (`CommitBody::parts`): the lead alone, a labelled section whole, a run of other blocks; the
 //!   first part shows, then whole parts while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS`
 //!   characters), the rest folds; a verification section folds and a Look closely section shows wherever it is, and
 //!   neither costs a line.
 
 use crate::code_spans::code_spans;
+use crate::markdown_comments::without_comments;
+use crate::markdown_inline::inline_text;
+use crate::markdown_table::{starts_table, table_at};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPart, CommitBodyPartKind, LabelKind, LineCode};
 
 /// The lines a body shows before its fold
@@ -51,7 +61,7 @@ pub fn message_body(message: &str) -> &str {
 /// commit carry it (`Commit::has_body`), so the page marks a message worth opening without reading its grammar; one
 /// pass over the lines, without the blocks `commit_body` builds
 pub fn has_body(message: &str) -> bool {
-  match raw_blocks(message_body(message)).as_slice() {
+  match raw_blocks(&without_comments(message_body(message))).as_slice() {
     [] => false,
     [RawBlock::Lines(lines)] => trailers(lines).is_none(),
     _ => true,
@@ -60,7 +70,27 @@ pub fn has_body(message: &str) -> bool {
 
 /// The body of a commit, `body` the message without its subject line
 pub fn commit_body(body: &str) -> CommitBody {
+  body_of(body, Inline::Read)
+}
+
+/// The blocks of `body` as `commit_body` reads them, but the inline Markdown of their lines as the author wrote it
+/// (links, images, strong emphasis): what the body of a pull request is written from, so GitHub shows them
+pub fn markdown_blocks(body: &str) -> Vec<CommitBodyBlock> {
+  body_of(body, Inline::AsWritten).blocks
+}
+
+/// How the grammar takes the inline Markdown of a line (`markdown_inline`)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Inline {
+  /// By its text, as a reader reads it
+  Read,
+  /// As the author wrote it
+  AsWritten,
+}
+
+fn body_of(body: &str, inline: Inline) -> CommitBody {
   let body = body.replace("\r\n", "\n");
+  let body = without_comments(&body);
   let raw_blocks = raw_blocks(&body);
   let mut blocks = Vec::new();
   // the raw block (a run of lines between blank lines) each block comes from
@@ -70,34 +100,89 @@ pub fn commit_body(body: &str) -> CommitBody {
   for (index, raw) in raw_blocks.into_iter().enumerate() {
     match raw {
       RawBlock::Fenced(lines) => blocks.push(CommitBodyBlock::Preformatted { text: dedent(&lines).join("\n") }),
-      RawBlock::Lines(lines) => match trailers(&lines).filter(|_| index == last) {
-        Some(trailers) => trailer_lines = trailers,
-        None => parse_block(&lines, &mut blocks),
-      },
+      RawBlock::Lines(lines) => {
+        if let Some(trailers) = trailers(&lines).filter(|_| index == last) {
+          trailer_lines = trailers;
+        } else {
+          let start = blocks.len();
+          parse_block(&lines, &mut blocks);
+          if inline == Inline::Read {
+            let read: Vec<CommitBodyBlock> = blocks.drain(start..).filter_map(read_inline).collect();
+            blocks.extend(read);
+          }
+        }
+      }
     }
     raw_of.resize(blocks.len(), index);
   }
   let (blocks, raw_of) = labelled(blocks, &raw_of);
   let lead = matches!(blocks.first(), Some(CommitBodyBlock::Paragraph { .. }));
   let parts = parts(&blocks, &raw_of, lead);
+  let summary = summary_of(&blocks, &parts, lead);
   let code = code_of(&blocks);
   let tight = (0..blocks.len()).map(|block| block > 0 && raw_of[block] == raw_of[block - 1]).collect();
   CommitBody {
     blocks,
     trailers: trailer_lines,
     lead,
+    summary,
     parts,
     code,
     tight,
   }
 }
 
-/// The lines of a block a reader reads as prose: a paragraph its lines, a list its items, a label or a heading its text
+/// `block` with the inline Markdown of its lines read by their text (`markdown_inline`); `None` for a paragraph or a
+/// heading that says nothing then (an image without an alt text alone)
+fn read_inline(block: CommitBodyBlock) -> Option<CommitBodyBlock> {
+  // a line with no mark is kept as it is, no copy
+  let read = |text: String| {
+    if let std::borrow::Cow::Owned(read) = inline_text(&text) {
+      read.trim().to_string()
+    } else {
+      text
+    }
+  };
+  match block {
+    CommitBodyBlock::Paragraph { lines } => {
+      let lines: Vec<String> = lines.into_iter().map(read).filter(|line| !line.is_empty()).collect();
+      (!lines.is_empty()).then_some(CommitBodyBlock::Paragraph { lines })
+    }
+    CommitBodyBlock::List { ordered, start, items } => Some(CommitBodyBlock::List {
+      ordered,
+      start,
+      items: items.into_iter().map(read).collect(),
+    }),
+    CommitBodyBlock::Heading { level, text } => Some(read(text)).filter(|text| !text.is_empty()).map(|text| CommitBodyBlock::Heading { level, text }),
+    CommitBodyBlock::Table { header, align, rows } => Some(CommitBodyBlock::Table {
+      header: header.into_iter().map(read).collect(),
+      align,
+      rows: rows.into_iter().map(|row| row.into_iter().map(read).collect()).collect(),
+    }),
+    CommitBodyBlock::Preformatted { .. } | CommitBodyBlock::Label { .. } | CommitBodyBlock::Rule => Some(block),
+  }
+}
+
+/// The block that sums `blocks` up (`CommitBody::summary`): the lead, else the first paragraph of a section a plain
+/// label or a heading heads; a verification, a Look closely or a Left out sums up nothing
+fn summary_of(blocks: &[CommitBodyBlock], parts: &[CommitBodyPart], lead: bool) -> Option<u32> {
+  if lead {
+    return Some(0);
+  }
+  parts
+    .iter()
+    .filter(|part| part.kind == CommitBodyPartKind::Section && part.tone == LabelKind::Plain)
+    .find_map(|part| (part.start..part.end).find(|&block| matches!(blocks[block as usize], CommitBodyBlock::Paragraph { .. })))
+}
+
+/// The lines of a block a reader reads as prose: a paragraph its lines, a list its items, a label or a heading its text,
+/// a table its cells, the header row first, then row by row (`LineCode::item`)
 pub fn prose_lines(block: &CommitBodyBlock) -> Vec<&str> {
   match block {
     CommitBodyBlock::Paragraph { lines } => lines.iter().map(String::as_str).collect(),
     CommitBodyBlock::List { items, .. } => items.iter().map(String::as_str).collect(),
     CommitBodyBlock::Heading { text, .. } | CommitBodyBlock::Label { text, .. } => vec![text.as_str()],
+    CommitBodyBlock::Table { header, rows, .. } => header.iter().chain(rows.iter().flatten()).map(String::as_str).collect(),
     CommitBodyBlock::Preformatted { .. } | CommitBodyBlock::Rule => Vec::new(),
   }
 }
@@ -134,7 +219,10 @@ fn labelled(blocks: Vec<CommitBodyBlock>, raw_of: &[usize]) -> (Vec<CommitBodyBl
     };
     let content_follows = matches!(
       blocks.peek(),
-      Some((CommitBodyBlock::Paragraph { .. } | CommitBodyBlock::List { .. } | CommitBodyBlock::Preformatted { .. }, _))
+      Some((
+        CommitBodyBlock::Paragraph { .. } | CommitBodyBlock::List { .. } | CommitBodyBlock::Preformatted { .. } | CommitBodyBlock::Table { .. },
+        _
+      ))
     );
     if let [only] = lines.as_slice()
       && let Some(text) = lead_in(only).filter(|_| content_follows)
@@ -304,12 +392,16 @@ pub fn story_lines(body: &CommitBody) -> u32 {
     .sum()
 }
 
-/// The lines a block reads in: a line of prose or an item by `LINE_CHARS` characters, a line of code one
+/// The lines a block reads in: a line of prose, an item or a row of a table by `LINE_CHARS` characters, a line of code
+/// one
 fn lines_of(block: &CommitBodyBlock) -> u32 {
-  let wrapped = |text: &String| u32::try_from(text.chars().count().div_ceil(LINE_CHARS).max(1)).unwrap_or(u32::MAX);
+  let chars = |count: usize| u32::try_from(count.div_ceil(LINE_CHARS).max(1)).unwrap_or(u32::MAX);
+  let wrapped = |text: &String| chars(text.chars().count());
+  let row = |cells: &Vec<String>| chars(cells.iter().map(|cell| cell.chars().count() + 1).sum());
   match block {
     CommitBodyBlock::Paragraph { lines } => lines.iter().map(wrapped).sum(),
     CommitBodyBlock::List { items, .. } => items.iter().map(wrapped).sum(),
+    CommitBodyBlock::Table { header, rows, .. } => std::iter::once(header).chain(rows).map(row).sum(),
     CommitBodyBlock::Preformatted { text } => u32::try_from(text.lines().count().max(1)).unwrap_or(u32::MAX),
     CommitBodyBlock::Heading { .. } | CommitBodyBlock::Label { .. } | CommitBodyBlock::Rule => 1,
   }
@@ -322,7 +414,7 @@ enum RawBlock<'a> {
 }
 
 /// The fence a line opens or closes: ```` ``` ```` or `~~~` after its indent
-fn fence_of(line: &str) -> Option<&'static str> {
+pub(crate) fn fence_of(line: &str) -> Option<&'static str> {
   let trimmed = line.trim_start();
   ["```", "~~~"].into_iter().find(|fence| trimmed.starts_with(fence))
 }
@@ -406,7 +498,7 @@ fn trailer(line: &str) -> Option<bool> {
 }
 
 /// The marker a list item starts with: whether it is numbered, its number, and the item text
-fn list_item(line: &str) -> Option<(bool, u32, &str)> {
+pub(crate) fn list_item(line: &str) -> Option<(bool, u32, &str)> {
   let trimmed = line.trim_start();
   if is_rule(trimmed) {
     return None;
@@ -431,7 +523,7 @@ fn is_rule(trimmed: &str) -> bool {
 }
 
 /// A Markdown heading: one to six `#`, then a space or nothing
-fn is_heading(trimmed: &str) -> bool {
+pub(crate) fn is_heading(trimmed: &str) -> bool {
   let text = trimmed.trim_start_matches('#');
   let level = trimmed.len() - text.len();
   (1..=6).contains(&level) && (text.is_empty() || text.starts_with(' '))
@@ -447,23 +539,23 @@ fn heading(trimmed: &str) -> Option<CommitBodyBlock> {
   })
 }
 
-/// A line a label heads: prose or code, not a heading, a rule, a quote line, a table row or a trailer
+/// A line a label heads: prose or code, not a heading, a rule, a quote line, a line that starts with `|` or a trailer
 fn is_content(line: &str) -> bool {
   let trimmed = line.trim();
   !trimmed.is_empty() && !is_heading(trimmed) && !is_rule(trimmed) && !is_own_line(trimmed) && trailer(line).is_none()
 }
 
-/// A line that is a line of its own in prose: a quote line or a table row
+/// A line that is a line of its own in prose: a quote line or a line that starts with `|`, no row of a table
 fn is_own_line(trimmed: &str) -> bool {
   trimmed.starts_with('>') || trimmed.starts_with('|')
 }
 
 /// A line indented as code: four spaces or a tab
-fn is_code_indented(line: &str) -> bool {
+pub(crate) fn is_code_indented(line: &str) -> bool {
   line.starts_with("    ") || line.starts_with('\t')
 }
 
-/// The lines of a block as paragraphs, lists and preformatted runs
+/// The lines of a block as paragraphs, lists, tables and preformatted runs
 fn parse_block(lines: &[&str], blocks: &mut Vec<CommitBodyBlock>) {
   let mut prose = Prose::default();
   let mut preformatted: Vec<&str> = Vec::new();
@@ -481,18 +573,30 @@ fn parse_block(lines: &[&str], blocks: &mut Vec<CommitBodyBlock>) {
       preformatted.clear();
     }
   };
-  for (index, &line) in lines.iter().enumerate() {
+  let mut index = 0;
+  while let Some(&line) = lines.get(index) {
+    index += 1;
     let trimmed = line.trim();
-    // a `Label:` line right before an item heads the list: it ends the list or the prose before it; one that starts its
-    // block or follows a list heads the paragraph or the code right after it too
-    let heads_next = lines
-      .get(index + 1)
-      .is_some_and(|&next| list_item(next).is_some() || (prose.lines.is_empty() && is_content(next)));
-    if !line.starts_with(char::is_whitespace) && lead_in(trimmed).is_some() && heads_next {
+    // a `Label:` line right before an item or a table heads the list or the table: it ends the list or the prose before
+    // it; one that starts its block or follows a list heads the paragraph or the code right after it too
+    let heads_next = || {
+      lines
+        .get(index)
+        .is_some_and(|&next| list_item(next).is_some() || starts_table(&lines[index..]) || (prose.lines.is_empty() && is_content(next)))
+    };
+    if !line.starts_with(char::is_whitespace) && lead_in(trimmed).is_some() && heads_next() {
       prose.flush(blocks);
       flush_preformatted(&mut preformatted, blocks);
       flush_list(&mut list, blocks);
       blocks.push(CommitBodyBlock::Paragraph { lines: vec![trimmed.to_string()] });
+      continue;
+    }
+    if let Some((table, taken)) = table_at(&lines[index - 1..]) {
+      prose.flush(blocks);
+      flush_preformatted(&mut preformatted, blocks);
+      flush_list(&mut list, blocks);
+      blocks.push(table);
+      index += taken - 1;
       continue;
     }
     let block_start = is_heading(trimmed) || is_rule(trimmed) || is_own_line(trimmed);

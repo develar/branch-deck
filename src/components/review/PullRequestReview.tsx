@@ -412,7 +412,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   )
 
   // what the author wrote: the lead of the document of the overview and of the changes
-  const description = request.bodyText.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.bodyText}`} />
+  const description = request.body.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.body}`} />
   // the commits of the rail named as the changes name them, by the plan of all changes the overview tells
   const railTitles = withCommitTitles(NO_TITLES, plan.plan?.steps.steps ?? [])
   // a link of the overview shows its place in the changes of all of the pull request, as the same link there does

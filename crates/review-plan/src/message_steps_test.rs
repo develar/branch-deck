@@ -177,6 +177,29 @@ fn a_long_first_sentence_titles_its_step_by_the_first_name_it_resolves_and_a_lis
   assert_eq!(parts[2], (2, 4, StoryPlace::Step { step: 1 }));
 }
 
+/// A table of a run tells what its cells name, as a paragraph does: a step of its own, titled by the first name it
+/// resolves (a table has no first sentence)
+#[test]
+fn a_table_tells_a_step_titled_by_the_first_name_it_resolves() {
+  let repo = TestRepo::new();
+  let base = base(&repo);
+  let message = "Links join across the edge\n\nA long URL breaks at the edge.\n\nThe grid marks a row that ends at the edge. `endsAtEdge` owns the rule.\n\n| Part | Where |\n| --- | --- |\n| the joiner | `Joiner` |\n| the marks | `Update.edges` |";
+  let head = commit(&repo, message);
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(plan.steps.source, StepSource::Message);
+  let titles: Vec<(Option<&str>, TitleSource)> = plan.steps.steps.iter().take(2).map(|step| (step.title.as_deref(), step.title_source)).collect();
+  assert_eq!(
+    titles,
+    [
+      (Some("The grid marks a row that ends at the edge."), TitleSource::Sentence),
+      (Some("Joiner"), TitleSource::Name),
+    ]
+  );
+  let story = &plan.steps.commits[0];
+  let parts: Vec<(u32, u32, StoryPlace)> = story.parts.iter().map(|part| (part.start, part.end, part.told)).collect();
+  assert_eq!(parts[2], (2, 3, StoryPlace::Step { step: 1 }));
+}
+
 /// The concerns stay the steps of a body that names code in one paragraph alone, of two sections that name the same
 /// code (a cause and its fix: the first keeps it), and of a body of verification alone
 #[test]

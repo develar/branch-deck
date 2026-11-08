@@ -6,7 +6,7 @@ import { commands } from "@/lib/bindings"
 const KEPT_MESSAGES = 200
 
 /** The body of an empty message, and of one Rust failed to read */
-const NO_BODY: CommitBody = { blocks: [], trailers: [], lead: false, parts: [], code: [] }
+const NO_BODY: CommitBody = { blocks: [], trailers: [], lead: false, summary: null, parts: [], code: [] }
 
 /** The bodies Rust read of each message: a message is its own key, the grammar of a commit never changes */
 const bodyOf = new Map<string, CommitBody>()

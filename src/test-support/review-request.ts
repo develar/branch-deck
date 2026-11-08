@@ -6,7 +6,7 @@ export function reviewRequest(number: number, patch: Partial<ReviewRequest> = {}
     number,
     title: `Change ${number}`,
     url: `https://github.com/acme/monorepo/pull/${number}`,
-    bodyText: "",
+    body: "",
     author: "alice",
     requestedBy: "bob",
     createdAt: 1_000,

@@ -24,7 +24,7 @@ macro_rules! review_pull_fragment {
   ($team:literal) => {
     concat!(
       "fragment ReviewPull on PullRequest {
-  number title url bodyText state isDraft
+  number title url body state isDraft
   author { login }
   createdAt updatedAt
   additions deletions changedFiles

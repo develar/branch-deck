@@ -486,6 +486,7 @@ fn body_words(body: &str) -> usize {
     .map(|block| match block {
       CommitBodyBlock::Paragraph { lines } => lines.iter().map(|line| words(line)).sum(),
       CommitBodyBlock::List { items, .. } => items.iter().map(|item| words(item)).sum(),
+      CommitBodyBlock::Table { header, rows, .. } => header.iter().chain(rows.iter().flatten()).map(|cell| words(cell)).sum(),
       CommitBodyBlock::Preformatted { text } | CommitBodyBlock::Heading { text, .. } | CommitBodyBlock::Label { text, .. } => words(text),
       CommitBodyBlock::Rule => 0,
     })

@@ -54,7 +54,7 @@ function story(
   return {
     id: subject,
     title: subject,
-    body: { blocks, trailers: [], lead, parts: bodyParts, code: [] },
+    body: { blocks, trailers: [], lead, summary: lead ? 0 : null, parts: bodyParts, code: [] },
     mentions: [],
     parts: bodyParts.map((part, index) => ({ ...part, told: told[index] ?? { kind: "commit" }, titled: index === titled, removals: [] })),
     change: null,
@@ -66,9 +66,20 @@ function plan(steps: ReviewStep[], commits: StoryCommit[], more: Partial<ReviewP
   return reviewPlan({ steps: { ...base.steps, steps, commits }, ...more })
 }
 
-/** The text of the blocks of a part: a paragraph its lines, a list its items */
+/** The text of the blocks of a part: a paragraph its lines, a list its items, a table its rows */
 function textOf(view: StoryView): { lead: string | null; shown: string[][]; folded: string[] } {
-  const words = (block: CommitBodyBlock) => (block.type === "paragraph" ? block.lines.join(" ") : block.type === "list" ? block.items.join(" | ") : block.type)
+  const words = (block: CommitBodyBlock) => {
+    switch (block.type) {
+      case "paragraph":
+        return block.lines.join(" ")
+      case "list":
+        return block.items.join(" | ")
+      case "table":
+        return [block.header, ...block.rows].map(row => row.join(" | ")).join(" / ")
+      default:
+        return block.type
+    }
+  }
   return {
     lead: view.lead === null ? null : words(view.lead.block),
     shown: view.shown.map(part => [part.head?.block.type === "label" ? `${part.head.block.text}:` : "", ...part.blocks.map(it => words(it.block))]),
@@ -951,5 +962,41 @@ describe("the document of a review", () => {
       ["Manager.allowed", "New · Manager.kt:6 · in step 2"],
       ["Layout", null],
     ])
+  })
+
+  it("quotes a cell of a table as the line of a mark, the header row first, then row by row", () => {
+    const table: CommitBodyBlock = { type: "table", header: ["Part", "Where"], align: ["none", "right"], rows: [["the frame", "`Frame.kt`"]] }
+    const sized = story("the sizes", [paragraph("The sizes."), table])
+    const whole = plan([step("a", [commit("the sizes")], [["u:frame", "src/a/Frame.kt"]])], [sized])
+    const section: NarrativeSection = {
+      key: "file:src/a/Frame.kt",
+      path: "src/a/Frame.kt",
+      units: { marks: new Map(), elsewhere: new Map() },
+      unitIds: new Set(),
+      story: [{ commit: "the sizes", block: 1, item: 3, step: 0 }],
+      targets: new Map(),
+      heading: null,
+      concern: "a",
+      concernHeading: null,
+      folded: null,
+      ghost: null,
+    }
+    expect(
+      storyMarks(whole, [section])
+        .get(section.key)!
+        .map(mark => [mark.block, mark.preview]),
+    ).toEqual([[1, "`Frame.kt`"]])
+    // a table is a block of its part, read by its rows
+    const parted = presentStory(
+      story(
+        "the sizes",
+        [paragraph("The sizes."), table],
+        [
+          [0, 1, false],
+          [1, 2, false],
+        ],
+      ),
+    )
+    expect(textOf(parted)).toEqual({ lead: "The sizes.", shown: [["", "Part | Where / the frame | `Frame.kt`"]], folded: [] })
   })
 })

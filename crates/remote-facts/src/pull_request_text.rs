@@ -7,7 +7,7 @@
 //! branches it is built on, whose commits the pull request holds too. No git: the callers read the commits.
 
 use crate::stack_pull_request::{MAX_BODY_CHARS, cut_chars, cut_title, push_fitting_sections};
-use domain_types::commit_body::CommitBodyBlock;
+use domain_types::commit_body::{ColumnAlign, CommitBodyBlock};
 use domain_types::issue_navigation::IssueNavigationConfig;
 use domain_types::youtrack::YouTrackIssueAnswer;
 use git_ops::branch_description::Description;
@@ -18,7 +18,7 @@ use std::task::Poll;
 use std::time::Duration;
 use sync_core::issue_navigation::issue_link;
 use sync_core::sync::branch_summary;
-use sync_utils::commit_body::commit_body;
+use sync_utils::commit_body::markdown_blocks;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::debug;
 use youtrack::service::YouTrackService;
@@ -291,14 +291,15 @@ fn ancestors_section(ancestors: &[AncestorText]) -> Option<String> {
   }
 }
 
-/// The body of a commit as Markdown that GitHub shows as the commit reads, from the blocks of the commit preview
-/// (`sync_utils::commit_body::commit_body`): a line per line of a paragraph (GitHub shows a newline of a pull request as
-/// a line break), a list with `-` or the numbers from its first, code fenced, a heading with its `#`, a rule `---`, the
-/// blocks apart by a blank line; a label `Label:` before the paragraph it heads on its line, else on a line of its own;
-/// the trailers (`Co-Authored-By:`…) left out, a mention or a `<T>` in code spans
+/// The body of a commit as Markdown that GitHub shows as the commit reads, from the blocks of the commit preview with
+/// their inline Markdown as written (`sync_utils::commit_body::markdown_blocks`): a line per line of a paragraph (GitHub
+/// shows a newline of a pull request as a line break), a list with `-` or the numbers from its first, code fenced, a
+/// heading with its `#`, a rule `---`, a table with its header, its delimiter row of the alignment of each column and
+/// its rows, a pipe in a cell `\|`, the blocks apart by a blank line; a label `Label:` before the paragraph it heads on
+/// its line, else on a line of its own; the trailers (`Co-Authored-By:`…) left out, a mention or a `<T>` in code spans
 fn commit_body_markdown(body: &str) -> String {
   let paragraph = |lines: &[String]| lines.iter().map(|line| literal_markdown(line)).collect::<Vec<_>>().join("\n");
-  let mut blocks = commit_body(body).blocks.into_iter().peekable();
+  let mut blocks = markdown_blocks(body).into_iter().peekable();
   let mut markdown: Vec<String> = Vec::new();
   while let Some(block) = blocks.next() {
     markdown.push(match block {
@@ -328,6 +329,27 @@ fn commit_body_markdown(body: &str) -> String {
         _ => format!("{}:", literal_markdown(&text)),
       },
       CommitBodyBlock::Rule => "---".to_string(),
+      CommitBodyBlock::Table { header, align, rows } => {
+        let cells = |cells: &[String]| cells.iter().map(|text| literal_markdown(text).replace('|', "\\|")).collect::<Vec<_>>();
+        let delimiter = align
+          .iter()
+          .map(|align| {
+            match align {
+              ColumnAlign::None => "---",
+              ColumnAlign::Left => ":---",
+              ColumnAlign::Center => ":---:",
+              ColumnAlign::Right => "---:",
+            }
+            .to_string()
+          })
+          .collect();
+        std::iter::once(cells(&header))
+          .chain(std::iter::once(delimiter))
+          .chain(rows.iter().map(|row| cells(row)))
+          .map(|row| format!("| {} |", row.join(" | ")))
+          .collect::<Vec<_>>()
+          .join("\n")
+      }
     });
   }
   markdown.join("\n\n")

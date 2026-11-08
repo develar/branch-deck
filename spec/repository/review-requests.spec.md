@@ -381,7 +381,7 @@ Safe Push it allows.
   toggle and the Split/Unified/Inline toggle with Whitespace at the end of the tabs, in the header of the block they
   switch. The overview, in an island of its own, is the document the changes tell above their diffs
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window), `ReviewPrologue`) once the repository turns the
-  plan on: the description (as a commit body) its lead, then What Changes, the steps and Possible Breakage of all
+  plan on: the description its lead, then What Changes, the steps and Possible Breakage of all
   changes, no second headline under the title of the island (the changes open on the same lead); a link of it reviews
   all changes at its place, as the same link there shows it once the changes are read: a code name or an entry at its
   declaration, its file selected and its name selected in the diffs, a use left outside opening its file over the
@@ -397,6 +397,14 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should review the changes of a pull request at the place of a breakage link of its overview: the declaration, a use outside over the changes`)
+- The description is the pull request as its author wrote it: GitHub's `body` (GitHub Markdown), never its plain text,
+  read by the grammar of a commit body ([Commit Row → Message body](../commit/commit-row.spec.md#message-body)), so its
+  headings stay headings, its lists lists, its tables tables (`role=table`) and its code code; the hints of its
+  template (HTML comments) are no text, an image reads as its alt text, a link as its text. A description that opens
+  with a heading has no lead, but a summary (`CommitBody.summary`: the first paragraph of its first plain section).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the description of the pull request as its Markdown: its headings and its tables`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_summary_is_the_lead_else_the_first_paragraph_of_a_plain_section`)
 - The fetch is the window's: it starts when the window shows the request, as an operation of the session of its
   repository (the intent `fetchReview { number }` of `execute`, `operations::review_fetch`: the head and the base as the
   review requests of the session name them, its review refs held, a second fetch of the same pull request joining it):

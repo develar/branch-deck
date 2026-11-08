@@ -4,7 +4,8 @@
 //!   while), `paths` (as the shell and git take them)
 //! - the processes that are not git: `child_process`, `known_tools` (where each is looked for), `process_scan` (the
 //!   processes inside a directory)
-//! - the grammars of a commit: `commit_subject`, `commit_body`, `code_spans` (the code in a line of prose), `issue_pattern`
+//! - the grammars of a commit: `commit_subject`, `commit_body` (its Markdown: `markdown_table`, `markdown_inline`,
+//!   `markdown_comments`), `code_spans` (the code in a line of prose), `issue_pattern`
 //! - an operation: `operation_id` (its ULID), `operation_tally` (what it cost), `clock` (the clock of its timers),
 //!   `span` (the span of its caller on another thread), `single_flight` (one read for every caller of the same key)
 //! - the values as a setting or a service writes them: `git_bool`, `host_ref_name`, `list_cut`, `size`, `timestamp`
@@ -21,6 +22,9 @@ pub mod host_ref_name;
 pub mod issue_pattern;
 pub mod known_tools;
 pub mod list_cut;
+mod markdown_comments;
+mod markdown_inline;
+mod markdown_table;
 pub mod operation_id;
 pub mod operation_tally;
 pub mod paths;

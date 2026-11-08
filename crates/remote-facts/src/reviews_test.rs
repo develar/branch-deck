@@ -21,7 +21,7 @@ fn pull(number: u32, author: &str, extra: &serde_json::Value) -> serde_json::Val
     "number": number,
     "title": format!("Change {number}"),
     "url": format!("https://github.com/acme/monorepo/pull/{number}"),
-    "bodyText": "",
+    "body": "",
     "state": "OPEN",
     "isDraft": false,
     "author": {"login": author},

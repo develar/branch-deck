@@ -130,7 +130,8 @@ review that helps, so write one where it is true, and only there: a request in e
 
 Indent a measurement, a log or a snippet by four spaces, or put it in a fence (```` ``` ````): it keeps its lines and
 its spacing everywhere, `git log` included, and Branch Deck keeps it a preformatted block, never joined into prose.
-A table of Markdown reads as text in `git log` too, but keep it small.
+A table of Markdown (a header row, then `| --- | --- |`) reads as text in `git log` too, and Branch Deck shows it as a
+table, in the preview and in the pull request it writes; keep it small.
 
 ## The order of a body
 

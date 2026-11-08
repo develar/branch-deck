@@ -45,6 +45,9 @@ targets:
   - ../../crates/app-api/src/session/view.rs
   - ../../crates/app-api/src/reads/grammar.rs
   - ../../crates/sync-utils/src/commit_body.rs
+  - ../../crates/sync-utils/src/markdown_table.rs
+  - ../../crates/sync-utils/src/markdown_inline.rs
+  - ../../crates/sync-utils/src/markdown_comments.rs
   - ../../crates/sync-utils/src/commit_subject.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
   - ../../crates/domain-types/src/commit_body.rs
@@ -357,6 +360,7 @@ place that shows a commit shows the same way.
 
 The body is read in Rust (`commit_body`, `sync_utils::commit_body`), the one grammar of a commit body: the commit
 preview renders it, the body of a pull request is written from it ([Pull Requests](../branch/pull-requests.spec.md)),
+the description of a pull request to review is read by it ([Review Requests](../repository/review-requests.spec.md)),
 and a review tells it ([Review Tour](../branch/review-tour.spec.md)). The page asks once per message, keeps the answer
 for a message shown again, and only lays out what Rust read.
 
@@ -364,13 +368,33 @@ for a message shown again, and only lays out what Rust read.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_body_of_a_message_is_after_its_subject_line`)
 - The body must join hard-wrapped lines into one paragraph; a blank line must start a new block. A line after a hard
-  break (two spaces or `\` at the end), a quote line and a table row must stay a line of their own. A Markdown heading
-  (one to six `#` and a text) must be a heading of its level, a rule (`---`, `***`, `___`) a rule, each a block of its
-  own; a `#` without text stays prose.
+  break (two spaces or `\` at the end), a quote line and a line that starts with `|` but is no row of a table must stay
+  a line of their own. A Markdown heading (one to six `#` and a text) must be a heading of its level, a rule (`---`,
+  `***`, `___`) a rule, each a block of its own; a `#` without text stays prose.
 - Lines that start with `- `, `* `, `+ `, `• `, `1. ` or `1) ` must form a list without these markers (a rule is no
   item). A change between bullets and numbers must start a new list. An ordered list must keep the number of its first
-  item. A continuation line, wrapped, indented or not, must stay in its list item until a heading, a quote, a table row,
-  a rule or a label line right before an item.
+  item. A continuation line, wrapped, indented or not, must stay in its list item until a heading, a quote, a line that
+  starts with `|`, a table, a rule or a label line right before an item.
+- A table of GitHub Markdown must be a table: a header row, then a delimiter row of as many cells, each dashes with a
+  colon at either end or none (`---`, `:--` left, `--:` right, `:-:` centred: the alignment of its column), then its
+  rows up to the first line that is no row (a blank line, a line without a pipe, a list item, a heading, a quote); the
+  pipes at the edges of a row are optional, `\|` is a pipe inside a cell, a short row is filled with empty cells and
+  the cells past the header are dropped. It ends the paragraph or the list before it. Lines of pipes without the
+  delimiter row under the first one stay lines of prose. The page renders it as a table (`role=table`), the header row
+  in the weight of a label, the rows apart by a line of the border, a table wider than its column scrolling in it, each
+  cell a line of prose with its code and issue links; a table folds as a list does, a row a line.
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`reads_a_table_its_header_its_alignment_and_its_rows_as_wide_as_the_header`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_pipe_line_of_no_table_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `each_cell_of_a_table_carries_its_spans_of_code_by_its_place_row_by_row`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the description of the pull request as its Markdown: its headings and its tables`)
+- An HTML comment (`<!-- … -->`, also over several lines: the hints of a template of a pull request) must be no text,
+  outside a fence, a line indented as code and a code span; an opening without a `-->` after it is a word. A line a
+  comment holds alone is blank, so the blocks around it stay apart.
+- The inline Markdown of a line of prose, a heading or a cell must read as its text: an image (`![alt](url)`, an
+  `<img alt="…">`) as its alt text, a link (`[text](url)`) as its text, strong emphasis (`**text**`, `__text__`)
+  without its marks, so `**Why:** the text` is a run-in label. A code span, an escaped mark (`\*`), `__name__` around
+  one identifier and marks around a path that starts or ends with `/` (`**/generated/**`) stay as written; a line that
+  then says nothing (an image without an alt text) is no line. The body of a pull request Branch Deck writes keeps them
+  as the author wrote them.
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`an_html_comment_is_no_text_outside_code`, `an_image_a_link_and_strong_emphasis_read_as_their_text`)
 - Lines indented by four spaces or a tab must stay verbatim, without the common indent.
 - A fenced block (```` ``` ```` or `~~~`) must stay verbatim, blank lines included, without the fences; one without a
   closing fence must run to the end of the body.
@@ -380,10 +404,10 @@ for a message shown again, and only lays out what Rust read.
   of trailers alone has no block.
 - The body must treat CRLF line endings as LF.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`, `should render a Markdown heading, a rule and a label glued to its list as sections of the body`)
-  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_table_row_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_pipe_line_of_no_table_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
 - A paragraph that is only `Label:` (a capital letter of any script, at most 39 characters without a colon) must
-  become the label of the blocks after it when a paragraph, a list or code follows it; a `Label:` line right before a
-  list item must, also after prose or a list of its block; a `Label:` line that starts its block or follows a list
+  become the label of the blocks after it when a paragraph, a list, a table or code follows it; a `Label:` line right
+  before a list item or a table must, also after prose or a list of its block; a `Label:` line that starts its block or follows a list
   must, right before a line of prose or code ("Why not a setting:" over its paragraph with no blank line between),
   never inside prose, where the author wrapped a sentence.
 - A paragraph that starts with a short `Label: ` (a capitalised word and up to two lowercase ones of any script, at
@@ -401,7 +425,10 @@ for a message shown again, and only lays out what Rust read.
 - The trailers must show last, below the blocks, without a label.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../crates/sync-utils/src/commit_body_test.rs (`a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_label_the_rest_of_its_paragraph`, `a_label_without_blocks_to_head_a_long_one_and_a_sentence_stay_prose`, `a_label_line_right_before_a_list_heads_it_after_prose_or_another_list`, `a_label_line_that_starts_its_block_heads_the_paragraph_or_the_code_right_after_it`, `a_run_in_look_closely_heads_its_paragraph_and_the_list_or_code_right_under_it`, `a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_aside`)
-- The lead of a body must be its first block when that is a paragraph, before any label or heading.
+- The lead of a body must be its first block when that is a paragraph, before any label or heading. The summary of a
+  body (`summary`, the block that sums it up in a line) must be its lead, else the first paragraph of a section a plain
+  label or a heading heads (a description that opens with `## Goal`); a verification, a Look closely or a Left out
+  section sums up nothing.
 - The parts of a body (`parts`: the lead alone, a labelled section, a run of the other blocks) must each say what it
   is (`kind`: `lead`, `section`, `run`; `tone`: the kind of the label of a section), so a view places them without the
   grammar, and whether a reader folds it, at a block, never at a fixed row count: the first part shows, a labelled section whole when the
@@ -411,7 +438,7 @@ for a message shown again, and only lays out what Rust read.
   verification section folds, and a "Look closely:" or a "Left out:" section shows wherever it is; none of them costs
   a line: the decision the author asks for and what the author says the change does not do or prove are never behind
   a fold. A body of about 12 lines shows whole.
-  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_lead_is_a_paragraph_before_any_label_or_heading`, `each_part_says_whether_it_is_the_lead_a_section_with_the_kind_of_its_label_or_a_run`, `a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines`, `a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no_line`, `a_look_closely_section_shows_wherever_it_is_and_costs_no_line`, `a_left_out_section_shows_always_and_costs_no_line_of_the_fold`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_lead_is_a_paragraph_before_any_label_or_heading`, `the_summary_is_the_lead_else_the_first_paragraph_of_a_plain_section`, `each_part_says_whether_it_is_the_lead_a_section_with_the_kind_of_its_label_or_a_run`, `a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines`, `a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no_line`, `a_look_closely_section_shows_wherever_it_is_and_costs_no_line`, `a_left_out_section_shows_always_and_costs_no_line_of_the_fold`)
 - Issue keys in the body must become links.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
 

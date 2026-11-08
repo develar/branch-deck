@@ -6,6 +6,7 @@ import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
+import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
@@ -364,6 +365,37 @@ test.describe("Review window", () => {
     // Escape in the overview closes the window
     await reviewPage.keyboard.press("Escape")
     await expect.poll(() => windowCalls(reviewPage)).toContain("close")
+  })
+
+  test("should show the description of the pull request as its Markdown: its headings and its tables", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // GitHub's body as its author wrote it: the hint of its template, its headings, a table with a column aligned right
+    const described = reviewRequest("ABC-123", 101, 50, {
+      title: "Play video in the chat",
+      body: [
+        "<!-- What does this change do? -->",
+        "## Goal",
+        "Basically: ability to play video in chat.",
+        "",
+        "## Sizes",
+        "",
+        "| Module | Installed size |",
+        "| --- | ---: |",
+        "| `view.gui.media` | 6.4 MB |",
+        "| **core** | 12 KB |",
+      ].join("\n"),
+    })
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, described)
+    const { review } = await openRequestReview(page, 101)
+    const body = review.getByTestId("review-dialog-body").getByTestId("commit-message-body")
+    await expect(body.locator("[data-slot=commit-body-heading]")).toHaveText(["Goal", "Sizes"])
+    await expect(body).toContainText("ability to play video in chat.")
+    await expect(body).not.toContainText("What does this change do?")
+    const table = body.getByRole("table")
+    await expect(table.getByRole("columnheader")).toHaveText(["Module", "Installed size"])
+    // the cells by their words: the code of a cell is code, its strong emphasis no marks
+    await expect(table.getByRole("cell")).toHaveText(["view.gui.media", "6.4 MB", "core", "12 KB"])
+    await expect(table.getByRole("cell", { name: "6.4 MB" })).toHaveCSS("text-align", "right")
+    await captureHtmlSnapshot(body, "review-request-markdown")
   })
 
   test("should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓", async ({

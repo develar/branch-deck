@@ -4,8 +4,8 @@
 //! them.
 //!
 //! - **The tellings** of a body (`Telling`): a labelled section of no verification (a label or a heading and its
-//!   blocks), else each paragraph or list of a run with the blocks written right under it (`CommitBody::tight`: a list
-//!   under its paragraph); the lead, a Look closely, the code alone and a verification section are none, but a
+//!   blocks), else each paragraph, list or table of a run with the blocks written right under it (`CommitBody::tight`:
+//!   a list under its paragraph); the lead, a Look closely, the code alone and a verification section are none, but a
 //!   `Tests:` section tells the tests.
 //! - **The seeds** of a telling: the parts of the concerns (a unit in a file) that its code names resolve to, against no
 //!   step (`story::unit_mentions`): a declaration its parts, a file its parts in that file. A part two tellings name is
@@ -187,7 +187,8 @@ fn tellings_of(body: &CommitBody) -> Vec<Telling> {
         });
       }
       (CommitBodyPartKind::Run, _) => {
-        // a paragraph or a list with the blocks written right under it (a list under its paragraph): one telling
+        // a paragraph, a list or a table with the blocks written right under it (a list under its paragraph): one
+        // telling; a table, of no sentence, titled by the first name it resolves
         let mut place = range.start;
         while place < range.end {
           let mut end = place + 1;
@@ -195,15 +196,16 @@ fn tellings_of(body: &CommitBody) -> Vec<Telling> {
             end += 1;
           }
           let first_line = match &body.blocks[place] {
-            CommitBodyBlock::Paragraph { lines } => lines.first(),
-            CommitBodyBlock::List { items, .. } => items.first(),
+            CommitBodyBlock::Paragraph { lines } => Some(lines.first()),
+            CommitBodyBlock::List { items, .. } => Some(items.first()),
+            CommitBodyBlock::Table { .. } => Some(None),
             _ => None,
           };
           if let Some(line) = first_line {
             tellings.push(Telling {
               blocks: place..end,
               rank: Rank::Paragraph,
-              title: first_sentence(line).map(|sentence| (sentence, TitleSource::Sentence)),
+              title: line.and_then(|line| first_sentence(line)).map(|sentence| (sentence, TitleSource::Sentence)),
             });
           }
           place = end;

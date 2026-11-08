@@ -138,10 +138,10 @@ fn a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary() {
 
 #[test]
 fn each_commit_is_an_item_with_its_body_reflowed() {
-  // hard-wrapped: the lines of a paragraph and of a list item are joined; a heading, a table, a quote, a rule and the
-  // lines after a hard break keep their lines; a list goes with `-` or its numbers, code into a fence; a label written
-  // on a line of its own stays a paragraph of its own (before a list, a paragraph, a table or a quote), a run-in label
-  // stays on the line of its paragraph
+  // hard-wrapped: the lines of a paragraph and of a list item are joined; a heading, a quote, a rule and the lines
+  // after a hard break keep their lines, a table is a table again; a list goes with `-` or its numbers, code into a
+  // fence; a label written on a line of its own stays a paragraph of its own (before a list, a paragraph, a table or a
+  // quote), a run-in label stays on the line of its paragraph
   let body = "The job state decides first. For the newest job whose state names no
 finished job, it decides at once:
 - the saved --settings names an existing file, or the planned resume has no flags: one bare
@@ -197,7 +197,8 @@ wraps.";
 ## A heading
 
 | a | table |
-| - | ----- |
+| --- | --- |
+
 > a quote
 > of two lines
 
@@ -226,7 +227,7 @@ The cause:
 Results:
 
 | a | b |
-| - | - |
+| --- | --- |
 
 Evidence:
 
@@ -268,6 +269,25 @@ Note: the session ends.";
   // only fixups: their items are all there is
   let (_, only_fixups) = text_of(&input("auth", &["fixup! Add login", "fixup! Add logout"]), &[]);
   assert_eq!(only_fixups, "1. **fixup! Add login**\n\n2. **fixup! Add logout**");
+}
+
+/// A table of a commit body is a table of the pull request: the alignment of its columns, a pipe in a cell escaped, a
+/// mention in a cell in a code span, a link as the author wrote it
+#[test]
+fn a_table_of_a_commit_body_is_a_table_of_the_pull_request() {
+  let message = "Report the sizes
+
+Sizes:
+
+| Module | Size |
+|:--|--:|
+| `a\\|b` | 12 |
+| @owner | [docs](https://example.com) |";
+  let (_, body) = text_of(&input("sizes", &[message]), &[]);
+  assert_eq!(
+    body,
+    "Sizes:\n\n| Module | Size |\n| :--- | ---: |\n| `a\\|b` | 12 |\n| `@owner` | [docs](https://example.com) |"
+  );
 }
 
 #[test]

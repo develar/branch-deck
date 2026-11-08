@@ -22,7 +22,7 @@ macro_rules! review_requests_body {
     issueCount
     nodes {
       ... on PullRequest {
-        number title url bodyText
+        number title url body
         author { login }
         createdAt updatedAt
         additions deletions changedFiles
@@ -251,7 +251,7 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     title_lead: issue_lead(&title),
     title,
     url: node.url.unwrap_or_default(),
-    body_text: node.body_text.unwrap_or_default(),
+    body: node.body.unwrap_or_default(),
     author: node.author.and_then(|author| author.login),
     requested_by: None,
     created_at,
@@ -412,7 +412,8 @@ pub(crate) struct GhPullRequest {
   pub(crate) review_requests: Option<Nodes<GhReviewRequestNode>>,
   title: Option<String>,
   url: Option<String>,
-  body_text: Option<String>,
+  /// The description as its author wrote it, GitHub Markdown
+  body: Option<String>,
   pub(crate) author: Option<GhLogin>,
   created_at: Option<String>,
   updated_at: Option<String>,

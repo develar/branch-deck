@@ -982,13 +982,18 @@ export interface StoryMark {
   readonly mentions: readonly StoryMention[]
 }
 
-/** The text of the line `item` of a block: a line of a paragraph, an item of a list, a heading or a label */
+/**
+ * The text of the line `item` of a block: a line of a paragraph, an item of a list, a cell of a table (the header row
+ * first, then row by row), a heading or a label
+ */
 function lineOf(block: CommitBodyBlock | undefined, item: number): string {
   switch (block?.type) {
     case "paragraph":
       return block.lines[item] ?? ""
     case "list":
       return block.items[item] ?? ""
+    case "table":
+      return [...block.header, ...block.rows.flat()][item] ?? ""
     case "heading":
     case "label":
       return block.text

@@ -1,5 +1,5 @@
-use crate::commit_body::{commit_body, has_body, message_body};
-use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
+use crate::commit_body::{commit_body, has_body, markdown_blocks, message_body};
+use domain_types::commit_body::{ColumnAlign, CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
 use pretty_assertions::assert_eq;
 
 fn blocks(body: &str) -> Vec<CommitBodyBlock> {
@@ -53,6 +53,15 @@ fn run_in_labelled(text: &str, kind: LabelKind) -> CommitBodyBlock {
     text: text.to_string(),
     kind,
     run_in: true,
+  }
+}
+
+/// A table of `header` and `rows`, its columns aligned by `align`
+fn table(header: &[&str], align: &[ColumnAlign], rows: &[&[&str]]) -> CommitBodyBlock {
+  CommitBodyBlock::Table {
+    header: strings(header),
+    align: align.to_vec(),
+    rows: rows.iter().map(|row| strings(row)).collect(),
   }
 }
 
@@ -110,14 +119,15 @@ fn joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_
 }
 
 #[test]
-fn keeps_a_line_after_a_hard_break_a_quote_line_and_a_table_row_its_own_and_a_heading_and_a_rule_a_block_of_their_own() {
+fn keeps_a_line_after_a_hard_break_a_quote_line_and_a_pipe_line_of_no_table_its_own_and_a_heading_and_a_rule_a_block_of_their_own() {
   assert_eq!(
     blocks("A hard break  \nafter it, and another\\\nafter it."),
     [paragraph(&["A hard break", "after it, and another", "after it."])]
   );
+  // lines of pipes without a delimiter row under the first are no table
   assert_eq!(
-    blocks("Intro:\n| a | table |\n| - | ----- |\n> a quote\n> of two lines\nmore"),
-    [paragraph(&["Intro:", "| a | table |", "| - | ----- |", "> a quote", "> of two lines", "more"])]
+    blocks("Intro\n| a | table |\n| of no delimiter |\n> a quote\n> of two lines\nmore"),
+    [paragraph(&["Intro", "| a | table |", "| of no delimiter |", "> a quote", "> of two lines", "more"])]
   );
   assert_eq!(
     blocks("Before\n## A heading\nunder it\n---\nafter it\n\n# Top\n###### Deepest"),
@@ -530,15 +540,122 @@ fn a_run_in_look_closely_heads_its_paragraph_and_the_list_or_code_right_under_it
 /// A line of code of a body as a test reads it: its block, its item and its spans (start, end, explicit)
 type CodeLine = (u32, u32, Vec<(u32, u32, bool)>);
 
+/// The lines of code of `body` as a test reads them
+fn code_lines(body: &CommitBody) -> Vec<CodeLine> {
+  body
+    .code
+    .iter()
+    .map(|line| (line.block, line.item, line.spans.iter().map(|span| (span.start, span.end, span.explicit)).collect()))
+    .collect()
+}
+
 /// The code of a body is found by the grammar of a line of prose (`code_spans`), line by line of its blocks: the page
 /// sets these spans, never a grammar of its own; a preformatted block holds no line of prose
 #[test]
 fn each_line_of_prose_carries_its_spans_of_code() {
   let body = commit_body("Now `Splash.show` paints and SplashScreen.hide hides.\n\nThe cause:\n- the frame (`Frame.paint`)\n- nothing\n\n    code Frame.paint\n");
-  let lines: Vec<CodeLine> = body
-    .code
-    .iter()
-    .map(|line| (line.block, line.item, line.spans.iter().map(|span| (span.start, span.end, span.explicit)).collect()))
-    .collect();
+  let lines = code_lines(&body);
   assert_eq!(lines, [(0, 0, vec![(4, 17, true), (29, 46, false)]), (2, 0, vec![(11, 24, true)])]);
+}
+
+/// A table of GitHub Markdown, as the description of a pull request has one: its header, the alignment of its columns
+/// by their colons, its rows as wide as the header; a pipe escaped inside a cell; the pipes at its edges optional
+#[test]
+fn reads_a_table_its_header_its_alignment_and_its_rows_as_wide_as_the_header() {
+  let none = ColumnAlign::None;
+  assert_eq!(
+    blocks("| Module | Installed size | Download |\n| :-- | --: | :-: |\n| core | 12 MB | yes |\n| `view.gui` | 3 MB |\n| a | b | c | d |"),
+    [table(
+      &["Module", "Installed size", "Download"],
+      &[ColumnAlign::Left, ColumnAlign::Right, ColumnAlign::Center],
+      &[&["core", "12 MB", "yes"], &["`view.gui`", "3 MB", ""], &["a", "b", "c"]]
+    )]
+  );
+  // without the pipes at its edges, a pipe escaped in a cell, CRLF, the prose after it a paragraph
+  assert_eq!(
+    blocks("a | b\r\n---|---\r\n`x \\| y` | 2\r\nafter the table"),
+    [table(&["a", "b"], &[none, none], &[&["`x | y`", "2"]]), paragraph(&["after the table"])]
+  );
+  // a table ends its paragraph and its list; a label line right before it heads it
+  assert_eq!(
+    blocks("The sizes.\n| a |\n| - |\n| 1 |\n- an item\n\nResults:\n| a |\n|---|"),
+    [
+      paragraph(&["The sizes."]),
+      table(&["a"], &[none], &[&["1"]]),
+      list(false, 1, &["an item"]),
+      labelled("Results", LabelKind::Verification),
+      table(&["a"], &[none], &[]),
+    ]
+  );
+  // a delimiter row of another count of cells, of other marks, or indented as code: no table
+  assert_eq!(blocks("| a | b |\n| - |"), [paragraph(&["| a | b |", "| - |"])]);
+  assert_eq!(blocks("| a |\n| x |"), [paragraph(&["| a |", "| x |"])]);
+  assert_eq!(blocks("    | a |\n    | - |"), [preformatted("| a |\n| - |")]);
+}
+
+/// The cells of a table are lines of prose: their code is found by the grammar of a line, the header row first, then
+/// row by row; a table folds as a list does, a row a line
+#[test]
+fn each_cell_of_a_table_carries_its_spans_of_code_by_its_place_row_by_row() {
+  let body = commit_body("| Name | Where |\n| --- | --- |\n| `Frame.paint` | the frame |\n| x | SplashScreen.hide |");
+  let lines = code_lines(&body);
+  assert_eq!(lines, [(0, 2, vec![(0, 13, true)]), (0, 5, vec![(0, 17, false)])]);
+  let long = commit_body(&format!("{}\n\n| a |\n| - |\n{}", lines_of_prose(4), "| row |\n".repeat(12)));
+  assert_eq!(parts(&long), [(0, 1, false), (1, 2, true)]);
+}
+
+/// A template of a pull request leaves its hints in comments GitHub never shows: they are no text, over several lines
+/// too, but a comment in code stays code, and an opening without its end is a word
+#[test]
+fn an_html_comment_is_no_text_outside_code() {
+  assert_eq!(
+    blocks("## Goal\n<!-- What does this change do?\n\nWhy? -->\nThe goal. <!-- inline --> More.\n\n```xml\n<!-- kept -->\n```"),
+    [heading(2, "Goal"), paragraph(&["The goal. More."]), preformatted("<!-- kept -->")]
+  );
+  assert_eq!(blocks("Before\n<!-- a hint -->\nafter"), [paragraph(&["Before"]), paragraph(&["after"])]);
+  assert_eq!(
+    blocks("The parser reads `<!--` now, and <!-- too."),
+    [paragraph(&["The parser reads `<!--` now, and <!-- too."])]
+  );
+  assert!(!has_body("Subject\n\n<!-- Describe the change -->"));
+}
+
+/// A description of GitHub Markdown reads by its words: an image by its alt text, a link by its text, strong emphasis
+/// without its marks, so a `**Why:**` is a label; code, an escape, a Python name and a glob keep their marks
+#[test]
+fn an_image_a_link_and_strong_emphasis_read_as_their_text() {
+  assert_eq!(
+    blocks(
+      "See [the issue](https://example.com/a_(b)) and ![a screenshot](https://example.com/s.png).\n\n<img width=\"80\" alt=\"The player\" src=\"https://example.com/p.png\" />"
+    ),
+    [paragraph(&["See the issue and a screenshot."]), paragraph(&["The player"])]
+  );
+  assert_eq!(blocks("**Why:** the pool __ran dry__."), [run_in("Why"), paragraph(&["the pool ran dry."])]);
+  assert_eq!(blocks("**Tests:**\n- one"), [labelled("Tests", LabelKind::Verification), list(false, 1, &["one"])]);
+  assert_eq!(
+    blocks("Keep `**x**`, \\**y**, __init__, **/generated/** and [ ] as written."),
+    [paragraph(&["Keep `**x**`, \\**y**, __init__, **/generated/** and [ ] as written."])]
+  );
+  // an image of no alt text alone says nothing
+  assert_eq!(blocks("Before.\n\n![](https://example.com/s.png)"), [paragraph(&["Before."])]);
+  // the body of a pull request Branch Deck writes keeps them as written
+  assert_eq!(
+    markdown_blocks("**Why:** see [it](https://example.com)."),
+    [paragraph(&["**Why:** see [it](https://example.com)."])]
+  );
+}
+
+/// A description that opens with a heading has no lead, but its first section sums it up: the overview shows one line
+/// of it
+#[test]
+fn the_summary_is_the_lead_else_the_first_paragraph_of_a_plain_section() {
+  assert_eq!(commit_body("The summary.\n\nWhy: more.").summary, Some(0));
+  let goal = commit_body("## goal\nBasically: ability to play video in chat.\n\n## risks\n\nA native fault.");
+  assert_eq!(goal.blocks[goal.summary.unwrap() as usize], paragraph(&["ability to play video in chat."]));
+  assert_eq!(commit_body("## Summary\n\n- an item\n\n## Why\n\nThe text.").summary, Some(3));
+  // a verification or a Look closely sums nothing up; nor a list
+  assert_eq!(commit_body("Tests:\n\nAll pass.").summary, None);
+  assert_eq!(commit_body("Look closely: the lock.").summary, None);
+  assert_eq!(commit_body("- an item").summary, None);
+  assert_eq!(commit_body("").summary, None);
 }

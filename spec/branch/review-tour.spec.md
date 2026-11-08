@@ -127,15 +127,15 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 ### Steps of the Message
 - A range of one commit whose body tells two parts or more by the code they name must have those parts as its steps,
   in the order of the body (`source`: `message`). The parts that may tell a step are a labelled section (a label or a
-  heading and its blocks, a verification aside) and each paragraph or list of a run with the blocks written right under
-  it (no blank line between: a list under its paragraph is one part); the lead, a Look closely, code alone and a
+  heading and its blocks, a verification aside) and each paragraph, list or table of a run with the blocks written right
+  under it (no blank line between: a list under its paragraph is one part); the lead, a Look closely, code alone and a
   verification section are none, but a `Tests:` section tells the step of the tests. A part claims the parts of the
   concerns (a unit in a file) its code names resolve to, resolved before there are steps: a declaration its parts, a
   file its parts in that file; a part two of them name goes to the labelled section before a paragraph, a paragraph
   before the tests, then to the one that names it most, then to the earlier one. Fewer than two parts of the story with
   a claim (a body of one paragraph that names code, two sections that name the same code: the first keeps it, a body of
   verification alone) keep the concerns as the steps.
-  [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`, `the_concerns_stay_the_steps_of_a_body_that_tells_no_two_parts_by_their_code`)
+  [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`, `the_concerns_stay_the_steps_of_a_body_that_tells_no_two_parts_by_their_code`, `a_table_tells_a_step_titled_by_the_first_name_it_resolves`)
   [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_titled_by_its_label_the_lead_and_the_rest_in_the_prologue`)
 - A concern one part names must go to it whole; a concern two parts name must be cut by its own evidence, each of its
   parts to the nearest claimed one (a use the change adds at 1, a use it keeps, a rare token or what no evidence
@@ -329,7 +329,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_paragraph_changed_in_one_of_its_sentences_shows_it_first`, `a_short_paragraph_of_two_sentences_changed_in_one_shows_that_sentence`, `the_front_matter_is_the_lines_up_to_its_closing_rule`, `a_thematic_break_ends_a_paragraph`, `a_line_of_metadata_is_no_prose`, `a_table_with_one_added_row_is_its_header_and_that_row`, `a_changed_row_is_diffed_by_word_in_its_cells`, `a_line_of_pipes_without_a_delimiter_row_is_prose`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 21`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 22`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)

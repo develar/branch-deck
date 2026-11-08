@@ -1541,6 +1541,11 @@ export type Collapse =
 /**  More changed lines than `MAX_OPEN_CHANGED_LINES` */
 { kind: "large"; changed: number };
 
+/**  The alignment of a column of a table, by the colons of its delimiter cell (`:--`, `:-:`, `--:`) */
+export type ColumnAlign = 
+/**  `---`: as the text runs */
+"none" | "left" | "center" | "right";
+
 /**  Struct to hold commit data returned by git CLI */
 export type Commit = {
 	originalHash: string,
@@ -1573,6 +1578,11 @@ export type CommitBody = {
 	/**  Whether `blocks[0]` is a paragraph, before any label or heading: the summary of the body */
 	lead: boolean,
 	/**
+	 *  The block that sums the body up in a line: the lead, else the first paragraph of its first plain section (a body
+	 *  that opens with `## Goal`, a pull request's); `None` without one
+	 */
+	summary: number | null,
+	/**
 	 *  The parts of the body in its order, each block in one: the lead alone; a labelled section (a label or a heading
 	 *  and its blocks up to the next one; a run-in `Look closely: text` its paragraph and what is written right under
 	 *  it); a run of the other blocks, two where the fold cuts it. Each says whether a reader folds it, so Rust alone says
@@ -1590,7 +1600,7 @@ export type CommitBody = {
 export type CommitBodyBlock = 
 /**
  *  Prose, a line per line it reads as: hard-wrapped lines joined by a space; a line after a hard break (two spaces,
- *  `\`), a quote line and a table row each a line of their own
+ *  `\`), a quote line and a line that starts with `|` but is no row of a table each a line of their own
  */
 { type: "paragraph"; lines: string[] } | 
 /**
@@ -1620,7 +1630,13 @@ start: number; items: string[] } |
  */
 runIn: boolean } | 
 /**  A thematic break (`---`, `***`, `___`), a block of the section it is in: it ends no section */
-{ type: "rule" };
+{ type: "rule" } | 
+/**
+ *  A table of GitHub Markdown: its header row, the alignment of each column and its rows, each as wide as the header
+ *  (a short row filled with empty cells, the cells past the header dropped); a cell is a line of prose, its `\|`
+ *  read as `|`
+ */
+{ type: "table"; header: string[]; align: ColumnAlign[]; rows: string[][] };
 
 /**  The parameters of `commit_body` */
 export type CommitBodyParams = {
@@ -4238,7 +4254,10 @@ export type LandingValue = {
 export type LineCode = {
 	/**  Its block in `CommitBody::blocks` */
 	block: number,
-	/**  The line of a paragraph, the item of a list; 0 for a heading or a label */
+	/**
+	 *  The line of a paragraph, the item of a list, the cell of a table (its header row first, then row by row: the
+	 *  cell of row `r` of the body and column `c` is `(r + 1) * columns + c`); 0 for a heading or a label
+	 */
 	item: number,
 	spans: CodeSpan[],
 };
@@ -6945,8 +6964,11 @@ export type ReviewRequest = {
 	 */
 	titleLead?: IssueLead | null,
 	url: string,
-	/**  The description as plain text; empty without one */
-	bodyText: string,
+	/**
+	 *  The description as its author wrote it, GitHub Markdown (`sync_utils::commit_body` reads it as the body of a
+	 *  commit, its headings and tables too); empty without one
+	 */
+	body: string,
 	/**  The login of the author; None for a deleted user */
 	author: string | null,
 	/**
