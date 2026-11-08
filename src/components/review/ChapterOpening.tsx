@@ -19,6 +19,9 @@ import type { OpeningView } from "@/presenters/review-story"
  * the parts of a concern among them, the warning of a step no test reaches; and the group the section starts. As tall
  * as its words: the diffs measure it in place
  */
+/** The blocks of the contract of a step its opening quotes whole; more fold each file under the line of its sections */
+const CONTRACT_BLOCKS = 8
+
 export function ChapterOpening({ opening, group, onShowStep }: { opening: OpeningView; group: string | null; onShowStep: ((step: string) => void) | undefined }) {
   const { facts } = opening
   return (
@@ -88,7 +91,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
       )}
       <StepFactsLine facts={facts} testId="review-opening-facts" lines />
       {/* What Changes of the step: the rules of its specs and the prose of its docs, under its story */}
-      <ContractList contract={opening.contract} title="Contract" />
+      <ContractList contract={opening.contract} title="Contract" foldPast={CONTRACT_BLOCKS} />
       {group !== null && (
         <span data-testid="review-section-heading" className="text-xs text-muted-foreground">
           {group}

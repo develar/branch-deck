@@ -89,6 +89,20 @@ function writeTestIndex(repositoryPath: string): void {
   writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ tests }))
 }
 
+/** Open every file of the contract the openings of the steps fold under the line of its sections, and wait for its quotes */
+async function openContractFolds(window: Page): Promise<void> {
+  const folds = window.getByTestId("review-opening").getByTestId("review-brief-contract-fold")
+  // the openings tell the plan once it is read
+  await expect(folds.first()).toBeVisible()
+  for (const fold of await folds.all()) {
+    const trigger = fold.getByRole("button").first()
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+      await trigger.click()
+    }
+    await expect(trigger).toHaveAttribute("aria-expanded", "true")
+  }
+}
+
 test.describe("Review tour", () => {
   test(
     "should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code",
@@ -1107,6 +1121,9 @@ test.describe("Review tour", () => {
     await expect(overview.getByTestId("review-map-contract")).toBeVisible()
     await expect(overview.getByTestId("review-brief-contract-entry")).toHaveCount(0)
     const openings = window.getByTestId("review-opening")
+    // a step whose contract is longer than its opening holds folds each file under the line of its sections
+    await expect(openings.getByTestId("review-brief-contract-fold").first()).toContainText(/^\d+ changes? in /)
+    await openContractFolds(window)
     // a section in the opening of each step that changes it, its paragraphs whole: never the changed lines of a
     // hard-wrapped paragraph
     const storage = openings.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Storage", exact: true }) })
@@ -1142,6 +1159,7 @@ test.describe("Review tour", () => {
   }) => {
     turnOnReviewPlan(await setupRepo("review_prose"))
     const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
+    await openContractFolds(window)
     const contract = window.getByTestId("review-opening").getByTestId("review-brief-contract")
     const spec = contract.getByTestId("review-brief-contract-entry").filter({ hasText: "spec/window.spec.md" })
     // the spec quoted in the opening of each step that changes it
@@ -1199,6 +1217,7 @@ test.describe("Review tour", () => {
     await summaryFile.click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: path, exact: true })).toHaveAttribute("aria-selected", "true")
 
+    await openContractFolds(window)
     const commands = window
       .getByTestId("review-opening")
       .getByTestId("review-brief-section")

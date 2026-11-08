@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ContractParagraphView, ContractTableView } from "@/components/review/ContractParagraphView"
 import { BreakableCode } from "@/components/shared/CodeText"
+import { Disclosure } from "@/components/shared/Disclosure"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewPlace } from "@/lib/review-place"
@@ -19,14 +20,19 @@ export function ContractList({
   contract,
   substitutions = [],
   title = "What Changes",
+  foldPast = null,
 }: {
   contract: readonly ContractFile[]
   substitutions?: readonly SubstitutionView[]
   title?: string | null
+  /** Of the opening of a step: more blocks than this fold each file under the line of its sections, its header kept */
+  foldPast?: number | null
 }) {
   if (contract.length === 0 && substitutions.length === 0) {
     return null
   }
+  const blocks = contract.reduce((sum, file) => sum + file.entries.reduce((count, entry) => count + entry.blocks.length, 0), 0)
+  const folds = foldPast !== null && blocks > foldPast
   return (
     <div className="flex flex-col gap-2" data-testid="review-brief-contract">
       {title !== null && <SectionLabel title={title} className="text-sm font-semibold text-foreground" />}
@@ -88,25 +94,38 @@ export function ContractList({
                 </span>
               </FileButton>
             </span>
-            <div className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
-              {file.entries.map(entry => (
-                // the heading of the section once, its tests, then its paragraphs whole and its tables, half a line apart
-                <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
-                  {(entry.heading !== null || entry.provenBy !== null) && (
-                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                      {entry.heading !== null && <h3 className="min-w-0 text-sm font-semibold">{entry.heading}</h3>}
-                      {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
-                    </div>
-                  )}
-                  {entry.blocks.map(block =>
-                    block.kind === "table" ? <ContractTableView key={block.key} table={block} /> : <ContractParagraphView key={block.paragraph.key} paragraph={block.paragraph} />,
-                  )}
-                </div>
-              ))}
-            </div>
+            {folds ? (
+              <Disclosure tone="muted" title={file.summary} testId="review-brief-contract-fold" className="text-sm">
+                <ContractQuotes file={file} />
+              </Disclosure>
+            ) : (
+              <ContractQuotes file={file} />
+            )}
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/** The sections of a file of What Changes behind their quote line: each its heading once, its tests, its paragraphs and table rows */
+function ContractQuotes({ file }: { file: ContractFile }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
+      {file.entries.map(entry => (
+        // the heading of the section once, its tests, then its paragraphs whole and its tables, half a line apart
+        <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+          {(entry.heading !== null || entry.provenBy !== null) && (
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              {entry.heading !== null && <h3 className="min-w-0 text-sm font-semibold">{entry.heading}</h3>}
+              {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
+            </div>
+          )}
+          {entry.blocks.map(block =>
+            block.kind === "table" ? <ContractTableView key={block.key} table={block} /> : <ContractParagraphView key={block.paragraph.key} paragraph={block.paragraph} />,
+          )}
+        </div>
+      ))}
     </div>
   )
 }

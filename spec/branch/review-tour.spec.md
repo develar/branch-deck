@@ -403,7 +403,11 @@ it added a module.
   of a removal, one changed with inserted words tinted and deletions struck through in place; a repeated replacement is
   dotted-underlined with the old word in its tooltip and screen-reader text, and a paragraph changed only by
   replacements stays muted in place without a change bar; an entry of the brief is quoted in the first step whose
-  stops show its unit and one of its blocks, so a section two commits change has its part in the opening of each. A code span keeps one chip with its inserted and deleted
+  stops show its unit and one of its blocks, so a section two commits change has its part in the opening of each. The
+  opening of a step quotes its contract whole up to 8 blocks; past them each file folds under the line of its sections
+  ("5 changes in Storage, Limits and Commands"), its header kept, a click opening it, ⌘F finding its words (the opening
+  is one screen, the spec of a large step is no wall in front of its code).
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`) A code span keeps one chip with its inserted and deleted
   words diffed inside it. A fenced code block is a `pre`, preserves line breaks, and diffed by words without code
   heuristics; a long block changed in several lines first shows changed lines and one line of context, with a button
   "⋯ N more lines" that opens the whole paragraph and has the tooltip "Show the whole paragraph". The rows of one

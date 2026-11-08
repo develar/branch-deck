@@ -538,6 +538,8 @@ export interface ContractFile {
   readonly path: string
   /** "Spec rule", "Decision", "Agent guide", "Doc" */
   readonly kind: string
+  /** "7 changes in User Experience and Requirements": the line of a file whose quotes the opening folds */
+  readonly summary: string
   /** Its sections, each its heading once with the paragraphs the change adds, removes or changes under it */
   readonly entries: readonly {
     readonly key: string
@@ -809,6 +811,7 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">, keep: (entry
   })
   return files.map(file => ({
     ...file,
+    summary: contractSummary(file.entries),
     entries: file.entries.map(entry => ({
       key: entry.key,
       heading: entry.heading,
@@ -984,6 +987,14 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
       ]
     }),
   )
+}
+
+/** "7 changes in User Experience and Requirements": how much of a file the change quotes, by its sections */
+function contractSummary(entries: readonly { readonly heading: string | null; readonly paragraphs: readonly unknown[] }[]): string {
+  const count = entries.reduce((sum, entry) => sum + entry.paragraphs.length, 0)
+  const headings = [...new Set(entries.flatMap(entry => (entry.heading === null ? [] : [entry.heading])))]
+  const changes = count === 1 ? "1 change" : `${count} changes`
+  return headings.length === 0 ? changes : `${changes} in ${joinNames(headings)}`
 }
 
 /** The step of each entry of the brief, by its place: the first whose stops show its unit and one of its blocks, else -1 */
