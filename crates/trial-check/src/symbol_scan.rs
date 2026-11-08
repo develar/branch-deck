@@ -2,8 +2,8 @@
 //! after each commit, by blob id: from the session, else from the object cache (`blob_summary`), else from one
 //! `cat-file --batch` of the blobs the cache misses, parsed in parallel and written back in one transaction. The same
 //! process reads the `Cargo.toml` and `tsconfig*.json` files of the directories above the files (`ModuleRoots`, one
-//! `cat-file --batch` of the trees at HEAD), for the names of the crates and the path aliases of TypeScript. The blobs
-//! of a caller join that process (`read_symbol_input_with`).
+//! `cat-file --batch` of the trees at HEAD, or at the head a review plan reads), for the names of the crates and the path
+//! aliases of TypeScript. The blobs of a caller join that process (`read_symbol_input_with`).
 
 use crate::diff_scan::CommitDiff;
 use crate::module_roots::ModuleRoots;
@@ -91,18 +91,20 @@ struct SourceBlob {
   path: String,
 }
 
-/// The summaries of the source files `diffs` change, with the module structure above them
+/// The summaries of the source files `diffs` change, with the module structure above them at HEAD
 pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, diffs: &[CommitDiff]) -> Result<SymbolInput> {
-  Ok(read_symbol_input_with(git, repository_path, cache, diffs, &[])?.0)
+  Ok(read_symbol_input_with(git, repository_path, "HEAD", cache, diffs, &[])?.0)
 }
 
-/// `read_symbol_input`, and the bytes of the `extra` blobs of the caller in its one `cat-file --batch`, in order:
-/// `None` for a missing, binary or too large one. With no summary to parse and no manifest to read, the batch reads
+/// `read_symbol_input` with the module structure at `rev` (the head a review plan reads, which may not be checked out),
+/// and the bytes of the `extra` blobs of the caller in its one `cat-file --batch`, in order: `None` for a missing, binary
+/// or too large one. With no summary to parse and no manifest to read, the batch reads
 /// `extra` alone; with no `extra` either, it runs no process
 #[instrument(skip_all, fields(commits = diffs.len(), extra = extra.len()))]
 pub fn read_symbol_input_with(
   git: &GitCommandExecutor,
   repository_path: &str,
+  rev: &str,
   cache: &ObjectCache,
   diffs: &[CommitDiff],
   extra: &[String],
@@ -115,7 +117,7 @@ pub fn read_symbol_input_with(
     .flat_map(|diff| &diff.files)
     .filter(|change| language_of(&change.path).is_some())
     .map(|change| change.path.as_str());
-  let roots = ModuleRoots::read(git, repository_path, paths)?;
+  let roots = ModuleRoots::read(git, repository_path, rev, paths)?;
 
   let keys: Vec<(u8, &str)> = wanted.iter().map(|blob| (summary_key(blob.language, &blob.path), blob.id.as_str())).collect();
   let cached: Vec<Option<FileSummary>> = cache.get_blob_summaries(version, &keys);

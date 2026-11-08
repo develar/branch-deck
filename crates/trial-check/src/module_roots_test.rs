@@ -56,9 +56,28 @@ fn reads_the_directories_above_the_files_at_head() {
     "crate",
     &[("crates/one/Cargo.toml", "[package]\nname = \"one\"\n"), ("crates/one/src/lib.rs", "pub fn f() {}\n")],
   );
-  let roots = ModuleRoots::read(repo.git_executor(), repo.path_str(), ["crates/one/src/lib.rs", "gone/x.rs"]).unwrap();
+  let roots = ModuleRoots::read(repo.git_executor(), repo.path_str(), "HEAD", ["crates/one/src/lib.rs", "gone/x.rs"]).unwrap();
   assert_eq!(roots.crate_of("crates/one/src/lib.rs"), Some("crates/one"));
   assert_eq!(roots.crate_of("gone/x.rs"), None);
   let manifest = repo.git_executor().execute_command(&["rev-parse", "HEAD:crates/one/Cargo.toml"], repo.path_str()).unwrap();
   assert_eq!(roots.manifests().collect::<Vec<_>>(), [("crates/one", manifest.as_str())]);
+}
+
+/// A review plan reads the modules of the head it reviews: a pull request that adds a module is not checked out, and its
+/// module is in no tree but that head's
+#[test]
+fn reads_the_directories_of_a_revision_that_is_not_checked_out() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("base", &[("plugins/air/air.iml", "<module/>\n"), ("plugins/air/src/A.kt", "class A\n")]);
+  let base = repo.head();
+  repo.create_commit_with_files(
+    "media",
+    &[("plugins/air/media/air.media.iml", "<module/>\n"), ("plugins/air/media/src/Player.kt", "class Player\n")],
+  );
+  let head = repo.head();
+  repo.git_executor().execute_command(&["update-ref", "--no-deref", "HEAD", &base], repo.path_str()).unwrap();
+  let at_head = ModuleRoots::read(repo.git_executor(), repo.path_str(), &head, ["plugins/air/media/src/Player.kt"]).unwrap();
+  assert_eq!(at_head.module_of("plugins/air/media/src/Player.kt"), Some("plugins/air/media"));
+  let checked_out = ModuleRoots::read(repo.git_executor(), repo.path_str(), "HEAD", ["plugins/air/media/src/Player.kt"]).unwrap();
+  assert_eq!(checked_out.module_of("plugins/air/media/src/Player.kt"), Some("plugins/air"));
 }

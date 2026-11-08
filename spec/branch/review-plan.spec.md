@@ -394,8 +394,11 @@ group at the end. The overview at the top of the document of the review, before 
   that uses.
   [@test] ../../crates/review-plan/src/links_test.rs (`a_new_file_that_another_imports_is_an_added_link`, `a_link_before_and_after_is_kept_and_one_only_before_is_removed`)
 - A link must be `cross_module` when the nearest directories above its two files with a build file differ, and
-  `new_between_modules` when it is also `added`: a new dependency of a module, which the review lists.
-  [@test] ../../crates/review-plan/src/links_test.rs (`a_link_between_two_modules_crosses_them`)
+  `new_between_modules` when it is also `added`: a new dependency of a module, which the review lists. The build files
+  are those of the head reviewed, not of the checkout: a pull request is not checked out, and a module it adds is in no
+  other tree.
+  [@test] ../../crates/review-plan/src/links_test.rs (`a_link_between_two_modules_crosses_them`, `the_links_of_a_head_that_is_not_checked_out_cross_the_module_it_adds`)
+  [@test] ../../crates/trial-check/src/module_roots_test.rs (`reads_the_directories_of_a_revision_that_is_not_checked_out`)
 - The links must run no git process: they read the summaries the API read.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
 

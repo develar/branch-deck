@@ -428,7 +428,8 @@ pub fn review_plan_of(
   let input = if diffs.is_empty() {
     None
   } else {
-    let (input, read) = read_symbol_input_with(git, repository_path, sources.cache, &diffs, &unread)?;
+    // the modules of the head reviewed, not of the checkout: a pull request is not checked out
+    let (input, read) = read_symbol_input_with(git, repository_path, &head, sources.cache, &diffs, &unread)?;
     texts.extend(unread.into_iter().zip(read).filter_map(|(id, bytes)| Some((id, String::from_utf8(bytes?).ok()?))));
     Some(input)
   };

@@ -13,6 +13,15 @@ fn plan_of_change(base: &[(&str, &str)], files: &[(&str, &str)]) -> ReviewPlan {
   plan_of(&repo, None, &range(&repo, &base, &head)).unwrap()
 }
 
+/// Each link: (from, to, across modules, new between modules)
+fn crossing(plan: &ReviewPlan) -> Vec<(&str, &str, bool, bool)> {
+  plan
+    .links
+    .iter()
+    .map(|link| (link.from.as_str(), link.to.as_str(), link.cross_module, link.new_between_modules))
+    .collect()
+}
+
 /// The link counts of each file: (path, uses, used by, new links)
 fn counts(plan: &ReviewPlan) -> Vec<(&str, u32, u32, u32)> {
   let mut counts: Vec<(&str, u32, u32, u32)> = plan.files.iter().map(|facts| (facts.path.as_str(), facts.uses, facts.used_by, facts.new_links)).collect();
@@ -83,11 +92,7 @@ fn a_link_between_two_modules_crosses_them() {
       ("store/src/b/Store.kt", "package b\n\nclass Store\n"),
     ],
   );
-  let crossing: Vec<(&str, &str, bool, bool)> = plan
-    .links
-    .iter()
-    .map(|link| (link.from.as_str(), link.to.as_str(), link.cross_module, link.new_between_modules))
-    .collect();
+  let crossing = crossing(&plan);
   // the commits add both: the one across the modules is a new dependency of the module of User
   assert_eq!(
     crossing,
@@ -116,4 +121,23 @@ fn a_renamed_file_links_at_its_new_path() {
   let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
   let states: Vec<(&str, &str, LinkState)> = plan.links.iter().map(|link| (link.from.as_str(), link.to.as_str(), link.state)).collect();
   assert_eq!(states, [("src/a/User.kt", "src/b/Stores.kt", LinkState::Kept)]);
+}
+
+/// The modules are those of the head reviewed, not of the checkout: a pull request that adds a module is not checked out,
+/// and its links into the module it uses cross the two though the checkout has no such module
+#[test]
+fn the_links_of_a_head_that_is_not_checked_out_cross_the_module_it_adds() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add the GUI", &[("gui/BUILD.bazel", "# gui\n"), ("gui/src/a/Box.kt", "package a\n\nclass Box\n")]);
+  let head = repo.create_commit_with_files(
+    "Add the player",
+    &[
+      ("gui/media/BUILD.bazel", "# media\n"),
+      ("gui/media/src/b/Player.kt", "package b\n\nimport a.Box\n\nclass Player(val box: Box)\n"),
+      ("gui/src/a/Box.kt", "package a\n\nclass Box(val size: Int)\n"),
+    ],
+  );
+  repo.git_executor().execute_command(&["update-ref", "--no-deref", "HEAD", &base], repo.path_str()).unwrap();
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(crossing(&plan), [("gui/media/src/b/Player.kt", "gui/src/a/Box.kt", true, true)]);
 }

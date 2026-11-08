@@ -1,7 +1,9 @@
 //! Where the modules of source files begin: the nearest directory above a file that holds a build file. Kotlin's and
-//! C#'s `internal` (a .NET assembly, a `*.csproj`) and a Rust crate end there, and a TypeScript alias of `tsconfig.json` starts there. Read from HEAD's tree
-//! (it has the newest structure of the commits ahead of the baseline) with one `cat-file --batch` of every directory
-//! above the files: the paths go on stdin, so the length of a command line never limits them.
+//! C#'s `internal` (a .NET assembly, a `*.csproj`) and a Rust crate end there, and a TypeScript alias of `tsconfig.json` starts there. Read from the
+//! tree of the revision the caller names: HEAD for the commits ahead of the baseline (it has their newest structure), the
+//! head of a reviewed range for its review plan (a pull request is not checked out, and the module it adds is in no tree
+//! but its own), with one `cat-file --batch` of every directory above the files: the paths go on stdin, so the length of
+//! a command line never limits them.
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -25,12 +27,12 @@ struct DirFacts {
   tsconfigs: Vec<(String, String)>,
 }
 
-/// The directories above some files and their build files, at HEAD
+/// The directories above some files and their build files, at one revision
 #[derive(Debug, Clone, Default)]
 pub struct ModuleRoots {
-  /// Directory (`""` for the root, else without a trailing `/`) -> its facts; a directory HEAD lacks is absent
+  /// Directory (`""` for the root, else without a trailing `/`) -> its facts; a directory the revision lacks is absent
   dirs: HashMap<String, DirFacts>,
-  /// Every directory above the paths `read` was given, those HEAD lacks too (a module a commit deletes)
+  /// Every directory above the paths `read` was given, those the revision lacks too (a module a commit deletes)
   looked_up: HashSet<String>,
 }
 
@@ -40,11 +42,11 @@ fn ancestors(path: &str) -> impl Iterator<Item = &str> {
 }
 
 impl ModuleRoots {
-  /// The directories above `paths` at HEAD, with one `cat-file --batch`
-  #[instrument(skip_all)]
-  pub fn read<'a>(git: &GitCommandExecutor, repository_path: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<Self> {
+  /// The directories above `paths` at `rev`, with one `cat-file --batch`
+  #[instrument(skip_all, fields(rev))]
+  pub fn read<'a>(git: &GitCommandExecutor, repository_path: &str, rev: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<Self> {
     let dirs: Vec<String> = paths.into_iter().flat_map(ancestors).collect::<BTreeSet<&str>>().into_iter().map(str::to_string).collect();
-    let names: Vec<String> = dirs.iter().map(|dir| format!("HEAD:{dir}")).collect();
+    let names: Vec<String> = dirs.iter().map(|dir| format!("{rev}:{dir}")).collect();
     let trees = read_trees(git, repository_path, &names)?;
     Ok(Self {
       looked_up: dirs.iter().cloned().collect(),
@@ -78,8 +80,8 @@ impl ModuleRoots {
   }
 
   /// `crate_of` of a path `read` was given: `None` for a path in no crate, and for a path of a directory not looked up (a
-  /// path of the baseline after the base), whose crate is not known. A path of a directory HEAD lacks (a module a
-  /// commit deletes) is in the crate of its nearest directory HEAD has
+  /// path of the baseline after the base), whose crate is not known. A path of a directory the revision lacks (a module
+  /// a commit deletes) is in the crate of its nearest directory the revision has
   pub fn read_crate_of(&self, path: &str) -> Option<&str> {
     let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
     self.looked_up.contains(dir).then(|| self.crate_of(path)).flatten()
