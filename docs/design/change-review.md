@@ -1,7 +1,7 @@
 # Change Review
 
 **Status:** Experimental
-**Updated:** 2026-10-31
+**Updated:** 2026-11-08
 **Tags:** [review, review-plan, units, concerns, agents]
 
 The vision of how Branch Deck reviews a change, what landed, what failed and what is next. The contracts are the
@@ -78,9 +78,15 @@ tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns
 
 ### Prefetch after a rewrite
 
-The `accio tests --tests` query of a plan of the IntelliJ monorepo costs about 5 s, 70 s of the processors, cold and
-2.8 s warm, and every rewrite of Branch Deck (`brd update`, a pick, a fold) replaces the commits of a branch, so the
-first plan after it is the cold one. The app pays it ahead (`app_api::reads::review_prefetch`): once a sync commits the
+On `develar/virtual/terminal-file-hyperlinks` at HEAD `1994e826` (34 places; accio `0.16.0`), the warm
+`accio tests --tests` query took `1.99 s real / 2.23 s user CPU / 2.61 s system CPU` at load `16.67`; a warm full
+`brd review-plan` took `3.58 s real / 10.49 s user CPU / 6.36 s system CPU` at load `18.51` on an 18-CPU machine.
+The original issue measured 52 places at `19.7 s real / 99 s CPU` under load ~59, so these runs are not the same
+range. A cold time for the current HEAD was not recorded before its tree was warmed; JetBrains/accio#440,
+JetBrains/accio#471 and JetBrains/accio#480
+explain the improvement in the warm query, but do not supply a cold measurement. Every rewrite of Branch Deck
+(`brd update`, a pick, a fold) replaces the commits of a branch, so the first plan after it is the cold one. The app
+pays it ahead (`app_api::reads::review_prefetch`): once a sync commits the
 table of a repository (`SessionHost::table_committed`, on the actor of the session, before the windows get the patch),
 it reads again the plan of each branch a review window asked since the app started whose head the table moved, the most
 recently asked first and one at a time, its queries of accio at nice 19 (the below-normal class on Windows). What it
@@ -92,8 +98,8 @@ for the new tree with it (JetBrains/accio#348). A branch an open window shows is
 plan as it sees the new head, at the priority of the app. A newer commit supersedes the read ahead in flight, and a
 window that asks the plan being read joins that reading (`sync_utils::single_flight`) instead of reading it twice. It
 watches the 4 branches of a repository asked last: `brd update` moves every branch at once, so a day of reviews read
-again on each update (15 branches, about 17 min of the processors at nice 19 on the IntelliJ monorepo) would cost
-more than the reviews opened again, mostly the recent ones, gain.
+again on each update. At the measured warm cost, 15 full plans would use about 2.6 min of user CPU at nice 19
+(`15 × 10.49 s`); the cold cost was not recorded. The watch remains at 4 branches.
 
 ## Research
 
@@ -159,7 +165,7 @@ the review.
 | The window, round four: anchors from a body to its code and back | Landed | this change | a code name of a body that resolves is a link wherever the document shows its line (`StoryText`), its hover the unit, its line and its step, a click the declaration with its name selected; the header of a section a body names carries a mark of the story, its hover the line that names it, a click that line in its opening, outlined, its fold opened | a follow-up's body, folded under its step, marks no section; the outline plays once, a story that mounts later (the commit alone, the story again) outlines nothing |
 | The window, round four: the row of a step is its commit | Landed | this change | the group of a step of the commits is the commit that starts it: no row under it repeats its title, its hash on hover, what it is since the review and its branch on it, its menu, ⌘C and Enter are the commit's; a click and the focus show its opening, a click on a folded step opens it, the chevron, Space, → and ← fold it; the rows of its follow-ups and its commits of no story drop the issue key the brief names; a step of the concerns keeps its commit rows and folds by a click | the step of the commits folds by a click no more, a directory and a concern still do |
 | Fan-in by place: what breaks, by the arguments a call passes | Landed | this change | every removed or changed declaration asked by its place (`accio references --at`, JetBrains/accio#114) in one process, no cap, no stop list, no guess at an owner; a use only the name ties (`resolved: name`, JetBrains/accio#115) is counted apart, never as a use and never as none; a call is inside by any of its lines (`end_line`); a call left outside that fits the new form (`fits`) and whose every argument binds a parameter of the same name and type as before (`parameter`, JetBrains/accio#106) still binds: the four `ProjectFrameUiPolicy(…)` calls of `startup-tool-window-place` read "4 calls left outside still bind", not a possible break | a Rust or TypeScript function keeps its parameters in its header, so its calls are never known to still bind; a `string` or `config` hit counts once accio ties a qualified name to the declaration |
-| The tests that reach the code of a step | Landed; its cost waits for accio (#191) | this change | one `accio tests --at <code of every step> --tests <test files of the range>` (JetBrains/accio#212): the step names the files of the tests of the change that reach it at any depth (a test of a new file is one, a new file's declarations its code), each test's way in the hover (calls it, through the test code, end to end), "No test of the change reaches show" only where accio walked every way (`complete`); the step of the tests says which steps it proves | a plan waits ~20 s (52 places of the IntelliJ monorepo, ~100 s of CPU) against 2.6 s for the depth-3 walk before (JetBrains/accio#376) |
+| The tests that reach the code of a step | Landed; its cost waits for accio (#191) | this change | one `accio tests --at <code of every step> --tests <test files of the range>` (JetBrains/accio#212): the step names the files of the tests of the change that reach it at any depth (a test of a new file is one, a new file's declarations its code), each test's way in the hover (calls it, through the test code, end to end), "No test of the change reaches show" only where accio walked every way (`complete`); the step of the tests says which steps it proves | On current HEAD `1994e826`, 34 places, the complete warm plan took `3.58 s real / 10.49 s user CPU / 6.36 s system CPU` at load `18.51` (18 CPUs); the separate warm tests query took `1.99 s real / 2.23 s user / 2.61 s system` at load `16.67`. The issue's original 52-place run was `19.7 s real / 99 s CPU` at load ~59; the current cold cost was not recorded. Accio #376's ≤1.5 s 52-place gate was met after #480; #489–#492 remain open, so #191 waits for those and a final remeasurement. |
 | Since Your Review: how the message changed | Landed | this change (#171) | the messages the interdiff reads already compared by the blocks of the grammar of a body, an LCS of whole blocks, no process: a `rewritten` commit says "message changed" and a commit whose lines are as reviewed is `reworded`, unread, in Since Your Review without a line of its code; its story marks what its body added and shows what it removed where it stood, the part of a change unfolded (Rust places both), in the openings of All Changes and the heading of a commit shown alone (its plan reads the reviewed message, one `rev-list`); the overview's line of the commit opens to the change, the one place Since Your Review as one diff shows it; the overview said "Only its message changed" of a rewritten commit whose lines moved, never having read a message | a paragraph edited is a block removed and a block added, no word diff; a subject reworded with an amend stays added and dropped |
 | Steps of the message of one commit | Landed | this change | a commit alone whose paragraphs name the code they tell is told by them: a step per labelled section or paragraph (a list under it one part), in the order of the body, titled by its label, its first sentence or its first code name; a concern one part names goes whole to it, one two parts name is cut by its own evidence (a use the change adds nearer than one it keeps), test code joins the step of `Tests:`, a concern no part names stays a step after them; on 31 commits of idea-1 10 switch, 68 concerns now 48 steps, every block in one stop | a body that lists its changes in one list stays on the concerns (a list is one part); a concern no paragraph names (a DTO field the prose calls "the state DTO") stays a step named by its evidence |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`brd tour`) first | | | |
@@ -254,8 +260,10 @@ the review.
    end-to-end test of the change 17 calls away). It now gives accio the test files of the change
    (`accio tests --tests`) and names only them, however deep, each with its way; the tests the change did not touch
    and "No test found within 3 calls" went, and a negative stands only on a complete answer. The graph stays accio's:
-   the answer costs a plan ~20 s on the IntelliJ monorepo, and the review takes that cost rather than a depth cap or a
-   cache of its own until accio answers fast (JetBrains/accio#376, #191).
+   the original issue measured 52 places at `19.7 s real / 99 s CPU`; on 2026-11-08 the warm plan on current HEAD
+   `1994e826` took `3.58 s real / 10.49 s user CPU / 6.36 s system CPU` for 34 places. The cold value was not
+   recorded. The review still takes accio's uncapped answer rather than adding a depth cap or a cache of its own;
+   #191 remains open until #489–#492 close and the plan is remeasured (JetBrains/accio#376, #191).
 17. **The plan is read ahead after a rewrite** (2026-11-07). A rewrite replaces every commit of a branch, so the plan
    the user opens next was cold. A commit of the table reads ahead the plans of the branches a review window asked in
    this run of the app, the 4 asked last, not of every branch the sync moved: it costs only what the user reviews.
