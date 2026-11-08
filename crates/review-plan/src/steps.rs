@@ -34,9 +34,10 @@
 
 use crate::api::ApiChange;
 use crate::brief::ContractEntry;
-use crate::concerns::{Concern, ConcernName, EvidenceKind, names_word};
+use crate::concerns::{Concern, names_word};
 use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
+use crate::groups::{StepGroup, cut_groups};
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
 use crate::message_steps::message_steps;
@@ -186,6 +187,9 @@ pub struct ReviewStep {
   /// `widened` one too), each in the first step whose stops show it; one a stop of another step shows beside its own
   /// (`StepStop::joined`) in the step that wrote it
   pub new_api: Vec<String>,
+  /// Of a large step: its stops cut into the parts it reads as (`groups::cut_groups`), each a run of `stops`: the
+  /// contract, a group per module or per folder, the mechanical stops; empty for a step read as one list
+  pub groups: Vec<StepGroup>,
   /// The new uses of a module by another that it adds: the links between their files the commits add
   /// (`new_between_modules`), each in the step whose stop shows its first use, by the pair of modules, in the order of
   /// their first link
@@ -221,6 +225,7 @@ impl ReviewStep {
       tests: StepTests::default(),
       proves: Vec::new(),
       new_api: Vec::new(),
+      groups: Vec::new(),
       module_edges: Vec::new(),
       title: None,
       title_source: TitleSource::Evidence,
@@ -298,8 +303,6 @@ pub struct StepStop {
   pub uses: Option<String>,
   /// The other steps whose commits changed its lines, by their place in `ReviewSteps::steps`
   pub also: Vec<u32>,
-  /// The concern of its unit, when the step holds parts of two concerns or more that evidence joined
-  pub concern: Option<String>,
   /// The units it shows beside its own: each declaration without a block of its own whose name is on a line of a block
   /// it shows, with the step it is of, another step's too (its heading says so where the stop shows it)
   pub joined: Vec<JoinedUnit>,
@@ -316,7 +319,6 @@ impl StepStop {
       blocks,
       uses: None,
       also: Vec::new(),
-      concern: None,
       joined: Vec::new(),
       marks: Vec::new(),
     }
@@ -722,8 +724,10 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
     order_stops(input, &file_of, step);
     (step.code, step.tests.scenarios) = code_of(input, &file_of, step);
   }
-  mark_concerns(input, &mut steps);
   join_units(input.units, &mut steps);
+  for step in &mut steps {
+    cut_groups(input, step);
+  }
   mark_paths(input, &mut steps);
   add_step_facts(input, &mut steps);
   let coverage = coverage(input, &steps);
@@ -1372,36 +1376,6 @@ fn add_proves(steps: &mut [ReviewStep]) {
   }
   for (step, proves) in steps.iter_mut().zip(proves) {
     step.proves = proves.into_iter().collect();
-  }
-}
-
-/// Marks each stop of a step with the concern of its unit when the step holds parts of two concerns or more that
-/// `uses` or a group joined
-fn mark_concerns(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
-  let joined: HashSet<&str> = input
-    .concerns
-    .iter()
-    .filter(|concern| concern.name != ConcernName::Rest && concern.evidence.iter().any(|evidence| matches!(evidence.kind, EvidenceKind::Uses | EvidenceKind::Group)))
-    .map(|concern| concern.id.as_str())
-    .collect();
-  let concern_of: HashMap<(&str, &str), &str> = input
-    .concerns
-    .iter()
-    .flat_map(|concern| concern.parts.iter().map(move |part| ((part.unit.as_str(), part.path.as_str()), concern.id.as_str())))
-    .collect();
-  for step in steps.iter_mut().filter(|step| step.concern.is_none()) {
-    let found: BTreeSet<&str> = step
-      .stops
-      .iter()
-      .filter_map(|stop| concern_of.get(&(stop.unit.as_str(), stop.path.as_str())).copied())
-      .filter(|concern| joined.contains(concern))
-      .collect();
-    if found.len() < 2 {
-      continue;
-    }
-    for stop in &mut step.stops {
-      stop.concern = concern_of.get(&(stop.unit.as_str(), stop.path.as_str())).map(|concern| (*concern).to_string());
-    }
   }
 }
 

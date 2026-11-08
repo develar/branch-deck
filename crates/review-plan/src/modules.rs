@@ -355,10 +355,9 @@ fn add_uses(shapes: &mut [ModuleShape], place: &HashMap<&str, usize>, input: &Mo
 /// The role of a changed file in its module
 fn role_of(path: &str, mechanical: Option<MechanicalKind>, dependencies: &[DependencyChange]) -> Role {
   let name = file_name(path);
-  let extension = name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase());
   if matches!(mechanical, Some(MechanicalKind::BuildModel | MechanicalKind::ModuleList)) || is_module_file(name) || dependencies.iter().any(|change| change.manifest == path) {
     Role::Build
-  } else if extension.as_deref().is_some_and(|extension| PROSE_EXTENSIONS.contains(&extension)) {
+  } else if is_prose(path) {
     Role::Prose
   } else if test_subject(path).is_some() {
     Role::Tests
@@ -367,6 +366,13 @@ fn role_of(path: &str, mechanical: Option<MechanicalKind>, dependencies: &[Depen
   } else {
     Role::Resources
   }
+}
+
+/// A file of prose by its extension: Markdown, `reStructuredText`, `AsciiDoc`, text
+pub(crate) fn is_prose(path: &str) -> bool {
+  file_name(path)
+    .rsplit_once('.')
+    .is_some_and(|(_, extension)| PROSE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
 }
 
 /// The lines the range adds and removes in `file`: of its blocks, else of its commits
@@ -381,7 +387,7 @@ fn line_counts(file: &ChangedFile<'_>, pair: Option<&PairBlocks>) -> (u32, u32) 
 }
 
 /// The directory of `path` below `root`, without a leading source directory, at most two levels
-fn directory_below(path: &str, root: &str) -> String {
+pub(crate) fn directory_below(path: &str, root: &str) -> String {
   let below = if root.is_empty() {
     path
   } else {

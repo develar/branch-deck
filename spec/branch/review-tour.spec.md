@@ -171,7 +171,27 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   changes the form of comes before the stops of the step whose changed lines name it (in its file or in a file linked
   to it by that name), and those follow it right after, each with `uses`, unless more than 6 stops name it.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_declaration_a_step_adds_comes_first_and_its_uses_right_after_it`)
-- A step that holds parts of two concerns or more that a use or a group joined must mark each stop with its concern.
+
+### Groups of a Step
+A large step is read as its parts, not as a list of files: a commit of 125 files across four modules (idea-1
+IJAI-5083) listed them by name and opened on a generated list. The groups are a reading order inside a step its
+author told, never a task of their own (`groups::cut_groups`, `ReviewStep.groups`, each a run of `start..end` of the
+stops).
+- A step of the commits or of the message must be cut by module when its stops of code, tests and resources lie in two
+  modules or more ([Review Plan → Modules](review-plan.spec.md#modules)) and it holds more than 12 files, of which a
+  module the commits add or two modules of 5 files each; by the folders of its one module (the first two directories
+  below the root without a leading source directory, as the module's `directories`) when it holds more than 25 files
+  there; else it has no groups. A step of the concerns is never cut: its evidence is its group.
+  [@test] ../../crates/review-plan/src/groups_test.rs (`a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring`, `a_small_step_has_no_groups`, `a_large_step_of_one_module_reads_by_its_folders`)
+- The groups must come as `contract` (the stops of the entries of the brief and of the other files of prose of the
+  step), then a group per module or folder, then `mechanical` (the build model, the lists of modules, imports alone,
+  whitespace, renames, generated files) last; a module whose declarations another module of the step newly uses
+  before that one, the order of their first stops between the others and inside a cycle. A module of fewer than 4
+  files of the step joins the group of the module of the step that newly uses it, which names it (`also`). Inside a
+  group the stops keep the order of the step, its tests after its code (`tests`, the first of them; a path in a `test`,
+  `tests`, `testSrc` or `testFixtures` directory or with a mark of a test, or a unit of test code). Every stop is in one
+  group, once.
+  [@test] ../../crates/review-plan/src/groups_test.rs (`a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring`)
 
 ### Tests That Reach It
 The question a step answers is which tests of the change prove it, not which tests of the repository its code is
@@ -329,7 +349,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_paragraph_changed_in_one_of_its_sentences_shows_it_first`, `a_short_paragraph_of_two_sentences_changed_in_one_shows_that_sentence`, `the_front_matter_is_the_lines_up_to_its_closing_rule`, `a_thematic_break_ends_a_paragraph`, `a_line_of_metadata_is_no_prose`, `a_table_with_one_added_row_is_its_header_and_that_row`, `a_changed_row_is_diffed_by_word_in_its_cells`, `a_line_of_pipes_without_a_delimiter_row_is_prose`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 23`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 24`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)

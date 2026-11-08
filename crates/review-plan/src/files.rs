@@ -30,7 +30,7 @@
 //!   hunk of whitespace alone has none, nor one without a line of 10 or more characters. A key of 3 or more files
 //!   makes a group, the key of the most files first; a file is in one group at most, and a group keeps at least 3 files
 //!   that no larger group took.
-//! - **Tests**, by the path: a directory `test`, `tests`, `__tests__` or `testFixtures`; a name `*Test`, `*Tests`
+//! - **Tests**, by the path: a directory `test`, `tests`, `__tests__`, `testFixtures` or `testSrc` (of an IntelliJ module); a name `*Test`, `*Tests`
 //!   (Kotlin, Java, C#), `*_test` (Rust), `*.test`, `*.spec` (TypeScript) or `test_*`. Its subject is the stem without that
 //!   mark (`FooTest.kt` and `foo.test.ts` name `Foo` and `foo`), compared without case; a file of a test directory names
 //!   the stem it has. A source file (`code_symbols::language::language_of`), no test, still there and not mechanical,
@@ -229,7 +229,7 @@ pub(crate) fn changed_files(diffs: &[CommitDiff]) -> Vec<ChangedFile<'_>> {
 }
 
 /// The directories of tests
-const TEST_DIRECTORIES: [&str; 4] = ["test", "tests", "__tests__", "testFixtures"];
+const TEST_DIRECTORIES: [&str; 5] = ["test", "tests", "__tests__", "testFixtures", "testSrc"];
 /// The marks of a test at the end of a file's stem
 const TEST_SUFFIXES: [&str; 5] = ["Tests", "Test", "_test", ".test", ".spec"];
 

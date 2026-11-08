@@ -3581,6 +3581,17 @@ export type GitHubUser = {
 	name: string | null,
 };
 
+/**  What a group of a step holds */
+export type GroupKind = 
+/**  The rules of the specs and the docs the step changes: the entries of the brief */
+"contract" | 
+/**  The code, tests and resources of one module */
+"module" | 
+/**  Of a step of one module: the files of one of its folders */
+"folder" | 
+/**  The mechanical stops: the build model, the lists of modules, imports alone, whitespace, renames, generated files */
+"mechanical";
+
 /**  What groups a commit into its branch */
 export type GroupOrigin = 
 /**  An explicit `(branch)` subject prefix */
@@ -7208,6 +7219,11 @@ export type ReviewStep = {
 	 */
 	newApi: string[],
 	/**
+	 *  Of a large step: its stops cut into the parts it reads as (`groups::cut_groups`), each a run of `stops`: the
+	 *  contract, a group per module or per folder, the mechanical stops; empty for a step read as one list
+	 */
+	groups: StepGroup[],
+	/**
 	 *  The new uses of a module by another that it adds: the links between their files the commits add
 	 *  (`new_between_modules`), each in the step whose stop shows its first use, by the pair of modules, in the order of
 	 *  their first link
@@ -8455,6 +8471,21 @@ export type StepFailure =
 /**  Patronus didn't give why the robot of the subject failed (`message`) */
 { kind: "problemsFailed"; message: string };
 
+/**  A run of the stops of a step that reads as one part of it (`ReviewStep::groups`) */
+export type StepGroup = {
+	kind: GroupKind,
+	/**  Of a group of a module or of a folder: its module, by its place in `ReviewPlan::modules` */
+	module: number | null,
+	/**  Of a group of a folder: the folder below the root of its module (`""` for the files at its top) */
+	folder: string | null,
+	/**  The small modules whose stops it holds, by their place in `ReviewPlan::modules` */
+	also: number[],
+	/**  Its stops are `start..end` of `ReviewStep::stops`; those from `tests` on are tests (`tests == end`: none) */
+	start: number,
+	tests: number,
+	end: number,
+};
+
 /**  What helps after a read failed: the step of row 0 instead of a start */
 export type StepHelp = 
 /**  The login of the Safe Push CLI, for a terminal */
@@ -8614,8 +8645,6 @@ export type StepStop = {
 	uses: string | null,
 	/**  The other steps whose commits changed its lines, by their place in `ReviewSteps::steps` */
 	also: number[],
-	/**  The concern of its unit, when the step holds parts of two concerns or more that evidence joined */
-	concern: string | null,
 	/**
 	 *  The units it shows beside its own: each declaration without a block of its own whose name is on a line of a block
 	 *  it shows, with the step it is of, another step's too (its heading says so where the stop shows it)

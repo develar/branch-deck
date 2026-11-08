@@ -34,6 +34,7 @@ pub mod concerns;
 pub mod dependencies;
 pub mod fan_in;
 pub mod files;
+pub mod groups;
 pub mod interdiff;
 pub mod links;
 pub mod mark_reviewed;
@@ -595,6 +596,8 @@ mod dependencies_test;
 mod fan_in_test;
 #[cfg(test)]
 mod files_test;
+#[cfg(test)]
+mod groups_test;
 #[cfg(test)]
 mod interdiff_test;
 #[cfg(test)]

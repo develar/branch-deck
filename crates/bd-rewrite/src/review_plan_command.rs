@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 23` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 24` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -42,7 +42,9 @@
 //! version 22 the `table` block of a body (its `header`, the `align` of each column and its `rows`, a cell a line of
 //! its `code` by its place, the header row first) and the `summary` of a body, the block that sums it up
 //! version 23 the `modules` of the changed files and the `module` of each file, the `moduleEdges` of a step in place of
-//! its `moduleLinks`, and the mechanical kind `moduleList`
+//! its `moduleLinks`, and the mechanical kind `moduleList`;
+//! version 24 the `groups` of a large step (`contract`, a `module` or a `folder` with its `also`, `mechanical`, each its
+//! `start`, `tests` and `end` in the stops), in place of the `concern` of a stop
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -68,7 +70,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 23;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 24;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -196,7 +198,9 @@ pub struct ReviewPlanOutput {
   /// and `way`, `reached`, `unreached` only on a complete answer), the public declarations it
   /// adds (`newApi`, by the key of their `api` entry) and the new uses between modules it adds (`moduleEdges`: `from`
   /// and `to` by their place in `modules`, the `links` by their place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`); its units the
-  /// stop of another step shows (`shownElsewhere`, with that `step`); its `title` and what gives it (`titleSource`:
+  /// stop of another step shows (`shownElsewhere`, with that `step`); of a large step its `groups`, each a run
+  /// of its stops (`start..end`, its tests from `tests`): the `contract`, a `module` or a `folder` with the small modules
+  /// it holds (`also`), the `mechanical` stops last; its `title` and what gives it (`titleSource`:
   /// `commit`, the `label` of the section it tells, the first `sentence` of its paragraph, the first code `name` of it,
   /// or none, `evidence`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
   /// of each commit with a body once, oldest first: its `body` by blocks (paragraphs, lists, preformatted text,
