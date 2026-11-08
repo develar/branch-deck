@@ -37,7 +37,12 @@ test.describe("Declared needs", () => {
     await expect(step(page, "JIRA-456")).not.toHaveAttribute("data-step", "needsBranch")
 
     await addNeed(page, "JIRA-456", "feature-auth")
-    await expect(page.locator("[data-slot=toast]", { hasText: "Declared that feature-auth lands before JIRA-456" })).toBeVisible()
+    const declared = page.locator("[data-slot=toast]", { hasText: "Declared that feature-auth lands before JIRA-456" })
+    await expect(declared).toBeVisible()
+    await runAndWaitForSync(page, () => declared.getByRole("button", { name: "Undo" }).click())
+    await expect(step(page, "JIRA-456")).not.toHaveAttribute("data-step", "needsBranch")
+
+    await addNeed(page, "JIRA-456", "feature-auth")
     // known as soon as the sync read the store
     await expect(step(page, "JIRA-456")).toHaveAttribute("data-step", "needsBranch")
     const button = step(page, "JIRA-456").getByTestId("next-step")
