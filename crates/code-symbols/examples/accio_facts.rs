@@ -1,19 +1,26 @@
 //! Compare the file-local answers of `code-symbols` with accio's indexed symbols and references.
 //!
 //! ```text
-//! cargo run --release -p code-symbols --example accio_facts -- [--probes K] [--root DIR] (--list FILE | <files…>) > facts.txt
+//! cargo run --release -p code-symbols --example accio_facts -- [--probes K] [--root DIR] [--parse-only] (--list FILE | <files…>) > facts.txt
 //! cargo run --release -p code-symbols --example accio_facts -- --compare before.txt after.txt [--show N] [--family F]
 //! ```
 //!
 //! A line is `path<TAB>family<TAB>fact`. Local probes are word starts, selected as in `examples/facts.rs`; accio symbol
 //! and reference queries are batched across small groups of files. Accio's symbol columns and `code-symbols` positions are zero-based UTF-16;
 //! the `references --at` command takes one-based columns, which are converted at the process boundary.
+//!
+//! Every declaration accio's extractor reads of a file (`accio parse`, no index) is set against the declarations of the
+//! summary by name and line: `declaration-set-diff` names one that only one side declares, `end-line-diff` a pair whose
+//! spans end apart, and `kind-pair` counts the kind words of the pairs, so that a table of `--compare` shows which kinds
+//! of the two sides meet. `--parse-only` asks only that, for a corpus accio has no index of.
 
 use code_symbols::extract::summarize;
 use code_symbols::highlight::{Grammar, grammar_of};
+use code_symbols::language::Language;
 use code_symbols::language::language_of;
 use code_symbols::navigate::{Position, reference_at, usages_at};
-use fact_text::{arguments, inputs, probes, push, reference_text, usages_at_text};
+use code_symbols::summary::{DeclKind, MemberKind};
+use fact_text::{arguments, inputs, probes, push, reference_text, take_flag, usages_at_text};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
 use std::io::{BufWriter, Write as _};
@@ -25,6 +32,7 @@ mod fact_text;
 
 fn main() {
   let mut args = arguments();
+  let parse_only = take_flag(&mut args, "--parse-only");
   let (probes, root, paths) = inputs(&mut args);
   let project = root.unwrap_or_else(|| std::env::current_dir().unwrap());
   let project = if project.is_absolute() {
@@ -42,7 +50,10 @@ fn main() {
     }
   }
   for batch in files.chunks_mut(16) {
-    process_batch(&project, batch);
+    compare_declarations(&project, batch);
+    if !parse_only {
+      process_batch(&project, batch);
+    }
   }
   let mut stdout = BufWriter::new(std::io::stdout().lock());
   for file in files {
@@ -57,23 +68,33 @@ fn project_path(project: &Path, path: &str) -> Option<String> {
   Some(relative.to_string_lossy().trim_start_matches("./").replace('\\', "/"))
 }
 
+struct SummaryDeclaration {
+  name: String,
+  /// The 1-based line of the name, as accio's `line`
+  line: u32,
+  /// The UTF-16 column of the name
+  column: u32,
+  end_line: u32,
+  kind: DeclKind,
+  member: MemberKind,
+}
+
 struct FileFacts {
   path: String,
   grammar: Grammar,
   text: Option<String>,
   words: Vec<(Position, String)>,
-  /// What the summary says of each declaration: its name, the line of the name and its UTF-16 column
-  declarations: Vec<(String, u32, u32)>,
+  /// What the summary says of each declaration
+  declarations: Vec<SummaryDeclaration>,
   facts: Vec<(&'static str, String)>,
 }
 
 fn prepare_file(project: &Path, path: String, probes_limit: usize) -> Option<FileFacts> {
-  let extension = Path::new(&path).extension().and_then(|it| it.to_str())?;
-  if !matches!(extension, "rs" | "ts") {
+  let language = language_of(&path)?;
+  if !matches!(language, Language::Rust | Language::TypeScript) {
     return None;
   }
   let grammar = grammar_of(&path)?;
-  let language = language_of(&path)?;
   let full = project.join(&path);
   let source = match std::fs::read(&full) {
     Ok(source) => source,
@@ -100,7 +121,14 @@ fn prepare_file(project: &Path, path: String, probes_limit: usize) -> Option<Fil
         name, declaration.kind, declaration.member, declaration.name_line, declaration.name_column, declaration.end_line
       ),
     ));
-    declarations.push((name.clone(), declaration.name_line, declaration.name_column));
+    declarations.push(SummaryDeclaration {
+      name: name.clone(),
+      line: declaration.name_line,
+      column: declaration.name_column,
+      end_line: declaration.end_line,
+      kind: declaration.kind,
+      member: declaration.member,
+    });
   }
   facts.push((
     "branch-deck-summary",
@@ -166,8 +194,8 @@ fn process_batch(project: &Path, files: &mut [FileFacts]) {
       let columns: Vec<u32> = file
         .declarations
         .iter()
-        .filter(|(name, line, _)| *name == symbol.name && *line == symbol.line)
-        .map(|(_, _, summary_column)| *summary_column)
+        .filter(|it| it.name == symbol.name && it.line == symbol.line)
+        .map(|it| it.column)
         .collect();
       (!columns.is_empty() && !columns.contains(&column)).then_some((column, columns))
     });
@@ -227,6 +255,77 @@ fn process_batch(project: &Path, files: &mut [FileFacts]) {
   }
 }
 
+/// One declaration of `accio parse`: `path:line-end kind name[ in parent]`
+struct ParsedDeclaration {
+  line: u32,
+  end_line: u32,
+  kind: String,
+  name: String,
+}
+
+/// The declarations accio's extractor reads of each file of the batch against those of its summary, by name and line
+fn compare_declarations(project: &Path, files: &mut [FileFacts]) {
+  let paths: Vec<String> = files.iter().filter(|it| it.text.is_some()).map(|it| it.path.clone()).collect();
+  if paths.is_empty() {
+    return;
+  }
+  let mut parsed: HashMap<String, Vec<ParsedDeclaration>> = HashMap::new();
+  for line in accio_text(project, "parse", &paths).lines() {
+    let Some((place, rest)) = line.split_once(' ') else { continue };
+    let Some((path, range)) = place.rsplit_once(':') else { continue };
+    let Some((start, end)) = range.split_once('-') else { continue };
+    let (Ok(start), Ok(end)) = (start.parse(), end.parse()) else { continue };
+    let Some((kind, named)) = rest.split_once(' ') else { continue };
+    let name = named.split_once(" in ").map_or(named, |(name, _)| name);
+    parsed.entry(path.to_string()).or_default().push(ParsedDeclaration {
+      line: start,
+      end_line: end,
+      kind: kind.to_string(),
+      name: name.to_string(),
+    });
+  }
+  for file in files.iter_mut().filter(|it| it.text.is_some()) {
+    let theirs = parsed.remove(&file.path).unwrap_or_default();
+    let mut ours: Vec<&SummaryDeclaration> = file.declarations.iter().collect();
+    for declaration in &theirs {
+      file.facts.push((
+        "accio-parse",
+        format!("{} {} at {}-{}", declaration.kind, declaration.name, declaration.line, declaration.end_line),
+      ));
+      let Some(index) = ours.iter().position(|it| it.name == declaration.name && it.line == declaration.line) else {
+        file.facts.push((
+          "declaration-set-diff",
+          format!("only accio: {} {} at {}-{}", declaration.kind, declaration.name, declaration.line, declaration.end_line),
+        ));
+        continue;
+      };
+      let summary = ours.swap_remove(index);
+      file
+        .facts
+        .push(("kind-pair", format!("accio={} summary={:?}/{:?}", declaration.kind, summary.kind, summary.member)));
+      if summary.end_line != declaration.end_line {
+        file.facts.push((
+          "end-line-diff",
+          format!(
+            "{} {} at {} accio={} summary={}",
+            declaration.kind, declaration.name, declaration.line, declaration.end_line, summary.end_line
+          ),
+        ));
+      }
+    }
+    // a local of the summary that the index has no symbol of is what only a reader of a file writes, no difference
+    for summary in ours.into_iter().filter(|it| it.kind != DeclKind::Binding) {
+      file.facts.push((
+        "declaration-set-diff",
+        format!(
+          "only summary: {:?}/{:?} {} at {}-{}",
+          summary.kind, summary.member, summary.name, summary.line, summary.end_line
+        ),
+      ));
+    }
+  }
+}
+
 fn symbols(project: &Path, paths: &[String], names: &[String]) -> Vec<SymbolHit> {
   let mut args = vec!["symbol".to_string()];
   args.extend(names.iter().cloned());
@@ -252,6 +351,19 @@ fn references(project: &Path, paths: &[String], at: &[(String, u32, u32)]) -> Ve
   }
   args.extend(["--format".to_string(), "json".to_string()]);
   accio(project, &args)
+}
+
+/// The text accio prints for `command` over `paths`
+fn accio_text(project: &Path, command: &str, paths: &[String]) -> String {
+  let output = windowless_command("accio")
+    .arg("--project")
+    .arg(project)
+    .arg(command)
+    .args(paths)
+    .output()
+    .unwrap_or_else(|error| panic!("cannot run accio: {error}"));
+  assert!(output.status.success(), "accio {command} failed: {}", String::from_utf8_lossy(&output.stderr));
+  String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 fn accio<T: for<'de> Deserialize<'de>>(project: &Path, args: &[String]) -> T {

@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 
 /// Whether `flag` is among the arguments, taken out of them
-fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
+pub(crate) fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
   args.iter().position(|it| it == flag).map(|index| args.remove(index)).is_some()
 }
 

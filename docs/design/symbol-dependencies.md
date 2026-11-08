@@ -1031,6 +1031,27 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
 
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`returns_the_typescript_overload_signatures_and_implementation`)
+
+- The declarations of the two readers of Rust and TypeScript, whole (`examples/accio_facts.rs`, 2026-11-08, the 2 364
+  `.rs`, `.ts`, `.tsx`, `.mjs` and `.js` files of branch-deck: every declaration `accio parse` reads of a file set
+  against the summary's by name and line). Of the 67 744 declarations of accio's extractor 55 073 meet one of the
+  summary, and no pair ends on another line (`end-line-diff` 0). Their kinds meet as one fold: a field and a property
+  are `Value`, a method is `Function` with its member kind, an `interface`, `struct`, `enum` and `trait` are `Type`,
+  a TypeScript `const` is a `Constant` or a `Value` by its name. The rest (`declaration-set-diff` 12 799) are what the
+  two sides model apart, not where they read a name:
+  - accio declares what a test framework runs (`describe` a namespace, `it` a function named by its title) and the
+    locals of those callbacks (4 493 variables, 2 525 functions, 569 namespaces), the members of an object literal and
+    of an inline type (2 377 fields, 1 064 methods) and a constructor (a method); a summary keeps no such declaration;
+  - accio declares a Rust `impl` (1 414) and the `const` of a function body (61), which a summary reads as the holder
+    of its members and as a local;
+  - a summary declares what a TypeScript destructuring binds at the top level (`const { a, b } = vi.hoisted(…)`), a
+    parameter property of a constructor (`private readonly texts`) and a quoted member (`"data-testid"`), 113 values
+    in all, and of Rust an associated type without a value (`type Args: Send;`), the items of `lazy_static!` and the
+    variants of an enum in an item macro (decision 17), 14 in all; the extractor of accio declares none of them.
+
+  This is the reference the move of Rust and TypeScript onto the parsers of accio is judged by
+  ([#198](https://github.com/develar/branch-deck/issues/198)): a moved declaration either joins a pair or is one of
+  these classes.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_rust_impl_method_name_before_its_same_named_parameter_and_body_use`)
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_each_typescript_overload_signature_and_implementation_at_its_name`)
 
