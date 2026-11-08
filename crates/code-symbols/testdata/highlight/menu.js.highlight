@@ -1,0 +1,27 @@
+  1: // A menu of JavaScript, its JSX in a `.js` file
+     comment "// A menu of JavaScript, its JSX in a `.js` file"
+  2: import { render } from "./dom"
+     keyword "import" · globalFunction "render" · keyword "from" · string "\"./dom\""
+  3: 
+  4: /** The items of a menu. */
+     docComment "/** The items of a menu. */"
+  5: export function Menu({ items, onPick = () => {} }) {
+     keyword "export" · keyword "function" · globalFunction "Menu" · parameter "items" · parameter "onPick"
+  6:   const label = `${items.length} items\x1f`
+     keyword "const" · localVariable "label" · string "`" · parameter "items" · field "length" · string " items" · escape "\\x1f" · string "`"
+  7:   return (
+     keyword "return"
+  8:     <>
+     tagBracket "<>"
+  9:       <Menu.Item kind="header" onClick={() => onPick(label)}>{label}</Menu.Item>
+     tagBracket "<" · componentTag "Menu" · componentTag "Item" · attribute "kind" · string "\"header\"" · attribute "onClick" · parameter "onPick" · localVariable "label" · tagBracket ">" · localVariable "label" · tagBracket "</" · componentTag "Menu" · componentTag "Item" · tagBracket ">"
+ 10:       {items.map(item => <li key={item.id}>{item.name}</li>)}
+     parameter "items" · method "map" · parameter "item" · tagBracket "<" · tag "li" · attribute "key" · parameter "item" · field "id" · tagBracket ">" · parameter "item" · field "name" · tagBracket "</" · tag "li" · tagBracket ">"
+ 11:     </>
+     tagBracket "</>"
+ 12:   )
+ 13: }
+ 14: 
+ 15: render(Menu, document.body)
+     globalFunction "render" · globalFunction "Menu" · globalVariable "document" · field "body"
+ 16: 

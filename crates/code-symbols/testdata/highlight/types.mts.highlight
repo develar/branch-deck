@@ -1,0 +1,31 @@
+  1: // A module of TypeScript types: `<T>x` asserts a type in a `.mts` file
+     comment "// A module of TypeScript types: `<T>x` asserts a type in a `.mts` file"
+  2: export declare function load<T = unknown>(path: string): Promise<T>
+     keyword "export" · keyword "declare" · keyword "function" · globalFunction "load" · typeParameter "T" · keyword "unknown" · parameter "path" · keyword "string" · typeParameter "T"
+  3: export declare const LIMIT: number
+     keyword "export" · keyword "declare" · keyword "const" · globalVariable "LIMIT" · keyword "number"
+  4: 
+  5: type Keys<T> = { [K in keyof T]: T[K] extends Function ? never : K }
+     keyword "type" · typeParameter "T" · typeParameter "K" · keyword "in" · keyword "keyof" · typeParameter "T" · typeParameter "T" · typeParameter "K" · keyword "extends" · keyword "never" · typeParameter "K"
+  6: type Head<T> = T extends [infer H, ...unknown[]] ? H : never
+     keyword "type" · typeParameter "T" · typeParameter "T" · keyword "extends" · keyword "infer" · typeParameter "H" · keyword "unknown" · typeParameter "H" · keyword "never"
+  7: type Route = `/${string}` | `#${number}`
+     keyword "type" · string "`/" · keyword "string" · string "`" · string "`#" · keyword "number" · string "`"
+  8: 
+  9: export interface Store {
+     keyword "export" · keyword "interface"
+ 10:   [key: string]: unknown
+     keyword "string" · keyword "unknown"
+ 11:   pair: [label: string, count: number]
+     field "pair" · keyword "string" · keyword "number"
+ 12:   is(value: unknown): value is Store
+     method "is" · parameter "value" · keyword "unknown" · parameter "value" · keyword "is"
+ 13:   with(this: Store, ...rest: string[]): this
+     method "with" · keyword "this" · parameter "rest" · keyword "string" · keyword "this"
+ 14: }
+ 15: 
+ 16: const size = <number>load<number>("size")
+     keyword "const" · localVariable "size" · keyword "number" · globalFunction "load" · keyword "number" · string "\"size\""
+ 17: const { as: alias } = z.infer(size)
+     keyword "const" · localVariable "alias" · globalVariable "z" · method "infer" · localVariable "size"
+ 18: 

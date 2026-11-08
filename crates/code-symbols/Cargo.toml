@@ -3,7 +3,7 @@ name = "code-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#, Starlark, Rust, TypeScript) and tree-sitter (the highlighting of TypeScript)"
+description = "Declarations, imports and references of one source file, its highlighting and navigation, on psi-syntax (Kotlin, Java, C#, Starlark, Rust, TypeScript)"
 
 [dependencies]
 # Kotlin's, Java's and C#'s parsers: psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own lexers and
@@ -22,8 +22,6 @@ psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792
 rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 serde.workspace = true
-tree-sitter = "0.27.1"
-tree-sitter-typescript = { version = "0.23.2", optional = true }
 
 [dev-dependencies]
 pretty_assertions.workspace = true
@@ -37,7 +35,7 @@ java = ["dep:java-syntax", "dep:psi-builder"]
 csharp = ["dep:csharp-syntax", "dep:psi-builder"]
 starlark = ["dep:starlark-syntax", "dep:psi-builder"]
 rust = ["dep:rust-syntax", "dep:psi-builder"]
-typescript = ["dep:js-syntax", "dep:psi-builder", "dep:tree-sitter-typescript"]
+typescript = ["dep:js-syntax", "dep:psi-builder"]
 
 [lints]
 workspace = true

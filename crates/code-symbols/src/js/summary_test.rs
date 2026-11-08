@@ -350,3 +350,14 @@ fn deep_nesting_is_read_on_a_small_stack() {
   });
   thread.unwrap().join().unwrap();
 }
+
+/// An ambient module is named by its string when it reads as an identifier, without an escape
+#[test]
+fn an_ambient_module_is_named_by_its_string() {
+  let summary = summarize(
+    Language::TypeScript,
+    b"declare module \"shapes\" {}\ndeclare module \"*.svg\" {}\ndeclare module \"a\\\"b\" {}\n",
+  );
+  assert_eq!(declarations_of(&summary, "shapes"), ["Module shapes in -"]);
+  assert_eq!(summary.declarations.len(), 1);
+}

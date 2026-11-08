@@ -581,15 +581,17 @@ keywords of a directive, a branch of `#if` not taken as a comment), Starlark fro
 (psi-syntax's `starlark-syntax`, read by `starlark/highlight.rs`: one pass over the leaves, the plugin's lexer colours
 and the roles a parent gives a name, `Grammar::StarlarkBuild` for a BUILD or MODULE.bazel file, whose top-level calls
 declare), Rust from rust-analyzer's tree (psi-syntax's `rust-syntax`, read by `rust/highlight.rs`: one pass over its
-tokens, the keywords by their kind, decision 26 of [Symbol Dependencies](symbol-dependencies.md)), the others from a
-tree-sitter tree (`.ts` by the TypeScript grammar, the rest of the script files by TSX):
+tokens, the keywords by their kind, decision 26 of [Symbol Dependencies](symbol-dependencies.md)), TypeScript, TSX
+and JavaScript from oxc's tokens and tree (psi-syntax's `js-syntax` in the dialect of the grammar: `.ts`, `.mts`,
+`.cts` TypeScript, `.tsx` TSX, `.js`, `.mjs`, `.cjs`, `.jsx` JavaScript with JSX, read by `js/highlight.rs`, decision
+27):
 - Kotlin, Java, C# and Rust: one pass over the tree in preorder with an explicit stack of the open nodes, each leaf of
   the tree (its tokens tile the text) painted by `paint::paint_leaf`, so a keyword is the parser's token as the parser
-  left it, a soft or contextual one only where the parser made it one; TypeScript: one preorder walk asks the rules of
-  the grammar (`typescript.rs`) for the `Paint` of each node; a node with a style paints its
-  text, an inner node paints over it (an escape in a string, the code of a template), a parent marks children before
-  the walk reaches them (the name of a declaration, the callee of a call). Either way the spans come out in the order
-  of the text, with no sort;
+  left it, a soft or contextual one only where the parser made it one; TypeScript and JavaScript: a walk of oxc's tree
+  marks the names and the brackets of a tag by the start of their token, then one pass over the parse's tokens and the
+  comments paints them, so a contextual word (`type`, `as`, `get`, `infer`) is a keyword only where no name is, and a
+  region a recovery of the parse blanked has no tokens and stays plain. Either way the spans come out in the order of
+  the text, with no sort;
 - a scope table (`scopes.rs`) tells what IntelliJ resolves and the tree shows by its scopes: an unqualified name that
   is a member of an enclosing class with no local of that name in between is a field (`count++`), the companion members
   of a Kotlin class too, a Rust `mut` binding is underlined wherever it is used, a type parameter is one in its scope;
@@ -619,10 +621,15 @@ tree-sitter tree (`.ts` by the TypeScript grammar, the rest of the script files 
   a lifetime, as RustRover's lexer has it; a Java one has no colour), a named argument, a doc comment, its tag and the
   name a tag documents, a macro, a lifetime, Rust's `self`, an enum variant, Rust's `?`; a Kotlin `var` and a Rust `mut`
   binding are underlined (`UNDERLINE`), Kotlin's `it`, backing `field` and lambda braces bold (`BOLD`). JavaScript has
-  the colours of its semantic visitor as far as the scopes of the file show a declaration (`typescript.rs`): a local
-  variable, a parameter, a local function, a global variable or function (exported, imported, or not declared by the
-  file: `console`, `setTimeout`; an import is a function when the file calls it), a method (also `.f(`), a regular
-  expression, a JSX component apart from an HTML tag, the brackets of a tag. What needs a resolve stays out: an
+  the colours of its semantic visitor as far as the scopes of the file show a declaration (`js/highlight.rs`): a local
+  variable, a parameter (of a function type and a signature too), a local function, a global variable or function
+  (exported, `export declare` too, imported, or not declared by the file: `console`, `setTimeout`; an import is a
+  function when the file calls it, also with type arguments), a method (also `.f(` and `.f<T>(`), a type parameter
+  (the key of a mapped type and what `infer` declares too), a regular expression, a string with the escapes of
+  JavaScript (`\x1f`, `\u{1F600}`), a template literal type as a string, the type `this` as a keyword, a JSX
+  component apart from an HTML tag (each part of `Menu.Item`), the brackets of a tag and of a fragment, a decorator
+  from its `@` to its arguments, which are code; the name of an index signature and the label of a tuple member are
+  plain. What needs a resolve stays out: an
   extension or a top-level call, a smart cast, a field read without a syntax that tells it;
 - the colours are resolved as IntelliJ resolves a key, from the scheme of Islands Light ("Light",
   `themes/expUI/expUI_lightScheme.xml`, not "IntelliJ Light" of `themes/Light.xml`) with its parent `Default`, and
@@ -633,10 +640,10 @@ tree-sitter tree (`.ts` by the TypeScript grammar, the rest of the script files 
 - the answer is the format of the worker: the lines as `buildLineTable` splits them, runs of (UTF-16 offset, style) per
   line, a style the role in its low 6 bits and the font style above; the roles are `SYNTAX_ROLES` in their order
   (`roles_match_the_view` checks it);
-- bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) or after the parse budget of a tree-sitter grammar (50
-  operations per KiB) there is no highlighting; psi-syntax parses any text, a construct nested past its limit (1000
-  levels of Kotlin, 1200 of Java) as an error element, and a Rust file nested deeper than `rust_syntax` reads has
-  none (its parse, walk and drop run on a stack sized for the file).
+- bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) there is no highlighting; psi-syntax parses any text, a
+  construct nested past its limit (1000 levels of Kotlin, 1200 of Java) as an error element, and a Rust or a script
+  file nested deeper than `rust_syntax` or `js_syntax` reads has none (its parse, walk and drop run on a stack sized
+  for the file).
 
 The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`), one call per blob and range of lines:
 - the text comes from the blobs `get_file_diffs` and `get_blob_texts` read (the memory cache, so no git process), the

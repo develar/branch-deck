@@ -7,6 +7,8 @@ use crate::highlight::Role;
 pub(crate) enum Lex {
   /// Backslash escapes (`\n`, `A`, `\$`) in the base style's text
   Escapes,
+  /// The escapes of a JavaScript string: `\n`, `\x1f`, `\u00e9`, `\u{1F600}`, an octal `\012`
+  JsEscapes,
   /// A doc comment: `@tag` and the name after `@param`-like tags, a `KDoc` `[link]`, a Javadoc `{@link …}`
   Doc,
 }
@@ -15,22 +17,50 @@ pub(crate) enum Lex {
 pub(crate) fn lex(lex: Lex, text: &str, offset: usize, base: u32, emit: &mut impl FnMut(usize, u32)) {
   match lex {
     Lex::Escapes => escapes(text, offset, base, emit),
+    Lex::JsEscapes => js_escapes(text, offset, base, emit),
     Lex::Doc => doc(text, offset, base, emit),
   }
 }
 
 fn escapes(text: &str, offset: usize, base: u32, emit: &mut impl FnMut(usize, u32)) {
+  escapes_by(text, offset, base, emit, escape_length);
+}
+
+/// The length of the escape at the start of `rest`, its `\\` included: a unicode `\\u0041`, else one character
+fn escape_length(rest: &[u8]) -> usize {
+  if rest.get(1) == Some(&b'u') && rest.len() >= 6 && rest[2..6].iter().all(u8::is_ascii_hexdigit) {
+    6
+  } else {
+    2
+  }
+}
+
+/// The length of the JavaScript escape at the start of `rest`, its `\\` included, as tree-sitter-javascript's
+/// `escape_sequence` reads it
+fn js_escape_length(rest: &[u8]) -> usize {
+  let hex = |from: usize, count: usize| rest.len() >= from + count && rest[from..from + count].iter().all(u8::is_ascii_hexdigit);
+  match rest.get(1) {
+    Some(b'x') if hex(2, 2) => 4,
+    Some(b'u') if hex(2, 4) => 6,
+    Some(b'u') if rest.get(2) == Some(&b'{') => rest.iter().position(|it| *it == b'}').map_or(2, |close| close + 1),
+    Some(b'0'..=b'7') => 1 + rest[1..].iter().take(3).take_while(|it| (b'0'..=b'7').contains(*it)).count(),
+    Some(_) => 2,
+    None => 1,
+  }
+}
+
+fn js_escapes(text: &str, offset: usize, base: u32, emit: &mut impl FnMut(usize, u32)) {
+  escapes_by(text, offset, base, emit, js_escape_length);
+}
+
+/// The escapes of `text`, each `length` long from its `\\`, in their colour, the rest in `base`
+fn escapes_by(text: &str, offset: usize, base: u32, emit: &mut impl FnMut(usize, u32), length: fn(&[u8]) -> usize) {
   let bytes = text.as_bytes();
   let mut index = 0;
   while index < bytes.len() {
     if bytes[index] == b'\\' && index + 1 < bytes.len() {
       emit(offset + index, base);
-      let length = if bytes[index + 1] == b'u' && bytes.len() >= index + 6 && bytes[index + 2..index + 6].iter().all(u8::is_ascii_hexdigit) {
-        6
-      } else {
-        2
-      };
-      let end = (index + length).min(bytes.len());
+      let end = (index + length(&bytes[index..])).min(bytes.len());
       // the escaped character may be a multi-byte one
       let end = (end..=bytes.len()).find(|&it| text.is_char_boundary(it)).unwrap_or(bytes.len());
       emit(offset + end, Role::Escape.style());

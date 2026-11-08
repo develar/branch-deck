@@ -86,7 +86,7 @@ fn every_fixture_matches_its_golden_file() {
     }
     checked += 1;
   }
-  assert_eq!(checked, 6, "a fixture of every grammar");
+  assert_eq!(checked, 8, "a fixture of every grammar");
 }
 
 #[test]

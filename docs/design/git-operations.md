@@ -3199,9 +3199,9 @@ before and after each commit, by blob id; nothing reads the working tree or an i
   the head it reviews, `<head>:<dir>`, since a pull request is not checked out) gives the module roots, the
   crates' `Cargo.toml` and the `tsconfig*.json` files; one `cat-file --batch -Z` reads the blobs the object cache
   misses together with those manifests (`read_blob_bytes`).
-- **Cached by blob id.** The `blob_summary` store keys a summary by the extractor version (the rules and the node
-  types of the grammars), the language and the blob id; the first write of another version clears the store once. A
-  summary the parse budget cut is not cached. The parse runs on one thread per core, each with its own parsers.
+- **Cached by blob id.** The `blob_summary` store keys a summary by the extractor version (the rules and the
+  revision of psi-syntax), the language and the blob id; the first write of another version clears the store once. A
+  truncated summary (over a size limit, nested deeper than its parse reads) is not cached. The parse runs on one thread per core, each with its own parsers.
 - **The index is the range.** Only the declarations the commits ahead of the baseline add or change are looked up (a
   changed member brings the overloads its file had before along); a use of anything else is no edge.
 

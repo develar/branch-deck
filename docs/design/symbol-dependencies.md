@@ -791,7 +791,10 @@ flowchart TD
     333: the tokens of a header (1 354 lines), a call with type arguments (`read<T>()`, `this.load<T>()`: 59), the
     default of a type parameter or a default value with a block in a header (10), and readings tree-sitter's TSX got
     wrong (`typeof import("m")` in type arguments, the labels of a named tuple member, a call in a template); against
-    accio's extractor (`examples/accio_facts.rs --parse-only`) no declaration moved. Of the 54 142 files of the
+    accio's extractor (`examples/accio_facts.rs --parse-only`) no declaration moved, and on the monorepo below the
+    declarations only one side has went from 425 531 to 410 493 and the pairs that end on other lines from 1 554 to 90;
+    the one class that grew is a constructor signature of a `.d.ts` (4 083 in the files without an error), which accio
+    declares as a method and the summary, as every constructor, as none. Of the 54 142 files of the
     IntelliJ monorepo (the 514 changed since the baseline left out) the summary moved in 23 697, 14 705 of them files
     one of the two parses has an error in (test data, and `.ts` test cases of JSX, which TypeScript reads as type
     assertions). In the 8 992 others every moved fact is a reading the walk now makes as the language does: a header's
@@ -819,6 +822,19 @@ flowchart TD
     files: 2.64 s against 21.7 s.
 
     [@test] ../../crates/code-symbols/src/js/navigate_test.rs (`a_bare_name_is_no_member_of_the_class_around_it`, `a_var_is_seen_in_its_function_and_a_let_in_its_block`, `deep_nesting_is_navigated_on_a_small_stack`)
+
+    The highlighting (`js/highlight.rs`) is the last reader: a walk of the tree marks the names by the start of their
+    token, a pass over the parse's tokens and the comments paints them, so a contextual word (`type`, `as`, `infer`) is
+    a keyword only where it names nothing, and `tree-sitter-typescript` is no dependency. Against the tree-sitter
+    baseline the colours moved in 65 of Branch Deck's files and in 18 737 of the monorepo's, 13 299 of them with an
+    error in one parse (455 have no tree and keep Shiki's colours), the 5 438 others by the classes of the summary
+    (`export declare` global, a call with type arguments a call, a tuple label plain) and these: the parts of a member
+    tag are components, a decorator is coloured from its `@` to its arguments, which are code, a template literal type
+    is a string, the type `this` a keyword, the key of a mapped type and what `infer` declares type parameters, the
+    parameters of a function type and of a signature parameters, the escapes of a string JavaScript's (`\x1f`,
+    `\u{1F600}`). One thread, 5 000 files: 0.93 s against 9.41 s.
+
+    [@test] ../../crates/code-symbols/src/js/highlight_test.rs (`a_decorator_is_coloured_to_its_arguments`, `names_by_what_they_name`, `deep_nesting_is_highlighted_on_a_small_stack`)
 
 ### Implementation Notes
 

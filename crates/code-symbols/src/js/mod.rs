@@ -17,9 +17,12 @@
 //!   the file's nesting fits `psi_builder::stack::STACK`, else on a thread of the stack it needs; past
 //!   `js_syntax`'s limit there is no tree and the summary is `truncated`.
 
+pub(crate) mod highlight;
 pub(crate) mod navigate;
 pub(crate) mod summary;
 
+#[cfg(test)]
+mod highlight_test;
 #[cfg(test)]
 mod navigate_test;
 #[cfg(test)]
@@ -28,8 +31,9 @@ pub(crate) mod summary_test;
 use crate::highlight::Grammar;
 use crate::summary_builder::column_at;
 use js_syntax::oxc_ast::ast::{
-  Argument, Decorator, Expression, FormalParameters, Function, FunctionBody, Program, PropertyKey, TSThisParameter, TSTypeAnnotation, TSTypeParameter, TSTypeParameterDeclaration,
-  TSTypeParameterInstantiation,
+  Argument, BindingPattern, Decorator, Expression, FormalParameterRest, FormalParameters, Function, FunctionBody, JSXOpeningElement, Program, PropertyKey, TSMappedType,
+  TSThisParameter, TSTypeAnnotation, TSTypeName, TSTypeParameter, TSTypeParameterDeclaration, TSTypeParameterInstantiation, TSTypeQuery, TSTypeQueryExprName,
+  TaggedTemplateExpression,
 };
 use js_syntax::oxc_ast_visit::Visit;
 use js_syntax::oxc_parser::Token;
@@ -271,5 +275,73 @@ pub(crate) fn walk_type_parameter_bounds<'a>(visitor: &mut impl Visit<'a>, param
   }
   if let Some(default) = &parameter.default {
     visitor.visit_ts_type(default);
+  }
+}
+
+/// The type arguments and the text of a tagged template, after its tag
+pub(crate) fn walk_tagged_template<'a>(visitor: &mut impl Visit<'a>, template: &TaggedTemplateExpression<'a>) {
+  if let Some(type_arguments) = &template.type_arguments {
+    visitor.visit_ts_type_parameter_instantiation(type_arguments);
+  }
+  visitor.visit_template_literal(&template.quasi);
+}
+
+/// The types of a mapped type, after its key
+pub(crate) fn walk_mapped_type_types<'a>(visitor: &mut impl Visit<'a>, mapped: &TSMappedType<'a>) {
+  visitor.visit_ts_type(&mapped.constraint);
+  if let Some(name) = &mapped.name_type {
+    visitor.visit_ts_type(name);
+  }
+  if let Some(annotation) = &mapped.type_annotation {
+    visitor.visit_ts_type(annotation);
+  }
+}
+
+/// `typeof x`: its name by `name`, an import type and the type arguments walked
+pub(crate) fn walk_type_query<'a, V: Visit<'a>>(visitor: &mut V, query: &TSTypeQuery<'a>, name: impl FnOnce(&mut V, &TSTypeName<'a>)) {
+  match &query.expr_name {
+    TSTypeQueryExprName::TSImportType(import) => visitor.visit_ts_import_type(import),
+    expression => {
+      if let Some(type_name) = expression.as_ts_type_name() {
+        name(visitor, type_name);
+      }
+    }
+  }
+  if let Some(type_arguments) = &query.type_arguments {
+    visitor.visit_ts_type_parameter_instantiation(type_arguments);
+  }
+}
+
+/// The type and the default of a parameter, after its pattern
+pub(crate) fn walk_parameter_type<'a>(visitor: &mut impl Visit<'a>, annotation: Option<&TSTypeAnnotation<'a>>, initializer: Option<&Expression<'a>>) {
+  if let Some(annotation) = annotation {
+    visitor.visit_ts_type_annotation(annotation);
+  }
+  if let Some(initializer) = initializer {
+    visitor.visit_expression(initializer);
+  }
+}
+
+/// A rest parameter: its decorators, its pattern by `bind`, its type
+pub(crate) fn walk_rest_parameter<'a, V: Visit<'a>>(visitor: &mut V, rest: &FormalParameterRest<'a>, bind: impl FnOnce(&mut V, &BindingPattern<'a>)) {
+  walk_decorators(visitor, &rest.decorators);
+  bind(visitor, &rest.rest.argument);
+  walk_parameter_type(visitor, rest.type_annotation.as_deref(), None);
+}
+
+/// The decorators of a parameter, before its pattern
+pub(crate) fn walk_decorators<'a>(visitor: &mut impl Visit<'a>, decorators: &[Decorator<'a>]) {
+  for decorator in decorators {
+    visitor.visit_decorator(decorator);
+  }
+}
+
+/// The type arguments and the attributes of a JSX element, after its name
+pub(crate) fn walk_jsx_attributes<'a>(visitor: &mut impl Visit<'a>, element: &JSXOpeningElement<'a>) {
+  if let Some(type_arguments) = &element.type_arguments {
+    visitor.visit_ts_type_parameter_instantiation(type_arguments);
+  }
+  for attribute in &element.attributes {
+    visitor.visit_jsx_attribute_item(attribute);
   }
 }

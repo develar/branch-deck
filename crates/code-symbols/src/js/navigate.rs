@@ -26,6 +26,7 @@ use crate::js;
 use crate::js::field_of;
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
 use js_syntax::Dialect;
+// jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{
   ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingIdentifier, BindingPattern,
   BlockStatement, CallExpression, CatchClause, Class, ClassElement, ClassType, ExportAllDeclaration, ExportFromDeclaration, ExportNamedDeclaration, Expression, ForInStatement,
@@ -34,12 +35,13 @@ use js_syntax::oxc_ast::ast::{
   SimpleAssignmentTarget, StaticBlock, StaticMemberExpression, SwitchStatement, TSCallSignatureDeclaration, TSConditionalType, TSConstructSignatureDeclaration, TSConstructorType,
   TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSFunctionType, TSGlobalDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
   TSIndexSignature, TSInterfaceDeclaration, TSMappedType, TSMethodSignature, TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSPropertySignature,
-  TSQualifiedName, TSTypeAliasDeclaration, TSTypeName, TSTypeParameter, TSTypePredicate, TSTypePredicateName, TSTypeQuery, TSTypeQueryExprName, TaggedTemplateExpression,
-  UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+  TSQualifiedName, TSTypeAliasDeclaration, TSTypeName, TSTypeParameter, TSTypePredicate, TSTypePredicateName, TSTypeQuery, TaggedTemplateExpression, UpdateExpression,
+  VariableDeclaration, VariableDeclarationKind,
 };
 use js_syntax::oxc_ast_visit::{Visit, walk};
 use js_syntax::oxc_span::{GetSpan, Span};
 use js_syntax::oxc_syntax::scope::ScopeFlags;
+// jscpd:ignore-end
 
 /// The names of the text of the name at `position`, with the span of that one and its text, to `answer`
 fn with_names_at<T: Send>(dialect: Dialect, text: &str, position: Position, answer: impl FnOnce(&[Named], Span, &str) -> Option<T> + Send) -> Option<T> {
@@ -514,10 +516,7 @@ impl<'a> Visit<'a> for Walk<'_> {
 
   fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
     self.callee(&it.tag);
-    if let Some(arguments) = &it.type_arguments {
-      self.visit_ts_type_parameter_instantiation(arguments);
-    }
-    self.visit_template_literal(&it.quasi);
+    js::walk_tagged_template(self, it);
   }
 
   fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
@@ -791,17 +790,7 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_ts_type_query(&mut self, it: &TSTypeQuery<'a>) {
-    match &it.expr_name {
-      TSTypeQueryExprName::TSImportType(import) => self.visit_ts_import_type(import),
-      name => {
-        if let Some(name) = name.as_ts_type_name() {
-          self.type_name(name, ReferenceKind::Value);
-        }
-      }
-    }
-    if let Some(arguments) = &it.type_arguments {
-      self.visit_ts_type_parameter_instantiation(arguments);
-    }
+    js::walk_type_query(self, it, |walk, name| walk.type_name(name, ReferenceKind::Value));
   }
 
   fn visit_ts_type_predicate(&mut self, it: &TSTypePredicate<'a>) {

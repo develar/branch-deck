@@ -10,10 +10,9 @@
 //!
 //! Two parsers: Kotlin, Java and C# are read by psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own
 //! parsers, whose trees are their PSI and Roslyn's syntax tree (`kotlin`, `java`, `csharp`: a module per language with a
-//! walk per consumer, `summary`, `highlight` and `navigate`), the summary of TypeScript, TSX and JavaScript by
-//! psi-syntax's `js-syntax`, oxc's parser (`js`), and Rust by psi-syntax's `rust-syntax`, rust-analyzer's parser
-//! (`rust`: its summary, navigation and highlighting), each the parse accio reads them with, and the highlighting of
-//! TypeScript and JavaScript by tree-sitter (`highlight/`). Both build their answers by the same parser-neutral code: `summary_builder`,
+//! walk per consumer, `summary`, `highlight` and `navigate`), TypeScript, TSX and JavaScript by psi-syntax's
+//! `js-syntax`, oxc's parser (`js`), and Rust by psi-syntax's `rust-syntax`, rust-analyzer's parser (`rust`), each with
+//! its summary, navigation and highlighting, the parse accio reads them with. Both build their answers by the same parser-neutral code: `summary_builder`,
 //! `highlight::lines` and `highlight::paint`, the answers of `navigate`. `examples/facts.rs` prints every fact of the
 //! three consumers of a list of files, the oracle of a change of parser or rules.
 

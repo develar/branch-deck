@@ -8,18 +8,13 @@
 //!   summary. psi-syntax parses any text within the limits, a construct past its nesting limit as an error element;
 //!   oxc and rust-analyzer any text they can recover, and none nested deeper than `js_syntax` and `rust_syntax` read
 //!   (`truncated`).
-//! - `parse_language` is the tree-sitter parse within a budget that the highlighting of TypeScript and JavaScript still
-//!   reads.
 
 use crate::language::Language;
 use crate::summary::FileSummary;
 use crate::summary_builder::empty_summary;
-use std::cell::RefCell;
-use std::ops::ControlFlow;
-use tree_sitter::{ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 26;
+pub const RULES_VERSION: u32 = 27;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -95,27 +90,4 @@ impl Fnv {
   const fn finish(&self) -> u32 {
     self.0
   }
-}
-
-/// A tree-sitter parse that stops after `budget` progress callbacks, on one parser per thread; the highlighting and the
-/// navigation parse with it too
-pub(crate) fn parse_language(language: &tree_sitter::Language, source: &[u8], budget: u32) -> Option<Tree> {
-  thread_local! {
-    static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
-  }
-  PARSER.with_borrow_mut(|parser| {
-    parser.set_language(language).ok()?;
-    let mut calls = 0u32;
-    let mut progress = |_: &ParseState| {
-      calls += 1;
-      if calls > budget { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
-    };
-    let options = ParseOptions::new().progress_callback(&mut progress);
-    let tree = parser.parse_with_options(&mut |offset, _| source.get(offset..).unwrap_or_default(), None, Some(options));
-    if tree.is_none() {
-      // a cancelled parse keeps its state to resume; the next file must start afresh
-      parser.reset();
-    }
-    tree
-  })
 }

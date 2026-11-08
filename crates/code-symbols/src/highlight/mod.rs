@@ -3,7 +3,8 @@
 //! Java, C# and Starlark from their PSI and Roslyn's tree (`kotlin::highlight`, `java::highlight`, `csharp::highlight`,
 //! `starlark::highlight`: one pass over the leaves of psi-syntax's tree, whose tokens are the lexer's, soft keywords
 //! included), Rust from rust-analyzer's tree (`rust::highlight`, one pass over its tokens), TypeScript, TSX and
-//! JavaScript from a tree-sitter tree by the rules of their grammar (`typescript.rs`, painted by `paint.rs`).
+//! JavaScript from oxc's tokens and tree (`js::highlight`: a walk of the tree marks the names, a pass over the tokens
+//! and the comments paints them).
 //!
 //! - **One walk, painted spans**: a preorder walk gives each piece of text its style; a node with a style paints its
 //!   text, an inner node paints over it (an escape in a string, the code of a template), and a node without one takes
@@ -12,32 +13,26 @@
 //!   `\r`), each line has the runs of its styles, a pair (UTF-16 offset in the line, style) where the style changes, none
 //!   while it is the default foreground, as the Shiki worker sends them (`src/lib/diff/highlight/protocol.ts`).
 //! - **A style** is a `Role` in its low 6 bits and the font style above them: italic 1, bold 2, underline 4.
-//! - **Bounded**: over `MAX_BYTES` there is no highlighting, nor after the parse budget of a tree-sitter grammar; the
-//!   view falls back to Shiki for the file. psi-syntax parses any text, a construct past its nesting limit as an error
-//!   element. A parse error colours what its leaves are (a keyword, a literal), the rest stays plain.
+//! - **Bounded**: over `MAX_BYTES` there is no highlighting, nor for a Rust or a script file nested deeper than its
+//!   parse reads; the view falls back to Shiki for the file. psi-syntax parses any
+//!   text, a construct past its nesting limit as an error element. A parse error colours what its leaves are (a
+//!   keyword, a literal), the rest stays plain; a region oxc's recovery blanked has no tokens and stays plain.
 //!
 //! A pure function of the text, like the summary (`extract.rs`), but with its own parse: the summary is cached by blob,
-//! a Kotlin script (`.kts`) is parsed as a script here, and TypeScript files are read by the TypeScript grammar here,
-//! not by TSX.
+//! a Kotlin script (`.kts`) is parsed as a script here; a script is read in the dialect of its grammar, as the summary
+//! reads it in the dialect of its path.
 
 pub(crate) mod lex;
 pub mod lines;
 pub(crate) mod paint;
 pub(crate) mod scopes;
 
-#[cfg(feature = "typescript")]
-mod typescript;
-
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 7;
+pub const RULES_VERSION: u32 = 8;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
-/// The progress callbacks of a tree-sitter parse per KiB of text; the densest files of the IntelliJ monorepo took 19
-const PARSE_BUDGET_PER_KIB: usize = 50;
-/// The budget of a small file: error recovery may take many operations on few bytes
-const MIN_PARSE_BUDGET: usize = 50_000;
 
 /// The bits of the role in a style
 pub const ROLE_BITS: u32 = 6;
@@ -180,18 +175,6 @@ impl Grammar {
       Self::Starlark | Self::StarlarkBuild => cfg!(feature = "starlark"),
     }
   }
-
-  /// The tree-sitter grammar of the grammars tree-sitter reads in this build (TypeScript, TSX, JavaScript); none for the
-  /// others, which psi-syntax reads
-  fn language(self) -> Option<tree_sitter::Language> {
-    match self {
-      #[cfg(feature = "typescript")]
-      Self::TypeScript => Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
-      #[cfg(feature = "typescript")]
-      Self::Tsx | Self::JavaScript => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
-      _ => None,
-    }
-  }
 }
 
 /// The grammar of a file by its name or extension, if this build can highlight it
@@ -232,16 +215,9 @@ pub(crate) fn is_type_name(name: &str) -> bool {
   name.bytes().next().is_some_and(|it| it.is_ascii_uppercase()) && name.bytes().any(|it| it.is_ascii_lowercase())
 }
 
-/// The tree-sitter tree of a text by its grammar, within the parse budget of its size; `None` for Kotlin, Java and C#
-pub(crate) fn parse_text(grammar: Grammar, text: &str) -> Option<tree_sitter::Tree> {
-  let language = grammar.language()?;
-  let budget = (text.len() / 1024).saturating_mul(PARSE_BUDGET_PER_KIB).max(MIN_PARSE_BUDGET);
-  crate::extract::parse_language(&language, text.as_bytes(), u32::try_from(budget).unwrap_or(u32::MAX))
-}
-
-/// The highlighting of a text; `None` when it is over `MAX_BYTES`, its grammar is not in this build or its tree-sitter
-/// parse ran out of budget. Kotlin, Java and C# by psi-syntax's trees (`kotlin`, `java`, `csharp`), the others by
-/// tree-sitter's
+/// The highlighting of a text; `None` when it is over `MAX_BYTES`, its grammar is not in this build or it has no tree.
+/// Kotlin, Java, C# and Starlark by psi-syntax's trees (`kotlin`, `java`, `csharp`, `starlark`), TypeScript, TSX and
+/// JavaScript by oxc's (`js`), Rust by rust-analyzer's (`rust`)
 pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
   if text.len() > MAX_BYTES {
     return None;
@@ -264,19 +240,9 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
     }
     #[cfg(feature = "rust")]
     Grammar::Rust => crate::rust::highlight::highlight(text),
-    _ => highlight_tree_sitter(grammar, text),
-  }
-}
-
-/// The highlighting of a text by its tree-sitter tree and the rules of its grammar; `None` when its parse ran out of
-/// budget
-fn highlight_tree_sitter(grammar: Grammar, text: &str) -> Option<LineRuns> {
-  let tree = parse_text(grammar, text)?;
-  let mut runs = LineRuns::builder(text);
-  match grammar {
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => paint::paint(&tree, text, &mut typescript::TypeScript::default(), &mut runs),
-    _ => return None,
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::highlight::highlight(crate::js::dialect_of_grammar(grammar), text),
+    #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript")))]
+    _ => None,
   }
-  Some(runs.finish())
 }

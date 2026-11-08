@@ -38,6 +38,7 @@ use crate::js::{Errors, Source, doc_lines, field_of, tokens_in, with_program};
 use crate::summary::{DeclKind, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Role};
 use crate::summary_builder::{Bindings, SummaryBuilder, blank_declaration};
 use js_syntax::Dialect;
+// jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{
   Argument, ArrowFunctionBody, ArrowFunctionExpression, BindingIdentifier, BindingPattern, BlockStatement, CallExpression, CatchClause, Class, ClassElement, ClassType,
   Declaration, Decorator, ExportAllDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKind, ExportFromDeclaration, ExportNamedDeclaration, Expression, ForInStatement,
@@ -53,6 +54,7 @@ use js_syntax::oxc_ast_visit::{Visit, walk};
 use js_syntax::oxc_parser::{Kind, Token};
 use js_syntax::oxc_span::{GetSpan, Span};
 use js_syntax::oxc_syntax::scope::ScopeFlags;
+// jscpd:ignore-end
 
 /// Fills `summary` (`summary_builder::empty_summary` of the file, within the size limits) with the facts of `source`
 /// read as `dialect`; whether it was read, else it stays `truncated`: the file nests deeper than the parse reads
@@ -903,12 +905,13 @@ impl<'s> Walk<'_, 's> {
     });
   }
 
-  /// `declare module "m" { … }`: a module named by the content of its string when it reads as an identifier
+  /// `declare module "m" { … }`: a module named by the content of its string when it reads as an identifier, without
+  /// an escape
   fn external_module(&mut self, module: &TSExternalModuleDeclaration<'_>, wrap: Wrap) {
     let content = Span::new(module.id.span.start + 1, module.id.span.end.saturating_sub(1).max(module.id.span.start + 1));
     let named = self
       .text(content)
-      .is_some_and(|it| it.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$' || c == '#'));
+      .is_some_and(|it| it.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$' || c == '#') && !it.contains('\\'));
     let decl = if named {
       self.type_decl(module.span, content, DeclKind::Module, wrap, None)
     } else {
@@ -1291,22 +1294,11 @@ impl<'a> Visit<'a> for Walk<'_, '_> {
       }
       pattern => self.bind_pattern(pattern),
     }
-    if let Some(annotation) = &it.type_annotation {
-      self.visit_ts_type_annotation(annotation);
-    }
-    if let Some(initializer) = &it.initializer {
-      self.visit_expression(initializer);
-    }
+    js::walk_parameter_type(self, it.type_annotation.as_deref(), it.initializer.as_deref());
   }
 
   fn visit_formal_parameter_rest(&mut self, it: &FormalParameterRest<'a>) {
-    for decorator in &it.decorators {
-      self.visit_decorator(decorator);
-    }
-    self.bind_pattern(&it.rest.argument);
-    if let Some(annotation) = &it.type_annotation {
-      self.visit_ts_type_annotation(annotation);
-    }
+    js::walk_rest_parameter(self, it, |walk, pattern| walk.bind_pattern(pattern));
   }
 
   fn visit_binding_pattern(&mut self, it: &BindingPattern<'a>) {
@@ -1336,10 +1328,7 @@ impl<'a> Visit<'a> for Walk<'_, '_> {
 
   fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
     self.callee(&it.tag, Role::Call);
-    if let Some(arguments) = &it.type_arguments {
-      self.visit_ts_type_parameter_instantiation(arguments);
-    }
-    self.visit_template_literal(&it.quasi);
+    js::walk_tagged_template(self, it);
   }
 
   /// An object literal's member declares nothing; a method's value is a function
@@ -1370,17 +1359,15 @@ impl<'a> Visit<'a> for Walk<'_, '_> {
   }
 
   fn visit_ts_type_query(&mut self, it: &TSTypeQuery<'a>) {
-    match &it.expr_name {
-      TSTypeQueryExprName::TSImportType(import) => self.import_type(import, Role::Value),
-      name => {
-        if let Some(name) = name.as_ts_type_name() {
-          self.type_name(name, Role::Value);
-        }
+    if let TSTypeQueryExprName::TSImportType(import) = &it.expr_name {
+      // `typeof import("m").x` names a value
+      self.import_type(import, Role::Value);
+      if let Some(arguments) = &it.type_arguments {
+        self.visit_ts_type_parameter_instantiation(arguments);
       }
+      return;
     }
-    if let Some(arguments) = &it.type_arguments {
-      self.visit_ts_type_parameter_instantiation(arguments);
-    }
+    js::walk_type_query(self, it, |walk, name| walk.type_name(name, Role::Value));
   }
 
   fn visit_ts_import_type(&mut self, it: &TSImportType<'a>) {
@@ -1400,13 +1387,7 @@ impl<'a> Visit<'a> for Walk<'_, '_> {
 
   fn visit_ts_mapped_type(&mut self, it: &TSMappedType<'a>) {
     self.bind_identifier(&it.key);
-    self.visit_ts_type(&it.constraint);
-    if let Some(name) = &it.name_type {
-      self.visit_ts_type(name);
-    }
-    if let Some(annotation) = &it.type_annotation {
-      self.visit_ts_type(annotation);
-    }
+    js::walk_mapped_type_types(self, it);
   }
 
   /// `A extends infer B ? B : C`: what `infer` declares is seen in the whole conditional type
@@ -1450,12 +1431,7 @@ impl<'a> Visit<'a> for Walk<'_, '_> {
 
   fn visit_jsx_opening_element(&mut self, it: &JSXOpeningElement<'a>) {
     self.jsx_name(&it.name);
-    if let Some(arguments) = &it.type_arguments {
-      self.visit_ts_type_parameter_instantiation(arguments);
-    }
-    for attribute in &it.attributes {
-      self.visit_jsx_attribute_item(attribute);
-    }
+    js::walk_jsx_attributes(self, it);
   }
 
   fn visit_jsx_closing_element(&mut self, it: &JSXClosingElement<'a>) {
