@@ -18,7 +18,7 @@
 //! - **Inside a group**: the stops in the order of the step (a declaration before its uses), its tests after its code
 //!   (`tests`: the first of them), so a reader meets the design before the code that checks it.
 
-use crate::modules::{ModuleShape, ModuleState, directory_below, is_prose, shared_folders};
+use crate::modules::{ModuleShape, ModuleState, SharedFolders, is_prose};
 use crate::steps::{ReviewStep, StepStop, StepsInput};
 use crate::units::{ReviewUnit, UnitKind};
 use serde::Serialize;
@@ -143,11 +143,11 @@ fn cut(input: &StepsInput<'_>, old: &[StepStop]) -> Option<(Vec<StepStop>, Vec<S
   } else {
     let root = module_files[0].0.and_then(|module| shapes.get(module as usize)).map_or("", |shape| shape.root.as_str());
     let paths: Vec<&str> = module_files[0].1.iter().copied().collect();
-    let shared = shared_folders(&paths, root);
+    let shared = SharedFolders::of(&paths, root);
     old
       .iter()
       .zip(&places)
-      .map(|(stop, place)| matches!(place, Place::Module(_)).then(|| GroupKey::Folder(directory_below(&stop.path, root, shared))))
+      .map(|(stop, place)| matches!(place, Place::Module(_)).then(|| GroupKey::Folder(shared.directory(&stop.path))))
       .collect()
   };
   // the groups of code in their order, each with its stops
