@@ -11,11 +11,11 @@ description = "Declarations, imports and references of one source file, on psi-s
 # repository (`psi-syntax/`), which is internal, so a revision of develar/psi-syntax, its public mirror, pins them: each
 # mirrored commit names its accio commit (`Accio-Commit:`); `psi-builder` is the tree all three build, named directly
 # for the code the languages share.
-csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e8b02180bf43fe457fa60f795da10f0157f284a6", optional = true }
-java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e8b02180bf43fe457fa60f795da10f0157f284a6", optional = true }
-kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e8b02180bf43fe457fa60f795da10f0157f284a6", optional = true }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "e8b02180bf43fe457fa60f795da10f0157f284a6", optional = true }
-starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e8b02180bf43fe457fa60f795da10f0157f284a6", optional = true }
+csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "fa33932871b97c48494d062487ff4422fb8abb27", optional = true }
+java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "fa33932871b97c48494d062487ff4422fb8abb27", optional = true }
+kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "fa33932871b97c48494d062487ff4422fb8abb27", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "fa33932871b97c48494d062487ff4422fb8abb27", optional = true }
+starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "fa33932871b97c48494d062487ff4422fb8abb27", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
 tree-sitter-rust = { version = "0.24.2", optional = true }

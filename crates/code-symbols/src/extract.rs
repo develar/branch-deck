@@ -90,7 +90,7 @@ fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) 
 /// whose `starlark-syntax` reads Starlark: the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`)
 /// of the five psi-syntax dependencies in `Cargo.toml`
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub(crate) const PSI_SYNTAX_REVISION: &str = "e8b02180bf43fe457fa60f795da10f0157f284a6";
+pub(crate) const PSI_SYNTAX_REVISION: &str = "fa33932871b97c48494d062487ff4422fb8abb27";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
 /// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax (Kotlin, Java, C#) or the
