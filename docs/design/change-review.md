@@ -28,8 +28,10 @@ rounds on a local branch, or folding with a correctness guarantee.
 
 A review is the story of a change, not a list of files:
 
-0. **The story comes first, in the words of its author.** A developer who opens a change asks what changes for its
-   user, why, how, whether it is proven, what can break and what is noise, in this order. The review is one document: an
+0. **The shape comes first, then the story in the words of its author.** A developer who opens a change asks what it
+   is, what shape it has (the modules it adds and changes, how large each part is, how it plugs into the platform),
+   what changes for its user, why, how, whether it is proven, what can break and what is noise, in this order. The map
+   answers the first questions on one screen (decision 18); the story the rest. The review is one document: an
    overview (the brief: the issue, the rules of the specs and the docs the change adds; the contents of the steps;
    what can break) and then the steps of the change, each opening above its diffs with the body of its commit, the units that carry it and the tests that reach its code; the files are an index, never the
    spine ([Review Tour](../../spec/branch/review-tour.spec.md)). The body is written for it: a lead that says the new
@@ -60,6 +62,12 @@ flowchart LR
   R[commits of the range] --> P[review plan<br/>crates/review-plan]
   P --> F[facts per file<br/>links, mechanical, generated,<br/>repeated edit, breaks, untested]
   P --> A[API changes<br/>with uses left outside]
+  P --> M[modules<br/>at the head reviewed]
+  P --> G[registrations<br/>from accio]
+  M --> K
+  G --> K
+  M --> W[groups of a large step]
+  W --> T
   P --> U[units<br/>every block in one]
   U --> C[concerns<br/>units joined by evidence]
   C --> S[story<br/>order of the diffs]
@@ -70,9 +78,12 @@ flowchart LR
 ```
 
 The plan is computed in Rust once for `brd` and the app, from the git processes the review reads already (its
-budget is a test, `process_budget_test.rs`). The window only words it: one document, the overview at its top
-(`ReviewPrologue.tsx`, `presentPrologue`) and the opening of each step above its first card (`ChapterOpening.tsx`,
-`presentOpenings`), the one mark of a row and its card (`FileRowMark.tsx`, `presentRowFacts`) and the groups of the
+budget is a test, `process_budget_test.rs`), and the registrations from accio (`accio parse --descriptor --resolve
+--ref`). The window only words it: one document, the overview at its top (`ReviewPrologue.tsx`, `presentPrologue`)
+opening on the map (`ReviewMap.tsx`, `presentMap`: the modules, what each registers, the contract in one line, the
+API) and the opening of each step above its first card (`ChapterOpening.tsx`, `presentOpenings`, its contract folded
+past 8 blocks), the divider of each group of a large step (`groupHeadings`) and the bar above the diffs with the group
+of the reader and its part seen, the one mark of a row and its card (`FileRowMark.tsx`, `presentRowFacts`) and the groups of the
 tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns are the next part
 ([Next](#next)).
 
@@ -279,6 +290,36 @@ the review.
    branch of an open window is left to it: a window that joined a reading at nice 19 would wait for the plan on screen
    as long as the machine is busy, and a process cannot take its niceness back
    ([Prefetch after a rewrite](#prefetch-after-a-rewrite)).
+18. **Three levels, each with its budget** (2026-11-08). On idea-1 IJAI-5083 (pull request #1512, 141 files) the
+   reviewer read eight screens before the first diff: the description flattened, every rule of four specs whole, a
+   table of a doc as pipes, 38 pairs of files, two "possible breaks" that were widenings. Every fact was there, each at
+   its full detail at the top. The review now has three levels: the map (one screen: the shape, the contract in one
+   line, what can break, the steps and their leads), the opening of a step or a group (its words, its contract, folded
+   past 8 blocks, its facts), and the code. What a level has no room for folds with a count and a name, never silently.
+   This narrows decision 13 ("nothing is muted of the author's words"): the words stay, each on its level, and the
+   description of a pull request is whole on its Overview tab.
+19. **A module is a fact of the plan, at the head reviewed** (2026-11-08). The new module of #1512 (69 files) showed
+   as one line of a generated list and a badge inside the folded build files, while the plan knew it
+   (`dependencies[kind=newModule]`). The module of every file is the nearest build file above it at the head reviewed:
+   `ModuleRoots` read the checkout's HEAD, which a pull request is not, so the files of its new module fell into the
+   module above. The plan names each module added, changed or deleted, its files by role, its lines, its folders below
+   the packages its files share, the modules it newly uses and the plugins that hold it; a list of module directories
+   whose every changed line names the new module is that module's wiring, at the end of its step.
+20. **A large step reads as its groups** (2026-11-08). Step 1 of #1512 was one commit of 125 files and 232 stops, a
+   flat list of names; its concerns joined 114 parts by the token `playbackState`. The groups of a step are a reading
+   order, never a task: the contract first, a group per module in the order of their uses (a module another newly uses
+   first), its tests at its end, a small module in the group of the module that uses it, the mechanical stops last; of
+   one module of more than 25 files its folders. A step of the concerns keeps its evidence. The tree, the dividers of
+   the diffs and the bar above them tell the same groups, with the part of each the reader saw.
+21. **Markdown is Markdown** (2026-11-08). The window read GitHub's plain `bodyText`, so a description's headings ran
+   into its sentences and its tables into lines; the brief quoted front matter and `refs:` lines as rules. The body is
+   GitHub's Markdown, read by the one grammar of a body, which has tables; front matter, thematic breaks and lines of
+   metadata are no prose, a table is a row per paragraph under its header.
+22. **A break is a break** (2026-11-08). The two entries of Possible Breakage of #1512 opened `internal` and `private`
+   functions to public, and their forms before and after read the same because the header had no reach. A change of
+   the reach alone to a wider one, of a declaration no subtype may override, breaks no use: an addition, `widened`,
+   "Opens wider"; the forms write the reach as the language does; "No use left outside breaks" stands only on Rust's
+   verdict, muted, and why accio did not answer is one line above the map, since without it the whole review is less.
 23. **How a change plugs in is a fact of the plan** (2026-11-08). On #1512 the review could not tell that the change
    adds two application services, a registry key and a content module: they sat in descriptors folded as build files,
    and the plan read only the dependencies of a descriptor. A reader of registrations here would be a second parser
@@ -309,6 +350,7 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 | 2026-11-03 | idea-1 `terminal-split-url`, the opening of step 2 | "No test reaches" named the four data-class fields the step adds, which four test files of the change read; `tests --at` of a primary-constructor `val` answers `unavailable` (JetBrains/accio#189), `references --at` complete with no hit (#215) | an answer accio could not give read as "none" | a place accio finds no declaration at is neither reached nor unreached, its usages unknown (this change); the proof of a step by the change's own tests waits for accio (#212, #213, #214) |
 | 2026-11-04 | the same, the openings of its steps | step 2 named 55 declarations and "215 existing tests" through hubs; the core of the fix, a new file, had no fact; its new test file counted as tests it did not touch | a walk of reachability shown as the proof of a step; a new file no code and no test of the change | the opening names the test files of the change (step 2: three), counts only the tests it did not touch that call the code, names no code a cut walk left unknown, asks a new file's declarations; the step of the tests proves step 2 (this change) |
 | 2026-11-06 | the same | the proof of a step was the tests of the repository within 3 calls: the joiner's 97 tests of the change, 23 of them end to end, were not seen past the depth | reachability shown as the proof of a step | the step asks accio with the test files of the change given, at any depth, each test with its way; untouched tests and the depth went (decision 16, this change) |
+| 2026-11-08 | idea-1 IJAI-5083, pull request #1512, 2 commits, 141 files, in the app through Peekaboo | eight screens of prose before the first diff; the new module `view.gui.media` (69 files) visible only as a line of `bazel-generated-file-list.txt` and a badge in "Build files (11)"; step 1 a flat list of 125 names; 38 pairs of files as "New links between modules"; two widenings as Possible Breakage, their forms alike; "Adds window, windows, `…`" of test names; the description flattened; two application services and a registry key nowhere | full detail at the top; the shape and the plugging in of a change no fact of the plan | the map, the modules at the head reviewed, the groups of a large step, the module edges, widenings as additions, the Markdown body, the registrations from accio (decisions 18–23, this round) |
 | 2026-11-08 | idea-1 IJAI-5083, pull request #1512, 2 commits, 141 files | What Changes was a wall of text: the front matter of a spec (`---`, `targets:`, `- ../../path.kt`) quoted as a rule, its `---` visible; a map of the specs that own a topic, a table of a doc with one added row, quoted as one paragraph of pipes; a line `refs: flow:x, spec:y, flag:z` quoted whole for one added reference; whole paragraphs where one sentence changed | metadata and tables read as prose; a whole paragraph shown for one sentence of it | the front matter no part of a block, a thematic break and a line of metadata no paragraph, a table a paragraph per row under its header (none of a doc), the filter of prose for every kind of file, the excerpt of every changed paragraph of two sentences or more ([Review Tour → Brief](../../spec/branch/review-tour.spec.md#brief), this change) |
 
 ## Measurements
@@ -335,6 +377,12 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
 - Mark a reviewer's part, never filter to it: a filter by owner or path cuts the declarations and the uses around the
   part, and an approval of a part read without its context approves less than it seems. Mute the rest and let the
   keys skip it.
+- Show the shape before the words: which modules a change adds and changes, how large each part is and how it plugs
+  into the platform. A reviewer who meets the author's prose first cannot place it; one who meets the shape reads the
+  prose as the story of parts already seen.
+- Give each level a budget and fold past it with a count: a fact at its full detail at the top of a review hides the
+  others as surely as a missing one.
+- A widening of a declaration breaks no use; listing it as a possible break teaches the reviewer to skip the list.
 - One spine: a list of commits beside a list of steps makes the reviewer join them in the head. Put each commit in
   the step it tells or follows up, and the commits and the story are one list.
 
