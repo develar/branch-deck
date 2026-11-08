@@ -44,6 +44,7 @@ fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly
         "<idea-plugin>\n  <id>com.example.app</id>\n  <content>\n    <module name=\"intellij.gui\"/>\n  </content>\n</idea-plugin>\n",
       ),
       ("build/module-list.txt", "gui\nplugin\n"),
+      ("plugin/intellij.app.dev-plan.json", "[\n  {\n    \"module\": \"intellij.gui\"\n  }\n]\n"),
     ],
   );
   let head = repo.create_commit_with_files(
@@ -61,6 +62,10 @@ fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly
         "<idea-plugin>\n  <id>com.example.app</id>\n  <content>\n    <module name=\"intellij.gui\"/>\n    <module name=\"intellij.gui.media\"/>\n  </content>\n</idea-plugin>\n",
       ),
       ("build/module-list.txt", "gui\ngui/media\nplugin\n"),
+      (
+        "plugin/intellij.app.dev-plan.json",
+        "[\n  {\n    \"module\": \"intellij.gui\"\n  },\n  {\n    \"module\": \"intellij.gui.media\"\n  }\n]\n",
+      ),
     ],
   );
   let plan = plan_of_range(&repo, &base, &head);
@@ -105,11 +110,15 @@ fn a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly
       ("gui/media/src/b/ui/Seek.kt", "gui/media"),
       ("gui/media/testSrc/b/PlayerTest.kt", "gui/media"),
       ("gui/src/a/Box.kt", "gui"),
+      ("plugin/intellij.app.dev-plan.json", "(root)"),
       ("plugin/resources/META-INF/plugin.xml", "(root)"),
     ]
   );
-  let list = plan.files.iter().find(|facts| facts.path == "build/module-list.txt").unwrap();
-  assert_eq!(list.mechanical, Some(MechanicalKind::ModuleList));
+  // a list of directories, and a JSON list of module names whose other lines are the punctuation of its entries
+  for path in ["build/module-list.txt", "plugin/intellij.app.dev-plan.json"] {
+    let list = plan.files.iter().find(|facts| facts.path == path).unwrap();
+    assert_eq!(list.mechanical, Some(MechanicalKind::ModuleList), "{path}");
+  }
 }
 
 /// A list that adds a line naming no module the commits add or delete is real work, and so is one whose module came

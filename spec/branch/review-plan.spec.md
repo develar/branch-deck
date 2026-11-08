@@ -435,9 +435,11 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_and_the_build_model_are_mechanical_a_deletion_is_not`)
 - A file of no language and of no module itself must be `moduleList` when every line the commits add or remove (one
   at least) names whole a module they add or delete: the directory of its build file or the name of its `*.iml`, no
-  character of a name right before or after it. It is the wiring of that module (a generated list of the module
-  directories, as `build/bazel-generated-file-list.txt` of a large monorepo), not the first thing of its step; a line
-  that names a module the change did not add keeps the file real work.
+  character of a name right before or after it; a line of punctuation alone (`{`, `},` of a JSON list) frames an
+  entry, as a blank line, and names nothing. It is the wiring of that module (a generated list of the module
+  directories, as `build/bazel-generated-file-list.txt` of a large monorepo, a list of module names, as a
+  `*.dev-plan.json`), not the first thing of its step; a line that names a module the change did not add keeps the
+  file real work.
   [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`, `a_list_that_names_no_module_the_commits_add_is_real_work`)
 - A file the commits delete must stay real work: the deletion is a decision of its author, as a new file is, and the
   same change as the edits of the other files it goes with (a server dropped from five configs, and from the sixth

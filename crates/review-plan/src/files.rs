@@ -156,7 +156,12 @@ fn is_module_list(file: &ChangedFile<'_>, texts: &HashMap<String, String>, marke
       return false;
     }
     let Some(hunks) = hunk_lines(change, texts) else { return false };
-    for line in hunks.iter().flat_map(|hunk| hunk.removed.iter().chain(&hunk.added)).filter(|line| !line.trim().is_empty()) {
+    // a line of punctuation alone (`{`, `},` of a JSON list) is the frame of an entry, as a blank line is
+    for line in hunks
+      .iter()
+      .flat_map(|hunk| hunk.removed.iter().chain(&hunk.added))
+      .filter(|line| line.chars().any(char::is_alphanumeric))
+    {
       if !markers.iter().any(|marker| names_whole(line, marker)) {
         return false;
       }
