@@ -436,7 +436,9 @@ it added a module.
   only step is what no evidence joined, or one concern that covers it, lists no step, and its facts are the facts of the range. Then Possible
   Breakage (the uses left outside right after the name of an entry) and Since your review ([Review
   Plan](review-plan.spec.md#requirements)); why the uses are unknown is folded under Possible Breakage when it lists an
-  entry, else one muted line ("Uses unknown: no index of this repository"). The document is one reading column in the
+  entry; why accio did not answer is one line in the warning tone above the map, Rust's note and what it costs ("accio has no
+  index of this repository · the uses left outside and the tests of the steps are unknown"): without accio the review knows no use left outside and no test of a step, so the whole review is less,
+  not one entry of it. The document is one reading column in the
   middle of its island (`ReadingColumn`: `max-w-measure`, 65ch of `text-md`, its lines wrapped to avoid a short last
   one), every block ending at its edge and none setting a width of its own; the number of a step hangs in the gutter,
   so its title and its lead stand at that edge. The type of the document is one scale: its prose `text-md`, its

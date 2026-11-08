@@ -646,10 +646,11 @@ export interface PrologueView {
    */
   readonly since: { readonly summary: string; readonly rewritten: readonly SinceCommit[] } | null
   /**
-   * Why the uses are unknown ("no index of this repository"): folded under Possible Breakage when it lists an entry,
-   * else one muted line of its own ("Uses unknown: no index of this repository")
+   * Why accio did not answer, one line above the map ("accio has no index of this repository"): without it the
+   * review knows no use left outside and no test of a step, so the whole review is less, not one entry of it; null when
+   * it answered
    */
-  readonly indexNote: { readonly text: string; readonly underBreakage: boolean } | null
+  readonly indexNote: string | null
 }
 
 const CONTRACT_WORDS: Readonly<Record<ContractKind, string>> = {
@@ -739,8 +740,8 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
                 message: commit.messageChange,
               })),
           },
-    // folded under Possible Breakage where the overview lists an entry of it, the uses it tells of
-    indexNote: plan.indexNote === null ? null : { text: `Uses unknown: ${plan.indexNote}`, underBreakage: breakage.entries.length > 0 },
+    // Rust's note names accio and says why ("accio has no index of this repository"); the line adds what it costs
+    indexNote: plan.indexNote,
   }
 }
 

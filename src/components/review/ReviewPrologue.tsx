@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
+import { TriangleAlertIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitCard } from "@/components/commit/CommitCard"
@@ -89,6 +90,16 @@ export function ReviewPrologue({
           <span className="font-medium">{view.untold.subject}</span>
           <StoryBody story={view.untold.story} />
         </div>
+      )}
+      {view?.indexNote != null && (
+        // the review without accio knows no use left outside and no test of a step: said once, above the map
+        <p className="flex items-start gap-2 text-sm text-warning" role="status" data-testid="review-plan-index-note">
+          <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0">
+            {view.indexNote}
+            <span className="text-muted-foreground"> · the uses left outside and the tests of the steps are unknown</span>
+          </span>
+        </p>
       )}
       {view !== null && <ReviewMap view={view.map} />}
       {view !== null && <PrologueSections view={view} />}
@@ -198,7 +209,7 @@ function PrologueSections({ view }: { view: PrologueView }) {
   const { breakage, since } = view
   return (
     <>
-      {(breakage.entries.length > 0 || breakage.unbroken !== null || view.indexNote?.underBreakage === true) && (
+      {(breakage.entries.length > 0 || breakage.unbroken !== null) && (
         <div className="flex flex-col gap-1.5" data-testid="review-plan-breakage">
           {breakage.entries.length > 0 && (
             <>
@@ -229,11 +240,6 @@ function PrologueSections({ view }: { view: PrologueView }) {
               </ul>
             </Disclosure>
           )}
-          {view.indexNote?.underBreakage === true && (
-            <Disclosure tone="muted" title="Why the uses are unknown" testId="review-plan-index-note" className="text-xs font-medium">
-              <p className="font-normal text-muted-foreground">{view.indexNote.text}</p>
-            </Disclosure>
-          )}
         </div>
       )}
       {view.steps.length > 0 && (
@@ -255,11 +261,6 @@ function PrologueSections({ view }: { view: PrologueView }) {
         </div>
       )}
       {view.facts !== null && <StepFactsLine facts={view.facts} testId="review-overview-facts" lines />}
-      {view.indexNote !== null && !view.indexNote.underBreakage && (
-        <p className="text-xs text-muted-foreground" data-testid="review-plan-index-note">
-          {view.indexNote.text}
-        </p>
-      )}
       <ContractList contract={view.contract} substitutions={view.substitutions} title={view.contract.length === 0 ? null : "What Changes"} />
       {since !== null && (
         <div className="flex flex-col gap-0.5" data-testid="review-plan-since">

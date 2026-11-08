@@ -302,7 +302,11 @@ test.describe("The review plan in the branch review", () => {
     await expect(review.getByTestId("commit-review")).toBeVisible()
   })
 
-  test("should keep an API whose uses are unknown under Possible breakage, and say why", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep an API whose uses are unknown under Possible breakage, and say once above the map why accio did not answer", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRepo("symbol_navigation")
     await setupPlan(repo, { experimental: true })
     // every query of the index fails: the uses are unknown, never a safe 0
@@ -315,12 +319,10 @@ test.describe("The review plan in the branch review", () => {
     await expect(helper).toHaveAttribute("data-name", "helper")
     await expect(helper.getByTestId("review-plan-outside")).toHaveText("The uses are unknown")
     await expect(overview.getByTestId("review-plan-unbroken")).toHaveCount(0)
-    // why, folded under it
-    const note = overview.getByTestId("review-plan-index-note")
-    const reason = note.getByText(/^Uses unknown: /)
-    await expect(reason).toBeHidden()
-    await note.getByRole("button", { name: "Why the uses are unknown" }).click()
-    await expect(reason).toBeVisible()
+    // why, once above the map: the whole review is less without accio, not one entry of it
+    await expect(overview.getByTestId("review-plan-index-note")).toHaveText(
+      "accio did not answer: no index of the repository · the uses left outside and the tests of the steps are unknown",
+    )
     // a lower bound at 0: a quiet mark, never a safe one
     const { store } = planRows(window)
     await expect(store.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")

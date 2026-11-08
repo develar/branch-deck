@@ -729,8 +729,7 @@ and what each newly uses. The review opens on it ([Review Tour](review-tour.spec
   and the messages while the diffs are read. While the plan is read it says "Reading the review plan…", while Rust asks
   the index "Finding the uses left outside…", and "Cannot read the review plan: …" when the read failed, in the review
   of a pull request too: no overview that looks whole and then moves as the plan comes. After the
-  steps, "Possible Breakage" in the warning tone, the `index_note` folded under it ("Why the uses are unknown") when
-  the usages are missing, then "Since your review" as before (a rewritten commit with the lines per path it changes against its reviewed version).
+  steps, "Possible Breakage" in the warning tone, then "Since your review" as before (a rewritten commit with the lines per path it changes against its reviewed version).
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`)
@@ -774,7 +773,7 @@ and what each newly uses. The review opens on it ([Review Tour](review-tour.spec
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration`)
   [@test] ../../src/presenters/review-plan.test.ts (`folds a widening with what breaks nothing, and leads the line with the verdict when no use left outside breaks`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say once above the map why accio did not answer`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API none of whose uses left outside breaks, and keeps an unknown, incomplete or by-name count listed, also at 0`)
 - A click on a site of the uses left outside must open its file at the head of the review over the diffs, as Go to
@@ -844,7 +843,7 @@ and what each newly uses. The review opens on it ([Review Tour](review-tour.spec
   left outside the change: the search stopped early"), or a quiet `breaks ?` at 0, whose mark is muted: a lower bound
   never reads as safe. A row has no `no test`: the tests that name the code of a change are those of its step
   ([Review Tour](review-tour.spec.md#tests-that-name-it)); `untested` stays in `brd review-plan`.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`, `should keep an API whose uses are unknown under Possible breakage, and say why`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`, `should keep an API whose uses are unknown under Possible breakage, and say once above the map why accio did not answer`)
   [@test] ../../src/presenters/review-plan.test.ts (`says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0`, `lists no file without a badge`)
 - The card of a file of a repeated edit must say `Same edit ×N`, name the edit (the first line removed and the first
   added, `a → b`) and list the other files of the group; a click selects one.
