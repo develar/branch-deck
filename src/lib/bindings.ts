@@ -794,11 +794,16 @@ export type ApiChange = {
 	/**  Namespace, containers and name: what identifies it across the commits */
 	key: string,
 	kind: ApiChangeKind,
+	/**
+	 *  An addition that opens the reach of a declaration no subtype may override wider (`widens`): its form is the same
+	 *  but for the reach, `before` holds the one it had, and no use of it can break
+	 */
+	widened: boolean,
 	/**  The parts of its form that changed, of a change only */
 	changes: FormChange[],
 	/**
-	 *  Its form before the commits, of a change or a removal: the header with the parameters after the name, or the
-	 *  constructors of a type
+	 *  Its form before the commits, of a change, a removal or a widening: the header with the parameters after the name,
+	 *  or the constructors of a type
 	 */
 	before: string | null,
 	/**  Its form after the commits, of a change or an addition */
@@ -816,7 +821,7 @@ export type ApiChangeKind =
 "removed" | 
 /**  Its form changed: a use may need to change */
 "changed" | 
-/**  New, or a new overload */
+/**  New, or a new overload, or opened wider (`ApiChange::widened`) */
 "added";
 
 /**
@@ -1323,6 +1328,17 @@ export type BranchView = {
 	 */
 	structure: BranchStructure,
 };
+
+/**  Whether a use left outside the change breaks, over the removed and changed entries of the API (`verdict_of`) */
+export type BreakVerdict = 
+/**  An entry has a use left outside that can break */
+"breaks" | 
+/**  Every removed and changed entry is `unbroken`, also when there is none: an addition and a widening break no use */
+"noUseBreaks" | 
+/**  None is known to break, and the uses of an entry are unknown, cut at the limit of the index or tied by the name alone */
+"unknown" | 
+/**  The index is asked: the plan with the usages follows */
+"pending";
 
 /**  Result of browsing for a repository */
 export type BrowseResult = {
@@ -6786,6 +6802,11 @@ export type ReviewPlan = {
 	 */
 	api: ApiChange[],
 	/**
+	 *  Whether a use left outside the change breaks, over the removed and changed entries of `api` (`fan_in::verdict_of`);
+	 *  `Pending` in the plan sent while the index is asked
+	 */
+	verdict: BreakVerdict,
+	/**
 	 *  Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
 	 *  the most `breaks` first, then the `untested` ones, then in tree order
 	 */
@@ -7078,9 +7099,9 @@ export type ReviewStep = {
 	 */
 	proves: number[],
 	/**
-	 *  The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
-	 *  first step whose stops show it; one a stop of another step shows beside its own (`StepStop::joined`) in the step
-	 *  that wrote it
+	 *  The public declarations it adds or opens wider, by the `key` of their entry of `ReviewPlan::api` (kind `added`, a
+	 *  `widened` one too), each in the first step whose stops show it; one a stop of another step shows beside its own
+	 *  (`StepStop::joined`) in the step that wrote it
 	 */
 	newApi: string[],
 	/**

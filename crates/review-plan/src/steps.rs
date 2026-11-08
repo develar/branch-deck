@@ -181,9 +181,9 @@ pub struct ReviewStep {
   /// The other steps whose code the tests of its units reach (`add_tests`), by their place in `ReviewSteps::steps`:
   /// "Proves step 2"
   pub proves: Vec<u32>,
-  /// The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
-  /// first step whose stops show it; one a stop of another step shows beside its own (`StepStop::joined`) in the step
-  /// that wrote it
+  /// The public declarations it adds or opens wider, by the `key` of their entry of `ReviewPlan::api` (kind `added`, a
+  /// `widened` one too), each in the first step whose stops show it; one a stop of another step shows beside its own
+  /// (`StepStop::joined`) in the step that wrote it
   pub new_api: Vec<String>,
   /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
   /// step whose stop shows the first use, each in one step

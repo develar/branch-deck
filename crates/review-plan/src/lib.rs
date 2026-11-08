@@ -44,11 +44,11 @@ pub mod steps;
 pub mod story;
 pub mod units;
 
-use crate::api::{ApiChange, ApiChangeKind, api_changes};
+use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, api_changes};
 use crate::brief::{ReviewBrief, review_brief};
 use crate::concerns::{Concern, ConcernEdges, review_concerns};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
-use crate::fan_in::add_usages;
+use crate::fan_in::{add_usages, verdict_of};
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
 use crate::interdiff::{Interdiff, MessageChange, PairState, commits_of, interdiff, message_change};
 use crate::links::{FileLink, link_files};
@@ -146,6 +146,9 @@ pub struct ReviewPlan {
   /// The public declarations the reviewed commits add, remove or change (`reviewed_commits`), the most usages left
   /// outside the change first
   pub api: Vec<ApiChange>,
+  /// Whether a use left outside the change breaks, over the removed and changed entries of `api` (`fan_in::verdict_of`);
+  /// `Pending` in the plan sent while the index is asked
+  pub verdict: BreakVerdict,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too, none added and deleted again):
   /// the most `breaks` first, then the `untested` ones, then in tree order
   pub files: Vec<FileFacts>,
@@ -479,6 +482,7 @@ pub fn review_plan_of(
     head,
     interdiff,
     api: Vec::new(),
+    verdict: BreakVerdict::Pending,
     files: Vec::new(),
     links,
     dependencies,
@@ -506,6 +510,7 @@ pub fn review_plan_of(
   });
   plan.index_note = usages?.or(tests?);
   (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
+  plan.verdict = verdict_of(&api);
   plan.api = api;
   Ok(plan)
 }

@@ -14,6 +14,7 @@ import type {
   StoryPlace,
   StepTest,
 } from "@/lib/bindings"
+import { joinNames } from "@/lib/text"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
@@ -328,6 +329,7 @@ describe("the document of a review", () => {
       name,
       key: `a.${name}`,
       kind: "added",
+      widened: false,
       changes: [],
       before: null,
       after: null,
@@ -360,6 +362,14 @@ describe("the document of a review", () => {
       "rightEdge",
       "Cache",
     ])
+    // a declaration opened wider is no new API: it opens wider, at its declaration, and breaks no use
+    const widened = { ...added("mediaDuration"), widened: true, before: "internal fun mediaDuration(millis: Long): String" }
+    const widening = { ...rule, newApi: [widened.key, "a.Cache"] }
+    const wider = presentStepFacts(widening, { ...plan([widening], []), api: [widened, added("Cache")] })
+    expect([wider.newApi.places.map(it => it.label), wider.opensWider.places]).toEqual([
+      ["Cache"],
+      [{ key: "a.mediaDuration:src/a/mediaDuration.kt:3", label: "mediaDuration", place: { path: "src/a/mediaDuration.kt", side: "new", line: 3, name: "mediaDuration" } }],
+    ])
     // a step none of whose code lands names the commit that took it out, which shows its step
     const tookOut = presentStepFacts(
       step("d", [commit("the try")], [], {}, { takenOutBy: "the paint" }),
@@ -368,16 +378,16 @@ describe("the document of a review", () => {
     // by its step, the title of the commit in the hover: a subject inside the sentence would not read
     expect([tookOut.line, tookOut.takenOutBy]).toEqual([null, { words: "step 1", title: "the paint", step: "b" }])
     // a step whose units another step's section shows lands them there: it says what it does to them and where
-    const unitOf = (id: string, kind: ReviewUnit["kind"], name: string): ReviewUnit => ({
+    const unitOf = (id: string, kind: ReviewUnit["kind"], name: string, test = false): ReviewUnit => ({
       id,
       kind,
       name,
       key: name,
       signature: "",
       api: false,
-      test: false,
+      test,
       line: 3,
-      slices: [],
+      slices: [{ path: "src/Manager.kt", oldPath: null, whole: false, blocks: [], fingerprint: id }],
       fingerprint: id,
     })
     const shown = presentStepFacts(
@@ -391,20 +401,35 @@ describe("the document of a review", () => {
             { unit: "u:hooks", step: 1 },
             { unit: "u:flags", step: 1 },
             { unit: "u:passes", step: 0 },
+            { unit: "u:opens", step: 0 },
+            { unit: "u:focuses", step: 0 },
           ],
         },
       ),
       plan([step("h", [commit("drop the hooks")], []), step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]])], [], {
-        units: [unitOf("u:hooks", { kind: "removed" }, "hooks"), unitOf("u:flags", { kind: "removed" }, "flags"), unitOf("u:passes", { kind: "added" }, "passes")],
+        units: [
+          unitOf("u:hooks", { kind: "removed" }, "hooks"),
+          unitOf("u:flags", { kind: "removed" }, "flags"),
+          unitOf("u:passes", { kind: "added" }, "passes"),
+          unitOf("u:opens", { kind: "added" }, "the open shows the stored layout", true),
+          unitOf("u:focuses", { kind: "removed" }, "the welcome focuses its project", true),
+        ],
       }),
     )
-    expect([shown.line, shown.shownElsewhere.map(it => [`${it.words} ${it.step}`, it.stepId])]).toEqual([
+    // each name at its place, a removed one before the commits; a test, named by a sentence, unnamed and counted
+    const shownWords = shown.shownElsewhere.map(it => {
+      const words = [...it.names.places.map(name => name.label), ...(it.tests === null ? [] : [it.tests])]
+      return [`${it.verb} ${joinNames(words)}, shown in ${it.step}`, it.stepId]
+    })
+    expect([shown.line, shownWords]).toEqual([
       null,
       [
         ["Removes hooks and flags, shown in step 2", "b"],
-        ["Adds passes, shown in step 1", "h"],
+        ["Adds passes and a test, shown in step 1", "h"],
+        ["Removes a test, shown in step 1", "h"],
       ],
     ])
+    expect(shown.shownElsewhere[0]!.names.places[0]).toEqual({ key: "u:hooks", label: "hooks", place: { path: "src/Manager.kt", side: "old", line: 3, name: "hooks" } })
     // where the author asks the reviewer to decide, in the contents too: its question alone, the opening tells the rest
     expect(view.steps[0]!.lookClosely.map(({ part }) => [part.head?.block.type === "label" && part.head.block.text, part.blocks.map(it => it.block)])).toEqual([
       ["Look closely", [paragraph("Is a stored layout enough?")]],
@@ -630,8 +655,8 @@ describe("the document of a review", () => {
         {
           brief: { issue: "IJAI-1", substitutions: [], contract: [] },
           api: [
-            { path: "src/a/Cache.kt", line: 3, name: "Cache", key: "a.Cache", kind: "added", changes: [], before: null, after: "class Cache", usages: null },
-            { path: "src/a/Store.kt", line: 4, name: "Store", key: "a.Store", kind: "changed", changes: [], before: null, after: null, usages: null },
+            { path: "src/a/Cache.kt", line: 3, name: "Cache", key: "a.Cache", kind: "added", widened: false, changes: [], before: null, after: "class Cache", usages: null },
+            { path: "src/a/Store.kt", line: 4, name: "Store", key: "a.Store", kind: "changed", widened: false, changes: [], before: null, after: null, usages: null },
           ],
           links: [{ from: "src/a/Reader.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 3 }], state: "added", crossModule: true, newBetweenModules: true }],
         },

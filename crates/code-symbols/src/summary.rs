@@ -203,6 +203,26 @@ pub enum Reach {
   Container,
 }
 
+impl Reach {
+  /// Whether more code may name a declaration of this reach than one of `other`, each reach holding the one before it:
+  /// `Container` (a private member), `File` (private at the top level of a file or of a Rust module file), `Parent`
+  /// (Rust `pub(super)`), `Module` (Kotlin `internal`, Rust `pub(crate)`, Java's package), `Public`
+  pub const fn wider_than(self, other: Self) -> bool {
+    self.rank() > other.rank()
+  }
+
+  /// The place of the reach in the order of `wider_than`, from the narrowest
+  const fn rank(self) -> u8 {
+    match self {
+      Self::Container => 0,
+      Self::File => 1,
+      Self::Parent => 2,
+      Self::Module => 3,
+      Self::Public => 4,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MemberKind {
   TopLevel,

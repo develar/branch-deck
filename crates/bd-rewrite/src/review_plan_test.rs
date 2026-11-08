@@ -126,7 +126,7 @@ fn a_branch_never_marked_and_a_range_have_no_interdiff() {
 }
 
 /// A range that changes the parameters of a public Kotlin function and adds an untested file: `api` with the forms
-/// before and after, the facts per file, the steps of its story with their coverage and its brief, the story of its
+/// before and after and the `verdict` over its usages, the facts per file, the steps of its story with their coverage and its brief, the story of its
 /// commit with the code names its body resolves and the one it does not, and why there are no usages (accio missing
 /// here, or without an index of the test repository)
 #[test_log::test]
@@ -146,7 +146,7 @@ fn prints_the_api_and_the_files_of_a_range() {
 
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["schema"], json!(19), "{output}");
+  assert_eq!(output["schema"], json!(20), "{output}");
   assert_eq!(
     (&output["api"], &output["files"]),
     (
@@ -155,6 +155,7 @@ fn prints_the_api_and_the_files_of_a_range() {
         "line": 3,
         "name": "open",
         "kind": "changed",
+        "widened": false,
         "changes": ["parameters"],
         "before": "fun open(path: String): Int",
         "after": "fun open(path: String, mode: Int): Int",
@@ -166,6 +167,8 @@ fn prints_the_api_and_the_files_of_a_range() {
       ])
     )
   );
+  // the uses of the changed `open` are unknown, so is whether one left outside breaks
+  assert_eq!(output["verdict"], json!("unknown"), "{output}");
   // the units: the change of the form of `open`, then the new file, each with its block and lines from 1
   let units: Vec<(&Value, &Value, &Value, &Value)> = output["units"]
     .as_array()

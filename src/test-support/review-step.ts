@@ -35,6 +35,7 @@ export function reviewPlan(more: Partial<ReviewPlan> = {}): ReviewPlan {
     head: "2222222222",
     interdiff: null,
     api: [],
+    verdict: "noUseBreaks",
     files: [],
     links: [],
     dependencies: [],

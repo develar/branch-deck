@@ -20,7 +20,7 @@ function paired(state: PairedCommit["state"], id: string): PairedCommit {
 }
 
 function change(patch: Partial<ApiChange>): ApiChange {
-  return { path: "src/Store.kt", line: 34, name: "helper", key: "helper", kind: "changed", changes: [], before: null, after: null, usages: null, ...patch }
+  return { path: "src/Store.kt", line: 34, name: "helper", key: "helper", kind: "changed", widened: false, changes: [], before: null, after: null, usages: null, ...patch }
 }
 
 function usages(inside: number, outside: number): Usages {
@@ -128,6 +128,7 @@ describe("the possible breakage of the overview", () => {
         change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: "class Cache" }),
       ],
       false,
+      "breaks",
     )
     expect(unbroken).toBeNull()
     expect(entries.map(({ key: _key, ...entry }) => entry)).toEqual([
@@ -188,6 +189,7 @@ describe("the possible breakage of the overview", () => {
         change({ name: "policy", key: "policy", changes: ["constructors"], usages: { ...usages(0, 0), stillBound: 4 } }),
       ],
       false,
+      "breaks",
     )
     expect(entries.map(entry => [entry.name, entry.outside, entry.byName])).toEqual([
       ["unknown", "The uses are unknown", null],
@@ -199,11 +201,33 @@ describe("the possible breakage of the overview", () => {
       ["renamed", "3 uses updated in this change", null],
       ["policy", null, "4 calls left outside still fit the new form"],
     ])
-    expect(presentBreakage([change({ usages: usages(1, 0) })], false).unbroken?.label).toBe("1 API change, no use left outside breaks")
+    expect(presentBreakage([change({ usages: usages(1, 0) })], false, "breaks").unbroken?.label).toBe("1 API change, no use left outside breaks")
+  })
+
+  it("folds a widening with what breaks nothing, and leads the line with the verdict when no use left outside breaks", () => {
+    const widened = change({
+      name: "mediaDuration",
+      key: "mediaDuration",
+      kind: "added",
+      widened: true,
+      before: "internal fun mediaDuration(millis: Long): String",
+      after: "fun mediaDuration(millis: Long): String",
+    })
+    const added = change({ name: "Cache", key: "Cache", kind: "added", after: "Cache()" })
+    const { entries, unbroken } = presentBreakage([widened, added, change({ name: "open", key: "open", usages: usages(2, 0) })], false, "noUseBreaks")
+    expect(entries).toEqual([])
+    expect(unbroken?.label).toBe("No use left outside breaks · 2 API changes")
+    expect(unbroken?.entries.map(entry => [entry.kind, entry.tone, entry.name, entry.before, entry.after])).toEqual([
+      ["Opens wider", "secondary", "mediaDuration", "internal fun mediaDuration(millis: Long): String", "fun mediaDuration(millis: Long): String"],
+      ["Changed", "warning", "open", null, null],
+    ])
+    // the uses of another entry unknown: it is listed, the widening still folded, never a safe verdict
+    const unknown = presentBreakage([widened, change({ name: "open", key: "open", usages: null })], false, "unknown")
+    expect([unknown.entries.map(entry => entry.name), unknown.unbroken?.label]).toEqual([["open"], "1 API change, no use left outside breaks"])
   })
 
   it("says the uses are being found while Rust asks the index", () => {
-    const { entries } = presentBreakage([change({ name: "open", key: "open", usages: null })], true)
+    const { entries } = presentBreakage([change({ name: "open", key: "open", usages: null })], true, "pending")
     expect(entries.map(entry => entry.outside)).toEqual(["Finding the uses…"])
   })
 })

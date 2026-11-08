@@ -149,7 +149,18 @@ describe("the uses a change left outside in the story", () => {
       complete: true,
       unbroken: false,
     }
-    const change: ApiChange = { path: "src/Api.kt", line: 3, name: "open", key: "open", kind: "changed", changes: ["parameters"], before: null, after: null, usages }
+    const change: ApiChange = {
+      path: "src/Api.kt",
+      line: 3,
+      name: "open",
+      key: "open",
+      kind: "changed",
+      widened: false,
+      changes: ["parameters"],
+      before: null,
+      after: null,
+      usages,
+    }
     const units = [unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(0, 3)] }])]
     const sections = presentNarrative(units, [file("src/Api.kt", [3])], [change], [], [])
     expect(sections.map(section => section.key)).toEqual(["file:src/Api.kt", ...[1, 2, 3, 4, 5].map(line => `ghost:shape:open:src/Use.kt:${line}`)])

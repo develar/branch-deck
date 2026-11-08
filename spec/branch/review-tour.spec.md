@@ -317,7 +317,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_long_paragraph_changed_in_one_sentence_shows_it_first`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 19`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 20`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -350,8 +350,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   files of the tests of the change that reach its code ("Tested by ManagerTest.kt", each showing its first test, its
   tests in its hover; the opening tells the rest), the code no test of the change reaches beside a scenario ("No test
   of the change reaches load"),
-  "Proven by …", "New API: Cache and Reader", "New link between modules: Reader.kt → Cache.kt", each name showing its
-  place; a step accio answered for whose code no test of the change reaches, every way walked, and no scenario proves
+  "Proven by …", "New API: Cache and Reader", "Opens wider: mediaDuration" (a declaration whose reach alone opened
+  wider, `widened`, no new API), "New link between modules: Reader.kt → Cache.kt", each name showing its place; a step
+  accio answered for whose code no test of the change reaches, every way walked, and no scenario proves
   says so in the warning tone ("No test of the change reaches paint"); code accio did not walk every way of is never
   named there; a list of names in the facts
   names up to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`), the
@@ -402,7 +403,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   files of the tests of the change, each its tests in its hover with their way ("Tested by ManagerTest.kt"; "opens:
   calls open", "opens: reaches open through the test code", "opens: reaches open end to end"), its code no test of the
   change reaches, each at its declaration, the name selected ("No test of the change reaches show"), nothing of code
-  accio did not walk every way of, the steps its tests prove ("Proves step 2", showing that step), "New API: allowed";
+  accio did not walk every way of, the steps its tests prove ("Proves step 2", showing that step), "New API: allowed",
+  "Opens wider: format";
   of a task what joins its parts, its names code), the warning of a step no test reaches, its names code too, and the
   group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
@@ -511,8 +513,11 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   its step where it is another step's ("hooks — removed in step 1", "passes — new in step 5": " · " joins the units;
   a step of the concerns by its number too, what no evidence joined by its name); in a story whose steps are not told
   (one commit or one pull request of one task) as well, unmarked there. A step whose unit another step's section shows
-  says so in the line of its facts ("Removes hooks, shown in step 2", `ReviewStep.shownElsewhere`), "step 2" a link to that
-  step, and its tree lists the file of that section as a row "also in" it, its own row in that step. A declaration of
+  says so in the line of its facts ("Removes hooks, shown in step 2", `ReviewStep.shownElsewhere`), each name in the code
+  font showing its place (a removed declaration before the commits), a test among them unnamed and counted after the
+  names ("Adds window and 2 tests, shown in step 1", "Removes a test, shown in step 1"; a Kotlin test is named by a
+  sentence), "step 2" a link to that step, and its tree lists the file of that section as a row "also in" it, its own
+  row in that step. A declaration of
   two stops (a part of two concerns) joins once, the stop of the step whose stop holds its line first; a block only a
   group shows (a mechanical change, a repeated edit, deleted files) joins none. A step left with no stop (all it
   changes shown so, or nothing of it lands) keeps its opening and shows no card: its opening stands right above the

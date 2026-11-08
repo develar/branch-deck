@@ -23,8 +23,10 @@
 //!   changes its meaning. A spread argument is never known to.
 //! - The first `OUTSIDE_SITES` uses left outside that can break are kept, by path and line. The index answers at most
 //!   100 hits per declaration, and a cut answer is `complete: false`.
+//! - **The verdict** of the plan (`verdict_of`): `Breaks` when an entry has a use left outside that can break, else
+//!   `Unknown` when the uses of one are unknown or not `unbroken`, else `NoUseBreaks`, also of an API of additions alone.
 
-use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages, rank};
+use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, UsageSite, Usages, rank};
 use crate::pair::ChangedLines;
 use anyhow::Result;
 use file_diffs::accio::{Access, CallArgument, DeclarationAt, Lenient, ReferenceHit, References, Resolved, SymbolIndex};
@@ -234,4 +236,19 @@ pub fn add_usages(
   debug!(asked = places.len(), "usages of the API changes");
   rank(api);
   Ok(None)
+}
+
+/// Whether a use left outside breaks (`BreakVerdict`), by the usages of the removed and changed entries of `api`: an
+/// entry with one that can break makes it `Breaks`, whatever the others; else an entry whose uses are unknown, cut at
+/// the limit or tied by the name alone makes it `Unknown`; else no use breaks, also when every entry is an addition
+pub fn verdict_of(api: &[ApiChange]) -> BreakVerdict {
+  let mut verdict = BreakVerdict::NoUseBreaks;
+  for change in api.iter().filter(|change| change.kind != ApiChangeKind::Added) {
+    match &change.usages {
+      Some(usages) if usages.outside > 0 => return BreakVerdict::Breaks,
+      Some(usages) if usages.unbroken => {}
+      _ => verdict = BreakVerdict::Unknown,
+    }
+  }
+  verdict
 }

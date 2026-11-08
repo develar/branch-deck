@@ -83,10 +83,18 @@
           </div>
           <span class="text-xs text-muted-foreground" data-testid="review-contents-step-facts">
             <span>
-              Removes hooks, shown in
-              <button class="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:bd-focus disabled:text-muted-foreground disabled:no-underline" data-testid="review-step-shown-elsewhere" type="button">
-                step 2
-              </button>
+              <span>
+                Removes
+                <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/a/Manager.kt" data-testid="review-step-shown-elsewhere-name" type="button">
+                  hooks
+                </button>
+              </span>
+              <span>
+                , shown in
+                <button class="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:bd-focus disabled:text-muted-foreground disabled:no-underline" data-testid="review-step-shown-elsewhere" type="button">
+                  step 2
+                </button>
+              </span>
             </span>
           </span>
         </div>
@@ -214,7 +222,7 @@
       <button aria-expanded="false" class="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:bd-focus text-muted-foreground hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
         <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
         <span class="min-w-0">
-          1 API change, no use left outside breaks
+          No use left outside breaks · 1 API change
         </span>
       </button>
       <div class="pl-[1.125rem]" data-closed="" data-slot="collapsible-content" data-starting-style="" hidden="until-found" id="base-ui-[ID]">

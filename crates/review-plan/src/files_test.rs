@@ -298,6 +298,7 @@ fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiCh
     name: name.to_string(),
     key: format!("a.{name}"),
     kind,
+    widened: false,
     changes: Vec::new(),
     before: None,
     after: None,

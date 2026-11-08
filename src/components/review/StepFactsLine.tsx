@@ -6,12 +6,13 @@ import type { FactList, StepFacts } from "@/presenters/review-story"
 /**
  * The facts of a step, muted (spec/branch/review-tour.spec.md, "In the Review Window"): the files of the tests of the
  * change that reach its code ("Tested by ManagerTest.kt", each its tests and their ways in its hover), "New API: Cache
- * and Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its
+ * and Reader", "Opens wider: mediaDuration" and "New link between modules: Reader.kt → Cache.kt", each name showing its
  * place in the diffs (a file of tests at its first test, a declaration, the first use of a link), its file selected, a
  * list the contents cut ending with the count of the rest ("Cache, Reader, Store and 16 more"); of a step none of whose
- * code lands, the commit that took it out, which shows its step; its units the section of another step shows, which
- * shows that step; the steps its tests prove ("Proves step 2"); nothing without a fact. The contents set them in one
- * line, " · " apart; an opening (`lines`) each fact on a line of its own, its tests first, every name in the code font
+ * code lands, the commit that took it out, which shows its step; its units the section of another step shows ("Removes
+ * hooks, shown in step 2"), each name at its place and "step 2" showing that step; the steps its tests prove ("Proves
+ * step 2"); nothing without a fact. The contents set them in one line, " · " apart; an opening (`lines`) each fact on a
+ * line of its own, its tests first; every name in the code font
  */
 export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFacts; testId: string; lines?: boolean }) {
   const parts = [
@@ -22,9 +23,13 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
     )),
     ...(facts.takenOutBy === null ? [] : [<TakenOutBy key="taken" commit={facts.takenOutBy} />]),
     ...facts.shownElsewhere.map(shown => (
-      <StepLink key={`shown:${shown.key}`} before={`${shown.words} `} words={shown.step} step={shown.stepId} title={null} testId="review-step-shown-elsewhere" />
+      <span key={`shown:${shown.key}`}>
+        <FactPlaces title={shown.verb} list={shown.names} unnamed={shown.tests} testId="review-step-shown-elsewhere-name" />
+        <StepLink before=", shown in " words={shown.step} step={shown.stepId} title={null} testId="review-step-shown-elsewhere" />
+      </span>
     )),
     ...(facts.newApi.places.length === 0 ? [] : [<FactPlaces key="api" title="New API:" list={facts.newApi} testId="review-step-new-api" />]),
+    ...(facts.opensWider.places.length === 0 ? [] : [<FactPlaces key="wider" title="Opens wider:" list={facts.opensWider} testId="review-step-opens-wider" />]),
     ...(facts.moduleLinks.places.length === 0
       ? []
       : [
@@ -63,21 +68,24 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
 }
 
 /**
- * The names of a fact, a list in a sentence as `joinNames` writes one: "a, b and c", "a, b, c and 16 more"; each name in
- * the code font, breakable at its dots, its comma on its line (`CodeGlue`)
+ * The names of a fact, a list in a sentence as `joinNames` writes one: "a, b and c", "a, b, c and 16 more", "a, b and 2
+ * tests" with what it has no name for (`unnamed`); each name in the code font, breakable at its dots, its comma on its
+ * line (`CodeGlue`)
  */
-function FactPlaces({ title, list: { places, more }, testId, kind }: { title: string; list: FactList; testId: string; kind?: string }) {
+function FactPlaces({ title, list: { places, more }, unnamed = null, testId, kind }: { title: string; list: FactList; unnamed?: string | null; testId: string; kind?: string }) {
   const navigator = useSelectReviewFile()
+  // the words after the names: the count of the rest, else what has no name
+  const tail = more > 0 ? `${more} more` : unnamed
   return (
     <span data-kind={kind}>
       {title}
       {places.map((fact, index) => {
         const last = index === places.length - 1
         // "a, b and c": a comma after each name but the last two; "a, b, c and 16 more": after each but the last
-        const comma = !last && !(more === 0 && index === places.length - 2)
+        const comma = !last && !(tail === null && index === places.length - 2)
         return (
           <Fragment key={fact.key}>
-            {index > 0 && last && more === 0 ? " and " : " "}
+            {index > 0 && last && tail === null ? " and " : " "}
             <CodeGlue after={comma ? "," : ""}>
               <button
                 type="button"
@@ -95,7 +103,7 @@ function FactPlaces({ title, list: { places, more }, testId, kind }: { title: st
           </Fragment>
         )
       })}
-      {more > 0 && ` and ${more} more`}
+      {tail !== null && `${places.length > 0 ? " and " : " "}${tail}`}
     </span>
   )
 }

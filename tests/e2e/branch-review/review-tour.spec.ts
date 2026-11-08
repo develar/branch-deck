@@ -454,6 +454,8 @@ test.describe("Review tour", () => {
       const last = window.getByTestId("diff-view-epilogue").getByTestId("review-opening")
       await expect(last.getByTestId("review-opening-title")).toHaveText("the welcome test drops the focus check")
       await expect(last.getByTestId("review-step-shown-elsewhere")).toHaveText("step 1")
+      // its unit a test, named by a sentence: counted, not named
+      await expect(last.getByTestId("review-opening-facts")).toContainText("Removes a test, shown in step 1")
       await expect(window.locator('[data-testid="diff-view-file"]')).toHaveCount(1)
       await expect(window.getByTestId("diff-unit-heading").first()).toContainText("in step 2")
       const also = tree.getByRole("treeitem", { name: "test/b/WelcomeTest.kt, also in 2 · the welcome test drops the focus check", exact: true })

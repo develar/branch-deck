@@ -255,6 +255,7 @@ fn change(name: &str, kind: ApiChangeKind) -> ApiChange {
     name: name.to_string(),
     key: format!("a.{name}"),
     kind,
+    widened: false,
     changes: Vec::new(),
     before: None,
     after: None,

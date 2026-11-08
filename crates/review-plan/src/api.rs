@@ -15,6 +15,10 @@
 //!   forms differ (`Form`: the header, the parameters, the reach, `open`, the constructors, what Java sees); one more
 //!   overload is an addition. A change of the body alone, a move between files of one namespace, keep the forms. A
 //!   member of a type added or removed with it is the type's entry.
+//! - **A widening is an addition** (`widens`, `ApiChange::widened`): a change of the reach alone to a wider one, of a
+//!   declaration no subtype may override, breaks no use; it is new API, its form before kept. The reach of an
+//!   overridable member stays a change (an override must not weaken the access of what it overrides), and so does an
+//!   `open` member of a final Kotlin class, whose modality the summary does not read.
 //! - **Surface** (`DeclarationForm::surface`, `surface_of`): an override (its supertype declares the API), test code (a
 //!   test function, a type that declares one and every member of such a type) and an entry point (`main`) are no API,
 //!   no entry of any kind; unstable API (`@ApiStatus.Internal`, `@ApiStatus.Experimental`, `@VisibleForTesting`,
@@ -24,8 +28,12 @@
 //! - **Its usages are asked by its place** (`ApiChange::at`, `fan_in`): the line of its name at the last commit that
 //!   touched it, of a removal at the parent of the commit that first touched it; accio answers from the head.
 //! - **Shown** as the header with the parameters after the name (`fun changedCall(x:Int, y:Int) : Int`), a type by its
-//!   constructors.
+//!   constructors, the reach as the language of the file writes it (`reach_word`).
+//! - **The verdict** (`BreakVerdict`, `verdict_of`): whether a use left outside breaks, over every removed and changed
+//!   entry.
 
+use code_symbols::language::{Language, language_of};
+use code_symbols::summary::Reach;
 use file_diffs::accio::DeclarationAt;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
@@ -43,8 +51,24 @@ pub enum ApiChangeKind {
   Removed,
   /// Its form changed: a use may need to change
   Changed,
-  /// New, or a new overload
+  /// New, or a new overload, or opened wider (`ApiChange::widened`)
   Added,
+}
+
+/// Whether a use left outside the change breaks, over the removed and changed entries of the API (`verdict_of`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum BreakVerdict {
+  /// An entry has a use left outside that can break
+  Breaks,
+  /// Every removed and changed entry is `unbroken`, also when there is none: an addition and a widening break no use
+  NoUseBreaks,
+  /// None is known to break, and the uses of an entry are unknown, cut at the limit of the index or tied by the name alone
+  Unknown,
+  /// The index is asked: the plan with the usages follows
+  Pending,
 }
 
 /// The part of the form of a declaration that changed
@@ -113,10 +137,13 @@ pub struct ApiChange {
   /// Namespace, containers and name: what identifies it across the commits
   pub key: String,
   pub kind: ApiChangeKind,
+  /// An addition that opens the reach of a declaration no subtype may override wider (`widens`): its form is the same
+  /// but for the reach, `before` holds the one it had, and no use of it can break
+  pub widened: bool,
   /// The parts of its form that changed, of a change only
   pub changes: Vec<FormChange>,
-  /// Its form before the commits, of a change or a removal: the header with the parameters after the name, or the
-  /// constructors of a type
+  /// Its form before the commits, of a change, a removal or a widening: the header with the parameters after the name,
+  /// or the constructors of a type
   pub before: Option<String>,
   /// Its form after the commits, of a change or an addition
   pub after: Option<String>,
@@ -234,44 +261,105 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
   changes
 }
 
-/// The form the card shows, as code reads: the header with the parameters after the name, else the constructors of a
-/// type, a line each (`shown_constructors`). Only the display: the forms Rust compares stay as `Form` holds them
-fn shown(declaration: &DeclarationForm) -> Option<String> {
+/// The form the card shows, as code reads: its reach as the language of its file writes it (`reach_word`), the header
+/// with the parameters after the name, else the constructors of a type, a line each (`shown_constructors`).
+/// `public_word`: the reach of the change differs (`reach_differs`), so a public one is written too. Only the display:
+/// the forms Rust compares stay as `Form` holds them
+fn shown(site: &Site<'_>, public_word: bool) -> Option<String> {
+  let declaration = site.form;
   let form = &declaration.form;
+  let language = language_of(site.read_path);
   let Some(header) = &form.header else {
-    return form.constructors.as_deref().map(|constructors| shown_constructors(&declaration.name, constructors));
+    return form
+      .constructors
+      .as_deref()
+      .map(|constructors| shown_constructors(&declaration.name, constructors, form.reach, language, public_word));
   };
-  let Some(parameters) = &form.parameters else {
-    return Some(as_written(header.split(' ')));
-  };
-  let parameters = format!("({})", shown_parameters(parameters));
-  let mut tokens: Vec<String> = header.split(' ').map(str::to_string).collect();
-  match tokens.iter_mut().find(|token| **token == declaration.name) {
-    Some(name) => name.push_str(&parameters),
-    None => tokens.push(parameters),
+  let reach = reach_word(language, form.reach, declaration.containers.is_empty(), public_word);
+  let mut tokens: Vec<String> = std::iter::once(reach).chain(header.split(' ')).map(str::to_string).collect();
+  if let Some(parameters) = &form.parameters {
+    let parameters = format!("({})", shown_parameters(parameters));
+    match tokens.iter_mut().find(|token| **token == declaration.name) {
+      Some(name) => name.push_str(&parameters),
+      None => tokens.push(parameters),
+    }
   }
   Some(as_written(tokens.iter().map(String::as_str)))
 }
 
+/// The modifier that writes `reach` in `language` (of a declaration at the top level of its file, or of a member): Kotlin
+/// `internal`, `private`; Java `private`, its package none; Rust `pub(crate)`, `pub(super)`, private none; TypeScript
+/// `private` of a member, a top-level one not exported none; C# `internal`, `private`, `file`. A public reach only with
+/// `public_word` (Java and C# `public`, Rust `pub`, a top-level TypeScript `export`; Kotlin none): written in every form,
+/// it could be wrong, as the summary holds a `protected` member of Kotlin, Java and TypeScript as public and a Rust
+/// trait has public members without `pub`
+const fn reach_word(language: Option<Language>, reach: Reach, top_level: bool, public_word: bool) -> &'static str {
+  match (language, reach) {
+    (Some(Language::Java | Language::CSharp), Reach::Public) if public_word => "public",
+    (Some(Language::Rust), Reach::Public) if public_word => "pub",
+    (Some(Language::TypeScript), Reach::Public) if public_word && top_level => "export",
+    (Some(Language::Kotlin | Language::CSharp), Reach::Module) => "internal",
+    (Some(Language::Kotlin | Language::Java | Language::CSharp | Language::TypeScript), Reach::Container) | (Some(Language::Kotlin | Language::Java), Reach::File) => "private",
+    (Some(Language::Rust), Reach::Module) => "pub(crate)",
+    (Some(Language::Rust), Reach::Parent) => "pub(super)",
+    (Some(Language::CSharp), Reach::File) => "file",
+    _ => "",
+  }
+}
+
 /// The constructors of the type `name` (`Form::constructors`: `Reach(name:Type,…)`, `;` apart) as calls of it read, a
-/// line each: `Event(text: String, styles, start: Long = …)`, a constructor that is not public after its visibility
-/// (`private Event()`), never the name of a `Reach`
-pub(crate) fn shown_constructors(name: &str, constructors: &str) -> String {
+/// line each: `Event(text: String, styles, start: Long = …)`, each after the reach a call of it has, the narrower of its
+/// own and that of its type (`type_reach`), as `language` writes it (`reach_word`: `private Event()`, `internal
+/// Event()`), never the name of a `Reach`
+pub(crate) fn shown_constructors(name: &str, constructors: &str, type_reach: Reach, language: Option<Language>, public_word: bool) -> String {
   constructors
     .split(';')
     .filter(|constructor| !constructor.is_empty())
     .map(|constructor| {
       let (reach, parameters) = constructor.split_once('(').unwrap_or((constructor, ""));
-      let visibility = match reach {
-        "Module" => "internal ",
-        "Parent" => "pub(super) ",
-        "File" | "Container" => "private ",
-        _ => "",
-      };
-      format!("{visibility}{name}({})", shown_parameters(parameters.strip_suffix(')').unwrap_or(parameters)))
+      let reach = reach_named(reach).map_or(type_reach, |reach| if reach.wider_than(type_reach) { type_reach } else { reach });
+      let visibility = reach_word(language, reach, false, public_word);
+      let parameters = shown_parameters(parameters.strip_suffix(')').unwrap_or(parameters));
+      if visibility.is_empty() {
+        format!("{name}({parameters})")
+      } else {
+        format!("{visibility} {name}({parameters})")
+      }
     })
     .collect::<Vec<_>>()
     .join("\n")
+}
+
+/// The reach a constructor of `Form::constructors` names (its `Debug` name)
+fn reach_named(name: &str) -> Option<Reach> {
+  [Reach::Public, Reach::Module, Reach::Parent, Reach::File, Reach::Container]
+    .into_iter()
+    .find(|reach| format!("{reach:?}") == name)
+}
+
+/// Whether two forms of a change differ in a reach: their own, or one of the constructors of a type
+fn reach_differs(before: &Form, after: &Form) -> bool {
+  before.reach != after.reach || constructor_reaches(before) != constructor_reaches(after)
+}
+
+/// The reaches of the constructors of a type (`Form::constructors`), sorted
+fn constructor_reaches(form: &Form) -> Vec<&str> {
+  let mut reaches: Vec<&str> = form
+    .constructors
+    .as_deref()
+    .unwrap_or_default()
+    .split(';')
+    .filter(|constructor| !constructor.is_empty())
+    .map(|constructor| constructor.split_once('(').map_or(constructor, |(reach, _)| reach))
+    .collect();
+  reaches.sort_unstable();
+  reaches
+}
+
+/// A change that only opens the reach of a declaration wider, of one no subtype may override: no use of it can break.
+/// An override must not weaken the access of what it overrides, so the reach of an overridable member stays a change
+fn widens(changes: &[FormChange], before: &Form, after: &Form) -> bool {
+  changes == [FormChange::Reach] && !before.overridable && after.reach.wider_than(before.reach)
 }
 
 /// A parameter list as a call sees it (`name:Type?`, `,` apart, `=` for a default, `*` for a vararg) as code reads:
@@ -306,13 +394,18 @@ pub(crate) fn shown_parameters(parameters: &str) -> String {
 /// The tokens of a form as code is written: no space before `>`, `,`, `)`, `.`, `?`, `:` and `[`, none after `<`, `(`,
 /// `.` and `[`, so a header reads `fun hooks(): List<String>`, never `fun hooks() : List < String >`. A `<` is glued only
 /// to the name of a type or a function before it (`List<T>`, `first<T>`): after a keyword or a modifier it opens the
-/// type parameters of the declaration (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`)
+/// type parameters of the declaration (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`). A `(` is glued to a
+/// name and to the `>` of type parameters before it, the parameters a header holds (Rust `fn open() -> u8`, `fn
+/// first<T>(x: T)`), never to `suspend` (`suspend (Int) -> Unit`) or an arrow (`-> (u8, u8)`)
 pub(crate) fn as_written<'a>(tokens: impl Iterator<Item = &'a str>) -> String {
   let mut text = String::new();
   let mut previous = "";
+  let named = |previous: &str| previous.ends_with(|c: char| c.is_alphanumeric() || c == '_');
   for token in tokens.filter(|token| !token.is_empty()) {
     let glued_before = if token.starts_with('<') {
-      previous.ends_with(|c: char| c.is_alphanumeric() || c == '_') && !DECLARATION_WORDS.contains(&previous)
+      named(previous) && !DECLARATION_WORDS.contains(&previous)
+    } else if token.starts_with('(') {
+      (named(previous) && previous != "suspend") || (previous.ends_with('>') && previous != "->" && previous != "=>")
     } else {
       token.starts_with(['>', ',', ')', '.', '?', ':', '[']) && token != "->" && token != "=>"
     };
@@ -429,6 +522,7 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     name: site.form.name.clone(),
     key: key.to_string(),
     kind,
+    widened: false,
     changes: Vec::new(),
     before: None,
     after: None,
@@ -444,7 +538,7 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     file: site.file.to_string(),
   };
   let added = |new: Site| ApiChange {
-    after: shown(new.form),
+    after: shown(&new, false),
     ..entry(ApiChangeKind::Added, new)
   };
   let listed = [Surface::Api, Surface::Unstable];
@@ -453,7 +547,7 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     // a form gone: unstable API too, its callers can break
     (false, true) => first_of(&unmatched_before, &listed)
       .map(|old| ApiChange {
-        before: shown(old.form),
+        before: shown(&old, false),
         signatures_before: old.form.signatures.clone(),
         ..entry(ApiChangeKind::Removed, old)
       })
@@ -468,12 +562,27 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       }
       let old = old.unwrap_or(unmatched_before[0]);
       let new = new.unwrap_or(unmatched_after[0]);
+      let changes = form_changes(&old.form.form, &new.form.form);
+      if widens(&changes, &old.form.form, &new.form.form) {
+        // new API with the form it had; opened to unstable API it is none, as an addition of it is no entry
+        return if new.form.surface == Surface::Api {
+          Some(ApiChange {
+            widened: true,
+            before: shown(&old, true),
+            after: shown(&new, true),
+            ..entry(ApiChangeKind::Added, new)
+          })
+        } else {
+          promoted.map(added)
+        };
+      }
+      let public_word = reach_differs(&old.form.form, &new.form.form);
       Some(ApiChange {
-        changes: form_changes(&old.form.form, &new.form.form),
-        before: shown(old.form),
+        changes,
+        before: shown(&old, public_word),
         signatures_before: old.form.signatures.clone(),
         signatures_after: new.form.signatures.clone(),
-        after: shown(new.form),
+        after: shown(&new, public_word),
         ..entry(ApiChangeKind::Changed, new)
       })
     }

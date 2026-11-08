@@ -1,8 +1,13 @@
-use crate::ReviewPlan;
-use crate::api::{ApiChange, ApiChangeKind, FormChange, Usages};
+use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, Usages, shown_constructors};
 use crate::fan_in_test::{Counts, by_name, outside, typed};
 use crate::interdiff::PairState;
-use crate::test_support::{branch, mark, plan_of, range};
+use crate::test_support::{PREFIX, branch, mark, plan_of, range};
+use crate::{PlanSources, ReviewPlan, resolve_subject, review_plan_of};
+use code_symbols::language::Language;
+use code_symbols::summary::Reach;
+use file_diffs::accio::SymbolIndex;
+use file_diffs::service::FileDiffs;
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -54,8 +59,8 @@ fn api_repo() -> (TestRepo, String, String) {
   (repo, base, head)
 }
 
-/// A removed public function, a new parameter, a narrowed reach and an added public type are listed; a change of a
-/// private function and of a body alone are not
+/// A removed public function, a new parameter, a narrowed reach (its forms with their reach as Kotlin writes it) and an
+/// added public type are listed; a change of a private function and of a body alone are not
 #[test]
 fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
   let (repo, base, head) = api_repo();
@@ -81,7 +86,7 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
         4,
         vec![FormChange::Reach],
         Some("fun narrowedCall(): Int"),
-        Some("fun narrowedCall(): Int")
+        Some("internal fun narrowedCall(): Int")
       ),
       // its constructor's property is the type's entry
       (ApiChangeKind::Added, "AddedType", path, 8, vec![], None, Some("AddedType(name: String)")),
@@ -89,8 +94,9 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
   );
   assert_eq!(plan.api[0].key, "a.removedCall");
   assert_eq!(plan.api.iter().map(|change| change.usages.clone()).collect::<Vec<_>>(), [None, None, None, None]);
-  // no accio: why the removal and the change have no usages
+  // no accio: why the removal and the change have no usages, and nothing is known to break or not
   assert_eq!(plan.index_note.as_deref(), Some(crate::fan_in::NO_ACCIO));
+  assert_eq!(plan.verdict, BreakVerdict::Unknown);
   assert_eq!(facts(&plan), [(path, 0, true)]);
 }
 
@@ -120,6 +126,163 @@ fn the_usages_at_the_head_rank_the_card() {
   assert_eq!(plan.index_note, None);
   // the usages of the change and of the removal
   assert_eq!(facts(&plan), [("src/a/Api.kt", 9, true)]);
+}
+
+/// The verdict of the plan over its removed and changed entries: `Breaks` when one has a use left outside that can
+/// break, whatever the others; `Unknown` without an index or when only the name ties a use of one; `NoUseBreaks` when
+/// every one is unbroken, the addition asked nothing; `Pending` in the plan sent while the index is asked
+#[test]
+fn the_verdict_says_whether_a_use_left_outside_breaks() {
+  let (repo, base, head) = api_repo();
+  let (removed, changed, narrowed) = (format!("{head}^:src/a/Api.kt:3"), format!("{head}:src/a/Api.kt:3"), format!("{head}:src/a/Api.kt:4"));
+  let params = range(&repo, &base, &head);
+  let verdict = |index: &dyn SymbolIndex| plan_of(&repo, Some(index), &params).unwrap().verdict;
+  let breaks = Counts::of(&[(removed.as_str(), 0), (changed.as_str(), 2), (narrowed.as_str(), 0)]);
+  assert_eq!(verdict(&breaks), BreakVerdict::Breaks);
+  let by_name_only = Counts::hits([
+    (removed.as_str(), vec![]),
+    (changed.as_str(), vec![]),
+    (narrowed.as_str(), vec![by_name("src/Use.kt", 1, "call")]),
+  ]);
+  assert_eq!(verdict(&by_name_only), BreakVerdict::Unknown);
+  let unbroken = Counts::of(&[(removed.as_str(), 0), (changed.as_str(), 0), (narrowed.as_str(), 0)]);
+  assert_eq!(verdict(&unbroken), BreakVerdict::NoUseBreaks);
+
+  let (cache, file_diffs) = (ObjectCache::disabled(), FileDiffs::for_scans());
+  let sources = PlanSources {
+    cache: &cache,
+    file_diffs: &file_diffs,
+    index: Some(&unbroken),
+  };
+  let subject = resolve_subject(repo.git_executor(), PREFIX, &params).unwrap();
+  let mut sent = None;
+  let plan = review_plan_of(repo.git_executor(), sources, &params, subject, |pending| sent = Some(pending.verdict)).unwrap();
+  assert_eq!((sent, plan.verdict), (Some(BreakVerdict::Pending), BreakVerdict::NoUseBreaks));
+}
+
+/// A widening alone, of a declaration no subtype may override, is an addition that breaks nothing: its forms before
+/// and after, each with its reach as its language writes it (Kotlin `private` and `internal`, Java's package none and
+/// `public`, Rust `pub(crate)` and `pub`), and no usages asked. Opened to unstable API it is no entry, as an addition of
+/// it is none
+#[test]
+fn a_widening_alone_is_an_addition_that_breaks_nothing() {
+  let repo = TestRepo::new();
+  let media = "src/a/Media.kt";
+  let clock = "src/a/Clock.java";
+  let lib = "src/lib.rs";
+  let base = repo.create_commit_with_files(
+    "Add media",
+    &[
+      (
+        media,
+        "package a\n\nimport org.jetbrains.annotations.ApiStatus\n\ninternal fun mediaDuration(millis: Long): String = \"$millis\"\n\nprivate fun isNightlyBuild(): Boolean = false\n\nprivate fun hidden(): Int = 1\n",
+      ),
+      (clock, "package a;\n\npublic final class Clock {\n  long tick() {\n    return 1;\n  }\n}\n"),
+      (lib, "pub(crate) fn open() -> u8 {\n  1\n}\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Open media",
+    &[
+      (
+        media,
+        "package a\n\nimport org.jetbrains.annotations.ApiStatus\n\nfun mediaDuration(millis: Long): String = \"$millis\"\n\nfun isNightlyBuild(): Boolean = false\n\n@ApiStatus.Internal\nfun hidden(): Int = 1\n",
+      ),
+      (clock, "package a;\n\npublic final class Clock {\n  public long tick() {\n    return 1;\n  }\n}\n"),
+      (lib, "pub fn open() -> u8 {\n  1\n}\n"),
+    ],
+  );
+  let index = Counts::of(&[]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!(
+    rows(&plan.api),
+    [
+      (ApiChangeKind::Added, "tick", clock, 4, vec![], Some("long tick()"), Some("public long tick()")),
+      (
+        ApiChangeKind::Added,
+        "mediaDuration",
+        media,
+        5,
+        vec![],
+        Some("internal fun mediaDuration(millis: Long): String"),
+        Some("fun mediaDuration(millis: Long): String")
+      ),
+      (
+        ApiChangeKind::Added,
+        "isNightlyBuild",
+        media,
+        7,
+        vec![],
+        Some("private fun isNightlyBuild(): Boolean"),
+        Some("fun isNightlyBuild(): Boolean")
+      ),
+      (
+        ApiChangeKind::Added,
+        "open",
+        lib,
+        1,
+        vec![],
+        Some("pub(crate) fn open() -> u8"),
+        Some("pub fn open() -> u8")
+      ),
+    ]
+  );
+  assert!(plan.api.iter().all(|change| change.widened && change.usages.is_none()), "{:?}", plan.api);
+  assert_eq!((index.places(), plan.verdict), (Vec::<String>::new(), BreakVerdict::NoUseBreaks));
+}
+
+/// A widening of a member a subtype may override stays a change, as an override must not weaken its access: an `open`
+/// Kotlin member and a method of a Java class that is not final; a final member beside it opens wider
+#[test]
+fn a_widening_of_an_open_member_stays_a_change() {
+  let repo = TestRepo::new();
+  let player = "src/a/Player.kt";
+  let base_class = "src/a/Base.java";
+  let base = repo.create_commit_with_files(
+    "Add player",
+    &[
+      (
+        player,
+        "package a\n\nopen class Player {\n  internal open fun play(): Int = 1\n\n  internal fun stop(): Int = 1\n}\n",
+      ),
+      (base_class, "package a;\n\npublic class Base {\n  int size() {\n    return 1;\n  }\n}\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Open player",
+    &[
+      (player, "package a\n\nopen class Player {\n  open fun play(): Int = 1\n\n  fun stop(): Int = 1\n}\n"),
+      (base_class, "package a;\n\npublic class Base {\n  public int size() {\n    return 1;\n  }\n}\n"),
+    ],
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(
+    rows(&plan.api),
+    [
+      (
+        ApiChangeKind::Changed,
+        "size",
+        base_class,
+        4,
+        vec![FormChange::Reach],
+        Some("int size()"),
+        Some("public int size()")
+      ),
+      (
+        ApiChangeKind::Changed,
+        "play",
+        player,
+        4,
+        vec![FormChange::Reach],
+        Some("internal fun play(): Int"),
+        Some("fun play(): Int")
+      ),
+      (ApiChangeKind::Added, "stop", player, 6, vec![], Some("internal fun stop(): Int"), Some("fun stop(): Int")),
+    ]
+  );
+  let widened: Vec<(&str, bool)> = plan.api.iter().map(|change| (change.name.as_str(), change.widened)).collect();
+  assert_eq!(widened, [("size", false), ("play", false), ("stop", true)]);
+  assert_eq!(plan.verdict, BreakVerdict::Unknown);
 }
 
 /// A range of no source file of a known language: no API, and its files break nothing and are not untested
@@ -755,17 +918,39 @@ fn a_form_of_type_parameters_reads_as_code() {
   assert_eq!(form("fun < T > String . trim2() : T ?"), "fun <T> String.trim2(): T?");
   assert_eq!(form("public static < T > List < T > of()"), "public static <T> List<T> of()");
   assert_eq!(form("fun hooks() : Map < String , List < T > >"), "fun hooks(): Map<String, List<T>>");
+  // the parameters a header holds, after the name or its type parameters; a function type after a modifier or an arrow
+  assert_eq!(form("pub fn first < T > ( x : T ) -> ( T , u8 )"), "pub fn first<T>(x: T) -> (T, u8)");
+  assert_eq!(form("fn open ( ) -> u8"), "fn open() -> u8");
+  assert_eq!(form("val run : suspend ( Int ) -> Unit"), "val run: suspend (Int) -> Unit");
 }
 
-/// The constructors of a type read as calls of it, a line each, a non-public one after its visibility; a parameter by its
-/// name and type, a default as `= …`, a vararg after `vararg`; a type of several names (its structure gone) no type at
-/// all, never `List/Window`; never the name of a `Reach`
+/// The constructors of a type read as calls of it, a line each, each after the reach a call of it has (the narrower of
+/// its own and its type's) as the language writes it: Kotlin `private` and `internal`, Java's package none and `public`
+/// only where a reach changed; a parameter by its name and type, a default as `= …`, a vararg after `vararg`; a type of
+/// several names (its structure gone) no type at all, never `List/Window`; never the name of a `Reach`
 #[test]
 fn a_form_of_constructors_and_parameters_reads_as_code() {
+  let (kotlin, java) = (Some(Language::Kotlin), Some(Language::Java));
   assert_eq!(
-    crate::api::shown_constructors("Event", "Public(text:String,styles:List/StyleRange,start:Long,ends:List/Long=);Container()"),
+    shown_constructors(
+      "Event",
+      "Public(text:String,styles:List/StyleRange,start:Long,ends:List/Long=);Container()",
+      Reach::Public,
+      kotlin,
+      false
+    ),
     "Event(text: String, styles, start: Long, ends = …)\nprivate Event()"
   );
-  assert_eq!(crate::api::shown_constructors("Port", "Module(value:Int?)"), "internal Port(value: Int?)");
+  assert_eq!(shown_constructors("Port", "Module(value:Int?)", Reach::Public, kotlin, false), "internal Port(value: Int?)");
+  // an internal type: its public constructor is called only in its module
+  assert_eq!(shown_constructors("Port", "Public(value:Int?)", Reach::Module, kotlin, false), "internal Port(value: Int?)");
+  assert_eq!(
+    shown_constructors("Port", "Module();Public(value:int)", Reach::Public, java, false),
+    "Port()\nPort(value: int)"
+  );
+  assert_eq!(
+    shown_constructors("Port", "Module();Public(value:int)", Reach::Public, java, true),
+    "Port()\npublic Port(value: int)"
+  );
   assert_eq!(crate::api::shown_parameters("items:String[]*,handler:String/Int/Unit"), "vararg items: String[], handler");
 }

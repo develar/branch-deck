@@ -248,6 +248,38 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByRole("group", { name: "Order" })).toHaveCount(0)
   })
 
+  test("should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    turnOnReviewPlan(repo)
+    // the baseline gets an `internal fun format`, which the branch makes public: its reach alone opens wider, no use of
+    // it can break
+    await repo.commit("Add the format", { "src/Format.kt": 'internal fun format(value: Int): String = "$value"\n' }, 1704120600)
+    await repo.pushInTerminal("master")
+    await repo.commit("(plan) open the format", { "src/Format.kt": 'fun format(value: Int): String = "$value"\n' }, 1704121200)
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+
+    // the verdict, muted, the widening folded under it with its forms; nothing under Possible Breakage
+    const breakage = window.getByTestId("review-overview").getByTestId("review-plan-breakage")
+    const unbroken = breakage.getByTestId("review-plan-unbroken")
+    const verdict = unbroken.getByRole("button", { name: "No use left outside breaks · 1 API change" })
+    await expect(verdict).toBeVisible()
+    await expect(breakage).not.toContainText("Possible Breakage")
+    await verdict.click()
+    const entry = unbroken.getByTestId("review-plan-unbroken-entry")
+    await expect(entry).toHaveAttribute("data-name", "format")
+    await expect(entry).toContainText("Opens wider")
+
+    // a fact of the range: opened wider, the name at its declaration
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByText("Opens wider: format", { exact: true })).toBeVisible()
+    await overview.getByTestId("review-step-opens-wider").click()
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "format", path: "src/Format.kt" })
+  })
+
   test("should review the changes of a pull request at the place of a breakage link of its overview: the declaration, a use outside over the changes", async ({
     page,
     setupRepo,
@@ -656,7 +688,7 @@ test.describe("The review plan in the branch review", () => {
     // of its step, at its first use; the dependency changes and the same edit are on their rows only
     const overview = window.getByTestId("review-overview")
     await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
-    await expect(overview.getByTestId("review-plan-unbroken")).toContainText("1 API change, no use left outside breaks")
+    await expect(overview.getByTestId("review-plan-unbroken")).toContainText("No use left outside breaks · 1 API change")
     const moduleLink = overview.getByTestId("review-step-module-link")
     await expect(moduleLink).toHaveAttribute("data-path", "src/a/Reader.kt")
     await expect(moduleLink).toHaveText("Reader.kt → Cache.kt")

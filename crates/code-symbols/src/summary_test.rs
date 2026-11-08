@@ -1,6 +1,6 @@
 use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version, spec_of};
 use crate::language::{Family, Language, language_of};
-use crate::summary::{DeclKind, FileSummary, Role};
+use crate::summary::{DeclKind, FileSummary, Reach, Role};
 use crate::summary_text::render;
 use crate::test_support::{check_golden, declaration, fixture, summarize, summarize_in, summary_of};
 
@@ -310,4 +310,15 @@ fn the_import_lines_are_the_import_and_package_statements() {
     spans(Language::TypeScript, "import {\n  a,\n  b,\n} from \"./m\"\nimport c from \"c\"\n\nexport const d = 1\n"),
     [(1, 4), (5, 5)]
   );
+}
+
+/// Each reach holds the one before it, from a private member to the public; a reach is never wider than itself
+#[test]
+fn a_reach_is_wider_than_every_one_before_it() {
+  let order = [Reach::Container, Reach::File, Reach::Parent, Reach::Module, Reach::Public];
+  for (narrow, low) in order.iter().enumerate() {
+    for (wide, high) in order.iter().enumerate() {
+      assert_eq!(high.wider_than(*low), wide > narrow, "{high:?} against {low:?}");
+    }
+  }
 }

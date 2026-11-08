@@ -1,6 +1,7 @@
 import type {
   ApiChange,
   ApiChangeKind,
+  BreakVerdict,
   CommitChanges,
   DependencyChange,
   DependencyChangeKind,
@@ -102,8 +103,8 @@ export const FORM_WORDS: Readonly<Record<FormChange, string>> = {
   jvm: "Java view",
 }
 
-/** The tone of an entry: a removal may break a use, a change may need one changed */
-export type ApiTone = "destructive" | "warning"
+/** The tone of an entry: a removal may break a use, a change may need one changed, a widening breaks none */
+export type ApiTone = "destructive" | "warning" | "secondary"
 
 function formatUses(count: number): string {
   return count === 1 ? "1 use" : `${count} uses`
@@ -136,7 +137,7 @@ export interface BreakageEntry {
   /** Its declaration, before the commits for a removal: a click shows it */
   readonly place: ReviewPlace
   readonly name: string
-  /** "Removed", "Changed" */
+  /** "Removed", "Changed", "Opens wider" */
   readonly kind: string
   readonly tone: ApiTone
   /** "src/Store.kt:34" */
@@ -166,7 +167,11 @@ export interface BreakageEntry {
 export interface Breakage {
   /** In the order Rust ranked them: the most uses left outside first */
   readonly entries: readonly BreakageEntry[]
-  /** "12 API changes, no use left outside breaks", and these entries; null for none */
+  /**
+   * The API none of whose uses left outside breaks and its line: "No use left outside breaks · 12 API changes" where
+   * that is the verdict of the plan (`ReviewPlan.verdict`), else "12 API changes, no use left outside breaks" under the
+   * entries that can break; null for none
+   */
   readonly unbroken: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
 }
 
@@ -178,8 +183,8 @@ function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
     path: change.path,
     place: { path: change.path, side: change.kind === "removed" ? "old" : "new", line: change.line, name: change.name },
     name: change.name,
-    kind: KIND_WORDS[change.kind],
-    tone: change.kind === "removed" ? "destructive" : "warning",
+    kind: change.widened ? "Opens wider" : KIND_WORDS[change.kind],
+    tone: change.widened ? "secondary" : change.kind === "removed" ? "destructive" : "warning",
     location: `${change.path}:${change.line}`,
     changed: change.changes.length === 0 ? null : `${joinNames(change.changes.map(it => FORM_WORDS[it]))} changed`,
     before: change.before,
@@ -205,25 +210,27 @@ function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
 /**
  * The removed and changed API of the card. An entry with a use left outside that can break, or with an unknown or
  * incomplete count, is listed; the entries none of whose uses left outside breaks (each updated in this change, or a
- * call that still binds) fold into one line. An addition breaks no use. `pending`: Rust asks the index, and the plan
- * with the usages follows
+ * call that still binds) and the widenings, which break none, fold into one line, led by the verdict when Rust says no
+ * use left outside breaks (`verdict`). Any other addition is not listed: no use of it is left outside. `pending`: Rust
+ * asks the index, and the plan with the usages follows
  */
-export function presentBreakage(api: readonly ApiChange[], pending: boolean): Breakage {
+export function presentBreakage(api: readonly ApiChange[], pending: boolean, verdict: BreakVerdict): Breakage {
   const entries: BreakageEntry[] = []
   const unbroken: BreakageEntry[] = []
   for (const change of api) {
-    if (change.kind === "added") {
+    if (change.kind === "added" && !change.widened) {
       continue
     }
     // Rust says no use left outside breaks; an unknown or incomplete count never is
-    if (change.usages?.unbroken === true) {
+    if (change.widened || change.usages?.unbroken === true) {
       unbroken.push(breakageEntry(change, pending))
     } else {
       entries.push(breakageEntry(change, pending))
     }
   }
   const count = unbroken.length === 1 ? "1 API change" : `${unbroken.length} API changes`
-  return { entries, unbroken: unbroken.length === 0 ? null : { label: `${count}, no use left outside breaks`, entries: unbroken } }
+  const label = verdict === "noUseBreaks" ? `No use left outside breaks · ${count}` : `${count}, no use left outside breaks`
+  return { entries, unbroken: unbroken.length === 0 ? null : { label, entries: unbroken } }
 }
 
 /** What the tree of a review shows of its plan: the facts of each file, the links between the files, the dependency changes */

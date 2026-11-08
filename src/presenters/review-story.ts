@@ -1,4 +1,5 @@
 import type {
+  ApiChange,
   CodeSpan,
   CommitBodyBlock,
   CommitRole,
@@ -257,6 +258,8 @@ export interface StepFacts {
   readonly proves: readonly { readonly key: string; readonly step: string; readonly stepId: string }[]
   /** The public declarations it adds ("New API:"), each at its declaration */
   readonly newApi: FactList
+  /** The declarations it opens wider, which breaks no use ("Opens wider:", `ApiChange.widened`), each at its declaration */
+  readonly opensWider: FactList
   /** The links it adds between two modules ("New link between modules:"), each at its first use */
   readonly moduleLinks: FactList
   /**
@@ -267,9 +270,18 @@ export interface StepFacts {
   readonly takenOutBy: { readonly words: string; readonly title: string; readonly step: string | null } | null
   /**
    * Its units the section of another step shows (`ReviewStep.shownElsewhere`), by what it does to them and that step:
-   * "Removes hooks, shown in step 2", "step 2" showing that step
+   * "Removes hooks, shown in step 2", each name at its place, a long list in the contents cut as every list is; its tests
+   * unnamed, counted after the names ("Adds window and 2 tests", "Changes a test"); "step 2" showing that step
    */
-  readonly shownElsewhere: readonly { readonly key: string; readonly words: string; readonly step: string; readonly stepId: string }[]
+  readonly shownElsewhere: readonly {
+    readonly key: string
+    readonly verb: string
+    readonly names: FactList
+    /** "2 tests", "a test": the tests among them, which a name of a sentence would not name; null for none, or counted in `names.more` */
+    readonly tests: string | null
+    readonly step: string
+    readonly stepId: string
+  }[]
   /**
    * accio answered, walked every way to the code it names, and no test of the change reaches any of its code and no
    * scenario proves it: "No test of the change reaches paint", each name at its place, a long list in the contents cut
@@ -332,18 +344,18 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   const { answered, proof, reached, unreached, scenarios } = step.tests
   const newApi = new Set(step.newApi)
   const addedChanges = plan.api.filter(change => change.kind === "added" && newApi.has(change.key))
-  const added = addedChanges.map(change => ({
-    key: `${change.key}:${change.path}:${change.line}`,
-    // a name two of them share is led by its owner, as the code of a step is: "Event.rightEdge and Update.rightEdge"
-    label: addedChanges.filter(other => other.name === change.name).length > 1 ? ownerLed(change.key, change.name) : change.name,
-    place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
-  }))
+  // a name two of them share is led by its owner, as the code of a step is: "Event.rightEdge and Update.rightEdge"
+  const declared = (changes: readonly ApiChange[]): FactPlace[] =>
+    changes.map(change => ({
+      key: `${change.key}:${change.path}:${change.line}`,
+      label: changes.filter(other => other.name === change.name).length > 1 ? ownerLed(change.key, change.name) : change.name,
+      place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
+    }))
   const links = step.moduleLinks.flatMap(index => {
     const link = plan.links[index]
     return link === undefined ? [] : [{ key: `${index}`, label: `${fileName(link.from)} → ${fileName(link.to)}`, place: firstUse(link) }]
   })
   const takenOutBy = takenOutOf(step, plan)
-  const shownElsewhere = shownElsewhereOf(step, plan)
   const contents = form === "contents"
   // the code no test reaches, beside code a test reaches or a scenario proves; alone it is the warning (`unproven`)
   const noneBeside = unreached.length > 0 && (contents ? reached === 0 && scenarios.length > 0 : reached > 0 || scenarios.length > 0)
@@ -352,6 +364,7 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
     const { shown, more } = contents ? cutList(places, NAMED_FACTS) : { shown: places, more: 0 }
     return { places: shown, more }
   }
+  const shownElsewhere = shownElsewhereOf(step, plan, list)
   const noneFact = (): TestFact => ({ key: "none", words: "No test of the change reaches", names: list(unreached.map(declarationPlace)) })
   const changeFact: TestFact | null = proof.length === 0 ? null : { key: "change", words: "Tested by", names: list(proofPlaces(proof)) }
   const tests: TestFact[] = [changeFact, noneBeside ? noneFact() : null].filter(fact => fact !== null)
@@ -366,7 +379,8 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
       const proved = plan.steps.steps[index]
       return proved === undefined ? [] : [{ key: proved.id, step: `step ${index + 1}`, stepId: proved.id }]
     }),
-    newApi: list(added),
+    newApi: list(declared(addedChanges.filter(change => !change.widened))),
+    opensWider: list(declared(addedChanges.filter(change => change.widened))),
     moduleLinks: list(links),
     takenOutBy,
     shownElsewhere,
@@ -408,25 +422,67 @@ function verbOf(unit: ReviewUnit | undefined): string {
   }
 }
 
-/** The units of `step` that a section of another step shows, by what it does to them and that step, in their order */
-function shownElsewhereOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps" | "units">): StepFacts["shownElsewhere"] {
+/**
+ * The units of `step` that a section of another step shows, by what it does to them and that step, in their order:
+ * each name at its place, a declaration at the line of its name (a removed one before the commits), a file at its top,
+ * the names cut as `list` cuts them; the tests unnamed, counted after the names, or in the count of the rest of a cut
+ * list. A Kotlin test is named by a sentence, which reads as no code
+ */
+function shownElsewhereOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps" | "units">, list: (places: readonly FactPlace[]) => FactList): StepFacts["shownElsewhere"] {
   const units = new Map(plan.units.map(unit => [unit.id, unit]))
-  const groups: { key: string; verb: string; names: string[]; step: number }[] = []
+  const groups: { key: string; verb: string; places: FactPlace[]; tests: number; step: number }[] = []
   for (const shown of step.shownElsewhere) {
     const unit = units.get(shown.unit)
+    if (unit === undefined) {
+      continue
+    }
     const verb = verbOf(unit)
-    const name = unit?.name ?? shown.unit
-    const group = groups.find(it => it.verb === verb && it.step === shown.step)
+    let group = groups.find(it => it.verb === verb && it.step === shown.step)
     if (group === undefined) {
-      groups.push({ key: `${verb}:${shown.step}`, verb, names: [name], step: shown.step })
+      group = { key: `${verb}:${shown.step}`, verb, places: [], tests: 0, step: shown.step }
+      groups.push(group)
+    }
+    if (unit.test) {
+      group.tests++
     } else {
-      group.names.push(name)
+      group.places.push(unitPlace(unit))
     }
   }
   return groups.flatMap(group => {
     const holder = plan.steps.steps[group.step]
-    return holder === undefined ? [] : [{ key: group.key, words: `${group.verb} ${names(group.names)}, shown in`, step: `step ${group.step + 1}`, stepId: holder.id }]
+    if (holder === undefined) {
+      return []
+    }
+    const names = list(group.places)
+    // a cut list counts its tests with the rest of it: "a, b, c and 4 more"
+    const counted = names.more > 0 && group.tests > 0
+    return [
+      {
+        key: group.key,
+        verb: group.verb,
+        names: counted ? { ...names, more: names.more + group.tests } : names,
+        tests: counted || group.tests === 0 ? null : group.tests === 1 ? "a test" : `${group.tests} tests`,
+        step: `step ${group.step + 1}`,
+        stepId: holder.id,
+      },
+    ]
   })
+}
+
+/**
+ * A unit by its name at its place: a declaration at the line of its name, a removed one before the commits, at the path
+ * its file had then; a file at its top
+ */
+function unitPlace(unit: ReviewUnit): FactPlace {
+  const slice = unit.slices[0]
+  const removed = unit.kind.kind === "removed" || unit.kind.kind === "deletedFile" || unit.kind.kind === "deletedFiles"
+  const path = (removed ? slice?.oldPath : null) ?? slice?.path ?? ""
+  const name = unit.name ?? fileName(path)
+  return {
+    key: unit.id,
+    label: name,
+    place: unit.key === null ? fileTop(path) : { path, side: removed ? "old" : "new", line: unit.line, name },
+  }
 }
 
 /**
@@ -622,7 +678,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   const since = plan.interdiff === null ? null : formatSinceReview(plan.interdiff)
   const contract = presentContract(plan)
   const substitutions = presentSubstitutions(plan)
-  const breakage = presentBreakage(plan.api, pending)
+  const breakage = presentBreakage(plan.api, pending, plan.verdict)
   return {
     issue: plan.brief.issue,
     title: plan.title,
@@ -753,13 +809,15 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     line: lines.length === 0 ? null : lines.join(" · "),
     tests: all.flatMap(it => it.tests),
     newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
+    opensWider: { places: all.flatMap(it => it.opensWider.places), more: 0 },
     moduleLinks: { places: all.flatMap(it => it.moduleLinks.places), more: 0 },
     proves: [],
     takenOutBy: null,
     shownElsewhere: [],
     unproven: null,
   }
-  return facts.line === null && facts.tests.length === 0 && facts.newApi.places.length === 0 && facts.moduleLinks.places.length === 0 ? null : facts
+  const named = [facts.newApi, facts.opensWider, facts.moduleLinks].some(it => it.places.length > 0)
+  return facts.line === null && facts.tests.length === 0 && !named ? null : facts
 }
 
 /** A commit of a step after the one that starts it, in its opening: one row each, the same form */

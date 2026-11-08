@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 19` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 20` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -34,7 +34,9 @@
 //! `excerpt` of a long one) in place of its `added`, `addedCode`, `removed` and `removedCode`, and its `blocks` in place
 //! of its `block`
 //! version 19 added the repeated word replacements of the brief (`brief.substitutions`) and their marks in the changed
-//! paragraphs, including paragraphs changed only by those replacements
+//! paragraphs, including paragraphs changed only by those replacements;
+//! version 20 a widening (the reach alone opened wider, of a declaration no subtype may override) as an `added` entry
+//! with `widened` and its form `before`, the reach in the forms as the language writes it, and the `verdict` of the plan
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -44,7 +46,7 @@ use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use generated_files::generated_by::GeneratedBy;
 use git_ops::landed_pairing::PathLines;
-use review_plan::api::{ApiChange, ApiChangeKind, FormChange, UsageSite};
+use review_plan::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, UsageSite};
 use review_plan::brief::ReviewBrief;
 use review_plan::concerns::{Concern, ConcernEdges};
 use review_plan::dependencies::DependencyChange;
@@ -59,7 +61,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 19;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 20;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -139,6 +141,10 @@ pub struct ReviewPlanOutput {
   /// outside the change first. The reviewed commits are those of `base..head`; with `--since-reviewed` only the added
   /// and rewritten ones, each against its own parent
   pub api: Vec<ApiChangeOutput>,
+  /// Whether a use left outside the change breaks, over the removed and changed entries of `api`: `breaks` when one has
+  /// a use left outside that can break; `unknown` when the usages of one are `null`, not `complete` or tied by the name
+  /// alone (`by_name`); `noUseBreaks` when every one is `unbroken`, also when `api` holds additions alone
+  pub verdict: BreakVerdict,
   /// Every file the reviewed commits change, once, at its last path (a deleted one too): the most `breaks` first, then
   /// the `untested` ones, then in tree order
   pub files: Vec<FileFactsOutput>,
@@ -209,12 +215,16 @@ pub struct ApiChangeOutput {
   pub line: u32,
   pub name: String,
   pub kind: ApiChangeKind,
+  /// Of an addition: it only opens the reach of a declaration no subtype may override wider (`private` or `internal`
+  /// to public), which breaks no use; `before` holds the form it had
+  pub widened: bool,
   /// Of a change: the parts of its form that changed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub changes: Vec<FormChange>,
-  /// The header before the commits (the tokens before the body, one space apart), of a change or a removal
+  /// The form before the commits as code reads (the header with the parameters after the name, a type by its
+  /// constructors, the reach as the language writes it), of a change, a removal or a widening
   pub before: Option<String>,
-  /// The header after the commits, of a change or an addition
+  /// The form after the commits, of a change or an addition
   pub after: Option<String>,
   /// Of a removal or a change: its usages at the head, from `accio references --at` its place (of a removal, at the
   /// parent of the commit that first touched it); `null` without an answer (`index_note`)
@@ -494,6 +504,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     branch: plan.branch,
     title: plan.title,
     api: plan.api.into_iter().map(api_output).collect(),
+    verdict: plan.verdict,
     files: plan.files.into_iter().map(file_output).collect(),
     links: plan.links.into_iter().map(link_output).collect(),
     dependencies: plan.dependencies,
@@ -513,6 +524,7 @@ fn api_output(change: ApiChange) -> ApiChangeOutput {
     line: change.line,
     name: change.name,
     kind: change.kind,
+    widened: change.widened,
     changes: change.changes,
     before: change.before,
     after: change.after,

@@ -195,10 +195,10 @@ group at the end. The overview at the top of the document of the review, before 
 - `brd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope`
   with `base`, `head` and `carried`), with
-  `"schema": 19`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 20`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief; the other outputs of `brd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`; the other outputs of `brd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -261,26 +261,41 @@ group at the end. The overview at the top of the document of the review, before 
   `added`, a promotion; one that stops being API in the same form is no entry.
   [@test] ../../crates/review-plan/src/api_test.rs (`a_promoted_declaration_is_new_api`, `unstable_api_is_no_new_api_but_its_change_is_listed`, `the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`)
   [@test] ../../crates/review-plan/src/api_test.rs (`a_change_of_form_to_or_from_api_is_listed`)
+- A change of the reach alone to a wider one (`Reach::wider_than`: a private member, private in its file, `pub(super)`,
+  the module, public), of a declaration no subtype may override, must be `added` with `widened`, its form `before`
+  kept and no `usages` asked: it breaks no use (`internal fun mediaDuration` → `fun mediaDuration`). Opened to unstable
+  API it is no entry, as an addition of it is none. The reach of an overridable member (an `open` Kotlin member, a
+  method of a Java class that is not final) must stay `changed`: an override must not weaken the access of what it
+  overrides; so must an `open` member of a final Kotlin class, whose modality the summary does not read, and a widening
+  with another change of the form (a parameter more).
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_widening_alone_is_an_addition_that_breaks_nothing`, `a_widening_of_an_open_member_stays_a_change`, `a_change_of_form_to_or_from_api_is_listed`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`a_reach_is_wider_than_every_one_before_it`)
 - Each entry must give its file and line, its name, its kind (`removed`, `changed`, `added`), the parts that
   changed, and its form before and after: the header with the parameters after the name, a type by its constructors,
   written as code is (`fun hooks(): List<String>`, `fun open(path: String): Int`), never its tokens spaced apart; the
-  type parameters of a declaration stand apart from its keyword (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`).
-  A type's constructors read as calls of it, a line each (`Event(text: String, start: Long = …)`, `private Event()`),
-  never the name of a `Reach`; a parameter by its name and type, `= …` for a default, `vararg` before a vararg; a
-  type of several names (its last names, the structure gone) is not shown, never as `List/Window`. Only what the form
-  shows changes: Rust compares the forms as it holds them.
+  type parameters of a declaration stand apart from its keyword (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`),
+  the parameters a header holds follow the name (`fn open() -> u8`). Each form must write its reach as the language of
+  its file does, so two forms that differ in the reach alone read apart: Kotlin `internal` and `private`, Java
+  `private` (its package none), Rust `pub(crate)` and `pub(super)` (private none), TypeScript `private` of a member,
+  C# `internal`, `private` and `file`; a public reach (Java and C# `public`, Rust `pub`, a top-level TypeScript
+  `export`; Kotlin none) only in the forms of a change whose reach differs, as the summary holds a `protected` member as
+  public and the members of a Rust trait are public without `pub`. A type's constructors read as calls of it, a line
+  each (`Event(text: String, start: Long = …)`, `private Event()`), each after the narrower of its reach and its
+  type's (`internal Port(value: Int?)` of an internal class), never the name of a `Reach`; a parameter by its name and
+  type, `= …` for a default, `vararg` before a vararg; a type of several names (its last names, the structure gone) is
+  not shown, never as `List/Window`. Only what the form shows changes: Rust compares the forms as it holds them.
   The file and line are those after the commits, through every rename, also one that changes no declaration; of a
   removal, those before the first commit that touched the declaration, so `path:line` is of the same content: the old
   path when that commit also renamed the file. A range of no source file of a known language has an empty `api`.
   [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`a_form_of_type_parameters_reads_as_code`, `a_form_of_constructors_and_parameters_reads_as_code`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_form_of_type_parameters_reads_as_code`, `a_form_of_constructors_and_parameters_reads_as_code`, `a_widening_alone_is_an_addition_that_breaks_nothing`, `a_widening_of_an_open_member_stays_a_change`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Fan-in
 
 - Every removed or changed entry must get its `usages` at the head of the range from `accio references --at <place>
   --ref <head>`, every place of the plan in one process, with `complete: false` when accio cut the answer of a place
-  at 100. An addition is never asked.
+  at 100. An addition, a widening too, is never asked.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `a_cut_answer_is_not_complete`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`the_places_of_a_plan_are_asked_in_one_process`)
   [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
@@ -324,6 +339,12 @@ group at the end. The overview at the top of the document of the review, before 
 - `unbroken` must be true only when the usages are `complete`, none left outside can break and none is tied by the
   name alone: every use is updated in this change or still binds. An unknown or cut count never is, also at 0.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_api_is_unbroken_only_by_a_complete_count_with_no_use_left_outside_that_breaks`, `a_hit_only_the_name_ties_is_no_use_and_keeps_the_api_listed`)
+- The plan must say once whether a use left outside breaks (`verdict`), over its removed and changed entries:
+  `breaks` when one has a use left outside that can break, whatever the others; else `unknown` when the `usages` of one
+  are null or not `unbroken` (unknown, cut, tied by the name alone); else `noUseBreaks`, also of an API of additions and
+  widenings alone; `pending` in the plan the window gets while the index is asked.
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_verdict_says_whether_a_use_left_outside_breaks`, `a_widening_alone_is_an_addition_that_breaks_nothing`, `the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 - The entries must be sorted by their usages left outside that can break, the most first, then by those inside,
   those without `usages` last; then removals, changes and additions, then by file and line.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `the_usages_split_into_those_inside_the_change_and_those_left_outside`)
@@ -701,10 +722,13 @@ group at the end. The overview at the top of the document of the review, before 
   this change, the calls left outside that still fit the new form ("4 calls left outside still fit the new form") and
   the hits only the name ties ("2 matches by name only, not checked"). An entry with `usages` null says "The uses are
   unknown". An entry whose count is not `complete` says "At least N uses left outside", or "No use left outside found,
-  the search stopped early" at 0. Only the entries Rust says are `unbroken` fold into one collapsed line, "12 API
-  changes, no use left outside breaks": an unknown, incomplete or by-name count never reads as safe. An addition is
-  not listed there.
+  the search stopped early" at 0. Only the entries Rust says are `unbroken` and the widenings (`widened`, the badge
+  "Opens wider") fold into one collapsed line, muted, never in the warning tone: "No use left outside breaks · 12 API
+  changes" where the `verdict` of the plan is `noUseBreaks`, else "12 API changes, no use left outside breaks" under the
+  entries listed; an unknown, incomplete or by-name count never reads as safe. Another addition is not listed there.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration`)
+  [@test] ../../src/presenters/review-plan.test.ts (`folds a widening with what breaks nothing, and leads the line with the verdict when no use left outside breaks`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API none of whose uses left outside breaks, and keeps an unknown, incomplete or by-name count listed, also at 0`)
@@ -716,12 +740,15 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../crates/file-diffs/src/outside_place_test.rs (`a_use_outside_the_review_opens_at_its_line_with_its_name_selected`)
 - The overview lists no dependency change and no repeated edit: they are on the rows of the tree, the mark of a row
-  and the divider "Same edit in 3 files" of the story. The new API (each added declaration) and the links the commits
-  added between the files of two modules (`new_between_modules`, `Reader.kt → Cache.kt` at its first use) are facts of
-  the step that holds them, of the range when the overview lists no step.
+  and the divider "Same edit in 3 files" of the story. The new API (each added declaration), the declarations opened
+  wider ("Opens wider: format", no new API) and the links the commits added between the files of two modules
+  (`new_between_modules`, `Reader.kt → Cache.kt` at its first use) are facts of the step that holds them, each name at
+  its place, of the range when the overview lists no step.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../src/presenters/review-story.test.ts (`opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+  [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration`)
 - A click on an entry of the overview must select its file in the review and show its place in the diffs, its name
   selected, as a link of the card of a row's mark does: the declaration of an API (a removal on the side before the
   commits, by its old path too), the first use of a link between modules in the file that uses, a declaration of the
@@ -854,8 +881,9 @@ group at the end. The overview at the top of the document of the review, before 
   through, "Look closely" and "a scale of zero empties the store." with the bar of an addition; under Possible Breakage `Changed helper`, under it
   `src/Store.kt:36 · parameters changed · 3 uses left outside`, `− fun helper(value: Int)`, `+ fun helper(value: Int,
   scale: Int)`, "Base.kt:1 src", "Uses.kt:4 src", "App.kt:9 src/main" and "1 match by name only, not checked"; without an index "The uses are
-  unknown"; "1 API change, no use left outside breaks"; "No usages: no index of this repository"; among the facts
-  "New API: Reader, Cache" and "New link between modules: Reader.kt → Cache.kt"; "Cannot read the review plan: …".
+  unknown"; "1 API change, no use left outside breaks", "No use left outside breaks · 1 API change" and the badge "Opens
+  wider"; "No usages: no index of this repository"; among the facts "New API: Reader, Cache", "Opens wider: format"
+  and "New link between modules: Reader.kt → Cache.kt"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·
   Reader.kt:3" and "Same edit ×3"; `Store.kt` with a warning mark, its card "Breaks: breaks 2 · 2 uses left outside
   the change", or `breaks 2+` and a muted `breaks ?` for a lower bound; the directory `b` with a muted mark, its card
