@@ -93,12 +93,13 @@ struct SourceBlob {
 
 /// The summaries of the source files `diffs` change, with the module structure above them at HEAD
 pub fn read_symbol_input(git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, diffs: &[CommitDiff]) -> Result<SymbolInput> {
-  Ok(read_symbol_input_with(git, repository_path, "HEAD", cache, diffs, &[])?.0)
+  Ok(read_symbol_input_with(git, repository_path, "HEAD", cache, diffs, &[], &[])?.0)
 }
 
-/// `read_symbol_input` with the module structure at `rev` (the head a review plan reads, which may not be checked out),
-/// and the bytes of the `extra` blobs of the caller in its one `cat-file --batch`, in order: `None` for a missing, binary
-/// or too large one. With no summary to parse and no manifest to read, the batch reads
+/// `read_symbol_input` with the module structure at `rev` (the head a review plan reads, which may not be checked out)
+/// above the source files and above `root_paths` (every file a review plan shows under its module), and the bytes of
+/// the `extra` blobs of the caller in its one `cat-file --batch`, in order: `None` for a missing, binary or too large
+/// one. With no summary to parse and no manifest to read, the batch reads
 /// `extra` alone; with no `extra` either, it runs no process
 #[instrument(skip_all, fields(commits = diffs.len(), extra = extra.len()))]
 pub fn read_symbol_input_with(
@@ -108,16 +109,25 @@ pub fn read_symbol_input_with(
   cache: &ObjectCache,
   diffs: &[CommitDiff],
   extra: &[String],
+  root_paths: &[&str],
 ) -> Result<(SymbolInput, Vec<Option<Vec<u8>>>)> {
   let started = Instant::now();
   let version = extractor_version();
   let wanted = source_blobs(diffs);
-  let paths = diffs
+  let sources: Vec<&str> = diffs
     .iter()
     .flat_map(|diff| &diff.files)
     .filter(|change| language_of(&change.path).is_some())
-    .map(|change| change.path.as_str());
-  let roots = ModuleRoots::read(git, repository_path, rev, paths)?;
+    .map(|change| change.path.as_str())
+    .collect();
+  let roots = ModuleRoots::read(git, repository_path, rev, sources.iter().copied().chain(root_paths.iter().copied()))?;
+  // the manifests and the aliases above the source files only, as before `root_paths`: the other paths need their
+  // modules, not the names of their crates
+  let above_sources = |dir: &str| {
+    sources
+      .iter()
+      .any(|path| dir.is_empty() || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/')))
+  };
 
   let keys: Vec<(u8, &str)> = wanted.iter().map(|blob| (summary_key(blob.language, &blob.path), blob.id.as_str())).collect();
   let cached: Vec<Option<FileSummary>> = cache.get_blob_summaries(version, &keys);
@@ -134,8 +144,16 @@ pub fn read_symbol_input_with(
   let cached_count = summaries.len();
 
   // the misses, the manifests and the extra blobs in one process
-  let manifests: Vec<(String, String)> = roots.manifests().map(|(dir, blob)| (dir.to_string(), blob.to_string())).collect();
-  let tsconfigs: Vec<(String, String)> = roots.all_tsconfigs().map(|(path, blob)| (path, blob.to_string())).collect();
+  let manifests: Vec<(String, String)> = roots
+    .manifests()
+    .filter(|(dir, _)| above_sources(dir))
+    .map(|(dir, blob)| (dir.to_string(), blob.to_string()))
+    .collect();
+  let tsconfigs: Vec<(String, String)> = roots
+    .all_tsconfigs()
+    .filter(|(path, _)| above_sources(path.rsplit_once('/').map_or("", |(dir, _)| dir)))
+    .map(|(path, blob)| (path, blob.to_string()))
+    .collect();
   let names: Vec<String> = missing
     .iter()
     .map(|blob| blob.id.clone())

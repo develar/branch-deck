@@ -42,6 +42,7 @@ function facts(patch: Partial<FileFacts>): FileFacts {
     untested: false,
     repeatedEdit: null,
     repeatedEditOnly: false,
+    module: null,
     ...patch,
   }
 }

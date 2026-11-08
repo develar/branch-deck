@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 22` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 23` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -41,6 +41,8 @@
 //! `excerpt` of every changed paragraph of several sentences, and no paragraph of front matter or of metadata;
 //! version 22 the `table` block of a body (its `header`, the `align` of each column and its `rows`, a cell a line of
 //! its `code` by its place, the header row first) and the `summary` of a body, the block that sums it up
+//! version 23 the `modules` of the changed files and the `module` of each file, the `moduleEdges` of a step in place of
+//! its `moduleLinks`, and the mechanical kind `moduleList`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -57,6 +59,7 @@ use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, MessageChange, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
+use review_plan::modules::ModuleShape;
 use review_plan::steps::ReviewSteps;
 use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
@@ -65,7 +68,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 22;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 23;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -159,6 +162,13 @@ pub struct ReviewPlanOutput {
   /// dependencies of a `package.json`), and the build files they add or delete (`newModule`): by build file in tree
   /// order, then by kind and name. A new version or scope is one `changed` entry
   pub dependencies: Vec<DependencyChange>,
+  /// The modules of the changed files (the nearest directory above each with a build file at the head, `""` for none):
+  /// one the commits add first (`state`), then the most changed lines of code and tests; each with its `name`, its
+  /// `label`, its `files` by role, its lines, its `directories`, the modules it newly `uses` (the links the commits add,
+  /// by their place in `links`, and whether a build file `declared` it), those that newly use it (`usedBy`), the plugin
+  /// modules that add it as content (`contentOf`) and the entries its build files add that name no module of the review
+  /// (`newDependencies`, by their place in `dependencies`)
+  pub modules: Vec<ModuleShape>,
   /// The groups of 3 or more files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditOutput>,
   /// The changes a reviewer reads once, in the order of the story, of the diff of `base..head` (with `--since-reviewed`
@@ -184,8 +194,8 @@ pub struct ReviewPlanOutput {
   /// the declarations without a block of their own on a line of its blocks, each with its `step`) and the
   /// tests of the change accio finds among the callers of its code (`tests`: `answered`, `proof` with each test's `unit`
   /// and `way`, `reached`, `unreached` only on a complete answer), the public declarations it
-  /// adds (`newApi`, by the key of their `api` entry) and the links between modules it adds (`moduleLinks`, by their
-  /// place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`); its units the
+  /// adds (`newApi`, by the key of their `api` entry) and the new uses between modules it adds (`moduleEdges`: `from`
+  /// and `to` by their place in `modules`, the `links` by their place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`); its units the
   /// stop of another step shows (`shownElsewhere`, with that `step`); its `title` and what gives it (`titleSource`:
   /// `commit`, the `label` of the section it tells, the first `sentence` of its paragraph, the first code `name` of it,
   /// or none, `evidence`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
@@ -281,6 +291,8 @@ pub struct FileFactsOutput {
   pub repeated_edit: Option<u32>,
   /// Every hunk of it is the edit of its group
   pub repeated_edit_only: bool,
+  /// Its module, by its place in `modules`
+  pub module: Option<u32>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -512,6 +524,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     files: plan.files.into_iter().map(file_output).collect(),
     links: plan.links.into_iter().map(link_output).collect(),
     dependencies: plan.dependencies,
+    modules: plan.modules,
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
     units: plan.units.into_iter().map(unit_output).collect(),
     concerns: plan.concerns,
@@ -558,6 +571,7 @@ fn file_output(facts: FileFacts) -> FileFactsOutput {
     untested: facts.untested,
     repeated_edit: facts.repeated_edit,
     repeated_edit_only: facts.repeated_edit_only,
+    module: facts.module,
   }
 }
 

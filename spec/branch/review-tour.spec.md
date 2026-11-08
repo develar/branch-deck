@@ -270,9 +270,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   came back for. A story whose message did not change has no `change`, its parts as the grammar folds them.
   [@test] ../../crates/review-plan/src/story_test.rs (`a_changed_part_of_a_body_is_marked_and_unfolded_a_verification_too`)
 - A step must list the public declarations it adds (`newApi`, the keys of the `added` entries of `api` whose
-  declaration or new file its stops show) and the links it adds between two modules (`moduleLinks`, by their place in
-  `links`, in the step whose stop shows the first use of the link, else the first step whose stops show the file that
-  uses), each in one step, the first that holds it. A declaration a stop of another step shows beside its own unit
+  declaration or new file its stops show) and the new uses between modules it adds (`moduleEdges`: the pair of modules,
+  by their place in `modules`, and its links, by their place in `links`; each link in the step whose stop shows its
+  first use, else the first step whose stops show the file that uses), each in one step, the first that holds it. A declaration a stop of another step shows beside its own unit
   (`StepStop.joined`) is new API of the step that wrote it, which says where it is shown.
   [@test] ../../crates/review-plan/src/story_test.rs (`a_step_lists_the_new_api_and_the_new_links_between_modules_it_holds`)
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_declaration_a_later_step_adds_in_the_block_of_another_is_the_new_api_of_the_step_that_wrote_it`)
@@ -329,7 +329,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_paragraph_changed_in_one_of_its_sentences_shows_it_first`, `a_short_paragraph_of_two_sentences_changed_in_one_shows_that_sentence`, `the_front_matter_is_the_lines_up_to_its_closing_rule`, `a_thematic_break_ends_a_paragraph`, `a_line_of_metadata_is_no_prose`, `a_table_with_one_added_row_is_its_header_and_that_row`, `a_changed_row_is_diffed_by_word_in_its_cells`, `a_line_of_pipes_without_a_delimiter_row_is_prose`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 22`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 23`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -368,7 +368,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   tests in its hover; the opening tells the rest), the code no test of the change reaches beside a scenario ("No test
   of the change reaches load"),
   "Proven by …", "New API: Cache and Reader", "Opens wider: mediaDuration" (a declaration whose reach alone opened
-  wider, `widened`, no new API), "New link between modules: Reader.kt → Cache.kt", each name showing its place; a step
+  wider, `widened`, no new API), "New use between modules: view.gui.media → view.gui, 38 links" (a pair of modules once, by their labels,
+  never the pairs of their files), each name showing its place; a step
   accio answered for whose code no test of the change reaches, every way walked, and no scenario proves
   says so in the warning tone ("No test of the change reaches paint"); code accio did not walk every way of is never
   named there; a list of names in the facts
@@ -614,7 +615,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
                                      "depth": 1, "way": "calls", "reaches": ["isShownOnStartupAllowed"]}]}],
                "reached": 1, "unreached": [], "scenarios": []},
      "proves": [],
-     "newApi": [], "moduleLinks": [], "title": "the project open shows the Project view only when …", "takenOutBy": null}],
+     "newApi": [], "moduleEdges": [], "title": "the project open shows the Project view only when …", "takenOutBy": null}],
   "coverage": {"blocks": 76, "inStops": 76, "mechanical": 0, "missing": 0, "twice": 0},
   "commits": [
     {"id": "8fd70458", "title": "the project open shows the Project view only when …",

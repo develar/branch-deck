@@ -126,6 +126,15 @@ pub(crate) struct Dependencies {
   pub changes: Vec<DependencyChange>,
   /// `None` for a file that is no manifest, and for a manifest whose dependencies and remainder did not change
   pub states: Vec<Option<ManifestState>>,
+  /// The entries of each manifest the commits add, which `changes` names only as its `NewModule`: what a new module
+  /// declares it uses (`modules`)
+  pub added: Vec<AddedManifest>,
+}
+
+/// A manifest the commits add, with the entries it declares
+pub(crate) struct AddedManifest {
+  pub manifest: String,
+  pub entries: Vec<(DependencyKind, String)>,
 }
 
 /// The formats of the manifests
@@ -220,15 +229,22 @@ enum Parsed {
 /// texts of their blobs by id
 pub(crate) fn dependency_changes(files: &[ChangedFile<'_>], texts: &HashMap<String, String>) -> Dependencies {
   let mut changes = Vec::new();
+  let mut added = Vec::new();
   let states = files
     .iter()
-    .map(|file| format_of(file.path).and_then(|format| diff_manifest(file, format, texts, &mut changes)))
+    .map(|file| format_of(file.path).and_then(|format| diff_manifest(file, format, texts, &mut changes, &mut added)))
     .collect();
-  Dependencies { changes, states }
+  Dependencies { changes, states, added }
 }
 
 /// The changes of the manifest `file` of `format` into `changes`, and its state
-fn diff_manifest(file: &ChangedFile<'_>, format: Format, texts: &HashMap<String, String>, changes: &mut Vec<DependencyChange>) -> Option<ManifestState> {
+fn diff_manifest(
+  file: &ChangedFile<'_>,
+  format: Format,
+  texts: &HashMap<String, String>,
+  changes: &mut Vec<DependencyChange>,
+  added: &mut Vec<AddedManifest>,
+) -> Option<ManifestState> {
   let side = |blob: Option<&str>, path: &str| -> Option<Parsed> { Some(texts.get(blob?).map_or(Parsed::Unparsed, |text| parse(format, path, text))) };
   let before = side(file.before, file.first_path);
   let after = side(file.after, file.path);
@@ -248,6 +264,10 @@ fn diff_manifest(file: &ChangedFile<'_>, format: Format, texts: &HashMap<String,
     (Some(Parsed::Unparsed), _) | (_, Some(Parsed::Unparsed)) => Some(ManifestState::Unparsed),
     (None, Some(Parsed::Manifest(new))) => {
       changes.push(change(&new.module, DependencyKind::NewModule, &new.module, DependencyChangeKind::Added));
+      added.push(AddedManifest {
+        manifest: file.path.to_string(),
+        entries: new.entries.into_iter().map(|entry| (entry.kind, entry.name)).collect(),
+      });
       Some(ManifestState::Other)
     }
     (Some(Parsed::Manifest(old)), None) => {

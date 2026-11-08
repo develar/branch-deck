@@ -11,7 +11,9 @@
 //!   for a file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, another `*.lock`, `.idea/modules.xml`)
 //!   and for a manifest whose parsed form changed only in its dependency entries (a plugin descriptor, `Cargo.toml`,
 //!   `package.json`: `dependencies::ManifestState`). A manifest that does not parse, or that changed beside its
-//!   dependencies, is no `BuildModel` (an `*.iml` that parses is one by name). Else each change a pure rename
+//!   dependencies, is no `BuildModel` (an `*.iml` that parses is one by name). `ModuleList` for a file of no language
+//!   whose every line the commits add or remove names whole a module they add or delete (the directory of its build
+//!   file, the name of its `*.iml`): the list of module directories a tool regenerates, the wiring of that module. Else each change a pure rename
 //!   (status `R`, no line added or removed), or each of its hunks the same text without
 //!   its whitespace, line ends included, so a wrapped or joined line too (`Whitespace`), or, in a source file, only
 //!   blank lines and lines of import statements, at least one (`ImportsOnly`). A file whose whitespace has a meaning
@@ -55,6 +57,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Range;
 use trial_check::diff_scan::CommitDiff;
+use trial_check::module_roots::is_module_file;
 
 /// Why a change of a file is mechanical: the review folds it into one group at the end
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -65,6 +68,9 @@ pub enum MechanicalKind {
   /// A file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`), or a
   /// plugin descriptor, `Cargo.toml` or `package.json` that changed only in its dependency entries
   BuildModel,
+  /// A list of modules: a file of no language whose every line the commits add or remove names a module they add or
+  /// delete (its directory or the name of its `*.iml`), as a generated list of the module directories does
+  ModuleList,
   /// Only `import`, `use` and `package` lines and blank lines changed
   ImportsOnly,
   /// Only whitespace changed
@@ -117,6 +123,55 @@ pub struct FileFacts {
   pub repeated_edit: Option<u32>,
   /// Every hunk of every commit that changes it is the edit of its group: the group says all of its change
   pub repeated_edit_only: bool,
+  /// Its module, by its place in `ReviewPlan::modules`
+  pub module: Option<u32>,
+}
+
+/// What names a module the commits add or delete: the directory of its build file, and the name of its `*.iml`
+fn module_markers<'a>(files: &[ChangedFile<'a>]) -> Vec<&'a str> {
+  let mut markers: Vec<&str> = files
+    .iter()
+    .filter(|file| (file.deleted || file.before.is_none()) && is_module_file(file.path.rsplit('/').next().unwrap_or(file.path)))
+    .flat_map(|file| {
+      let (directory, name) = file.path.rsplit_once('/').unwrap_or(("", file.path));
+      [Some(directory), name.strip_suffix(".iml")]
+    })
+    .flatten()
+    .filter(|marker| !marker.is_empty())
+    .collect();
+  markers.sort_unstable();
+  markers.dedup();
+  markers
+}
+
+/// A file of no language, of no module itself, whose every line the commits add or remove (at least one) names one of
+/// `markers` whole: the list of the module directories a tool regenerates when a module comes or goes
+fn is_module_list(file: &ChangedFile<'_>, texts: &HashMap<String, String>, markers: &[&str]) -> bool {
+  if markers.is_empty() || file.deleted || language_of(file.path).is_some() || is_module_file(file.path.rsplit('/').next().unwrap_or(file.path)) {
+    return false;
+  }
+  let mut lines = 0;
+  for change in &file.changes {
+    if !has_hunk_text(file, change) {
+      return false;
+    }
+    let Some(hunks) = hunk_lines(change, texts) else { return false };
+    for line in hunks.iter().flat_map(|hunk| hunk.removed.iter().chain(&hunk.added)).filter(|line| !line.trim().is_empty()) {
+      if !markers.iter().any(|marker| names_whole(line, marker)) {
+        return false;
+      }
+      lines += 1;
+    }
+  }
+  lines > 0
+}
+
+/// `line` holds `marker` with no character of a name right before or after it
+fn names_whole(line: &str, marker: &str) -> bool {
+  let of_name = |c: char| c.is_alphanumeric() || matches!(c, '.' | '-' | '_');
+  line
+    .match_indices(marker)
+    .any(|(at, _)| !line[..at].chars().next_back().is_some_and(of_name) && !line[at + marker.len()..].chars().next().is_some_and(of_name))
 }
 
 /// The lines of `blob` in `texts`, split at `\n`; none without its text
@@ -626,10 +681,14 @@ pub(crate) struct FileKinds {
 /// hunk text (`texts`) and the states of their manifests (`manifests`, by place; none past its end)
 pub(crate) fn file_kinds(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, manifests: &[Option<ManifestState>], generated: &[Option<GeneratedBy>]) -> FileKinds {
   let generated: Vec<Option<GeneratedBy>> = (0..files.len()).map(|index| generated.get(index).cloned().flatten()).collect();
+  let markers = module_markers(files);
   let mechanical: Vec<Option<MechanicalKind>> = files
     .iter()
     .enumerate()
-    .map(|(index, file)| mechanical_kind(file, texts, manifests.get(index).copied().flatten(), generated[index].is_some()))
+    .map(|(index, file)| {
+      mechanical_kind(file, texts, manifests.get(index).copied().flatten(), generated[index].is_some())
+        .or_else(|| is_module_list(file, texts, &markers).then_some(MechanicalKind::ModuleList))
+    })
     .collect();
   let edits = repeated_edits(files, texts, &mechanical);
   FileKinds { mechanical, generated, edits }
@@ -683,6 +742,7 @@ pub(crate) fn file_facts(
         untested: mechanical.is_none() && !file.deleted && source && !tested.contains(&subject_stem(path)) && !inline_tests.contains(path),
         repeated_edit: group_of.get(&index).copied(),
         repeated_edit_only: only.contains(&index),
+        module: None,
       }
     })
     .collect();

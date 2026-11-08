@@ -267,8 +267,9 @@ fn a_step_lists_the_new_api_and_the_new_links_between_modules_it_holds() {
     .iter()
     .map(|step| {
       let links = step
-        .module_links
+        .module_edges
         .iter()
+        .flat_map(|edge| &edge.links)
         .map(|&link| (plan.links[link as usize].from.as_str(), plan.links[link as usize].to.as_str()))
         .collect();
       (step.new_api.iter().map(String::as_str).collect(), links)

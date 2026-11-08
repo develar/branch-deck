@@ -7,13 +7,13 @@
 //! - **Per pair of files** (`from` uses `to`): `Added` when it links only after the commits, `Removed` only before,
 //!   `Kept` both; the symbols and lines are those of the side it links on, after the commits for a kept link.
 //! - **Across modules** when the nearest module root above the two files differs: an `*.iml`, a Bazel, Gradle or Maven
-//!   build file, a `Cargo.toml` or a `package.json` (`ModuleRoots`), read at the checked out HEAD.
+//!   build file, a `Cargo.toml` or a `package.json` (`ModuleRoots::root_of`), read at the head reviewed: a pull request
+//!   is not checked out.
 //! - A deleted file, a file the summaries don't read and a degraded one link nothing on that side.
 
 use crate::files::ChangedFile;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use trial_check::module_roots::ModuleRoots;
 use trial_check::symbol_dependencies::{SymbolLink, file_links};
 use trial_check::symbol_scan::SymbolInput;
 
@@ -66,14 +66,6 @@ struct Sides {
   after: Vec<LinkedSymbol>,
 }
 
-/// The root of the module of `path`: the nearest directory above it with a build file
-fn module_root<'a>(roots: &'a ModuleRoots, path: &str) -> Option<&'a str> {
-  [roots.module_of(path), roots.crate_of(path), roots.package_of(path)]
-    .into_iter()
-    .flatten()
-    .max_by_key(|root| root.len())
-}
-
 /// The links between `files` (`files::changed_files`): those of `after` (the uses of `order::review_order`) against
 /// the uses of the files before the commits; sorted by the file that uses, then the file that declares
 pub(crate) fn link_files(input: &SymbolInput, files: &[ChangedFile<'_>], after: &[SymbolLink]) -> Vec<FileLink> {
@@ -107,7 +99,7 @@ pub(crate) fn link_files(input: &SymbolInput, files: &[ChangedFile<'_>], after: 
         (false, true) => (LinkState::Removed, before),
         (false, false) => (LinkState::Kept, after),
       };
-      let cross_module = module_root(&input.roots, from) != module_root(&input.roots, to);
+      let cross_module = input.roots.root_of(from) != input.roots.root_of(to);
       FileLink {
         from: from.to_string(),
         to: to.to_string(),

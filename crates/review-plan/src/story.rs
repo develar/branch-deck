@@ -55,7 +55,7 @@ use crate::api::ApiChangeKind;
 use crate::concerns::compound;
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
-use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, TitleSource, commit_title, split_message};
+use crate::steps::{CommitRole, ModuleEdge, ReviewStep, StepStop, StepsInput, TitleSource, commit_title, split_message};
 use crate::units::{ReviewUnit, UnitKind};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
 use serde::Serialize;
@@ -865,7 +865,7 @@ fn shows_line(unit_of: &HashMap<&str, &ReviewUnit>, stop: &StepStop, line: u32) 
   })
 }
 
-/// The new API and the new links between modules of each step (`ReviewStep::new_api`, `module_links`): each in the
+/// The new API and the new uses between modules of each step (`ReviewStep::new_api`, `module_edges`): each in the
 /// first step whose stops show it; a declaration a stop shows beside its own unit (`StepStop::joined`) in the step that
 /// wrote it, which names where it is shown (`ReviewStep::shown_elsewhere`)
 pub(crate) fn add_step_facts(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
@@ -897,6 +897,9 @@ pub(crate) fn add_step_facts(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
   }
   for (place, link) in input.links.iter().enumerate().filter(|(_, link)| link.new_between_modules) {
     let Ok(place) = u32::try_from(place) else { continue };
+    let (Some(from), Some(to)) = (input.modules.of_path(input.changed, &link.from), input.modules.of_path(input.changed, &link.to)) else {
+      continue;
+    };
     let first = first_use(link);
     let at = steps
       .iter()
@@ -908,7 +911,11 @@ pub(crate) fn add_step_facts(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
       })
       .or_else(|| steps.iter().position(|step| step.stops.iter().any(|stop| stop.path == link.from)));
     if let Some(at) = at {
-      steps[at].module_links.push(place);
+      let edges = &mut steps[at].module_edges;
+      match edges.iter_mut().find(|edge| edge.from == from && edge.to == to) {
+        Some(edge) => edge.links.push(place),
+        None => edges.push(ModuleEdge { from, to, links: vec![place] }),
+      }
     }
   }
 }

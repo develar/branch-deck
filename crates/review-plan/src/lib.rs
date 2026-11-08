@@ -14,6 +14,7 @@
 //! - `links`: which changed file uses which, added, removed or kept by the commits
 //! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
 //!   add or delete
+//! - `modules`: the modules the commits add, change or delete, the shape of each part and what each newly uses
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
 //!   removes or changes and whether its tests changed with it
 //! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, of one commit the
@@ -37,6 +38,7 @@ pub mod interdiff;
 pub mod links;
 pub mod mark_reviewed;
 pub mod message_steps;
+pub mod modules;
 pub mod order;
 pub mod pair;
 pub mod prose;
@@ -53,6 +55,7 @@ use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file
 use crate::interdiff::{Interdiff, MessageChange, PairState, commits_of, interdiff, message_change};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base, resolve_branch};
+use crate::modules::{ModuleShape, Modules, ModulesInput, module_shapes};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
@@ -157,6 +160,9 @@ pub struct ReviewPlan {
   /// The entries the commits add to, remove from or change in the build files, and the build files they add or delete:
   /// by build file in tree order, then by kind and name
   pub dependencies: Vec<DependencyChange>,
+  /// The modules of the changed files (`modules`): one the commits add first, then the most changed lines of code and
+  /// tests; `FileFacts::module` of each file names its own
+  pub modules: Vec<ModuleShape>,
   /// The groups of files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditGroup>,
   /// The changes of the pair the plan reads (`units`): every block of its diffs in one unit, every changed file in one
@@ -431,8 +437,10 @@ pub fn review_plan_of(
   let input = if diffs.is_empty() {
     None
   } else {
-    // the modules of the head reviewed, not of the checkout: a pull request is not checked out
-    let (input, read) = read_symbol_input_with(git, repository_path, &head, sources.cache, &diffs, &unread)?;
+    // the modules of the head reviewed, not of the checkout: a pull request is not checked out; above every changed
+    // file, which the review shows under its module
+    let root_paths: Vec<&str> = changed.iter().map(|file| file.path).collect();
+    let (input, read) = read_symbol_input_with(git, repository_path, &head, sources.cache, &diffs, &unread, &root_paths)?;
     texts.extend(unread.into_iter().zip(read).filter_map(|(id, bytes)| Some((id, String::from_utf8(bytes?).ok()?))));
     Some(input)
   };
@@ -444,9 +452,23 @@ pub fn review_plan_of(
     },
   );
   let pairs = pair_blocks(git, repository_path, sources.cache, sources.file_diffs, &changed, &texts)?;
-  let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
+  let Dependencies {
+    changes: dependencies,
+    states,
+    added: added_manifests,
+  } = dependency_changes(&changed, &texts);
   let generated = generated_of(&changed, &known, &texts);
   let kinds = file_kinds(&changed, &texts, &states, &generated);
+  let modules = module_shapes(&ModulesInput {
+    changed: &changed,
+    roots: input.as_ref().map(|input| &input.roots),
+    crates: input.as_ref().map(|input| &input.crates),
+    mechanical: &kinds.mechanical,
+    pairs: &pairs,
+    links: &links,
+    dependencies: &dependencies,
+    added_manifests: &added_manifests,
+  });
   // the paths whose commits change a test inside them, for `untested`
   let (units, inline_tests) = input
     .as_ref()
@@ -468,6 +490,7 @@ pub fn review_plan_of(
     contract: &brief.contract,
     api: &api,
     issue: brief.issue.as_deref(),
+    modules: &modules,
   });
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
@@ -486,6 +509,7 @@ pub fn review_plan_of(
     files: Vec::new(),
     links,
     dependencies,
+    modules: Vec::new(),
     repeated_edits: Vec::new(),
     units,
     concerns,
@@ -495,8 +519,10 @@ pub fn review_plan_of(
     index_note: None,
   };
   let asks = api.iter().any(|change| change.kind != ApiChangeKind::Added) || plan.steps.steps.iter().any(|step| !step.code.is_empty());
+  plan.modules.clone_from(&modules.shapes);
   if sources.index.is_some() && asks {
     (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
+    with_modules(&mut plan.files, &changed, &modules);
     plan.api.clone_from(&api);
     pending(&plan);
   }
@@ -510,9 +536,17 @@ pub fn review_plan_of(
   });
   plan.index_note = usages?.or(tests?);
   (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
+  with_modules(&mut plan.files, &changed, &modules);
   plan.verdict = verdict_of(&api);
   plan.api = api;
   Ok(plan)
+}
+
+/// `FileFacts::module` of each file
+fn with_modules(files: &mut [FileFacts], changed: &[files::ChangedFile<'_>], modules: &Modules) {
+  for facts in files {
+    facts.module = modules.of_path(changed, &facts.path);
+  }
 }
 
 /// The names the changed files declare on either side, lowercase: what a rare token of code may be (`concerns`)
@@ -569,6 +603,8 @@ mod links_test;
 mod mark_reviewed_test;
 #[cfg(test)]
 mod message_steps_test;
+#[cfg(test)]
+mod modules_test;
 #[cfg(test)]
 mod order_test;
 #[cfg(test)]

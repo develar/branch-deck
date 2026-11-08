@@ -260,8 +260,11 @@ export interface StepFacts {
   readonly newApi: FactList
   /** The declarations it opens wider, which breaks no use ("Opens wider:", `ApiChange.widened`), each at its declaration */
   readonly opensWider: FactList
-  /** The links it adds between two modules ("New link between modules:"), each at its first use */
-  readonly moduleLinks: FactList
+  /**
+   * The new uses between modules it adds ("New use between modules: view.gui.media → view.gui, 38 links"), each pair of
+   * modules once, at the first use of its first link
+   */
+  readonly moduleEdges: FactList
   /**
    * Of a step none of whose code lands, the step of the later commit that took it out ("Nothing of it lands: step 5
    * took it out"): its words, the title of that commit in their hover, and the id of the step, which a click shows; null
@@ -340,7 +343,7 @@ function proofPlaces(proof: ReviewStep["tests"]["proof"]): FactPlace[] {
  * list its first names and the count of the rest (`cutList`); the opening names them all. The warning of a step no test
  * reaches names its code in both
  */
-export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "units">, form: FactsForm = "opening"): StepFacts {
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "modules" | "steps" | "units">, form: FactsForm = "opening"): StepFacts {
   const { answered, proof, reached, unreached, scenarios } = step.tests
   const newApi = new Set(step.newApi)
   const addedChanges = plan.api.filter(change => change.kind === "added" && newApi.has(change.key))
@@ -351,9 +354,13 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
       label: changes.filter(other => other.name === change.name).length > 1 ? ownerLed(change.key, change.name) : change.name,
       place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
     }))
-  const links = step.moduleLinks.flatMap(index => {
-    const link = plan.links[index]
-    return link === undefined ? [] : [{ key: `${index}`, label: `${fileName(link.from)} → ${fileName(link.to)}`, place: firstUse(link) }]
+  const edges = step.moduleEdges.flatMap(edge => {
+    const [from, to, link] = [plan.modules[edge.from], plan.modules[edge.to], plan.links[edge.links[0] ?? -1]]
+    if (from === undefined || to === undefined || link === undefined) {
+      return []
+    }
+    const count = edge.links.length
+    return [{ key: `${edge.from}:${edge.to}`, label: `${from.label} → ${to.label}${count > 1 ? `, ${count} links` : ""}`, place: firstUse(link) }]
   })
   const takenOutBy = takenOutOf(step, plan)
   const contents = form === "contents"
@@ -381,7 +388,7 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
     }),
     newApi: list(declared(addedChanges.filter(change => !change.widened))),
     opensWider: list(declared(addedChanges.filter(change => change.widened))),
-    moduleLinks: list(links),
+    moduleEdges: list(edges),
     takenOutBy,
     shownElsewhere,
     unproven: answered && unreached.length > 0 && reached === 0 && scenarios.length === 0 ? { names: noneFact().names } : null,
@@ -866,13 +873,13 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     tests: all.flatMap(it => it.tests),
     newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
     opensWider: { places: all.flatMap(it => it.opensWider.places), more: 0 },
-    moduleLinks: { places: all.flatMap(it => it.moduleLinks.places), more: 0 },
+    moduleEdges: { places: all.flatMap(it => it.moduleEdges.places), more: 0 },
     proves: [],
     takenOutBy: null,
     shownElsewhere: [],
     unproven: null,
   }
-  const named = [facts.newApi, facts.opensWider, facts.moduleLinks].some(it => it.places.length > 0)
+  const named = [facts.newApi, facts.opensWider, facts.moduleEdges].some(it => it.places.length > 0)
   return facts.line === null && facts.tests.length === 0 && !named ? null : facts
 }
 
@@ -910,7 +917,7 @@ export interface OpeningView {
 }
 
 /** The opening of each step of `plan` by its id (`OpeningView`) */
-export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "units">): Map<string, OpeningView> {
+export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "modules" | "units">): Map<string, OpeningView> {
   const chapters = presentChapters(plan)
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   const one = storyByParts(plan)

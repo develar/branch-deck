@@ -40,6 +40,7 @@ use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
 use crate::message_steps::message_steps;
+use crate::modules::Modules;
 use crate::pair::{PairBlocks, block_of};
 use crate::story::{StoryCommit, StoryRef, add_step_facts, add_story_marks, add_story_titles, story_commits};
 use crate::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
@@ -185,9 +186,10 @@ pub struct ReviewStep {
   /// `widened` one too), each in the first step whose stops show it; one a stop of another step shows beside its own
   /// (`StepStop::joined`) in the step that wrote it
   pub new_api: Vec<String>,
-  /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
-  /// step whose stop shows the first use, each in one step
-  pub module_links: Vec<u32>,
+  /// The new uses of a module by another that it adds: the links between their files the commits add
+  /// (`new_between_modules`), each in the step whose stop shows its first use, by the pair of modules, in the order of
+  /// their first link
+  pub module_edges: Vec<ModuleEdge>,
   /// Its title wherever the review names it: of a step of the commits, the title of the commit that starts it
   /// (`commit_title`); of a step of the concerns of one commit, the label of the first labelled section of its body the
   /// step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
@@ -219,7 +221,7 @@ impl ReviewStep {
       tests: StepTests::default(),
       proves: Vec::new(),
       new_api: Vec::new(),
-      module_links: Vec::new(),
+      module_edges: Vec::new(),
       title: None,
       title_source: TitleSource::Evidence,
       taken_out_by: None,
@@ -227,6 +229,19 @@ impl ReviewStep {
       code: Vec::new(),
     }
   }
+}
+
+/// A module of the review that another newly uses in a step (`ReviewStep::module_edges`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleEdge {
+  /// The module that uses and the one it uses, by their place in `ReviewPlan::modules`
+  pub from: u32,
+  pub to: u32,
+  /// The links of the step between their files, by their place in `ReviewPlan::links`
+  pub links: Vec<u32>,
 }
 
 /// A unit of a step that a stop of another step shows (`ReviewStep::shown_elsewhere`)
@@ -455,6 +470,8 @@ pub(crate) struct StepsInput<'a> {
   pub api: &'a [ApiChange],
   /// The issue key the brief names (`ReviewBrief::issue`): the title of a commit leaves it out (`commit_title`)
   pub issue: Option<&'a str>,
+  /// The module of each changed file, for the new uses between modules of each step (`ReviewStep::module_edges`)
+  pub modules: &'a Modules,
 }
 
 /// Whether a commit message tells a step: a body of `MIN_BODY_WORDS` words or more after its subject, its trailers

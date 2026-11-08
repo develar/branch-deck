@@ -3174,6 +3174,8 @@ export type FileFacts = {
 	repeatedEdit: number | null,
 	/**  Every hunk of every commit that changes it is the edit of its group: the group says all of its change */
 	repeatedEditOnly: boolean,
+	/**  Its module, by its place in `ReviewPlan::modules` */
+	module: number | null,
 };
 
 /**  A changed file that uses another changed file */
@@ -4364,6 +4366,11 @@ export type MechanicalKind =
  *  plugin descriptor, `Cargo.toml` or `package.json` that changed only in its dependency entries
  */
 "buildModel" | 
+/**
+ *  A list of modules: a file of no language whose every line the commits add or remove names a module they add or
+ *  delete (its directory or the name of its `*.iml`), as a generated list of the module directories does
+ */
+"moduleList" | 
 /**  Only `import`, `use` and `package` lines and blank lines changed */
 "importsOnly" | 
 /**  Only whitespace changed */
@@ -4599,6 +4606,67 @@ export type MissingReviewGroup = {
 	suggested: Person[],
 	/**  Members whose latest review of the pull request requests changes */
 	changesRequestedBy: Person[],
+};
+
+/**  A directory of a module with changed files, below its root */
+export type ModuleDirectory = {
+	/**  Below the root, without a leading source directory, at most two levels (`ui/embeds`); `""` for the files at the top */
+	path: string,
+	files: number,
+};
+
+/**  A module of the review that another newly uses in a step (`ReviewStep::module_edges`) */
+export type ModuleEdge = {
+	/**  The module that uses and the one it uses, by their place in `ReviewPlan::modules` */
+	from: number,
+	to: number,
+	/**  The links of the step between their files, by their place in `ReviewPlan::links` */
+	links: number[],
+};
+
+/**  The changed files of a module by their role */
+export type ModuleFiles = {
+	code: number,
+	tests: number,
+	resources: number,
+	build: number,
+	prose: number,
+};
+
+/**  A module the commits change, with the shape of its change */
+export type ModuleShape = {
+	/**  The directory of its build file, `""` for the root of the repository */
+	root: string,
+	name: string,
+	/**  How the review names it: the shortest suffix of its root no other module of the review shares */
+	label: string,
+	state: ModuleState,
+	files: ModuleFiles,
+	additions: number,
+	deletions: number,
+	/**  The most files first, then in tree order */
+	directories: ModuleDirectory[],
+	/**  The most links first, the declared ones before the rest of equal count */
+	uses: ModuleUse[],
+	/**  The modules of the review that newly use it, by their place in `ReviewPlan::modules` */
+	usedBy: number[],
+	/**  The plugin modules whose descriptors the commits make hold it as content */
+	contentOf: string[],
+	/**  The entries its build files add that name no module of the review, by their place in `ReviewPlan::dependencies` */
+	newDependencies: number[],
+};
+
+/**  What the commits do to a module */
+export type ModuleState = "added" | "changed" | "deleted";
+
+/**  Another module of the review that a module newly uses */
+export type ModuleUse = {
+	/**  By its place in `ReviewPlan::modules` */
+	module: number,
+	/**  The links the commits add from its files to that module's, by their place in `ReviewPlan::links` */
+	links: number[],
+	/**  A dependency entry its build files add names that module */
+	declared: boolean,
 };
 
 /**  How a move changes a commit */
@@ -6845,6 +6913,11 @@ export type ReviewPlan = {
 	 *  by build file in tree order, then by kind and name
 	 */
 	dependencies: DependencyChange[],
+	/**
+	 *  The modules of the changed files (`modules`): one the commits add first, then the most changed lines of code and
+	 *  tests; `FileFacts::module` of each file names its own
+	 */
+	modules: ModuleShape[],
 	/**  The groups of files that get the same edit, the most files first */
 	repeatedEdits: RepeatedEditGroup[],
 	/**
@@ -7135,10 +7208,11 @@ export type ReviewStep = {
 	 */
 	newApi: string[],
 	/**
-	 *  The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
-	 *  step whose stop shows the first use, each in one step
+	 *  The new uses of a module by another that it adds: the links between their files the commits add
+	 *  (`new_between_modules`), each in the step whose stop shows its first use, by the pair of modules, in the order of
+	 *  their first link
 	 */
-	moduleLinks: number[],
+	moduleEdges: ModuleEdge[],
 	/**
 	 *  Its title wherever the review names it: of a step of the commits, the title of the commit that starts it
 	 *  (`commit_title`); of a step of the concerns of one commit, the label of the first labelled section of its body the

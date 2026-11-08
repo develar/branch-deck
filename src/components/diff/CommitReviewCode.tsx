@@ -326,7 +326,7 @@ function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap
         proves: [],
         newApi: { places: [], more: 0 },
         opensWider: { places: [], more: 0 },
-        moduleLinks: { places: [], more: 0 },
+        moduleEdges: { places: [], more: 0 },
         takenOutBy: null,
         shownElsewhere: [],
         unproven: null,

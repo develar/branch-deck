@@ -195,10 +195,10 @@ group at the end. The overview at the top of the document of the review, before 
 - `brd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope`
   with `base`, `head` and `carried`), with
-  `"schema": 22`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 23`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`, version 21 the form `row` of a paragraph of the brief, the `excerpt` of every changed paragraph of several sentences and no paragraph of front matter or metadata ([Review Tour](review-tour.spec.md#brief)), version 22 the `table` block of a body ([Commit Row](../commit/commit-row.spec.md#message-body)) and its `summary`; the other outputs of `brd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`, version 21 the form `row` of a paragraph of the brief, the `excerpt` of every changed paragraph of several sentences and no paragraph of front matter or metadata ([Review Tour](review-tour.spec.md#brief)), version 22 the `table` block of a body ([Commit Row](../commit/commit-row.spec.md#message-body)) and its `summary`, version 23 the `modules` of the changed files ([Modules](#modules)), the `module` of a file and the `moduleEdges` of a step in place of its `moduleLinks`; the other outputs of `brd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -428,6 +428,12 @@ group at the end. The overview at the top of the document of the review, before 
 - A file must be `buildModel` when its name is of the build model: `*.iml`, `BUILD`, `BUILD.bazel`, a `*.lock` that
   is no lock file of a package manager, `.idea/modules.xml`.
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_and_the_build_model_are_mechanical_a_deletion_is_not`)
+- A file of no language and of no module itself must be `moduleList` when every line the commits add or remove (one
+  at least) names whole a module they add or delete: the directory of its build file or the name of its `*.iml`, no
+  character of a name right before or after it. It is the wiring of that module (a generated list of the module
+  directories, as `build/bazel-generated-file-list.txt` of a large monorepo), not the first thing of its step; a line
+  that names a module the change did not add keeps the file real work.
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`, `a_list_that_names_no_module_the_commits_add_is_real_work`)
 - A file the commits delete must stay real work: the deletion is a decision of its author, as a new file is, and the
   same change as the edits of the other files it goes with (a server dropped from five configs, and from the sixth
   that held nothing else). Only a deleted file that is generated (by its name, the attributes of the head, or the
@@ -544,6 +550,42 @@ group at the end. The overview at the top of the document of the review, before 
 - The texts of the build files must come with the text of the hunks: from the memory of the diffs, else in the
   `cat-file` of the summaries. A plan of build files alone must run one `cat-file`, with the diffs read in this process
   or from the object cache.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
+
+### Modules
+
+The shape of a change before any of its words: which modules it adds, changes or deletes, how large each part is,
+and what each newly uses. The review opens on it ([Review Tour](review-tour.spec.md)).
+- `modules` must list the module of every changed file once: the nearest directory above the file with a build file
+  at the head reviewed (`ModuleRoots::root_of`: an `*.iml`, a `*.csproj`, a Bazel, Gradle or Maven build file, a
+  `Cargo.toml`, a `package.json`), or of a module the commits delete (a build file they delete there, which the head
+  lacks), else the root of the repository (`""`, named and labelled `(root)`). `files[].module` names it by its place.
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`, `the_files_of_a_module_the_commits_delete_stay_in_it`)
+- A module must be `added` when the commits add a build file at its root, `deleted` when they delete one and the head
+  has no module there, else `changed`. Its `name` is that of its `*.iml` (the shortest stem beside a `*.tests.iml`), of
+  its crate, of the module a dependency change gives a build file at its root, else of its directory. Its `label` is
+  the shortest suffix of its root no other module of the review shares, of two directories at least when its last
+  has no `.`, `-` or `_` (`shared/code`, `view.gui.media`, `review-plan`).
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_label_is_the_shortest_suffix_no_other_module_shares`, `the_files_of_a_module_the_commits_delete_stay_in_it`)
+- A module must count its changed `files` by role: `build` (the build model, a manifest, a `moduleList`), `prose`
+  (Markdown, reStructuredText, AsciiDoc, text), `tests` (the paths of [Files](#files)), `code` (a language the summaries
+  parse), the rest `resources`; its lines `additions` and `deletions` over the range, by the blocks of each file; its
+  `directories` below the root without a leading source directory (`src`, `testSrc`, `main`, `kotlin`, `java`,
+  `resources`, …), by their first two levels, the most files first.
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`)
+- A module must list the modules of the review it newly `uses`: by the links the commits add from its files to theirs
+  (`new_between_modules`), and `declared` when a dependency entry its build files add, or one a build file the commits
+  add declares, names that module; `usedBy` the reverse; `contentOf` the plugin modules whose descriptors the commits
+  make hold it as content; `newDependencies` the entries its build files add that name no module of the review.
+- The modules must come in the order of the review: one the commits add first, then the most changed lines of code
+  and tests, then tree order.
+  [@test] ../../crates/review-plan/src/modules_test.rs (`a_module_the_commits_add_comes_first_with_its_files_by_role_and_what_it_newly_uses`)
+- A step must name the new uses between modules it adds (`moduleEdges`: `from`, `to` and the `links` of the step between
+  their files), each link in the step whose stop shows its first use: "view.gui.media → view.gui, 38 uses", never a
+  list of the pairs of files.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_step_lists_the_new_api_and_the_new_links_between_modules_it_holds`)
+- The modules must read the trees above every changed file in the `cat-file --batch` of the summaries: a plan of
+  build files alone runs that batch too.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
 
 ### Dependency Order
@@ -883,7 +925,7 @@ group at the end. The overview at the top of the document of the review, before 
   scale: Int)`, "Base.kt:1 src", "Uses.kt:4 src", "App.kt:9 src/main" and "1 match by name only, not checked"; without an index "The uses are
   unknown"; "1 API change, no use left outside breaks", "No use left outside breaks · 1 API change" and the badge "Opens
   wider"; "No usages: no index of this repository"; among the facts "New API: Reader, Cache", "Opens wider: format"
-  and "New link between modules: Reader.kt → Cache.kt"; "Cannot read the review plan: …".
+  and "New use between modules: (root) → src/b"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·
   Reader.kt:3" and "Same edit ×3"; `Store.kt` with a warning mark, its card "Breaks: breaks 2 · 2 uses left outside
   the change", or `breaks 2+` and a muted `breaks ?` for a lower bound; the directory `b` with a muted mark, its card

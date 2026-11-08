@@ -636,7 +636,8 @@ fn a_mark_reviewed_on_a_base() {
 /// with the branches, one `merge-base`, one `rev-list` per side, one `diff-tree` with one `patch-id` for the changed
 /// lines of the commits that are not the same on both sides, and one `diff-tree` for the interdiff of the rewritten
 /// ones; then for the API and the files one `diff-tree` from the reviewed change carried onto the base (the reviewed tip
-/// on the same base) to the tip, and one `cat-file` of their blobs (text files: no summary to read)
+/// on the same base) to the tip, one `cat-file` of their blobs (text files: no summary to read) and one of the trees
+/// above them, for their modules
 #[test]
 fn a_review_plan_since_the_review() {
   let repo = amended_since_the_review();
@@ -652,7 +653,7 @@ fn a_review_plan_since_the_review() {
 /// The processes of `brd review-plan auth --since-reviewed` after an amend on the same base: the reviewed tip is the
 /// reviewed change carried onto it, and the diff from it to the tip one `diff-tree`
 const SINCE_THE_REVIEW: &[(&str, u32)] = &[
-  ("cat-file", 1),
+  ("cat-file", 2),
   ("check-attr", 1),
   ("diff-tree", 3),
   ("for-each-ref", 2),
@@ -866,8 +867,9 @@ fn a_review_plan_of_modified_files() {
 /// `package.json`, and of a fourth that adds a crate: the dependency changes come from the texts of these build files
 /// before and after the commits. The first plan reads the diffs itself (one `cat-file` of their blobs) and finds those
 /// texts in memory, no process more. A second plan, a new process, finds the diffs in the object cache and reads the
-/// texts in the batch of the summaries (`read_symbol_input_with`), which without a source file runs for them alone:
-/// one `cat-file`, and no read of the trees at HEAD
+/// texts in the batch of the summaries (`read_symbol_input_with`), which without a source file runs for them alone,
+/// and one `cat-file` of the trees above the files at the head, for their modules: the module of a build file the
+/// commits add is the module they add
 #[test]
 fn a_review_plan_of_build_files() {
   let iml = "<module type=\"JAVA_MODULE\" version=\"4\">\n  <component name=\"NewModuleRootManager\">\n    <orderEntry type=\"module\" module-name=\"intellij.platform.core\" />\n  </component>\n</module>";
@@ -902,8 +904,8 @@ fn a_review_plan_of_build_files() {
     );
     context
   });
-  assert_processes(&plans[0], &[("cat-file", 1), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&plans[1], &[("cat-file", 1), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&plans[0], &[("cat-file", 2), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&plans[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `brd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the

@@ -684,14 +684,14 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "Build files (1)" })).toBeVisible()
     await expect(tree.getByRole("treeitem", { name: "Whitespace only (1)" })).toBeVisible()
 
-    // the overview: no possible break, `helper` folded as no use left outside breaks; the link into the new module a fact
-    // of its step, at its first use; the dependency changes and the same edit are on their rows only
+    // the overview: no possible break, `helper` folded as no use left outside breaks; the new use of the new module a
+    // fact of its step, the two modules by their labels, at its first use; the dependency changes and the same edit are on their rows only
     const overview = window.getByTestId("review-overview")
     await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
     await expect(overview.getByTestId("review-plan-unbroken")).toContainText("No use left outside breaks · 1 API change")
-    const moduleLink = overview.getByTestId("review-step-module-link")
+    const moduleLink = overview.getByTestId("review-step-module-edge")
     await expect(moduleLink).toHaveAttribute("data-path", "src/a/Reader.kt")
-    await expect(moduleLink).toHaveText("Reader.kt → Cache.kt")
+    await expect(moduleLink).toHaveText("(root) → src/b")
     await expect(overview).not.toContainText("Same edit")
     await expect(overview).not.toContainText("New module b")
 

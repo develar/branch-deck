@@ -147,8 +147,9 @@ pub struct ReviewUnit {
 
 /// The order of the mechanical units, as the tree of the review lists the kinds: the generated files last, which a
 /// reviewer skips whole
-const MECHANICAL_ORDER: [MechanicalKind; 5] = [
+const MECHANICAL_ORDER: [MechanicalKind; 6] = [
   MechanicalKind::BuildModel,
+  MechanicalKind::ModuleList,
   MechanicalKind::ImportsOnly,
   MechanicalKind::Whitespace,
   MechanicalKind::Renamed,
@@ -541,6 +542,7 @@ fn mechanical_place(kind: MechanicalKind) -> usize {
 const fn mechanical_tag(kind: MechanicalKind) -> &'static str {
   match kind {
     MechanicalKind::BuildModel => "buildModel",
+    MechanicalKind::ModuleList => "moduleList",
     MechanicalKind::ImportsOnly => "importsOnly",
     MechanicalKind::Whitespace => "whitespace",
     MechanicalKind::Renamed => "renamed",

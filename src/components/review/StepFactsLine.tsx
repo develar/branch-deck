@@ -30,14 +30,14 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
     )),
     ...(facts.newApi.places.length === 0 ? [] : [<FactPlaces key="api" title="New API:" list={facts.newApi} testId="review-step-new-api" />]),
     ...(facts.opensWider.places.length === 0 ? [] : [<FactPlaces key="wider" title="Opens wider:" list={facts.opensWider} testId="review-step-opens-wider" />]),
-    ...(facts.moduleLinks.places.length === 0
+    ...(facts.moduleEdges.places.length === 0
       ? []
       : [
           <FactPlaces
-            key="links"
-            title={facts.moduleLinks.places.length + facts.moduleLinks.more === 1 ? "New link between modules:" : "New links between modules:"}
-            list={facts.moduleLinks}
-            testId="review-step-module-link"
+            key="modules"
+            title={facts.moduleEdges.places.length + facts.moduleEdges.more === 1 ? "New use between modules:" : "New uses between modules:"}
+            list={facts.moduleEdges}
+            testId="review-step-module-edge"
           />,
         ]),
   ]

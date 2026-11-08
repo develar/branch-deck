@@ -20,7 +20,7 @@ import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { ContractFile, ContractParagraph, FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
-import { reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
+import { moduleShape, reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -727,7 +727,7 @@ describe("the document of a review", () => {
             [commit("the rule"), commit("the rule again", "followsUp"), commit("wip", "noStory")],
             [["u:rule", "src/a/Rule.kt"]],
             {},
-            { newApi: ["a.Cache", "a.Store"], moduleLinks: [0] },
+            { newApi: ["a.Cache", "a.Store"], moduleEdges: [{ from: 0, to: 1, links: [0] }] },
           ),
           step("no-story", [commit("tidy", "noStory")], [["u:tidy", "src/Tidy.kt"]]),
         ],
@@ -739,6 +739,7 @@ describe("the document of a review", () => {
             { path: "src/a/Store.kt", line: 4, name: "Store", key: "a.Store", kind: "changed", widened: false, changes: [], before: null, after: null, usages: null },
           ],
           links: [{ from: "src/a/Reader.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 3 }], state: "added", crossModule: true, newBetweenModules: true }],
+          modules: [moduleShape("src/a", "src/a"), moduleShape("src/b", "src/b")],
         },
       ),
     )
@@ -750,11 +751,11 @@ describe("the document of a review", () => {
       ["Without a story", "wip", null],
     ])
     // a changed declaration is no new API
-    expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleLinks.places.map(({ label, place }) => [label, place])]).toEqual([
+    expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleEdges.places.map(({ label, place }) => [label, place])]).toEqual([
       null,
       { places: [{ key: "a.Cache:src/a/Cache.kt:3", label: "Cache", place: { path: "src/a/Cache.kt", side: "new", line: 3, name: "Cache" } }], more: 0 },
-      // at its first use, in the file that uses
-      [["Reader.kt → Cache.kt", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
+      // a pair of modules once, at the first use of its first link, in the file that uses
+      [["src/a → src/b", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
     ])
     const untold = openings.get("no-story")!
     expect([untold.title, untold.story, untold.commits.map(it => it.title)]).toEqual(["Changes without a story", null, ["tidy"]])

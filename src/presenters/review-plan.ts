@@ -238,10 +238,11 @@ export function presentBreakage(api: readonly ApiChange[], pending: boolean, ver
 export type FileFactsOfPlan = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
 
 /** What the review window reads of the plan: the facts of the files, the units of the story, its concerns, its steps and its brief */
-export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api" | "concerns" | "steps" | "brief">
+export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api" | "concerns" | "steps" | "brief" | "modules">
 
 export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build files",
+  moduleList: "Module lists",
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
   renamed: "Renamed",
@@ -251,6 +252,7 @@ export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
 /** Why the diffs fold a mechanical file, in its header */
 export const FOLDED_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build file",
+  moduleList: "Module list",
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
   renamed: "Renamed only",
