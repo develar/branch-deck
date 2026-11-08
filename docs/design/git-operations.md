@@ -4479,7 +4479,7 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 Settings → Repository shows and writes three keys of the repository's git config, Settings → Diffs & Merge the
 fourth, `branchdeck.resolveByWords`, Settings → Landing the fifth, `branchdeck.pushSizeLimit` (a size, `50M` when
 unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
-`resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, no row yet,
+`resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, written only to `.git/config`, never globally,
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the three rules of coding agents
 (`crates/sync-core/src/repository_config.rs`):
 `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
@@ -4488,8 +4488,9 @@ unset, `0` or `off` for none: see [Push size](#push-size); one value for every r
 lands each commit with `brd pick`), `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
 each subject with its `(branch)`, which the copies of the virtual branches drop) and `branchdeck.agentPullRequest` (a
 git boolean, off when unset: the landing of an agent's commit includes its pull request, the push of the branch after
-the pick and the `gh pr create` it prints, without asking; `lease_config` reads it too, for the `next` of `brd lease
-get`), and, on Settings → Diffs & Merge →
+the pick and the `gh pr create` it prints, without asking, off under the Push route of the repository's own config
+(`LandingSetting::agent_pull_request_off`); `lease_config` reads it and `branchdeck.landing` with their scopes too,
+for the `next` of `brd lease get`), and, on Settings → Diffs & Merge →
 Review, the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset and
 for a value git refuses: Mark Reviewed, the local Since Your Review, the overview of the plan and the marks of the files,
 [Review Plan](../../spec/branch/review-plan.spec.md); one value for every repository in the global config, as

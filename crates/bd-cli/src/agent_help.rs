@@ -286,7 +286,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    other paths stay). With nothing to land, `brd lease pick` only moves your lease onto the tip (`up_to_date`,
    `followed.state: moved`): the commits of the other sessions. When `brd workspace` says `pull_request.on`
    (`branchdeck.agentPullRequest`, off by default), the landing goes on without asking: the push of `next`
-   (`brd push <branch>` with -C <home.checkout>) and the `gh pr create` it prints for a branch without a pull request.
+   (`brd push <branch>` with -C <home.checkout>) and the `gh pr create` it prints for a branch without a pull request;
+   off with a `reason` (the Push route), the pick is the landing: no push, no pull request.
    - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
      the subject before the owner groups it.
    - `dependencies[]`: a commit whose prefix names a branch that is not built on the branches it needs (`depends_on`:
@@ -866,7 +867,8 @@ wins over it:
   that `[commit] check` rejects (`message_format`).
 - `pull_request.on`: the landing of a commit includes its pull request. After the pick, run the push of `next`
   (`brd -C <shared checkout> push <branch>`) and the `gh pr create` it prints for a branch without one, without asking;
-  off, ask the user first. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way.
+  off, ask the user first; off with a `reason` (the route into master is Push), never push the branch or open a pull
+  request: the pick is the landing. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way.
 - All three are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`,
   `branchdeck.agentPullRequest`): never change them.
 - The diff shows what changed; the body says why. After the subject (the behaviour change): a lead of 1–3 sentences

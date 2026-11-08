@@ -151,6 +151,7 @@ describe("newer", () => {
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
     agentPullRequest: setting({}),
+    agentPullRequestOff: null,
     reviewExperimental: setting({}),
     companions: [],
     primary: null,

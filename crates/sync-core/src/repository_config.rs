@@ -4,7 +4,7 @@
 //! agents work and land (Settings → Agents, read by `brd workspace`), and the experiments of the review windows
 //! (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md). One `git config --get-regexp` reads them all with
 //! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
-//! the request names it (`WriteScope`; never a `push` route), and `bd` reads the same keys.
+//! the request names it (`WriteScope`; never the route), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
 use crate::config_snapshot::{ConfigSnapshot, SYMBOLS_CONFIG_KEY, SymbolMode, companion_name};
@@ -36,6 +36,11 @@ pub const PRIMARY_CONFIG_KEY: &str = "branchdeck.primary";
 /// Why a `push` route of the global or the system config is taken as unset: a push into master of every repository of
 /// the user that names no route of its own would be a trap
 pub const GLOBAL_PUSH_ROUTE_REASON: &str = "a push is taken only from .git/config of the repository, never from the global config";
+
+/// Why a write of the route into the global config is refused for every value: a global `push` would push into master
+/// of every repository without a route of its own, a global `patronus` would refuse every repository off Space, a global
+/// `pull-request` would take Safe Push from the repositories on Space
+pub const GLOBAL_ROUTE_WRITE_REASON: &str = "the route is written only to .git/config of the repository, never to the global config";
 
 /// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
 pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
@@ -162,6 +167,10 @@ pub struct RepositoryConfig {
   pub agent_subject_branch: ConfigSetting<bool>,
   /// `branchdeck.agentPullRequest`, off by default
   pub agent_pull_request: ConfigSetting<bool>,
+  /// Why `agent_pull_request` does not apply in this repository whatever its value, from its route
+  /// (`LandingSetting::agent_pull_request_off`): under Push the work lands without a pull request. `None`: the rule may
+  /// apply
+  pub agent_pull_request_off: Option<String>,
   /// `branchdeck.reviewExperimental`, off by default and for a value git refuses
   pub review_experimental: ConfigSetting<bool>,
   /// The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name
@@ -428,6 +437,7 @@ pub fn parse_config_entries(output: &str) -> Vec<ConfigEntry> {
 /// The settings the entries resolve to (the last entry of a key wins), with what `origin` tells: the detected GitHub
 /// repository and the default route
 pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFacts) -> RepositoryConfig {
+  let landing = landing_setting(entries);
   RepositoryConfig {
     symbols: resolve_setting(entries, RepositoryConfigKey::Symbols, SymbolMode::default(), |value| {
       match SymbolMode::parse(value.unwrap_or_default()) {
@@ -445,7 +455,8 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
       text_setting(value.map(str::trim), validate_push_size_limit)
     }),
     resolve_by_words: resolve_setting(entries, RepositoryConfigKey::ResolveByWords, true, |value| bool_setting(value, true)),
-    landing: landing_setting(entries),
+    agent_pull_request_off: landing.value.and_then(LandingSetting::agent_pull_request_off).map(str::to_string),
+    landing,
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
     agent_pull_request: resolve_setting(entries, RepositoryConfigKey::AgentPullRequest, false, |value| bool_setting(value, false)),
@@ -587,11 +598,11 @@ pub fn set_config(git: &GitCommandExecutor, repository_path: &str, change: &Repo
 }
 
 /// Write one key to the global config of the user (`git config --global --replace-all`, or `--unset-all`). A local
-/// value of a repository still wins there; the read of its settings shows that scope. A `push` route is refused: only
-/// a repository's own config names it
+/// value of a repository still wins there; the read of its settings shows that scope. A route is refused, whatever its
+/// value: only a repository's own config names it (`GLOBAL_ROUTE_WRITE_REASON`)
 pub fn write_global_config(git: &GitCommandExecutor, change: &RepositoryConfigChange) -> Result<()> {
-  if *change == RepositoryConfigChange::Landing(Some(LandingSetting::Push)) {
-    bail!("{LANDING_CONFIG_KEY}: {GLOBAL_PUSH_ROUTE_REASON}");
+  if let RepositoryConfigChange::Landing(Some(_)) = change {
+    bail!("{LANDING_CONFIG_KEY}: {GLOBAL_ROUTE_WRITE_REASON}");
   }
   run_config_write(git, ".", "--global", change.key().config_key(), change.config_value()?.as_deref())
 }

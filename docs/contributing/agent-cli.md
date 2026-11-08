@@ -2127,7 +2127,9 @@ checked out now. Three rules of the git config, each `{on, source, invalid, reas
 - `pull_request`: `branchdeck.agentPullRequest`, off by default. The landing of a commit includes its pull request:
   after the pick the agent pushes its branch (`brd -C <shared checkout> push <branch>`, a step of `next` in a lease and
   of `brd lease get`) and runs the `gh pr create` it prints, without asking. Off, the push and the pull request wait for
-  the user. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way. The skill
+  the user. Off with a `reason` under the Push route of the repository's own config (`branchdeck.landing push`; a
+  global one is unset): the work lands without a pull request, so the pick is the landing, and neither `next` pushes.
+  A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way. The skill
   carries the rules that go with a pushed branch: a change to it is a `(branch) fixup! <subject>` commit, folded only
   when the user asks.
 

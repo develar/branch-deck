@@ -461,7 +461,7 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_brd_fails_and_in_a_sandbox()
 
 /// `branchdeck.agentPullRequest` decides whether the landing of a commit includes its pull request: the skill runs the
 /// push of `next` and its `gh pr create` without asking only with `pull_request.on`, and keeps what lands into master
-/// waiting for the user either way. A pushed branch takes a fixup that only the user folds, and a lease never a stash:
+/// waiting for the user either way; off with a reason (the Push route) it pushes nothing. A pushed branch takes a fixup that only the user folds, and a lease never a stash:
 /// rules a repository would otherwise repeat in its own agent instructions
 #[test]
 fn the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_history() {
@@ -474,6 +474,7 @@ fn the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_hi
     "`gh pr create`",
     "without asking",
     "off, ask the user first",
+    "off with a `reason` (the route into master is Push), never push the branch or open a pull\n  request",
     "A Safe Push, `brd land`",
     "--force",
     "parked",
@@ -495,6 +496,10 @@ fn the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_hi
     "{AGENT_HELP}"
   );
   assert!(WORKTREES_HELP.contains("folded only when the user asks"), "{WORKTREES_HELP}");
+  assert!(
+    WORKTREES_HELP.contains("off with a `reason` (the Push route), the pick is the landing: no push, no pull request."),
+    "{WORKTREES_HELP}"
+  );
 }
 
 #[test]

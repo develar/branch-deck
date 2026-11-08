@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 /// The git config key of the route (`patronus`, `push`, `pull-request`)
 pub const LANDING_CONFIG_KEY: &str = "branchdeck.landing";
 
+/// Why the pull request of a coding agent's commit does not apply under the Push route (`branchdeck.agentPullRequest`,
+/// `LandingSetting::agent_pull_request_off`)
+pub const AGENT_PULL_REQUEST_OFF_UNDER_PUSH: &str = "The route into master is Push (branchdeck.landing): the work lands without a pull request";
+
 /// The route a repository names (`branchdeck.landing`); unset, the route is Patronus on Space and the pull request
 /// elsewhere (`domain_policy::landing_route::route`)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -43,6 +47,18 @@ impl LandingSetting {
   #[must_use]
   pub const fn default_for(on_space: bool) -> Self {
     if on_space { Self::Patronus } else { Self::PullRequest }
+  }
+
+  /// Why a coding agent pushes no branch and opens no pull request of its commits after the pick under this route, even
+  /// with `branchdeck.agentPullRequest` on: a push of the copy lands the work into master without one. `None` where the
+  /// rule applies. `brd workspace`, `brd lease get` and Settings → Agents all take it from here; the route is the
+  /// effective one of the repository, where a `push` only the global config names is unset
+  #[must_use]
+  pub const fn agent_pull_request_off(self) -> Option<&'static str> {
+    match self {
+      Self::Push => Some(AGENT_PULL_REQUEST_OFF_UNDER_PUSH),
+      Self::Patronus | Self::PullRequest => None,
+    }
   }
 
   /// The value Branch Deck writes

@@ -51,6 +51,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
   agentPullRequest: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: null },
+  agentPullRequestOff: null,
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   companions: [
     { name: "ci-config", path: "/Users/jane/src/ci-config", problem: null },

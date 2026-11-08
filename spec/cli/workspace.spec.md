@@ -11,6 +11,7 @@ targets:
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-lease/src/lease_command.rs
   - ../../crates/git-ops/src/lease_slot.rs
+  - ../../crates/domain-types/src/landing_route.rs
 ---
 
 # brd workspace
@@ -65,6 +66,17 @@ in the session wins over both.
   read of the pool config.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`the_pull_request_rule_pushes_the_branch_after_the_pick`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_agent_keys_are_written_globally_and_a_repository_keeps_its_own`)
+- The pull request must follow the route into master ([Landing Routes](../branch/landing-routes.spec.md#setting)): under
+  the Push route of the repository's own config (`.git/config`, the worktree config, `git -c`) the work lands without a
+  pull request, so `pull_request` set on must answer `on: false` with the reason "The route into master is Push
+  (branchdeck.landing): the work lands without a pull request", and neither `next` (of `brd workspace` and of
+  `brd lease get`) holds the push. A `push` of the global or the system config is unset and changes nothing: both still
+  hold it. One function of `domain-types` decides it (`LandingSetting::agent_pull_request_off`); `brd lease get` reads
+  the route with its scope in its one read of the pool config, and Settings → Agents reads the same reason
+  (`RepositoryConfig.agentPullRequestOff`).
+  [@test] ../../crates/bd-lease/src/workspace_test.rs (`the_push_route_turns_the_pull_request_rule_off_and_a_global_push_route_does_not`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_push_route_of_the_repository_turns_the_agent_pull_request_off`)
+  [@test] ../../crates/domain-types/src/landing_route_test.rs (`only_the_push_route_turns_the_agent_pull_request_off`)
 - In the main worktree (`kind: main`) with the lease on, `next` must be `brd lease get --holder <your name> -C
   <top level>`; `subdir` names where brd runs below the top level, and `local_changes` counts the local changes of the
   checkout, which a lease does not have. Inside a leased slot (`kind: lease`) `shared_checkout` must be the source the
@@ -110,7 +122,8 @@ in the session wins over both.
   committed; without it, stage only its own paths; with the
   subject branch, `(branch) ` first, a branch of `brd status --brief` reused where it fits, a new branch `(name)`,
   `(parent/leaf)` only on an existing virtual branch, never the baseline; with `pull_request.on`, the push of `next`
-  and the `gh pr create` it prints without asking, off ask first, a Safe Push, `brd land`, a push with --force and a
+  and the `gh pr create` it prints without asking, off ask first, off with a `reason` (the Push route) neither a push
+  nor a pull request, a Safe Push, `brd land`, a push with --force and a
   parked branch waiting for the user either way; never change any of the three rules.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`, `the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_history`)
 - The skill must carry the isolation rules a repository would otherwise repeat in its own agent instructions: a lease is

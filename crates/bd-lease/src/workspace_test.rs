@@ -1,6 +1,7 @@
 use crate::lease_test::{Fixture, path_of};
 use bd_cli::fixture_test::{canonical, git};
 use bd_core::bd_command::{CLI_NAME, shell_word};
+use domain_types::landing_route::AGENT_PULL_REQUEST_OFF_UNDER_PUSH;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -14,6 +15,17 @@ fn workspace_in(fixture: &Fixture, cwd: &Path) -> Value {
 
 fn display(path: &Path) -> String {
   canonical(path).to_string_lossy().into_owned()
+}
+
+/// The `next` of the lease `lease` of `slot`: its pick, the push of its branch from `push_from` where the landing includes
+/// the pull request, its return
+fn lease_next(slot: &str, push_from: Option<&str>, lease: &Value) -> Value {
+  let mut next = vec![format!("{CLI_NAME} -C {} lease pick", shell_word(slot))];
+  if let Some(shared) = push_from {
+    next.push(format!("{CLI_NAME} -C {} push <branch>", shell_word(shared)));
+  }
+  next.push(format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()));
+  json!(next)
 }
 
 /// By default an agent leases a worktree from the shared checkout and writes the subject as the repository does; inside
@@ -109,14 +121,41 @@ fn the_pull_request_rule_pushes_the_branch_after_the_pick() {
 
   let lease = fixture.get(&["--holder", "lane-1"]);
   let slot = path_of(&lease);
-  let next = json!([
-    format!("{CLI_NAME} -C {} lease pick", shell_word(&slot)),
-    format!("{CLI_NAME} -C {} push <branch>", shell_word(&shared)),
-    format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
-  ]);
+  let next = lease_next(&slot, Some(&shared), &lease);
   assert_eq!(lease["next"], next);
   let output = workspace_in(&fixture, Path::new(&slot));
   assert_eq!((&output["pull_request"], &output["next"]), (&json!({ "on": true, "source": "local" }), &next));
+}
+
+/// The Push route of the repository lands the work without a pull request: with `branchdeck.agentPullRequest true` the
+/// rule is off with the reason, and neither the get nor `brd workspace` in the lease pushes the branch after the pick. A
+/// `push` of the global config is unset: the rule applies, and both name the push, the same answer
+#[test_log::test]
+fn the_push_route_turns_the_pull_request_rule_off_and_a_global_push_route_does_not() {
+  let fixture = Fixture::new();
+  let shared = display(fixture.repo.path());
+  fixture.repo.set_config("branchdeck.agentPullRequest", "true").unwrap();
+  fixture.repo.set_config("branchdeck.landing", "push").unwrap();
+  let off = json!({ "on": false, "source": "local", "reason": AGENT_PULL_REQUEST_OFF_UNDER_PUSH });
+  assert_eq!(workspace_in(&fixture, fixture.repo.path())["pull_request"], off);
+
+  let lease = fixture.get(&["--holder", "lane-1"]);
+  let slot = path_of(&lease);
+  let pick_only = lease_next(&slot, None, &lease);
+  assert_eq!(lease["next"], pick_only);
+  let output = workspace_in(&fixture, Path::new(&slot));
+  assert_eq!((&output["pull_request"], &output["next"]), (&off, &pick_only));
+  fixture.give_back(&slot);
+
+  // a push into master of every repository of the user is a trap: the global route is unset, the rule stays on
+  git(&fixture.repo, &["config", "--unset", "branchdeck.landing"]);
+  std::fs::write(fixture.global_config.path(), "[branchdeck]\n\tlanding = push\n").unwrap();
+  let lease = fixture.get(&["--holder", "lane-2"]);
+  let slot = path_of(&lease);
+  let with_push = lease_next(&slot, Some(&shared), &lease);
+  assert_eq!(lease["next"], with_push);
+  let output = workspace_in(&fixture, Path::new(&slot));
+  assert_eq!((&output["pull_request"], &output["next"]), (&json!({ "on": true, "source": "local" }), &with_push));
 }
 
 /// A linked worktree outside the pool is a checkout of its own: no lease, no pick; outside a working tree there is

@@ -6435,6 +6435,12 @@ export type RepositoryConfig = {
 	agentSubjectBranch: ConfigSetting<boolean>,
 	/**  `branchdeck.agentPullRequest`, off by default */
 	agentPullRequest: ConfigSetting<boolean>,
+	/**
+	 *  Why `agent_pull_request` does not apply in this repository whatever its value, from its route
+	 *  (`LandingSetting::agent_pull_request_off`): under Push the work lands without a pull request. `None`: the rule may
+	 *  apply
+	 */
+	agentPullRequestOff: string | null,
 	/**  `branchdeck.reviewExperimental`, off by default and for a value git refuses */
 	reviewExperimental: ConfigSetting<boolean>,
 	/**  The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name */

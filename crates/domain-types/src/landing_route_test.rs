@@ -1,4 +1,4 @@
-use crate::landing_route::LandingSetting;
+use crate::landing_route::{AGENT_PULL_REQUEST_OFF_UNDER_PUSH, LandingSetting};
 use crate::pull_request::ViewerPermission;
 use serde_json::json;
 
@@ -12,6 +12,16 @@ fn the_setting_is_read_as_git_keeps_it_and_written_back_the_same() {
   assert_eq!(LandingSetting::parse(""), None);
   // the page names it as every other value of the bindings
   assert_eq!(serde_json::to_value(LandingSetting::PullRequest).unwrap(), json!("pullRequest"));
+}
+
+/// Under the Push route the work lands without a pull request: the agent rule of the pull request is off, with the reason
+#[test]
+fn only_the_push_route_turns_the_agent_pull_request_off() {
+  let off: Vec<Option<&str>> = [LandingSetting::Patronus, LandingSetting::Push, LandingSetting::PullRequest]
+    .into_iter()
+    .map(LandingSetting::agent_pull_request_off)
+    .collect();
+  assert_eq!(off, vec![None, Some(AGENT_PULL_REQUEST_OFF_UNDER_PUSH), None]);
 }
 
 #[test]

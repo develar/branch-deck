@@ -29,7 +29,8 @@ pub struct WorkspaceOutput {
   /// subject as the repository does
   pub subject_branch: AgentRule,
   /// The landing of a commit includes its pull request: after the pick, push its branch and open the pull request brd
-  /// prints, without asking (`branchdeck.agentPullRequest`, off by default); off: ask the user first
+  /// prints, without asking (`branchdeck.agentPullRequest`, off by default); off: ask the user first; off with a reason
+  /// (the Push route of the repository): no push and no pull request
   pub pull_request: AgentRule,
   /// The top level of the working tree
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,7 +143,8 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
   };
   let lease = rule(&answer.lease, lease_reason);
   let subject_branch = rule(&answer.subject_branch, None);
-  let pull_request = rule(&answer.pull_request, None);
+  let pull_request_reason = answer.pull_request.value.then(|| answer.pull_request_off.clone()).flatten();
+  let pull_request = rule(&answer.pull_request, pull_request_reason);
 
   let top_level = answer.top_level.clone().unwrap_or_default();
   let this_lease = answer.this_lease.as_ref();

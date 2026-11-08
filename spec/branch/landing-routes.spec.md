@@ -125,10 +125,20 @@ target, read before anything is pushed.
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_route_comes_from_git_config_and_is_none_without_it`)
   [@test] ../../crates/domain-types/src/landing_route_test.rs (`the_setting_is_read_as_git_keeps_it_and_written_back_the_same`)
 - `push` must be taken only from the repository's own config (`.git/config`, the worktree config, `git -c`): a `push`
-  of the global or the system config is unset, with the reason, for Settings and for every operation, and a global
-  write of it is refused. A push into master of every repository of the user that names no route would be a trap.
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_push_route_is_written_only_to_the_local_config`)
+  of the global or the system config is unset, with the reason, for Settings and for every operation. A push into
+  master of every repository of the user that names no route would be a trap.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`a_push_route_of_the_global_config_is_none`)
+- A write of the route must go to the repository's own config: a global write is refused for every value, since it
+  would apply to every repository without a route of its own (a `push` pushes into master, a `patronus` refuses every
+  repository off Space, a `pull-request` takes Safe Push from the ones on Space). A hand-written global value may
+  still be removed.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`a_route_is_written_only_to_the_local_config`)
+- The rule of the agents that pushes the branch after the pick and opens its pull request (`branchdeck.agentPullRequest`)
+  must follow the route: under Push it is off with its reason, in `brd workspace`, `brd lease get` and Settings → Agents
+  ([brd workspace](../cli/workspace.spec.md#requirements)).
+  [@test] ../../crates/domain-types/src/landing_route_test.rs (`only_the_push_route_turns_the_agent_pull_request_off`)
+  [@test] ../../crates/bd-lease/src/workspace_test.rs (`the_push_route_turns_the_pull_request_rule_off_and_a_global_push_route_does_not`)
 - Unset, the route must be Patronus when the push URL of `origin` is on Space (`git.jetbrains.team`), and the pull
   request elsewhere; never a push. This is an exception to "a rule changes only by an explicit value"
   ([Agent Workspace](../cli/workspace.spec.md)): the host of `origin` does not change by itself, and the monorepo must

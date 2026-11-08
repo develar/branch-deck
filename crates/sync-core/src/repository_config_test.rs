@@ -1,10 +1,10 @@
 use crate::config_snapshot::SymbolMode;
 use crate::github_repository::GitHubRepositorySource;
 use crate::repository_config::{
-  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, GLOBAL_PUSH_ROUTE_REASON, LandingDefault, OriginFacts, RepositoryConfigChange, WriteScope,
-  parse_config_entries, read_config_entries, read_repository_config, repository_config_from_entries, set_config, set_repository_config,
+  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, GLOBAL_PUSH_ROUTE_REASON, GLOBAL_ROUTE_WRITE_REASON, LandingDefault, OriginFacts, RepositoryConfigChange,
+  WriteScope, parse_config_entries, read_config_entries, read_repository_config, repository_config_from_entries, set_config, set_repository_config,
 };
-use domain_types::landing_route::LandingSetting;
+use domain_types::landing_route::{AGENT_PULL_REQUEST_OFF_UNDER_PUSH, LandingSetting};
 use pretty_assertions::assert_eq;
 use sync_utils::git_bool::parse_git_bool;
 use test_utils::git_test_utils::{TestRepo, append_config};
@@ -633,17 +633,42 @@ fn the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset() {
   assert_eq!(worktree.value, Some(LandingSetting::Push));
 }
 
+/// Under the Push route of the repository itself the agent rule of the pull request does not apply, whatever its value;
+/// a `push` of the global config is unset and leaves the rule as it is
 #[test]
-fn a_push_route_is_written_only_to_the_local_config() {
+fn the_push_route_of_the_repository_turns_the_agent_pull_request_off() {
+  let off = |entries: &[ConfigEntry]| repository_config_from_entries(entries, OriginFacts::default()).agent_pull_request_off;
+  assert_eq!(off(&[]), None);
+  assert_eq!(
+    off(&[entry(ConfigScope::Local, "branchdeck.landing", Some("push"))]).as_deref(),
+    Some(AGENT_PULL_REQUEST_OFF_UNDER_PUSH)
+  );
+  assert_eq!(
+    off(&[entry(ConfigScope::Command, "branchdeck.landing", Some("push"))]).as_deref(),
+    Some(AGENT_PULL_REQUEST_OFF_UNDER_PUSH)
+  );
+  assert_eq!(off(&[entry(ConfigScope::Global, "branchdeck.landing", Some("push"))]), None);
+  assert_eq!(off(&[entry(ConfigScope::Local, "branchdeck.landing", Some("pull-request"))]), None);
+  assert_eq!(off(&[entry(ConfigScope::Local, "branchdeck.landing", Some("patronus"))]), None);
+}
+
+/// A route of the global config would apply to every repository without its own: a `push` pushes into master, a
+/// `patronus` refuses every repository off Space, a `pull-request` takes Safe Push from the ones on Space. Every value
+/// is refused there; a hand-written one may still be removed
+#[test]
+fn a_route_is_written_only_to_the_local_config() {
   let test_repo = TestRepo::new();
   let (global, git) = with_own_global_config(&test_repo);
   let path = test_repo.path_str();
 
-  let refused = set_config(&git, path, &RepositoryConfigChange::Landing(Some(LandingSetting::Push)), WriteScope::Global).unwrap_err();
-  assert_eq!(refused.to_string(), format!("branchdeck.landing: {GLOBAL_PUSH_ROUTE_REASON}"));
+  for setting in [LandingSetting::Push, LandingSetting::Patronus, LandingSetting::PullRequest] {
+    let refused = set_config(&git, path, &RepositoryConfigChange::Landing(Some(setting)), WriteScope::Global).unwrap_err();
+    assert_eq!(refused.to_string(), format!("branchdeck.landing: {GLOBAL_ROUTE_WRITE_REASON}"));
+  }
   assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "");
 
-  let config = set_config(&git, path, &RepositoryConfigChange::Landing(Some(LandingSetting::PullRequest)), WriteScope::Global).unwrap();
+  std::fs::write(global.path(), "[branchdeck]\n\tlanding = pull-request\n").unwrap();
+  let config = read_repository_config(&git, path).unwrap();
   assert_eq!((config.landing.value, config.landing.scope), (Some(LandingSetting::PullRequest), Some(ConfigScope::Global)));
   let config = set_config(&git, path, &RepositoryConfigChange::Landing(Some(LandingSetting::Push)), WriteScope::Local).unwrap();
   assert_eq!((config.landing.value, config.landing.scope), (Some(LandingSetting::Push), Some(ConfigScope::Local)));
@@ -653,4 +678,6 @@ fn a_push_route_is_written_only_to_the_local_config() {
   );
   let config = set_config(&git, path, &RepositoryConfigChange::Landing(None), WriteScope::Local).unwrap();
   assert_eq!(config.landing.value, Some(LandingSetting::PullRequest));
+  let config = set_config(&git, path, &RepositoryConfigChange::Landing(None), WriteScope::Global).unwrap();
+  assert_eq!((config.landing.value, config.landing.scope), (None, None));
 }
