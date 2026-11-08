@@ -6,7 +6,7 @@ use crate::test_support::{check_golden, declaration, fixture, summarize, summari
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
 /// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 3_637_964_555;
+const EXTRACTOR_VERSION: u32 = 82_305_498;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -65,7 +65,7 @@ fn the_psi_syntax_revision_is_the_one_cargo_builds() {
   // `extractor_version` hashes the revision: a cached summary of another parser is made again
   let manifest = include_str!("../Cargo.toml");
   let lock = include_str!("../../../Cargo.lock");
-  for name in ["csharp-syntax", "java-syntax", "kotlin-syntax", "psi-builder", "starlark-syntax"] {
+  for name in ["csharp-syntax", "java-syntax", "js-syntax", "kotlin-syntax", "psi-builder", "starlark-syntax"] {
     let dependency = format!("{name} = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{PSI_SYNTAX_REVISION}\"");
     assert!(manifest.contains(&dependency), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.toml");
     let locked = format!("name = \"{name}\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/develar/psi-syntax?rev={PSI_SYNTAX_REVISION}#{PSI_SYNTAX_REVISION}\"");

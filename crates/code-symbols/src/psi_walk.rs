@@ -199,9 +199,7 @@ impl<'t, L: TreeLanguage, E: Default, M> WalkCore<'t, L, E, M> {
   /// The qualifier of a member of the object whose path of names is `path`: its names, or empty for an expression
   /// (`None`) or a path from a local
   pub(crate) fn qualifier_ids(&mut self, path: Option<Vec<&'t str>>) -> Vec<u32> {
-    let Some(path) = path else { return Vec::new() };
-    let ids = self.out.ids(&path);
-    if ids.first().is_some_and(|it| self.bindings.is_bound(*it)) { Vec::new() } else { ids }
+    path.map_or_else(Vec::new, |path| self.bindings.qualifier(self.out.ids(&path)))
   }
 
   /// What the receiver of a member reference may have a type by: the bound name `bound` with a declared type, or a

@@ -3,16 +3,19 @@ name = "code-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#, Starlark) and tree-sitter (Rust, TypeScript)"
+description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#, Starlark, TypeScript) and tree-sitter (Rust)"
 
 [dependencies]
 # Kotlin's, Java's and C#'s parsers: psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own lexers and
 # parsers, whose trees are their PSI (Roslyn's syntax tree for C#) byte for byte; pure Rust, no C. They live in accio's
 # repository (`psi-syntax/`), which is internal, so a revision of develar/psi-syntax, its public mirror, pins them: each
 # mirrored commit names its accio commit (`Accio-Commit:`); `psi-builder` is the tree all three build, named directly
-# for the code the languages share.
+# for the code the languages share. `js-syntax` is oxc's parser of TypeScript, TSX and JavaScript with what every
+# reader of psi-syntax shares of its parse (the dialects, the options, the recovery, the stack); oxc is named only
+# through its re-exports.
 csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
+js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
@@ -33,7 +36,7 @@ java = ["dep:java-syntax", "dep:psi-builder"]
 csharp = ["dep:csharp-syntax", "dep:psi-builder"]
 starlark = ["dep:starlark-syntax", "dep:psi-builder"]
 rust = ["dep:tree-sitter-rust"]
-typescript = ["dep:tree-sitter-typescript"]
+typescript = ["dep:js-syntax", "dep:psi-builder", "dep:tree-sitter-typescript"]
 
 [lints]
 workspace = true

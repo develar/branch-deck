@@ -10,8 +10,9 @@
 //!
 //! Two parsers: Kotlin, Java and C# are read by psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own
 //! parsers, whose trees are their PSI and Roslyn's syntax tree (`kotlin`, `java`, `csharp`: a module per language with a
-//! walk per consumer, `summary`, `highlight` and `navigate`), Rust, TypeScript and JavaScript by tree-sitter (`extract.rs` with `rust_lang.rs` and `typescript.rs`,
-//! `highlight/`, `navigate.rs`). Both build their answers by the same parser-neutral code: `summary_builder`,
+//! walk per consumer, `summary`, `highlight` and `navigate`), the summary of TypeScript, TSX and JavaScript by
+//! psi-syntax's `js-syntax`, oxc's parser, the parse accio reads them with (`js`), Rust and the highlighting and the
+//! navigation of TypeScript by tree-sitter (`extract.rs` with `rust_lang.rs`, `highlight/`, `navigate.rs`). Both build their answers by the same parser-neutral code: `summary_builder`,
 //! `highlight::lines` and `highlight::paint`, the answers of `navigate`. `examples/facts.rs` prints every fact of the
 //! three consumers of a list of files, the oracle of a change of parser or rules.
 
@@ -33,6 +34,8 @@ mod summary_builder;
 mod csharp;
 #[cfg(feature = "java")]
 mod java;
+#[cfg(feature = "typescript")]
+mod js;
 #[cfg(any(feature = "kotlin", feature = "java", feature = "csharp"))]
 mod jvm;
 #[cfg(feature = "kotlin")]
@@ -47,8 +50,6 @@ mod psi_walk;
 mod rust_lang;
 #[cfg(feature = "starlark")]
 mod starlark;
-#[cfg(feature = "typescript")]
-mod typescript;
 
 #[cfg(all(test, feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"))]
 mod highlight_test;
@@ -66,5 +67,3 @@ mod summary_builder_test;
 mod summary_test;
 #[cfg(test)]
 mod test_support;
-#[cfg(all(test, feature = "typescript"))]
-mod typescript_test;

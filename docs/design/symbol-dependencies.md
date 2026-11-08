@@ -23,7 +23,7 @@ proposed `brd move-hunk` would have broken a branch.
 
 `crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Starlark, Rust, TypeScript and JavaScript; Kotlin
 on the compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on Roslyn's, decision 23,
-Starlark on the Bazel plugin's, decision 25, the others on tree-sitter): its
+Starlark on the Bazel plugin's, decision 25, TypeScript and JavaScript on oxc's, decision 27, Rust on tree-sitter): its
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
@@ -124,19 +124,24 @@ flowchart TD
    tree is good at saying what is not a use (a comment, a string, a local), and bad at saying everything that is. A name
    that is everywhere (`cleanup` of an instance member) has no candidate lines worth reading, only uses that resolve.
 
-5. **Decision**: a walk of the tree, not tree-sitter queries: of a tree-sitter language (Rust, TypeScript) a walk
-   driven by a table of its node kinds, of Kotlin and Java a walk of the PSI by its `NodeKind`s (decisions 20, 21).
+5. **Decision**: a walk of the tree, not tree-sitter queries: of a tree-sitter language (Rust) a walk driven by a table
+   of its node kinds, of Kotlin and Java a walk of the PSI by its `NodeKind`s (decisions 20, 21), of TypeScript and
+   JavaScript a walk of oxc's typed tree (decision 27).
    **Rationale**: shadowing needs a walk of the scopes anyway, the shipped `tags.scm` files are too thin, and a test
    checks every node kind of the tables against the grammar, so a grammar upgrade can't silently break a rule; the
    kinds of the PSI are constants of psi-syntax, which a renamed one fails to compile.
 
-6. **Decision**: one TSX grammar for TypeScript and JavaScript. (Kotlin was read by fwcd's tree-sitter grammar with
-   the commits of fwcd/tree-sitter-kotlin#329, pinned at `develar/tree-sitter-kotlin` `3dacb0e`, until decision 21
-   replaced it with the compiler's parser; tree-sitter-java went with decision 20; decision 22 removed both grammars.)
-   **Rationale**: TSX parses TypeScript and JavaScript but `<T>expr` casts, which make a file degraded and send it back
-   to the lines; one grammar less is about 1 MB of binary. The highlighting of the diffs (`code_symbols::highlight`,
-   [Diff View](diff-view.md#syntax-highlighting)) reads `.ts`, `.mts` and `.cts` by the TypeScript grammar of the same
-   crate: a generic arrow or a cast there is an error under TSX, and a colour that changes at it is visible.
+6. **Decision**: TypeScript and JavaScript are read in the dialect of the file's extension (decision 27): `.ts`,
+   `.mts` and `.cts` as TypeScript, `.tsx` as TSX, `.js`, `.mjs`, `.cjs` and `.jsx` as JavaScript with JSX. Until
+   decision 27 one TSX grammar of tree-sitter read the summary of all of them. (Kotlin was read by fwcd's tree-sitter
+   grammar with the commits of fwcd/tree-sitter-kotlin#329, pinned at `develar/tree-sitter-kotlin` `3dacb0e`, until
+   decision 21 replaced it with the compiler's parser; tree-sitter-java went with decision 20; decision 22 removed both
+   grammars.)
+   **Rationale**: TSX misreads the `<T>expr` casts of a `.ts` file, which made it degraded and sent it back to the
+   lines, and JavaScript has no types; the highlighting of the diffs (`code_symbols::highlight`, [Diff
+   View](diff-view.md#syntax-highlighting)) always read `.ts`, `.mts` and `.cts` by the TypeScript grammar, as a
+   colour that changes at a cast is visible. The same bytes summarize otherwise in two dialects, so the cache keys a
+   summary by its dialect (`language::summary_key`).
 
 7. **Decision**: the key (namespace, containers and name) of a JVM type or a member of one holds entries, not one
    declaration. An entry is one declaration of the key, an overload of a member or a constructor of a type (decision
@@ -625,8 +630,8 @@ flowchart TD
     `m` as `m?.foo` does, so a property `m` gives the receiver its type (570 more files moved on the corpus).
 
 22. **Decision**: Kotlin and Java have one parser each, psi-syntax's, for the summary, the highlighting and the
-    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads Rust, TypeScript and
-    JavaScript. tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
+    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads Rust (and read
+    TypeScript and JavaScript until decision 27). tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
     (`jvm.rs`: the containers, the stack of supertypes and `enclosed`, the JVM facts of a declaration, the receivers'
     types, the smart casts), and `extractor_version` hashes the revision of psi-syntax for Kotlin and Java
     (`PSI_SYNTAX_REVISION`, which a test checks against `Cargo.toml` and `Cargo.lock`) where it hashed their grammars'
@@ -697,6 +702,44 @@ flowchart TD
     code" the default: every `match` over the kinds is exhaustive, so the compiler names each place that must decide,
     and none of them took a target for a function.
 
+27. **Decision**: a TypeScript, TSX or JavaScript file is read by psi-syntax's `js-syntax`, oxc's parser with what every
+    reader of psi-syntax shares of its parse (the dialect of the extension, decision 6, the options, the recovery of a
+    fatal parse by blanking the region of its error, the stack of a parse and its walks; accio decision
+    2026-11-08-rust-and-js-parse-entries), the parse accio's extractor reads these files with, and summarized by one
+    walk of oxc's typed tree (`js/summary.rs`) inside `js_syntax::with_program`, by the rules of the tree-sitter walk
+    before it (`typescript.rs`, gone with it). The header is the parse's tokens: a string literal is one token, a
+    template literal its pieces (`` `x-${ name }` ``), which the review plan's `as_written` writes as code, and a type
+    parameter keeps its default, where tree-sitter's walk
+    cut the header at its `=`. The errors are the bytes a recovery blanked and the labels of the parse's diagnostics,
+    early errors included (`const x;`); a declaration with one between its start and its name is `in_error`, a file no
+    recovery saves is read with every byte in error, and one nested deeper than the parse reads (a gibibyte of stack)
+    is `truncated`. Any nesting below that is read on a 2 MiB thread: the parse, the walk and the drop of the tree run
+    on a thread of the stack the file needs.
+
+    [@test] ../../crates/code-symbols/src/js/summary_test.rs (`the_extension_chooses_the_dialect`, `a_header_is_the_tokens_of_the_parse`, `errors_are_what_the_parse_recovered_from`, `deep_nesting_is_read_on_a_small_stack`)
+
+    **Rationale**: two parsers of one file gave two readings of it, the review's and accio's. Against the tree-sitter
+    baseline (`examples/facts.rs`), of the 1 032 TypeScript and JavaScript files of Branch Deck the summary moved in
+    333: the tokens of a header (1 354 lines), a call with type arguments (`read<T>()`, `this.load<T>()`: 59), the
+    default of a type parameter or a default value with a block in a header (10), and readings tree-sitter's TSX got
+    wrong (`typeof import("m")` in type arguments, the labels of a named tuple member, a call in a template); against
+    accio's extractor (`examples/accio_facts.rs --parse-only`) no declaration moved. Of the 54 142 files of the
+    IntelliJ monorepo (the 514 changed since the baseline left out) the summary moved in 23 697, 14 705 of them files
+    one of the two parses has an error in (test data, and `.ts` test cases of JSX, which TypeScript reads as type
+    assertions). In the 8 992 others every moved fact is a reading the walk now makes as the language does: a header's
+    tokens (25 894 declarations), `export declare` exports (17 009; tree-sitter's walk read `declare` as a wrapper
+    that hid the `export`), the references of a decorator are of the declaration it decorates and no constructor
+    signature holds the references of its parameters (18 822 references with another container), a declaration starts
+    at the doc comment above its decorators, its `export` or its `declare`, and at no `///` directive (15 187), a
+    constructor signature declares nothing (4 085) and an accessor signature is a value (2 747), the default of a type
+    parameter is in the header (861), a call with type arguments is a call (207), `namespace a.b.c` is one module
+    named `c`, as accio's (tree-sitter's walk declared `a`, and nothing of `module a.b`), a member is named by no
+    computed key but an identifier (`[Symbol.iterator]` declared `Symbol`), a type of `import("m").T` is a type, and
+    these name nothing (6 499 references): the parameter of an index signature (`[key: string]`), the label of a named
+    tuple member, the parameter of a type predicate, `bigint` and `intrinsic`, the type parameters of a generic
+    function type, the name of a class expression, the alias of `import x = a.b`. A summary takes a sixth of
+    tree-sitter's time (5 000 files, 28.9 MB, on one thread: 1.15 s against 6.89 s).
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules, the revision of psi-syntax and the
@@ -716,6 +759,10 @@ flowchart TD
   (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
   decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
   shorthand by `emit_text` beside its local).
+  TypeScript and JavaScript (`js/summary.rs`): one recursive walk of oxc's tree (`Visit`) inside `js::with_program`,
+  the hoisting of a block (`hoist_block`) and of a function's `var`s (`hoist_vars`), the names of a pattern
+  (`pattern_names`), the containers by `Holder`, the header by the tokens of the parse (`Walk::header`), the doc
+  comments by the token they are attached to (`js::doc_lines`), the errors by `js::Errors`.
   Starlark (`starlark/summary.rs`): one pass over the PSI, reading it only through `starlark_syntax::psi`, with the
   file kind from the path (`summarize` takes it; `language::summary_key` keys the cache by it, as the same bytes are
   one summary as a `BUILD` and another as a `.bzl`).
@@ -750,7 +797,7 @@ flowchart TD
   `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fit` with `header_fit`, `calls`),
   `removes_use` and `needs_new_form` for `fixed_by` and `mutual`; `TreeSearch::written_lines` of
   `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols`: `Walk::header` of each walk (of a
-  tree-sitter language by its `Spec::header`), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
+  tree-sitter language by its `Spec::header`, of TypeScript by the tokens of the parse), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
   of `kotlin/summary.rs`.
 - `crates/trial-check/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
   `symbols`) for `brd commits`.

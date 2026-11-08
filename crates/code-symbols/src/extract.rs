@@ -1,11 +1,11 @@
 //! The summary of a file (`summarize`): Kotlin, Java and C# by a walk of their PSI and Roslyn's tree (`kotlin::summary`,
-//! `java::summary`, `csharp::summary`),
-//! Rust, TypeScript and JavaScript by one preorder walk over a tree-sitter tree, driven by per-language tables of node
-//! kinds (below); both on the parser-neutral `summary_builder`. The size limits and the version of the rules are those
+//! `java::summary`, `csharp::summary`), TypeScript, TSX and JavaScript by a walk of oxc's tree (`js::summary`), Rust by
+//! one preorder walk over a tree-sitter tree, driven by per-language tables of node kinds (below); all on the
+//! parser-neutral `summary_builder`. The size limits and the version of the rules are those
 //! of every language.
 //!
 //! - **Tables, not queries**: each tree-sitter language lists its node kinds with a `Rule` from the shared vocabulary
-//!   below (`rust_lang.rs`, `typescript.rs`); the few constructs the vocabulary cannot say are a `Rule::Special` with a
+//!   below (`rust_lang.rs`); the few constructs the vocabulary cannot say are a `Rule::Special` with a
 //!   function of that language. The rules are resolved once per grammar into a table indexed by kind id, and
 //!   `every_spec_kind_exists_in_its_grammar` checks every kind and field name against the grammar, so a grammar
 //!   upgrade that renames a node fails a test instead of losing names silently.
@@ -15,14 +15,15 @@
 //! - **Locals are dropped**: a name bound in a scope (a parameter, a local variable, a pattern, a type parameter) is no
 //!   reference anywhere in that scope, and a declaration inside a function body is a local, not a declaration. A
 //!   binding is visible from its declaration to the end of its scope, except in TypeScript, where `let`, `const`,
-//!   `class` and `function` are visible in their whole block and `var` in its whole function (`Spec::hoist`).
+//!   `class` and `function` are visible in their whole block and `var` in its whole function (`js::summary`).
 //! - **Bounded**: files over `MAX_BYTES`, `MAX_LINES` or `MAX_AVERAGE_LINE` (minified) are not parsed, and a
 //!   tree-sitter parse stops after `PARSE_BUDGET` progress callbacks, a count of parser operations, so the same bytes
 //!   always give the same summary, unlike a wall-clock timeout. Either gives a `truncated` summary. psi-syntax parses
-//!   any text within the limits, a construct past its nesting limit as an error element.
+//!   any text within the limits, a construct past its nesting limit as an error element; oxc any text it can recover,
+//!   and none nested deeper than `js_syntax` reads (`truncated`).
 
 use crate::language::Language;
-use crate::summary::{DeclKind, FileSummary, Import, LineSpan, MemberKind, Reach, Role};
+use crate::summary::{DeclKind, FileSummary, LineSpan, MemberKind, Reach, Role};
 use crate::summary_builder::{Bindings, Marks, SummaryBuilder, blank_declaration, column_at, empty_summary};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -31,7 +32,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 24;
+pub const RULES_VERSION: u32 = 25;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -50,9 +51,10 @@ pub fn summarize(language: Language, path: &str, source: &[u8]) -> FileSummary {
 }
 
 /// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`kotlin`), Java
-/// (`java`), C# (`csharp`) and Starlark (`starlark`), tree-sitter's with `budget` for the others
+/// (`java`), C# (`csharp`), Starlark (`starlark`), TypeScript and JavaScript (`js`, in the dialect of the path),
+/// tree-sitter's with `budget` for Rust
 pub(crate) fn summarize_with_budget(language: Language, path: &str, source: &[u8], budget: u32) -> FileSummary {
-  #[cfg(not(feature = "starlark"))]
+  #[cfg(not(any(feature = "starlark", feature = "typescript")))]
   let _ = path;
   let mut summary = empty_summary(language, source);
   let lines = summary.lines;
@@ -68,6 +70,8 @@ pub(crate) fn summarize_with_budget(language: Language, path: &str, source: &[u8
     Language::CSharp => crate::csharp::summary::summarize(source, &mut summary),
     #[cfg(feature = "starlark")]
     Language::Starlark => crate::starlark::summary::summarize(source, starlark_syntax::FileKind::from_path(path).unwrap_or_default(), &mut summary),
+    #[cfg(feature = "typescript")]
+    Language::TypeScript => crate::js::summary::summarize(crate::js::dialect_of_path(path), source, &mut summary),
     _ => summarize_tree_sitter(source, budget, &mut summary),
   };
   summary.truncated = !read;
@@ -86,9 +90,9 @@ fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) 
   true
 }
 
-/// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#, and
-/// whose `starlark-syntax` reads Starlark: the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`)
-/// of the five psi-syntax dependencies in `Cargo.toml`
+/// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#, whose
+/// `starlark-syntax` reads Starlark and whose `js-syntax` reads TypeScript and JavaScript: the `rev` of develar/psi-syntax
+/// (the public mirror of accio's `psi-syntax/`) of the psi-syntax dependencies in `Cargo.toml`
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
 pub(crate) const PSI_SYNTAX_REVISION: &str = "2eaa382792a4f2bd0318dc13518bf8e066a9506b";
 
@@ -138,8 +142,6 @@ pub(crate) fn spec_of(language: Language) -> Option<&'static Spec> {
   match language {
     #[cfg(feature = "rust")]
     Language::Rust => Some(&crate::rust_lang::SPEC),
-    #[cfg(feature = "typescript")]
-    Language::TypeScript => Some(&crate::typescript::SPEC),
     _ => None,
   }
 }
@@ -239,8 +241,6 @@ pub(crate) enum Rule {
   Bind(Binder),
   /// These children of a pattern are no bindings: a struct pattern's type, a default value
   Unbind(&'static [Child]),
-  /// A statement around declarators (`int a, b;`): its start and doc comment go to its first declaration
-  Wrapper,
   Decl(DeclRule),
   /// A construct of one language, handled by its function, which returns whether the walk descends into it
   Special(Special),
@@ -353,14 +353,11 @@ pub(crate) struct TokenItem<'t> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Holder {
   Class,
-  Interface,
   Enum,
   Trait,
   Impl,
   TraitImpl,
   Module,
-  /// A TypeScript type alias of an object type
-  Alias,
   /// A function, an enum entry, a property: nothing in it is a member
   Leaf,
 }
@@ -436,7 +433,7 @@ impl Spec {
           add(&decl.name);
           decl.pattern.iter().for_each(&mut add);
         }
-        Rule::Comment | Rule::Skip | Rule::Name(_) | Rule::Keyword(_) | Rule::Wrapper | Rule::Special(_) => {}
+        Rule::Comment | Rule::Skip | Rule::Name(_) | Rule::Keyword(_) | Rule::Special(_) => {}
       }
     }
     (kinds, fields)
@@ -660,10 +657,6 @@ impl<'t> Walk<'t> {
         }
         true
       }
-      Some(Rule::Wrapper) => {
-        self.pass_leading(node);
-        true
-      }
       Some(Rule::Decl(rule)) => {
         self.declaration(node, &rule);
         true
@@ -862,23 +855,9 @@ impl<'t> Walk<'t> {
   }
 
   /// The header of the function or value `node` (`Declaration::header`): the tokens of its node before its body or
-  /// initializer, after those of a `Rule::Wrapper` around it before its first declarator (the `const` of TypeScript),
-  /// without what `Spec::header` drops
+  /// initializer, without what `Spec::header` drops
   fn header(&self, node: Node<'t>) -> String {
     let mut tokens: Vec<&'t str> = Vec::new();
-    if let Some(parent) = node.parent().filter(|it| matches!(self.table.rule(it.kind_id()), Some(Rule::Wrapper))) {
-      let mut cursor = parent.walk();
-      let first = parent
-        .named_children(&mut cursor)
-        .find(|it| it.kind_id() == node.kind_id())
-        .map_or_else(|| node.id(), |it| it.id());
-      let mut cursor = parent.walk();
-      for child in parent.children(&mut cursor).take_while(|it| it.id() != first) {
-        if self.header_tokens(child, false, &mut tokens).is_break() {
-          break;
-        }
-      }
-    }
     let _ = self.header_tokens(node, false, &mut tokens);
     tokens.join(" ")
   }
@@ -1102,12 +1081,6 @@ impl<'t> Walk<'t> {
     !node.is_named() && node.kind() == token
   }
 
-  /// Whether the node has this token among its children (a keyword such as `static`)
-  pub(crate) fn has_token(&self, node: Node<'t>, token: &str) -> bool {
-    let mut cursor = node.walk();
-    node.children(&mut cursor).any(|it| self.is_token(it, token))
-  }
-
   /// The node of the frame `depth` levels above the current node (0 is the current node)
   pub(crate) fn ancestor(&self, depth: usize) -> Option<Node<'t>> {
     let index = self.frames.len().checked_sub(depth + 1)?;
@@ -1135,22 +1108,9 @@ impl<'t> Walk<'t> {
     self.mark(node, Mark::Claimed);
   }
 
-  pub(crate) fn give_role(&mut self, node: Node<'t>, role: Role) {
-    self.mark(node, Mark::Role(role));
-  }
-
   /// Whether the node is a comment, which a list of arguments may hold among them
   pub(crate) fn is_comment(&self, node: Node<'t>) -> bool {
     matches!(self.table.rule(node.kind_id()), Some(Rule::Comment))
-  }
-
-  /// Marks a pattern whose names become visible when it is left
-  pub(crate) fn mark_pattern(&mut self, node: Node<'t>) {
-    self.mark(node, Mark::Pattern(None));
-  }
-
-  pub(crate) fn open_scope(&mut self) {
-    self.push_scope(true);
   }
 
   pub(crate) fn open_members_scope(&mut self) {
@@ -1160,13 +1120,6 @@ impl<'t> Walk<'t> {
   pub(crate) fn bind_text(&mut self, name: &'t str) {
     let id = self.intern(name);
     self.bind_id(id);
-  }
-
-  pub(crate) fn bind_node(&mut self, node: Node<'t>) {
-    self.claim(node);
-    if let Some(text) = self.text(node) {
-      self.bind_text(text);
-    }
   }
 
   pub(crate) fn emit(&mut self, node: Node<'t>, role: Role, qualifier: Option<Vec<u32>>) {
@@ -1182,10 +1135,6 @@ impl<'t> Walk<'t> {
 
   pub(crate) fn ids(&mut self, path: &[&'t str]) -> Vec<u32> {
     path.iter().map(|it| self.intern(it)).collect()
-  }
-
-  pub(crate) fn add_import(&mut self, import: Import) {
-    self.out.imports.push(import);
   }
 
   /// The lines of an import or package statement, `node`
@@ -1226,13 +1175,6 @@ impl<'t> Walk<'t> {
 
   fn member_kind_at_top(&self) -> MemberKind {
     if self.container().is_some() { MemberKind::Static } else { MemberKind::TopLevel }
-  }
-
-  /// Declares a member from language code (a TypeScript parameter property, an enum member)
-  pub(crate) fn add_declaration(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits) -> Option<u32> {
-    let name = self.text(name_node)?;
-    self.claim(name_node);
-    Some(self.declare(node, name_node, name, traits, None))
   }
 
   /// Declares an item that language code found among the tokens of a macro (an item in the token tree of a Rust item
@@ -1283,22 +1225,10 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// Gives the leading line of the current node to its first child declaration
-  pub(crate) fn pass_leading(&mut self, node: Node<'t>) {
-    let start = self.leading_now.unwrap_or_else(|| row_line(node.start_position().row));
-    if let Some(frame) = self.frames.last_mut() {
-      frame.leading = Some(start);
-    }
-  }
-
   pub(crate) fn start_tokens(&mut self) {
     if let Some(frame) = self.frames.last_mut() {
       frame.tokens = Some(Tokens::default());
     }
-  }
-
-  pub(crate) fn export_name(&mut self, name: &'t str) {
-    self.out.export_name(name);
   }
 }
 

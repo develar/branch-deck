@@ -10,7 +10,7 @@ pub enum Language {
   Kotlin = 0,
   Java = 1,
   Rust = 2,
-  /// TypeScript and JavaScript, both parsed by the TSX grammar (a superset of both, JSX included)
+  /// TypeScript, TSX and JavaScript, each read by oxc in the dialect of its extension (`js::dialect_of_path`)
   TypeScript = 3,
   CSharp = 4,
   Starlark = 5,
@@ -60,13 +60,26 @@ impl Language {
 
 /// The bit of a summary key of a Starlark file whose top-level calls declare targets
 const DECLARES_TARGETS: u8 = 0x80;
+/// The bits of a summary key of a TypeScript file read as TSX and as JavaScript, beside the TypeScript of `.ts`
+const TSX: u8 = 0x40;
+const JAVASCRIPT: u8 = 0x20;
 
-/// The key a cached summary of the file at `path` is kept under, beside the id of its bytes: the language, and for
-/// Starlark whether the file declares targets — the same bytes summarize differently as a `BUILD` and as a `.bzl`
+/// The key a cached summary of the file at `path` is kept under, beside the id of its bytes: the language, for
+/// Starlark whether the file declares targets — the same bytes summarize differently as a `BUILD` and as a `.bzl` — and
+/// for TypeScript the dialect of the extension, as `<T>x` is an assertion in a `.ts` file and an element in a `.tsx`
 pub fn summary_key(language: Language, path: &str) -> u8 {
   #[cfg(feature = "starlark")]
   if language == Language::Starlark && starlark_syntax::FileKind::from_path(path).is_some_and(starlark_syntax::FileKind::top_level_calls_declare) {
     return language.id() | DECLARES_TARGETS;
+  }
+  #[cfg(feature = "typescript")]
+  if language == Language::TypeScript {
+    return language.id()
+      | match crate::js::dialect_of_path(path) {
+        js_syntax::Dialect::TypeScript => 0,
+        js_syntax::Dialect::Tsx => TSX,
+        js_syntax::Dialect::JavaScript => JAVASCRIPT,
+      };
   }
   let _ = path;
   language.id()

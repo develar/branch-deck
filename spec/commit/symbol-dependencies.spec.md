@@ -15,7 +15,8 @@ targets:
   - ../../crates/code-symbols/src/starlark/summary.rs
   - ../../crates/trial-check/src/bazel_resolution.rs
   - ../../crates/code-symbols/src/rust_lang.rs
-  - ../../crates/code-symbols/src/typescript.rs
+  - ../../crates/code-symbols/src/js/mod.rs
+  - ../../crates/code-symbols/src/js/summary.rs
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/sync-core/src/config_snapshot.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
@@ -37,8 +38,8 @@ Date: 2026-10-18
 
 A commit that calls a function another commit added in another file merges cleanly into a branch without that commit,
 and the branch fails only when it is compiled. The line dependencies don't see it. Branch Deck reads the source files
-the commits change (Kotlin, Java and C# by ports of the Kotlin compiler's, IntelliJ's and Roslyn's own parsers, Rust,
-TypeScript and JavaScript by tree-sitter), and a commit that uses a name another commit of the range adds, with evidence that the use
+the commits change (Kotlin, Java and C# by ports of the Kotlin compiler's, IntelliJ's and Roslyn's own parsers,
+TypeScript and JavaScript by oxc's, Rust by tree-sitter), and a commit that uses a name another commit of the range adds, with evidence that the use
 means that declaration, depends on it by symbols. An override of a member another commit adds, a call of the overload
 its arguments select, and a use that only a new form of a member or a constructor accepts (a wider reach, `open`, a
 default, a new or renamed parameter) count as uses of that commit's declaration. Such an edge orders branches; it never joins them. See [Symbol
@@ -90,6 +91,25 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   and a name compares by its value (`@event` is `event`). A token the parser skipped or found missing counts as an
   error.
   [@test] ../../crates/code-symbols/src/csharp/summary_test.rs (`the_package_is_the_first_namespace_with_the_namespaces_around_it`, `usings_import_everything_of_their_path_and_an_alias_its_target`, `a_nested_type_is_static_and_a_member_is_private_without_a_modifier`, `a_record_has_its_positional_parameters_as_properties_and_its_primary_constructor`, `a_static_class_an_interface_and_an_enum_have_no_constructors`, `an_extension_method_and_a_member_of_an_extension_block_have_their_receiver`, `an_attribute_names_its_class_too`, `locals_parameters_patterns_and_query_variables_are_bound`, `a_verbatim_identifier_is_its_value`, `a_branch_of_if_the_configuration_does_not_take_is_not_read`, `a_documentation_comment_names_nothing_and_starts_its_declaration`, `a_missing_token_counts_as_an_error_and_marks_its_declaration`, `top_level_statements_bind_their_locals`, `a_deep_chain_and_deep_nesting_take_no_stack_per_level`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- A TypeScript, TSX or JavaScript file must be read as oxc's parser reads it in the dialect of its extension: `.ts`,
+  `.mts` and `.cts` as TypeScript, where `<T>x` asserts a type, `.tsx` as TSX, `.js`, `.mjs`, `.cjs` and `.jsx` as
+  JavaScript with JSX; a summary is kept per dialect. It must declare classes, interfaces, enums and their members,
+  type aliases with the members of the object types they hold, a namespace or an ambient module (`namespace a.b.c` one
+  module named `c`), functions and their signatures, the names a variable declarator binds at the top level or in a
+  namespace (an arrow or a function value a function, an `UPPER_CASE` `const` a constant), the members of a class (a
+  getter and a setter values, no constructor, as signatures too) and a constructor's parameter property; a member is
+  named by an identifier, a private name, a string or a computed identifier (`[k]`), never by another computed key.
+  `export`, `export declare` and `export { name }` must make a declaration public. A call with type arguments must be
+  a call, the references of a decorator must belong to the declaration it decorates, a type of `import("m")` must be a
+  type, and the name of an index signature, the label of a named tuple member, a type predicate's parameter, `as const`
+  and the alias of `import x = a.b` must name nothing; what `infer` declares must be seen in its conditional type and a
+  function type's parameters only in it. A declaration must start at its doc comment (`/**`, not a `///` directive),
+  its decorators or its `export`, and its header must be the parse's tokens before its body or initializer, a type
+  parameter's default kept. The errors must be what a recovery of the parse blanked and the labels of its diagnostics;
+  a file no recovery saves must be read with every byte in error, one nested deeper than the parse reads must be
+  truncated, and any nesting below that must be read on a 2 MiB thread.
+  [@test] ../../crates/code-symbols/src/js/summary_test.rs (`declarations`, `imports`, `references`, `javascript`, `the_extension_chooses_the_dialect`, `a_header_is_the_tokens_of_the_parse`, `a_call_with_type_arguments_is_a_call`, `an_exported_ambient_declaration_is_public`, `a_declaration_starts_at_its_doc_comment_and_decorators`, `a_decorator_is_of_the_declaration_it_decorates`, `a_constructor_signature_declares_nothing_and_an_accessor_signature_is_a_value`, `a_dotted_namespace_is_one_module_of_its_last_name`, `only_a_computed_identifier_names_a_member`, `names_that_name_no_declaration_are_no_references`, `a_type_of_an_import_type_is_a_reference`, `infer_is_seen_in_its_conditional_type`, `a_class_expression_binds_its_name`, `errors_are_what_the_parse_recovered_from`, `deep_nesting_is_read_on_a_small_stack`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The reach of a Java member and whether a subtype may override it must follow the modifiers IntelliJ's PSI gives it,
   the implicit ones included (`PsiModifierListImpl.hasModifierProperty`): a member of an interface is public unless it
@@ -220,15 +240,16 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`, `the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`)
   [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_type_declared_again_in_the_same_package_is_a_duplicate`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_check_of_a_removed_rust_item`)
-- A rule of a tree-sitter language (Rust, TypeScript) must name only node kinds its grammar has.
+- A rule of a tree-sitter language (Rust) must name only node kinds its grammar has.
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_spec_kind_exists_in_its_grammar`)
 - The commits' changes must carry the full ids of the blobs before and after each file, from the same `log --raw`
   process (`--no-abbrev`); a side without a file, a symlink and a submodule have none.
   [@test] ../../crates/trial-check/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_gives_the_full_blob_ids`)
 - The summaries must be read through the object cache, keyed by the extractor version, the language and the blob id,
   with one `cat-file --batch` for the blobs the cache misses; a write of another extractor version must clear the
-  store once. A summary cut by the parse budget must not be cached. The extractor version must change with the rules,
-  with the revision of psi-syntax that reads Kotlin, Java and C#, and with a tree-sitter grammar of the others.
+  store once. A truncated summary (over a size limit, past the parse budget, nested deeper than the parse reads) must not be cached. The extractor version must change with the rules,
+  with the revision of psi-syntax that reads Kotlin, Java, C#, Starlark, TypeScript and JavaScript, and with the
+  tree-sitter grammar of Rust.
   [@test] ../../crates/trial-check/src/symbol_scan_test.rs (`reads_the_summaries_through_the_cache`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`, `the_psi_syntax_revision_is_the_one_cargo_builds`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`blob_summaries_are_read_by_the_extractor_version_that_wrote_them`)

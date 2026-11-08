@@ -396,7 +396,9 @@ pub(crate) fn shown_parameters(parameters: &str) -> String {
 /// to the name of a type or a function before it (`List<T>`, `first<T>`): after a keyword or a modifier it opens the
 /// type parameters of the declaration (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`). A `(` is glued to a
 /// name and to the `>` of type parameters before it, the parameters a header holds (Rust `fn open() -> u8`, `fn
-/// first<T>(x: T)`), never to `suspend` (`suspend (Int) -> Unit`) or an arrow (`-> (u8, u8)`)
+/// first<T>(x: T)`), never to `suspend` (`suspend (Int) -> Unit`) or an arrow (`-> (u8, u8)`). An empty object type is
+/// `{}`, and the code of a TypeScript template literal, whose pieces are tokens of their own (`` `x-${ `` and `` }` ``),
+/// is glued to them
 pub(crate) fn as_written<'a>(tokens: impl Iterator<Item = &'a str>) -> String {
   let mut text = String::new();
   let mut previous = "";
@@ -406,10 +408,12 @@ pub(crate) fn as_written<'a>(tokens: impl Iterator<Item = &'a str>) -> String {
       named(previous) && !DECLARATION_WORDS.contains(&previous)
     } else if token.starts_with('(') {
       (named(previous) && previous != "suspend") || (previous.ends_with('>') && previous != "->" && previous != "=>")
+    } else if token.starts_with('}') {
+      previous == "{" || token.contains('`') || token.ends_with("${")
     } else {
       token.starts_with(['>', ',', ')', '.', '?', ':', '[']) && token != "->" && token != "=>"
     };
-    let glued_after = text.ends_with(['<', '(', '.', '[']);
+    let glued_after = text.ends_with(['<', '(', '.', '[']) || text.ends_with("${");
     if !text.is_empty() && !glued_before && !glued_after {
       text.push(' ');
     }

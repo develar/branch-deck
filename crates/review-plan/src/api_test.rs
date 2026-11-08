@@ -924,6 +924,17 @@ fn a_form_of_type_parameters_reads_as_code() {
   assert_eq!(form("val run : suspend ( Int ) -> Unit"), "val run: suspend (Int) -> Unit");
 }
 
+#[test]
+fn a_typescript_header_reads_as_code() {
+  // the tokens of oxc's parse: a string literal is one token, a template literal its pieces
+  let form = |tokens: &str| crate::api::as_written(tokens.split(' '));
+  assert_eq!(
+    form("function pick < T extends object = { } > ( mode : \"a\" | 'b' , prefix = `x-${ name }-${ id }` ) : T"),
+    "function pick<T extends object = {}>(mode: \"a\" | 'b', prefix = `x-${name}-${id}`): T"
+  );
+  assert_eq!(form("readonly area : ( scale ? : T ) => T"), "readonly area: (scale?: T) => T");
+}
+
 /// The constructors of a type read as calls of it, a line each, each after the reach a call of it has (the narrower of
 /// its own and its type's) as the language writes it: Kotlin `private` and `internal`, Java's package none and `public`
 /// only where a reach changed; a parameter by its name and type, a default as `= …`, a vararg after `vararg`; a type of

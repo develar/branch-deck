@@ -664,6 +664,11 @@ impl Bindings {
     self.counts.contains_key(&name)
   }
 
+  /// The qualifier of a member of a path of names, `ids`: empty when its first name is bound, a path from a local
+  pub(crate) fn qualifier(&self, ids: Vec<u32>) -> Vec<u32> {
+    if ids.first().is_some_and(|it| self.is_bound(*it)) { Vec::new() } else { ids }
+  }
+
   /// The innermost binding of `name`
   pub(crate) fn binding(&self, name: u32) -> Option<&Binding> {
     self.bound.iter().rev().find(|it| it.name == name)
