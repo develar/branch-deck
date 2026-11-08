@@ -739,6 +739,18 @@ flowchart TD
     tuple member, the parameter of a type predicate, `bigint` and `intrinsic`, the type parameters of a generic
     function type, the name of a class expression, the alias of `import x = a.b`. A summary takes a sixth of
     tree-sitter's time (5 000 files, 28.9 MB, on one thread: 1.15 s against 6.89 s).
+    The navigation of the diffs (`js/navigate.rs`) reads the same parse in the dialect of the view's grammar
+    (`Grammar::JavaScript` for `.js`, `.mjs`, `.cjs`, `.jsx`) with the scopes as the language has them: a `var` in all of
+    its function, a `let`, a `const`, a class and a function in all of their block, a bare name never a member of the
+    class around it. Against the tree-sitter baseline its answers moved in 236 of Branch Deck's 1 032 files: the names
+    of a destructuring are declarations, a `new` and a call with type arguments are calls, a JSX attribute and a
+    lowercase tag bind to no variable of their name, the type of `a.B` has the qualifier `a`; of the monorepo's 54 142
+    in 21 240, 13 206 of them with an error in one parse (a name in a region a recovery blanked, or in a file none
+    saves, is none), the 8 034 others by the same classes and these: a parameter of a function type or a signature is
+    a local of it, a private name (`#count`) is a name, the parameter of an index signature none. One thread, 4 945
+    files: 2.64 s against 21.7 s.
+
+    [@test] ../../crates/code-symbols/src/js/navigate_test.rs (`a_bare_name_is_no_member_of_the_class_around_it`, `a_var_is_seen_in_its_function_and_a_let_in_its_block`, `deep_nesting_is_navigated_on_a_small_stack`)
 
 ### Implementation Notes
 

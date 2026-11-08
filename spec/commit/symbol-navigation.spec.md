@@ -17,6 +17,7 @@ targets:
   - ../../crates/code-symbols/src/java/navigate.rs
   - ../../crates/code-symbols/src/csharp/navigate.rs
   - ../../crates/code-symbols/src/starlark/navigate.rs
+  - ../../crates/code-symbols/src/js/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
   - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
@@ -100,7 +101,16 @@ outside it.
   and a name in a doc comment are no names, but the `Outer` of `this@Outer` is a type. In C# a local function is seen
   in all of its block, `goto` goes to the label of its name in the blocks around it (the innermost first), a name
   compares by its value (`@count` is `count`), the target of a `using static` is a type, and a name in a documentation
-  comment or a directive is none.
+  comment or a directive is none. A TypeScript or JavaScript file is read in the dialect of its extension (a `.ts`
+  file's `<T>x` asserts a type, a `.js` file's JSX is JSX): a `var` is seen in all of its function, a `let`, a `const`,
+  a class and a function in all of their block, a parameter of a function type or a signature in it alone, what
+  `infer` declares in its conditional type; a bare name is never a member of the class around it (only `this.`
+  reaches one); the names of a destructuring, the members of a class, an interface and an enum and a private name
+  (`#count`) are declarations; a call with type arguments and a `new` are calls, the last name of `a.B` in a type is a
+  type qualified by `a`, a name after `import("m")` a member of it, a name of an import a value whose declaration is
+  in its module; a JSX attribute, a lowercase JSX tag, a label and the parameter of an index signature are no names
+  of a declaration of the file.
+  [@test] ../../crates/code-symbols/src/js/navigate_test.rs (`a_call_with_type_arguments_and_a_new_are_calls`, `a_bare_name_is_no_member_of_the_class_around_it`, `a_var_is_seen_in_its_function_and_a_let_in_its_block`, `the_names_of_members_are_declarations`, `type_parameters_infer_and_a_predicate_go_to_their_declarations`, `a_name_of_an_import_goes_to_its_module`, `a_qualified_type_is_a_type_with_its_qualifier`, `a_jsx_tag_goes_to_its_component`, `a_typescript_file_reads_a_type_assertion`, `the_names_after_an_import_type_are_members_of_its_module`, `deep_nesting_is_navigated_on_a_small_stack`)
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_a_kotlin_local_a_parameter_that_shadows_a_property_and_a_member_declared_after_its_use`, `finds_a_java_field_a_local_and_tells_a_static_call_by_its_qualifier`, `finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`, `has_no_reference_outside_a_name`)
   [@test] ../../crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_parameter_used_in_the_body_goes_to_the_parameter`, `the_parameter_of_a_catch_is_a_local_declaration`, `a_name_after_a_receiver_and_colons_is_its_member`, `the_subject_of_a_where_clause_is_the_type_parameter`, `a_label_and_a_doc_comment_have_no_names_but_the_label_of_this`, `a_script_declares_its_top_level_names_for_its_functions`)
   [@test] ../../crates/code-symbols/src/java/navigate_test.rs (`a_loop_variable_a_pattern_variable_a_resource_and_a_lambda_parameter_declare_their_name`, `a_use_before_the_declaration_of_a_local_is_the_field`, `the_members_of_an_anonymous_class_are_its_own`, `a_break_goes_to_its_label`, `an_argument_of_an_annotation_goes_to_the_element_of_its_type_in_the_file`, `var_and_this_are_no_names`, `a_call_through_super_of_an_interface_has_that_interface_for_its_qualifier`, `a_compact_constructor_reads_the_record_component_and_a_record_pattern_names_a_type`, `the_dotted_names_of_an_import_and_a_module_are_a_value_and_members_without_a_qualifier`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`, `the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members`)
@@ -170,7 +180,8 @@ outside it.
   the other files of the review in a language that sees it, from the texts the diffs read: no git process. In Kotlin a
   local is any declaration inside code, also outside a function (an `init` block, a `catch` or a `when` of a
   property's initializer), and the parameter of a function type (`(event: Event) -> Unit`) is one that no scope sees.
-  In C# an `out` or `ref` argument writes, as an assignment and an increment do.
+  In C# an `out` or `ref` argument writes, as an assignment and an increment do; in TypeScript and JavaScript the
+  targets of a destructuring assignment write too.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows`, `tells_a_java_write_an_increment_and_an_import`, `finds_the_usages_of_a_rust_binding_and_of_an_imported_function`, `finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it`)
   [@test] ../../crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_package_of_one_segment_is_one_usage`, `the_qualifier_of_an_assigned_member_is_its_whole_receiver`, `a_call_with_type_arguments_is_a_call_and_an_increment_a_write`, `a_local_outside_a_function_is_a_local`, `a_parameter_of_a_function_type_declares_nothing_the_code_sees`, `the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text`)
   [@test] ../../crates/code-symbols/src/java/navigate_test.rs (`a_local_of_an_initializer_is_a_local`, `a_write_is_the_left_side_of_an_assignment_and_the_operand_of_an_increment`)

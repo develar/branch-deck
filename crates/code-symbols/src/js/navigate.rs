@@ -1,0 +1,901 @@
+//! Go to Declaration and Find Usages in a TypeScript, TSX or JavaScript file from oxc's tree
+//! (spec/commit/symbol-navigation.spec.md): the name at a place, its qualifier, the kind of the reference, its
+//! declaration in the file by the scopes, and the usages of a name, answered by `navigate::{reference_answer,
+//! usage_answers}`. One walk of the tree (`Visit`) inside `js::with_program` finds the name at the place, a second one
+//! every name of its text with its kind and the declaration its scopes bind it to.
+//!
+//! - **A name** is an identifier of the code: a reference, a binding, the name of a member after its object, of a
+//!   member of a class, an interface or an object type, of an enum member, a key of an object literal, a name of an
+//!   import or an export, a JSX tag or attribute, a private name (`#count`). A label, the label of a named tuple member
+//!   and the parameter of an index signature are none.
+//! - **Its kind**: the name of a declaration (a binding, a member of a class, an interface or an object type, an enum
+//!   member); a callee (`f()`, `f<T>()`, `new F()`, `` f`…` ``, with its qualifier for a member, `a.f()`); a member
+//!   after its object (`a.b`, its qualifier the object as written); a type where a type is read (the last name of
+//!   `a.B` with its qualifier); else a value. A name of an import is a value: its declaration is in the module it
+//!   names, which the caller finds.
+//! - **Its declaration** by the scopes around it, as the language has them: a function's parameters and its `var`s are
+//!   seen in all of it, `let`, `const`, a class, a function and an enum in all of their block, a type parameter in its
+//!   declaration, what `infer` declares in its conditional type; the last declaration before the name in the innermost
+//!   scope that declares one, else the first (a function declared after its use). A bare name is never a member of
+//!   the class around it, which only `this.` reaches; a member after a qualifier has none.
+//! - **The usages** of a local (a declaration inside a function) are the names bound to it; those of any other name
+//!   are its names that no local binds, each with how it uses the name: declared, imported, called, written (the
+//!   target of an assignment, a destructuring one too, and of `++`), else read.
+
+use crate::js;
+use crate::js::field_of;
+use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
+use js_syntax::Dialect;
+use js_syntax::oxc_ast::ast::{
+  ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingIdentifier, BindingPattern,
+  BlockStatement, CallExpression, CatchClause, Class, ClassElement, ClassType, ExportAllDeclaration, ExportFromDeclaration, ExportNamedDeclaration, Expression, ForInStatement,
+  ForOfStatement, ForStatement, Function, FunctionType, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, JSXAttributeName, JSXElementName, JSXMemberExpression,
+  JSXMemberExpressionObject, MethodDefinition, ModuleExportName, NewExpression, ObjectProperty, PrivateFieldExpression, PrivateInExpression, Program, PropertyKey,
+  SimpleAssignmentTarget, StaticBlock, StaticMemberExpression, SwitchStatement, TSCallSignatureDeclaration, TSConditionalType, TSConstructSignatureDeclaration, TSConstructorType,
+  TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSFunctionType, TSGlobalDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
+  TSIndexSignature, TSInterfaceDeclaration, TSMappedType, TSMethodSignature, TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSPropertySignature,
+  TSQualifiedName, TSTypeAliasDeclaration, TSTypeName, TSTypeParameter, TSTypePredicate, TSTypePredicateName, TSTypeQuery, TSTypeQueryExprName, TaggedTemplateExpression,
+  UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+};
+use js_syntax::oxc_ast_visit::{Visit, walk};
+use js_syntax::oxc_span::{GetSpan, Span};
+use js_syntax::oxc_syntax::scope::ScopeFlags;
+
+/// The names of the text of the name at `position`, with the span of that one and its text, to `answer`
+fn with_names_at<T: Send>(dialect: Dialect, text: &str, position: Position, answer: impl FnOnce(&[Named], Span, &str) -> Option<T> + Send) -> Option<T> {
+  let offset = u32::try_from(byte_offset(text, position)?).ok()?;
+  super::with_program(dialect, text.as_bytes(), |parsed| {
+    let program = parsed.program()?;
+    let (span, name) = name_at(program, text, offset)?;
+    answer(&resolve(program, text, name), span, name)
+  })
+  .flatten()
+}
+
+/// The name at `position` of `text` and what its syntax says (`navigate::reference_at`)
+pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> Option<ReferenceAt> {
+  with_names_at(dialect, text, position, |names, span, name| {
+    let found = names.iter().find(|it| it.span == span)?;
+    let local = match found.kind {
+      ReferenceKind::Declaration | ReferenceKind::Member | ReferenceKind::MemberCall => None,
+      _ => found.binding.map(|it| it.start as usize),
+    };
+    let qualifier = found.qualifier.and_then(|it| text.get(it.start as usize..it.end as usize)).map(ToString::to_string);
+    Some(reference_answer(text, span.start as usize, name.to_string(), found.kind, qualifier, local))
+  })
+}
+
+/// The usages of the name at `position` (`navigate::usages_at`): its own of a local, else every name of the text that no
+/// local binds
+pub(crate) fn usages_at(dialect: Dialect, text: &str, position: Position) -> Option<UsagesAt> {
+  with_names_at(dialect, text, position, |names, span, name| {
+    let local = names.iter().find(|it| it.span == span).and_then(|it| it.binding).filter(|it| it.local);
+    let used = names.iter().filter(|it| match (local, it.binding) {
+      (Some(local), binding) => binding == Some(local),
+      (None, binding) => binding.is_none_or(|it| !it.local),
+    });
+    Some(UsagesAt {
+      name: name.to_string(),
+      local: local.is_some(),
+      usages: usage_answers(text, name, used.map(|it| (it.span.start as usize, it.access))),
+    })
+  })
+}
+
+/// The usages of `name` in a text that is not the one of the name (`navigate::usages_of`): its names that no local binds
+pub(crate) fn usages_of(dialect: Dialect, text: &str, name: &str) -> Vec<Usage> {
+  // a cheap test first: most files of a review do not have the word
+  if !text.contains(name) {
+    return Vec::new();
+  }
+  super::with_program(dialect, text.as_bytes(), |parsed| {
+    let Some(program) = parsed.program() else { return Vec::new() };
+    let names = resolve(program, text, name);
+    let used = names.iter().filter(|it| it.binding.is_none_or(|binding| !binding.local));
+    usage_answers(text, name, used.map(|it| (it.span.start as usize, it.access)))
+  })
+  .unwrap_or_default()
+}
+
+/// The name whose text holds the byte at `offset`, else the one that ends there (`foo|`), and its text
+fn name_at<'t>(program: &Program<'_>, text: &'t str, offset: u32) -> Option<(Span, &'t str)> {
+  let mut walk = Walk::new(text, Want::At(offset));
+  walk.visit_program(program);
+  let span = walk.at.or(walk.before)?;
+  Some((span, text.get(span.start as usize..span.end as usize)?))
+}
+
+/// Every name `name` of the tree in the order of the text, with its kind, its access and its declaration
+fn resolve<'t>(program: &Program<'_>, text: &'t str, name: &'t str) -> Vec<Named> {
+  let mut walk = Walk::new(text, Want::Named(name));
+  walk.visit_program(program);
+  let mut names = walk.names;
+  names.sort_by_key(|it| it.span.start);
+  names.dedup_by_key(|it| it.span);
+  names
+}
+
+/// The declaration a name is bound to: where its name starts, and whether it is a local
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Bound {
+  start: u32,
+  local: bool,
+}
+
+/// A name of the text looked for, with what its syntax says
+struct Named {
+  span: Span,
+  kind: ReferenceKind,
+  qualifier: Option<Span>,
+  access: Access,
+  binding: Option<Bound>,
+}
+
+/// What a walk looks for: the name at an offset, or every name of a text
+#[derive(Clone, Copy)]
+enum Want<'t> {
+  At(u32),
+  Named(&'t str),
+}
+
+/// A scope of the walk: its declarations of the name, the names in it its declarations may bind, and whether it is a
+/// function's (its `var`s, its parameters, its declarations locals)
+struct Scope {
+  function: bool,
+  declared: Vec<Bound>,
+  /// Indices into `Walk::names` of the names waiting for a declaration of this scope or of one around it
+  pending: Vec<usize>,
+}
+
+/// How a name may be bound: to a declaration of the scopes, or not at all (a member, a key, a name of an import)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Binds {
+  Scopes,
+  Never,
+}
+
+struct Walk<'t> {
+  text: &'t str,
+  want: Want<'t>,
+  at: Option<Span>,
+  before: Option<Span>,
+  names: Vec<Named>,
+  scopes: Vec<Scope>,
+  /// Inside an import: its names are imports
+  importing: bool,
+  /// The declarations of a `var` belong to the function around them
+  var: bool,
+}
+
+impl<'t> Walk<'t> {
+  const fn new(text: &'t str, want: Want<'t>) -> Self {
+    Self {
+      text,
+      want,
+      at: None,
+      before: None,
+      names: Vec::new(),
+      scopes: Vec::new(),
+      importing: false,
+      var: false,
+    }
+  }
+
+  fn text_of(&self, span: Span) -> &'t str {
+    self.text.get(span.start as usize..span.end as usize).unwrap_or_default()
+  }
+
+  fn push(&mut self, function: bool) {
+    self.scopes.push(Scope {
+      function,
+      declared: Vec::new(),
+      pending: Vec::new(),
+    });
+  }
+
+  /// Leaves a scope: its declarations bind the names waiting in it, the last before each name else the first; the other
+  /// names wait in the scope around it
+  fn pop(&mut self) {
+    let Some(scope) = self.scopes.pop() else { return };
+    if scope.declared.is_empty() {
+      if let Some(outer) = self.scopes.last_mut() {
+        outer.pending.extend(scope.pending);
+      }
+      return;
+    }
+    for index in scope.pending {
+      let start = self.names[index].span.start;
+      let binding = scope.declared.iter().rev().find(|it| it.start <= start).or_else(|| scope.declared.first());
+      self.names[index].binding = binding.copied();
+    }
+  }
+
+  /// Whether a scope at this index or around it is a function's: what it declares is a local
+  fn in_function(&self, index: usize) -> bool {
+    self.scopes[..=index.min(self.scopes.len().saturating_sub(1))].iter().any(|it| it.function)
+  }
+
+  /// A name of the text at `span`, if it is one the walk looks for
+  fn name(&mut self, span: Span, kind: ReferenceKind, qualifier: Option<Span>, access: Access, binds: Binds) {
+    match self.want {
+      Want::At(offset) => {
+        if span.start <= offset && offset < span.end {
+          self.at.get_or_insert(span);
+        } else if span.start < offset && offset == span.end {
+          self.before.get_or_insert(span);
+        }
+      }
+      Want::Named(name) => {
+        if self.text_of(span) != name {
+          return;
+        }
+        let access = match kind {
+          ReferenceKind::Declaration => Access::Declaration,
+          ReferenceKind::Call | ReferenceKind::MemberCall => Access::Call,
+          _ if self.importing => Access::Import,
+          _ => access,
+        };
+        let index = self.names.len();
+        self.names.push(Named {
+          span,
+          kind,
+          qualifier,
+          access,
+          binding: None,
+        });
+        if binds == Binds::Scopes
+          && let Some(scope) = self.scopes.last_mut()
+        {
+          scope.pending.push(index);
+        }
+      }
+    }
+  }
+
+  /// The name of a declaration, which the scope at `scope` declares (or no scope, `None`: a member)
+  fn declaration(&mut self, span: Span, scope: Option<usize>) {
+    if let (Want::Named(name), Some(scope)) = (self.want, scope)
+      && self.text_of(span) == name
+    {
+      let local = self.in_function(scope);
+      self.scopes[scope].declared.push(Bound { start: span.start, local });
+    }
+    let index = self.names.len();
+    self.name(span, ReferenceKind::Declaration, None, Access::Declaration, Binds::Never);
+    // the name of a declaration is bound to itself
+    if self.names.len() > index {
+      let local = scope.map_or_else(|| self.in_function(self.scopes.len().saturating_sub(1)), |it| self.in_function(it));
+      self.names[index].binding = Some(Bound { start: span.start, local });
+    }
+  }
+
+  /// A binding in the innermost scope, a `var`'s in the function's around it
+  fn binding(&mut self, identifier: &BindingIdentifier<'_>) {
+    let innermost = self.scopes.len().saturating_sub(1);
+    let scope = if self.var {
+      self.scopes.iter().rposition(|it| it.function).unwrap_or(0)
+    } else {
+      innermost
+    };
+    self.declaration(identifier.span, Some(scope));
+  }
+
+  /// A use of a name the scopes may bind
+  fn value(&mut self, span: Span, kind: ReferenceKind, access: Access) {
+    self.name(span, kind, None, access, Binds::Scopes);
+  }
+
+  /// A name that no scope binds: a key, the name of an attribute
+  fn unbound(&mut self, span: Span, kind: ReferenceKind, qualifier: Option<Span>, access: Access) {
+    self.name(span, kind, qualifier, access, Binds::Never);
+  }
+
+  /// The callee of a call: a name a call, a member a call of a member
+  fn callee(&mut self, callee: &Expression<'_>) {
+    match callee {
+      Expression::Identifier(it) => self.value(it.span, ReferenceKind::Call, Access::Call),
+      Expression::StaticMemberExpression(it) => {
+        self.visit_expression(&it.object);
+        self.unbound(it.property.span, ReferenceKind::MemberCall, Some(it.object.span()), Access::Call);
+      }
+      Expression::PrivateFieldExpression(it) => {
+        self.visit_expression(&it.object);
+        self.unbound(it.field.span, ReferenceKind::MemberCall, Some(it.object.span()), Access::Call);
+      }
+      Expression::TSInstantiationExpression(it) => {
+        self.callee(&it.expression);
+        self.visit_ts_type_parameter_instantiation(&it.type_arguments);
+      }
+      _ => self.visit_expression(callee),
+    }
+  }
+
+  /// The key of a member: its name the declaration of the member, a computed one code
+  fn member_key(&mut self, key: &PropertyKey<'_>, computed: bool, kind: ReferenceKind) {
+    match key {
+      PropertyKey::StaticIdentifier(it) if !computed => self.unbound(it.span, kind, None, Access::Read),
+      PropertyKey::PrivateIdentifier(it) => self.unbound(it.span, kind, None, Access::Read),
+      key if computed => self.visit_property_key(key),
+      _ => {}
+    }
+  }
+
+  /// The name of a declaration of the member kind: bound to itself, the declaration of no scope
+  fn member_declaration(&mut self, key: &PropertyKey<'_>, computed: bool) {
+    match key {
+      PropertyKey::StaticIdentifier(it) if !computed => self.declaration(it.span, None),
+      PropertyKey::PrivateIdentifier(it) => self.declaration(it.span, None),
+      key if computed => self.visit_property_key(key),
+      _ => {}
+    }
+  }
+
+  /// The target of an assignment or of `++`: the name it writes, the object of a member read
+  fn target(&mut self, target: &AssignmentTarget<'_>) {
+    match target {
+      AssignmentTarget::ArrayAssignmentTarget(it) => {
+        for element in it.elements.iter().flatten() {
+          self.target_with_default(element);
+        }
+        if let Some(rest) = &it.rest {
+          self.target(&rest.target);
+        }
+      }
+      AssignmentTarget::ObjectAssignmentTarget(it) => {
+        for property in &it.properties {
+          match property {
+            AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(it) => {
+              self.value(it.binding.span, ReferenceKind::Value, Access::Write);
+              if let Some(init) = &it.init {
+                self.visit_expression(init);
+              }
+            }
+            AssignmentTargetProperty::AssignmentTargetPropertyProperty(it) => {
+              if it.computed {
+                self.visit_property_key(&it.name);
+              } else if let PropertyKey::StaticIdentifier(key) = &it.name {
+                self.unbound(key.span, ReferenceKind::Value, None, Access::Read);
+              }
+              self.target_with_default(&it.binding);
+            }
+          }
+        }
+        if let Some(rest) = &it.rest {
+          self.target(&rest.target);
+        }
+      }
+      target => {
+        if let Some(simple) = target.as_simple_assignment_target() {
+          self.simple_target(simple);
+        }
+      }
+    }
+  }
+
+  fn target_with_default(&mut self, target: &AssignmentTargetMaybeDefault<'_>) {
+    match target {
+      AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(it) => {
+        self.target(&it.binding);
+        self.visit_expression(&it.init);
+      }
+      target => {
+        if let Some(target) = target.as_assignment_target() {
+          self.target(target);
+        }
+      }
+    }
+  }
+
+  fn simple_target(&mut self, target: &SimpleAssignmentTarget<'_>) {
+    match target {
+      SimpleAssignmentTarget::AssignmentTargetIdentifier(it) => self.value(it.span, ReferenceKind::Value, Access::Write),
+      SimpleAssignmentTarget::StaticMemberExpression(it) => {
+        self.visit_expression(&it.object);
+        self.unbound(it.property.span, ReferenceKind::Member, Some(it.object.span()), Access::Write);
+      }
+      SimpleAssignmentTarget::PrivateFieldExpression(it) => {
+        self.visit_expression(&it.object);
+        self.unbound(it.field.span, ReferenceKind::Member, Some(it.object.span()), Access::Write);
+      }
+      target => walk::walk_simple_assignment_target(self, target),
+    }
+  }
+
+  /// A name in a type position: its last name a type, qualified by the names before it, each a value of its own
+  fn type_name(&mut self, name: &TSTypeName<'_>, kind: ReferenceKind) {
+    match name {
+      TSTypeName::IdentifierReference(it) => self.value(it.span, kind, Access::Read),
+      TSTypeName::QualifiedName(it) => self.qualified_name(it, kind),
+      TSTypeName::ThisExpression(_) => {}
+    }
+  }
+
+  /// `a.b.C`: `C` of the kind (a member of a value), qualified by `a.b`, whose names are values
+  fn qualified_name(&mut self, name: &TSQualifiedName<'_>, kind: ReferenceKind) {
+    self.type_name(&name.left, ReferenceKind::Value);
+    let member = if kind == ReferenceKind::Type { ReferenceKind::Type } else { ReferenceKind::Member };
+    self.unbound(name.right.span, member, Some(name.left.span()), Access::Read);
+  }
+
+  /// A function: its parameters, type parameters and body in a scope of its own, its own name too for an expression
+  fn function(&mut self, function: &Function<'_>, own_name: bool) {
+    self.push(true);
+    if own_name && let Some(id) = &function.id {
+      self.binding(id);
+    }
+    js::walk_function(self, function);
+    self.pop();
+  }
+
+  /// A field or an accessor of a class: its name a declaration, its decorators, type and value code
+  fn field(&mut self, field: &js::Field<'_, '_>) {
+    for decorator in field.decorators {
+      self.visit_decorator(decorator);
+    }
+    self.member_declaration(field.key, field.computed);
+    if let Some(annotation) = field.annotation {
+      self.visit_ts_type_annotation(annotation);
+    }
+    if let Some(value) = field.value {
+      self.visit_expression(value);
+    }
+  }
+
+  fn jsx_member(&mut self, member: &JSXMemberExpression<'_>) {
+    match &member.object {
+      JSXMemberExpressionObject::IdentifierReference(it) => self.value(it.span, ReferenceKind::Value, Access::Read),
+      JSXMemberExpressionObject::MemberExpression(it) => self.jsx_member(it),
+      JSXMemberExpressionObject::ThisExpression(_) => {}
+    }
+    self.unbound(member.property.span, ReferenceKind::Member, Some(member.object.span()), Access::Read);
+  }
+
+  fn module_export_name(&mut self, name: &ModuleExportName<'_>, binds: Binds) {
+    match name {
+      ModuleExportName::IdentifierReference(it) => self.name(it.span, ReferenceKind::Value, None, Access::Read, binds),
+      ModuleExportName::IdentifierName(it) => self.unbound(it.span, ReferenceKind::Value, None, Access::Read),
+      ModuleExportName::StringLiteral(_) => {}
+    }
+  }
+
+  /// A scope of its own around what `body` walks: a block, a loop, a signature
+  fn scoped(&mut self, function: bool, body: impl FnOnce(&mut Self)) {
+    self.push(function);
+    body(self);
+    self.pop();
+  }
+}
+
+impl<'a> Visit<'a> for Walk<'_> {
+  fn visit_program(&mut self, program: &Program<'a>) {
+    self.push(false);
+    for statement in &program.body {
+      self.visit_statement(statement);
+    }
+    self.pop();
+  }
+
+  fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+    self.value(it.span, ReferenceKind::Value, Access::Read);
+  }
+
+  fn visit_binding_identifier(&mut self, it: &BindingIdentifier<'a>) {
+    if self.importing {
+      self.unbound(it.span, ReferenceKind::Value, None, Access::Import);
+    } else {
+      self.binding(it);
+    }
+  }
+
+  fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+    self.visit_expression(&it.object);
+    self.unbound(it.property.span, ReferenceKind::Member, Some(it.object.span()), Access::Read);
+  }
+
+  fn visit_private_field_expression(&mut self, it: &PrivateFieldExpression<'a>) {
+    self.visit_expression(&it.object);
+    self.unbound(it.field.span, ReferenceKind::Member, Some(it.object.span()), Access::Read);
+  }
+
+  fn visit_private_in_expression(&mut self, it: &PrivateInExpression<'a>) {
+    self.unbound(it.left.span, ReferenceKind::Value, None, Access::Read);
+    self.visit_expression(&it.right);
+  }
+
+  fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+    self.callee(&it.callee);
+    js::walk_arguments(self, it.type_arguments.as_deref(), &it.arguments);
+  }
+
+  fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+    self.callee(&it.callee);
+    js::walk_arguments(self, it.type_arguments.as_deref(), &it.arguments);
+  }
+
+  fn visit_tagged_template_expression(&mut self, it: &TaggedTemplateExpression<'a>) {
+    self.callee(&it.tag);
+    if let Some(arguments) = &it.type_arguments {
+      self.visit_ts_type_parameter_instantiation(arguments);
+    }
+    self.visit_template_literal(&it.quasi);
+  }
+
+  fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+    self.target(&it.left);
+    self.visit_expression(&it.right);
+  }
+
+  fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
+    self.simple_target(&it.argument);
+  }
+
+  fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
+    if it.shorthand {
+      // `{ name }`: one name, the value
+      self.visit_expression(&it.value);
+      return;
+    }
+    self.member_key(&it.key, it.computed, ReferenceKind::Value);
+    self.visit_expression(&it.value);
+  }
+
+  fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+    self.scoped(false, |walk| walk::walk_block_statement(walk, it));
+  }
+
+  fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+    self.scoped(false, |walk| walk::walk_for_statement(walk, it));
+  }
+
+  fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+    self.scoped(false, |walk| walk::walk_for_in_statement(walk, it));
+  }
+
+  fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+    self.scoped(false, |walk| walk::walk_for_of_statement(walk, it));
+  }
+
+  fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
+    self.visit_expression(&it.discriminant);
+    self.scoped(false, |walk| {
+      for case in &it.cases {
+        walk.visit_switch_case(case);
+      }
+    });
+  }
+
+  fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
+    self.scoped(false, |walk| walk::walk_catch_clause(walk, it));
+  }
+
+  fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+    self.scoped(true, |walk| walk::walk_static_block(walk, it));
+  }
+
+  fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+    for declarator in &it.declarations {
+      self.var = it.kind == VariableDeclarationKind::Var;
+      self.visit_binding_pattern(&declarator.id);
+      self.var = false;
+      if let Some(annotation) = &declarator.type_annotation {
+        self.visit_ts_type_annotation(annotation);
+      }
+      if let Some(init) = &declarator.init {
+        self.visit_expression(init);
+      }
+    }
+  }
+
+  fn visit_binding_pattern(&mut self, it: &BindingPattern<'a>) {
+    match it {
+      BindingPattern::ObjectPattern(pattern) => {
+        for property in &pattern.properties {
+          if property.computed {
+            self.visit_property_key(&property.key);
+          } else if !property.shorthand
+            && let PropertyKey::StaticIdentifier(key) = &property.key
+          {
+            self.unbound(key.span, ReferenceKind::Value, None, Access::Read);
+          }
+          self.visit_binding_pattern(&property.value);
+        }
+        if let Some(rest) = &pattern.rest {
+          self.visit_binding_pattern(&rest.argument);
+        }
+      }
+      pattern => walk::walk_binding_pattern(self, pattern),
+    }
+  }
+
+  fn visit_function(&mut self, it: &Function<'a>, _: ScopeFlags) {
+    match it.r#type {
+      FunctionType::FunctionDeclaration | FunctionType::TSDeclareFunction => {
+        if let Some(id) = &it.id {
+          self.binding(id);
+        }
+        self.function(it, false);
+      }
+      FunctionType::FunctionExpression | FunctionType::TSEmptyBodyFunctionExpression => self.function(it, true),
+    }
+  }
+
+  fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+    self.scoped(true, |walk| {
+      if let Some(parameters) = &it.type_parameters {
+        walk.visit_ts_type_parameter_declaration(parameters);
+      }
+      walk.visit_formal_parameters(&it.params);
+      if let Some(annotation) = &it.return_type {
+        walk.visit_ts_type_annotation(annotation);
+      }
+      match &it.body {
+        ArrowFunctionBody::FunctionBody(body) => {
+          for statement in &body.statements {
+            walk.visit_statement(statement);
+          }
+        }
+        body => {
+          if let Some(expression) = body.as_expression() {
+            walk.visit_expression(expression);
+          }
+        }
+      }
+    });
+  }
+
+  fn visit_class(&mut self, it: &Class<'a>) {
+    for decorator in &it.decorators {
+      self.visit_decorator(decorator);
+    }
+    let declaration = it.r#type == ClassType::ClassDeclaration;
+    if declaration && let Some(id) = &it.id {
+      self.binding(id);
+    }
+    self.scoped(false, |walk| {
+      if !declaration && let Some(id) = &it.id {
+        walk.binding(id);
+      }
+      if let Some(parameters) = &it.type_parameters {
+        walk.visit_ts_type_parameter_declaration(parameters);
+      }
+      if let Some(heritage) = &it.heritage {
+        walk.visit_expression(&heritage.expression);
+        if let Some(arguments) = &heritage.type_arguments {
+          walk.visit_ts_type_parameter_instantiation(arguments);
+        }
+      }
+      for implemented in &it.implements {
+        walk.visit_ts_class_implements(implemented);
+      }
+      for element in &it.body.body {
+        match element {
+          ClassElement::MethodDefinition(method) => walk.visit_method_definition(method),
+          ClassElement::PropertyDefinition(property) => walk.field(&field_of!(property)),
+          ClassElement::AccessorProperty(property) => walk.field(&field_of!(property)),
+          element => walk.visit_class_element(element),
+        }
+      }
+    });
+  }
+
+  fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
+    for decorator in &it.decorators {
+      self.visit_decorator(decorator);
+    }
+    self.member_declaration(&it.key, it.computed);
+    self.function(&it.value, false);
+  }
+
+  fn visit_ts_index_signature(&mut self, it: &TSIndexSignature<'a>) {
+    self.visit_ts_type_annotation(&it.parameter.type_annotation);
+    self.visit_ts_type_annotation(&it.type_annotation);
+  }
+
+  fn visit_ts_property_signature(&mut self, it: &TSPropertySignature<'a>) {
+    self.member_declaration(&it.key, it.computed);
+    if let Some(annotation) = &it.type_annotation {
+      self.visit_ts_type_annotation(annotation);
+    }
+  }
+
+  fn visit_ts_method_signature(&mut self, it: &TSMethodSignature<'a>) {
+    self.member_declaration(&it.key, it.computed);
+    self.scoped(true, |walk| {
+      js::walk_signature(walk, it.type_parameters.as_deref(), it.this_param.as_deref(), &it.params, it.return_type.as_deref());
+    });
+  }
+
+  fn visit_ts_call_signature_declaration(&mut self, it: &TSCallSignatureDeclaration<'a>) {
+    self.scoped(true, |walk| walk::walk_ts_call_signature_declaration(walk, it));
+  }
+
+  fn visit_ts_construct_signature_declaration(&mut self, it: &TSConstructSignatureDeclaration<'a>) {
+    self.scoped(true, |walk| walk::walk_ts_construct_signature_declaration(walk, it));
+  }
+
+  fn visit_ts_function_type(&mut self, it: &TSFunctionType<'a>) {
+    self.scoped(true, |walk| walk::walk_ts_function_type(walk, it));
+  }
+
+  fn visit_ts_constructor_type(&mut self, it: &TSConstructorType<'a>) {
+    self.scoped(true, |walk| walk::walk_ts_constructor_type(walk, it));
+  }
+
+  fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
+    self.binding(&it.id);
+    self.scoped(false, |walk| {
+      if let Some(parameters) = &it.type_parameters {
+        walk.visit_ts_type_parameter_declaration(parameters);
+      }
+      for heritage in &it.extends {
+        walk.visit_ts_interface_heritage(heritage);
+      }
+      walk.visit_ts_interface_body(&it.body);
+    });
+  }
+
+  fn visit_ts_type_alias_declaration(&mut self, it: &TSTypeAliasDeclaration<'a>) {
+    self.binding(&it.id);
+    self.scoped(false, |walk| {
+      if let Some(parameters) = &it.type_parameters {
+        walk.visit_ts_type_parameter_declaration(parameters);
+      }
+      walk.visit_ts_type(&it.type_annotation);
+    });
+  }
+
+  fn visit_ts_enum_declaration(&mut self, it: &TSEnumDeclaration<'a>) {
+    self.binding(&it.id);
+    for member in &it.body.members {
+      if let TSEnumMemberName::Identifier(name) = &member.id {
+        self.declaration(name.span, None);
+      }
+      if let Some(initializer) = &member.initializer {
+        self.visit_expression(initializer);
+      }
+    }
+  }
+
+  fn visit_ts_namespace_declaration(&mut self, it: &TSNamespaceDeclaration<'a>) {
+    self.binding(&it.id);
+    self.scoped(false, |walk| match &it.body {
+      TSNamespaceDeclarationBody::TSNamespaceDeclaration(inner) => walk.visit_ts_namespace_declaration(inner),
+      TSNamespaceDeclarationBody::TSModuleBlock(block) => walk.visit_ts_module_block(block),
+    });
+  }
+
+  fn visit_ts_external_module_declaration(&mut self, it: &TSExternalModuleDeclaration<'a>) {
+    self.scoped(false, |walk| walk::walk_ts_external_module_declaration(walk, it));
+  }
+
+  fn visit_ts_global_declaration(&mut self, it: &TSGlobalDeclaration<'a>) {
+    self.scoped(false, |walk| walk::walk_ts_global_declaration(walk, it));
+  }
+
+  fn visit_ts_type_parameter(&mut self, it: &TSTypeParameter<'a>) {
+    self.binding(&it.name);
+    js::walk_type_parameter_bounds(self, it);
+  }
+
+  fn visit_ts_mapped_type(&mut self, it: &TSMappedType<'a>) {
+    self.scoped(false, |walk| walk::walk_ts_mapped_type(walk, it));
+  }
+
+  /// What `infer` declares is seen in the whole conditional type
+  fn visit_ts_conditional_type(&mut self, it: &TSConditionalType<'a>) {
+    self.scoped(false, |walk| walk::walk_ts_conditional_type(walk, it));
+  }
+
+  fn visit_ts_type_name(&mut self, it: &TSTypeName<'a>) {
+    self.type_name(it, ReferenceKind::Type);
+  }
+
+  fn visit_ts_type_query(&mut self, it: &TSTypeQuery<'a>) {
+    match &it.expr_name {
+      TSTypeQueryExprName::TSImportType(import) => self.visit_ts_import_type(import),
+      name => {
+        if let Some(name) = name.as_ts_type_name() {
+          self.type_name(name, ReferenceKind::Value);
+        }
+      }
+    }
+    if let Some(arguments) = &it.type_arguments {
+      self.visit_ts_type_parameter_instantiation(arguments);
+    }
+  }
+
+  fn visit_ts_type_predicate(&mut self, it: &TSTypePredicate<'a>) {
+    if let TSTypePredicateName::Identifier(name) = &it.parameter_name {
+      self.value(name.span, ReferenceKind::Value, Access::Read);
+    }
+    if let Some(annotation) = &it.type_annotation {
+      self.visit_ts_type_annotation(annotation);
+    }
+  }
+
+  fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+    self.importing = true;
+    for specifier in it.specifiers.iter().flatten() {
+      match specifier {
+        ImportDeclarationSpecifier::ImportSpecifier(it) => {
+          self.module_export_name(&it.imported, Binds::Never);
+          // `{ a as b }` names two, `{ a }` one
+          if it.local.span != it.imported.span() {
+            self.visit_binding_identifier(&it.local);
+          }
+        }
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(it) => self.visit_binding_identifier(&it.local),
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(it) => self.visit_binding_identifier(&it.local),
+      }
+    }
+    self.importing = false;
+  }
+
+  fn visit_ts_import_equals_declaration(&mut self, it: &TSImportEqualsDeclaration<'a>) {
+    self.importing = true;
+    self.visit_binding_identifier(&it.id);
+    self.importing = false;
+    match &it.module_reference {
+      TSModuleReference::IdentifierReference(name) => self.value(name.span, ReferenceKind::Value, Access::Read),
+      TSModuleReference::QualifiedName(name) => self.qualified_name(name, ReferenceKind::Value),
+      TSModuleReference::ExternalModuleReference(_) => {}
+    }
+  }
+
+  fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'a>) {
+    for specifier in &it.specifiers {
+      self.module_export_name(&specifier.local, Binds::Scopes);
+      if specifier.exported.span() != specifier.local.span() {
+        self.module_export_name(&specifier.exported, Binds::Never);
+      }
+    }
+  }
+
+  fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'a>) {
+    if let Some(exported) = &it.exported {
+      self.module_export_name(exported, Binds::Never);
+    }
+  }
+
+  /// `import("m").A.B`: the names after the module, members of what it names
+  fn visit_ts_import_type(&mut self, it: &TSImportType<'a>) {
+    let mut qualifier = it.qualifier.as_ref();
+    while let Some(name) = qualifier {
+      let (span, left) = match name {
+        TSImportTypeQualifier::Identifier(name) => (name.span, None),
+        TSImportTypeQualifier::QualifiedName(name) => (name.right.span, Some(&name.left)),
+      };
+      // the qualifier is the text before the name and its dot: `import("m").A`
+      let object = Span::new(it.span.start, span.start.saturating_sub(1).max(it.span.start));
+      self.unbound(span, ReferenceKind::Member, Some(object), Access::Read);
+      qualifier = left;
+    }
+    if let Some(arguments) = &it.type_arguments {
+      self.visit_ts_type_parameter_instantiation(arguments);
+    }
+  }
+
+  fn visit_export_from_declaration(&mut self, it: &ExportFromDeclaration<'a>) {
+    for specifier in &it.specifiers {
+      self.module_export_name(&specifier.local, Binds::Never);
+      if specifier.exported.span() != specifier.local.span() {
+        self.module_export_name(&specifier.exported, Binds::Never);
+      }
+    }
+  }
+
+  fn visit_jsx_element_name(&mut self, it: &JSXElementName<'a>) {
+    match it {
+      JSXElementName::Identifier(name) => self.unbound(name.span, ReferenceKind::Value, None, Access::Read),
+      JSXElementName::IdentifierReference(name) => self.value(name.span, ReferenceKind::Value, Access::Read),
+      JSXElementName::MemberExpression(member) => self.jsx_member(member),
+      JSXElementName::NamespacedName(_) | JSXElementName::ThisExpression(_) => {}
+    }
+  }
+
+  fn visit_jsx_attribute_name(&mut self, it: &JSXAttributeName<'a>) {
+    if let JSXAttributeName::Identifier(name) = it {
+      self.unbound(name.span, ReferenceKind::Value, None, Access::Read);
+    }
+  }
+}

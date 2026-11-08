@@ -108,7 +108,7 @@ fn has_no_highlighting_over_the_limit() {
 }
 
 #[test]
-fn chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest() {
+fn chooses_the_grammar_of_the_dialect_of_the_extension() {
   let grammars: Vec<Option<Grammar>> = ["a.ts", "a.mts", "a.tsx", "a.js", "a.jsx", "a.mjs", "a.kt", "a.kts", "a.rs", "a.java", "a.md"]
     .into_iter()
     .map(grammar_of)
@@ -119,9 +119,9 @@ fn chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest() {
       Some(Grammar::TypeScript),
       Some(Grammar::TypeScript),
       Some(Grammar::Tsx),
-      Some(Grammar::Tsx),
-      Some(Grammar::Tsx),
-      Some(Grammar::Tsx),
+      Some(Grammar::JavaScript),
+      Some(Grammar::JavaScript),
+      Some(Grammar::JavaScript),
       Some(Grammar::Kotlin),
       Some(Grammar::KotlinScript),
       Some(Grammar::Rust),

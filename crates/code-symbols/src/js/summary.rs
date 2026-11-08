@@ -33,7 +33,8 @@
 //!   with one between its start and its name is `in_error`. A file no recovery saves has every byte in error and no
 //!   facts.
 
-use crate::js::{Errors, Source, doc_lines, tokens_in, with_program};
+use crate::js;
+use crate::js::{Errors, Source, doc_lines, field_of, tokens_in, with_program};
 use crate::summary::{DeclKind, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Role};
 use crate::summary_builder::{Bindings, SummaryBuilder, blank_declaration};
 use js_syntax::Dialect;
@@ -45,7 +46,7 @@ use js_syntax::oxc_ast::ast::{
   MethodDefinitionKind, ModuleDeclaration, ModuleExportName, NewExpression, ObjectProperty, PrivateFieldExpression, Program, PropertyKey, PropertyKind, Statement,
   StaticMemberExpression, StringLiteral, SwitchStatement, TSAccessibility, TSConditionalType, TSConstructorType, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration,
   TSFunctionType, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSIndexSignature, TSInferType, TSInterfaceBody, TSInterfaceDeclaration, TSMappedType,
-  TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature, TSType, TSTypeAliasDeclaration, TSTypeAnnotation, TSTypeLiteral, TSTypeName, TSTypeParameter,
+  TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature, TSType, TSTypeAliasDeclaration, TSTypeLiteral, TSTypeName, TSTypeParameter,
   TSTypeParameterInstantiation, TSTypePredicate, TSTypeQuery, TSTypeQueryExprName, TaggedTemplateExpression, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use js_syntax::oxc_ast_visit::{Visit, walk};
@@ -120,34 +121,6 @@ struct Decl<'s> {
   starts: [Option<u32>; 2],
   /// The doc comments above it start it: not those above an import, whose bindings start with its statement
   documented: bool,
-}
-
-/// A field or an accessor of a class, two node types of one rule (`field_of`)
-struct Field<'n, 'a> {
-  decorators: &'n [Decorator<'a>],
-  key: &'n PropertyKey<'a>,
-  computed: bool,
-  span: Span,
-  is_static: bool,
-  private: bool,
-  annotation: Option<&'n TSTypeAnnotation<'a>>,
-  value: Option<&'n Expression<'a>>,
-}
-
-/// The `Field` of a `PropertyDefinition` or an `AccessorProperty`, whose parts have the same names
-macro_rules! field_of {
-  ($it:expr) => {
-    Field {
-      decorators: &$it.decorators,
-      key: &$it.key,
-      computed: $it.computed,
-      span: $it.span,
-      is_static: $it.r#static,
-      private: $it.accessibility == Some(TSAccessibility::Private) || matches!($it.key, PropertyKey::PrivateIdentifier(_)),
-      annotation: $it.type_annotation.as_deref(),
-      value: $it.value.as_ref(),
-    }
-  };
 }
 
 struct Walk<'w, 's> {
@@ -367,12 +340,7 @@ impl<'s> Walk<'_, 's> {
   /// A call or a `new`: its callee a call, its type arguments and its arguments
   fn call(&mut self, callee: &Expression<'_>, type_arguments: Option<&TSTypeParameterInstantiation<'_>>, arguments: &[Argument<'_>]) {
     self.callee(callee, Role::Call);
-    if let Some(type_arguments) = type_arguments {
-      self.visit_ts_type_parameter_instantiation(type_arguments);
-    }
-    for argument in arguments {
-      self.visit_argument(argument);
-    }
+    js::walk_arguments(self, type_arguments, arguments);
   }
 
   /// `for (left of right) body`, `for (left in right) body`: a declaration of `left` binds in the loop
@@ -668,21 +636,7 @@ impl<'s> Walk<'_, 's> {
       self.hoist_vars(&body.statements);
       self.hoist_block(&body.statements);
     }
-    if let Some(parameters) = &function.type_parameters {
-      self.visit_ts_type_parameter_declaration(parameters);
-    }
-    if let Some(this) = &function.this_param {
-      self.visit_ts_this_parameter(this);
-    }
-    self.visit_formal_parameters(&function.params);
-    if let Some(annotation) = &function.return_type {
-      self.visit_ts_type_annotation(annotation);
-    }
-    if let Some(body) = &function.body {
-      for statement in &body.statements {
-        self.visit_statement(statement);
-      }
-    }
+    js::walk_function(self, function);
     self.bindings.pop();
   }
 
@@ -792,7 +746,7 @@ impl<'s> Walk<'_, 's> {
     });
   }
 
-  fn field(&mut self, field: &Field<'_, '_>) {
+  fn field(&mut self, field: &js::Field<'_, '_>) {
     let decl = self
       .member_decl(field.key, field.computed, field.span, field.decorators, DeclKind::Value, field.is_static, field.private)
       .map(|mut decl| {
@@ -856,16 +810,7 @@ impl<'s> Walk<'_, 's> {
         let decl = self.signature_decl(&it.key, it.computed, it.span, DeclKind::Function, declares);
         self.within(decl, Holder::Leaf, |walk| {
           walk.bindings.push(true);
-          if let Some(parameters) = &it.type_parameters {
-            walk.visit_ts_type_parameter_declaration(parameters);
-          }
-          if let Some(this) = &it.this_param {
-            walk.visit_ts_this_parameter(this);
-          }
-          walk.visit_formal_parameters(&it.params);
-          if let Some(annotation) = &it.return_type {
-            walk.visit_ts_type_annotation(annotation);
-          }
+          js::walk_signature(walk, it.type_parameters.as_deref(), it.this_param.as_deref(), &it.params, it.return_type.as_deref());
           walk.bindings.pop();
         });
       }
@@ -1450,12 +1395,7 @@ impl<'a> Visit<'a> for Walk<'_, '_> {
 
   fn visit_ts_type_parameter(&mut self, it: &TSTypeParameter<'a>) {
     self.bind_identifier(&it.name);
-    if let Some(constraint) = &it.constraint {
-      self.visit_ts_type(constraint);
-    }
-    if let Some(default) = &it.default {
-      self.visit_ts_type(default);
-    }
+    js::walk_type_parameter_bounds(self, it);
   }
 
   fn visit_ts_mapped_type(&mut self, it: &TSMappedType<'a>) {

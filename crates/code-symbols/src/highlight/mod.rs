@@ -154,8 +154,10 @@ pub enum Grammar {
   Java = 1,
   Rust = 2,
   TypeScript = 3,
-  /// TSX: `.tsx` and JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), JSX included
+  /// TSX: `.tsx`
   Tsx = 4,
+  /// JavaScript: `.js`, `.jsx`, `.mjs`, `.cjs`, JSX included
+  JavaScript = 9,
   CSharp = 6,
   /// Starlark: Bazel's `.bzl`, WORKSPACE and REPO.bazel files
   Starlark = 7,
@@ -175,7 +177,7 @@ impl Grammar {
       Self::Kotlin | Self::KotlinScript => cfg!(feature = "kotlin"),
       Self::Java => cfg!(feature = "java"),
       Self::Rust => cfg!(feature = "rust"),
-      Self::TypeScript | Self::Tsx => cfg!(feature = "typescript"),
+      Self::TypeScript | Self::Tsx | Self::JavaScript => cfg!(feature = "typescript"),
       Self::CSharp => cfg!(feature = "csharp"),
       Self::Starlark | Self::StarlarkBuild => cfg!(feature = "starlark"),
     }
@@ -190,7 +192,7 @@ impl Grammar {
       #[cfg(feature = "typescript")]
       Self::TypeScript => Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
       #[cfg(feature = "typescript")]
-      Self::Tsx => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
+      Self::Tsx | Self::JavaScript => Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
       _ => None,
     }
   }
@@ -212,7 +214,8 @@ pub fn grammar_of(path: &str) -> Option<Grammar> {
     "cs" => Grammar::CSharp,
     "rs" => Grammar::Rust,
     "ts" | "mts" | "cts" => Grammar::TypeScript,
-    "tsx" | "js" | "jsx" | "mjs" | "cjs" => Grammar::Tsx,
+    "tsx" => Grammar::Tsx,
+    "js" | "jsx" | "mjs" | "cjs" => Grammar::JavaScript,
     _ => return None,
   };
   grammar.is_enabled().then_some(grammar)
@@ -282,7 +285,7 @@ fn highlight_tree_sitter(grammar: Grammar, text: &str) -> Option<LineRuns> {
     #[cfg(feature = "rust")]
     Grammar::Rust => paint::paint(&tree, text, &mut rust_lang::Rust, &mut runs),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx => paint::paint(&tree, text, &mut typescript::TypeScript::default(), &mut runs),
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => paint::paint(&tree, text, &mut typescript::TypeScript::default(), &mut runs),
     _ => return None,
   }
   Some(runs.finish())

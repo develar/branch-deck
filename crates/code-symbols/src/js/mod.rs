@@ -17,13 +17,21 @@
 //!   the file's nesting fits `psi_builder::stack::STACK`, else on a thread of the stack it needs; past
 //!   `js_syntax`'s limit there is no tree and the summary is `truncated`.
 
+pub(crate) mod navigate;
 pub(crate) mod summary;
 
 #[cfg(test)]
-mod summary_test;
+mod navigate_test;
+#[cfg(test)]
+pub(crate) mod summary_test;
 
+use crate::highlight::Grammar;
 use crate::summary_builder::column_at;
-use js_syntax::oxc_ast::ast::Program;
+use js_syntax::oxc_ast::ast::{
+  Argument, Decorator, Expression, FormalParameters, Function, FunctionBody, Program, PropertyKey, TSThisParameter, TSTypeAnnotation, TSTypeParameter, TSTypeParameterDeclaration,
+  TSTypeParameterInstantiation,
+};
+use js_syntax::oxc_ast_visit::Visit;
 use js_syntax::oxc_parser::Token;
 use js_syntax::oxc_span::Span;
 use js_syntax::{Dialect, Parsed, Read};
@@ -36,6 +44,15 @@ pub(crate) fn dialect_of_path(path: &str) -> Dialect {
     .rsplit_once('.')
     .and_then(|(_, extension)| Dialect::of_extension(extension))
     .unwrap_or(Dialect::Tsx)
+}
+
+/// The dialect of a file the view reads by `grammar`: TypeScript of `.ts`, JavaScript of `.js`, TSX of the rest
+pub(crate) const fn dialect_of_grammar(grammar: Grammar) -> Dialect {
+  match grammar {
+    Grammar::TypeScript => Dialect::TypeScript,
+    Grammar::JavaScript => Dialect::JavaScript,
+    _ => Dialect::Tsx,
+  }
 }
 
 /// Parses `source` as `dialect`, with its tokens and the recovery of a fatal parse, and hands the parse to `read`; `None`
@@ -167,4 +184,92 @@ pub(crate) fn doc_lines(program: &Program<'_>, source: &Source<'_>) -> Vec<(u32,
   docs.sort_unstable();
   docs.dedup_by_key(|it| it.0);
   docs
+}
+
+/// A field or an accessor of a class, two node types of one rule (`field_of`)
+pub(crate) struct Field<'n, 'a> {
+  pub(crate) decorators: &'n [Decorator<'a>],
+  pub(crate) key: &'n PropertyKey<'a>,
+  pub(crate) computed: bool,
+  pub(crate) span: Span,
+  pub(crate) is_static: bool,
+  pub(crate) private: bool,
+  pub(crate) annotation: Option<&'n TSTypeAnnotation<'a>>,
+  pub(crate) value: Option<&'n Expression<'a>>,
+}
+
+/// The `Field` of a `PropertyDefinition` or an `AccessorProperty`, whose parts have the same names
+macro_rules! field_of {
+  ($it:expr) => {
+    $crate::js::Field {
+      decorators: &$it.decorators,
+      key: &$it.key,
+      computed: $it.computed,
+      span: $it.span,
+      is_static: $it.r#static,
+      private: $it.accessibility == Some(js_syntax::oxc_ast::ast::TSAccessibility::Private) || matches!($it.key, js_syntax::oxc_ast::ast::PropertyKey::PrivateIdentifier(_)),
+      annotation: $it.type_annotation.as_deref(),
+      value: $it.value.as_ref(),
+    }
+  };
+}
+pub(crate) use field_of;
+
+/// The parts of a function or a signature after its name: its type parameters, `this`, its parameters, its return type
+pub(crate) fn walk_signature<'a>(
+  visitor: &mut impl Visit<'a>,
+  type_parameters: Option<&TSTypeParameterDeclaration<'a>>,
+  this: Option<&TSThisParameter<'a>>,
+  parameters: &FormalParameters<'a>,
+  return_type: Option<&TSTypeAnnotation<'a>>,
+) {
+  if let Some(type_parameters) = type_parameters {
+    visitor.visit_ts_type_parameter_declaration(type_parameters);
+  }
+  if let Some(this) = this {
+    visitor.visit_ts_this_parameter(this);
+  }
+  visitor.visit_formal_parameters(parameters);
+  if let Some(return_type) = return_type {
+    visitor.visit_ts_type_annotation(return_type);
+  }
+}
+
+/// A function after its name: its signature and its body
+pub(crate) fn walk_function<'a>(visitor: &mut impl Visit<'a>, function: &Function<'a>) {
+  walk_signature(
+    visitor,
+    function.type_parameters.as_deref(),
+    function.this_param.as_deref(),
+    &function.params,
+    function.return_type.as_deref(),
+  );
+  walk_body(visitor, function.body.as_deref());
+}
+
+/// The statements of a function's body
+pub(crate) fn walk_body<'a>(visitor: &mut impl Visit<'a>, body: Option<&FunctionBody<'a>>) {
+  for statement in body.iter().flat_map(|it| &it.statements) {
+    visitor.visit_statement(statement);
+  }
+}
+
+/// The type arguments and the arguments of a call or a `new`, after its callee
+pub(crate) fn walk_arguments<'a>(visitor: &mut impl Visit<'a>, type_arguments: Option<&TSTypeParameterInstantiation<'a>>, arguments: &[Argument<'a>]) {
+  if let Some(type_arguments) = type_arguments {
+    visitor.visit_ts_type_parameter_instantiation(type_arguments);
+  }
+  for argument in arguments {
+    visitor.visit_argument(argument);
+  }
+}
+
+/// The constraint and the default of a type parameter, after its name
+pub(crate) fn walk_type_parameter_bounds<'a>(visitor: &mut impl Visit<'a>, parameter: &TSTypeParameter<'a>) {
+  if let Some(constraint) = &parameter.constraint {
+    visitor.visit_ts_type(constraint);
+  }
+  if let Some(default) = &parameter.default {
+    visitor.visit_ts_type(default);
+  }
 }

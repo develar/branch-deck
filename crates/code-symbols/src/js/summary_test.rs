@@ -327,7 +327,7 @@ fn errors_are_what_the_parse_recovered_from() {
 /// A name nested `depth` times in `open` and `close`, a hundred a line, as no minified file has them
 pub(crate) fn nested_source(depth: usize, open: &str, close: &str) -> String {
   let repeat = |text: &str| -> String { (0..depth).map(|index| if index % 100 == 99 { format!("{text}\n") } else { text.to_string() }).collect() };
-  format!("export const deep =\n{}x{}\n", repeat(open), repeat(close))
+  format!("export const deep =\n{}inner{}\n", repeat(open), repeat(close))
 }
 
 /// The forms of nesting a file of code writes deepest: arrays, objects, calls, arrows, conditions, members of a chain
@@ -342,7 +342,7 @@ fn deep_nesting_is_read_on_a_small_stack() {
       let deep = summarize(Language::TypeScript, nested_source(20_000, open, close).as_bytes());
       assert!(!deep.truncated, "{open}");
       assert_eq!(deep.error_bytes, 0, "{open}");
-      assert_eq!(deep.references_to("x").count(), 1, "{open}");
+      assert_eq!(deep.references_to("inner").count(), 1, "{open}");
       assert!(deep.declares("deep"), "{open}");
     }
     // a gibibyte of stack is the most a parse takes
