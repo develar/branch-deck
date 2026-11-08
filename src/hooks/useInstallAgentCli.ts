@@ -18,10 +18,14 @@ export function describeInstall({ bd: brd, on_path, skills, agents }: AgentCliIn
   return `${found} ${terminal} ${describeAgentRules(agents)}`
 }
 
-/** How agents work by the rules of every repository: "Agents work in their own worktree …; commit subjects stay as written." */
-export function describeAgentRules({ lease, subject_branch }: AgentRules): string {
+/**
+ * How agents work by the rules of every repository: "Agents work in their own worktree …; commit subjects stay as written.",
+ * and with `pull_request` that they open the pull requests themselves
+ */
+export function describeAgentRules({ lease, subject_branch, pull_request }: AgentRules): string {
   const where = lease ? "Agents work in their own worktree and land each commit on your branch" : "Agents work in your checkout"
-  return subject_branch ? `${where}, and name the branch in each commit subject.` : `${where}; commit subjects stay as written.`
+  const subjects = subject_branch ? `${where}, and name the branch in each commit subject.` : `${where}; commit subjects stay as written.`
+  return pull_request ? `${subjects} They push each branch and open its pull request without asking.` : subjects
 }
 
 /**

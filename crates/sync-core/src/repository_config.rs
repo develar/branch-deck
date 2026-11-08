@@ -1,8 +1,8 @@
 //! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
 //! GitHub repository and the branch prefix (Settings → Repository), the resolve by words (Diffs & Merge), the push size
 //! limit (Patronus), the route into master (`branchdeck.landing`, spec/branch/landing-routes.spec.md), how coding
-//! agents work (Settings → Agents, read by `brd workspace`), and the experiments of the review windows
-//! (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md). One `git config --get-regexp` reads all ten with
+//! agents work and land (Settings → Agents, read by `brd workspace`), and the experiments of the review windows
+//! (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md). One `git config --get-regexp` reads them all with
 //! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
 //! the request names it (`WriteScope`; never a `push` route), and `bd` reads the same keys.
 
@@ -27,9 +27,8 @@ use std::time::{Duration, Instant};
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The nine keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str =
-  r"^branchdeck\.(symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|reviewexperimental|primary|companion\..+\.path)$";
+/// The keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(symbols|githubrepository|branchprefix|pushsizelimit|resolvebywords|landing|agentlease|agentsubjectbranch|agentpullrequest|reviewexperimental|primary|companion\..+\.path)$";
 
 /// The key of the primary of a companion repository: the path of its main worktree
 pub const PRIMARY_CONFIG_KEY: &str = "branchdeck.primary";
@@ -49,6 +48,10 @@ pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
 /// the prefix groups the commit, and the copies of the virtual branches drop it; a repository whose commits land as
 /// they are turns it off (`brd workspace`)
 pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
+
+/// Whether the landing of a coding agent's commit includes its pull request: after the pick it pushes the branch
+/// (`brd push`) and opens the pull request brd prints, without asking; a git boolean, off when unset (`brd workspace`)
+pub const AGENT_PULL_REQUEST_CONFIG_KEY: &str = "branchdeck.agentPullRequest";
 
 /// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
 /// Reviewed and the local Since Your Review, the overview of the plan, the badges and the Mechanical group of the tree.
@@ -155,8 +158,10 @@ pub struct RepositoryConfig {
   pub landing: ConfigSetting<Option<LandingSetting>>,
   /// `branchdeck.agentLease`, on by default
   pub agent_lease: ConfigSetting<bool>,
-  /// `branchdeck.agentSubjectBranch`, off by default
+  /// `branchdeck.agentSubjectBranch`, on by default
   pub agent_subject_branch: ConfigSetting<bool>,
+  /// `branchdeck.agentPullRequest`, off by default
+  pub agent_pull_request: ConfigSetting<bool>,
   /// `branchdeck.reviewExperimental`, off by default and for a value git refuses
   pub review_experimental: ConfigSetting<bool>,
   /// The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name
@@ -228,6 +233,7 @@ pub enum RepositoryConfigKey {
   Landing,
   AgentLease,
   AgentSubjectBranch,
+  AgentPullRequest,
   ReviewExperimental,
   /// The companion repositories (`branchdeck.companion.<name>.path`), which `write_companion` writes, never a change
   Companions,
@@ -245,6 +251,7 @@ impl RepositoryConfigKey {
       Self::Landing => LANDING_CONFIG_KEY,
       Self::AgentLease => AGENT_LEASE_CONFIG_KEY,
       Self::AgentSubjectBranch => AGENT_SUBJECT_BRANCH_CONFIG_KEY,
+      Self::AgentPullRequest => AGENT_PULL_REQUEST_CONFIG_KEY,
       Self::ReviewExperimental => REVIEW_EXPERIMENTAL_CONFIG_KEY,
       Self::Companions => "branchdeck.companion",
     }
@@ -260,6 +267,7 @@ impl RepositoryConfigKey {
       Self::Landing,
       Self::AgentLease,
       Self::AgentSubjectBranch,
+      Self::AgentPullRequest,
       Self::ReviewExperimental,
     ]
     .into_iter()
@@ -292,6 +300,7 @@ pub enum RepositoryConfigChange {
   Landing(Option<LandingSetting>),
   AgentLease(Option<bool>),
   AgentSubjectBranch(Option<bool>),
+  AgentPullRequest(Option<bool>),
   ReviewExperimental(Option<bool>),
 }
 
@@ -306,6 +315,7 @@ impl RepositoryConfigChange {
       Self::Landing(_) => RepositoryConfigKey::Landing,
       Self::AgentLease(_) => RepositoryConfigKey::AgentLease,
       Self::AgentSubjectBranch(_) => RepositoryConfigKey::AgentSubjectBranch,
+      Self::AgentPullRequest(_) => RepositoryConfigKey::AgentPullRequest,
       Self::ReviewExperimental(_) => RepositoryConfigKey::ReviewExperimental,
     }
   }
@@ -313,7 +323,9 @@ impl RepositoryConfigChange {
   /// The value to write, validated as the reader takes it; None to unset. An empty text unsets too
   fn config_value(&self) -> Result<Option<String>> {
     Ok(match self {
-      Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) | Self::ReviewExperimental(value) => value.map(|value| value.to_string()),
+      Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) | Self::AgentPullRequest(value) | Self::ReviewExperimental(value) => {
+        value.map(|value| value.to_string())
+      }
       Self::Symbols(value) => value.map(|mode| symbol_mode_name(mode).to_string()),
       Self::Landing(value) => value.map(|setting| setting.config_value().to_string()),
       Self::GithubRepository(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
@@ -366,7 +378,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The nine keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -436,6 +448,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     landing: landing_setting(entries),
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
+    agent_pull_request: resolve_setting(entries, RepositoryConfigKey::AgentPullRequest, false, |value| bool_setting(value, false)),
     review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, false, |value| bool_setting(value, false)),
     companions: companion_settings(entries),
     primary: entries

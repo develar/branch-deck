@@ -27,11 +27,12 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
 
   let output = workspace_in(&fixture, &fixture.repo.path().join("crates/x"));
   assert_eq!(
-    (&output["kind"], &output["lease"], &output["subject_branch"], output.get("stacks")),
+    (&output["kind"], &output["lease"], &output["subject_branch"], &output["pull_request"], output.get("stacks")),
     (
       &json!("main"),
       &json!({ "on": true, "source": "default" }),
       &json!({ "on": true, "source": "default" }),
+      &json!({ "on": false, "source": "default" }),
       None
     )
   );
@@ -95,6 +96,27 @@ fn the_global_config_turns_a_rule_off_and_a_repository_keeps_its_own() {
       &json!({ "on": true, "source": "local", "invalid": "maybe is not a boolean (true or false)" })
     )
   );
+}
+
+/// `branchdeck.agentPullRequest true` of the repository makes the landing of a commit include its pull request: the
+/// `next` of the get and of `brd workspace` in the lease pushes the branch from the shared checkout after the pick
+#[test_log::test]
+fn the_pull_request_rule_pushes_the_branch_after_the_pick() {
+  let fixture = Fixture::new();
+  let shared = display(fixture.repo.path());
+  fixture.repo.set_config("branchdeck.agentPullRequest", "true").unwrap();
+  assert_eq!(workspace_in(&fixture, fixture.repo.path())["pull_request"], json!({ "on": true, "source": "local" }));
+
+  let lease = fixture.get(&["--holder", "lane-1"]);
+  let slot = path_of(&lease);
+  let next = json!([
+    format!("{CLI_NAME} -C {} lease pick", shell_word(&slot)),
+    format!("{CLI_NAME} -C {} push <branch>", shell_word(&shared)),
+    format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
+  ]);
+  assert_eq!(lease["next"], next);
+  let output = workspace_in(&fixture, Path::new(&slot));
+  assert_eq!((&output["pull_request"], &output["next"]), (&json!({ "on": true, "source": "local" }), &next));
 }
 
 /// A linked worktree outside the pool is a checkout of its own: no lease, no pick; outside a working tree there is

@@ -117,6 +117,7 @@ describe("the rows of Settings → Repository", () => {
     expect(writeErrorTitle({ key: "pushSizeLimit", value: "200M" }, "/repo/app")).toBe("Cannot change the push size limit of app")
     expect(writeErrorTitle({ key: "agentLease", value: null }, "/repo/app")).toBe("Cannot change where agents work in app")
     expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
+    expect(writeErrorTitle({ key: "agentPullRequest", value: true }, "/repo/app")).toBe("Cannot change whether agents open pull requests in app")
     expect(writeErrorTitle({ key: "landing", value: "push" }, "/repo/app")).toBe("Cannot change how app lands into master")
   })
 })
@@ -149,6 +150,7 @@ describe("newer", () => {
     landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
     agentLease: setting({}),
     agentSubjectBranch: setting({}),
+    agentPullRequest: setting({}),
     reviewExperimental: setting({}),
     companions: [],
     primary: null,

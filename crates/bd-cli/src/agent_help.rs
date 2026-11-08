@@ -34,7 +34,8 @@ Rules
   Safe Push or a Patronus Dry Run (`brd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
   --allow-missing and --create-pull-request), `brd request-review`, a `gh pr create` that brd prints, `brd park`,
   `brd unpark`, `brd unapply`, `brd reapply`, and any change of a commit that another session made, a `brd reword` of its
-  message too. Show what brd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask.
+  message too. Show what brd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask. `pull_request.on`
+  approves the push and the `gh pr create` of your branch after its pick.
 - A branch `parked` in `brd status` stays local, and so do a branch built on it (`with` names the parked one) and the
   stack that holds it. `brd park <branch> --note '<why>'` and `brd unpark <branch>` only when the user asks (no rewrite;
   `idle_parked` lists the lines of branches without commits here).
@@ -116,9 +117,8 @@ Workflow: the commits into pull requests
 8. Statistics. `brd robot-stats` (`brd robot-stats --help`).
 
 Other tasks
-- Before the first edit of a session: `brd workspace` says whether to work in a lease of your own
-  (`branchdeck.agentLease`, on by default) and whether to start each subject with `(branch)`
-  (`branchdeck.agentSubjectBranch`, on by default), and `next` what to run; the user's words win over it.
+- Before the first edit of a session: `brd workspace` says where to work, how to write a subject and whether the
+  landing includes the pull request; follow its rules and `next`, the user's words win.
 - Update the branch onto its baseline: `brd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
   a resolve session (exit 1), which `brd help update` explains.
 - Several sessions on one branch: `brd lease get` leases a worktree, `brd lease pick` in it lands its commits where it
@@ -240,8 +240,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
 0. Lease your worktree when `brd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
    command): `brd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, `lease_id`, `home` (the
-   `checkout` and the `branch` your commits land on) and `next` (the pick of step 2, the return of step 5); work and
-   commit only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
+   `checkout` and the `branch` your commits land on) and `next` (the pick of step 2, with `pull_request.on` the push
+   after it, the return of step 5); work and commit only there, never `git worktree add`, never `git stash` (every
+   worktree of the pool shares one stash). A free slot is moved to that HEAD (`reused`: only the diff is written); with
    none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS without what the `delete` clean rules
    delete, or `checkout`), one at a time: a get waits while another adds a slot, says whom it waits for on stderr,
    and takes a slot freed meanwhile (`waited_for_clone_ms`). --branch <name> (-b) creates a branch there. `skipped`
@@ -272,7 +273,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    readable name of a few words, never an issue id as the name; an issue id stays in the subject after the prefix, or
    in the body. A series of commits is a stack
    root with one leaf per logical group; a change on its own gets a root of its own. One deliberate commit per change:
-   no `fixup!` subject on the shared branch, `brd fold` would fold it into its target. Rename a branch with
+   no `fixup!` subject for a branch not pushed yet, `brd fold` would fold it into its target; a change to a pushed
+   branch (an open pull request) is a `(branch) fixup! <subject>` commit, folded only when the user asks. Rename a branch with
    `brd rename <old> <new>`, which rewrites every prefix, children included. `brd suggest` is for commits that came
    without a prefix.
 2. Land each commit that builds and passes its tests at once, from your lease: `brd -C <your lease> lease pick`, the
@@ -282,7 +284,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    commits onto the branch in memory, under the repository lock that every worktree shares, so no fold or update runs
    halfway through it; the files follow, and --follow moves your worktree onto the new tip (its local changes on
    other paths stay). With nothing to land, `brd lease pick` only moves your lease onto the tip (`up_to_date`,
-   `followed.state: moved`): the commits of the other sessions.
+   `followed.state: moved`): the commits of the other sessions. When `brd workspace` says `pull_request.on`
+   (`branchdeck.agentPullRequest`, off by default), the landing goes on without asking: the push of `next`
+   (`brd push <branch>` with -C <home.checkout>) and the `gh pr create` it prints for a branch without a pull request.
    - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
      the subject before the owner groups it.
    - `dependencies[]`: a commit whose prefix names a branch that is not built on the branches it needs (`depends_on`:
@@ -851,7 +855,8 @@ wins over it:
   `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout: when the task
   needs them, ask the user. Your own files ignored by git and kept by your harness in the shared checkout (a plan,
   notes) are not `local_changes`; editing them there is allowed: read and update them at the path where the harness
-  wrote them, never copy them into the lease or commit them.
+  wrote them, never copy them into the lease or commit them. Never `git stash` in a lease: every worktree of the pool
+  shares one stash.
 - `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
   `git add -A` or `git add .`.
 - `subject_branch.on`: start each commit subject with `(branch) `, a readable name of a few words, never an issue id as
@@ -859,8 +864,11 @@ wins over it:
   an existing virtual branch, never the baseline (`baseline_parent`). Then, also off (no prefix), write the subject as
   the repository does: its agent instructions, else its `git log`. The push drops the prefix; a pick refuses a message
   that `[commit] check` rejects (`message_format`).
-- Both are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
-  never change them.
+- `pull_request.on`: the landing of a commit includes its pull request. After the pick, run the push of `next`
+  (`brd -C <shared checkout> push <branch>`) and the `gh pr create` it prints for a branch without one, without asking;
+  off, ask the user first. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way.
+- All three are the user's settings (Settings → Agents, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`,
+  `branchdeck.agentPullRequest`): never change them.
 - The diff shows what changed; the body says why. After the subject (the behaviour change): a lead of 1–3 sentences
   with the new state and its cause, then a paragraph per decision: what you chose, what not, why. Code names in
   backticks as the code spells them (`Owner.member`, a path) link to the diffs; `brd review-plan` lists those that
@@ -889,13 +897,16 @@ command prints and what each of its refusals asks.
 - Every command prints one JSON object on stdout, with the `operation_id` of its run. Branch on `error.code` and the
   exit code, never on the message;
   `brd schema <command>` prints the JSON Schema of its output, `brd version` the version of brd and git.
-- Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits with `brd fold`;
-  squash the commits the user asked to squash with `brd squash`, after showing its --dry-run. A commit of yours that
+- Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits of a branch not
+  pushed yet with `brd fold`. A change to a pushed branch (an open pull request) is a `(branch) fixup! <subject>` commit,
+  folded only when the user asks; when it breaks a promise of the pull request's description, fix that with
+  `gh pr edit`. Squash the commits the user asked to squash with `brd squash`, after showing its --dry-run. A commit of yours that
   must not land leaves with `brd drop <commit>...` after its --dry-run, never with `git revert`, which lands both into
   master (a commit and its revert: drop both); a commit of another session or of the user only when the user asks.
   `brd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
   Move a change between commits only with `brd move-hunk`, change a message only with `brd reword`. Never push, start a Safe
-  Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
+  Push or create pull requests before the user approved them, except the push and the pull request of
+  `pull_request.on`; an `error.next_steps` entry with `needs_approval` waits
   for that approval too.
 - `brd lease pick` and `brd pick` land on the local branch only: nothing reaches the remote and no CI runs until the
   route of the repository lands it. `brd land <branch> --dry-run` names that route (`route`: `patronus`, `push` or

@@ -13,7 +13,7 @@ import { describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle
 import { openSettings } from "@/lib/settings-window"
 import { useSelectedProjectPath } from "@/stores/repository"
 
-/** The two rules of `brd workspace`: their key, what they do, their default and the title of a failed global write */
+/** The three rules of `brd workspace`: their key, what they do, their default and the title of a failed global write */
 const AGENT_RULES = [
   {
     configKey: "agentLease",
@@ -28,6 +28,13 @@ const AGENT_RULES = [
     description: "(auth) Add login form: the commit goes into the branch auth",
     defaultValue: true,
     globalErrorTitle: "Cannot change how agents write commit subjects in every repository",
+  },
+  {
+    configKey: "agentPullRequest",
+    label: "Open a pull request after each pick",
+    description: "The agent pushes the branch and opens its pull request without asking",
+    defaultValue: false,
+    globalErrorTitle: "Cannot change whether agents open pull requests in every repository",
   },
 ] as const
 

@@ -50,6 +50,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   },
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
+  agentPullRequest: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: null },
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   companions: [
     { name: "ci-config", path: "/Users/jane/src/ci-config", problem: null },
@@ -113,8 +114,11 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
   return window
 }
 
-/** The pages that scroll at 720 × 540: Diffs & Merge with its Review section (spec/repository/settings.spec.md) */
-const SCROLLING_PAGES = new Set(["Diffs & Merge"])
+/**
+ * The pages that scroll at 720 × 540: Diffs & Merge with its Review section, Agents with its three rules
+ * (spec/repository/settings.spec.md)
+ */
+const SCROLLING_PAGES = new Set(["Diffs & Merge", "Agents"])
 
 /** Each page of the sidebar in its tallest state fits the island: nothing to scroll at 720 × 540, but `SCROLLING_PAGES` */
 async function expectEveryPageFits(window: Page, pages: string[]): Promise<void> {

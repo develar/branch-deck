@@ -24,6 +24,7 @@ export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
   landing: "branchdeck.landing",
   agentLease: "branchdeck.agentLease",
   agentSubjectBranch: "branchdeck.agentSubjectBranch",
+  agentPullRequest: "branchdeck.agentPullRequest",
   reviewExperimental: "branchdeck.reviewExperimental",
 }
 
@@ -262,6 +263,8 @@ export function writeErrorTitle(change: RepositoryConfigChange, repositoryPath: 
       return `Cannot change where agents work in ${name}`
     case "agentSubjectBranch":
       return `Cannot change how agents write commit subjects in ${name}`
+    case "agentPullRequest":
+      return `Cannot change whether agents open pull requests in ${name}`
     case "reviewExperimental":
       return `Cannot change whether ${name} shows the review plan`
   }

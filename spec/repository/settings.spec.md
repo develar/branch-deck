@@ -110,7 +110,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ## Goals
 
 - Every setting of the app in one place, one page per subject, each page without scrolling at the size the window
-  opens with.
+  opens with (but Diffs & Merge and Agents, below).
 - A button that needs a setting opens the page that has it, not the top of a long list.
 - The same settings in every window: every window writes them through the backend, which owns `settings.json`.
 - `settings.json` changes only when the user changes a setting or the list of projects: what a sync, a fetch or Update
@@ -262,10 +262,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   Retry says it reads again until the answer.
   [@test] ../../tests/e2e/settings/status-reads.spec.ts (`should say it reads the GitHub sign-in until the answer, and a failed read with Retry`, `should say it reads the YouTrack sign-in until the answer, and a failed read with Retry`, `should say it reads the tools until the answer, and a failed read with Retry`)
   [@test] ../../src/stores/auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
-- Every page but Diffs & Merge fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
+- Every page but Diffs & Merge and Agents fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
-  of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one, on Tools a
-  CLI on two servers and the install command of the other.
+  of Repository can show, on Tools a CLI on two servers and the install command of the other. Agents, with its three
+  rules, the installed skill, a value of the worktree config and an invalid one, scrolls.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`, `should fit every page at 720 × 540 without scrolling, the Dock badge too`)
 
 ### The page an open shows
@@ -509,10 +509,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   has no action here. The same status and button tell the main window where agents work on the way to the first
   branches ([Onboarding](onboarding.spec.md#agents)).
   [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, and then name it`)
-- Two rules, each a switch with what it does and its git key: "Work in their own worktree" ("Each agent leases a
-  worktree and lands each commit on your branch", `branchdeck.agentLease`, on by default) and "Name the branch in each
+- Three rules, each a switch with what it does and its git key: "Work in their own worktree" ("Each agent leases a
+  worktree and lands each commit on your branch", `branchdeck.agentLease`, on by default), "Name the branch in each
   commit subject" ("(auth) Add login form: the commit goes into the branch auth", `branchdeck.agentSubjectBranch`, on
-  by default). The switch is the value of every repository: it writes the global git config (`set_repository_config`
+  by default) and "Open a pull request after each pick" ("The agent pushes the branch and opens its pull request
+  without asking", `branchdeck.agentPullRequest`, off by default). The switch is the value of every repository: it writes the global git config (`set_repository_config`
   with `scope: "global"`), and shows the global or system value, else the default, with the line of Diffs & Merge ("On
   by default. A change goes to your global Git config, which brd reads too", "Off by default. …" for a rule off by
   default, "Set in your global Git
@@ -524,8 +525,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - A value of the worktree config or of `git -c` disables the buttons of the repository with the reason of Repository
   ("Set in config.worktree, which overrides .git/config: change it there"); the switch of every repository stays. An
   invalid value says why. A failed write is a toast: "Cannot change where agents work in every repository", "Cannot
-  change how agents write commit subjects in every repository", or for the repository "Cannot change where agents work
-  in <repository>", "Cannot change how agents write commit subjects in <repository>". No write syncs: only agents read
+  change how agents write commit subjects in every repository", "Cannot change whether agents open pull requests in
+  every repository", or for the repository "Cannot change where agents work in <repository>", "Cannot change how
+  agents write commit subjects in <repository>", "Cannot change whether agents open pull requests in <repository>". No write syncs: only agents read
   the rules.
 - The last line, "Agents also run teamcity and youtrack" with Open Tools, opens Tools ([Command-Line
   Tools](cli-tools.spec.md#where-it-is)).

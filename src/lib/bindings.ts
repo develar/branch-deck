@@ -614,12 +614,14 @@ export type AgentCliStatus = {
 	skills: string[],
 };
 
-/**  The two rules of `brd workspace` (Settings → Agents) */
+/**  The three rules of `brd workspace` (Settings → Agents) */
 export type AgentRules = {
 	/**  `branchdeck.agentLease`: in a worktree of their own, each commit landed on the user's branch */
 	lease: boolean,
 	/**  `branchdeck.agentSubjectBranch`: `(branch)` at the start of each subject */
 	subject_branch: boolean,
+	/**  `branchdeck.agentPullRequest`: after the pick, the branch pushed and its pull request opened without asking */
+	pull_request: boolean,
 };
 
 /**  The IDE that answered */
@@ -6429,8 +6431,10 @@ export type RepositoryConfig = {
 	landing: ConfigSetting<LandingSetting | null>,
 	/**  `branchdeck.agentLease`, on by default */
 	agentLease: ConfigSetting<boolean>,
-	/**  `branchdeck.agentSubjectBranch`, off by default */
+	/**  `branchdeck.agentSubjectBranch`, on by default */
 	agentSubjectBranch: ConfigSetting<boolean>,
+	/**  `branchdeck.agentPullRequest`, off by default */
+	agentPullRequest: ConfigSetting<boolean>,
 	/**  `branchdeck.reviewExperimental`, off by default and for a value git refuses */
 	reviewExperimental: ConfigSetting<boolean>,
 	/**  The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name */
@@ -6450,7 +6454,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null } | { key: "reviewExperimental"; value?: boolean | null };
+export type RepositoryConfigChange = { key: "symbols"; value?: SymbolMode | null } | { key: "githubRepository"; value?: string | null } | { key: "branchPrefix"; value?: string | null } | { key: "pushSizeLimit"; value?: string | null } | { key: "resolveByWords"; value?: boolean | null } | { key: "landing"; value?: LandingSetting | null } | { key: "agentLease"; value?: boolean | null } | { key: "agentSubjectBranch"; value?: boolean | null } | { key: "agentPullRequest"; value?: boolean | null } | { key: "reviewExperimental"; value?: boolean | null };
 
 /**  The journal of the repository of one or more recent projects (the worktrees of one repository share it) */
 export type RepositoryJournal = {

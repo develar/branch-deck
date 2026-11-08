@@ -25,13 +25,15 @@ pub struct AgentCliInstall {
   pub agents: AgentRules,
 }
 
-/// The two rules of `brd workspace` (Settings → Agents)
+/// The three rules of `brd workspace` (Settings → Agents)
 #[derive(Debug, Clone, Copy, serde::Serialize, specta::Type)]
 pub struct AgentRules {
   /// `branchdeck.agentLease`: in a worktree of their own, each commit landed on the user's branch
   pub lease: bool,
   /// `branchdeck.agentSubjectBranch`: `(branch)` at the start of each subject
   pub subject_branch: bool,
+  /// `branchdeck.agentPullRequest`: after the pick, the branch pushed and its pull request opened without asking
+  pub pull_request: bool,
 }
 
 /// What the host's `brd install` did: the rules of `brd workspace` only where it wrote them
@@ -74,6 +76,7 @@ pub async fn install_agent_cli(ctx: &AppContext) -> Result<AgentCliInstall, ApiE
       AgentRules {
         lease: defaults.lease,
         subject_branch: defaults.subject_branch,
+        pull_request: defaults.pull_request,
       }
     });
     Ok::<_, ApiError>(AgentCliInstall {

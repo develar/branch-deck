@@ -60,6 +60,7 @@ export function useRepositoryConfigChanges(): void {
         break
       case "agentLease":
       case "agentSubjectBranch":
+      case "agentPullRequest":
         // only coding agents read them (`brd workspace`): the branches stay as they are
         break
     }

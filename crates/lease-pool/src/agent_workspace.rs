@@ -1,10 +1,11 @@
 //! Where a coding agent works and how it writes a commit subject, asked before its first edit (`brd workspace`,
 //! spec/cli/workspace.spec.md): `branchdeck.agentLease` (on by default) says to work in a lease of the pool and land each
-//! commit with `brd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`.
+//! commit with `brd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`,
+//! `branchdeck.agentPullRequest` (off by default) to push the branch after the pick and open its pull request.
 //! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
 //! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now; in the shared
 //! checkout with the lease on, one more `git config` for the pool directory.
-//! `agent_defaults` reads the same two rules of the global git config, what `brd install` and the app's Install Agent CLI
+//! `agent_defaults` reads the same three rules of the global git config, what `brd install` and the app's Install Agent CLI
 //! report.
 
 use crate::lease::{IdleCheck, LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
@@ -52,6 +53,8 @@ pub struct AgentWorkspace {
   pub lease: ConfigSetting<bool>,
   /// `branchdeck.agentSubjectBranch`
   pub subject_branch: ConfigSetting<bool>,
+  /// `branchdeck.agentPullRequest`
+  pub pull_request: ConfigSetting<bool>,
   /// The top level of the working tree; None without one
   pub top_level: Option<String>,
   /// Where the agent runs below the top level, `/`-separated, empty at the top level
@@ -81,6 +84,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
       kind: WorkspaceKind::None,
       lease: config.agent_lease,
       subject_branch: config.agent_subject_branch,
+      pull_request: config.agent_pull_request,
       top_level: None,
       subdir: String::new(),
       shared_checkout: None,
@@ -162,6 +166,7 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
     kind,
     lease: config.agent_lease,
     subject_branch: config.agent_subject_branch,
+    pull_request: config.agent_pull_request,
     subdir: subdir(directory, &top_level),
     top_level: Some(top_level),
     shared_checkout,
@@ -204,6 +209,9 @@ pub struct AgentDefaults {
   pub lease: bool,
   /// `branchdeck.agentSubjectBranch`: start each subject with `(branch)` (on by default)
   pub subject_branch: bool,
+  /// `branchdeck.agentPullRequest`: push the branch after the pick and open its pull request, without asking (off by
+  /// default)
+  pub pull_request: bool,
 }
 
 /// The agent rules of the global git config, one `git config --global`; the defaults without a git, or when it can't
@@ -214,5 +222,6 @@ pub fn agent_defaults(git: Option<&GitCommandExecutor>) -> AgentDefaults {
   AgentDefaults {
     lease: config.agent_lease.value,
     subject_branch: config.agent_subject_branch.value,
+    pull_request: config.agent_pull_request.value,
   }
 }

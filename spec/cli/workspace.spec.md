@@ -1,6 +1,6 @@
 ---
 name: brd workspace
-description: Requirements for brd workspace, which a coding agent runs before its first edit, and the two rules it reads, branchdeck.agentLease (work in a lease of the pool and land each commit with brd lease pick, on by default) and branchdeck.agentSubjectBranch (start each commit subject with its branch, on by default), which the user changes in Settings → Agents.
+description: Requirements for brd workspace, which a coding agent runs before its first edit, and the three rules it reads, branchdeck.agentLease (work in a lease of the pool and land each commit with brd lease pick, on by default), branchdeck.agentSubjectBranch (start each commit subject with its branch, on by default) and branchdeck.agentPullRequest (push the branch after the pick and open its pull request without asking, off by default), which the user changes in Settings → Agents.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/workspace_command.rs
@@ -9,6 +9,8 @@ targets:
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
   - ../../crates/bd-cli/src/schema.rs
+  - ../../crates/bd-lease/src/lease_command.rs
+  - ../../crates/git-ops/src/lease_slot.rs
 ---
 
 # brd workspace
@@ -19,7 +21,7 @@ Date: 2026-10-21
 ## Summary
 
 Where the skill of Branch Deck is installed ([Agent CLI](agent-cli.spec.md), `brd install`), a coding agent runs
-`brd workspace` before its first edit or commit in a repository, and follows it. Two rules of the git config decide it:
+`brd workspace` before its first edit or commit in a repository, and follows it. Three rules of the git config decide it:
 `branchdeck.agentLease`, on by default, makes the agent lease a worktree of the pool ([brd lease](lease.spec.md)),
 commit there and land each commit at once with `brd pick` ([brd pick](pick.spec.md)), then return the lease;
 `branchdeck.agentSubjectBranch`, on by default, makes it start each commit subject with its `(branch)`. The lease is
@@ -28,13 +30,19 @@ groups an agent's commit into its branch and the copies of the virtual branches 
 the remote as it is only where the commits land themselves, not their virtual branches: such a repository turns the
 rule off, or names its own form of a subject in its agent instructions, which win. With the rule on or off, the subject
 after the prefix has the form of the repository (its agent instructions, else its `git log`), which `[commit] check`
-can enforce at the pick ([brd pick](pick.spec.md#the-commit-rules)). The global config gives every repository its value, the repository's own `.git/config` wins,
+can enforce at the pick ([brd pick](pick.spec.md#the-commit-rules)). `branchdeck.agentPullRequest`, off by default,
+decides how far the landing of an agent's commit goes: off, it stops at the pick on the local branch and the push
+waits for the user; on, the agent goes on to push the branch and open its pull request, without asking. It is off
+everywhere by default, since a push publishes; a user who lets agents open their pull requests turns it on, for a
+repository or for all, instead of writing it into the agent instructions of a repository, where it would contradict
+the skill. Nothing that lands into master (a Safe Push, `brd land`) follows from it. The global config gives every repository its value, the repository's own `.git/config` wins,
 and the user changes both in Settings → Agents ([Settings](../repository/settings.spec.md#agents)). What the user says
 in the session wins over both.
 
 ## Goals
 
-- One read-only command answers where to work and how to write a subject, with the next command to run.
+- One read-only command answers where to work, how to write a subject and how far a landing goes, with the next
+  command to run.
 - No surprise: a rule changes only by an explicit value; nothing is detected.
 - An agent that runs where a lease makes no sense (a worktree of its own, no working tree, a sandbox that can't write
   the pool) is told so, with the reason, instead of failing at `brd lease get`.
@@ -49,9 +57,14 @@ in the session wins over both.
 - `brd workspace` (`-C <dir>`, else the current directory) must print `{"schema":2,"kind","lease","subject_branch",
   "top_level","subdir","shared_checkout","home","lease_id","holder","local_changes","active_leases","next"}`; each rule
   is `{on, source, invalid, reason}`, `source` the config scope that sets it (`local`, `worktree`, `command`, `global`,
-  `system`) or `default`. By default both are on.
+  `system`) or `default`. By default `lease` and `subject_branch` are on, `pull_request` off.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`nothing_set_is_the_defaults`)
+- With `pull_request.on` the `next` of a lease, in `brd workspace` and of `brd lease get` alike, must hold
+  `brd -C <shared checkout> push <branch>` between the pick and the return; `brd lease get` reads the key in its one
+  read of the pool config.
+  [@test] ../../crates/bd-lease/src/workspace_test.rs (`the_pull_request_rule_pushes_the_branch_after_the_pick`)
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_agent_keys_are_written_globally_and_a_repository_keeps_its_own`)
 - In the main worktree (`kind: main`) with the lease on, `next` must be `brd lease get --holder <your name> -C
   <top level>`; `subdir` names where brd runs below the top level, and `local_changes` counts the local changes of the
   checkout, which a lease does not have. Inside a leased slot (`kind: lease`) `shared_checkout` must be the source the
@@ -96,8 +109,10 @@ in the session wins over both.
   notes) are not `local_changes` and may be updated there at their original paths, never copied into the lease or
   committed; without it, stage only its own paths; with the
   subject branch, `(branch) ` first, a branch of `brd status --brief` reused where it fits, a new branch `(name)`,
-  `(parent/leaf)` only on an existing virtual branch, never the baseline; never change either rule.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`)
+  `(parent/leaf)` only on an existing virtual branch, never the baseline; with `pull_request.on`, the push of `next`
+  and the `gh pr create` it prints without asking, off ask first, a Safe Push, `brd land`, a push with --force and a
+  parked branch waiting for the user either way; never change any of the three rules.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`, `the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_history`)
 - The skill must carry the isolation rules a repository would otherwise repeat in its own agent instructions: a lease is
   the agent's only worktree, never a `git worktree add` or a clone on its own initiative, also not when a brd command
   fails (then it works where it is when that is safe, or asks, and names a lease that survived). The rule of the lease
@@ -109,7 +124,11 @@ in the session wins over both.
   example), it gives each file tool an absolute path in `path` and starts each shell command with `cd <path> && `; the
   Junie note says its plan is `.junie/plans/<name>.md` of the shared checkout and that it updates statuses there, by
   that absolute path, not in `path`.
+  The skill carries the rules of the pool and of a pushed branch too: never `git stash` in a lease (every worktree of
+  the pool shares one stash); a change to a pushed branch (an open pull request) is a `(branch) fixup! <subject>`
+  commit, folded only when the user asks, and a promise of the description it breaks is fixed with `gh pr edit`.
   A repository's instructions then say only that it relies on the skill.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_history`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_keeps_the_agent_to_its_lease_also_when_brd_fails_and_in_a_sandbox`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_keeps_the_agents_plan_in_the_shared_checkout`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
