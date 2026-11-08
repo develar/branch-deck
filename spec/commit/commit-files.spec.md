@@ -269,6 +269,12 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   [@test] ../../crates/code-symbols/src/csharp/highlight_test.rs (`the_contextual_keywords_the_parser_reads_as_keywords_are_keywords_and_names_elsewhere`, `strings_have_the_escapes_of_their_kind`, `members_are_fields_by_their_declarations_and_static_ones_are_italic`, `a_name_in_a_type_position_is_a_type_not_the_member_of_its_name`, `a_member_of_a_value_is_a_field_and_one_of_a_type_name_is_unknown`, `a_type_parameter_is_one_where_declared_and_used`, `a_documentation_comment_has_its_tags_and_their_values`, `a_directive_has_its_keywords_and_a_branch_not_taken_is_a_comment`, `an_attribute_is_one_and_its_arguments_are_code`, `a_label_and_the_goto_to_it_are_labels`, `a_verbatim_identifier_binds_its_value_text`, `the_parameters_of_a_record_are_its_properties`)
   [@test] ../../crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should colour C# as Rider does: a field, a declaration, an attribute, a keyword, an escape`)
+- Starlark (Bazel's BUILD, BUILD.bazel, MODULE.bazel, WORKSPACE and REPO.bazel files by their names, `.bzl`, `.star` and
+  `*.BUILD` by their extension) must be coloured as the Bazel plugin of IntelliJ colours it, from its PSI: its keywords
+  (not a word it reserves and leaves plain, as `class`), a string, a number and a comment, the name of a `def` as a
+  declaration, a named argument's name and its `=`, and in a BUILD or MODULE.bazel file the callee of a top-level call
+  as a declaration (a target's rule, `bazel_dep`), never a call of a `.bzl` file.
+  [@test] ../../crates/code-symbols/src/starlark/highlight_test.rs (`a_def_s_name_and_a_named_argument_are_painted_as_the_plugin_annotates_them`, `a_build_file_s_top_level_call_is_a_declaration`, `the_keywords_are_the_plugin_s`, `bazel_files_are_starlark_by_their_names`)
 - A diff must show the blocks of the diff engine with 4 lines of context (IntelliJ's), changes whose context touches
   without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
   without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges

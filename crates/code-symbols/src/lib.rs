@@ -43,6 +43,8 @@ mod psi_navigate;
 mod psi_walk;
 #[cfg(feature = "rust")]
 mod rust_lang;
+#[cfg(feature = "starlark")]
+mod starlark;
 #[cfg(feature = "typescript")]
 mod typescript;
 

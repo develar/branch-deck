@@ -3,7 +3,7 @@ name = "code-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#) and tree-sitter (Rust, TypeScript)"
+description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#, Starlark) and tree-sitter (Rust, TypeScript)"
 
 [dependencies]
 # Kotlin's, Java's and C#'s parsers: psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own lexers and
@@ -11,10 +11,11 @@ description = "Declarations, imports and references of one source file, on psi-s
 # repository (`psi-syntax/`), which is internal, so a revision of develar/psi-syntax, its public mirror, pins them: each
 # mirrored commit names its accio commit (`Accio-Commit:`); `psi-builder` is the tree all three build, named directly
 # for the code the languages share.
-csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e0e175bac952dfaa263394a944a64c000e6ceb18", optional = true }
-java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e0e175bac952dfaa263394a944a64c000e6ceb18", optional = true }
-kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "e0e175bac952dfaa263394a944a64c000e6ceb18", optional = true }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "e0e175bac952dfaa263394a944a64c000e6ceb18", optional = true }
+csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "89a15eaad1914c1352435620601e5e367401eddf", optional = true }
+java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "89a15eaad1914c1352435620601e5e367401eddf", optional = true }
+kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "89a15eaad1914c1352435620601e5e367401eddf", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "89a15eaad1914c1352435620601e5e367401eddf", optional = true }
+starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "89a15eaad1914c1352435620601e5e367401eddf", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
 tree-sitter-rust = { version = "0.24.2", optional = true }
@@ -26,10 +27,11 @@ serde_json.workspace = true
 sync-utils = { path = "../sync-utils" }
 
 [features]
-default = ["kotlin", "java", "csharp", "rust", "typescript"]
+default = ["kotlin", "java", "csharp", "starlark", "rust", "typescript"]
 kotlin = ["dep:kotlin-syntax", "dep:psi-builder"]
 java = ["dep:java-syntax", "dep:psi-builder"]
 csharp = ["dep:csharp-syntax", "dep:psi-builder"]
+starlark = ["dep:starlark-syntax"]
 rust = ["dep:tree-sitter-rust"]
 typescript = ["dep:tree-sitter-typescript"]
 
