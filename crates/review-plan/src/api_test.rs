@@ -935,6 +935,35 @@ fn a_typescript_header_reads_as_code() {
   assert_eq!(form("readonly area : ( scale ? : T ) => T"), "readonly area: (scale?: T) => T");
 }
 
+/// A Rust header as code-symbols writes it, rust-analyzer's tokens one space apart (a lifetime one token), reads as
+/// rustfmt writes it
+#[test]
+fn a_rust_header_reads_as_code() {
+  let form = |tokens: &str| crate::api::as_written(tokens.split(' '));
+  assert_eq!(
+    form("fn borrowed < 'a > ( text : & 'a str , fallback : & 'static str ) -> & 'a str"),
+    "fn borrowed<'a>(text: &'a str, fallback: &'static str) -> &'a str"
+  );
+  assert_eq!(
+    form("fn generic < T : Debug + ? Sized , const N : usize > ( items : [ T ; N ] ) -> Vec < T > where T : Default"),
+    "fn generic<T: Debug + ?Sized, const N: usize>(items: [T; N]) -> Vec<T> where T: Default"
+  );
+  assert_eq!(
+    form("fn fmt ( & self , f : & mut fmt :: Formatter < '_ > ) -> fmt :: Result"),
+    "fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result"
+  );
+  assert_eq!(
+    form("async unsafe fn modifiers ( raw : * const u8 ) -> Option < Box < dyn Fn ( u8 ) -> u8 + Send > >"),
+    "async unsafe fn modifiers(raw: *const u8) -> Option<Box<dyn Fn(u8) -> u8 + Send>>"
+  );
+  assert_eq!(form("fn ids ( & self ) -> impl Iterator < Item = & str >"), "fn ids(&self) -> impl Iterator<Item = &str>");
+  assert_eq!(
+    form("fn get < 'a > ( & self , path : & 'a str , into : & mut [ u8 ] ) -> Option < & 'a [ u8 ] >"),
+    "fn get<'a>(&self, path: &'a str, into: &mut [u8]) -> Option<&'a [u8]>"
+  );
+  assert_eq!(form("function both ( a : A & B ) : void"), "function both(a: A & B): void", "an operator after an operand");
+}
+
 /// The constructors of a type read as calls of it, a line each, each after the reach a call of it has (the narrower of
 /// its own and its type's) as the language writes it: Kotlin `private` and `internal`, Java's package none and `public`
 /// only where a reach changed; a parameter by its name and type, a default as `= …`, a vararg after `vararg`; a type of

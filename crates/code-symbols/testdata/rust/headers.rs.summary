@@ -2,15 +2,16 @@ import std.borrow.Cow @2
 import std.fmt.Debug @3
 Binding Cow in - File TopLevel 2-2 @2
 Binding Debug in - File TopLevel 3-3 @3
-Function borrowed in - Public TopLevel 5-7 @5 `fn borrowed < ' a > ( text : & ' a str , fallback : & ' static str ) -> & ' a str`
-Function generic in - Public TopLevel 9-14 @9 `fn generic < T : Debug + Clone , const N : usize > ( items : [ T N ] ) -> Vec < T > where T : Default ,`
+Function borrowed in - Public TopLevel 5-7 @5 `fn borrowed < 'a > ( text : & 'a str , fallback : & 'static str ) -> & 'a str`
+Function generic in - Public TopLevel 9-14 @9 `fn generic < T : Debug + Clone , const N : usize > ( items : [ T ; N ] ) -> Vec < T > where T : Default`
 Function modifiers in - Public TopLevel 16-19 @16 `async unsafe fn modifiers ( raw : * const u8 , slice : & mut [ u8 ] ) -> Option < Box < dyn Fn ( u8 ) -> u8 + Send > >`
-Function closure in - Module TopLevel 21-24 @21 `fn closure ( apply : impl Fn ( & str ) -> Cow < ' _ , str > , tuple : ( u8 , String ) ) -> Result < ( ) , String >`
+Function closure in - Module TopLevel 21-24 @21 `fn closure ( apply : impl Fn ( & str ) -> Cow < '_ , str > , tuple : ( u8 , String ) ) -> Result < ( ) , String >`
 Function literal in - Public TopLevel 26-30 @27 `const fn literal ( byte : u8 , default : char ) -> u8`
 Type Holder in - Public TopLevel 32-35 @32
-Value value in Holder Public Instance 33-33 @33 `value : & ' a T`
-Function get in Holder Public Instance 38-40 @38 receiver Holder `fn get ( & self ) -> & ' a T`
-Function map in Holder Public Instance 42-47 @42 receiver Holder `fn map < U , F > ( self , transform : F ) -> U where F : FnOnce ( & ' a T ) -> U ,`
+Value value in Holder Public Instance 33-33 @33 `value : & 'a T`
+Value raw in Holder Parent Instance 34-34 @34 `raw : r#"raw"#`
+Function get in Holder Public Instance 38-40 @38 receiver Holder `fn get ( & self ) -> & 'a T`
+Function map in Holder Public Instance 42-47 @42 receiver Holder `fn map < U , F > ( self , transform : F ) -> U where F : FnOnce ( & 'a T ) -> U`
 Type Visit in - Public TopLevel 50-55 @50
 TypeAlias Output in Visit Public Static 51-51 @51
 Constant LIMIT in Visit Public Static 52-52 @52 `const LIMIT : usize`
@@ -28,7 +29,6 @@ TypeAlias Callback in - Public TopLevel 58-58 @58
 @21 :Cow :Fn :Result :String
 @23 Ok()
 @32 :Sized
-@34 r raw
 @37 :Debug :Holder :Sized
 @39 self.value
 @44 :FnOnce
@@ -36,4 +36,4 @@ TypeAlias Callback in - Public TopLevel 58-58 @58
 @51 :Default
 @54 :Self.Output
 @58 :Box :FnMut
-error_bytes 25
+error_bytes 9

@@ -1,38 +1,12 @@
-use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version, spec_of};
+use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version};
 use crate::language::{Family, Language, language_of};
 use crate::summary::{DeclKind, FileSummary, Reach, Role};
 use crate::summary_text::render;
-use crate::test_support::{check_golden, declaration, fixture, summarize, summarize_in, summary_of};
+use crate::test_support::{check_golden, declaration, summarize, summary_of};
 
-/// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
-/// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 82_305_498;
-
-#[test]
-fn every_spec_kind_exists_in_its_grammar() {
-  for language in Language::ALL {
-    let Some(spec) = spec_of(language) else { continue };
-    let grammar = (spec.grammar)();
-    let (rule_kinds, rule_fields) = spec.rule_names();
-    let kinds = spec
-      .rules
-      .iter()
-      .map(|it| it.0)
-      .chain(rule_kinds)
-      .chain(spec.kinds.iter().copied())
-      .chain(spec.binding_names.iter().copied())
-      .chain(spec.header.ends.iter().chain(spec.header.drops).chain(spec.header.parameters).copied());
-    for kind in kinds {
-      assert_ne!(grammar.id_for_node_kind(kind, true), 0, "{language:?}: no named node kind {kind}");
-    }
-    for token in spec.tokens.iter().chain(spec.header.end_tokens).chain(spec.header.drop_tokens) {
-      assert_ne!(grammar.id_for_node_kind(token, false), 0, "{language:?}: no token {token}");
-    }
-    for field in rule_fields.iter().chain(spec.fields) {
-      assert!(grammar.field_id_for_name(field).is_some(), "{language:?}: no field {field}");
-    }
-  }
-}
+/// The value for the parsers and rules of this build. A change of `RULES_VERSION` or of the psi-syntax revision changes
+/// it: replace it with the value the failure prints.
+const EXTRACTOR_VERSION: u32 = 2_224_310_852;
 
 #[test]
 fn every_fixture_matches_its_golden_file() {
@@ -65,7 +39,15 @@ fn the_psi_syntax_revision_is_the_one_cargo_builds() {
   // `extractor_version` hashes the revision: a cached summary of another parser is made again
   let manifest = include_str!("../Cargo.toml");
   let lock = include_str!("../../../Cargo.lock");
-  for name in ["csharp-syntax", "java-syntax", "js-syntax", "kotlin-syntax", "psi-builder", "starlark-syntax"] {
+  for name in [
+    "csharp-syntax",
+    "java-syntax",
+    "js-syntax",
+    "kotlin-syntax",
+    "psi-builder",
+    "rust-syntax",
+    "starlark-syntax",
+  ] {
     let dependency = format!("{name} = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{PSI_SYNTAX_REVISION}\"");
     assert!(manifest.contains(&dependency), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.toml");
     let locked = format!("name = \"{name}\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/develar/psi-syntax?rev={PSI_SYNTAX_REVISION}#{PSI_SYNTAX_REVISION}\"");
@@ -148,22 +130,6 @@ fn a_minified_file_is_not_parsed() {
   // the same statements on their own lines are parsed
   let readable = statement.repeat(200).replace(';', ";\n");
   assert!(!summarize(Language::TypeScript, readable.as_bytes()).truncated);
-}
-
-#[test]
-#[cfg(feature = "rust")]
-fn the_parse_budget_truncates_deterministically() {
-  // the budget is tree-sitter's (Rust, TypeScript); psi-syntax bounds a parse by its nesting limit
-  let (_, source) = fixture("rust/references.rs");
-  let full = summarize_in(Language::Rust, &source, u32::MAX);
-  assert!(!full.truncated);
-  assert_ne!(full.references.len(), 0);
-  let cut = summarize_in(Language::Rust, &source, 1);
-  assert!(cut.truncated);
-  assert_eq!((cut.declarations.len(), cut.references.len()), (0, 0));
-  assert_eq!(summarize_in(Language::Rust, &source, 1), cut);
-  // the parser starts afresh after a cancelled parse
-  assert_eq!(summarize_in(Language::Rust, &source, u32::MAX), full);
 }
 
 #[test]

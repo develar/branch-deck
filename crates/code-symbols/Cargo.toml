@@ -3,7 +3,7 @@ name = "code-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#, Starlark, TypeScript) and tree-sitter (Rust)"
+description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#, Starlark, Rust, TypeScript) and tree-sitter (the highlighting of Rust and TypeScript, the navigation of TypeScript)"
 
 [dependencies]
 # Kotlin's, Java's and C#'s parsers: psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own lexers and
@@ -12,12 +12,14 @@ description = "Declarations, imports and references of one source file, on psi-s
 # mirrored commit names its accio commit (`Accio-Commit:`); `psi-builder` is the tree all three build, named directly
 # for the code the languages share. `js-syntax` is oxc's parser of TypeScript, TSX and JavaScript with what every
 # reader of psi-syntax shares of its parse (the dialects, the options, the recovery, the stack); oxc is named only
-# through its re-exports.
+# through its re-exports. `rust-syntax` is rust-analyzer's parser, the parse accio reads Rust with; its `ra_ap_syntax`
+# and `rowan` are named only through its re-exports.
 csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
+rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2eaa382792a4f2bd0318dc13518bf8e066a9506b", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
@@ -35,7 +37,7 @@ kotlin = ["dep:kotlin-syntax", "dep:psi-builder"]
 java = ["dep:java-syntax", "dep:psi-builder"]
 csharp = ["dep:csharp-syntax", "dep:psi-builder"]
 starlark = ["dep:starlark-syntax", "dep:psi-builder"]
-rust = ["dep:tree-sitter-rust"]
+rust = ["dep:tree-sitter-rust", "dep:rust-syntax", "dep:psi-builder"]
 typescript = ["dep:js-syntax", "dep:psi-builder", "dep:tree-sitter-typescript"]
 
 [lints]

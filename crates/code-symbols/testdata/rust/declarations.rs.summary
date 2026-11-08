@@ -17,7 +17,7 @@ Type Shape in - Public TopLevel 26-33 @26
 TypeAlias Unit in Shape Public Static 27-27 @27
 Constant SIDES in Shape Public Static 28-28 @28 `const SIDES : u32`
 Function area in Shape Public Instance 29-29 @29 `fn area ( & self ) -> f64`
-Function name in Shape Public Static 30-32 @30 `fn name ( ) -> & ' static str`
+Function name in Shape Public Static 30-32 @30 `fn name ( ) -> & 'static str`
 TypeAlias Shapes in - Public TopLevel 35-35 @35
 Constant MAX in - Public TopLevel 36-36 @36 `const MAX : usize`
 Value COUNTER in - File TopLevel 37-37 @37 `static mut COUNTER : u32`
@@ -33,7 +33,7 @@ Constant UNIT in Circle File Static 64-64 @64 receiver Circle `const UNIT : f64`
 TypeAlias Unit in Circle Public Static 68-68 @68 receiver Circle
 Constant SIDES in Circle Public Static 69-69 @69 receiver Circle `const SIDES : u32`
 Function area in Circle Public Instance 71-73 @71 receiver Circle `fn area ( & self ) -> f64`
-Function fmt in Kind Public Instance 77-79 @77 receiver Kind `fn fmt ( & self , f : & mut fmt :: Formatter < ' _ > ) -> fmt :: Result`
+Function fmt in Kind Public Instance 77-79 @77 receiver Kind `fn fmt ( & self , f : & mut fmt :: Formatter < '_ > ) -> fmt :: Result`
 Type StillEncoding in - Public TopLevel 83-89 @84
 EnumEntry Lossless in StillEncoding Public Static 85-85 @85
 EnumEntry Lossy in StillEncoding Public Static 86-88 @88
@@ -60,7 +60,7 @@ Function local_macros in - File TopLevel 105-109 @105 `fn local_macros ( )`
 @95 x
 @96 x
 @100 lazy_static!
-@101 Map String Map.new ref
-@102 PRIVATE ref
+@101 Map String Map.new
+@102 PRIVATE
 @106 vocabulary!
 @107 A LocalOnly

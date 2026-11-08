@@ -37,8 +37,8 @@ pub struct FileSummary {
   pub error_bytes: u32,
   pub total_bytes: u32,
   pub lines: u32,
-  /// The file was not summarized: it is over a size limit (`MAX_BYTES`, `MAX_LINES`, `MAX_AVERAGE_LINE`) or its parse
-  /// ran out of `PARSE_BUDGET`. Such a summary has no imports, declarations or references, so a caller must not take
+  /// The file was not summarized: it is over a size limit (`MAX_BYTES`, `MAX_LINES`, `MAX_AVERAGE_LINE`) or nested
+  /// deeper than its parser reads (`js_syntax`, `rust_syntax`). Such a summary has no imports, declarations or references, so a caller must not take
   /// it for a file without them, and must not cache it.
   pub truncated: bool,
 }

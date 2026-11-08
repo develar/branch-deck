@@ -23,7 +23,8 @@ proposed `brd move-hunk` would have broken a branch.
 
 `crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Starlark, Rust, TypeScript and JavaScript; Kotlin
 on the compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on Roslyn's, decision 23,
-Starlark on the Bazel plugin's, decision 25, TypeScript and JavaScript on oxc's, decision 27, Rust on tree-sitter): its
+Starlark on the Bazel plugin's, decision 25, Rust on rust-analyzer's, decision 26, TypeScript and JavaScript on oxc's,
+decision 27): its
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
@@ -124,9 +125,10 @@ flowchart TD
    tree is good at saying what is not a use (a comment, a string, a local), and bad at saying everything that is. A name
    that is everywhere (`cleanup` of an instance member) has no candidate lines worth reading, only uses that resolve.
 
-5. **Decision**: a walk of the tree, not tree-sitter queries: of a tree-sitter language (Rust) a walk driven by a table
-   of its node kinds, of Kotlin and Java a walk of the PSI by its `NodeKind`s (decisions 20, 21), of TypeScript and
-   JavaScript a walk of oxc's typed tree (decision 27).
+5. **Decision**: a walk of the tree, not tree-sitter queries: of Kotlin and Java a walk of the PSI by its `NodeKind`s
+   (decisions 20, 21), of Rust a walk of rust-analyzer's tree by its `SyntaxKind`s (decision 26), of TypeScript and
+   JavaScript a walk of oxc's typed tree (decision 27); the tree-sitter walks before them were driven by tables of
+   their grammars' node kinds.
    **Rationale**: shadowing needs a walk of the scopes anyway, the shipped `tags.scm` files are too thin, and a test
    checks every node kind of the tables against the grammar, so a grammar upgrade can't silently break a rule; the
    kinds of the PSI are constants of psi-syntax, which a renamed one fails to compile.
@@ -545,7 +547,7 @@ flowchart TD
     the names at the start of its body and after each `,`. The header of a function, a value or a constant is its
     tokens up to the body or the `=`, as decision 15 compares it.
     **Rationale**: the IntelliJ checkout's `avl-trace` declares its vocabularies by `vocabulary! { pub enum
-    StillEncoding { Lossless = "lossless", … } }`, and tree-sitter reads a macro's body as a token tree, so the enum was
+    StillEncoding { Lossless = "lossless", … } }`, and a parser reads a macro's body as a token tree, so the enum was
     no declaration: a commit of `avl-guest` that imports `StillEncoding` linked only by `Stills`, the struct outside the
     macro (2026-10-21). A macro may expand to anything, but one that takes a `pub enum E` declares `E` in the common
     macros of that shape (`bitflags!`, `lazy_static!`, `thread_local!`, the vocabularies), and only a `pub` item is used
@@ -630,8 +632,9 @@ flowchart TD
     `m` as `m?.foo` does, so a property `m` gives the receiver its type (570 more files moved on the corpus).
 
 22. **Decision**: Kotlin and Java have one parser each, psi-syntax's, for the summary, the highlighting and the
-    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads Rust (and read
-    TypeScript and JavaScript until decision 27). tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
+    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads the highlighting of Rust
+    and the highlighting and navigation of TypeScript and JavaScript (it read their summaries and Rust's navigation
+    until decisions 26 and 27). tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
     (`jvm.rs`: the containers, the stack of supertypes and `enclosed`, the JVM facts of a declaration, the receivers'
     types, the smart casts), and `extractor_version` hashes the revision of psi-syntax for Kotlin and Java
     (`PSI_SYNTAX_REVISION`, which a test checks against `Cargo.toml` and `Cargo.lock`) where it hashed their grammars'
@@ -702,6 +705,44 @@ flowchart TD
     code" the default: every `match` over the kinds is exhaustive, so the compiler names each place that must decide,
     and none of them took a target for a function.
 
+26. **Decision**: a Rust file is read by psi-syntax's `rust-syntax`, rust-analyzer's own lexer and parser
+    (`ra_ap_syntax` 0.0.360, edition 2021), the parse accio reads Rust with (its decision
+    2026-11-08-rust-and-js-parse-entries): the summary is one walk of its rowan tree (`rust/summary.rs`) by the rules
+    of the tree-sitter walk before it, named through the crate's re-exports, never a dependency of Branch Deck's own on
+    `ra_ap_*` or `rowan`. The parse, the walk and the drop of the tree run in `rust_syntax::guarded`, which parses a
+    deep file on a thread with a stack for it and gives none past `nesting::MAX_LEVELS`, a `truncated` summary; no
+    parse budget. `extractor_version` hashes the revision of psi-syntax for Rust, where it hashed tree-sitter-rust's
+    node types; with TypeScript's move (decision 27) no summary is tree-sitter's, and its walk (`Walk`, `Spec`, the
+    tables of node kinds) is gone from `extract.rs`. An item's attributes and doc comments are in its node, so a declaration starts at the first of them
+    and an attribute's references are of the declaration around its item. The header is the tokens rust-analyzer
+    lexes (a lifetime one token), before the body or the item's own `=`; a declaration is `in_error` when an error
+    (an `ERROR` node, an expected token) lies between the start of its node after its attributes and its name, as of
+    C#; `error_bytes` are the outermost `ERROR` nodes' bytes and one per error of no bytes.
+
+    [@test] ../../crates/code-symbols/src/rust/summary_test.rs (`a_header_is_the_tokens_of_the_item_as_lexed`, `a_member_after_a_group_in_a_macro_is_of_an_expression`, `the_tokens_of_a_macro_that_are_no_names`, `a_capitalized_pattern_of_an_arm_is_a_reference`, `a_typed_self_makes_an_instance_member`, `a_path_from_the_root_keeps_its_segments`, `the_references_of_an_attribute_are_of_the_container_around_its_item`, `the_types_of_paths`, `an_error_marks_the_declarations_it_lies_before_the_name_of`, `deep_nesting_is_summarized_on_a_small_stack`)
+    [@test] ../../crates/review-plan/src/api_test.rs (`a_rust_header_reads_as_code`)
+
+    **Rationale**: two parsers of one language gave two readings of one file, the review's and accio's; rust-analyzer's
+    grammar is the language's own, published every week, where tree-sitter-rust lags it (`use<>` bounds, `gen`
+    blocks, unsafe attributes, a typed `self`). Against the tree-sitter baseline (`examples/facts.rs`) the summary
+    moved in 977 of the 1 332 `.rs` files of Branch Deck (8f97fffef) and in 9 272 of the 21 092 of the IntelliJ
+    checkout (2a216f53), every line by a reading tree-sitter's walk got wrong or by a header's tokens: a lifetime is
+    one token (`& 'a str`, was `& ' a str`), the `;` of `[T; N]`, the `=` of `impl Iterator<Item = &str>` (where
+    tree-sitter's header ended) and an ABI string (`extern "C"`, was `" C "`) are the header's, the `,` that ends a
+    `where` is not; among the tokens of a macro a member after a group is of an expression (`?.unwrap` of
+    `f(x).unwrap()`, 4 842 references of the checkout, was `f.unwrap`), and keywords (`in`, `else`, `dyn`, `ref`,
+    `yield`, 620 references), lifetimes, literals (`1f16`), `_` (1 913, 1 759 of them as a type) and metavariables name
+    nothing; `None =>` and a constant alone as an arm's pattern are references (848; tree-sitter's walk bound them);
+    `self: &Arc<Self>` makes a method an instance member and `Arc` a reference (695 functions); a path from the crate
+    root (`::core::ffi::c_uint`, 1 736 references) and `use super::super::x` keep their segments; an attribute of a `use` is
+    read. Of the checkout's 17 854 files without a parse error on either side nothing else moved; the 3 238 with one
+    are fixtures but two IDE resources (rustc's UI tests that expect an error, lexer and typing fixtures of RustRover
+    and Fleet), which the two parsers recover otherwise: 1 402 had an error only for tree-sitter, 312 only for
+    rust-analyzer. Against accio (`examples/accio_facts.rs --parse-only`) the declarations did not move: Branch Deck's
+    2 526 differences of declaration sets and 5 of end lines are the modelling the list of 2026-11-08 below names, the
+    same before and after. On one thread the checkout's Rust files take 7.3 to 7.7 s against tree-sitter's 8.0 s,
+    rust-analyzer's validation included.
+
 27. **Decision**: a TypeScript, TSX or JavaScript file is read by psi-syntax's `js-syntax`, oxc's parser with what every
     reader of psi-syntax shares of its parse (the dialect of the extension, decision 6, the options, the recovery of a
     fatal parse by blanking the region of its error, the stack of a parse and its walks; accio decision
@@ -754,8 +795,8 @@ flowchart TD
 
 ### Implementation Notes
 
-- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules, the revision of psi-syntax and the
-  node types of the tree-sitter grammars). Kotlin (`kotlin/summary.rs`) and Java (`java/summary.rs`) are walks of
+- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the revision of psi-syntax).
+  Kotlin (`kotlin/summary.rs`) and Java (`java/summary.rs`) are walks of
   their PSI on the JVM rules of `jvm.rs` (decision 22): the `JvmFields` of a declaration (the signatures,
   `overrides`, `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, `test`,
   `entry_point`, and `unstable` by `SummaryBuilder::unstable_annotation` and the imports, a Kotlin `@file:` one by
@@ -767,10 +808,11 @@ flowchart TD
   stack of supertypes (`Classes::enclosed`), of `this(…)` and `super(…)` on the type they call (Kotlin's
   `Walk::constructor_delegation`), and of a `new` (Java's `Walk::creation`) and a Kotlin constructor invocation of a
   supertype on the type, before an object expression or an anonymous class pushes its supertypes. Rust
-  (`rust_lang.rs`, on the tree-sitter walk of `extract.rs`): the items of the body of a macro in item position
-  (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
-  decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
-  shorthand by `emit_text` beside its local).
+  (`rust/summary.rs`, one walk of rust-analyzer's tree under `rust_syntax::guarded`, decision 26): the items of the
+  body of a macro in item position (`macro_items`, `macro_item`, `enum_variants`, `add_token_declaration` with a
+  `TokenItem`, `tokens_header` gluing the punctuation rust-analyzer splits, decision 17), the names of the tokens of a
+  macro (`tree_token`, a `Tokens` per token tree), a field of a struct expression or pattern as a reference qualified
+  by the struct (`field`), and `in_error` decided after the walk against the errors' spans (`finish`).
   TypeScript and JavaScript (`js/summary.rs`): one recursive walk of oxc's tree (`Visit`) inside `js::with_program`,
   the hoisting of a block (`hoist_block`) and of a function's `var`s (`hoist_vars`), the names of a pattern
   (`pattern_names`), the containers by `Holder`, the header by the tokens of the parse (`Walk::header`), the doc
@@ -808,8 +850,8 @@ flowchart TD
   `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,
   `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fit` with `header_fit`, `calls`),
   `removes_use` and `needs_new_form` for `fixed_by` and `mutual`; `TreeSearch::written_lines` of
-  `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols`: `Walk::header` of each walk (of a
-  tree-sitter language by its `Spec::header`, of TypeScript by the tokens of the parse), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
+  `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols`: `Walk::header` of each walk (of
+  Rust by its node's tokens, of TypeScript by the tokens of the parse), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
   of `kotlin/summary.rs`.
 - `crates/trial-check/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
   `symbols`) for `brd commits`.

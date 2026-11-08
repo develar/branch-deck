@@ -4,7 +4,7 @@
 //! A golden file is the whole summary of its fixture, one line per import, declaration and line of references, so a
 //! rule change shows as a diff. `CODE_SYMBOLS_UPDATE=1 cargo nextest run -p code-symbols` rewrites them; review the diff.
 
-use crate::extract::{PARSE_BUDGET, summarize_with_budget};
+use crate::extract::summarize as summarize_at;
 use crate::language::{Language, language_of};
 use crate::summary::{Declaration, FileSummary};
 use crate::summary_text::{constructor_text, modality_text, path_text, reference_text, render, signature_text};
@@ -45,18 +45,13 @@ pub(crate) fn assert_leaves_tile<L: psi_builder::language::TreeLanguage>(tree: &
 pub(crate) fn summary_of(name: &str) -> FileSummary {
   let (path, source) = fixture(name);
   let language = language_of(&path).unwrap_or_else(|| panic!("no language for {path}"));
-  summarize_with_budget(language, &path, &source, PARSE_BUDGET)
+  summarize_at(language, &path, &source)
 }
 
 /// The summary of a text with no fixture file, as a file of the language's own name: `summarize` takes a path, which
 /// only Starlark reads (a `BUILD` declares targets, a `.bzl` does not)
 pub(crate) fn summarize(language: Language, source: &[u8]) -> FileSummary {
-  summarize_with_budget(language, path_of(language), source, PARSE_BUDGET)
-}
-
-/// `summarize` within a parse budget, for the tests of a parse that runs out of it
-pub(crate) fn summarize_in(language: Language, source: &[u8], budget: u32) -> FileSummary {
-  summarize_with_budget(language, path_of(language), source, budget)
+  summarize_at(language, path_of(language), source)
 }
 
 /// A file name of the language, which `language_of` answers with it

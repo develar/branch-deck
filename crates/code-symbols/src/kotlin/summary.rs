@@ -25,7 +25,7 @@
 //!   only a script has), as a `.kts` script too, and keeps the parse with fewer error bytes: a build script reads as a
 //!   script, a file as the compiler reads it. A script's statements are its `SCRIPT`'s `BLOCK`, read as the top level.
 //! - **Bounded**: the walk keeps its own stack of frames, the parse is bounded by the parser (`kotlin`), the size
-//!   by the caller (`extract::summarize_with_budget`).
+//!   by the caller (`extract::summarize`).
 
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
 use crate::kotlin::parse;
@@ -767,7 +767,7 @@ impl<'t> Walk<'t> {
 
   fn qualifier_ids(&mut self, path: &[&'t str]) -> Vec<u32> {
     let ids = self.out.ids(path);
-    if ids.first().is_some_and(|it| self.bindings.is_bound(*it)) { Vec::new() } else { ids }
+    self.bindings.qualifier(ids)
   }
 
   /// `a.b.c` as `[a, b, c]`: names, `this`, `super` and qualified names of them, else `None`

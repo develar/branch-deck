@@ -14,7 +14,7 @@ targets:
   - ../../crates/trial-check/src/dotnet_resolution.rs
   - ../../crates/code-symbols/src/starlark/summary.rs
   - ../../crates/trial-check/src/bazel_resolution.rs
-  - ../../crates/code-symbols/src/rust_lang.rs
+  - ../../crates/code-symbols/src/rust/summary.rs
   - ../../crates/code-symbols/src/js/mod.rs
   - ../../crates/code-symbols/src/js/summary.rs
   - ../../crates/trial-check/src/symbol_scan.rs
@@ -39,7 +39,7 @@ Date: 2026-10-18
 A commit that calls a function another commit added in another file merges cleanly into a branch without that commit,
 and the branch fails only when it is compiled. The line dependencies don't see it. Branch Deck reads the source files
 the commits change (Kotlin, Java and C# by ports of the Kotlin compiler's, IntelliJ's and Roslyn's own parsers,
-TypeScript and JavaScript by oxc's, Rust by tree-sitter), and a commit that uses a name another commit of the range adds, with evidence that the use
+TypeScript and JavaScript by oxc's, Rust by rust-analyzer's), and a commit that uses a name another commit of the range adds, with evidence that the use
 means that declaration, depends on it by symbols. An override of a member another commit adds, a call of the overload
 its arguments select, and a use that only a new form of a member or a constructor accepts (a wider reach, `open`, a
 default, a new or renamed parameter) count as uses of that commit's declaration. Such an edge orders branches; it never joins them. See [Symbol
@@ -110,6 +110,20 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   a file no recovery saves must be read with every byte in error, one nested deeper than the parse reads must be
   truncated, and any nesting below that must be read on a 2 MiB thread.
   [@test] ../../crates/code-symbols/src/js/summary_test.rs (`declarations`, `imports`, `references`, `javascript`, `the_extension_chooses_the_dialect`, `a_header_is_the_tokens_of_the_parse`, `a_call_with_type_arguments_is_a_call`, `an_exported_ambient_declaration_is_public`, `a_declaration_starts_at_its_doc_comment_and_decorators`, `a_decorator_is_of_the_declaration_it_decorates`, `a_constructor_signature_declares_nothing_and_an_accessor_signature_is_a_value`, `a_dotted_namespace_is_one_module_of_its_last_name`, `only_a_computed_identifier_names_a_member`, `names_that_name_no_declaration_are_no_references`, `a_type_of_an_import_type_is_a_reference`, `infer_is_seen_in_its_conditional_type`, `a_class_expression_binds_its_name`, `errors_are_what_the_parse_recovered_from`, `deep_nesting_is_read_on_a_small_stack`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- A Rust file must be read as rust-analyzer's parser reads it (psi-syntax's `rust-syntax`, edition 2021), the parse
+  accio reads it with. The header of a function, a field, a constant or a static must be the tokens before its body or
+  its `=` as rust-analyzer lexes them (`'a` one token, the `;` of `[T; N]`, the `=` of `Iterator<Item = T>` and an ABI
+  string kept, the `,` that ends a `where` and the `;` that ends the item dropped), without attributes, comments and
+  visibility. Among the tokens of a macro, a member after a group or a literal (`f(x).unwrap()`) must have an empty
+  qualifier, as outside a macro, and keywords, lifetimes, `_`, literals and metavariables (`$x`) must name nothing; the
+  names of a macro in a pattern bind there. A capitalized name alone as the pattern of a match arm (`None`, `MAX`)
+  must be a reference, a typed `self` (`self: Box<Self>`) make an instance member, a path from the crate root
+  (`::core::mem`) keep its segments, and an attribute's references be of the declaration around its item. A
+  declaration must be `in_error` when an error lies between the start of its node, after its attributes, and its
+  name; the error bytes are those of the outermost `ERROR` nodes and one per error of no bytes. A file nested deeper
+  than `rust_syntax::nesting::MAX_LEVELS` must be `truncated`, never overflow the stack.
+  [@test] ../../crates/code-symbols/src/rust/summary_test.rs (`a_header_is_the_tokens_of_the_item_as_lexed`, `a_member_after_a_group_in_a_macro_is_of_an_expression`, `the_tokens_of_a_macro_that_are_no_names`, `a_capitalized_pattern_of_an_arm_is_a_reference`, `a_typed_self_makes_an_instance_member`, `a_path_from_the_root_keeps_its_segments`, `the_references_of_an_attribute_are_of_the_container_around_its_item`, `the_types_of_paths`, `an_error_marks_the_declarations_it_lies_before_the_name_of`, `deep_nesting_is_summarized_on_a_small_stack`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The reach of a Java member and whether a subtype may override it must follow the modifiers IntelliJ's PSI gives it,
   the implicit ones included (`PsiModifierListImpl.hasModifierProperty`): a member of an interface is public unless it
@@ -240,16 +254,14 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`, `the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`)
   [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_type_declared_again_in_the_same_package_is_a_duplicate`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_check_of_a_removed_rust_item`)
-- A rule of a tree-sitter language (Rust) must name only node kinds its grammar has.
-  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_spec_kind_exists_in_its_grammar`)
 - The commits' changes must carry the full ids of the blobs before and after each file, from the same `log --raw`
   process (`--no-abbrev`); a side without a file, a symlink and a submodule have none.
   [@test] ../../crates/trial-check/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_gives_the_full_blob_ids`)
 - The summaries must be read through the object cache, keyed by the extractor version, the language and the blob id,
   with one `cat-file --batch` for the blobs the cache misses; a write of another extractor version must clear the
-  store once. A truncated summary (over a size limit, past the parse budget, nested deeper than the parse reads) must not be cached. The extractor version must change with the rules,
-  with the revision of psi-syntax that reads Kotlin, Java, C#, Starlark, TypeScript and JavaScript, and with the
-  tree-sitter grammar of Rust.
+  store once. A truncated summary (over a size limit, nested deeper than the parse reads) must not be cached. The
+  extractor version must change with the rules and with the revision of psi-syntax that reads Kotlin, Java, C#,
+  Starlark, TypeScript, JavaScript and Rust.
   [@test] ../../crates/trial-check/src/symbol_scan_test.rs (`reads_the_summaries_through_the_cache`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`, `the_psi_syntax_revision_is_the_one_cargo_builds`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`blob_summaries_are_read_by_the_extractor_version_that_wrote_them`)

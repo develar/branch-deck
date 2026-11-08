@@ -1,11 +1,11 @@
 //! Prints the summary of each file as JSON with the names resolved, or with `--stats` one line of numbers per file and
 //! a table per language, or with `--tree` the syntax tree for writing rules: of Kotlin and Java the PSI dump of
 //! psi-syntax (`psi_to_string`, as IntelliJ's parser tests print it), of C# Roslyn's tree as `tools/csharp-oracle`
-//! prints it (`tree_to_string`), of the others the tree-sitter tree (kinds, fields and lines).
+//! prints it (`tree_to_string`), of Rust rust-analyzer's tree as its tests print it.
 //!
 //! `cargo run --release -p code-symbols --example summarize -- [--stats | --tree] <files…>`
 
-use code_symbols::extract::{grammar, summarize};
+use code_symbols::extract::summarize;
 use code_symbols::language::{Language, language_of};
 use code_symbols::summary::{FileSummary, ImportTarget, Shape, Signature, TypeRef};
 use serde_json::{Value, json};
@@ -215,46 +215,13 @@ fn print_tree(path: &str, language: Language, source: &[u8]) {
       let tree = csharp_syntax::Parser::new().parse(source, csharp_syntax::FileKind::default());
       println!("{}", csharp_syntax::dump::tree_to_string(&tree));
     }
-    _ => print_tree_sitter_tree(language, source),
-  }
-}
-
-fn print_tree_sitter_tree(language: Language, source: &[u8]) {
-  let Some(grammar) = grammar(language) else { return };
-  let mut parser = tree_sitter::Parser::new();
-  if parser.set_language(&grammar).is_err() {
-    return;
-  }
-  let Some(tree) = parser.parse(source, None) else { return };
-  let mut cursor = tree.walk();
-  let mut depth = 0usize;
-  loop {
-    let node = cursor.node();
-    if node.is_named() || node.is_missing() {
-      let field = cursor.field_name().map_or_default(|it| format!("{it}: "));
-      let text = if node.named_child_count() == 0 {
-        format!(" {:?}", node.utf8_text(source).unwrap_or_default())
-      } else {
-        String::new()
-      };
-      let flag = if node.is_missing() {
-        " MISSING"
-      } else if node.is_error() {
-        " ERROR"
-      } else {
-        ""
-      };
-      println!("{}{field}{}{flag} @{}{text}", "  ".repeat(depth), node.kind(), node.start_position().row + 1);
-    }
-    if cursor.goto_first_child() {
-      depth += 1;
-      continue;
-    }
-    while !cursor.goto_next_sibling() {
-      if !cursor.goto_parent() {
-        return;
+    // rust-analyzer's tree as its own tests print it, on the stack of the parse
+    #[cfg(feature = "rust")]
+    Language::Rust => {
+      if let Some(dump) = rust_syntax::guarded(source, || format!("{:#?}", rust_syntax::parse(source))) {
+        println!("{dump}");
       }
-      depth -= 1;
     }
+    _ => println!("{path}: no tree dump of {language:?}"),
   }
 }

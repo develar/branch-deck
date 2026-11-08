@@ -391,37 +391,53 @@ pub(crate) fn shown_parameters(parameters: &str) -> String {
     .join(", ")
 }
 
-/// The tokens of a form as code is written: no space before `>`, `,`, `)`, `.`, `?`, `:` and `[`, none after `<`, `(`,
-/// `.` and `[`, so a header reads `fun hooks(): List<String>`, never `fun hooks() : List < String >`. A `<` is glued only
-/// to the name of a type or a function before it (`List<T>`, `first<T>`): after a keyword or a modifier it opens the
-/// type parameters of the declaration (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`). A `(` is glued to a
-/// name and to the `>` of type parameters before it, the parameters a header holds (Rust `fn open() -> u8`, `fn
-/// first<T>(x: T)`), never to `suspend` (`suspend (Int) -> Unit`) or an arrow (`-> (u8, u8)`). An empty object type is
-/// `{}`, and the code of a TypeScript template literal, whose pieces are tokens of their own (`` `x-${ `` and `` }` ``),
-/// is glued to them
+/// The tokens of a form as code is written: no space before `>`, `,`, `)`, `]`, `.`, `?`, `:`, `;` and `::`, none after
+/// `<`, `(`, `.`, `[` and `::`, so a header reads `fun hooks(): List<String>`, never `fun hooks() : List < String >`. A
+/// `<` is glued only to the name of a type or a function before it (`List<T>`, `first<T>`): after a keyword or a
+/// modifier it opens the type parameters of the declaration (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`).
+/// A `(` is glued to a name and to the `>` of type parameters before it, the parameters a header holds (Rust `fn open()
+/// -> u8`, `fn first<T>(x: T)`, `Fn(u8)`), never to a keyword (`suspend (Int) -> Unit`, `where (A, B): Tr`) or an arrow
+/// (`-> (u8, u8)`), and a `[` to an operand (`String[]`), not to a `:` (`items: [T; N]`). A Rust `&` or `*` where an
+/// operand is expected is a prefix (`&'a str`, `&mut self`, `*const u8`), and a `?` after `:` or `+` one too (`T:
+/// ?Sized`); after an operand they are operators (TypeScript's `A & B`). An empty object type is `{}`, and the code of a
+/// TypeScript template literal, whose pieces are tokens of their own (`` `x-${ `` and `` }` ``), is glued to them
 pub(crate) fn as_written<'a>(tokens: impl Iterator<Item = &'a str>) -> String {
   let mut text = String::new();
   let mut previous = "";
   let named = |previous: &str| previous.ends_with(|c: char| c.is_alphanumeric() || c == '_');
+  // the last token was a prefix operator, glued to the token after it
+  let mut prefix = false;
   for token in tokens.filter(|token| !token.is_empty()) {
+    // a lifetime (`'a`) and a keyword (`mut`, `dyn`) are no operand a `(` or `[` belongs to: `&'a [u8]`, `&mut [u8]`
+    let after_operand = !previous.starts_with('\'')
+      && !PREFIX_KEYWORDS.contains(&previous)
+      && (previous.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == ')' || c == ']') || (previous.ends_with('>') && !matches!(previous, "->" | "=>")));
     let glued_before = if token.starts_with('<') {
       named(previous) && !DECLARATION_WORDS.contains(&previous)
     } else if token.starts_with('(') {
-      (named(previous) && previous != "suspend") || (previous.ends_with('>') && previous != "->" && previous != "=>")
+      after_operand && previous != "suspend"
     } else if token.starts_with('}') {
       previous == "{" || token.contains('`') || token.ends_with("${")
+    } else if token == "?" {
+      !matches!(previous, ":" | "+")
+    } else if token.starts_with('[') {
+      after_operand
     } else {
-      token.starts_with(['>', ',', ')', '.', '?', ':', '[']) && token != "->" && token != "=>"
+      token.starts_with(['>', ',', ')', ']', '.', '?', ':', ';']) && token != "->" && token != "=>"
     };
-    let glued_after = text.ends_with(['<', '(', '.', '[']) || text.ends_with("${");
+    let glued_after = prefix || text.ends_with(['<', '(', '.', '[']) || text.ends_with("${") || text.ends_with("::");
     if !text.is_empty() && !glued_before && !glued_after {
       text.push(' ');
     }
     text.push_str(token);
+    prefix = matches!(token, "&" | "&&" | "*") && !after_operand || (token == "?" && matches!(previous, ":" | "+"));
     previous = token;
   }
   text
 }
+
+/// The keywords a `(` after is no call or parameter list of the name before it: `where (A, B): Tr`, `impl (Fn())`
+const PREFIX_KEYWORDS: &[&str] = &["where", "in", "as", "mut", "dyn", "impl", "unsafe", "async", "extern", "const", "return"];
 
 /// The keywords and modifiers of a header that the type parameters of its declaration may follow (`fun <T>`, `public
 /// static <T>`): a `<` after them is no argument of a type

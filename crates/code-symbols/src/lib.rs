@@ -11,8 +11,9 @@
 //! Two parsers: Kotlin, Java and C# are read by psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own
 //! parsers, whose trees are their PSI and Roslyn's syntax tree (`kotlin`, `java`, `csharp`: a module per language with a
 //! walk per consumer, `summary`, `highlight` and `navigate`), the summary of TypeScript, TSX and JavaScript by
-//! psi-syntax's `js-syntax`, oxc's parser, the parse accio reads them with (`js`), Rust and the highlighting and the
-//! navigation of TypeScript by tree-sitter (`extract.rs` with `rust_lang.rs`, `highlight/`, `navigate.rs`). Both build their answers by the same parser-neutral code: `summary_builder`,
+//! psi-syntax's `js-syntax`, oxc's parser (`js`), and Rust by psi-syntax's `rust-syntax`, rust-analyzer's parser
+//! (`rust`: its summary), each the parse accio reads them with; the highlighting of Rust and the highlighting and the
+//! navigation of TypeScript by tree-sitter (`highlight/`, `navigate.rs`). Both build their answers by the same parser-neutral code: `summary_builder`,
 //! `highlight::lines` and `highlight::paint`, the answers of `navigate`. `examples/facts.rs` prints every fact of the
 //! three consumers of a list of files, the oracle of a change of parser or rules.
 
@@ -47,7 +48,7 @@ mod psi_tree;
 #[cfg(any(feature = "java", feature = "csharp"))]
 mod psi_walk;
 #[cfg(feature = "rust")]
-mod rust_lang;
+mod rust;
 #[cfg(feature = "starlark")]
 mod starlark;
 
