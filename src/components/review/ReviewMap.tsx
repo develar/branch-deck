@@ -7,7 +7,7 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { BreakableCode } from "@/components/shared/CodeText"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewPlace } from "@/lib/review-place"
-import type { MapRow, MapView } from "@/presenters/review-map"
+import type { MapRegistration, MapRow, MapView } from "@/presenters/review-map"
 
 /**
  * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change before its words, a row per
@@ -175,7 +175,44 @@ function ShapeRow({ row }: { row: MapRow }) {
           ))}
         </span>
       )}
+      {row.registrations.length > 0 && (
+        // what the module plugs into the platform: a line each, under its row; the rail has no room for them
+        <ul aria-label={`Registrations of ${row.label}`} className="hidden min-w-0 flex-col pl-3 text-xs @sm:flex" data-testid="review-map-registrations">
+          {row.registrations.map(registration => (
+            <li key={registration.key} className="flex min-w-0">
+              <RegistrationLine registration={registration} />
+            </li>
+          ))}
+          {row.moreRegistrations > 0 && (
+            <li className="text-muted-foreground">{row.moreRegistrations === 1 ? "and 1 more registration" : `and ${row.moreRegistrations} more registrations`}</li>
+          )}
+        </ul>
+      )}
     </li>
+  )
+}
+
+/** "+ applicationService TranscriptEmbedPlayers → TranscriptEmbedPlayersImpl": a click shows the class it registers */
+function RegistrationLine({ registration }: { registration: MapRegistration }) {
+  const navigator = useSelectReviewFile()
+  return (
+    <button
+      type="button"
+      className="flex min-w-0 items-baseline gap-1.5 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
+      title={registration.title}
+      disabled={navigator === null}
+      data-testid="review-map-registration"
+      onClick={() => navigator?.show(registration.place)}
+    >
+      <span
+        aria-hidden="true"
+        className={cn("w-2 shrink-0 font-mono", registration.sign === "+" ? "text-success" : registration.sign === "−" ? "text-destructive" : "text-muted-foreground")}
+      >
+        {registration.sign}
+      </span>
+      <span className="shrink-0 text-muted-foreground">{registration.kind}</span>
+      <span className="min-w-0 truncate font-mono">{registration.name}</span>
+    </button>
   )
 }
 

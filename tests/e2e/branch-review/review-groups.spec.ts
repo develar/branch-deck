@@ -1,6 +1,9 @@
 // @spec spec/branch/review-tour.spec.md
+import { writeFileSync } from "node:fs"
+import path from "node:path"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { virtualBranch } from "../helpers/push-helpers"
 import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 
 // the `review_modules` template: the branch `media` of a plugin `player`, its second commit a large step that adds the
@@ -113,7 +116,11 @@ test.describe("Review groups", () => {
     },
   )
 
-  test("should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs, and say in the bar above the diffs where the reader is", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs, and say in the bar above the diffs where the reader is", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
@@ -140,5 +147,44 @@ test.describe("Review groups", () => {
     await window.getByTestId("diff-view").hover()
     await window.mouse.wheel(0, 100_000)
     await expect(wiring.getByTestId("review-seen-progress")).toHaveText(/^[1-5] \/ 5 seen$/)
+  })
+
+  test("should name under the row of a module of the map what its descriptor registers, a click showing the class it registers", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_modules")
+    turnOnReviewPlan(repo)
+    // accio reads the descriptor the change adds at the head, its classes resolved there; the base has none
+    const descriptor = `${ROOT}/view.gui.media/resources/intellij.player.view.gui.media.xml`
+    const decoder = `${MEDIA}/avfoundation/AvFoundationDecoder.kt`
+    const line = {
+      path: descriptor,
+      root: "idea-plugin",
+      services: [
+        { area: "app", interface: "com.example.player.media.MediaDecoder", implementation: "com.example.player.media.avfoundation.AvFoundationDecoder", preload: "FALSE" },
+      ],
+      extensions: [
+        {
+          point: "com.intellij.registryKey",
+          implementation: null,
+          element: { name: "", attributes: { key: "player.media.inline.playback", defaultValue: "true", description: "Play the media embeds of the chat inline" }, children: [] },
+        },
+      ],
+      classes: [{ role: "services.implementation", name: "com.example.player.media.avfoundation.AvFoundationDecoder", resolved: "exact", path: decoder, line: 3 }],
+    }
+    // the head the review reads is the copy the sync builds of the branch
+    await syncAndWaitForBranches()
+    const head = await repo.revision(virtualBranch("media"))
+    writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ descriptors: { [`${head}:${descriptor}`]: line } }))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
+
+    const media = window.getByTestId("review-map-module").filter({ has: window.getByTestId("review-map-label").getByText("view.gui.media", { exact: true }) })
+    const registrations = media.getByTestId("review-map-registration")
+    await expect(registrations).toHaveText(["+applicationServiceMediaDecoder → AvFoundationDecoder", "+registryKeyplayer.media.inline.playback = true"])
+    await expect(registrations.nth(1)).toHaveAttribute("title", `Play the media embeds of the chat inline\n${descriptor}`)
+    await registrations.first().click()
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: decoder, exact: true })).toHaveAttribute("aria-selected", "true")
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, ContractEntry, DependencyChange, FileFacts } from "@/lib/bindings"
+import type { ApiChange, ContractEntry, DependencyChange, FileFacts, Registration } from "@/lib/bindings"
 import { MAP_ROWS, presentMap, specName } from "@/presenters/review-map"
 import { moduleShape, reviewPlan, reviewStep } from "@/test-support/review-step"
 
@@ -180,5 +180,62 @@ describe("the map of a review", () => {
 
   it("names a spec by its file", () => {
     expect([specName("plugins/air/spec/session-view/transcript-media-playback.spec.md"), specName("docs/guide_notes.md")]).toEqual(["Transcript Media Playback", "Guide Notes"])
+  })
+
+  it("names under the row of a module what its descriptors register by simple names, a click at the class it registers; a content module none, past the budget a count", () => {
+    const registration = (registered: Registration["registered"], more: Partial<Registration> = {}): Registration => ({
+      descriptor: "gui/media/resources/media.xml",
+      module: 0,
+      change: "added",
+      registered,
+      before: null,
+      changed: [],
+      classes: [],
+      ...more,
+    })
+    const service = registration(
+      {
+        kind: "service",
+        area: "app",
+        interface: "a.gui.Players",
+        implementation: "a.media.PlayersImpl",
+        testImplementation: null,
+        headlessImplementation: null,
+        client: null,
+        os: null,
+        preload: null,
+        overrides: false,
+        open: false,
+      },
+      { classes: [{ role: "implementation", name: "a.media.PlayersImpl", found: { resolved: "declared", path: "gui/media/src/PlayersImpl.kt", line: 4 } }] },
+    )
+    const key = registration(
+      {
+        kind: "registryKey",
+        key: "media.inline",
+        defaultValue: "NIGHTLY_ENABLED",
+        options: ["ENABLED", "NIGHTLY_ENABLED", "DISABLED"],
+        description: "Plays inline",
+        restartRequired: false,
+      },
+      { change: "changed", changed: ["defaultValue"] },
+    )
+    const content = registration({ kind: "contentModule", name: "intellij.gui.media", loading: "optional", reviewModule: 0 })
+    const actions = Array.from({ length: 4 }, (_, index) => registration({ kind: "action", id: `Media.Action${index}`, class: null, text: null, group: false }, { module: 1 }))
+    const view = presentMap(
+      reviewPlan({
+        modules: [
+          moduleShape("gui/media", "view.gui.media", { state: "added", files: { code: 3, tests: 0, resources: 1, build: 1, prose: 0 } }),
+          moduleShape("gui", "view.gui", { files: { code: 2, tests: 0, resources: 1, build: 0, prose: 0 } }),
+        ],
+        registrations: [service, key, content, ...actions],
+      }),
+    )
+    expect(view.rows.map(row => [row.label, row.registrations.map(it => `${it.sign} ${it.kind} ${it.name}`), row.moreRegistrations])).toEqual([
+      ["view.gui.media", ["+ applicationService Players → PlayersImpl", "~ registryKey media.inline = NIGHTLY_ENABLED (defaultValue changed)"], 0],
+      ["view.gui", ["+ action Media.Action0", "+ action Media.Action1", "+ action Media.Action2"], 1],
+    ])
+    expect(view.rows[0]!.registrations[0]!.place).toEqual({ path: "gui/media/src/PlayersImpl.kt", side: "new", line: 4, name: null })
+    expect(view.rows[0]!.registrations[1]!.title).toBe("Plays inline\ngui/media/resources/media.xml")
   })
 })

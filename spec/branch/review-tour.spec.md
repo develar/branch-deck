@@ -373,10 +373,18 @@ it added a module.
   intellij.platform.ide.util.io", "Opens wider: isNightlyBuild"). A module of build files or prose alone has no row. A
   change of one module shows its folders as the rows when it holds more than 12 files there, else no shape. At most 6
   rows, then "and N more modules" with their labels in its hover; every line truncates at the edge of the reading
-  column, never wraps. A click on a row shows its first file in the story. The rail of the overview of a pull request
+  column, never wraps. A click on a row shows its first file in the story. Under a row, what its descriptors register,
+  change or remove ([Review Plan → Registrations](review-plan.spec.md#registrations)), a line each by simple names
+  ("+ applicationService TranscriptEmbedPlayers → TranscriptEmbedPlayersImpl", "+ registryKey
+  air.chat.media.inline.playback.enabled = NIGHTLY_ENABLED", "~ … (defaultValue changed)"), its qualified names or
+  the description of a key and its descriptor in the hover, a click showing the class it registers (its implementation),
+  else its descriptor; a content module none (the line of the new module says where it plugs in); at most 3 a row and 8
+  in all, then "and N more registrations"; the rail of a pull request has no room for them. The rail of the overview of a pull request
   lists the same rows ([Review Requests → Review window](../repository/review-requests.spec.md#review-window)), without
   their bars, the badge in its tone on the line under the row.
   [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names the rows past its budget once, and the folders of a large change of one module; a small change has no shape`)
+  [@test] ../../src/presenters/review-map.test.ts (`names under the row of a module what its descriptors register by simple names, a click at the class it registers; a content module none, past the budget a count`)
+  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should name under the row of a module of the map what its descriptor registers, a click showing the class it registers`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the shape of the plan in the rail of the overview, a module showing its first file in the changes`)
 - The map must name the contract in one line, "Contract": each new spec by its name and the count of its requirements
   ("New spec Transcript Media Playback (14 requirements)", a click its top), then how many specs and docs the change

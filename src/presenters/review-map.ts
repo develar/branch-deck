@@ -1,4 +1,4 @@
-import type { ModuleShape, ReviewPlan } from "@/lib/bindings"
+import type { ModuleShape, Registered, Registration, ReviewPlan } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import { joinNames } from "@/lib/text"
@@ -42,6 +42,25 @@ export interface MapRow {
   readonly extra: string | null
   /** Where a click goes: its first file in the story */
   readonly place: ReviewPlace | null
+  /** What its descriptors newly register, change or remove (`ReviewPlan.registrations`), within the budget of the map */
+  readonly registrations: readonly MapRegistration[]
+  /** Its registrations past the budget */
+  readonly moreRegistrations: number
+}
+
+/** A registration of a module on the map: "+ applicationService TranscriptEmbedPlayers → TranscriptEmbedPlayersImpl" */
+export interface MapRegistration {
+  readonly key: string
+  /** "+" added, "−" removed, "~" changed */
+  readonly sign: "+" | "−" | "~"
+  /** The tag of the descriptor that registers it: "applicationService", "registryKey", "action" */
+  readonly kind: string
+  /** What it registers, by simple names: "TranscriptEmbedPlayers → TranscriptEmbedPlayersImpl", "air.chat.media.inline.playback.enabled = NIGHTLY_ENABLED" */
+  readonly name: string
+  /** Its hover: the qualified names, the description of a key, the descriptor */
+  readonly title: string
+  /** The declaration of the class it registers, else its descriptor */
+  readonly place: ReviewPlace
 }
 
 export interface MapContract {
@@ -59,13 +78,16 @@ export interface MapApi {
 
 /** The rows of the shape before "and N more" */
 export const MAP_ROWS = 6
+/** The registrations a row names before "and N more registrations", and all rows together */
+const ROW_REGISTRATIONS = 3
+const MAP_REGISTRATIONS = 8
 /** The folders a changed module names on its row */
 const MAP_FOLDERS = 3
 /** A change of one module with more files names its folders */
 const MIN_FOLDER_FILES = 12
 
 /** The map of `plan` (`MapView`) */
-export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" | "steps" | "api" | "verdict" | "dependencies" | "brief">): MapView {
+export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" | "steps" | "api" | "verdict" | "dependencies" | "brief" | "registrations">): MapView {
   const firstFile = new Map<number, string>()
   const moduleOf = new Map(plan.files.map(file => [file.path, file.module]))
   const story = storyOrder(plan)
@@ -80,7 +102,7 @@ export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" 
   const rows: MapRow[] = shaped ? readable.map(({ module, index }) => moduleRow(module, index, plan, firstFile.get(index) ?? null)) : folderRows(readable[0]?.module, story)
   const max = Math.max(1, ...rows.map(row => row.additions + row.deletions))
   const scaled = rows.map(row => ({ ...row, share: (row.additions + row.deletions) / max }))
-  const shown = scaled.slice(0, MAP_ROWS)
+  const shown = withRegistrations(scaled.slice(0, MAP_ROWS), plan)
   const left = scaled.slice(MAP_ROWS)
   return {
     total: {
@@ -137,6 +159,8 @@ function moduleRow(module: ModuleShape, index: number, plan: Pick<ReviewPlan, "m
     detail: detail === "" ? null : detail,
     extra: extra === "" ? null : extra,
     place: first === null ? null : fileTop(first),
+    registrations: [],
+    moreRegistrations: 0,
   }
 }
 
@@ -176,6 +200,8 @@ function folderRows(module: ModuleShape | undefined, story: readonly string[]): 
       detail: null,
       extra: null,
       place: first === undefined ? null : fileTop(first),
+      registrations: [],
+      moreRegistrations: 0,
     }
   })
 }
@@ -224,4 +250,81 @@ function apiOf(plan: Pick<ReviewPlan, "api" | "verdict">): MapApi | null {
 
 function plural(count: number, noun: string): string {
   return count === 1 ? `1 ${noun}` : `${count} ${noun}s`
+}
+
+/**
+ * The rows with what their descriptors register: a content module none (the new module's line says where it plugs in),
+ * at most `ROW_REGISTRATIONS` a row and `MAP_REGISTRATIONS` in all, in the order Rust gives
+ */
+function withRegistrations(rows: readonly MapRow[], plan: Pick<ReviewPlan, "modules" | "registrations">): MapRow[] {
+  let left = MAP_REGISTRATIONS
+  return rows.map(row => {
+    const module = plan.modules.findIndex(it => it.root === row.key)
+    const all = module < 0 ? [] : plan.registrations.filter(registration => registration.module === module && registration.registered.kind !== "contentModule")
+    const shown = all.slice(0, Math.min(ROW_REGISTRATIONS, left))
+    left -= shown.length
+    return { ...row, registrations: shown.map(mapRegistration), moreRegistrations: all.length - shown.length }
+  })
+}
+
+/** The words of a registration on the map */
+function mapRegistration(registration: Registration, index: number): MapRegistration {
+  const { kind, name, title } = registrationWords(registration.registered)
+  // the class it registers: its implementation, else the first the index declares
+  const declared = registration.classes.flatMap(it => (it.found?.resolved === "declared" ? [{ role: it.role, ...it.found }] : []))
+  const found = declared.find(it => it.role === "implementation") ?? declared[0]
+  const changed = registration.change === "changed" && registration.changed.length > 0 ? ` (${registration.changed.join(", ")} changed)` : ""
+  return {
+    key: `${registration.descriptor}:${index}:${kind}:${name}`,
+    sign: registration.change === "added" ? "+" : registration.change === "removed" ? "−" : "~",
+    kind,
+    name: `${name}${changed}`,
+    title: [title, registration.descriptor].filter(part => part !== "").join("\n"),
+    place: found === undefined ? fileTop(registration.descriptor) : { path: found.path, side: registration.change === "removed" ? "old" : "new", line: found.line, name: null },
+  }
+}
+
+/** The tag, the simple names and the hover of what a descriptor registers */
+function registrationWords(registered: Registered): { kind: string; name: string; title: string } {
+  switch (registered.kind) {
+    case "service": {
+      const names = [registered.interface, registered.implementation].filter(name => name !== null)
+      return { kind: `${AREA_WORDS[registered.area]}Service`, name: names.map(simpleName).join(" → "), title: names.join(" → ") }
+    }
+    case "extensionPoint":
+      return {
+        kind: "extensionPoint",
+        name: registered.qualifiedName ?? registered.name ?? "",
+        title: [registered.interface, registered.beanClass].filter(it => it !== null).join(", "),
+      }
+    case "listener":
+      return { kind: "listener", name: `${simpleName(registered.class)} of ${simpleName(registered.topic)}`, title: `${registered.class} of ${registered.topic}` }
+    case "extension": {
+      const target = registered.implementation ?? registered.id
+      return {
+        kind: "extension",
+        name: target === null ? registered.point : `${simpleName(registered.point)} → ${simpleName(target)}`,
+        title: [registered.point, registered.implementation].filter(it => it !== null).join(" → "),
+      }
+    }
+    case "registryKey":
+      return {
+        kind: "registryKey",
+        name: registered.defaultValue === null ? registered.key : `${registered.key} = ${registered.defaultValue}`,
+        title: registered.description ?? "",
+      }
+    case "action": {
+      const name = registered.id ?? (registered.class === null ? "" : simpleName(registered.class))
+      return { kind: registered.group ? "group" : "action", name: registered.text === null ? name : `${name} “${registered.text}”`, title: registered.class ?? "" }
+    }
+    case "contentModule":
+      return { kind: "content", name: `${registered.name} (${registered.loading})`, title: "" }
+  }
+}
+
+const AREA_WORDS = { app: "application", project: "project", module: "module" } as const
+
+/** The last part of a qualified name: `TranscriptEmbedPlayersImpl` of `com.intellij.air.….TranscriptEmbedPlayersImpl` */
+function simpleName(name: string): string {
+  return name.slice(Math.max(name.lastIndexOf("."), name.lastIndexOf("$")) + 1)
 }
