@@ -4480,18 +4480,21 @@ Settings → Repository shows and writes three keys of the repository's git conf
 fourth, `branchdeck.resolveByWords`, Settings → Landing the fifth, `branchdeck.pushSizeLimit` (a size, `50M` when
 unset, `0` or `off` for none: see [Push size](#push-size); one value for every repository in the global config, as
 `resolveByWords`), the route into master (`branchdeck.landing`: `patronus`, `push` or `pull-request`, no row yet,
-[Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the two rules of coding agents
+[Landing Routes](../../spec/branch/landing-routes.spec.md)), and Settings → Agents the three rules of coding agents
 (`crates/sync-core/src/repository_config.rs`):
 `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
-lands each commit with `brd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
-each subject with its `(branch)`, which the copies of the virtual branches drop), and, on Settings → Diffs & Merge →
+lands each commit with `brd pick`), `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
+each subject with its `(branch)`, which the copies of the virtual branches drop) and `branchdeck.agentPullRequest` (a
+git boolean, off when unset: the landing of an agent's commit includes its pull request, the push of the branch after
+the pick and the `gh pr create` it prints, without asking; `lease_config` reads it too, for the `next` of `brd lease
+get`), and, on Settings → Diffs & Merge →
 Review, the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset and
 for a value git refuses: Mark Reviewed, the local Since Your Review, the overview of the plan and the marks of the files,
 [Review Plan](../../spec/branch/review-plan.spec.md); one value for every repository in the global config, as
 `resolveByWords`; `brd review-plan` and `brd mark-reviewed` work without it). `brd` reads the same keys, so the app keeps nothing of them in its own settings; the
-two agent keys only `brd workspace` reads ([brd workspace](../../spec/cli/workspace.spec.md)), and their global values
+three agent keys only `brd workspace` and `brd lease get` read ([brd workspace](../../spec/cli/workspace.spec.md)), and their global values
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `brd install` and the app's Install Agent CLI: no sync,
 no operation.
 

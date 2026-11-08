@@ -23,6 +23,11 @@ test.describe("Settings → Agents", () => {
     await expect(window.getByTestId("setting-agentLease-source")).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
     await expect(subjects.getByRole("switch")).toBeChecked()
     await expect(window.getByTestId("setting-agentSubjectBranch-source")).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
+    // the pull request after the pick waits for the user unless a config turns it on
+    const pullRequests = window.getByTestId("setting-agentPullRequest")
+    await expect(pullRequests).toContainText("branchdeck.agentPullRequest")
+    await expect(pullRequests.getByRole("switch")).not.toBeChecked()
+    await expect(window.getByTestId("setting-agentPullRequest-source")).toHaveText("Off by default. A change goes to your global Git config, which bd reads too")
 
     // off for every repository: the global config of the test repository (its own file)
     await lease.click()
@@ -104,6 +109,7 @@ const EMPTY_CONFIG: RepositoryConfig = {
   landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   agentLease: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   agentSubjectBranch: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
+  agentPullRequest: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
   reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   companions: [],
   primary: null,

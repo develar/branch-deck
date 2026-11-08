@@ -9,7 +9,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::text_input::{message_reason_text, reason_text};
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::lease_slot::lease_config;
+use git_ops::lease_slot::{AgentLanding, lease_config};
 use git_ops::revs::{RepositoryDirs, is_ancestor, ref_exists, repository_dirs, resolve_commit};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
@@ -325,11 +325,15 @@ impl LeaseHomeOutput {
 }
 
 /// The commands of a session in the lease at `path`, in order: the pick of each commit onto its home (none while the
-/// home has no branch to land on), the return once the task is done
-pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str) -> Vec<String> {
+/// home has no branch to land on), with `pull_request` (`branchdeck.agentPullRequest`) the push of its branch from the
+/// home, whose `gh pr create` opens the pull request, and the return once the task is done
+pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bool) -> Vec<String> {
   let mut next = Vec::new();
   if home.branch.is_some() && !home.checkout.is_empty() {
     next.push(format!("{CLI_NAME} -C {} lease pick", shell_word(path)));
+    if pull_request {
+      next.push(format!("{CLI_NAME} -C {} push <branch>", shell_word(&home.checkout)));
+    }
   }
   next.push(format!("brd lease return --lease-id {lease_id}"));
   next
@@ -701,7 +705,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
     source_head: lease.source_head.clone(),
     branch: lease.branch.clone(),
     home: LeaseHomeOutput::new(&lease.home(), None),
-    next: lease_next(&got.slot.path, &lease.home(), &lease.id),
+    next: lease_next(&got.slot.path, &lease.home(), &lease.id, got.agent_landing == AgentLanding::PullRequest),
     leased_at: lease.leased_at,
     reused: lease.reused,
     created_by: got.created_by.as_ref().map(|created_by| match created_by {

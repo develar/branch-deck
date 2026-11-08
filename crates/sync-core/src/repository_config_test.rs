@@ -55,6 +55,8 @@ fn nothing_set_is_the_defaults() {
   // an agent works in a lease of its own, and names the branch in each subject
   assert_eq!(config.agent_lease, unset(true));
   assert_eq!(config.agent_subject_branch, unset(true));
+  // the landing of an agent's commit stops at the pick: the push and the pull request wait for the user
+  assert_eq!(config.agent_pull_request, unset(false));
   // the review windows show the review plan
   assert_eq!(config.review_experimental, unset(false));
   assert_eq!(config.detected_github_repository, None);
@@ -481,6 +483,14 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
   // "Like Global": the local value goes, the default applies again
   let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(None), WriteScope::Local).unwrap();
   assert_eq!(config.agent_subject_branch, unset(true));
+
+  // the pull request after the pick: off by default, on for this repository alone
+  let config = set_config(&git, path, &RepositoryConfigChange::AgentPullRequest(Some(true)), WriteScope::Local).unwrap();
+  assert_eq!(
+    (config.agent_pull_request.value, config.agent_pull_request.scope, config.agent_pull_request.fallback_value),
+    (true, Some(ConfigScope::Local), false)
+  );
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.agentpullrequest", Some("true"))]);
 }
 
 /// `branchdeck.reviewExperimental` is read with the other keys in the one `git config` of the settings, and written to the

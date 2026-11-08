@@ -459,6 +459,44 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_brd_fails_and_in_a_sandbox()
   assert!(rule_end < cd, "{skill}");
 }
 
+/// `branchdeck.agentPullRequest` decides whether the landing of a commit includes its pull request: the skill runs the
+/// push of `next` and its `gh pr create` without asking only with `pull_request.on`, and keeps what lands into master
+/// waiting for the user either way. A pushed branch takes a fixup that only the user folds, and a lease never a stash:
+/// rules a repository would otherwise repeat in its own agent instructions
+#[test]
+fn the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_history() {
+  let skill = skill_text("brd");
+  let rule_start = skill.find("- `pull_request.on`: the landing of a commit includes its pull request.").unwrap();
+  let rule_end = rule_start + 2 + skill[rule_start + 2..].find("\n- ").unwrap();
+  let rule = &skill[rule_start..rule_end];
+  for words in [
+    "the push of `next`",
+    "`gh pr create`",
+    "without asking",
+    "off, ask the user first",
+    "A Safe Push, `brd land`",
+    "--force",
+    "parked",
+  ] {
+    assert!(rule.contains(words), "the rule lacks `{words}`: {rule}");
+  }
+  assert!(skill.contains("`branchdeck.agentPullRequest`): never change them."), "{skill}");
+  assert!(
+    skill.contains("before the user approved them, except the push and the pull request of\n  `pull_request.on`"),
+    "{skill}"
+  );
+  assert!(
+    skill.contains("A change to a pushed branch (an open pull request) is a `(branch) fixup! <subject>` commit,\n  folded only when the user asks"),
+    "{skill}"
+  );
+  assert!(skill.contains("Never `git stash` in a lease"), "{skill}");
+  assert!(
+    AGENT_HELP.contains("`pull_request.on`\n  approves the push and the `gh pr create` of your branch after its pick."),
+    "{AGENT_HELP}"
+  );
+  assert!(WORKTREES_HELP.contains("folded only when the user asks"), "{WORKTREES_HELP}");
+}
+
 #[test]
 fn the_skill_keeps_the_agents_plan_in_the_shared_checkout() {
   let skill = skill_text("brd");

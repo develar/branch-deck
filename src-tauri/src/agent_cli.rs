@@ -27,6 +27,7 @@ impl AgentCliHost for AppAgentCli {
       agents: output.agents.map(|agents| AgentRules {
         lease: agents.lease,
         subject_branch: agents.subject_branch,
+        pull_request: agents.pull_request,
       }),
     })
   }

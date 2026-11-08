@@ -24,9 +24,9 @@ use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  CheckoutWorkers, LeaseConfig, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes,
-  ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot, slot_changes, start_deferred_maintenance,
-  unlock_slot,
+  AgentLanding, CheckoutWorkers, LeaseConfig, SlotMove, UnlandedCommit, UntrackedFiles, attach_new_branch, checkout_slot, clean_cloned_slot, detach_slot_head,
+  discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, move_clean_slot, move_slot, refresh_cloned_index, register_slot, slot_changes,
+  start_deferred_maintenance, unlock_slot,
 };
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
@@ -1053,6 +1053,8 @@ pub struct LeaseGot {
   /// Below the minimum free space after the shrink: the free slots below `branchdeck.leaseMaxSlots` that the get
   /// deleted (`trim::evict_core`)
   pub evicted: Option<Trimmed>,
+  /// `branchdeck.agentPullRequest` of the source, from the get's one read of the pool config: the `next` of the get
+  pub agent_landing: AgentLanding,
 }
 
 /// The slot a get reserved under the pool lock
@@ -1404,6 +1406,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       trimmed: relief.trimmed,
       shrunk: relief.shrunk,
       evicted: relief.evicted,
+      agent_landing: config.agent_landing,
     });
   }
 }

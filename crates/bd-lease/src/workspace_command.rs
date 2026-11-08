@@ -25,9 +25,12 @@ pub struct WorkspaceOutput {
   pub kind: WorkspaceKindOutput,
   /// Work in a lease of your own and land each commit with `brd lease pick` (`branchdeck.agentLease`, on by default)
   pub lease: AgentRule,
-  /// Start each commit subject with `(branch)` (`branchdeck.agentSubjectBranch`, off by default); off: write the
+  /// Start each commit subject with `(branch)` (`branchdeck.agentSubjectBranch`, on by default); off: write the
   /// subject as the repository does
   pub subject_branch: AgentRule,
+  /// The landing of a commit includes its pull request: after the pick, push its branch and open the pull request brd
+  /// prints, without asking (`branchdeck.agentPullRequest`, off by default); off: ask the user first
+  pub pull_request: AgentRule,
   /// The top level of the working tree
   #[serde(skip_serializing_if = "Option::is_none")]
   pub top_level: Option<String>,
@@ -139,12 +142,13 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
   };
   let lease = rule(&answer.lease, lease_reason);
   let subject_branch = rule(&answer.subject_branch, None);
+  let pull_request = rule(&answer.pull_request, None);
 
   let top_level = answer.top_level.clone().unwrap_or_default();
   let this_lease = answer.this_lease.as_ref();
   let next = match kind {
     WorkspaceKindOutput::Main if lease.on => vec![format!("brd lease get --holder <your name> -C {}", shell_word(&top_level))],
-    WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| lease_next(&top_level, &lease.home, &lease.lease_id)),
+    WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| lease_next(&top_level, &lease.home, &lease.lease_id, pull_request.on)),
     _ => Vec::new(),
   };
   WorkspaceOutput {
@@ -152,6 +156,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
     kind,
     lease,
     subject_branch,
+    pull_request,
     top_level: answer.top_level,
     subdir: answer.subdir,
     shared_checkout: answer.shared_checkout,

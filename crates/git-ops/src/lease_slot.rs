@@ -461,11 +461,23 @@ pub struct LeaseConfig {
   pub no_file_mode: bool,
   /// `core.symlinks` is false: git keeps a link as a file of its target
   pub no_symlinks: bool,
+  /// `branchdeck.agentPullRequest`: how far the landing of an agent's commit goes, which the `next` of a get names
+  pub agent_landing: AgentLanding,
+}
+
+/// How far the landing of a coding agent's commit goes (`branchdeck.agentPullRequest`, a git boolean, off when unset or
+/// invalid): the pick onto the local branch, or the pick, the push of the branch and its pull request.
+/// `sync_core::repository_config` reads the same key with its source for `brd workspace` and Settings → Agents
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AgentLanding {
+  #[default]
+  Pick,
+  PullRequest,
 }
 
 /// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`,
-/// `branchdeck.leaseMaxSlots`, `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`, `core.fileMode` and
-/// `core.symlinks`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
+/// `branchdeck.leaseMaxSlots`, `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`,
+/// `branchdeck.agentPullRequest`, `core.fileMode` and `core.symlinks`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
     .cmd(
@@ -473,7 +485,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "config",
         "--type=path",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|branchdeck\.agentpullrequest|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks)$",
       ],
       repository,
     )
@@ -490,6 +502,13 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
       "branchdeck.hostslotmaxsize" if !value.is_empty() => config.host_slot_max_size = Some(value.to_string()),
       // the last value wins; a key without a value is true
       "branchdeck.leasemaintenance" => config.return_maintenance = parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true),
+      "branchdeck.agentpullrequest" => {
+        config.agent_landing = if parse_git_bool(line.split_once(' ').map(|(_, value)| value)) == Some(true) {
+          AgentLanding::PullRequest
+        } else {
+          AgentLanding::Pick
+        }
+      }
       "checkout.workers" => config.workers.configured = true,
       // the last value wins, as in git
       "status.showuntrackedfiles" => config.untracked = if value == "all" { UntrackedFiles::All } else { UntrackedFiles::Normal },

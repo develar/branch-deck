@@ -2115,7 +2115,7 @@ Run by an agent before its first edit or commit (the skill says so; the contract
 [brd workspace](../../spec/cli/workspace.spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
 `git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config, in the main worktree or a
 lease one `status` of the shared checkout, and in a lease one more `rev-parse` of the branch the shared checkout has
-checked out now. Two rules of the git config, each `{on, source, invalid, reason}`:
+checked out now. Three rules of the git config, each `{on, source, invalid, reason}`:
 
 - `lease`: `branchdeck.agentLease`, on by default. Work in a lease of the pool, land each commit that builds and passes
   its tests at once with `brd lease pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
@@ -2124,6 +2124,12 @@ checked out now. Two rules of the git config, each `{on, source, invalid, reason
 - `subject_branch`: `branchdeck.agentSubjectBranch`, on by default. Start each commit subject with `(branch) `: the
   prefix groups the commit into its branch, and the copies of the virtual branches drop it. A repository whose commits
   land as they are turns it off, since there the prefix reaches the remote.
+- `pull_request`: `branchdeck.agentPullRequest`, off by default. The landing of a commit includes its pull request:
+  after the pick the agent pushes its branch (`brd -C <shared checkout> push <branch>`, a step of `next` in a lease and
+  of `brd lease get`) and runs the `gh pr create` it prints, without asking. Off, the push and the pull request wait for
+  the user. A Safe Push, `brd land`, a push with --force and a parked branch wait for the user either way. The skill
+  carries the rules that go with a pushed branch: a change to it is a `(branch) fixup! <subject>` commit, folded only
+  when the user asks.
 
 `source` is the scope that sets the rule (`local`, `worktree`, `command`, `global`, `system`) or `default`; the user
 sets the global value and the repository's own in Settings → Agents, or with `git config [--global]`. `kind` is
@@ -2136,7 +2142,7 @@ over from a dead holder, another session's `brd workspace` is `lease_reclaimed`;
 
 ```json
 {"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":true,"source":"default"},
- "top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
+ "pull_request":{"on":false,"source":"default"},"top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
  "active_leases":[],"next":["brd lease get --holder <your name> -C /work/app"]}
 ```
 
