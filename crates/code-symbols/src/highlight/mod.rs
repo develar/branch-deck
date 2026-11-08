@@ -1,7 +1,8 @@
 //! The syntax highlighting of one file, as the IntelliJ editor colours it without resolving names
 //! (docs/design/diff-view.md, "Syntax highlighting"): the role of each piece of text, from its syntax tree. Kotlin,
-//! Java and C# from their PSI and Roslyn's tree (`kotlin::highlight`, `java::highlight`, `csharp::highlight`: one pass
-//! over the leaves of psi-syntax's tree, whose tokens are the lexer's, soft keywords included), Rust, TypeScript, TSX and JavaScript from a tree-sitter tree by the
+//! Java, C# and Starlark from their PSI and Roslyn's tree (`kotlin::highlight`, `java::highlight`, `csharp::highlight`,
+//! `starlark::highlight`: one pass over the leaves of psi-syntax's tree, whose tokens are the lexer's, soft keywords
+//! included), Rust, TypeScript, TSX and JavaScript from a tree-sitter tree by the
 //! rules of their grammar (`rust_lang.rs`, `typescript.rs`, painted by `paint.rs`).
 //!
 //! - **One walk, painted spans**: a preorder walk gives each piece of text its style; a node with a style paints its
@@ -32,7 +33,7 @@ mod typescript;
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 5;
+pub const RULES_VERSION: u32 = 6;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
 /// The progress callbacks of a tree-sitter parse per KiB of text; the densest files of the IntelliJ monorepo took 19
@@ -156,6 +157,10 @@ pub enum Grammar {
   /// TSX: `.tsx` and JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), JSX included
   Tsx = 4,
   CSharp = 6,
+  /// Starlark: Bazel's `.bzl`, WORKSPACE and REPO.bazel files
+  Starlark = 7,
+  /// A Starlark BUILD or MODULE.bazel file, whose top-level calls declare (a target, a module or a dependency)
+  StarlarkBuild = 8,
 }
 
 impl Grammar {
@@ -172,6 +177,7 @@ impl Grammar {
       Self::Rust => cfg!(feature = "rust"),
       Self::TypeScript | Self::Tsx => cfg!(feature = "typescript"),
       Self::CSharp => cfg!(feature = "csharp"),
+      Self::Starlark | Self::StarlarkBuild => cfg!(feature = "starlark"),
     }
   }
 
@@ -193,8 +199,18 @@ impl Grammar {
 /// The grammar of a file by its extension, if this build can highlight it
 pub fn grammar_of(path: &str) -> Option<Grammar> {
   let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+  // Bazel's files are named, not suffixed: `BUILD` has no extension (`starlark_syntax::FileKind::from_path`)
+  let named = match file_name {
+    "BUILD" | "BUILD.bazel" | "MODULE.bazel" => Some(Grammar::StarlarkBuild),
+    "WORKSPACE" | "WORKSPACE.bazel" | "WORKSPACE.bzlmod" | "REPO.bazel" => Some(Grammar::Starlark),
+    _ => None,
+  };
+  if let Some(grammar) = named {
+    return grammar.is_enabled().then_some(grammar);
+  }
   let (_, extension) = file_name.rsplit_once('.')?;
   let grammar = match extension {
+    "bzl" | "bazel" | "star" | "BUILD" => Grammar::Starlark,
     "kt" => Grammar::Kotlin,
     "kts" => Grammar::KotlinScript,
     "java" => Grammar::Java,
@@ -249,6 +265,8 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
     Grammar::Java => Some(crate::java::highlight::highlight(text)),
     #[cfg(feature = "csharp")]
     Grammar::CSharp => Some(crate::csharp::highlight::highlight(text)),
+    #[cfg(feature = "starlark")]
+    Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::starlark::highlight::highlight(text, grammar == Grammar::StarlarkBuild)),
     _ => highlight_tree_sitter(grammar, text),
   }
 }

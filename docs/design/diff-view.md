@@ -569,13 +569,15 @@ grammar is not loaded stays empty, so the front matter of Markdown would be a pa
 when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
-**Backend highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, C#, Rust, TypeScript, TSX and
-JavaScript are coloured as the IntelliJ editor (and Rider) colours them without resolving a name, from a syntax tree of
+**Backend highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, C#, Starlark, Rust, TypeScript, TSX
+and JavaScript are coloured as the IntelliJ editor (and Rider) colours them without resolving a name, from a syntax tree of
 `code-symbols`: Kotlin and Java from their PSI, the trees of the Kotlin compiler's and IntelliJ's own parsers
 (psi-syntax's `kotlin-syntax` and `java-syntax`, read by `kotlin/highlight.rs` and `java/highlight.rs`), C# from
 Roslyn's tree (psi-syntax's `csharp-syntax`, read by `csharp/highlight.rs`: a documentation comment's XML, the
-keywords of a directive, a branch of `#if` not taken as a comment), the others from a tree-sitter tree (`.ts` by
-the TypeScript grammar, the rest of the script files by TSX):
+keywords of a directive, a branch of `#if` not taken as a comment), Starlark from the Bazel plugin's PSI
+(psi-syntax's `starlark-syntax`, read by `starlark/highlight.rs`: one pass over the leaves, the plugin's lexer colours
+and the roles a parent gives a name, `Grammar::StarlarkBuild` for a BUILD or MODULE.bazel file, whose top-level calls
+declare), the others from a tree-sitter tree (`.ts` by the TypeScript grammar, the rest of the script files by TSX):
 - Kotlin, Java and C#: one pass over the tree's ids in preorder with an explicit stack of the open nodes, each leaf of the
   tree (its tokens tile the text) painted by `paint::paint_leaf`, so a keyword is the parser's token as the parser
   left it, a soft or contextual one only where the parser made it one; Rust and TypeScript: one preorder walk asks the
