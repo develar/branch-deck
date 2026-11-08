@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0](https://github.com/develar/branch-deck/compare/v1.3.0...v1.4.0) (2026-11-08)
+
+
+### Features
+
+* **repository:** group linked repositories in project selector ([0b4ccfd](https://github.com/develar/branch-deck/commit/0b4ccfd623aeee23fdcfa62cb9a71e365995e954))
+* **review:** filter review files by owner chip ([8ff67b3](https://github.com/develar/branch-deck/commit/8ff67b32971870e8f5a68b0408d7cdc8d62805cd))
+* **symbols:** read Bazel files as Starlark ([905dec0](https://github.com/develar/branch-deck/commit/905dec0346888ee2c478d00b1236c8a3f44735e5))
+
 ## [1.3.0](https://github.com/develar/branch-deck/compare/v1.2.0...v1.3.0) (2026-11-08)
 
 
