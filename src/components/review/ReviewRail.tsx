@@ -4,17 +4,25 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitRow } from "@/components/commit/CommitRow"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
+import { ShapeRows } from "@/components/review/ReviewMap"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles, ReviewCommit, ReviewRequest, TransferProgress } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import { toCardCommit } from "@/lib/commit"
+import type { MapView } from "@/presenters/review-map"
 import { commitTitleOf } from "@/presenters/review-steps"
 
 export interface ReviewRailProps {
   request: ReviewRequest
   /** The files of the range with their sums; undefined while they are read */
   files: CommitFiles | undefined
+  /**
+   * The map of the plan of all changes, once read and of a shape: its rows in place of the files, each showing its first
+   * file through the navigator of the overview (`SelectReviewFileContext`); null while the plan is off or being read,
+   * or of a change too small for a shape
+   */
+  shape: MapView | null
   /** The commits of the range; null while the pull request is fetched */
   commits: readonly ReviewCommit[] | null
   /** How far the fetch is; null before its first report */
@@ -27,11 +35,11 @@ export interface ReviewRailProps {
 }
 
 /**
- * The side of the overview: the files of the pull request (a click reviews the changes at the file) and its commits,
- * newest first as in the commit column of the changes (a click reviews the changes at the commit); while it is fetched,
- * how far the fetch is
+ * The side of the overview: the shape of the pull request, the rows of its map (a click reviews the changes at the first
+ * file of the row), else its files (a click reviews the changes at the file), then its commits, newest first as in the
+ * commit column of the changes (a click reviews the changes at the commit); while it is fetched, how far the fetch is
  */
-export function ReviewRail({ request, files, commits, progress, onOpenFile, onOpenCommit, titles }: ReviewRailProps) {
+export function ReviewRail({ request, files, shape, commits, progress, onOpenFile, onOpenCommit, titles }: ReviewRailProps) {
   if (commits === null) {
     return (
       <aside className="flex flex-col gap-2" aria-label="Commits" data-testid="review-commits">
@@ -41,12 +49,24 @@ export function ReviewRail({ request, files, commits, progress, onOpenFile, onOp
   }
   return (
     <aside className="flex min-w-0 flex-col gap-5">
-      <section className="flex flex-col gap-1" aria-label="Files" data-testid="review-files">
-        <SectionLabel title="Files" count={files?.files.length ?? request.changedFiles} className="px-2">
-          {files !== undefined && <LineCounts additions={files.additions} deletions={files.deletions} colored={false} />}
-        </SectionLabel>
-        {files === undefined ? <LoadingLine className="px-2">Loading files…</LoadingLine> : <FileRows files={files.files} onOpen={onOpenFile} />}
-      </section>
+      {shape !== null ? (
+        <section className="flex min-w-0 flex-col gap-1.5" aria-label="Shape" data-testid="review-shape">
+          <SectionLabel title="Shape" className="px-2">
+            {shape.total.files === 1 ? "1 file " : `${shape.total.files} files `}
+            <LineCounts additions={shape.total.additions} deletions={shape.total.deletions} colored={false} />
+          </SectionLabel>
+          <div className="px-2">
+            <ShapeRows rows={shape.rows} more={shape.more} />
+          </div>
+        </section>
+      ) : (
+        <section className="flex flex-col gap-1" aria-label="Files" data-testid="review-files">
+          <SectionLabel title="Files" count={files?.files.length ?? request.changedFiles} className="px-2">
+            {files !== undefined && <LineCounts additions={files.additions} deletions={files.deletions} colored={false} />}
+          </SectionLabel>
+          {files === undefined ? <LoadingLine className="px-2">Loading files…</LoadingLine> : <FileRows files={files.files} onOpen={onOpenFile} />}
+        </section>
+      )}
       <section className="flex flex-col gap-1" aria-label="Commits" data-testid="review-commits">
         <SectionLabel title="Commits" count={commits.length} className="px-2" />
         <CommitRows commits={commits} onOpen={onOpenCommit} titles={titles} />

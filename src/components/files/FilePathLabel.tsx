@@ -32,62 +32,53 @@ export interface FilePathLabelProps {
 
 /**
  * A changed file wherever it is listed: the status letter, the name in the colour of its status, where it came from, then
- * its directory muted, in the size around it. The name comes first, as IntelliJ lists a change; a long directory gives
- * way first and loses its start (`dir="rtl"`, the path itself kept left to right by `bdi`).
+ * its directory muted, in the size around it, right after the name. The name comes first, as IntelliJ lists a change: it
+ * stays whole while the directory gives way, and only a name wider than the label truncates; nothing of it ever paints
+ * over the directory. The directory loses its start (`dir="rtl"`, the path itself kept left to right by `bdi`) down to
+ * its last folder, and a directory whose last folder does not fit after the name wraps out of sight, never cut to its
+ * last letters ("…n"); a row of a tree shows it whole or not at all (`wholeDirectory`).
  */
 export function FilePathLabel({ path, oldPath = null, status, directory = true, emphasis = false, letterSlot = "inline", wholeDirectory = false, className }: FilePathLabelProps) {
   const label = formatTreeFileLabel({ path, oldPath })
   const parent = typeof directory === "string" ? directory : directory ? path.slice(0, path.length - label.name.length).replace(/\/$/, "") : ""
   const statusClass = status === undefined ? undefined : getFileStatusTextClass(status)
-  if (wholeDirectory && parent !== "") {
-    return (
-      // one line of a wrapping row: the directory that does not fit after the name wraps below it, out of sight
-      <span className={cn("flex h-[1lh] min-w-0 flex-wrap items-baseline gap-x-1.5 overflow-hidden", className)}>
-        <span className="flex max-w-full min-w-0 items-baseline gap-1.5">
-          {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
-          {emphasis ? <span className={cn("min-w-0 truncate", statusClass)}>{label.name}</span> : <MidTruncatedName name={label.name} className={statusClass} />}
-          {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
-        </span>
-        <span className="shrink-0 text-muted-foreground" data-testid="file-label-directory">
-          {parent}
-        </span>
-      </span>
-    )
-  }
   return (
-    <span className={cn("flex min-w-0 items-baseline gap-1.5", className)}>
-      {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
-      {emphasis ? (
-        <span
-          className={cn(
-            "min-w-0 truncate",
-            statusClass,
-            // the width of the label less the letter and its gap: a name longer than that truncates as the last resort
-            "shrink-0 font-semibold",
-            status === undefined ? "max-w-full" : letterSlot === "icon" ? "max-w-[calc(100%-1.375rem)]" : "max-w-[calc(100%-1.125rem)]",
-          )}
-        >
-          {label.name}
-        </span>
-      ) : (
-        <MidTruncatedName name={label.name} className={statusClass} />
-      )}
-      {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
-      {parent !== "" && (
-        <span className="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">
-          <bdi dir="ltr">{emphasis ? <EmphasizedDirectory directory={parent} /> : parent}</bdi>
-        </span>
-      )}
+    // one line of a wrapping row: a directory that does not fit after the name wraps below it, out of sight
+    <span className={cn("flex h-[1lh] min-w-0 flex-wrap items-baseline gap-x-1.5 overflow-hidden", className)}>
+      <span className="flex max-w-full min-w-0 items-baseline gap-1.5">
+        {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
+        {emphasis ? <span className={cn("min-w-0 truncate font-semibold", statusClass)}>{label.name}</span> : <MidTruncatedName name={label.name} className={statusClass} />}
+        {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
+      </span>
+      {parent !== "" &&
+        (wholeDirectory ? (
+          <span className="shrink-0 text-muted-foreground" data-testid="file-label-directory">
+            {parent}
+          </span>
+        ) : (
+          <span
+            className="max-w-max min-w-0 grow truncate text-muted-foreground"
+            // on the line of the name only with room for "…" and its last folder, then as much more as fits
+            style={{ flexBasis: `${parent.length - parent.lastIndexOf("/") + 1}ch` }}
+            dir="rtl"
+            data-testid="file-label-directory"
+          >
+            <bdi dir="ltr">{emphasis ? <EmphasizedDirectory directory={parent} /> : parent}</bdi>
+          </span>
+        ))}
     </span>
   )
 }
 
-/** A filename cut in the middle when needed: the start truncates, the extension and its suffix never do */
+/**
+ * A filename cut in the middle when needed: the start truncates, the extension and its suffix never do. As wide as the
+ * name, never wider than its box: a suffix wider than the box is clipped at its edge, never drawn over what follows
+ */
 function MidTruncatedName({ name, className }: { name: string; className?: string }) {
   const dot = name.lastIndexOf(".")
   const suffixStart = dot > 0 ? Math.max(0, dot - 6) : Math.max(0, name.length - 6)
   return (
-    <span className={cn("flex min-w-0 flex-1 items-baseline", className)} data-testid="file-path-label-name">
+    <span className={cn("flex min-w-0 items-baseline overflow-hidden", className)} data-testid="file-path-label-name">
       <span className="min-w-0 truncate" data-testid="file-path-label-name-start">
         {name.slice(0, suffixStart)}
       </span>

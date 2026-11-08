@@ -373,8 +373,11 @@ it added a module.
   intellij.platform.ide.util.io", "Opens wider: isNightlyBuild"). A module of build files or prose alone has no row. A
   change of one module shows its folders as the rows when it holds more than 12 files there, else no shape. At most 6
   rows, then "and N more modules" with their labels in its hover; every line truncates at the edge of the reading
-  column, never wraps. A click on a row shows its first file in the story.
+  column, never wraps. A click on a row shows its first file in the story. The rail of the overview of a pull request
+  lists the same rows ([Review Requests → Review window](../repository/review-requests.spec.md#review-window)), without
+  their bars, the badge in its tone on the line under the row.
   [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names the rows past its budget once, and the folders of a large change of one module; a small change has no shape`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the shape of the plan in the rail of the overview, a module showing its first file in the changes`)
 - The map must name the contract in one line, "Contract": each new spec by its name and the count of its requirements
   ("New spec Transcript Media Playback (14 requirements)", a click its top), then how many specs and docs the change
   changes ("3 specs and 3 docs changed"); and the API: "Opens wider:" the declarations whose reach alone opened wider,

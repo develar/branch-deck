@@ -143,3 +143,27 @@ export function presentBodyParts(key: string, body: CommitBody, parts: readonly 
   }
   return { lead, ...(leadRemoved === undefined ? {} : { leadRemoved }), ...view, code: body.code }
 }
+
+/** The lead of a description in the document of the changes: its summary alone, and whether the description says more */
+export interface SummaryView {
+  /** The block Rust names the summary of the body (`CommitBody.summary`) as a lead; null without one */
+  readonly parts: BodyParts | null
+  /** The body holds more than its summary and the headings over it: the overview shows it whole */
+  readonly more: boolean
+}
+
+/**
+ * The description of a pull request as the lead of the document of its changes (spec/repository/review-requests.spec.md,
+ * "Review window"): the block Rust names its summary (`CommitBody.summary`: the lead, else the first paragraph of its
+ * first plain section), its code as Rust found it; `more` when a block beside it is more than a heading or a label, or
+ * the body ends with trailers
+ */
+export function presentSummary(body: CommitBody): SummaryView {
+  const at = body.summary
+  const block = at === null ? undefined : body.blocks[at]
+  const placed = block === undefined || block.type === "label" || block.type === "heading" ? null : { index: at!, block }
+  return {
+    parts: placed === null ? null : { lead: placed, shown: [], folded: [], code: body.code },
+    more: body.trailers.length > 0 || body.blocks.some((other, index) => index !== at && other.type !== "label" && other.type !== "heading"),
+  }
+}

@@ -1,6 +1,6 @@
 ---
 name: Review Requests
-description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in its own window (an overview with the files and commits while it is fetched, then the review of base..head with the file tree and all diffs), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Notifications page of Settings, the notifications and the badge.
+description: Requirements for "Your Turn", the island of the GitHub pull requests of others that wait for the user's review (requested by name), above the branches, waiting the longest first, with the user's own pull requests a reviewer handed back; GitHub polled every five minutes through its API, a toast or an OS notification for a new request, the Dock badge; the in-app review of a pull request in its own window (an overview, its description whole beside its shape, else its files, and its commits, then the review of base..head with the file tree and all diffs, led by the summary of the description), approving it (the primary decision) or requesting changes on the commit the user saw, with the same actions in the overview, the review and the row's menu; and the Notifications page of Settings, the notifications and the badge.
 style: plain-1
 targets:
   - ../../crates/domain-types/src/review_request.rs
@@ -40,6 +40,9 @@ targets:
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/range-review.ts
   - ../../src/components/review/RangeReview.tsx
+  - ../../src/components/review/DescriptionLead.tsx
+  - ../../src/components/files/FilePathLabel.tsx
+  - ../../src/presenters/commit-body.ts
   - ../../src/lib/errors.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/lib/os-notification.ts
@@ -379,24 +382,39 @@ Safe Push it allows.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left; while the changes show, the sidebar
   toggle and the Split/Unified/Inline toggle with Whitespace at the end of the tabs, in the header of the block they
-  switch. The overview, in an island of its own, is the document the changes tell above their diffs
-  ([Review Tour](../branch/review-tour.spec.md#in-the-review-window), `ReviewPrologue`) once the repository turns the
-  plan on: the description its lead, then What Changes, the steps and Possible Breakage of all
-  changes, no second headline under the title of the island (the changes open on the same lead); a link of it reviews
-  all changes at its place, as the same link there shows it once the changes are read: a code name or an entry at its
-  declaration, its file selected and its name selected in the diffs, a use left outside opening its file over the
-  changes, a step at its opening. It is as wide as what it holds, the measure of reading at most (`ReadingColumn`,
-  65ch of `text-md`), the rail right after it, the two in the middle of the island:
-  "Files 4" with the muted sum of the line counts, then the files of the range (status letter, name, directory,
-  `+a −d`; the name first, the directory giving way, as every list of changed files names a file; a click
-  reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
-  and "Commits 4", newest first as in the list of commits of the changes, each the one commit row of a sidebar
-  ([Commit Row → Commit card](../commit/commit-row.spec.md#commit-card): its title as the changes name it, its hash in its card, the mark
-  of its card; a click and Enter review the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
-  Previous/next, Esc Close; Space scrolls.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should review the changes of a pull request at the place of a breakage link of its overview: the declaration, a use outside over the changes`)
+  switch. The overview, in an island of its own, is the cover of the pull request: its description whole (below), as
+  wide as it holds, the measure of reading at most (a body at `max-w-prose`), the rail right after it, the two in the
+  middle of the island; never a second copy of the document the changes tell above their diffs
+  ([Review Tour](../branch/review-tour.spec.md#in-the-review-window), `ReviewPrologue`), whose map, What Changes,
+  steps and Possible Breakage stand there alone. The rail:
+  - once the plan of all changes is read and has a shape ([Review Tour → The Map](../branch/review-tour.spec.md#the-map)),
+    "Shape" with the count of the files and lines of the change, then the rows of the map, the one view of them
+    (`ShapeRows`): narrower than 24rem they have no bars, and the badge of a module the change adds or deletes leads
+    the muted line under its row in its tone, its label in that tone, so a label and its counts keep their line; a
+    click on a row reviews all changes at its first file, as the same row of the map there shows it;
+  - else (the plan off, being read, or a change too small for a shape) "Files 4" with the muted sum of the line counts,
+    then the files of the range (status letter, name, directory, `+a −d`; a click reviews all changes at that file,
+    the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file)). The
+    name comes first and stays whole while the directory, right after it, gives way from its start down to its last
+    folder, and wraps out of sight below the name when even that does not fit, as every list of changed files names a
+    file (`FilePathLabel`); its path in its hover;
+  - "Commits 4", newest first as in the list of commits of the changes, each the one commit row of a sidebar
+    ([Commit Row → Commit card](../commit/commit-row.spec.md#commit-card): its title as the changes name it, its hash
+    in its card, the mark of its card; a click and Enter review the changes at that commit).
+
+  Below `md` the rail goes under the description. The key hints below the islands: ↑↓ Previous/next, Esc Close; Space
+  scrolls.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should list the shape of the plan in the rail of the overview, a module showing its first file in the changes`, `should list the files of the pull request in the rail without a plan, a name whole before its directory, which gives way`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should name a commit alike in the rail, the commit column and the tree, each opening its card by the hover of its subject and by I`)
+- The document of the changes opens, once the repository turns the plan on, on the description as its lead, no second
+  headline under the title of the island: its summary alone (`CommitBody.summary`, below), then "Description", muted,
+  which shows the overview at the description; a description of its summary alone has no "Description", one of no
+  summary the link alone, an empty one "No description". A link of the document reviews all changes at its place: a
+  code name or an entry at its declaration, its file selected and its name selected in the diffs, a use left outside
+  opening its file over the changes, a step at its opening.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should lead the changes of the pull request with the summary of its description, whose Description shows it whole in the overview`)
+  [@test] ../../src/presenters/commit-body.test.ts (`leads with the block Rust names the summary, its code kept, and says more of a description beside it`, `says no more of a summary under its heading alone, more of one with trailers`, `leads with nothing of a body without a summary, which the overview shows whole`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the place of a breakage link in the changes of a pull request: the declaration, a use outside over the changes`)
 - The description is the pull request as its author wrote it: GitHub's `body` (GitHub Markdown), never its plain text,
   read by the grammar of a commit body ([Commit Row → Message body](../commit/commit-row.spec.md#message-body)), so its
   headings stay headings, its lists lists, its tables tables (`role=table`) and its code code; the hints of its

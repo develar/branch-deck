@@ -1,3 +1,4 @@
+import { Fragment } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
@@ -30,19 +31,7 @@ export function ReviewMap({ view }: { view: MapView }) {
               {total.files === 1 ? "1 file" : `${total.files} files`} <LineCounts additions={total.additions} deletions={total.deletions} colored={false} />
             </span>
           </div>
-          <ul aria-label="Modules" className="flex min-w-0 flex-col gap-1.5">
-            {rows.map(row => (
-              <ShapeRow key={row.key} row={row} />
-            ))}
-          </ul>
-          {more !== null && (
-            <Tooltip>
-              <TooltipTrigger render={<span className="self-start text-xs text-muted-foreground underline decoration-dotted underline-offset-2" data-testid="review-map-more" />}>
-                {more.count === 1 ? "and 1 more module" : `and ${more.count} more modules`}
-              </TooltipTrigger>
-              <TooltipContent className="max-w-sm">{more.labels}</TooltipContent>
-            </Tooltip>
-          )}
+          <ShapeRows rows={rows} more={more} />
         </div>
       )}
       {contract !== null && (
@@ -92,14 +81,45 @@ export function ReviewMap({ view }: { view: MapView }) {
   )
 }
 
-/** A row of the shape: its main line and, under it, what it uses or its folders and what it adds beside its code */
+/**
+ * The rows of the shape and "and N more modules", the one view of them: in the map, and in the rail of the overview of a
+ * pull request (`ReviewRail`), where a click shows the first file of the row in the changes. A list narrower than 24rem
+ * (the rail) drops the bars, so the labels keep their width
+ */
+export function ShapeRows({ rows, more }: Pick<MapView, "rows" | "more">) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <ul aria-label="Modules" className="@container flex min-w-0 flex-col gap-1.5">
+        {rows.map(row => (
+          <ShapeRow key={row.key} row={row} />
+        ))}
+      </ul>
+      {more !== null && (
+        <Tooltip>
+          <TooltipTrigger render={<span className="self-start text-xs text-muted-foreground underline decoration-dotted underline-offset-2" data-testid="review-map-more" />}>
+            {more.count === 1 ? "and 1 more module" : `and ${more.count} more modules`}
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm">{more.labels}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A row of the shape: its main line and, under it, what it uses or its folders and what it adds beside its code. In a
+ * list narrower than 24rem (the rail) the badge of a module the change adds or deletes leads that line in its tone and
+ * its label takes the tone, so the label and the counts keep the main line
+ */
 function ShapeRow({ row }: { row: MapRow }) {
   const navigator = useSelectReviewFile()
+  const tone = row.badge === null ? null : row.badge === "New module" ? "success" : "warning"
+  const below = [row.detail, row.extra].filter(part => part !== null)
   return (
     <li className="flex min-w-0 flex-col" data-testid="review-map-module" data-root={row.root}>
       <button
         type="button"
-        className="grid min-w-0 grid-cols-[minmax(0,1fr)_5rem_auto] items-center gap-3 rounded-sm text-left text-sm outline-none hover:bg-muted/50 focus-visible:bd-focus disabled:hover:bg-transparent"
+        className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-sm text-left text-sm outline-none hover:bg-muted/50 focus-visible:bd-focus disabled:hover:bg-transparent @sm:grid-cols-[minmax(0,1fr)_5rem_auto]"
         title={row.root}
         disabled={navigator === null || row.place === null}
         onClick={() => {
@@ -110,15 +130,18 @@ function ShapeRow({ row }: { row: MapRow }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           {row.badge !== null && (
-            <Badge variant={row.badge === "New module" ? "success" : "warning"} className="shrink-0" data-testid="review-map-badge">
+            <Badge variant={tone ?? undefined} className="hidden shrink-0 @sm:inline-flex" data-testid="review-map-badge">
               {row.badge}
             </Badge>
           )}
-          <span className="min-w-0 truncate font-mono font-medium" data-testid="review-map-label">
+          <span
+            className={cn("min-w-0 truncate font-mono font-medium", tone === "success" && "@max-sm:text-success", tone === "warning" && "@max-sm:text-warning")}
+            data-testid="review-map-label"
+          >
             {row.label}
           </span>
         </span>
-        <span aria-hidden="true" className="h-1 w-full overflow-hidden rounded-full bg-muted">
+        <span aria-hidden="true" className="hidden h-1 w-full overflow-hidden rounded-full bg-muted @sm:block">
           <span
             className={cn("block h-full rounded-full", row.badge === "New module" ? "bg-success/60" : "bg-muted-foreground/40")}
             style={{ width: `${Math.max(4, Math.round(row.share * 100))}%` }}
@@ -129,11 +152,27 @@ function ShapeRow({ row }: { row: MapRow }) {
           <span>{row.files === 1 ? "1 file" : `${row.files} files`}</span>
         </span>
       </button>
-      {(row.detail !== null || row.extra !== null) && (
-        <span className="flex min-w-0 gap-1.5 text-xs text-muted-foreground" data-testid="review-map-detail">
-          {row.detail !== null && <span className="min-w-0 truncate">{row.detail}</span>}
-          {row.detail !== null && row.extra !== null && <span aria-hidden="true">·</span>}
-          {row.extra !== null && <span className="min-w-0 truncate">{row.extra}</span>}
+      {(below.length > 0 || row.badge !== null) && (
+        <span
+          className={cn("flex min-w-0 gap-1.5 text-xs text-muted-foreground", below.length === 0 && "@sm:hidden")}
+          title={below.length === 0 ? undefined : below.join(" · ")}
+          data-testid="review-map-detail"
+        >
+          {row.badge !== null && (
+            <span className={cn("shrink-0 @sm:hidden", tone === "success" ? "text-success" : "text-warning")} data-testid="review-map-detail-badge">
+              {row.badge}
+            </span>
+          )}
+          {below.map((part, index) => (
+            <Fragment key={index}>
+              {(index > 0 || row.badge !== null) && (
+                <span aria-hidden="true" className={cn(index === 0 && "@sm:hidden")}>
+                  ·
+                </span>
+              )}
+              <span className="min-w-0 truncate">{part}</span>
+            </Fragment>
+          ))}
         </span>
       )}
     </li>

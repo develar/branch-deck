@@ -280,24 +280,26 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "format", path: "src/Format.kt" })
   })
 
-  test("should review the changes of a pull request at the place of a breakage link of its overview: the declaration, a use outside over the changes", async ({
+  test("should show the place of a breakage link in the changes of a pull request: the declaration, a use outside over the changes", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // the branch `plan` as a pull request, its plan on
+    // the branch `plan` as a pull request, its plan on: the overview tab is its description, the changes tell the plan
     const repo = await setupRepo("symbol_navigation", { reviewRequests: availableReviewRequests([reviewRequest("plan", 301, 1, { title: "Scale the helper" })]) })
     await setupPlan(repo, { experimental: true })
     await syncAndWaitForBranches()
     const { window, review } = await openRequestReview(page, 301)
+    await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
+    await expect(review.getByTestId("review-overview")).toHaveCount(0)
+    await window.keyboard.press("d")
     const helper = review.getByTestId("review-overview").getByTestId("review-plan-breakage-entry")
     const { store } = planRows(window)
 
-    // the entry: the changes of all of it at its declaration, the name selected
+    // the entry: its declaration in the changes of all of it, the name selected
     await showHelperDeclaration(window, helper, store)
 
     // a use left outside: its file at the head over the changes, the name selected
-    await window.keyboard.press("Escape")
     await showHelperUseOutside(window, helper)
     await expect(review.getByTestId("commit-review")).toBeVisible()
   })

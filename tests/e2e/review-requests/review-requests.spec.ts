@@ -1,7 +1,7 @@
 // @spec spec/repository/review-requests.spec.md
 import { appendFileSync } from "node:fs"
 import path from "node:path"
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
@@ -22,7 +22,6 @@ import {
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
-import { selectedInDiffs } from "../helpers/selection-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -36,6 +35,19 @@ const RELEASE = reviewRequest("JIRA-456", 103, 2, { title: "Backport the pool fi
 const FOURTH = reviewRequest("feature-docs", 104, 1, { title: "Document the CLI" })
 // asked 5 hours ago, the user commented, carol replied half an hour ago: the turn is the user's again
 const FIFTH = reviewRequest("feature-db", 105, 0.5, { title: "Migrate the schema", requestedAt: NOW - 5 * 3600, backToYou: { at: NOW - 1800, repliedBy: "carol" } })
+// GitHub's body as its author wrote it: the hint of its template, its headings, a table with a column aligned right
+const DESCRIPTION = [
+  "<!-- What does this change do? -->",
+  "## Goal",
+  "Basically: ability to play video in chat.",
+  "",
+  "## Sizes",
+  "",
+  "| Module | Installed size |",
+  "| --- | ---: |",
+  "| `view.gui.media` | 6.4 MB |",
+  "| **core** | 12 KB |",
+].join("\n")
 
 type SetupRepo = (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
 
@@ -368,22 +380,7 @@ test.describe("Review window", () => {
   })
 
   test("should show the description of the pull request as its Markdown: its headings and its tables", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // GitHub's body as its author wrote it: the hint of its template, its headings, a table with a column aligned right
-    const described = reviewRequest("ABC-123", 101, 50, {
-      title: "Play video in the chat",
-      body: [
-        "<!-- What does this change do? -->",
-        "## Goal",
-        "Basically: ability to play video in chat.",
-        "",
-        "## Sizes",
-        "",
-        "| Module | Installed size |",
-        "| --- | ---: |",
-        "| `view.gui.media` | 6.4 MB |",
-        "| **core** | 12 KB |",
-      ].join("\n"),
-    })
+    const described = reviewRequest("ABC-123", 101, 50, { title: "Play video in the chat", body: DESCRIPTION })
     await setupRequests(page, setupRepo, syncAndWaitForBranches, described)
     const { review } = await openRequestReview(page, 101)
     const body = review.getByTestId("review-dialog-body").getByTestId("commit-message-body")
@@ -542,28 +539,113 @@ test.describe("Review window", () => {
     },
   )
 
-  test("should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title", async ({
+  test("should lead the changes of the pull request with the summary of its description, whose Description shows it whole in the overview", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const { reviewPage, review } = await openPlanChanges(page, setupRepo, syncAndWaitForBranches)
-    // the changes: the overview of the plan opens on the body of the pull request, its title is the island's alone
-    const changes = review.getByTestId("review-overview")
-    await expect(changes.getByTestId("review-overview-lead")).toContainText("The change of ABC-123.")
-    await expect(changes.getByTestId("review-overview-headline")).toHaveCount(0)
-    // the overview tab is the same document beside the rail of the files and the commits
-    await reviewPage.keyboard.press("Escape")
-    const overview = review.getByTestId("review-overview")
-    await expect(overview.getByTestId("review-overview-lead")).toContainText("The change of ABC-123.")
-    await expect(overview.getByTestId("review-overview-headline")).toHaveCount(0)
-    await expect(review.getByTestId("review-overview-reading")).toHaveCount(0)
+    const described = reviewRequest("ABC-123", 101, 50, { title: "Play video in the chat", body: DESCRIPTION })
+    // the next request: the same commits, the description of the template
+    const again = reviewRequest("ABC-123", 106, 1, { title: "Keep the session store" })
+    const { reviewPage, review } = await openPlanChanges(page, setupRepo, syncAndWaitForBranches, described, again)
+    // the changes: the overview of the plan opens on the summary of the description, its title is the island's alone
+    const lead = review.getByTestId("review-overview").getByTestId("review-overview-lead")
+    await expect(lead.getByTestId("commit-message-body")).toHaveText("ability to play video in chat.")
+    await expect(lead.locator("[data-slot=commit-body-heading]")).toHaveCount(0)
+    await expect(lead.getByRole("table")).toHaveCount(0)
+    await expect(review.getByTestId("review-overview-headline")).toHaveCount(0)
+
+    // Description: the overview, the description whole in view, no document of the plan beside it
+    await lead.getByRole("button", { name: "Description" }).click()
+    await expect(review.getByTestId("commit-review")).toBeHidden()
+    await expect(review.getByTestId("review-tab-overview")).toHaveAttribute("data-active")
+    const description = review.getByTestId("review-description")
+    await expect(description).toBeInViewport()
+    await expect(description.locator("[data-slot=commit-body-heading]")).toHaveText(["Goal", "Sizes"])
+    await expect(description.getByRole("table").getByRole("cell")).toHaveText(["view.gui.media", "6.4 MB", "core", "12 KB"])
+    await expect(review.getByTestId("review-overview")).toHaveCount(0)
     // the commits of the rail are commit rows, by their subjects
     await expect(review.getByTestId("review-commits").getByTestId("review-commit-subject")).toHaveCount(4)
+
+    // a description of its summary alone leads the changes whole, with no link to the same words
+    await reviewPage.keyboard.press("ArrowDown")
+    await expect(review.getByRole("heading", { name: "Keep the session store" })).toBeVisible()
+    await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
+    await reviewPage.keyboard.press("d")
+    const short = review.getByTestId("review-overview").getByTestId("review-overview-lead")
+    await expect(short.getByTestId("commit-message-body")).toHaveText("The change of ABC-123.")
+    await expect(short.getByRole("button", { name: "Description" })).toHaveCount(0)
+  })
+
+  test("should list the shape of the plan in the rail of the overview, a module showing its first file in the changes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the branch `media` of the `review_modules` template as a pull request: a new module, two changed ones
+    const repo = await setupRepo("review_modules", { reviewRequests: availableReviewRequests([reviewRequest("media", 301, 1, { title: "Play the media embeds inline" })]) })
+    turnOnReviewPlan(repo)
+    await syncAndWaitForBranches()
+    const { window, review } = await openRequestReview(page, 301)
+    // the rows of the map in place of the files: the new module first, its badge leading the line under it in the rail
+    const shape = review.getByTestId("review-shape")
+    await expect(shape.getByTestId("review-map-label")).toHaveText(["view.gui.media", "view.gui", "shared/code"])
+    await expect(review.getByTestId("review-files")).toHaveCount(0)
+    const media = shape.getByTestId("review-map-module").filter({ has: window.getByTestId("review-map-label").getByText("view.gui.media", { exact: true }) })
+    await expect(media.getByTestId("review-map-badge")).toBeHidden()
+    await expect(media.getByTestId("review-map-detail-badge")).toHaveText("New module")
+    await expect(media.getByTestId("review-map-detail")).toContainText("uses view.gui and shared/code")
+    await captureHtmlSnapshot(shape, "review-request-shape")
+
+    // a row: all changes at the first file of the module in the story
+    await media.getByRole("button").click()
+    await expect(review.getByTestId("commit-review")).toBeVisible()
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    await expect(tree.getByRole("treeitem", { name: MEDIA_FIRST_FILE, exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(review.getByTestId("range-review-commits").getByTestId("range-review-commit").first()).toHaveAttribute("aria-selected", "true")
+    // the map heads the changes with the same rows, each with its bar
+    await expect(review.getByTestId("review-overview").getByTestId("review-map-label")).toHaveText(["view.gui.media", "view.gui", "shared/code"])
+    await expect(review.getByTestId("review-overview").getByTestId("review-map-badge")).toHaveText("New module")
+  })
+
+  test("should list the files of the pull request in the rail without a plan, a name whole before its directory, which gives way", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD]) })
+    // a directory that gives way to its last folder, and one whose last folder does not fit after its name
+    await repo.commit(
+      "(ABC-123) the player of the session",
+      {
+        [`${LONG_DIRECTORY}/media/Bridge.kt`]: "package media\n",
+        [`${LONG_DIRECTORY}/avfoundation/AVFoundationPlayerBridge.kt`]: "package avfoundation\n",
+      },
+      1704124800,
+    )
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toBeVisible()
+    const { review } = await openRequestReview(page, 101)
+    const rows = review.getByTestId("review-files").getByTestId("review-file")
+    await expect(rows.first()).toBeVisible()
+
+    // the name whole, the directory right after it on its line, cut at its start
+    const bridge = rows.filter({ hasText: "Bridge.kt" }).filter({ hasNotText: "AVFoundation" })
+    const name = await box(bridge.getByTestId("file-path-label-name"))
+    const directory = await box(bridge.getByTestId("file-label-directory"))
+    expect(name.x + name.width).toBeLessThanOrEqual(directory.x)
+    expect(Math.abs(directory.y - name.y)).toBeLessThan(name.height / 2)
+    await expect(bridge.getByTestId("file-label-directory")).toContainText("media")
+    expect(await isCut(bridge.getByTestId("file-label-directory"))).toBe(true)
+    expect(await isCut(bridge.getByTestId("file-path-label-name-start"))).toBe(false)
+
+    // a name that leaves no room for the last folder: the directory wraps out of sight, under the name, never over it
+    const player = rows.filter({ hasText: "AVFoundationPlayerBridge.kt" })
+    const playerName = await box(player.getByTestId("file-path-label-name"))
+    const playerDirectory = await box(player.getByTestId("file-label-directory"))
+    expect(playerDirectory.y).toBeGreaterThanOrEqual(playerName.y + playerName.height - 1)
+    expect(await isCut(player.getByTestId("file-path-label-name-start"))).toBe(false)
+    await expect(player).toHaveAttribute("title", `${LONG_DIRECTORY}/avfoundation/AVFoundationPlayerBridge.kt`)
   })
 
   test(
-    "should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening",
+    "should name a commit alike in the rail, the commit column and the tree, each opening its card by the hover of its subject and by I",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // the branch `layout` of the `review_tour` template as a pull request, its plan on
@@ -571,22 +653,10 @@ test.describe("Review window", () => {
       turnOnReviewPlan(repo)
       await syncAndWaitForBranches()
       const { window, review } = await openRequestReview(page, 201)
-      const overview = review.getByTestId("review-overview")
       const tree = window.getByRole("tree", { name: "Changed files" })
-      const bar = window.getByTestId("review-step-bar")
-
-      // a code name of the contents: the changes of all of it, its file selected, its name selected in the diffs
-      await overview.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" }).click()
-      await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
-      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
-      // the overview is no longer at the top
-      await expect(reviewPosition(window)).toHaveText(/^All Changes · Step \d · File \d \/ 6$/)
-
-      // back in the overview, the title of a step: its opening at the top of the changes, its place in the bar
-      await window.keyboard.press("Escape")
-      await overview.getByTestId("review-contents-step-title").filter({ hasText: "the restart story checks the layout" }).click()
-      await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
-      await expect(tree.getByRole("treeitem", { name: "4 · the restart story checks the layout", exact: true })).toHaveAttribute("aria-selected", "true")
+      await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
+      await window.keyboard.press("d")
+      await expect(review.getByTestId("commit-review")).toBeVisible()
 
       // one commit is named alike in the rail, the commit column and the tree: the title Rust gives it
       const title = "the rule names its flag again"
@@ -1465,12 +1535,33 @@ test.describe("On macOS", () => {
 })
 
 /** The changes of the request #101 by `D`, the review plan turned on in its repository */
-async function openPlanChanges(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>) {
-  const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+async function openPlanChanges(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, ...requests: ReturnType<typeof reviewRequest>[]) {
+  const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, ...(requests.length === 0 ? [OLD, RECENT] : requests))
   // the flag of the repository, which the global config of the test machine turns off (`TEST_IDENTITY` of the server)
   appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
   await getReviewRow(page, 101).focus()
   await page.keyboard.press("d")
   const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
   return { reviewPage, review: reviewPage.getByTestId("review-window") }
+}
+
+/**
+ * The first file of the new module of the `review_modules` template in its story, where its row of the shape goes: the
+ * flag of its second step, not its descriptor, which the dependency order of the plan puts first
+ */
+const MEDIA_FIRST_FILE = "plugins/player/view.gui.media/src/com/example/player/media/MediaPlaybackFlag.kt"
+
+/** The directory of the files whose directory gives way in the rail */
+const LONG_DIRECTORY = "plugins/air/frontend/session/view.gui.media/src/com/intellij/air"
+
+/** The box of an element that has one */
+async function box(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
+  const found = await locator.boundingBox()
+  expect(found).not.toBeNull()
+  return found!
+}
+
+/** Whether the text of an element is cut at its edge */
+function isCut(locator: Locator): Promise<boolean> {
+  return locator.evaluate(element => element.scrollWidth > element.clientWidth)
 }

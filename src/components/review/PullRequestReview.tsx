@@ -5,13 +5,13 @@ import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { CommitBodyView, NoDescription } from "@/components/commit/CommitBodyView"
+import { DescriptionLead } from "@/components/review/DescriptionLead"
 import { RangeReview } from "@/components/review/RangeReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewOwnerChips } from "@/components/review/ReviewOwnerChips"
-import { ReviewPrologue } from "@/components/review/ReviewPrologue"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { Callout } from "@/components/shared/Callout"
@@ -38,6 +38,7 @@ import type { ReviewOwners } from "@/lib/review-owners"
 import { planFacts } from "@/lib/review-plan-answer"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
+import { presentMap } from "@/presenters/review-map"
 import { withCommitTitles } from "@/presenters/review-steps"
 import { presentApprovalScope } from "@/presenters/reviews"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -99,9 +100,11 @@ export interface PullRequestReviewProps {
  * The title bar: ↑ ↓ of Your Turn, then Open on GitHub, "⋯" and the decisions, Request Changes… (R), Approve and Safe
  * Push… (M) where Patronus merges, Approve (A), the primary, last. The header island: who asks and how long, the title
  * and the chips, then Overview / Changes (D), and while the changes show the sidebar and the diff view at the end of
- * the tabs. The overview has the description beside the files and commits of the fetched range; Changes is the review
- * of `base..head` (the tree beside all diffs, J/K, N/P). A write is on the fetched head, the commit the user sees; the
- * keys work in both views (`getReviewRequestActions`, as the row's menu).
+ * the tabs. The overview is the cover of the pull request: its description whole beside the shape of the plan of all
+ * changes (else the files) and the commits of the fetched range; Changes is the review of `base..head` (the tree beside
+ * all diffs, J/K, N/P), its document led by the summary of the description and "Description", which shows the overview.
+ * A write is on the fetched head, the commit the user sees; the keys work in both views (`getReviewRequestActions`, as
+ * the row's menu).
  */
 export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProps) {
   const { request, repositoryPath, requests, index } = host
@@ -146,6 +149,14 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const requestChangesRef = useRef<HTMLButtonElement>(null)
   const approveRef = useRef<HTMLButtonElement>(null)
   const safePushRef = useRef<HTMLButtonElement>(null)
+  // the description in the overview, which "Description" of the changes shows: by the serial of its click
+  const descriptionRef = useRef<HTMLElement>(null)
+  const [descriptionShown, setDescriptionShown] = useState(0)
+  useEffect(() => {
+    if (descriptionShown > 0) {
+      descriptionRef.current?.scrollIntoView({ block: "nearest" })
+    }
+  }, [descriptionShown])
 
   useEffect(() => {
     startReviewFetch(repositoryPath, request)
@@ -411,16 +422,31 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     </div>
   )
 
-  // what the author wrote: the lead of the document of the overview and of the changes
-  const description = request.body.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.body}`} />
+  // what the author wrote, read as a commit message: whole in the overview, its summary the lead of the changes
+  const message = `${request.title}\n\n${request.body}`
+  const empty = request.body.trim() === ""
+  const description = empty ? <NoDescription /> : <CommitBodyView body={message} />
+  const lead = empty ? (
+    <NoDescription />
+  ) : (
+    <DescriptionLead
+      message={message}
+      onShowDescription={() => {
+        showTab("overview")
+        setDescriptionShown(descriptionShown + 1)
+      }}
+    />
+  )
   // the commits of the rail named as the changes name them, by the plan of all changes the overview tells
   const railTitles = withCommitTitles(NO_TITLES, plan.plan?.steps.steps ?? [])
-  // a link of the overview shows its place in the changes of all of the pull request, as the same link there does
+  // the shape of all changes in the rail once their plan is read, the rows of the map (spec/branch/review-tour.spec.md,
+  // "The Map"); a row shows its first file in the changes of all of the pull request, as the same row there does
+  const map = !reviewing && plan.current && plan.plan !== null ? presentMap(plan.plan) : null
   const overviewNavigator = linkNavigator(showLink)
 
   const overview = (
-    // the document as wide as what it holds, the measure of reading at most (`ReadingColumn`, a body at `max-w-prose`),
-    // the rail right after it, the two in the middle of the island: no gap of the window between them
+    // the description as wide as what it holds, the measure of reading at most (a body at `max-w-prose`), the rail right
+    // after it, the two in the middle of the island: no gap of the window between them
     <div className="mx-auto grid w-fit max-w-full gap-x-10 gap-y-6 md:grid-cols-[auto_18rem]">
       <div className="flex min-w-0 flex-col gap-5">
         {host.withdrawn && (
@@ -447,25 +473,24 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
         {range?.headState === "missing" && (
           <Callout tone="warning" data-testid="review-head-missing" title={`${sourceName(range)} has commits the pull request does not have yet; the review shows them.`} />
         )}
-        {plan.plan === null && !plan.loading ? (
-          description
-        ) : (
-          // the same document as the changes tell above their diffs: the body of the pull request as its lead, then the steps
-          <SelectReviewFileContext value={overviewNavigator}>
-            <ReviewPrologue state={plan} headline={false} lead={description} />
-          </SelectReviewFileContext>
-        )}
+        {/* the description whole, as its author wrote it: the document of the changes leads with its summary alone */}
+        <section ref={descriptionRef} aria-label="Description" className="flex min-w-0 scroll-mt-5 flex-col" data-testid="review-description">
+          {description}
+        </section>
       </div>
       {fetch?.status !== "failed" && (
-        <ReviewRail
-          request={request}
-          files={files}
-          commits={range?.commits ?? null}
-          titles={railTitles}
-          progress={fetch?.status === "fetching" ? fetch.progress : null}
-          onOpenFile={path => showTab("changes", { path, item: ALL_CHANGES })}
-          onOpenCommit={id => showTab("changes", { item: id })}
-        />
+        <SelectReviewFileContext value={overviewNavigator}>
+          <ReviewRail
+            request={request}
+            files={files}
+            shape={map === null || map.rows.length === 0 ? null : map}
+            commits={range?.commits ?? null}
+            titles={railTitles}
+            progress={fetch?.status === "fetching" ? fetch.progress : null}
+            onOpenFile={path => showTab("changes", { path, item: ALL_CHANGES })}
+            onOpenCommit={id => showTab("changes", { item: id })}
+          />
+        </SelectReviewFileContext>
       )}
     </div>
   )
@@ -492,7 +517,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           plan={plan.disabled || (plan.plan === null && !plan.loading && plan.error === null) ? null : plan}
           reviewFacts={planFacts(plan)}
           planHeadline={false}
-          planLead={description}
+          planLead={lead}
         />
       ) : (
         overview

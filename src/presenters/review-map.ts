@@ -65,10 +65,11 @@ const MAP_FOLDERS = 3
 const MIN_FOLDER_FILES = 12
 
 /** The map of `plan` (`MapView`) */
-export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" | "api" | "verdict" | "dependencies" | "brief">): MapView {
+export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" | "steps" | "api" | "verdict" | "dependencies" | "brief">): MapView {
   const firstFile = new Map<number, string>()
   const moduleOf = new Map(plan.files.map(file => [file.path, file.module]))
-  for (const path of plan.order) {
+  const story = storyOrder(plan)
+  for (const path of story) {
     const module = moduleOf.get(path)
     if (module !== undefined && module !== null && !firstFile.has(module)) {
       firstFile.set(module, path)
@@ -76,7 +77,7 @@ export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" 
   }
   const readable = plan.modules.map((module, index) => ({ module, index })).filter(({ module }) => readableFiles(module) > 0)
   const shaped = readable.length >= 2 || readable.some(({ module }) => module.state !== "changed")
-  const rows: MapRow[] = shaped ? readable.map(({ module, index }) => moduleRow(module, index, plan, firstFile.get(index) ?? null)) : folderRows(readable[0]?.module, plan)
+  const rows: MapRow[] = shaped ? readable.map(({ module, index }) => moduleRow(module, index, plan, firstFile.get(index) ?? null)) : folderRows(readable[0]?.module, story)
   const max = Math.max(1, ...rows.map(row => row.additions + row.deletions))
   const scaled = rows.map(row => ({ ...row, share: (row.additions + row.deletions) / max }))
   const shown = scaled.slice(0, MAP_ROWS)
@@ -92,6 +93,14 @@ export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" 
     contract: contractOf(plan),
     api: apiOf(plan),
   }
+}
+
+/**
+ * The files as the story shows them: the files of each step in its order, then the files of no step (its mechanical
+ * ones) in the dependency order of the plan
+ */
+function storyOrder(plan: Pick<ReviewPlan, "order" | "steps">): string[] {
+  return [...new Set([...plan.steps.steps.flatMap(step => step.paths), ...plan.order])]
 }
 
 /** The files of a module a reviewer reads as its work: its code, tests and resources */
@@ -143,8 +152,8 @@ function foldersOf(module: ModuleShape): string | null {
     .join(" · ")
 }
 
-/** Of a change of one module and many files: a row per folder of it, else none */
-function folderRows(module: ModuleShape | undefined, plan: Pick<ReviewPlan, "files" | "order">): MapRow[] {
+/** Of a change of one module and many files: a row per folder of it, each to its first file in `story`, else none */
+function folderRows(module: ModuleShape | undefined, story: readonly string[]): MapRow[] {
   if (module === undefined || readableFiles(module) <= MIN_FOLDER_FILES) {
     return []
   }
@@ -154,7 +163,7 @@ function folderRows(module: ModuleShape | undefined, plan: Pick<ReviewPlan, "fil
   }
   return named.map(directory => {
     const prefix = module.root === "" ? "" : `${module.root}/`
-    const first = plan.order.find(path => path.startsWith(prefix) && path.includes(`/${directory.path}/`))
+    const first = story.find(path => path.startsWith(prefix) && path.includes(`/${directory.path}/`))
     return {
       key: `${module.root}:${directory.path}`,
       label: directory.path,

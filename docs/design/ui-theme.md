@@ -347,10 +347,10 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - `text-xs` (12/16px): meta lines, column headers, key hints, help popovers;
   - `text-sm` (13/20px, the IntelliJ UI font size): rows, controls, labels, short text, the commit subjects of the
     lists and the commit card of a row's mark (`CommitCard`, its body `CommitBodyView` at the size `card`);
-  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitBodyView` at the
-    size `reading`), at most `max-w-prose` wide (65ch, about 80 characters), and the document of a review (its
-    overview, the opening of a step, the overview of a pull request: a `ReadingColumn`), whose story's lead is a step
-    larger (`text-base`). 13px suits a row label, not paragraphs a user reads;
+  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews and the description of a
+    pull request in its overview (`CommitBodyView` at the size `reading`), at most `max-w-prose` wide (65ch, about 80
+    characters), and the document of a review (its overview, the opening of a step: a `ReadingColumn`), whose story's
+    lead is a step larger (`text-base`). 13px suits a row label, not paragraphs a user reads;
   - `text-base` (16/24px): dialog titles, also the subject in the commit preview header, the branch name in the
     branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
     preview); a commit as the heading of what follows it (`CommitHeader` `heading` in `CommitCard`: a commit of the
@@ -364,8 +364,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     Changes, its file names and its section headings are `text-sm font-semibold`, never weaker or larger inside a file;
     the directory of a file is muted. Its open parts and labels are `font-semibold`, and the steps of its contents
     `font-medium`, at the `text-md` of its prose; its facts and meta lines are `text-xs` muted.
-- **Reading column**: prose a person reads in a wide pane (the overview of a review, the opening of a step, the
-  overview of a pull request) is a `ReadingColumn` (`src/components/shared/ReadingColumn.tsx`): one measure,
+- **Reading column**: prose a person reads in a wide pane (the overview of a review, the opening of a step) is a
+  `ReadingColumn` (`src/components/shared/ReadingColumn.tsx`): one measure,
   `max-w-measure` (`--container-measure`, 65ch of `text-md`, about 80 characters), in the middle of its pane, its
   lines wrapped to avoid a short last one (`text-pretty`). Every block in it fills it and sets no width of its own,
   so headings, paragraphs and their facts end at one edge; a number or a bar hangs in the gutter (`-ml-*`), so the
@@ -468,9 +468,11 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **One look per role** in the commit and review windows (the previews, the reviews of a commit, a branch and a pull
   request, the conflict windows, the uncommitted changes):
   - a changed file is a `FilePathLabel`: the status letter, the name in the colour of its status, "← old" of a rename,
-    then the directory muted in the same size, cut at its start, as IntelliJ lists a change; the header of a file above
-    its diff adds `font-medium`, a tree row leaves the directory to the rows above and puts the letter in the slot of a
-    folder icon;
+    then the directory muted in the same size right after the name, as IntelliJ lists a change: the name whole while
+    the directory gives way, cut at its start down to its last folder, and below that out of sight on a line of its
+    own, never drawn under the name or cut to its last letters; the header of a file above its diff adds
+    `font-semibold`, a tree row shows the directory whole or not at all and puts the letter in the slot of a folder
+    icon;
   - the status colours are the VCS colours of IntelliJ: added `success`, deleted muted and struck through, the rest
     `primary`, the one use of `primary` that is neither an action nor a selection; a file says its status once (no badge
     beside the letter);

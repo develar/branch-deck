@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, ContractEntry, DependencyChange, FileFacts } from "@/lib/bindings"
 import { MAP_ROWS, presentMap, specName } from "@/presenters/review-map"
-import { moduleShape, reviewPlan } from "@/test-support/review-step"
+import { moduleShape, reviewPlan, reviewStep } from "@/test-support/review-step"
 
 function file(path: string, module: number | null): FileFacts {
   return {
@@ -145,6 +145,37 @@ describe("the map of a review", () => {
 
     const small = presentMap(reviewPlan({ modules: [moduleShape("gui", "gui", { files: { code: 3, tests: 1, resources: 0, build: 0, prose: 0 } })] }))
     expect([small.rows, small.contract, small.api]).toEqual([[], null, null])
+  })
+
+  it("shows the first file of a row as the story shows it: of its first step, a file of no step after them", () => {
+    const plan = reviewPlan({
+      modules: [
+        moduleShape("media", "media", { state: "added", files: { code: 2, tests: 0, resources: 1, build: 1, prose: 0 } }),
+        moduleShape("gui", "gui", { files: { code: 2, tests: 0, resources: 0, build: 0, prose: 0 } }),
+      ],
+      files: [file("media/resources/media.xml", 0), file("media/src/Player.kt", 0), file("gui/src/Embed.kt", 1), file("gui/src/Views.kt", 1), file("media/BUILD.bazel", 0)],
+      // the dependency order: the descriptor and the build file first
+      order: ["media/BUILD.bazel", "media/resources/media.xml", "gui/src/Views.kt", "media/src/Player.kt", "gui/src/Embed.kt"],
+      steps: {
+        ...reviewPlan().steps,
+        steps: [
+          reviewStep("a1", [], [["Embed", "gui/src/Embed.kt"]]),
+          reviewStep(
+            "b2",
+            [],
+            [
+              ["Player", "media/src/Player.kt"],
+              ["Views", "gui/src/Views.kt"],
+              ["media.xml", "media/resources/media.xml"],
+            ],
+          ),
+        ],
+      },
+    })
+    expect(presentMap(plan).rows.map(row => [row.label, row.place?.path ?? null])).toEqual([
+      ["media", "media/src/Player.kt"],
+      ["gui", "gui/src/Embed.kt"],
+    ])
   })
 
   it("names a spec by its file", () => {
