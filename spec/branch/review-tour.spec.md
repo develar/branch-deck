@@ -191,7 +191,7 @@ stops).
   group the stops keep the order of the step, its tests after its code (`tests`, the first of them; a path in a `test`,
   `tests`, `testSrc` or `testFixtures` directory or with a mark of a test, or a unit of test code). Every stop is in one
   group, once.
-  [@test] ../../crates/review-plan/src/groups_test.rs (`a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring`)
+  [@test] ../../crates/review-plan/src/groups_test.rs (`a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring`, `the_modules_template_reads_as_its_contract_its_modules_and_its_wiring`)
 
 ### Tests That Reach It
 The question a step answers is which tests of the change prove it, not which tests of the repository its code is

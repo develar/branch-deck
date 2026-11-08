@@ -624,6 +624,18 @@ pub mod templates {
       )
   }
 
+  /// A large step of modules, the branch `media` (`crate::review_modules`): Contract, `view.gui`, `view.gui.media` (also
+  /// `shared/code`) and the Wiring
+  pub fn review_modules() -> RepoTemplate {
+    let commits = crate::review_modules::review_modules_commits();
+    let mut template = RepoTemplate::new("review_modules").branch_prefix("user-name");
+    for (index, commit) in commits.iter().enumerate() {
+      let files: Vec<(&str, &str)> = commit.files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+      template = template.commit_with_timestamp(commit.message, &files, Some(1704117600 + 600 * i64::try_from(index).unwrap_or(0)));
+    }
+    template
+  }
+
   pub fn review_long_titles() -> RepoTemplate {
     let plan = |overview: &str, title: &str| format!("package review\n\nclass Plan {{\n  fun overview(): String = \"{overview}\"\n  fun title(): String = \"{title}\"\n}}\n");
     RepoTemplate::new("review_long_titles")

@@ -16,6 +16,7 @@ pub mod lock_span;
 pub mod process_budget;
 pub mod remote_git;
 pub mod repo_template;
+pub mod review_modules;
 pub mod sync_fixtures;
 pub mod wrapped_git;
 

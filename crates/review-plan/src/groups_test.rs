@@ -126,6 +126,71 @@ fn a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and
   assert_eq!(plan.steps.coverage.missing, 0);
 }
 
+/// The template of the review window (`review_modules`): a plugin of the shape of an IntelliJ one whose second commit
+/// adds a module, its contract the spec and the guide that names it, the small shared module it opens wider in its group
+#[test]
+fn the_modules_template_reads_as_its_contract_its_modules_and_its_wiring() {
+  let repo = TestRepo::new();
+  let commits = test_utils::review_modules::review_modules_commits();
+  let ids: Vec<String> = commits
+    .iter()
+    .map(|commit| {
+      let files: Vec<(&str, &str)> = commit.files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
+      repo.create_commit_with_files(commit.message, &files)
+    })
+    .collect();
+  let plan = plan_of_range(&repo, &ids[0], ids.last().unwrap());
+  let labels: Vec<(&str, crate::modules::ModuleState)> = plan.modules.iter().map(|module| (module.label.as_str(), module.state)).collect();
+  assert!(labels.contains(&("view.gui.media", crate::modules::ModuleState::Added)), "{labels:?}");
+  assert_eq!(
+    groups(&plan)[1],
+    vec![
+      (GroupKind::Contract, String::new(), vec![], vec!["transcript-embeds.spec.md", "AGENTS.md"], vec![]),
+      (
+        GroupKind::Module,
+        "view.gui".to_string(),
+        vec![],
+        vec![
+          "PlayerBundle.properties",
+          "EmbedKind.kt",
+          "EmbedModel.kt",
+          "MarkdownEmbeds.kt",
+          "EmbedView.kt",
+          "EmbedViews.kt"
+        ],
+        vec!["EmbedModelTest.kt"]
+      ),
+      (
+        GroupKind::Module,
+        "view.gui.media".to_string(),
+        vec!["shared/code"],
+        // the function of shared/code it opens wider before its uses
+        vec![
+          "NightlyBuild.kt",
+          "MediaPlaybackFlag.kt",
+          "MediaEmbeds.kt",
+          "intellij.player.view.gui.media.xml",
+          "AvFoundationBridge.kt",
+          "MediaTimeline.kt",
+          "MediaDecoder.kt",
+          "AvFoundationDecoder.kt",
+          "MediaPlayer.kt",
+          "MediaControls.kt",
+          "MediaEmbedView.kt"
+        ],
+        vec!["MediaTimelineTest.kt", "MediaPlayerTest.kt"]
+      ),
+      (
+        GroupKind::Mechanical,
+        String::new(),
+        vec![],
+        vec!["modules.xml", "plugin.xml", "intellij.player.view.gui.media.iml", "module-list.txt", "BUILD.bazel"],
+        vec![]
+      ),
+    ]
+  );
+}
+
 /// A step of a few files, of one module or of two old ones of a few files each, reads as one list
 #[test]
 fn a_small_step_has_no_groups() {
