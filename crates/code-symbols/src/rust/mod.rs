@@ -15,9 +15,12 @@
 //!   are spaces, a CRLF's `\r` a `\n`), so a walk slices that text by the tree's ranges and counts lines and columns on
 //!   the file's own bytes.
 
+pub(crate) mod highlight;
 pub(crate) mod navigate;
 pub(crate) mod summary;
 
+#[cfg(test)]
+mod highlight_test;
 #[cfg(test)]
 mod navigate_test;
 #[cfg(test)]

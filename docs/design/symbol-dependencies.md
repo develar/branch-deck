@@ -632,9 +632,8 @@ flowchart TD
     `m` as `m?.foo` does, so a property `m` gives the receiver its type (570 more files moved on the corpus).
 
 22. **Decision**: Kotlin and Java have one parser each, psi-syntax's, for the summary, the highlighting and the
-    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads the highlighting of Rust
-    and the highlighting and navigation of TypeScript and JavaScript (it read their summaries and Rust's navigation
-    until decisions 26 and 27). tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
+    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads the highlighting of
+    TypeScript and JavaScript (it read their summaries and navigation and Rust until decisions 26 and 27). tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
     (`jvm.rs`: the containers, the stack of supertypes and `enclosed`, the JVM facts of a declaration, the receivers'
     types, the smart casts), and `extractor_version` hashes the revision of psi-syntax for Kotlin and Java
     (`PSI_SYNTAX_REVISION`, which a test checks against `Cargo.toml` and `Cargo.lock`) where it hashed their grammars'
@@ -758,6 +757,18 @@ flowchart TD
     966 s on the checkout (tree-sitter's spent over 300 s on one file, a type nested a thousand generics deep).
 
     [@test] ../../crates/code-symbols/src/rust/navigate_test.rs (`a_binding_of_any_pattern_is_a_declaration`, `a_variant_in_a_pattern_is_no_declaration`, `the_names_of_an_attribute_are_in_the_scopes_of_its_item`, `what_is_no_name`, `the_kinds_of_paths_and_calls`, `deep_nesting_is_navigated_on_a_small_stack`)
+
+    The highlighting (`rust/highlight.rs`, [Diff View](diff-view.md#syntax-highlighting)) paints rust-analyzer's tokens
+    by the rules of tree-sitter's (`RsColor` of RustRover): a keyword by its kind, `Self` and a keyword among the tokens
+    of a macro too (tree-sitter's read `Self`, `else`, `in` as names), a metavariable plain and its fragment a keyword,
+    an attribute one colour but its literals (tree-sitter's coloured the keywords in it), a raw string without escapes,
+    the last binding of a name the one its uses see, a `let`'s after it (tree-sitter's took the first of a block), a
+    `mut` shorthand of a struct pattern a mutable binding, a variant in a tuple-struct pattern a constant, a type's name
+    never one. On Branch Deck's 1 332 `.rs` files the runs of 565 moved (`Self` 2 933 pieces, attributes about 3 000);
+    of the checkout's 21 092 those of 5 573, 2 170 of them files with a parse error; the highlighting takes 1.3 s summed
+    against 2.7 s on Branch Deck, 5.0 s against 7.0 s on the checkout. tree-sitter-rust is no dependency.
+
+    [@test] ../../crates/code-symbols/src/rust/highlight_test.rs (`self_type_is_a_keyword`, `an_attribute_is_one_colour_but_its_literals`, `the_tokens_of_a_macro_are_lexed`, `the_escapes_of_a_string`, `a_binding_shadows_the_ones_before_it`, `the_names_of_patterns_and_declarations`, `deep_nesting_is_highlighted_on_a_small_stack`)
 
 27. **Decision**: a TypeScript, TSX or JavaScript file is read by psi-syntax's `js-syntax`, oxc's parser with what every
     reader of psi-syntax shares of its parse (the dialect of the extension, decision 6, the options, the recovery of a

@@ -58,15 +58,6 @@ fn enter(rules: &mut impl Rules, scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node:
   }
 }
 
-/// A function, a method or a closure: a scope of its own, its name a declaration
-pub(crate) fn function(scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>, name: Option<Node<'_>>) -> Paint {
-  scopes.push_local(node.id());
-  if let Some(name) = name {
-    cx.mark(name, Role::FunctionDeclaration.style());
-  }
-  Paint::Inherit
-}
-
 /// A comment; a doc comment (`/**`, Rust's `///` and `//!`) has a colour of its own and its tags
 pub(crate) fn comment(cx: &Cx<'_, '_>, node: Node<'_>) -> Paint {
   comment_paint(cx.text_of(node))

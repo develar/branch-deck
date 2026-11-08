@@ -2,8 +2,8 @@
 //! (docs/design/diff-view.md, "Syntax highlighting"): the role of each piece of text, from its syntax tree. Kotlin,
 //! Java, C# and Starlark from their PSI and Roslyn's tree (`kotlin::highlight`, `java::highlight`, `csharp::highlight`,
 //! `starlark::highlight`: one pass over the leaves of psi-syntax's tree, whose tokens are the lexer's, soft keywords
-//! included), Rust, TypeScript, TSX and JavaScript from a tree-sitter tree by the
-//! rules of their grammar (`rust_lang.rs`, `typescript.rs`, painted by `paint.rs`).
+//! included), Rust from rust-analyzer's tree (`rust::highlight`, one pass over its tokens), TypeScript, TSX and
+//! JavaScript from a tree-sitter tree by the rules of their grammar (`typescript.rs`, painted by `paint.rs`).
 //!
 //! - **One walk, painted spans**: a preorder walk gives each piece of text its style; a node with a style paints its
 //!   text, an inner node paints over it (an escape in a string, the code of a template), and a node without one takes
@@ -25,15 +25,13 @@ pub mod lines;
 pub(crate) mod paint;
 pub(crate) mod scopes;
 
-#[cfg(feature = "rust")]
-mod rust_lang;
 #[cfg(feature = "typescript")]
 mod typescript;
 
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 6;
+pub const RULES_VERSION: u32 = 7;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
 /// The progress callbacks of a tree-sitter parse per KiB of text; the densest files of the IntelliJ monorepo took 19
@@ -183,12 +181,10 @@ impl Grammar {
     }
   }
 
-  /// The tree-sitter grammar of the grammars tree-sitter reads in this build (Rust, TypeScript, TSX); none for Kotlin,
-  /// Java and C#, which psi-syntax reads
+  /// The tree-sitter grammar of the grammars tree-sitter reads in this build (TypeScript, TSX, JavaScript); none for the
+  /// others, which psi-syntax reads
   fn language(self) -> Option<tree_sitter::Language> {
     match self {
-      #[cfg(feature = "rust")]
-      Self::Rust => Some(tree_sitter_rust::LANGUAGE.into()),
       #[cfg(feature = "typescript")]
       Self::TypeScript => Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
       #[cfg(feature = "typescript")]
@@ -236,12 +232,6 @@ pub(crate) fn is_type_name(name: &str) -> bool {
   name.bytes().next().is_some_and(|it| it.is_ascii_uppercase()) && name.bytes().any(|it| it.is_ascii_lowercase())
 }
 
-/// The first named child of a kind
-pub(crate) fn named_child<'tree>(node: tree_sitter::Node<'tree>, kind: &str) -> Option<tree_sitter::Node<'tree>> {
-  let mut cursor = node.walk();
-  node.named_children(&mut cursor).find(|it| it.kind() == kind)
-}
-
 /// The tree-sitter tree of a text by its grammar, within the parse budget of its size; `None` for Kotlin, Java and C#
 pub(crate) fn parse_text(grammar: Grammar, text: &str) -> Option<tree_sitter::Tree> {
   let language = grammar.language()?;
@@ -272,6 +262,8 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
       };
       Some(crate::starlark::highlight::highlight(text, kind))
     }
+    #[cfg(feature = "rust")]
+    Grammar::Rust => crate::rust::highlight::highlight(text),
     _ => highlight_tree_sitter(grammar, text),
   }
 }
@@ -282,8 +274,6 @@ fn highlight_tree_sitter(grammar: Grammar, text: &str) -> Option<LineRuns> {
   let tree = parse_text(grammar, text)?;
   let mut runs = LineRuns::builder(text);
   match grammar {
-    #[cfg(feature = "rust")]
-    Grammar::Rust => paint::paint(&tree, text, &mut rust_lang::Rust, &mut runs),
     #[cfg(feature = "typescript")]
     Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => paint::paint(&tree, text, &mut typescript::TypeScript::default(), &mut runs),
     _ => return None,

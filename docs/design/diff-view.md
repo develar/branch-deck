@@ -580,11 +580,13 @@ Roslyn's tree (psi-syntax's `csharp-syntax`, read by `csharp/highlight.rs`: a do
 keywords of a directive, a branch of `#if` not taken as a comment), Starlark from the Bazel plugin's PSI
 (psi-syntax's `starlark-syntax`, read by `starlark/highlight.rs`: one pass over the leaves, the plugin's lexer colours
 and the roles a parent gives a name, `Grammar::StarlarkBuild` for a BUILD or MODULE.bazel file, whose top-level calls
-declare), the others from a tree-sitter tree (`.ts` by the TypeScript grammar, the rest of the script files by TSX):
-- Kotlin, Java and C#: one pass over the tree's ids in preorder with an explicit stack of the open nodes, each leaf of the
-  tree (its tokens tile the text) painted by `paint::paint_leaf`, so a keyword is the parser's token as the parser
-  left it, a soft or contextual one only where the parser made it one; Rust and TypeScript: one preorder walk asks the
-  rules of the grammar (`rust_lang.rs`, `typescript.rs`) for the `Paint` of each node; a node with a style paints its
+declare), Rust from rust-analyzer's tree (psi-syntax's `rust-syntax`, read by `rust/highlight.rs`: one pass over its
+tokens, the keywords by their kind, decision 26 of [Symbol Dependencies](symbol-dependencies.md)), the others from a
+tree-sitter tree (`.ts` by the TypeScript grammar, the rest of the script files by TSX):
+- Kotlin, Java, C# and Rust: one pass over the tree in preorder with an explicit stack of the open nodes, each leaf of
+  the tree (its tokens tile the text) painted by `paint::paint_leaf`, so a keyword is the parser's token as the parser
+  left it, a soft or contextual one only where the parser made it one; TypeScript: one preorder walk asks the rules of
+  the grammar (`typescript.rs`) for the `Paint` of each node; a node with a style paints its
   text, an inner node paints over it (an escape in a string, the code of a template), a parent marks children before
   the walk reaches them (the name of a declaration, the callee of a call). Either way the spans come out in the order
   of the text, with no sort;
@@ -633,7 +635,8 @@ declare), the others from a tree-sitter tree (`.ts` by the TypeScript grammar, t
   (`roles_match_the_view` checks it);
 - bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) or after the parse budget of a tree-sitter grammar (50
   operations per KiB) there is no highlighting; psi-syntax parses any text, a construct nested past its limit (1000
-  levels of Kotlin, 1200 of Java) as an error element.
+  levels of Kotlin, 1200 of Java) as an error element, and a Rust file nested deeper than `rust_syntax` reads has
+  none (its parse, walk and drop run on a stack sized for the file).
 
 The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`), one call per blob and range of lines:
 - the text comes from the blobs `get_file_diffs` and `get_blob_texts` read (the memory cache, so no git process), the

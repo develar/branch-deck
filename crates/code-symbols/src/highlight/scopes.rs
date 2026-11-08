@@ -59,10 +59,11 @@ impl Scopes {
     }
   }
 
-  /// The style of `name` as a local or a parameter, if it is bound as one
+  /// The style of `name` as a local or a parameter, if it is bound as one: its last binding, which shadows those
+  /// before it (Rust's `let x = …; let mut x = …;`)
   pub(crate) fn local(&self, name: &str) -> Option<u32> {
     for frame in self.frames.iter().rev() {
-      if let Some((_, style)) = frame.names.iter().find(|it| it.0 == name) {
+      if let Some((_, style)) = frame.names.iter().rev().find(|it| it.0 == name) {
         return (!frame.class).then_some(*style);
       }
     }

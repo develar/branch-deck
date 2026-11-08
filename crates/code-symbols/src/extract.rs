@@ -8,8 +8,8 @@
 //!   summary. psi-syntax parses any text within the limits, a construct past its nesting limit as an error element;
 //!   oxc and rust-analyzer any text they can recover, and none nested deeper than `js_syntax` and `rust_syntax` read
 //!   (`truncated`).
-//! - `parse_language` is the tree-sitter parse within a budget that the highlighting of Rust and TypeScript and the
-//!   navigation of TypeScript still read.
+//! - `parse_language` is the tree-sitter parse within a budget that the highlighting of TypeScript and JavaScript still
+//!   reads.
 
 use crate::language::Language;
 use crate::summary::FileSummary;
