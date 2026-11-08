@@ -183,13 +183,13 @@ fn a_file_the_range_adds_counts_the_lines_its_commits_leave() {
   assert_eq!((gui.additions, gui.deletions), (3, 0));
 }
 
-/// The folders of a module of packages (`com/example/player/…`) start below the folders the files of each of its
-/// source directories share: a test of a package under `testSrc` is in the folder of that package under `src`, a bundle
-/// under `resources` shares no package with them
+/// The folders of a module of packages (`com/example/player/…`) start below the folders its code and its tests share: a
+/// test of a package under `testSrc` is in the folder of that package under `src`, a bundle under `resources` shares no
+/// package with them; a module of no package prefix names a folder of its tests as that of its code (`ui/embeds`)
 #[test]
 fn the_folders_of_a_module_start_below_the_packages_its_files_share() {
   let repo = TestRepo::new();
-  let base = repo.create_commit_with_files("Add the GUI", &[("gui/BUILD.bazel", "# gui\n")]);
+  let base = repo.create_commit_with_files("Add the GUI", &[("gui/BUILD.bazel", "# gui\n"), ("view/BUILD.bazel", "# view\n")]);
   let head = repo.create_commit_with_files(
     "Embed media",
     &[
@@ -198,10 +198,16 @@ fn the_folders_of_a_module_start_below_the_packages_its_files_share() {
       ("gui/src/com/example/player/gui/markdown/C.kt", "class C\n"),
       ("gui/testSrc/com/example/player/gui/embeds/ATest.kt", "class ATest\n"),
       ("gui/resources/messages/GuiBundle.properties", "embed.open=Open\n"),
+      ("view/src/references/R.kt", "class R\n"),
+      ("view/src/ui/embeds/E.kt", "class E\n"),
+      ("view/testSrc/ui/embeds/ETest.kt", "class ETest\n"),
     ],
   );
   let plan = plan_of_range(&repo, &base, &head);
   let gui = plan.modules.iter().find(|module| module.root == "gui").unwrap();
   let directories: Vec<(&str, u32)> = gui.directories.iter().map(|directory| (directory.path.as_str(), directory.files)).collect();
   assert_eq!(directories, [("embeds", 3), ("markdown", 1), ("messages", 1)]);
+  let view = plan.modules.iter().find(|module| module.root == "view").unwrap();
+  let directories: Vec<(&str, u32)> = view.directories.iter().map(|directory| (directory.path.as_str(), directory.files)).collect();
+  assert_eq!(directories, [("ui/embeds", 2), ("references", 1)]);
 }

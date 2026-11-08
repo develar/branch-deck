@@ -15,9 +15,9 @@
 //!   `ModuleList`), `prose` (Markdown and the like), `tests` (the test paths of `files::test_subject`), `code` (a
 //!   language `code_symbols` parses), the rest `resources`; its lines added and removed over the range.
 //! - **Its directories**: below the root, without the leading source directories (`src`, `testSrc`, `main`, `kotlin`,
-//!   …) and the folders the files of each source directory share (the packages `com/example/player` under `src` and
-//!   under `testSrc`; a bundle under `resources/messages` shares none of them), by their first two levels, the most files
-//!   first.
+//!   …) and the folders its code and its tests share (the packages `com/example/player` under `src` and under
+//!   `testSrc`), its resources apart (a bundle under `resources/messages` shares none of them), by their first two
+//!   levels, the most files first.
 //! - **What it newly uses**: the modules of the review its files link to by links the commits add
 //!   (`FileLink::new_between_modules`), and those a dependency entry its build files add names (`declared`); the plugin
 //!   modules whose descriptors add it as content (`content_of`); the entries its build files add that name no module
@@ -214,7 +214,7 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
     shape.additions += additions;
     shape.deletions += deletions;
   }
-  // the folders of each module below the packages its files share in each source directory (`com/example/player`)
+  // the folders of each module below the packages its code and tests share (`com/example/player`), its resources apart
   for (module, root) in distinct.iter().enumerate() {
     let paths: Vec<&str> = changed
       .iter()
@@ -405,8 +405,12 @@ fn line_counts(file: &ChangedFile<'_>, pair: Option<&PairBlocks>) -> (u32, u32) 
   }
 }
 
-/// The leading source directories of `path` below `root` (`src/main/kotlin`, "" for none) and the folders after them
-fn source_and_folders<'a>(path: &'a str, root: &str) -> (String, Vec<&'a str>) {
+/// The source directories of resources, whose folders are no packages of the code
+const RESOURCE_DIRECTORIES: [&str; 2] = ["resources", "testResources"];
+
+/// Whether `path` below `root` is under a source directory of resources (`resources/messages`, `src/main/resources`),
+/// and its folders after its leading source directories
+fn source_and_folders<'a>(path: &'a str, root: &str) -> (bool, Vec<&'a str>) {
   let below = if root.is_empty() {
     path
   } else {
@@ -415,42 +419,40 @@ fn source_and_folders<'a>(path: &'a str, root: &str) -> (String, Vec<&'a str>) {
   let directory = below.rsplit_once('/').map_or("", |(directory, _)| directory);
   let segments: Vec<&str> = directory.split('/').filter(|segment| !segment.is_empty()).collect();
   let source = segments.iter().take_while(|segment| SOURCE_DIRECTORIES.contains(segment)).count();
-  (segments[..source].join("/"), segments[source..].to_vec())
+  let resources = segments[..source].iter().any(|segment| RESOURCE_DIRECTORIES.contains(segment));
+  (resources, segments[source..].to_vec())
 }
 
-/// The folders the files of one module share in each of its source directories, as the packages of a Java or Kotlin
-/// module do (`com/example/player` under `src` and under `testSrc`), the last folder of the deepest kept: what tells
-/// them apart is below them, and a bundle under `resources/messages` shares nothing with a package under `src`
+/// The folders the files of one module share, as the packages of a Java or Kotlin module do (`com/example/player` under
+/// `src` and under `testSrc`), the last folder of the deepest kept: what tells them apart is below them. Its code and
+/// its tests share them; its resources apart, as a bundle under `resources/messages` shares no package of the code
 pub(crate) struct SharedFolders<'a> {
   root: &'a str,
-  shared: HashMap<String, usize>,
+  /// Of the code and the tests, of the resources
+  shared: [usize; 2],
 }
 
 impl<'a> SharedFolders<'a> {
   pub(crate) fn of(paths: &[&str], root: &'a str) -> Self {
-    let mut by_source: HashMap<String, Vec<Vec<&str>>> = HashMap::new();
+    let mut by_kind: [Vec<Vec<&str>>; 2] = [Vec::new(), Vec::new()];
     for path in paths {
-      let (source, folders) = source_and_folders(path, root);
-      by_source.entry(source).or_default().push(folders);
+      let (resources, folders) = source_and_folders(path, root);
+      by_kind[usize::from(resources)].push(folders);
     }
-    let shared = by_source
-      .into_iter()
-      .map(|(source, folders)| {
-        let first = &folders[0];
-        let shared = (0..first.len()).take_while(|&at| folders.iter().all(|other| other.get(at) == first.get(at))).count();
-        // files that share every folder keep their last one, so their one folder still has a name
-        (source, shared.min(folders.iter().map(Vec::len).min().unwrap_or(0).saturating_sub(1)))
-      })
-      .collect();
+    let shared = by_kind.map(|folders| {
+      let Some(first) = folders.first() else { return 0 };
+      let shared = (0..first.len()).take_while(|&at| folders.iter().all(|other| other.get(at) == first.get(at))).count();
+      // files that share every folder keep their last one, so their one folder still has a name
+      shared.min(folders.iter().map(Vec::len).min().unwrap_or(0).saturating_sub(1))
+    });
     Self { root, shared }
   }
 
   /// The directory of `path` below the root, without its leading source directories and the folders the files of its
-  /// source directory share, at most two levels
+  /// kind share (the code and the tests, or the resources), at most two levels
   pub(crate) fn directory(&self, path: &str) -> String {
-    let (source, folders) = source_and_folders(path, self.root);
-    let shared = self.shared.get(&source).copied().unwrap_or(0);
-    folders.into_iter().skip(shared).take(2).collect::<Vec<_>>().join("/")
+    let (resources, folders) = source_and_folders(path, self.root);
+    folders.into_iter().skip(self.shared[usize::from(resources)]).take(2).collect::<Vec<_>>().join("/")
   }
 }
 
