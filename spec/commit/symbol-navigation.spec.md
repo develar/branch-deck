@@ -143,8 +143,9 @@ outside it.
   for a call and none for a type position wherever it was found. A declaration of the review is named by that word.
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review`, `a_type_alias_and_an_enum_entry_are_named_alike_on_both_sides`)
 - An unrecognized accio declaration kind must not by itself discard a name that otherwise fits the language and query;
-  an accio too old to answer the shared word keeps every candidate it would have kept before, and an unrecognized
-  access kind is shown as `read`, never as a raw string.
+  a hit without the shared word (an accio older than 0.16) is kept as a candidate, since only the index folds its
+  kinds to the nine words and this side keeps no copy of that fold, and an unrecognized access kind is shown as
+  `read`, never as a raw string.
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`, `one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review`)
   [@test] ../../crates/file-diffs/src/usages_test.rs (`an_unknown_accio_access_kind_is_shown_as_read`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`unknown_accio_kinds_deserialize_to_unknown`, `a_hit_carries_the_word_a_review_shares_when_accio_answers_one`)

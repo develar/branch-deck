@@ -13,7 +13,7 @@
 //!   the review becomes one of the review, any other one names its blob (one `cat-file --batch-check`) for the view of
 //!   its file.
 
-use crate::accio::{HitKind, Lenient, SymbolHit, SymbolIndex};
+use crate::accio::{Lenient, SymbolHit, SymbolIndex};
 use crate::model::{BlobRequest, BlobText, DeclarationTarget, DiffSide, FindDeclarationParams, FoundDeclarations, OutsideFile, ReviewFileSides};
 use crate::service::{FileDiffs, read_summaries, write_summaries};
 use crate::worktree::read_worktree_blob;
@@ -75,12 +75,10 @@ impl SymbolGroup {
     })
   }
 
-  /// The word the index answered, else the kind folded the way accio folds it; `None` where neither says a group
+  /// The word the index answered; `None` for what is no code and for a hit of an accio older than the word (0.16),
+  /// which no rule of this side folds from the language's kind: the index owns that fold (`Kind::group`)
   fn of_hit(hit: &SymbolHit) -> Option<Self> {
-    match hit.group.as_deref() {
-      Some(group) => Self::of_word(group),
-      None => Self::of_kind(hit.kind),
-    }
+    hit.group.as_deref().and_then(Self::of_word)
   }
 
   fn of_word(word: &str) -> Option<Self> {
@@ -95,32 +93,6 @@ impl SymbolGroup {
       "macro" => Some(Self::Macro),
       "local" => Some(Self::Local),
       _ => None,
-    }
-  }
-
-  /// The fold of a kind of an accio that answers no `group`: the same one `Kind::group` makes there
-  const fn of_kind(kind: HitKind) -> Option<Self> {
-    match kind {
-      HitKind::Class
-      | HitKind::Interface
-      | HitKind::Enum
-      | HitKind::Struct
-      | HitKind::Trait
-      | HitKind::Impl
-      | HitKind::Object
-      | HitKind::Record
-      | HitKind::Delegate
-      | HitKind::Union
-      | HitKind::Annotation => Some(Self::Class),
-      HitKind::Function | HitKind::Method | HitKind::Constructor => Some(Self::Function),
-      HitKind::Field | HitKind::Property | HitKind::Variable => Some(Self::Property),
-      HitKind::Constant => Some(Self::Constant),
-      HitKind::EnumMember => Some(Self::EnumEntry),
-      HitKind::TypeAlias => Some(Self::TypeAlias),
-      HitKind::Module | HitKind::Namespace => Some(Self::Module),
-      HitKind::Macro => Some(Self::Macro),
-      // what is no code (a section, a registry key, an extension point, an extension, an action) and an unknown kind
-      HitKind::Section | HitKind::Key | HitKind::ExtensionPoint | HitKind::Extension | HitKind::Action | HitKind::Unknown => None,
     }
   }
 
@@ -571,9 +543,8 @@ fn imported_directories(site: &FileSummary, name: &str) -> Vec<String> {
     .collect()
 }
 
-/// Whether a declaration of an index (its kind as accio names it) can be what the syntax says the name is
 /// Whether a hit of the index can be what the syntax says the name is; a hit of no group (what is no code, or an
-/// accio too old to answer one) is kept as a candidate rather than judged, as an unknown kind was
+/// accio too old to answer one) is kept as a candidate rather than judged, as an unknown kind is
 fn fits_hit(reference: ReferenceKind, hit: &SymbolHit) -> bool {
   SymbolGroup::of_hit(hit).is_none_or(|group| fits(reference, group))
 }

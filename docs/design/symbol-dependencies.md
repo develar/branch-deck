@@ -1019,7 +1019,8 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   - the kind word of a Rust method in an `impl` is `function` (nine words inside) and `method` (`HitKind`,
     twenty-nine, outside). Since 2026-11-07 one list of nine words (`SymbolGroup`, accio's `group`) filters a
     candidate on both sides, and the word of the index is read where it answers one; the text of `kind` keeps the
-    language's own word, which an agent reads.
+    language's own word, which an agent reads. Since 2026-11-08 the review keeps no copy of accio's fold of its kinds
+    (`SymbolGroup::of_kind` is gone): a hit of an accio older than the word is kept, not judged.
   - the column inside used to be the first occurrence of the word on the line (`column_of`), so
     `#[doc(alias = "needle")] pub fn needle(…)` jumped into the attribute inside the review and onto the method's name
     outside. Since 2026-11-07 a summary carries the column its parser read (`Declaration::name_column`), the one the

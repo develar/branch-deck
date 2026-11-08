@@ -184,7 +184,7 @@ fn finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review() {
 }
 
 /// One list of nine words filters both sides: a method of an `impl` is a candidate for a call and none for a type
-/// position, whether the index answers the word itself or an older accio leaves it out
+/// position by the word the index answers; a hit without one is kept, never judged by a fold of its kind here
 #[test]
 fn one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review() {
   let uses = "fn run() { crate::lib::needle(); }\n\nfn typed(value: needle) {}\n";
@@ -199,14 +199,12 @@ fn one_vocabulary_filters_the_hits_of_the_index_as_it_filters_the_review() {
     let found = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params).unwrap();
     found.targets.len()
   };
-  for hit in [
-    hit_with_group("src/lib.rs", 1, HitKind::Method, "function", "needle"),
-    // an accio older than the word: the kind is folded here, the same way
-    hit("src/lib.rs", 1, HitKind::Method, "needle"),
-  ] {
-    assert_eq!(targets(0, hit.clone()), 1, "a call takes the method");
-    assert_eq!(targets(2, hit), 0, "a type position does not");
-  }
+  let method = hit_with_group("src/lib.rs", 1, HitKind::Method, "function", "needle");
+  assert_eq!(targets(0, method.clone()), 1, "a call takes the method");
+  assert_eq!(targets(2, method), 0, "a type position does not");
+  // an accio older than the word (0.16): nothing on this side folds the kind, so the candidate stays wherever it is
+  assert_eq!(targets(0, hit("src/lib.rs", 1, HitKind::Method, "needle")), 1);
+  assert_eq!(targets(2, hit("src/lib.rs", 1, HitKind::Method, "needle")), 1);
   // what is no code carries no word and is judged by nothing: the candidate stays
   assert_eq!(targets(2, hit("src/lib.rs", 1, HitKind::Key, "needle")), 1);
   // the word of the answer is what filters, not the kind beside it
