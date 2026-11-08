@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.3.0](https://github.com/develar/branch-deck/compare/v1.2.0...v1.3.0) (2026-11-08)
+
+
+### Features
+
+* **app:** declare what lands before a branch from its row, and the status of the companions ([1f4b7a9](https://github.com/develar/branch-deck/commit/1f4b7a958a5493f5f77aa0efaeef94f43378e97b))
+* **bd:** a pick refuses a prefix whose parent is the baseline ([73bc8fd](https://github.com/develar/branch-deck/commit/73bc8fdf2a27723b888784cb6903135d1fb37782))
+* **brd:** a need of a branch of a companion repository ([43b9c30](https://github.com/develar/branch-deck/commit/43b9c30da9d52ae43b2dcd6eea7c7c7a1b9bd72e))
+* **brd:** declare what lands before a branch ([31705b6](https://github.com/develar/branch-deck/commit/31705b6c8f9abfd25383ba34c70347242a51d271))
+* **brd:** name a declared need after the sync, on every route ([7c029c3](https://github.com/develar/branch-deck/commit/7c029c35c27e43ac87fbfc01a81dfeae17cdf10f))
+* **brd:** refuse a start that lands out of the declared order ([1d7715c](https://github.com/develar/branch-deck/commit/1d7715ca55330f82c258f4b6eeb6bb3b02da6d5c))
+* **host:** the keeper frees idle host slots below leaseMinFree ([e46debc](https://github.com/develar/branch-deck/commit/e46debc53ed2024f3fcd1edc068bde58de7f0518))
+* **review:** a review opened again after a rewrite finds its plan read ahead ([f0ebb0a](https://github.com/develar/branch-deck/commit/f0ebb0ad1b238ca82c70031648d2f38211463cfe))
+* **review:** read ahead only the 4 branches reviewed last in a repository ([dcaddc1](https://github.com/develar/branch-deck/commit/dcaddc13addde4981e7f62fef2c6d92c8416ece7))
+* stream the disk report and measure only what changed ([c8b71a9](https://github.com/develar/branch-deck/commit/c8b71a93ddf576ab41a09db9a877eac0b39d7e3b))
+* **symbols:** a declaration carries the column its name starts at ([b001bca](https://github.com/develar/branch-deck/commit/b001bca52511e1b454d0b17cea2a158497caccfb))
+* **symbols:** Bazel's BUILD and .bzl files are highlighted as the Bazel plugin colours them ([b0b900a](https://github.com/develar/branch-deck/commit/b0b900a686d342c137c0ff7eff6eccdcf144ca06))
+
+
+### Bug Fixes
+
+* **e2e:** hold the blob texts of the review plan before its window opens ([2973f69](https://github.com/develar/branch-deck/commit/2973f695fb2da99d0fd640916ecf2187e85ee317))
+* **e2e:** the divider of Split says it is dragged, and its test presses a point the rows have stopped moving ([dc9393e](https://github.com/develar/branch-deck/commit/dc9393eb6b9b839f15fcdf932cd2c7c680df7d3e))
+* **landing:** serialize pushes into master ([a5ddaa7](https://github.com/develar/branch-deck/commit/a5ddaa70ef1260e7f18d5ebc2dd136c6ff0ecff9))
+* **lease:** widen a read-only directory the delete walk goes into ([922456c](https://github.com/develar/branch-deck/commit/922456c956ff5c1708f03e56a24f3b2fcf32be6c))
+* **operations:** let a Safe Push pressed during a sync start at once ([028cbe9](https://github.com/develar/branch-deck/commit/028cbe932ac2f38ed531eec203b960904757bfa1))
+* **review:** add long title review fixture ([73eef98](https://github.com/develar/branch-deck/commit/73eef9829cadc1c5a6ac3fbad29dcf689540934c))
+* **review:** dim conventional prefixes in step titles ([154fb83](https://github.com/develar/branch-deck/commit/154fb834e59b854d4c45df4595936f164f845c9f))
+* **review:** let review history handle empty diff history ([19a0e7b](https://github.com/develar/branch-deck/commit/19a0e7bb5ac85c98d3526ab2cc169b54e686788b))
+* **review:** show whole titles in the review tree ([766ee49](https://github.com/develar/branch-deck/commit/766ee490d173a851f44a3a3281612c3e7c22f60a))
+* **symbol:** handle unknown accio kinds ([41a0aa5](https://github.com/develar/branch-deck/commit/41a0aa52094c1198dd2aa7cae84febc5a4e23a8c))
+* **symbol:** query usages by declaration place ([500c1c1](https://github.com/develar/branch-deck/commit/500c1c1f85316b0146c9c16fd98ce1d1affbdd93))
+* **symbols:** a jump inside the review lands on the name, not on the first word of its line ([02ba992](https://github.com/develar/branch-deck/commit/02ba992b30d282c89305095157db6908c85a690b))
+* **symbol:** use the indexed declaration column ([d2d5df9](https://github.com/develar/branch-deck/commit/d2d5df97d1fd6f0188003ccec1287d0d4699b95c))
+
+
+### Performance Improvements
+
+* **symbol:** one accio process per declaration lookup ([a41ebfc](https://github.com/develar/branch-deck/commit/a41ebfcd135724059550f1b95fdcd477df79560e))
+
 ## [1.2.0](https://github.com/develar/branch-deck/compare/v1.1.0...v1.2.0) (2026-11-06)
 
 
