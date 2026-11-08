@@ -1,7 +1,18 @@
 import { memo, useEffect, useRef, useState } from "react"
 import type { ComponentProps, KeyboardEvent, ReactElement, ReactNode, RefObject } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon, FolderIcon, FolderOpenIcon, GitCommitHorizontalIcon, LayersIcon, TargetIcon } from "lucide-react"
+import {
+  CableIcon,
+  ChevronRightIcon,
+  FlaskConicalIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  GitCommitHorizontalIcon,
+  LayersIcon,
+  PackageIcon,
+  ScrollTextIcon,
+  TargetIcon,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitRow, CommitRowBadges } from "@/components/commit/CommitRow"
@@ -23,14 +34,14 @@ import type { CardCommit } from "@/lib/commit"
 import { formatCommitCount, toCardCommit } from "@/lib/commit"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
 import { copiedText } from "@/lib/file-actions"
-import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
+import { fileActionTarget, getVisibleRows, isTreeHeading } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
 import type { ReviewPlace } from "@/lib/review-place"
 import { presentRowFacts } from "@/presenters/review-plan"
 import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
-import { formatCommitRole } from "@/presenters/review-steps"
+import { formatCommitRole, formatModuleState, formatSeen } from "@/presenters/review-steps"
 
 interface FileTreeBaseProps {
   nodes: readonly FileTreeNode[]
@@ -48,6 +59,17 @@ interface FileTreeBaseProps {
   activeGroupKey?: string | null
   /** What the commit rows of the story of a range review do (`FileTreeCommit`); a tree without them has none */
   commitRows?: FileTreeCommitRows | null
+  /**
+   * The files the reader saw of each large step and of each of its groups, by the key of its row (spec/branch/review-tour.spec.md,
+   * "In the Review Window"); a row shows them from the first one
+   */
+  progress?: ReadonlyMap<string, FileTreeProgress> | null
+}
+
+/** How many files of a row the reader saw, of how many */
+export interface FileTreeProgress {
+  readonly seen: number
+  readonly total: number
 }
 
 /** What a commit row does (spec/branch/review-tour.spec.md, "In the Review Window") */
@@ -117,7 +139,19 @@ const CHEVRON_MIDDLE = "7px"
  * fold it, Enter, ⌘C, `I` and its menu are the commit's.
  */
 export function FileTree(props: FileTreeProps) {
-  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, activeGroupKey = null, commitRows = null } = props
+  const {
+    nodes,
+    "aria-label": label,
+    collapsed,
+    onToggleDirectory,
+    mode,
+    fileOwners,
+    badges = null,
+    marks = null,
+    activeGroupKey = null,
+    commitRows = null,
+    progress = null,
+  } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null
@@ -125,6 +159,8 @@ export function FileTree(props: FileTreeProps) {
   const onSelectFile = props.mode === "navigate" ? props.onSelectFile : undefined
   const onOpenFile = props.mode === "inline" ? props.onOpenFile : undefined
   const rows = getVisibleRows(nodes, collapsed)
+  // the indent of each row: its depth less the headings above it, whose rows keep their indent
+  const indents = headingIndents(rows)
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
   // the row in the tab order: the focused one while it shows, then the selected one, otherwise the first
   const tabKey = [focusedKey, selectedKey].find(key => key !== null && rows.some(row => row.key === key)) ?? rows[0]?.key ?? null
@@ -272,7 +308,7 @@ export function FileTree(props: FileTreeProps) {
     }
   }
 
-  const renderRow = (node: FileTreeNode, sticky: boolean, activeGroup: boolean) => (
+  const renderRow = (node: FileTreeNode, sticky: RowSticky, activeGroup: boolean) => (
     <FileTreeRow
       key={node.key}
       node={node}
@@ -294,19 +330,43 @@ export function FileTree(props: FileTreeProps) {
       content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
       sticky={sticky}
       activeGroup={activeGroup}
+      indentDepth={indents.get(node.key) ?? node.depth}
+      progress={progress?.get(node.key) ?? null}
     />
   )
+  // the rows of a step under its row: each group of a large step one block, whose heading sticks below the step's row
+  const renderStepRows = (list: readonly FileTreeNode[], activeGroup: boolean): ReactNode[] => {
+    const blocks: ReactNode[] = []
+    for (let at = 0; at < list.length; at++) {
+      const row = list[at]!
+      if (row.kind === "directory" && row.group === "section") {
+        const inside: FileTreeNode[] = []
+        while (list[at + 1] !== undefined && list[at + 1]!.depth > row.depth) {
+          inside.push(list[++at]!)
+        }
+        blocks.push(
+          <div key={row.key} role="none">
+            {renderRow(row, "section", activeGroup)}
+            {inside.map(it => renderRow(it, false, activeGroup))}
+          </div>,
+        )
+      } else {
+        blocks.push(renderRow(row, false, activeGroup))
+      }
+    }
+    return blocks
+  }
   const renderedRows: ReactNode[] = []
   for (let index = 0; index < rows.length; index++) {
     const node = rows[index]!
     if (node.kind === "directory" && node.group === "concern") {
-      const group: FileTreeNode[] = [node]
+      const group: FileTreeNode[] = []
       const activeGroup = activeGroupKey === node.key
       while (rows[index + 1] !== undefined && rows[index + 1]!.depth > node.depth) {
         group.push(rows[++index]!)
       }
       renderedRows.push(
-        <div key={node.key} role="none" className="relative">
+        <div key={node.key} role="none" className="relative" ref={group.some(isTreeHeading) ? stickBelowStepRow : undefined}>
           {activeGroup && (
             <span
               aria-hidden
@@ -314,7 +374,8 @@ export function FileTree(props: FileTreeProps) {
               style={{ left: `calc(${ROW_START} + ${node.depth * INDENT_REM}rem + ${CHEVRON_MIDDLE})` }}
             />
           )}
-          {group.map(row => renderRow(row, row.key === node.key, activeGroup))}
+          {renderRow(node, "step", activeGroup)}
+          {renderStepRows(group, activeGroup)}
         </div>,
       )
     } else {
@@ -327,6 +388,39 @@ export function FileTree(props: FileTreeProps) {
       {renderedRows}
     </div>
   )
+}
+
+/** How a row sticks to the top of the tree: the row of a step, the heading of a group of a large step below it, or not */
+type RowSticky = "step" | "section" | false
+
+/** The indent of each row by its key: its depth less the headings above it (`isTreeHeading`), whose rows keep their indent */
+function headingIndents(rows: readonly FileTreeNode[]): Map<string, number> {
+  const above: { depth: number; heading: boolean }[] = []
+  const indents = new Map<string, number>()
+  for (const row of rows) {
+    while (above.length > 0 && above.at(-1)!.depth >= row.depth) {
+      above.pop()
+    }
+    indents.set(row.key, row.depth - above.filter(it => it.heading).length)
+    if (row.kind === "directory") {
+      above.push({ depth: row.depth, heading: isTreeHeading(row) })
+    }
+  }
+  return indents
+}
+
+/**
+ * Keeps the height of the row of a step on the block of its rows (`--tree-step-row`), so the heading of a group of a
+ * large step sticks right below it however many lines its title wraps to
+ */
+function stickBelowStepRow(block: HTMLDivElement | null): (() => void) | undefined {
+  const row = block?.querySelector<HTMLElement>(":scope > [role=treeitem]")
+  if (block === null || block === undefined || row === null || row === undefined) {
+    return undefined
+  }
+  const observer = new ResizeObserver(() => block.style.setProperty("--tree-step-row", `${row.offsetHeight}px`))
+  observer.observe(row)
+  return () => observer.disconnect()
 }
 
 /** The group of a step of the commits that lands nothing and has no other commit: its commit alone */
@@ -417,8 +511,12 @@ interface FileTreeRowProps {
   onCardChange: (key: string, open: boolean) => void
   /** The files of the chosen owner a step row shows: "4 of 7" */
   ownerMark: OwnerMark | null
-  sticky: boolean
+  sticky: RowSticky
   activeGroup: boolean
+  /** Its indent, in levels: its depth less the headings above it */
+  indentDepth: number
+  /** The files of a step or a group the reader saw */
+  progress: FileTreeProgress | null
   /** The right-click menu of a commit row and of the group of a step of the commits */
   commitMenu: FileTreeCommitRows["menu"] | undefined
   /** The diff under an expanded file */
@@ -445,9 +543,14 @@ const FileTreeRow = memo(function FileTreeRow({
   content,
   sticky,
   activeGroup,
+  indentDepth,
+  progress,
 }: FileTreeRowProps) {
-  const indent = `${node.depth * INDENT_REM}rem`
+  const indent = `${indentDepth * INDENT_REM}rem`
   const isConcern = node.kind === "directory" && node.group === "concern"
+  const section = node.kind === "directory" ? node.section : undefined
+  // the files of a step or a group the reader saw, from the first one
+  const seen = progress !== null && progress.seen > 0 ? formatSeen(progress.seen, progress.total) : null
   const facts = presentRowFacts(fileBadges, dependencyBadge)
   const cardCommit = cardCommitOf(node)
   // the one card of the row's mark, of its facts or of its commit
@@ -466,8 +569,16 @@ const FileTreeRow = memo(function FileTreeRow({
     ) : undefined
   const commitCard = cardCommit === null ? null : { commit: cardCommit, state: cardState, menu: cardMenu }
   const counts = rowCounts(node)
-  // the mark is no tab stop: the description says every fact of its card
-  const described = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
+  // the mark is no tab stop: the description says every fact of its card; a group its module, what it also holds
+  const described = [
+    section?.state == null ? null : formatModuleState(section.state),
+    section?.also ?? null,
+    counts,
+    facts === null || facts.description === "" ? null : facts.description,
+    seen,
+  ]
+    .filter(part => part !== null && part !== "")
+    .join(", ")
   const description = ownerMark === null ? described : `${described}, ${ownerMark.count} of ${formatFileCount(ownerMark.total)}, ${ownerMark.label}`
   // a file of a review also in another concern: the row tells it from the row of the file
   const label = node.kind === "also" ? `${node.name}, ${node.also}` : node.name
@@ -494,8 +605,20 @@ const FileTreeRow = memo(function FileTreeRow({
     )
   const lineCounts =
     node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />
+  // the counts of the heading of a group: the files of the chosen owner, the mark of its dependency changes, the files
+  // seen, its lines
+  const groupFacts = section !== undefined && (
+    <>
+      {ownerMark !== null && <OwnerMarkBadge mark={ownerMark} />}
+      {rowMark}
+      {seen !== null && <SeenProgress text={seen} />}
+      {lineCounts}
+    </>
+  )
   const rowContent =
-    node.kind === "directory" ? (
+    node.kind === "directory" && isTreeHeading(node) ? (
+      <SectionRowContent node={node} />
+    ) : node.kind === "directory" ? (
       <DirectoryRowContent node={node} isOpen={isOpen === true} titleHover={commitCard === null ? undefined : hover.text} />
     ) : node.kind === "also" ? (
       <AlsoRowContent node={node} owner={owner} />
@@ -523,7 +646,9 @@ const FileTreeRow = memo(function FileTreeRow({
       tabIndex={inTabOrder ? 0 : -1}
       data-tree-key={node.key}
       data-active-group={activeGroup ? "" : undefined}
-      className={cn("group/tree-item flex flex-col outline-none", sticky && "sticky top-0 z-10 bg-canvas")}
+      className={cn("group/tree-item flex flex-col outline-none", sticky === "step" && "sticky top-0 z-10 bg-canvas", sticky === "section" && "sticky z-[5] bg-canvas")}
+      // the heading of a group sticks right below the row of its step
+      style={sticky === "section" ? { top: "var(--tree-step-row, 0px)" } : undefined}
       onFocus={event => {
         if (event.target === event.currentTarget) {
           onFocusRow(node.key)
@@ -540,7 +665,7 @@ const FileTreeRow = memo(function FileTreeRow({
             className={cn(
               // a title of a step or a commit wraps as needed: the row grows, its chevron, icon and end stay on the first
               "group/row relative flex min-h-6 cursor-default items-start gap-1.5 rounded-md py-0.5 pr-1 text-sm transition-colors select-none bd-focus-inset group-focus-visible/tree-item:bd-focus hover:bg-muted",
-              isConcern && "flex-col items-stretch gap-0",
+              (isConcern || section !== undefined) && "flex-col items-stretch gap-0",
               activeGroup && "bg-primary/5",
               isSelected && "bg-primary/15 hover:bg-primary/15",
             )}
@@ -569,17 +694,30 @@ const FileTreeRow = memo(function FileTreeRow({
               {rowContent}
             </span>
             <span className="flex min-w-0 items-center gap-1.5 pl-5">
-              {ownerMark !== null && (
-                <Badge variant="secondary" data-testid="review-owner-mark" className="shrink-0 text-muted-foreground">
-                  <span className="tabular-nums">
-                    {ownerMark.count} of {ownerMark.total}
-                  </span>
-                </Badge>
-              )}
+              {ownerMark !== null && <OwnerMarkBadge mark={ownerMark} />}
               {node.commit !== undefined && <CommitRowBadges facts={factsOf(node.commit)} />}
               {rowMark}
               {lineCounts}
+              {seen !== null && <SeenProgress text={seen} />}
             </span>
+          </span>
+        ) : section !== undefined ? (
+          // the heading of a group; of a module the commits add or delete, or one that holds small modules, its name and
+          // its badge alone on the first line, the modules it also holds muted below, then its counts
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex min-w-0 items-start gap-1.5">
+              {disclosure}
+              {rowContent}
+              {section.state === null && section.also === null && groupFacts}
+            </span>
+            {(section.state !== null || section.also !== null) && (
+              <span className="flex min-w-0 items-center gap-1.5 pl-[2.625rem]">
+                <span className="min-w-0 flex-1 truncate text-xs leading-5 text-muted-foreground" data-testid="review-group-also">
+                  {section.also}
+                </span>
+                {groupFacts}
+              </span>
+            )}
           </span>
         ) : (
           <>
@@ -741,6 +879,74 @@ function DirectoryRowContent({
   )
 }
 
+/** The files of the chosen owner a step or a group shows: "4 of 7" */
+function OwnerMarkBadge({ mark }: { mark: OwnerMark }) {
+  return (
+    <Badge variant="secondary" data-testid="review-owner-mark" className="shrink-0 text-muted-foreground">
+      <span className="tabular-nums">
+        {mark.count} of {mark.total}
+      </span>
+    </Badge>
+  )
+}
+
+/** "3 / 11 seen": the files of a step or a group the reader saw */
+function SeenProgress({ text }: { text: string }) {
+  return (
+    <span className="shrink-0 text-xs leading-5 text-muted-foreground tabular-nums" data-testid="review-seen-progress">
+      {text}
+    </span>
+  )
+}
+
+/** The icon of a group of a large step: what it holds */
+function SectionIcon({ node }: { node: FileTreeDirectory }) {
+  const className = "my-0.5 size-4 shrink-0 text-muted-foreground"
+  switch (node.section?.kind) {
+    case "contract":
+      return <ScrollTextIcon className={className} />
+    case "folder":
+      return <FolderIcon className={className} />
+    case "mechanical":
+      return node.section.name === "Wiring" ? <CableIcon className={className} /> : <LayersIcon className={className} />
+    default:
+      return <PackageIcon className={className} />
+  }
+}
+
+/**
+ * A group of a large step, the heading of its files: its name (a module by its label as code), its module new or
+ * deleted, the small modules it also holds muted; the tests at the end of a group a muted heading
+ */
+function SectionRowContent({ node }: { node: FileTreeDirectory }) {
+  const section = node.section
+  if (section === undefined) {
+    return (
+      <>
+        <FlaskConicalIcon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-xs leading-5 font-medium text-muted-foreground" title={groupTitle(node)} data-group={node.group}>
+          {node.name}
+        </span>
+      </>
+    )
+  }
+  return (
+    <>
+      <SectionIcon node={node} />
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span className={cn("min-w-0 truncate font-medium", section.code && "font-mono")} title={groupTitle(node)} data-group={node.group} data-testid="review-group-name">
+          {node.name}
+        </span>
+        {section.state !== null && (
+          <Badge variant={section.state === "added" ? "success" : "secondary"} data-testid="review-group-state">
+            {formatModuleState(section.state)}
+          </Badge>
+        )}
+      </span>
+    </>
+  )
+}
+
 function DirectoryLineCounts({ node }: { node: FileTreeDirectory }) {
   return (
     <span className="shrink-0 text-xs leading-5 text-muted-foreground" data-testid="directory-line-counts">
@@ -757,7 +963,7 @@ function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | u
       {/* the letter where a directory has its folder icon, so the names align; the name keeps its width, the old name of a rename gives way first */}
       <span className="flex min-w-0 flex-1" title={owner === undefined ? path : `${path}\nOwned by ${owner}`}>
         {/* a file of a group is in no directory row: its directory follows its name */}
-        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup === true} letterSlot="icon" wholeDirectory />
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.directory ?? node.inGroup === true} letterSlot="icon" wholeDirectory />
       </span>
     </>
   )
@@ -770,7 +976,7 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-muted-foreground" title={`${owner === undefined ? path : `${path}\nOwned by ${owner}`}\n${node.home}`}>
       <span className="flex min-w-0">
-        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup} letterSlot="icon" wholeDirectory />
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.directory ?? node.inGroup} letterSlot="icon" wholeDirectory />
       </span>
       {/* "in step 2"; a chapter of no number by its name, which gives way at half the row, its whole name in the hover */}
       <span className="max-w-1/2 shrink-0 truncate text-xs" data-testid="review-also-home">

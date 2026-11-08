@@ -184,7 +184,7 @@ fn the_modules_template_reads_as_its_contract_its_modules_and_its_wiring() {
         GroupKind::Mechanical,
         String::new(),
         vec![],
-        vec!["modules.xml", "plugin.xml", "intellij.player.view.gui.media.iml", "module-list.txt", "BUILD.bazel"],
+        vec!["modules.xml", "plugin.xml", "BUILD.bazel", "intellij.player.view.gui.media.iml", "module-list.txt"],
         vec![]
       ),
     ]

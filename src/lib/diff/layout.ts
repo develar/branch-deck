@@ -85,6 +85,9 @@ export interface ScrollAnchor {
   offset: number
 }
 
+/** The mark of a card `DiffLayout.passedCards` reported */
+const PASSED = 4
+
 export class DiffLayout {
   readonly files: readonly LayoutFile[]
   readonly metrics: LayoutMetrics
@@ -264,6 +267,37 @@ export class DiffLayout {
       }
     }
     return low
+  }
+
+  /**
+   * The cards that passed entirely through a view scrolled to `scrollTop`, `viewHeight` high, since `edges` started:
+   * the top and the bottom of each card in view now are marked in `edges` by its key (1 the top, 2 the bottom, 4
+   * reported), a card both of whose edges were in view, at once or one after the other, is reported once. A card
+   * `ready` refuses (its diff not read yet, so its height is not its own) marks nothing
+   */
+  passedCards(scrollTop: number, viewHeight: number, edges: Map<string, number>, ready: (file: number) => boolean): number[] {
+    if (this.files.length === 0) {
+      return []
+    }
+    const bottom = scrollTop + viewHeight
+    const passed: number[] = []
+    for (let file = this.fileAt(scrollTop), last = this.fileAt(bottom); file <= last; file++) {
+      const key = this.files[file]!.key
+      const marks = edges.get(key) ?? 0
+      if ((marks & PASSED) !== 0 || !ready(file)) {
+        continue
+      }
+      const top = this.offsets[file]!
+      const end = top + this.fileHeight(file)
+      const now = marks | (top >= scrollTop - 1 && top <= bottom + 1 ? 1 : 0) | (end >= scrollTop - 1 && end <= bottom + 1 ? 2 : 0)
+      if (now === 3) {
+        passed.push(file)
+        edges.set(key, now | PASSED)
+      } else if (now !== marks) {
+        edges.set(key, now)
+      }
+    }
+    return passed
   }
 
   /** The row of a file at `y` of the document, clamped to its rows; -1 when the file has none */

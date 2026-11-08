@@ -72,6 +72,8 @@ export interface PainterCallbacks {
   onWindow: (first: number, last: number, when: "flush" | "now" | "idle") => void
   /** The file whose header is at the top and its part there (`DiffLayout.partShownAt`), after a scroll of the user */
   onTopFile: (index: number, part: LayoutPart) => void
+  /** Any scroll of the view, the user's or one the view made: the top of the viewport in the document and its height */
+  onScroll: (top: number, height: number) => void
   /** A click on a fold; with ⌥ (Alt) it asks for all the lines of the file */
   onFold: (file: number, fold: FoldRow, all: boolean) => void
   /** A click on the row of a block another section shows (`NoteRow`, `elsewhere`) */
@@ -393,10 +395,11 @@ export class DiffPainter {
     this.update(true)
     // the read after the paint lays the new rows out: the cost of the event is its work and that layout
     const top = this.viewTop()
+    const height = this.viewHeight()
     if (this.followScroll && model.files.length > 0) {
-      const height = this.viewHeight()
       this.callbacks.onTopFile(model.layout.fileShownAt(top, height), model.layout.partShownAt(top, height))
     }
+    this.callbacks.onScroll(top, height)
     // the benchmark (tests/perf/diff-review.perf.ts) reads the cost of each scroll event
     ;(globalThis as { __diffPaintTimes?: number[] }).__diffPaintTimes?.push(performance.now() - start)
   }

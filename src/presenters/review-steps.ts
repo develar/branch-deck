@@ -1,4 +1,18 @@
-import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ModuleShape, ReviewPlan, ReviewStep, StepCommit, StepSource, StoryRef } from "@/lib/bindings"
+import type {
+  CommitRole,
+  ConcernName,
+  ConcernPart,
+  FileFacts,
+  GroupKind,
+  JoinedUnit,
+  MechanicalKind,
+  ModuleShape,
+  ReviewPlan,
+  ReviewStep,
+  StepCommit,
+  StepSource,
+  StoryRef,
+} from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
@@ -63,7 +77,180 @@ export interface Chapter {
   readonly parts: readonly ChapterPart[]
   readonly paths: readonly string[]
   readonly elsewhere: readonly string[]
+  /** The groups of a large step Rust cut (`ReviewStep.groups`), none for a step read as one list and for a concern */
+  readonly groups: readonly ChapterGroup[]
 }
+
+/**
+ * A group of a large step as the tree reads it (spec/branch/review-tour.spec.md, "Groups of a Step"): a section of its
+ * step, which lists the files of its stops, each once, at the first of them, a file Rust classed mechanical in the
+ * mechanical group
+ */
+export interface ChapterGroup {
+  readonly kind: GroupKind
+  /** Its name on its row: "Contract", the label of its module, its folder; the mechanical group "Wiring" or "Mechanical" */
+  readonly name: string
+  /** Its name is the label of a module: code */
+  readonly code: boolean
+  /** Its hover: the root of its module, of a folder the folder there, else what it holds */
+  readonly hover: string
+  /** What the commits do to its module, when they add or delete it */
+  readonly state: "added" | "deleted" | null
+  /** The small modules whose files it holds: "also shared/code" */
+  readonly also: string | null
+  /** The root of its module; null for the contract and the mechanical group */
+  readonly root: string | null
+  /** Its files (its rows and its rows "also in" another step) in the order of its stops; those from `tests` on are its tests */
+  readonly paths: readonly string[]
+  readonly tests: number
+  /** The directory after the name of each of its files (`directoryWords`), null for the whole directory */
+  readonly directories: readonly (string | null)[]
+}
+
+const NO_GROUPS: readonly ChapterGroup[] = []
+
+/** The kinds of the mechanical files that wire modules in: the build model and the lists of modules */
+const WIRING: ReadonlySet<MechanicalKind> = new Set(["buildModel", "moduleList"])
+
+/**
+ * The groups of `step` (`ChapterGroup`): a file in the group of its first stop, a mechanical file (`mechanical`) in the
+ * mechanical group; a group that lists no file left out. The mechanical group is "Wiring" while its files are the build
+ * model and the lists of modules, else "Mechanical"
+ */
+function chapterGroups(
+  step: ReviewStep,
+  modules: readonly ModuleShape[],
+  mechanical: ReadonlyMap<string, MechanicalKind>,
+  moduleOf: ReadonlyMap<string, number>,
+): readonly ChapterGroup[] {
+  if (step.groups.length === 0) {
+    return NO_GROUPS
+  }
+  const folds = step.groups.some(group => group.kind === "mechanical")
+  const placed = new Set<string>()
+  const groups: ChapterGroup[] = []
+  for (const group of step.groups) {
+    const paths: string[] = []
+    let tests = -1
+    for (let at = group.start; at < group.end; at++) {
+      if (at === group.tests) {
+        tests = paths.length
+      }
+      const path = step.stops[at]?.path
+      if (path !== undefined && !placed.has(path) && (group.kind === "mechanical" || !folds || !mechanical.has(path))) {
+        placed.add(path)
+        paths.push(path)
+      }
+    }
+    if (paths.length > 0) {
+      const words = groupWords(group.kind, group.module === null ? undefined : modules[group.module], group.folder, paths, mechanical)
+      const directories =
+        words.root === null
+          ? paths.map(() => null)
+          : directoryWords(
+              paths,
+              words.root,
+              path => moduleOf.get(path) === group.module,
+              path => modules[moduleOf.get(path) ?? -1]?.label ?? null,
+            )
+      groups.push({ ...words, also: alsoOf(group.also, modules), paths, tests: tests < 0 ? paths.length : tests, directories })
+    }
+  }
+  return groups
+}
+
+function groupWords(
+  kind: GroupKind,
+  module: ModuleShape | undefined,
+  folder: string | null,
+  paths: readonly string[],
+  mechanical: ReadonlyMap<string, MechanicalKind>,
+): Pick<ChapterGroup, "kind" | "name" | "code" | "hover" | "state" | "root"> {
+  if (kind === "contract") {
+    return { kind, name: "Contract", code: false, hover: "The specs and the docs the step changes", state: null, root: null }
+  }
+  if (kind === "mechanical") {
+    const wiring = paths.every(path => {
+      const of = mechanical.get(path)
+      return of !== undefined && WIRING.has(of)
+    })
+    return wiring
+      ? { kind, name: "Wiring", code: false, hover: "The build files and the lists of modules of the step", state: null, root: null }
+      : {
+          kind,
+          name: "Mechanical",
+          code: false,
+          hover: "The mechanical changes of the step: the build model, imports alone, whitespace, renames, generated files",
+          state: null,
+          root: null,
+        }
+  }
+  if (module === undefined) {
+    return { kind, name: "Other files", code: false, hover: "The files of no module", state: null, root: null }
+  }
+  const state = module.state === "changed" ? null : module.state
+  const root = module.root === "" ? "The root of the repository" : module.root
+  if (kind === "folder" && folder !== null && folder !== "") {
+    return { kind, name: folder, code: false, hover: `${root} · ${folder}`, state, root: module.root }
+  }
+  return { kind, name: module.label, code: true, hover: root, state, root: module.root }
+}
+
+/**
+ * The directory after the name of each file of a group of a module, so the files of one folder read as one: below what
+ * the files of the module share in the directory below its root they are in (`src`, `testSrc`, `resources`: of
+ * `src/com/example/gui/embeds/View.kt` and `src/com/example/gui/markdown/Blocks.kt`, `embeds` and `markdown`), "" when
+ * that is its own directory; a file of a small module the group also holds by the label of its module
+ */
+function directoryWords(paths: readonly string[], root: string, own: (path: string) => boolean, labelOf: (path: string) => string | null): (string | null)[] {
+  const below = paths.map(path => {
+    const rest = root === "" ? path : path.slice(root.length + 1)
+    return rest.split("/").slice(0, -1)
+  })
+  // the directories all files of a source directory share, by that directory
+  const shared = new Map<string, string[]>()
+  paths.forEach((path, index) => {
+    if (own(path)) {
+      const segments = below[index]!
+      const known = shared.get(segments[0] ?? "")
+      if (known === undefined) {
+        shared.set(segments[0] ?? "", segments)
+      } else {
+        let common = 0
+        while (common < known.length && known[common] === segments[common]) {
+          common++
+        }
+        shared.set(segments[0] ?? "", known.slice(0, common))
+      }
+    }
+  })
+  return paths.map((path, index) => {
+    if (!own(path)) {
+      return labelOf(path)
+    }
+    const segments = below[index]!
+    return segments.slice(shared.get(segments[0] ?? "")?.length ?? 0).join("/")
+  })
+}
+
+/** "also shared/code": the labels of the small modules a group holds */
+function alsoOf(also: readonly number[], modules: readonly ModuleShape[]): string | null {
+  const labels = also.flatMap(module => (modules[module] === undefined ? [] : [modules[module].label]))
+  return labels.length === 0 ? null : `also ${labels.join(", ")}`
+}
+
+/** The badge of the module of a group: "New module", "Deleted module" */
+export function formatModuleState(state: "added" | "deleted"): string {
+  return state === "added" ? "New module" : "Deleted module"
+}
+
+/** The files of a group or a step the reader saw: "3 / 11 seen" */
+export function formatSeen(seen: number, total: number): string {
+  return `${seen} / ${total} seen`
+}
+
+/** The heading of the tests of a group, at its end */
+export const GROUP_TESTS = "Tests"
 
 /** The commit whose body tells a step: the one that starts it, else its first */
 export function headOf(step: ReviewStep): StepCommit | undefined {
@@ -71,8 +258,11 @@ export function headOf(step: ReviewStep): StepCommit | undefined {
 }
 
 /** The chapters of the story of `plan`, from its steps in their order (`Chapter`) */
-export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & { readonly modules?: readonly ModuleShape[] }): Chapter[] {
+export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & { readonly modules?: readonly ModuleShape[]; readonly files?: readonly FileFacts[] }): Chapter[] {
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
+  const modules = plan.modules ?? []
+  const mechanical = new Map((plan.files ?? []).flatMap(file => (file.mechanical === null ? [] : [[file.path, file.mechanical] as const])))
+  const moduleOf = new Map((plan.files ?? []).flatMap(file => (file.module === null ? [] : [[file.path, file.module] as const])))
   // of the steps of a message, a concern may be a step in part: its files are those of the step
   const message = plan.steps.source.kind === "message"
   return plan.steps.steps.map((step, index) => {
@@ -107,6 +297,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
         parts,
         paths: message ? step.paths : concern.paths,
         elsewhere: message ? step.elsewhere : concern.elsewhere,
+        groups: NO_GROUPS,
       }
     }
     if (message) {
@@ -127,6 +318,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
         parts,
         paths: step.paths,
         elsewhere: step.elsewhere,
+        groups: chapterGroups(step, modules, mechanical, moduleOf),
       }
     }
     // Rust titles a step by the commit that starts it, as its author wrote it
@@ -145,6 +337,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
       parts,
       paths: step.paths,
       elsewhere: step.elsewhere,
+      groups: chapterGroups(step, modules, mechanical, moduleOf),
     }
   })
 }
@@ -192,6 +385,17 @@ export function groupHeadings(step: ReviewStep, modules: readonly ModuleShape[])
  */
 export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlySet<string>): Map<string, { shown: number; total: number }> {
   return new Map(chapters.map(chapter => [chapter.id, { shown: new Set(chapter.paths.filter(path => paths.has(path))).size, total: new Set(chapter.paths).size }]))
+}
+
+/**
+ * The files of `paths` each group of a step lists, of every step with groups (`ChapterGroup`): the files of an owner chip
+ * (spec/branch/branch-review.spec.md, "Code owners"), the files the reader saw ("In the Review Window" of
+ * spec/branch/review-tour.spec.md); each by its step and its place among the groups of it
+ */
+export function presentGroupCounts(chapters: readonly Chapter[], paths: ReadonlySet<string>): { chapter: string; group: number; shown: number; total: number }[] {
+  return chapters.flatMap(chapter =>
+    chapter.groups.map((group, index) => ({ chapter: chapter.id, group: index, shown: group.paths.filter(path => paths.has(path)).length, total: group.paths.length })),
+  )
 }
 
 /** A commit of the range as a row of the tree: in the step it tells or follows up, else in Other commits */
@@ -335,6 +539,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS, groupHeading: null })),
       paths: concern.paths,
       elsewhere: concern.elsewhere,
+      groups: NO_GROUPS,
     }
   })
 }

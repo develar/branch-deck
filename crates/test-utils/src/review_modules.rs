@@ -260,7 +260,7 @@ fn bazel(module: &str, name: &str, deps: &[&str]) -> String {
     list
   });
   format!(
-    "### auto-generated section `build {module}` start\nload(\"@rules_jvm//:jvm.bzl\", \"jvm_library\", \"jvm_test\")\n\njvm_library(\n  name = \"{name}\",\n  module_name = \"{module}\",\n  srcs = glob([\"src/**/*.kt\"], allow_empty = True),\n  resources = glob([\"resources/**/*\"], allow_empty = True),\n  deps = [\n    \"@lib//:kotlin-stdlib\",\n{deps}  ],\n)\n\njvm_test(\n  name = \"{name}_test\",\n  srcs = glob([\"testSrc/**/*.kt\"], allow_empty = True),\n  associates = [\":{name}\"],\n)\n### auto-generated section `build {module}` end\n"
+    "load(\"@rules_jvm//:jvm.bzl\", \"jvm_library\", \"jvm_test\")\n\njvm_library(\n  name = \"{name}\",\n  module_name = \"{module}\",\n  srcs = glob([\"src/**/*.kt\"], allow_empty = True),\n  resources = glob([\"resources/**/*\"], allow_empty = True),\n  deps = [\n    \"@lib//:kotlin-stdlib\",\n{deps}  ],\n)\n\njvm_test(\n  name = \"{name}_test\",\n  srcs = glob([\"testSrc/**/*.kt\"], allow_empty = True),\n  associates = [\":{name}\"],\n)\n"
   )
 }
 

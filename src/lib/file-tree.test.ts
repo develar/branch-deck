@@ -12,8 +12,10 @@ import {
   fileActionTarget,
   flattenTreeFiles,
   formatTreeFileLabel,
+  foldedGroups,
   getInitiallyCollapsed,
   getVisibleRows,
+  groupRowKey,
   listsCommits,
   MECHANICAL_GROUP_KEY,
   mechanicalKindsOf,
@@ -23,8 +25,8 @@ import {
   sectionRows,
 } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeNode, ReviewCommitItem } from "@/lib/file-tree"
-import { concernChapters, placeCommits, presentChapters } from "@/presenters/review-steps"
-import { reviewStep } from "@/test-support/review-step"
+import { concernChapters, placeCommits, presentChapters, presentGroupCounts, presentOwnerMarks } from "@/presenters/review-steps"
+import { moduleShape, reviewStep } from "@/test-support/review-step"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
@@ -614,3 +616,213 @@ describe("the steps of the commits in the tree of a review", () => {
     ])
   })
 })
+
+describe("the groups of a large step in the tree of a review", () => {
+  const ROOT = "plugins/player"
+  const paths = {
+    spec: `${ROOT}/spec/embeds.spec.md`,
+    kind: `${ROOT}/view.gui/src/com/example/gui/embeds/EmbedKind.kt`,
+    markdown: `${ROOT}/view.gui/src/com/example/gui/markdown/MarkdownEmbeds.kt`,
+    bundle: `${ROOT}/view.gui/resources/messages/PlayerBundle.properties`,
+    guiTest: `${ROOT}/view.gui/testSrc/com/example/gui/embeds/EmbedModelTest.kt`,
+    nightly: `${ROOT}/shared/code/src/com/example/shared/NightlyBuild.kt`,
+    player: `${ROOT}/view.gui.media/src/com/example/media/MediaPlayer.kt`,
+    decoder: `${ROOT}/view.gui.media/src/com/example/media/avfoundation/Decoder.kt`,
+    mediaTest: `${ROOT}/view.gui.media/testSrc/com/example/media/MediaPlayerTest.kt`,
+    build: `${ROOT}/view.gui.media/BUILD.bazel`,
+    list: "build/module-list.txt",
+    lock: "pnpm-lock.yaml",
+  }
+  const files = [
+    file(paths.spec, 6),
+    file(paths.kind, 2),
+    file(paths.markdown, 2),
+    file(paths.bundle, 4),
+    file(paths.guiTest, 5),
+    file(paths.nightly, 2, 2),
+    file(paths.player, 12, 0, "added"),
+    file(paths.decoder, 14, 0, "added"),
+    file(paths.mediaTest, 11, 0, "added"),
+    file(paths.build, 20, 0, "added"),
+    file(paths.list, 1),
+  ]
+  const modules = [
+    moduleShape(`${ROOT}/view.gui.media`, "view.gui.media", { state: "added" }),
+    moduleShape(`${ROOT}/view.gui`, "view.gui"),
+    moduleShape(`${ROOT}/shared/code`, "shared/code"),
+  ]
+  const moduleOf: Record<string, number> = {
+    [paths.kind]: 1,
+    [paths.markdown]: 1,
+    [paths.bundle]: 1,
+    [paths.guiTest]: 1,
+    [paths.nightly]: 2,
+    [paths.player]: 0,
+    [paths.decoder]: 0,
+    [paths.mediaTest]: 0,
+    [paths.build]: 0,
+  }
+  const kinds: Record<string, MechanicalKind> = { [paths.build]: "buildModel", [paths.list]: "moduleList", [paths.lock]: "generated" }
+  const facts = (list: readonly CommitFile[]) => list.map(it => ({ path: it.path, mechanical: kinds[it.path] ?? null, module: moduleOf[it.path] ?? null }) as FileFacts)
+  /** The step of Rust: its stops group by group, the imports alone of `EmbedKind.kt` a stop of the mechanical group */
+  const step = (mechanical: readonly string[]) =>
+    reviewStep(
+      "media",
+      [{ id: "media", title: "play the media embeds", role: "starts" }],
+      [
+        ["u:spec", paths.spec],
+        ["u:bundle", paths.bundle],
+        ["u:kind", paths.kind],
+        ["u:markdown", paths.markdown],
+        ["u:guiTest", paths.guiTest],
+        ["u:nightly", paths.nightly],
+        ["u:player", paths.player],
+        ["u:decoder", paths.decoder],
+        ["u:mediaTest", paths.mediaTest],
+        ...mechanical.map((path): [string, string] => [`mechanical:${path}`, path]),
+        ["mechanical:imports", paths.kind],
+      ],
+      {},
+      {
+        title: "play the media embeds",
+        groups: [
+          { kind: "contract", module: null, folder: null, also: [], start: 0, tests: 1, end: 1 },
+          { kind: "module", module: 1, folder: null, also: [], start: 1, tests: 4, end: 5 },
+          { kind: "module", module: 0, folder: null, also: [2], start: 5, tests: 8, end: 9 },
+          { kind: "mechanical", module: null, folder: null, also: [], start: 9, tests: 10 + mechanical.length, end: 10 + mechanical.length },
+        ],
+      },
+    )
+  const planOf = (mechanical: readonly string[], list: readonly CommitFile[] = files) => ({
+    steps: { source: { kind: "commits" as const }, told: true, steps: [step(mechanical)], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
+    concerns: [],
+    modules,
+    files: facts(list),
+  })
+  const plan = planOf([paths.build, paths.list])
+  const chapters = presentChapters(plan)
+  const mechanical = mechanicalKindsOf({ files: plan.files, units: [] })
+
+  it("lists a group per section of the step, its files by name with their directory below what the module shares, its tests last, the build files under Wiring", () => {
+    const tree = buildReviewTree(files, mechanical, chapters)
+    expect(outline(tree)).toEqual([
+      "1 · play the media embeds/",
+      "  Contract/",
+      `    ${paths.spec}`,
+      "  view.gui/",
+      `    ${paths.bundle}`,
+      `    ${paths.kind}`,
+      `    ${paths.markdown}`,
+      "    Tests/",
+      `      ${paths.guiTest}`,
+      "  view.gui.media/",
+      `    ${paths.nightly}`,
+      `    ${paths.player}`,
+      `    ${paths.decoder}`,
+      "    Tests/",
+      `      ${paths.mediaTest}`,
+      "  Wiring/",
+      "    Build files (1)/",
+      `      ${paths.build}`,
+      "    Module lists (1)/",
+      `      ${paths.list}`,
+    ])
+    const step = tree[0] as FileTreeDirectory
+    const [contract, gui, media, wiring] = step.children as FileTreeDirectory[]
+    expect([contract, gui, media, wiring].map(group => [group!.key, group!.group, group!.name, group!.code === true, group!.fileCount])).toEqual([
+      [groupRowKey("media", 0), "section", "Contract", false, 1],
+      [groupRowKey("media", 1), "section", "view.gui", true, 4],
+      [groupRowKey("media", 2), "section", "view.gui.media", true, 4],
+      [groupRowKey("media", 3), "section", "Wiring", false, 2],
+    ])
+    // the new module says so, and names the small module whose file it holds; its hover is its root
+    expect([media!.section?.state, media!.section?.also, media!.title]).toEqual(["added", "also shared/code", `${ROOT}/view.gui.media`])
+    // a file of a module by its directory below what the files of its source directory share, one alone there by its
+    // name, a file of the small module by that module; a file of the contract by its whole path
+    const directories = (group: FileTreeDirectory) =>
+      flattenTreeNodes(group.children).flatMap(node => (node.kind === "file" ? [[node.name.slice(node.name.lastIndexOf("/") + 1), node.directory]] : []))
+    expect(directories(gui!)).toEqual([
+      ["PlayerBundle.properties", ""],
+      ["EmbedKind.kt", "embeds"],
+      ["MarkdownEmbeds.kt", "markdown"],
+      ["EmbedModelTest.kt", ""],
+    ])
+    expect(directories(media!)).toEqual([
+      ["NightlyBuild.kt", "shared/code"],
+      ["MediaPlayer.kt", ""],
+      ["Decoder.kt", "avfoundation"],
+      ["MediaPlayerTest.kt", ""],
+    ])
+    expect(directories(contract!)).toEqual([["embeds.spec.md", undefined]])
+    // a file whose imports alone are a stop of the mechanical group keeps its row in its module; the Wiring starts folded
+    expect(flattenTreeFiles([tree[0]!]).filter(it => it.path === paths.kind)).toHaveLength(1)
+    expect(foldedGroups(tree)).toEqual([groupRowKey("media", 3)])
+    // the tests of a group open with it in a large review; its other groups fold
+    expect([...getInitiallyCollapsed(tree, 200)].toSorted()).toEqual(
+      [
+        groupRowKey("media", 0),
+        groupRowKey("media", 1),
+        groupRowKey("media", 2),
+        groupRowKey("media", 3),
+        `${groupRowKey("media", 3)}buildModel/`,
+        `${groupRowKey("media", 3)}moduleList/`,
+      ].toSorted(),
+    )
+    // a file of a group shows: its group and the step open
+    expect([...revealInTree(new Set([groupRowKey("media", 2), concernRowKey("media")]), paths.mediaTest, tree)]).toEqual([])
+  })
+
+  it("lists a file of a group whose own row is in another step as a row also in that group, by its directory too", () => {
+    const first = reviewStep("bundle", [{ id: "bundle", title: "name the texts", role: "starts" }], [["u:bundle", paths.bundle]], {}, { title: "name the texts" })
+    const large = { ...step([paths.build, paths.list]), elsewhere: [paths.bundle] }
+    const tree = buildReviewTree(files, mechanical, presentChapters({ ...plan, steps: { ...plan.steps, steps: [first, large] } }))
+    const gui = (tree[1] as FileTreeDirectory).children[1] as FileTreeDirectory
+    const also = gui.children[0]
+    expect([also?.kind, also?.kind === "also" && also.homeTag, also?.kind === "also" && also.directory]).toEqual(["also", "in step 1", ""])
+    // its own row in the first step, once
+    expect(flattenTreeFiles([tree[0]!]).map(it => it.path)).toEqual([paths.bundle])
+  })
+
+  it("words the mechanical group Mechanical when it holds more than build files and lists of modules, and keeps a step without groups a list", () => {
+    const withLock = planOf([paths.build, paths.lock], [...files.filter(it => it.path !== paths.list), file(paths.lock, 30)])
+    const [chapter] = presentChapters(withLock)
+    expect(chapter!.groups.map(group => group.name)).toEqual(["Contract", "view.gui", "view.gui.media", "Mechanical"])
+    // a step Rust did not cut: no groups, the tree of today
+    const plain = presentChapters({ ...plan, steps: { ...plan.steps, steps: [{ ...step([paths.build, paths.list]), groups: [] }] } })
+    expect(plain[0]!.groups).toEqual([])
+    expect(outline(buildReviewTree(files, mechanical, plain)).slice(0, 3)).toEqual(["1 · play the media embeds/", `  ${paths.spec}`, `  ${paths.bundle}`])
+  })
+
+  it("counts the files of an owner chip and the files seen on the step and on each of its groups", () => {
+    const seen = new Set([paths.spec, paths.kind, paths.player])
+    expect(presentOwnerMarks(chapters, seen).get("media")).toEqual({ shown: 3, total: 11 })
+    expect(presentGroupCounts(chapters, seen)).toEqual([
+      { chapter: "media", group: 0, shown: 1, total: 1 },
+      { chapter: "media", group: 1, shown: 1, total: 4 },
+      { chapter: "media", group: 2, shown: 1, total: 4 },
+      { chapter: "media", group: 3, shown: 0, total: 2 },
+    ])
+  })
+
+  it("shows the dependency changes of the build file of a module on the row of its group, the new module its badge alone", () => {
+    const change = (kind: DependencyChange["kind"], name: string): DependencyChange => ({
+      manifest: paths.build,
+      module: "intellij.player.view.gui.media",
+      kind,
+      name,
+      change: "added",
+      versionBefore: null,
+      versionAfter: null,
+      scope: "main",
+      scopeBefore: null,
+    })
+    const tree = buildReviewTree(files, mechanical, chapters)
+    const rows = dependencyRows(tree, [change("newModule", "intellij.player.view.gui.media"), change("library", "jna")])
+    expect([...rows].map(([key, changes]) => [key, changes.map(it => it.name)])).toEqual([[groupRowKey("media", 2), ["jna"]]])
+  })
+})
+
+/** Every row of `nodes` with every directory open, in order */
+function flattenTreeNodes(nodes: readonly FileTreeNode[]): FileTreeNode[] {
+  return getVisibleRows(nodes, new Set())
+}

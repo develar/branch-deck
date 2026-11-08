@@ -9,8 +9,11 @@ export interface FilePathLabelProps {
   oldPath?: string | null
   /** The letter before the name and the colour of the name; without it the name is in the text colour */
   status?: FileStatus
-  /** The directory after the name; a tree row names it in the rows above */
-  directory?: boolean
+  /**
+   * The directory after the name; a tree row names it in the rows above. A string names it so: a file of a group of a
+   * module of a review by its directory below the root of the module
+   */
+  directory?: boolean | string
   /**
    * The header of a file above its diff: the name `font-semibold`, whole while the directory gives way (from its start,
    * so its last folder shows as long as any of it does), the last folder in the text colour, since it is what tells
@@ -34,7 +37,7 @@ export interface FilePathLabelProps {
  */
 export function FilePathLabel({ path, oldPath = null, status, directory = true, emphasis = false, letterSlot = "inline", wholeDirectory = false, className }: FilePathLabelProps) {
   const label = formatTreeFileLabel({ path, oldPath })
-  const parent = directory ? path.slice(0, path.length - label.name.length).replace(/\/$/, "") : ""
+  const parent = typeof directory === "string" ? directory : directory ? path.slice(0, path.length - label.name.length).replace(/\/$/, "") : ""
   const statusClass = status === undefined ? undefined : getFileStatusTextClass(status)
   if (wholeDirectory && parent !== "") {
     return (

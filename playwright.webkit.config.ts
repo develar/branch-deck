@@ -26,6 +26,7 @@ export default defineConfig({
     "branch-review/review-plan.spec.ts",
     "branch-review/branch-review.spec.ts",
     "branch-review/review-tour.spec.ts",
+    "branch-review/review-groups.spec.ts",
     "review-requests/review-requests.spec.ts",
     "review-window/review-window.spec.ts",
     "commit-files/commit-review.spec.ts",

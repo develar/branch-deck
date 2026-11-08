@@ -3,7 +3,8 @@ import type { FileActionTarget } from "@/lib/file-actions"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { formatAlsoIn, formatHome, formatHomeTag, OTHER_CHANGES } from "@/presenters/review-concerns"
 import { formatMechanicalGroup } from "@/presenters/review-plan"
-import type { Chapter, CommitPlaces, PlacedCommit } from "@/presenters/review-steps"
+import { GROUP_TESTS } from "@/presenters/review-steps"
+import type { Chapter, ChapterGroup, CommitPlaces, PlacedCommit } from "@/presenters/review-steps"
 
 /** A changed file of the tree, by its name in its directory */
 export interface FileTreeFile {
@@ -16,6 +17,8 @@ export interface FileTreeFile {
   file: CommitFile
   /** Named by its path, not in the directories of its path: a file of a group */
   inGroup?: boolean
+  /** Of a file of a group of a module: its directory below the root of the module, after its name ("" at the root) */
+  directory?: string
 }
 
 /**
@@ -40,6 +43,8 @@ export interface FileTreeAlso {
   /** In its hover, where its main row is: "Its own row is under grep → accio" */
   home: string
   inGroup: boolean
+  /** Of a file of a group of a module: its directory below the root of the module, after its name */
+  directory?: string
 }
 
 /** A directory of the tree; a chain of directories with one subdirectory each is one row, `plugins/air/backend` */
@@ -58,9 +63,12 @@ export interface FileTreeDirectory {
   /**
    * A group of files that is no directory: `mechanical`, the Mechanical group at the end of the tree of a review, or
    * the group of one kind in it or in a concern; `concern`, a task of the range; `other`, what no evidence joined;
-   * `commits`, the commits of the range no step lists
+   * `commits`, the commits of the range no step lists; `section`, a group of a large step (`section`), a heading of the
+   * step whose files keep the indent of the step's; `tests`, the tests at the end of a section, a heading too
    */
-  group?: MechanicalKind | "mechanical" | "concern" | "other" | "commits"
+  group?: MechanicalKind | "mechanical" | "concern" | "other" | "commits" | "section" | "tests"
+  /** Of a group of a large step: what Rust cut it as and its words */
+  section?: ChapterGroup
   /** The commits of a group of commits, which holds no file */
   commitCount?: number
   /** Its hover: why the files of a concern are together */
@@ -210,6 +218,16 @@ export function commitRowKey(group: string, id: string): string {
   return `${group}commit/${id}`
 }
 
+/** The key of the row of the group `index` of the step `step` (`ChapterGroup`) */
+export function groupRowKey(step: string, index: number): string {
+  return `${concernRowKey(step)}group/${index}/`
+}
+
+/** A heading of the tree (a group of a large step, its tests): its rows keep its indent */
+export function isTreeHeading(node: FileTreeNode): boolean {
+  return node.kind === "directory" && (node.group === "section" || node.group === "tests")
+}
+
 /** The key of the row of `path` in the concern `concern` that is not its main row (`FileTreeAlso`) */
 export function alsoRowKey(concern: string, path: string): string {
   return `${CONCERN_KEY}${concern}/also/${path}`
@@ -304,19 +322,50 @@ export function buildReviewTree(
     const elsewhere = new Set(chapter.elsewhere)
     const children: FileTreeNode[] = []
     const folded: CommitFile[] = []
-    for (const path of chapter.paths) {
+    /** The row of `path` at `depth` under `parentKey`: "also in" the step, else its main row, a mechanical one folded */
+    const place = (path: string, depth: number, parentKey: string, list: FileTreeNode[], folds: CommitFile[], directory?: string) => {
       const file = byPath.get(path)
       if (file === undefined) {
-        continue
+        return
       }
+      const below = directory === undefined ? {} : { directory }
       if (elsewhere.has(path)) {
-        children.push(alsoNode(chapter, file, { name: path, depth: 1, parentKey: key, inGroup: true }))
+        list.push({ ...alsoNode(chapter, file, { name: path, depth, parentKey, inGroup: true }), ...below })
       } else if (mechanical.has(path)) {
         held.add(path)
-        folded.push(file)
+        folds.push(file)
       } else {
         held.add(path)
-        children.push({ kind: "file", key: path, name: path, depth: 1, parentKey: key, file, inGroup: true })
+        list.push({ kind: "file", key: path, name: path, depth, parentKey, file, inGroup: true, ...below })
+      }
+    }
+    // a large step: a section per group, its files by their name and their directory below its module, its tests last
+    const inGroups = new Set(chapter.groups.flatMap(group => group.paths))
+    chapter.groups.forEach((group, index) => {
+      const sectionKey = groupRowKey(chapter.id, index)
+      const testsKey = `${sectionKey}tests/`
+      const rows: FileTreeNode[] = []
+      const tests: FileTreeNode[] = []
+      const kinds: CommitFile[] = []
+      group.paths.forEach((path, at) => {
+        const directory = group.directories[at] ?? undefined
+        if (at < group.tests) {
+          place(path, 2, sectionKey, rows, kinds, directory)
+        } else {
+          place(path, 3, testsKey, tests, kinds, directory)
+        }
+      })
+      rows.push(...kindGroups(kinds, mechanical, sectionKey, 2))
+      if (tests.length > 0) {
+        rows.push(groupNode(testsKey, GROUP_TESTS, 2, sectionKey, tests, "tests"))
+      }
+      if (rows.length > 0) {
+        children.push({ ...groupNode(sectionKey, group.name, 1, key, rows, "section", group.hover), section: group, ...(group.code && { code: true }) })
+      }
+    })
+    for (const path of chapter.paths) {
+      if (!inGroups.has(path)) {
+        place(path, 1, key, children, folded)
       }
     }
     children.push(...kindGroups(folded, mechanical, key, 1))
@@ -416,15 +465,18 @@ function groupNode(
 }
 
 /**
- * The row that shows the dependency changes of each build file, by its key: the row of the concern that holds the build
- * file (Rust made it follow the code that needs the new dependency), else the directory row whose chain of directories
- * holds the directory of the build file (its module), else the row of the build file itself (a build file at the root),
- * which the Mechanical group stands for while the build file is folded into it. A build file the tree does not show has
- * no row
+ * The row that shows the dependency changes of each build file, by its key: of a large step the row of the group of the
+ * module of the build file (the group of a module the commits add or delete says so itself: its own `newModule` change
+ * is left out), else the row of the concern that holds the build file (Rust made it follow the code that needs the new
+ * dependency), else the directory row whose chain of directories holds the directory of the build file (its module),
+ * else the row of the build file itself (a build file at the root), which the Mechanical group stands for while the
+ * build file is folded into it. A build file the tree does not show has no row
  */
 export function dependencyRows(nodes: readonly FileTreeNode[], dependencies: readonly DependencyChange[]): Map<string, DependencyChange[]> {
   const rows = new Map<string, DependencyChange[]>()
   const directories: FileTreeDirectory[] = []
+  // the groups of the modules of large steps
+  const sections: { key: string; step: string | undefined; root: string; state: ChapterGroup["state"] }[] = []
   // a file row -> the concern or the Mechanical group that holds it
   const holders = new Map<string, string>()
   const visit = (list: readonly FileTreeNode[], holder: string | undefined) => {
@@ -434,6 +486,8 @@ export function dependencyRows(nodes: readonly FileTreeNode[], dependencies: rea
       } else if (node.kind === "directory") {
         if (node.group === undefined) {
           directories.push(node)
+        } else if (node.group === "section" && node.section !== undefined && node.section.root !== null) {
+          sections.push({ key: node.key, step: node.parentKey, root: node.section.root, state: node.section.state })
         }
         const group = node.group === "concern" || node.group === "mechanical" ? node.key : holder
         visit(node.children, group)
@@ -445,8 +499,18 @@ export function dependencyRows(nodes: readonly FileTreeNode[], dependencies: rea
     const directory = change.manifest.slice(0, change.manifest.lastIndexOf("/") + 1)
     const holder = holders.get(change.manifest)
     const inConcern = holder !== undefined && holder.startsWith(CONCERN_KEY)
+    // the group of its module in the step that holds it: the deepest root above it
+    const section = inConcern
+      ? sections
+          .filter(it => it.step === holder && (it.root === "" || directory.startsWith(`${it.root}/`)))
+          .reduce<(typeof sections)[number] | undefined>((deepest, it) => (deepest === undefined || it.root.length > deepest.root.length ? it : deepest), undefined)
+      : undefined
+    if (section !== undefined && change.kind === "newModule" && section.state !== null) {
+      continue
+    }
     // the row whose merged chain holds the directory: its key starts with it, its parent's key is shorter
     const row =
+      section?.key ??
       (inConcern ? holder : undefined) ??
       (directory === "" ? undefined : directories.find(node => node.key.startsWith(directory) && (node.parentKey ?? "").length < directory.length)?.key) ??
       holder
@@ -548,7 +612,10 @@ export function foldedGroups(nodes: readonly FileTreeNode[]): string[] {
       return []
     }
     if (node.group === "concern") {
-      return node.children.flatMap(child => (child.kind === "directory" && child.group !== undefined ? [child.key] : []))
+      // of a large step its mechanical group alone: its other groups are what the step is
+      return node.children.flatMap(child =>
+        child.kind !== "directory" || child.group === undefined || (child.group === "section" && child.section?.kind !== "mechanical") ? [] : [child.key],
+      )
     }
     return node.group === "mechanical" ? [node.key] : []
   })
@@ -569,7 +636,8 @@ export function hasReviewGroups(nodes: readonly FileTreeNode[]): boolean {
 
 /**
  * The directories that start collapsed: the groups of a review that start so (`foldedGroups`), and the directories
- * below the top level when the commit has more than `AUTO_COLLAPSE_FILE_COUNT` files
+ * below the top level when the commit has more than `AUTO_COLLAPSE_FILE_COUNT` files (of a large step its groups, not
+ * the tests of a group, which open with it)
  */
 export function getInitiallyCollapsed(nodes: readonly FileTreeNode[], fileCount: number): Set<string> {
   const collapsed = new Set<string>(foldedGroups(nodes))
@@ -579,7 +647,7 @@ export function getInitiallyCollapsed(nodes: readonly FileTreeNode[], fileCount:
   const visit = (list: readonly FileTreeNode[]) => {
     for (const node of list) {
       if (node.kind === "directory") {
-        if (node.depth > 0) {
+        if (node.depth > 0 && node.group !== "tests") {
           collapsed.add(node.key)
         }
         visit(node.children)

@@ -45,6 +45,7 @@ targets:
   - ../../src/components/shared/Disclosure.tsx
   - ../../src/components/diff/diff-view.css
   - ../../src/hooks/useSelectReviewFile.ts
+  - ../../src/stores/review-seen.ts
 ---
 
 # Review Tour
@@ -527,6 +528,36 @@ it added a module.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should title each task of one commit by the label of the section of its body it tells`, `should tell no step of the one concern that covers the range: no Steps, no opening, no place in the bar`)
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_concerns_are_the_steps_when_the_commits_tell_no_story`)
   [@test] ../../src/lib/diff/layout.test.ts (`puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
+- A step with groups ([Groups of a Step](#groups-of-a-step)) must list them in the tree as the headings of the step,
+  not as one more level: under its row and its commit rows a row per group at the indent of its files, its icon of
+  what it holds, its name ("Contract", the label of its module in the code font, its folder, the mechanical group
+  "Wiring" while it holds only the build model and the lists of modules, else "Mechanical"), its line counts and the
+  files of the chosen owner chip ("3 of 13"), the root of its module in its hover; a module the commits add or delete
+  "New module" (`success`) or "Deleted module" (muted) after its name, the small modules it holds muted on a second
+  line ("also shared/code") with its counts. Its files are listed flat in the order of its stops, each once, at the
+  first of its stops (a mechanical file in the mechanical group, as the groups of its kinds, "Build files (4)"), each
+  its name first and then, muted, its directory below what the files of its module share in the directory below the
+  root they lie in (`src`, `testSrc`, `resources`: `embeds`, `markdown`), nothing when that is its own, a file of a
+  small module by the label of that module, a file of the contract and of the mechanical group by its whole
+  directory; its tests last, under the muted heading "Tests". The heading of a group sticks right below the row of
+  its step while its files scroll under it, and folds as a directory does (a click, its chevron, Space, → and ←; ←
+  from a file goes to it); the mechanical group starts folded, and in a review of more than 100 files every group but
+  its tests. The dependency changes of a build file of a module of the step show on the row of its group, where a
+  module the commits add or delete leaves its own new module to its badge. A step without groups (a small step, a
+  step of the concerns, a review without the plan) is listed as before.
+  [@test] ../../src/lib/file-tree.test.ts (`lists a group per section of the step, its files by name with their directory below what the module shares, its tests last, the build files under Wiring`, `lists a file of a group whose own row is in another step as a row also in that group, by its directory too`, `words the mechanical group Mechanical when it holds more than build files and lists of modules, and keeps a step without groups a list`, `shows the dependency changes of the build file of a module on the row of its group, the new module its badge alone`)
+  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should read a large step by its groups: their files flat by their directory in the module, their tests last, a new module marked, the wiring folded at the end`)
+- The window must count the files of a step with groups the reader saw, on the row of the step and of each of its
+  groups from the first one ("3 / 13 seen", muted, after the counts of the step and before those of a group; in the
+  description of the row too). A file is seen once the window showed it on purpose (its row, J and K at its card, N
+  and P, a place of a mark or of the document) or its card passed entirely through the viewport of the diffs, its top
+  and its bottom each in view at some time, its diff read (`DiffLayout.passedCards`: the cards in view at each scroll,
+  no work per frame); the card at the top as the diffs scroll is no file shown on purpose. It is the state of the
+  window (`src/stores/review-seen.ts`), never persisted, by the head reviewed: another scope of the same head keeps
+  it, a new head counts from zero, as Approve counts the files it opened.
+  [@test] ../../src/lib/diff/layout.test.ts (`reports a card once both its top and its bottom were in view, at once or one scroll after the other, and never a card whose diff is not read`)
+  [@test] ../../src/lib/file-tree.test.ts (`counts the files of an owner chip and the files seen on the step and on each of its groups`)
+  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
   Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree. The group
   row of a step of the commits is the commit that starts it ("2 · The open keeps a stored layout": no row of its own

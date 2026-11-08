@@ -233,6 +233,11 @@ export interface DiffViewProps {
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
   onFirstScreen?: () => void
   /**
+   * The files of the cards that passed entirely through the viewport (`DiffLayout.passedCards`), each once a view, as a
+   * scroll brings them: the progress of a review
+   */
+  onCardsPassed?: (paths: readonly string[]) => void
+  /**
    * Go to Declaration (spec/commit/symbol-navigation.spec.md): a ⌘-click (Ctrl-click off macOS) on a name, ⌘B on the
    * selection, the item of the menu of the code; `at` is where to show a choice of declarations
    */
@@ -462,6 +467,7 @@ export function DiffView({
   onVisibleFileChange,
   onVisibleSectionChange,
   onFirstScreen,
+  onCardsPassed,
   renderHeader,
   prologue,
   epilogue,
@@ -508,6 +514,8 @@ export function DiffView({
   const { heights: measured, measure } = useMeasuredHeights()
   // the epilogue, whose openings J and the tree show
   const epilogueElement = useRef<HTMLDivElement | null>(null)
+  // the edges of the cards that were in view (`DiffLayout.passedCards`)
+  const passedEdges = useRef(new Map<string, number>())
   // the block of changed lines N and P stepped to last, in the section at the top
   const changeCursor = useRef<{ key: string; index: number } | null>(null)
   const [painter] = useState(() => new DiffPainter(EMPTY_CALLBACKS, getHighlightClientOrNull, () => blobTextsStore.getState().byId))
@@ -1043,6 +1051,14 @@ export function DiffView({
         if (file !== undefined && file.path !== visiblePath.current) {
           visiblePath.current = file.path
           onVisibleFileChange?.(file.path)
+        }
+      },
+      onScroll: (top, height) => {
+        if (onCardsPassed !== undefined) {
+          const passed = layout.passedCards(top, height, passedEdges.current, index => prepared[index]?.pending === false)
+          if (passed.length > 0) {
+            onCardsPassed(passed.map(index => prepared[index]!.path))
+          }
         }
       },
       onFold: (index, fold, all) => (all ? expandAll(prepared[index]) : expandFold(prepared[index], fold)),
@@ -1864,6 +1880,7 @@ function codeWidthsOf(file: PreparedFile, width: number, columnWidth: number, sp
 const EMPTY_CALLBACKS: PainterCallbacks = {
   onWindow: () => {},
   onTopFile: () => {},
+  onScroll: () => {},
   onFold: () => {},
   onNote: () => {},
   onFirstScreen: () => {},

@@ -68,6 +68,24 @@ describe("DiffLayout", () => {
     expect(layout.rowAt(1, height + 10)).toBe(-1)
   })
 
+  it("reports a card once both its top and its bottom were in view, at once or one scroll after the other, and never a card whose diff is not read", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified")
+    const height = 36 + rows.rowCount * 20
+    const layout = new DiffLayout([file("a", rows), file("tall", buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])), file("pending", null), file("c", rows)], METRICS)
+    const tall = layout.fileHeight(1)
+    const edges = new Map<string, number>()
+    const ready = (index: number) => index !== 2
+    // the first card whole in a view of two cards; the top of the tall card only
+    expect(layout.passedCards(0, height + 50, edges, ready)).toEqual([0])
+    // again: reported once
+    expect(layout.passedCards(0, height + 50, edges, ready)).toEqual([])
+    // the tall card, taller than the view, passes as its bottom comes into view; the pending card never
+    expect(tall).toBeGreaterThan(height + 50)
+    expect(layout.passedCards(height + tall - 40, height + 50, edges, ready)).toEqual([1])
+    expect(layout.passedCards(layout.offsets[2]!, height + 200, edges, ready)).toEqual([3])
+    expect(edges.get("pending")).toBeUndefined()
+  })
+
   it("gives a wrapped row its visual lines", () => {
     const rows = buildFileRows(textDiff(0, 3, [block(0, 0, 0, 3)]), "unified")
     const layout = new DiffLayout([file("a", rows, { visualLines: visualLinePrefix(3, row => [1, 2, 1][row]!) })], METRICS)

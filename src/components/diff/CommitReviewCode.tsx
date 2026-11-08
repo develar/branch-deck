@@ -58,6 +58,8 @@ export interface CommitReviewCodeProps {
   initialPath: string | null
   /** The section whose header is at the top, its key, its file and its part at the top, as the diffs scroll */
   onVisibleSectionChange: (key: string, path: string, part: LayoutPart, step?: string) => void
+  /** The files of the cards that passed entirely through the viewport: the progress of the review */
+  onCardsPassed?: (paths: readonly string[]) => void
   /** The first screen is painted: the window can show */
   onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
@@ -109,6 +111,7 @@ export function CommitReviewCode({
   nextSection,
   onShowSection,
   ownerLabel = null,
+  onCardsPassed,
 }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
   const review = useRef<DiffViewHandle>(null)
@@ -182,6 +185,7 @@ export function CommitReviewCode({
         label="Changes of the commit"
         onVisibleSectionChange={onVisibleSectionChange}
         onFirstScreen={onFirstScreen}
+        onCardsPassed={onCardsPassed}
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={false} />}

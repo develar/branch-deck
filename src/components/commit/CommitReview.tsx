@@ -8,7 +8,7 @@ import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitRe
 import type { CommitReviewCodeHandle, NextSection } from "@/components/diff/CommitReviewCode"
 import type { DiffSection, DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
-import type { FileTreeBadges, FileTreeCommitRows, FileTreeMarks } from "@/components/files/FileTree"
+import type { FileTreeBadges, FileTreeCommitRows, FileTreeMarks, FileTreeProgress } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
@@ -36,6 +36,7 @@ import {
   flattenTreeFiles,
   foldedGroups,
   getInitiallyCollapsed,
+  groupRowKey,
   hasReviewGroups,
   listsCommits,
   mechanicalKindsOf,
@@ -53,7 +54,16 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import { formatStepCount, formatStepDivider, formatStepNumber, formatStepPosition, placeCommits, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
+import {
+  formatStepCount,
+  formatStepDivider,
+  formatStepNumber,
+  formatStepPosition,
+  placeCommits,
+  presentChapters,
+  presentGroupCounts,
+  presentOwnerMarks,
+} from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
 import { presentOpenings, storyMarks } from "@/presenters/review-story"
 import type { StoryMark } from "@/presenters/review-story"
@@ -62,6 +72,7 @@ import type { NarrativeSection } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { getDiffRepositoryPath } from "@/stores/repository"
+import { markSeen, useSeenPaths } from "@/stores/review-seen"
 import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
 import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
@@ -798,6 +809,12 @@ function ReviewLayout({
   const rows = useMemo(() => (narrative === null ? NO_ROWS : sectionRows(narrative, nodes)), [narrative, nodes])
   // the file at the head of each use left outside, read once per review
   const revision = loaded?.revisions.new ?? null
+  // the files the reader saw at this head, for the progress of the groups of large steps (spec/branch/review-tour.spec.md,
+  // "In the Review Window"): a file shown on purpose, a card scrolled entirely through the diffs; a review of no large
+  // step counts nothing
+  const seenHead = chapters.some(chapter => chapter.groups.length > 0) ? (revision ?? loadedKey) : null
+  const seenPaths = useSeenPaths(seenHead)
+  const cardsPassed = useCallback((paths: readonly string[]) => markSeen(seenHead, paths), [seenHead])
   const [outside, setOutside] = useState<ReadonlyMap<string, DeclarationTarget | null>>(() => new Map())
   useEffect(() => {
     const repositoryPath = getDiffRepositoryPath()
@@ -944,6 +961,7 @@ function ReviewLayout({
   const selectInTree = useCallback(
     (file: CommitFile, key: string) => {
       select(file.path, key === file.path ? null : key)
+      markSeen(seenHead, [file.path])
       // a file shown on purpose: the overview is no longer what the reader is at
       setOverviewShown(false)
       const section = rows.sectionOf.get(key)
@@ -955,7 +973,7 @@ function ReviewLayout({
         code.current?.scrollToSection(section, "card")
       }
     },
-    [rows, select],
+    [rows, select, seenHead],
   )
 
   // a place of a popover or of the card of the review plan: its file is selected as a row of the tree is, by its path
@@ -970,9 +988,10 @@ function ReviewLayout({
         return
       }
       select(file.path, null)
+      markSeen(seenHead, [file.path])
       showPlace(code.current, { ...place, path: file.path })
     },
-    [files, select, onRevealHidden],
+    [files, select, onRevealHidden, seenHead],
   )
 
   // a use the change left outside: its file at the head of the review opens over it
@@ -1087,9 +1106,25 @@ function ReviewLayout({
     if (ownerMarks === null || ownerMarks.paths.size === 0) {
       return null
     }
-    const counts = new Map([...presentOwnerMarks(chapters, ownerMarks.paths)].map(([chapter, count]) => [concernRowKey(chapter), count]))
+    const counts = new Map([
+      ...[...presentOwnerMarks(chapters, ownerMarks.paths)].map(([chapter, count]) => [concernRowKey(chapter), count] as const),
+      // of a large step each of its groups too
+      ...presentGroupCounts(chapters, ownerMarks.paths).map(({ chapter, group, shown, total }) => [groupRowKey(chapter, group), { shown, total }] as const),
+    ])
     return { label: ownerMarks.label, counts }
   }, [ownerMarks, chapters])
+
+  // the files the reader saw of each large step and each of its groups
+  const treeProgress = useMemo<ReadonlyMap<string, FileTreeProgress> | null>(() => {
+    const grouped = chapters.filter(chapter => chapter.groups.length > 0)
+    if (grouped.length === 0) {
+      return null
+    }
+    return new Map([
+      ...[...presentOwnerMarks(grouped, seenPaths)].map(([chapter, { shown, total }]) => [concernRowKey(chapter), { seen: shown, total }] as const),
+      ...presentGroupCounts(grouped, seenPaths).map(({ chapter, group, shown, total }) => [groupRowKey(chapter, group), { seen: shown, total }] as const),
+    ])
+  }, [chapters, seenPaths])
 
   // the order J and K step through: with the plan the document, its overview, then the sections of the story, a step
   // at its opening, then at its card; else the files of the tree
@@ -1158,8 +1193,12 @@ function ReviewLayout({
         code.current?.scrollToSection(next.key, next.part, next.step)
       }
       showVisibleSection(next.key, next.path, next.part, next.step)
+      // J and K show a card on purpose: its file is seen
+      if (next.part === "card") {
+        markSeen(seenHead, [next.path])
+      }
     },
-    [showVisibleSection],
+    [showVisibleSection, seenHead],
   )
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   // the chosen owner chip is named in the footer; the file count is already there
@@ -1226,6 +1265,7 @@ function ReviewLayout({
         const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
         if (path !== undefined) {
           select(path, null)
+          markSeen(seenHead, [path])
           // a change shown on purpose: the reader is at its file, also while the overview still shows above it
           setOverviewShown(false)
         }
@@ -1290,6 +1330,7 @@ function ReviewLayout({
                     badges={badges}
                     marks={treeMarks}
                     commitRows={treeCommitRows}
+                    progress={treeProgress}
                   />
                 )}
               </div>
@@ -1338,6 +1379,7 @@ function ReviewLayout({
                         nextSection={nextSection}
                         onShowSection={showSection}
                         ownerLabel={ownerLabel}
+                        onCardsPassed={treeProgress === null ? undefined : cardsPassed}
                       />
                     </div>
                   )}
