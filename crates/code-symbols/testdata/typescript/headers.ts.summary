@@ -1,0 +1,39 @@
+Function generic in - Public TopLevel 2-4 @2 `function generic < T extends object`
+Function stream in - Public TopLevel 6-8 @6 `async function * stream ( source : AsyncIterable < string > , limit = 10 ) : AsyncGenerator < string , void , unknown >`
+Function overloaded in - Public TopLevel 10-10 @10 `function overloaded ( value : string ) : string`
+Function overloaded in - Public TopLevel 11-11 @11 `function overloaded ( value : number ) : number`
+Function overloaded in - Public TopLevel 12-14 @12 `function overloaded ( value : string | number ) : string | number`
+Function arrow in - Public TopLevel 16-16 @16 `const arrow`
+Value template in - Public TopLevel 18-18 @18 `const template`
+Value literal in - Public TopLevel 19-19 @19 `const literal`
+Type Store in - Public TopLevel 21-41 @21
+Value empty in Store Public Static 22-22 @22 `static readonly empty : Store < { } >`
+Value #listeners in Store Container Instance 23-23 @23 `#listeners`
+Value state in Store Container Instance 25-25 @25 `state : State`
+Value name in Store Public Instance 25-25 @25 `readonly name ? : string`
+Value current in Store Public Instance 27-29 @27 `get current ( ) : Readonly < State >`
+Value current in Store Public Instance 31-33 @31 `set current ( next : Readonly < State > )`
+Function subscribe in Store Public Instance 35-38 @35 `subscribe ( listener : ( state : State ) => void ) : ( ) => void`
+Function abstractLike in Store Public Instance 40-40 @40 `abstractLike ? ( ) : void`
+Type Shape in - Public TopLevel 43-47 @43
+Value area in Shape Public Instance 44-44 @44 `readonly area : ( scale ? : T ) => T`
+TypeAlias Mapped in - Public TopLevel 49-49 @49
+Type Mode in - Public TopLevel 50-50 @50
+EnumEntry Plain in Mode Public Static 50-50 @50
+EnumEntry Rich in Mode Public Static 50-50 @50
+Function ambient in - File TopLevel 51-51 @51 `function ambient ( input : unknown ) : asserts input is string`
+@6 :AsyncGenerator :AsyncIterable
+@7 ?.slice()
+@16 ?.find()
+@21 :Record
+@22 Store() :Store
+@23 Set()
+@27 :Readonly
+@28 this.state
+@31 :Readonly
+@32 this.state
+@36 this.#listeners this.#listeners.add()
+@37 this.#listeners this.#listeners.delete()
+@45 key
+@46 :Shape
+@49 :Function
