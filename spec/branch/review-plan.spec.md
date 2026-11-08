@@ -16,6 +16,7 @@ targets:
   - ../../crates/review-plan/src/dependencies.rs
   - ../../crates/review-plan/src/registrations.rs
   - ../../crates/review-plan/src/order.rs
+  - ../../crates/review-plan/src/texts.rs
   - ../../crates/trial-check/src/declaration_checks.rs
   - ../../crates/code-symbols/src/kotlin/summary.rs
   - ../../crates/code-symbols/src/java/summary.rs
@@ -196,10 +197,10 @@ group at the end. The overview at the top of the document of the review, before 
 - `brd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope`
   with `base`, `head` and `carried`), with
-  `"schema": 25`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 26`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`, version 21 the form `row` of a paragraph of the brief, the `excerpt` of every changed paragraph of several sentences and no paragraph of front matter or metadata ([Review Tour](review-tour.spec.md#brief)), version 22 the `table` block of a body ([Commit Row](../commit/commit-row.spec.md#message-body)) and its `summary`, version 23 the `modules` of the changed files ([Modules](#modules)), the `module` of a file and the `moduleEdges` of a step in place of its `moduleLinks`, version 24 the `groups` of a large step ([Review Tour](review-tour.spec.md#groups-of-a-step)) in place of the `concern` of a stop, version 25 the `registrations` ([Registrations](#registrations)); the other outputs of `brd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`, version 21 the form `row` of a paragraph of the brief, the `excerpt` of every changed paragraph of several sentences and no paragraph of front matter or metadata ([Review Tour](review-tour.spec.md#brief)), version 22 the `table` block of a body ([Commit Row](../commit/commit-row.spec.md#message-body)) and its `summary`, version 23 the `modules` of the changed files ([Modules](#modules)), the `module` of a file and the `moduleEdges` of a step in place of its `moduleLinks`, version 24 the `groups` of a large step ([Review Tour](review-tour.spec.md#groups-of-a-step)) in place of the `concern` of a stop, version 25 the `registrations` ([Registrations](#registrations)), version 26 the `texts` of the UI ([UI Texts](#ui-texts)); the other outputs of `brd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -639,6 +640,35 @@ comes from accio's port of the platform's reader; the plan parses no descriptor 
 - The plan sent while the index is asked must have no registration; the plan that follows has them. A change of
   descriptors alone is a query to ask.
   [@test] ../../crates/review-plan/src/registrations_test.rs (`the_plan_sent_while_the_index_is_asked_has_no_registration`)
+
+### UI Texts
+
+What the user of the change reads: the texts of the UI it adds, removes or changes, quoted, where the review showed
+them only as cards of a diff.
+- `texts` must list the keys the commits add to, remove from or change in the message bundles: a `*.properties` file
+  in a `messages` directory, or whose name without the extension ends with `Bundle` or `Messages`, at its path before
+  or after the commits. Another `*.properties` file (`gradle.properties`, the keys of a registry) holds none.
+  [@test] ../../crates/review-plan/src/texts_test.rs (`the_keys_a_bundle_adds_removes_or_changes_are_its_texts`, `an_added_bundle_has_every_key_added_and_another_properties_file_none`)
+- A bundle must be read as Java reads a properties file: an entry per logical line, a line that ends with an odd
+  number of `\` going on in the next without its leading whitespace; a comment (`#`, `!`) and a blank line are no
+  entry; the key up to the first `=`, `:` or whitespace not escaped, the value after the separator and the whitespace
+  around it; `\t`, `\n`, `\r`, `\f` and `\uXXXX` (a surrogate pair too) unescaped; the last of a key given twice.
+  [@test] ../../crates/review-plan/src/texts_test.rs (`the_entries_are_read_as_java_reads_a_properties_file`, `the_keys_a_bundle_adds_removes_or_changes_are_its_texts`)
+- A text must be `added` (a key only after the commits), `removed` (only before them) or `changed` (its value
+  differs), read before the first commit that changes the bundle and after the last: a change of a comment, of a blank
+  line or of the lines a value is broken over alone is none, and neither is a value changed and changed back. A bundle
+  the commits add has every key `added`, one they delete every key `removed`.
+  [@test] ../../crates/review-plan/src/texts_test.rs (`the_keys_a_bundle_adds_removes_or_changes_are_its_texts`, `an_added_bundle_has_every_key_added_and_another_properties_file_none`, `a_bundle_is_read_before_the_first_commit_and_after_the_last`)
+- Each text must have its bundle (`path`, at its last path), its `key`, its values `before` and `after` (`null` on
+  the side without the key), its `line` (from 1, of its entry after the commits, before them for a removal) and the
+  `module` of its bundle by its place in `modules`; the bundles in tree order, then by line, then by key. A bundle
+  without its text on a side (binary, too large) has no texts, never every key removed.
+  [@test] ../../crates/review-plan/src/texts_test.rs (`the_keys_a_bundle_adds_removes_or_changes_are_its_texts`, `an_added_bundle_has_every_key_added_and_another_properties_file_none`, `a_bundle_binary_on_a_side_has_no_texts`)
+- `brd review-plan` must print `texts`, in `brd schema`.
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_texts_of_the_ui`)
+- The texts of the bundles before and after the commits must come with the text of the hunks: from the memory of the
+  diffs, else in the `cat-file` of the summaries; the texts of the UI run no process more.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_ui_texts`)
 
 ### Dependency Order
 

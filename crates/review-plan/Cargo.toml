@@ -3,7 +3,7 @@ name = "review-plan"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the facts of each file, the links between the files, the dependency changes of the build files, the registrations of the plugin descriptors and the dependency order, read by `bd review-plan` and the review windows"
+description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the facts of each file, the links between the files, the dependency changes of the build files, the registrations of the plugin descriptors, the texts of the UI of the message bundles and the dependency order, read by `bd review-plan` and the review windows"
 publish = false
 
 [dependencies]

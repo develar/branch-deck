@@ -30,7 +30,7 @@ use bd_rewrite::commits::commits;
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
-use bd_rewrite::review_plan_command::{ReviewPlanArgs, review_plan};
+use bd_rewrite::review_plan_command::{ReviewPlanArgs, ReviewPlanOutput, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
 use bd_rewrite::rewrite::{GroupArgs, RestackArgs, RewriteArgs, StackTogetherArgs, group, restack, stack_together};
 use bd_rewrite::squash_command::{SquashArgs, squash};
@@ -883,29 +883,81 @@ fn a_review_plan_of_build_files() {
     ("crates/new/Cargo.toml", "[package]\nname = \"new\"\n".to_string()),
   ];
   commit_each(&repo, edits);
-  let args = range_to_head();
-  let plans = [context(&repo), context(&repo)].map(|context| {
-    let output = review_plan(&context, &args).unwrap();
-    let changes: Vec<String> = output
-      .dependencies
-      .iter()
+  let changes = |output: &ReviewPlanOutput| {
+    let changes = output.dependencies.iter();
+    changes
       .map(|change| format!("{} {:?} {:?} {}", change.manifest, change.change, change.kind, change.name))
-      .collect();
-    assert_eq!(
-      changes,
-      [
-        "crates/new/Cargo.toml Added NewModule new",
-        "web/package.json Changed Package react",
-        "x/resources/META-INF/plugin.xml Added Plugin com.intellij.gradle",
-        "x/resources/META-INF/plugin.xml Removed Plugin com.intellij.java",
-        "x/intellij.x.iml Removed Module intellij.platform.core",
-        "x/intellij.x.iml Added Module intellij.platform.util",
-      ]
-    );
+      .collect()
+  };
+  plans_of_files_of_no_language(
+    &repo,
+    changes,
+    &[
+      "crates/new/Cargo.toml Added NewModule new",
+      "web/package.json Changed Package react",
+      "x/resources/META-INF/plugin.xml Added Plugin com.intellij.gradle",
+      "x/resources/META-INF/plugin.xml Removed Plugin com.intellij.java",
+      "x/intellij.x.iml Removed Module intellij.platform.core",
+      "x/intellij.x.iml Added Module intellij.platform.util",
+    ],
+  );
+}
+
+/// Two plans of `origin/master..HEAD` of `repo`, each on a new context (a new `FileDiffs` memory): each tells
+/// `expected` by `lines`; the first reads the diffs itself, the second finds them in the object cache. Each runs two
+/// `cat-file`: of the trees above the files at the head, and of the blobs of the diffs (the first) or of the texts the
+/// memory of the diffs lacks (the second)
+#[track_caller]
+fn plans_of_files_of_no_language(repo: &TestRepo, lines: impl Fn(&ReviewPlanOutput) -> Vec<String>, expected: &[&str]) {
+  let args = range_to_head();
+  let plans = [context(repo), context(repo)].map(|context| {
+    let output = review_plan(&context, &args).unwrap();
+    assert_eq!(lines(&output), expected);
     context
   });
   assert_processes(&plans[0], &[("cat-file", 2), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
   assert_processes(&plans[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
+}
+
+/// `brd review-plan` of a range of five commits that change a message bundle, change another and then delete it, add a
+/// third and make a fourth binary: the texts of the UI come from the texts of these bundles before and after the
+/// commits, read with the text of the hunks, so they cost no process more than `a_review_plan_of_build_files`. The first
+/// plan reads the diffs itself (one `cat-file` of their blobs) and finds those texts in memory, that of the deleted
+/// bundle before its first change too, and one `cat-file` reads the trees above the files at the head. A second plan,
+/// a new process, finds the diffs in the object cache and reads the texts in the batch of the summaries, which without
+/// a source file runs for them alone, beside the trees; the binary bundle has no text, so no texts in either
+#[test]
+fn a_review_plan_of_ui_texts() {
+  let repo = repo_with_baseline(&[
+    ("x/intellij.x.iml", "<module/>\n"),
+    ("x/resources/messages/XBundle.properties", "x.open=Open\nx.play=Play\n"),
+    ("x/resources/messages/OldBundle.properties", "old.open=Open\n"),
+    ("x/resources/messages/BinaryBundle.properties", "binary.open=Open\n"),
+  ]);
+  let edits = [
+    ("x/resources/messages/XBundle.properties", "x.open=Open\nx.play=Play the clip\n".to_string()),
+    ("x/resources/messages/OldBundle.properties", "old.open=Open\\u2026\n".to_string()),
+    ("y/resources/messages/YBundle.properties", "y.seek=Playback position\n".to_string()),
+    ("x/resources/messages/BinaryBundle.properties", "binary.open=Open\0\n".to_string()),
+  ];
+  commit_each(&repo, edits);
+  git(&repo, &["rm", "--quiet", "x/resources/messages/OldBundle.properties"]);
+  commit_all(&repo, "(auth) Delete the old texts", 1_700_000_600);
+  let texts = |output: &ReviewPlanOutput| {
+    let texts = output.texts.iter();
+    texts
+      .map(|text| format!("{} {:?} {} {:?} {:?}", text.path, text.change, text.key, text.before, text.after))
+      .collect()
+  };
+  plans_of_files_of_no_language(
+    &repo,
+    texts,
+    &[
+      "x/resources/messages/OldBundle.properties Removed old.open Some(\"Open\") None",
+      "x/resources/messages/XBundle.properties Changed x.play Some(\"Play\") Some(\"Play the clip\")",
+      "y/resources/messages/YBundle.properties Added y.seek None Some(\"Playback position\")",
+    ],
+  );
 }
 
 /// `brd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the

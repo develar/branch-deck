@@ -26,6 +26,7 @@
 //!   paragraphs changed by word (`prose`)
 //! - `story`: the body of each commit once, its code names resolved to the units and the files of the range, and the
 //!   new API and the new links between modules of each step
+//! - `texts`: the texts of the UI, the keys the commits add to, remove from or change in the message bundles
 //!
 //! The types of the plan: `ReviewPlanParams` names what is reviewed (`ReviewSubject`), `ReviewPlan` is the answer of
 //! `review_plan_core`, the one entry of `brd review-plan` and the app.
@@ -48,6 +49,7 @@ pub mod prose;
 pub mod registrations;
 pub mod steps;
 pub mod story;
+pub mod texts;
 pub mod units;
 
 use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, api_changes};
@@ -64,6 +66,7 @@ use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::registrations::{Registration, RegistrationsInput, changed_descriptors, registrations_of};
 use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
+use crate::texts::{UiText, bundle_blobs, ui_texts};
 use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
@@ -173,6 +176,9 @@ pub struct ReviewPlan {
   /// accio at the base and the head; by the module of the descriptor, the descriptor, then the kind. None without accio
   /// (`index_note`), and in the plan sent while the index is asked
   pub registrations: Vec<Registration>,
+  /// The texts of the UI the commits add, remove or change: the keys of the message bundles (`texts`), the bundles in
+  /// tree order, then by line
+  pub texts: Vec<UiText>,
   /// The groups of files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditGroup>,
   /// The changes of the pair the plan reads (`units`): every block of its diffs in one unit, every changed file in one
@@ -234,10 +240,11 @@ pub struct SinceReviewedOfRange(pub String);
 /// The plan of the subject of `params`. For a branch: one `for-each-ref` of the reviewed refs with the branches, its base
 /// (`branch_on_base`), then its interdiff when it was marked (`interdiff::interdiff`); for a range: one `rev-parse
 /// --verify` per rev. Then the API, its usages, the order, the links, the dependency changes and the facts of the files
-/// of the reviewed commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the text of the hunks
-/// and of the build files before and after the commits (`manifest_blobs`) from the memory of the diffs when they read
-/// it in this process, else in the batch of the summaries (`read_symbol_input_with`), which then runs for those blobs
-/// alone when it has no summary or manifest to read. Reads only;
+/// of the reviewed commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the
+/// text of the hunks, of the build files and of the message bundles before and after the commits (`manifest_blobs`,
+/// `bundle_blobs`) from the memory of the diffs when they read it in this process, else in the batch of the summaries
+/// (`read_symbol_input_with`), which then runs for those blobs alone when it has no summary or manifest to read. Reads
+/// only;
 /// `UnknownReviewBranch`, `UnknownReviewBase`, `NoCommonHistory`, `UnknownRevision` and `SinceReviewedOfRange` are the
 /// caller's errors, `SearchCanceled` the cancel of `sources.index`
 #[instrument(skip(git, sources), fields(subject = ?params.subject))]
@@ -441,6 +448,7 @@ pub fn review_plan_of(
     .into_iter()
     .chain(manifest_blobs(&changed))
     .chain(header_blobs(&changed, &known))
+    .chain(bundle_blobs(&changed))
     .filter(|id| seen.insert(id.clone()))
     .collect();
   let (mut texts, unread) = sources.file_diffs.texts_in_memory(&wanted);
@@ -479,6 +487,7 @@ pub fn review_plan_of(
     dependencies: &dependencies,
     added_manifests: &added_manifests,
   });
+  let ui = ui_texts(&changed, &texts, &modules);
   // the paths whose commits change a test inside them, for `untested`
   let (units, inline_tests) = input
     .as_ref()
@@ -527,6 +536,7 @@ pub fn review_plan_of(
     dependencies,
     modules: Vec::new(),
     registrations: Vec::new(),
+    texts: ui,
     repeated_edits: Vec::new(),
     units,
     concerns,
@@ -651,5 +661,7 @@ mod steps_test;
 mod story_test;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod texts_test;
 #[cfg(test)]
 mod units_test;

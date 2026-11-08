@@ -266,3 +266,39 @@ fn prints_the_files_in_dependency_order() {
     json!([{ "from": "src/a/User.kt", "to": "src/b/Store.kt", "symbols": [{ "name": "Store", "line": 3 }], "state": "added", "cross_module": false, "new_between_modules": false }])
   );
 }
+
+/// The texts of the UI a range adds and changes in a message bundle, each with its values, its line and its module; a
+/// `gradle.properties` holds none
+#[test_log::test]
+fn prints_the_texts_of_the_ui() {
+  let bundle = "gui/resources/messages/GuiBundle.properties";
+  let repo = repo_with_baseline(&[
+    ("gradle.properties", "kotlin.code.style=official\n"),
+    ("gui/intellij.gui.iml", "<module/>\n"),
+    (bundle, "gui.open=Open\ngui.play=Play\n"),
+  ]);
+  let base = git(&repo, &["rev-parse", "HEAD"]);
+  write(&repo, "gradle.properties", "kotlin.code.style=official\norg.gradle.jvmargs=-Xmx2g\n");
+  write(&repo, bundle, "gui.open=Open\ngui.play=Play the clip\ngui.cannot.play=The chat cannot play this file\n");
+  commit_all(&repo, "Add the player texts", 1_700_000_100);
+
+  let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
+  assert_eq!(exit_code, 0, "{output}");
+  let module = output["files"]
+    .as_array()
+    .and_then(|files| files.iter().find(|file| file["path"] == bundle))
+    .map(|file| file["module"].clone())
+    .unwrap();
+  assert_eq!(
+    output["texts"],
+    json!([
+      { "path": bundle, "key": "gui.play", "change": "changed", "before": "Play", "after": "Play the clip", "line": 2, "module": module },
+      { "path": bundle, "key": "gui.cannot.play", "change": "added", "before": null, "after": "The chat cannot play this file", "line": 3, "module": module },
+    ]),
+    "{output}"
+  );
+  let place = usize::try_from(module.as_u64().unwrap()).unwrap();
+  assert_eq!(output["modules"][place]["label"], json!("gui"));
+  let (_, schema) = run_in(&repo, &["schema", "--all"]);
+  assert_covered(&schema["outputs"]["review_plan"], &schema["outputs"]["review_plan"], &output, "review_plan");
+}

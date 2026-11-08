@@ -7030,6 +7030,11 @@ export type ReviewPlan = {
 	 *  (`index_note`), and in the plan sent while the index is asked
 	 */
 	registrations: Registration[],
+	/**
+	 *  The texts of the UI the commits add, remove or change: the keys of the message bundles (`texts`), the bundles in
+	 *  tree order, then by line
+	 */
+	texts: UiText[],
 	/**  The groups of files that get the same edit, the most files first */
 	repeatedEdits: RepeatedEditGroup[],
 	/**
@@ -9349,6 +9354,31 @@ export type TrimSummary = {
 	/**  What failed after a slot left its pool */
 	errors: string[],
 };
+
+/**  A text of the UI the commits add, remove or change: a key of a message bundle */
+export type UiText = {
+	/**  The bundle, at its last path */
+	path: string,
+	key: string,
+	change: UiTextChange,
+	/**  Its value before the commits, unescaped: of a removal and a change */
+	before: string | null,
+	/**  Its value after the commits, unescaped: of an addition and a change */
+	after: string | null,
+	/**  The line its entry starts on, from 1: after the commits, before them for a removal */
+	line: number,
+	/**  The module of its bundle, by its place in `ReviewPlan::modules` */
+	module: number | null,
+};
+
+/**  What the commits do to a text of the UI */
+export type UiTextChange = 
+/**  A key only after the commits */
+"added" | 
+/**  A key only before the commits */
+"removed" | 
+/**  A key whose value differs */
+"changed";
 
 /**  A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied */
 export type UnappliedBranchInfo = {
