@@ -113,7 +113,7 @@ test.describe("Review groups", () => {
     },
   )
 
-  test("should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs, and say in the bar above the diffs where the reader is", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
@@ -133,6 +133,8 @@ test.describe("Review groups", () => {
     await expect(step.getByTestId("review-seen-progress")).toHaveText(/^\d+ \/ 27 seen$/)
     await expect(media).toHaveAttribute("aria-description", /^New module, also shared\/code, 13 files, \+146 −2, \d+ \/ 13 seen$/)
     await expect(wiring.getByTestId("review-seen-progress")).toHaveCount(0)
+    // the bar above the diffs says where the reader is: the step, the group of the section at the top and its part seen
+    await expect(window.getByTestId("review-step-group")).toHaveText(/^›view\.gui\.media·\d+ \/ 13 seen$/)
 
     // the diffs scrolled to their end: the cards of the wiring passed through the view, seen, no row of them clicked
     await window.getByTestId("diff-view").hover()

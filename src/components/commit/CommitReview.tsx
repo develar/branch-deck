@@ -55,6 +55,7 @@ import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
 import {
+  formatSeen,
   formatStepCount,
   formatStepDivider,
   formatStepNumber,
@@ -1085,6 +1086,12 @@ function ReviewLayout({
     const index = chapters.findIndex(it => it.id === chapter)
     return index < 0 ? null : { chapter: chapters[index]!, count: chapters.filter(it => !it.rest).length }
   }, [narrative, topSection, topOpening, chapters])
+  // the group of a large step the section at the top is of, with the part of it seen: where the reader is in the step
+  const topGroup = useMemo(() => {
+    const path = topOpening === null ? narrative?.find(it => it.key === topSection)?.path : undefined
+    const group = path === undefined ? undefined : topStep?.chapter.groups.find(it => it.paths.includes(path))
+    return group === undefined ? null : { name: group.name, code: group.code, seen: formatSeen(group.paths.filter(it => seenPaths.has(it)).length, group.paths.length) }
+  }, [narrative, topSection, topOpening, topStep, seenPaths])
 
   // the badges of the review plan
   const badges = useMemo<FileTreeBadges | null>(() => {
@@ -1340,7 +1347,15 @@ function ReviewLayout({
         {sidebarShown && <ResizableHandle />}
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
-            {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} count={topStep.count} overview={overviewShown && hasPrologue} onShow={showStep} />}
+            {loaded !== null && topStep !== null && (
+              <StepBar
+                chapter={topStep.chapter}
+                count={topStep.count}
+                overview={overviewShown && hasPrologue}
+                group={overviewShown && hasPrologue ? null : topGroup}
+                onShow={showStep}
+              />
+            )}
             {/* a search that hides every file keeps the overview: a click reveals the file */}
             <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>
               {/* the overview mounts in one place after another as the diffs load: its heading keeps its card there */}
@@ -1411,7 +1426,20 @@ function PlainPrologue({ prologue }: { prologue: ReactNode }) {
  * its opening; "Overview · 4 steps" while the overview is at the top, a click the first step. It follows the diffs as
  * they scroll. It lies on the canvas of the diffs, so the column of the review is one canvas of cards
  */
-function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count: number; overview: boolean; onShow: (step: string) => void }) {
+function StepBar({
+  chapter,
+  count,
+  overview,
+  group,
+  onShow,
+}: {
+  chapter: Chapter
+  count: number
+  overview: boolean
+  /** The group of a large step the section at the top is of, with the part of it seen: "view.gui.media · 12 / 59 seen" */
+  group: { readonly name: string; readonly code: boolean; readonly seen: string } | null
+  onShow: (step: string) => void
+}) {
   return (
     <button
       type="button"
@@ -1430,6 +1458,14 @@ function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count
       <span className={cn("min-w-0 truncate font-medium", !overview && chapter.code && "font-mono")} data-testid="review-step-title">
         {overview ? formatStepCount(count) : chapter.label}
       </span>
+      {group !== null && (
+        <span className="flex shrink-0 items-baseline gap-1.5 text-muted-foreground" data-testid="review-step-group">
+          <span aria-hidden>›</span>
+          <span className={cn("font-medium text-foreground", group.code && "font-mono")}>{group.name}</span>
+          <span aria-hidden>·</span>
+          <span className="tabular-nums">{group.seen}</span>
+        </span>
+      )}
     </button>
   )
 }

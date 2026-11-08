@@ -563,7 +563,9 @@ it added a module.
   it, a new head counts from zero, as Approve counts the files it opened.
   [@test] ../../src/lib/diff/layout.test.ts (`reports a card once both its top and its bottom were in view, at once or one scroll after the other, and never a card whose diff is not read`)
   [@test] ../../src/lib/file-tree.test.ts (`counts the files of an owner chip and the files seen on the step and on each of its groups`)
-  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs`)
+  The bar above the diffs says where the reader is: after the step of the section at the top its group and the part of
+  it seen ("Step 1 / 2 · Play local media… › view.gui.media · 12 / 59 seen"), none for a step read as one list.
+  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs, and say in the bar above the diffs where the reader is`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
   Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree. The group
   row of a step of the commits is the commit that starts it ("2 · The open keeps a stored layout": no row of its own
