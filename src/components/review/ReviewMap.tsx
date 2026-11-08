@@ -2,19 +2,23 @@ import { Fragment } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { UnbrokenApiList } from "@/components/review/UnbrokenApiList"
 import { BreakableCode } from "@/components/shared/CodeText"
+import { DisclosureChevron } from "@/components/shared/Disclosure"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewPlace } from "@/lib/review-place"
-import type { MapRegistration, MapRow, MapView } from "@/presenters/review-map"
+import type { MapApi, MapRegistration, MapRow, MapView } from "@/presenters/review-map"
 
 /**
  * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change before its words, a row per
  * module (its badge when the change adds or deletes it, its label, a bar of its share of the changed lines, its counts),
- * under it what it uses or its folders and what it adds beside its code; then the contract in one line and the API it
- * opens wider. Each row ends at the edge of the reading column and truncates, never wraps; a click on a row shows its
- * first file, on a spec its top, on a name its declaration
+ * under it what it uses or its folders and what it adds beside its code; then the contract in one line and the API:
+ * what it opens wider that no row names, the verdict that no use left outside breaks folding the changes it covers.
+ * Each row ends at the edge of the reading column and truncates, never wraps; a click on a row shows its first file, on
+ * a spec its top, on a name its declaration
  */
 export function ReviewMap({ view }: { view: MapView }) {
   const { rows, more, contract, api, total } = view
@@ -54,29 +58,7 @@ export function ReviewMap({ view }: { view: MapView }) {
           )}
         </MapLine>
       )}
-      {api !== null && (
-        <MapLine label="API" testId="review-map-api">
-          {api.widened.length > 0 && (
-            <span className="flex min-w-0 items-baseline gap-1">
-              <span className="shrink-0 text-muted-foreground">Opens wider:</span>
-              {api.widened.map((name, index) => (
-                <span key={name.key} className="flex items-baseline">
-                  <PlaceButton place={name.place} title={name.place.path} code>
-                    {name.name}
-                  </PlaceButton>
-                  {index < api.widened.length - 1 && <span className="text-muted-foreground">,</span>}
-                </span>
-              ))}
-            </span>
-          )}
-          {api.verdict !== null && (
-            <span className="flex min-w-0 items-baseline gap-1 text-muted-foreground" data-testid="review-map-verdict">
-              {api.widened.length > 0 && <span aria-hidden="true">·</span>}
-              {api.verdict}
-            </span>
-          )}
-        </MapLine>
-      )}
+      {api !== null && <ApiLine api={api} />}
     </div>
   )
 }
@@ -213,6 +195,58 @@ function RegistrationLine({ registration }: { registration: MapRegistration }) {
       <span className="shrink-0 text-muted-foreground">{registration.kind}</span>
       <span className="min-w-0 truncate font-mono">{registration.name}</span>
     </button>
+  )
+}
+
+/**
+ * The API line of the map: what it opens wider that no row names, each showing its declaration, then the verdict that
+ * no use left outside breaks, muted, never in the tone of a warning, folding the API changes it covers under the line
+ */
+function ApiLine({ api }: { api: MapApi }) {
+  const line = (
+    <MapLine label="API" testId="review-map-api">
+      {api.widened.length > 0 && (
+        <span className="flex min-w-0 items-baseline gap-1">
+          <span className="shrink-0 text-muted-foreground">Opens wider:</span>
+          {api.widened.map((name, index) => (
+            <span key={name.key} className="flex items-baseline">
+              <PlaceButton place={name.place} title={name.place.path} code>
+                {name.name}
+              </PlaceButton>
+              {index < api.widened.length - 1 && <span className="text-muted-foreground">,</span>}
+            </span>
+          ))}
+        </span>
+      )}
+      {api.verdict !== null && (
+        <span className="flex min-w-0 items-baseline gap-1">
+          {api.widened.length > 0 && (
+            <span aria-hidden="true" className="text-muted-foreground">
+              ·
+            </span>
+          )}
+          <CollapsibleTrigger
+            className="group flex min-w-0 items-baseline gap-1 rounded-sm text-left text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:bd-focus"
+            data-testid="review-map-verdict"
+          >
+            <DisclosureChevron />
+            {api.verdict.label}
+          </CollapsibleTrigger>
+        </span>
+      )}
+    </MapLine>
+  )
+  if (api.verdict === null) {
+    return line
+  }
+  return (
+    <Collapsible className="flex min-w-0 flex-col gap-1">
+      {line}
+      {/* under the parts of the line, past the gutter of its label */}
+      <CollapsibleContent hiddenUntilFound className="pl-22 font-medium">
+        <UnbrokenApiList entries={api.verdict.entries} />
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 

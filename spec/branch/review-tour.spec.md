@@ -388,10 +388,13 @@ it added a module.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the shape of the plan in the rail of the overview, a module showing its first file in the changes`)
 - The map must name the contract in one line, "Contract": each new spec by its name and the count of its requirements
   ("New spec Transcript Media Playback (14 requirements)", a click its top), then how many specs and docs the change
-  changes ("3 specs and 3 docs changed"); and the API: "Opens wider:" the declarations whose reach alone opened wider,
-  each showing its declaration, and "No use left outside breaks" muted when Rust's verdict says so of a change of the
-  API, never in the tone of a warning.
-  [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names a spec by its file`)
+  changes ("3 specs and 3 docs changed"); and the API: "Opens wider:" the declarations whose reach alone opened wider
+  that no row of the shape names, each showing its declaration; then, where Rust's verdict is that no use left outside
+  breaks and nothing can break, that verdict once, muted, never in the tone of a warning, with the API changes it
+  covers ("No use left outside breaks · 2 API changes"), a click opening them under the line, each its badge, its name
+  and its place (Possible Breakage lists them no more).
+  [@test] ../../src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names the rows past its budget once, and the folders of a large change of one module; a small change has no shape`, `names a spec by its file`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 ### In the Review Window
@@ -433,10 +436,13 @@ it added a module.
   files of the tests of the change that reach its code ("Tested by ManagerTest.kt", each showing its first test, its
   tests in its hover; the opening tells the rest), the code no test of the change reaches beside a scenario ("No test
   of the change reaches load"),
-  "Proven by …", "New API: Cache and Reader", "Opens wider: mediaDuration" (a declaration whose reach alone opened
-  wider, `widened`, no new API), "New use between modules: view.gui.media → view.gui, 38 links" (a pair of modules once, by their labels,
-  never the pairs of their files; in the opening only, the map of the overview names the modules and their uses), each
-  name showing its place; the units of a step another step's stop shows ("Adds hooks, shown in step 2") in the opening
+  "Proven by …", "New API: Cache and Reader" (the new declarations of the modules that were there), "New module
+  view.gui.media: 13 declarations" (those of a module the change adds, counted, not named: its whole surface is new;
+  their names in the hover of its label, which shows the first), "Opens wider: mediaDuration" (a declaration whose
+  reach alone opened wider, `widened`, no new API), "New uses between modules: view.gui.media → view.gui (38 links)
+  and view.gui.media → shared/code" (a pair of modules once, by their labels, its links counted, never the pairs of
+  their files; in the opening only, the map of the overview names the modules and their uses), each name showing its
+  place; the units of a step another step's stop shows ("Adds hooks, shown in step 2") in the opening
   only; a step
   accio answered for whose code no test of the change reaches, every way walked, and no scenario proves
   says so in the warning tone ("No test of the change reaches paint"); code accio did not walk every way of is never

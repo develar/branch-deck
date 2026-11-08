@@ -6,7 +6,7 @@ import type { FactList, StepFacts } from "@/presenters/review-story"
 /**
  * The facts of a step, muted (spec/branch/review-tour.spec.md, "In the Review Window"): the files of the tests of the
  * change that reach its code ("Tested by ManagerTest.kt", each its tests and their ways in its hover), "New API: Cache
- * and Reader", "Opens wider: mediaDuration" and "New link between modules: Reader.kt → Cache.kt", each name showing its
+ * and Reader", "New module view.gui.media: 13 declarations" (their names in the hover), "Opens wider: mediaDuration" and "New link between modules: Reader.kt → Cache.kt", each name showing its
  * place in the diffs (a file of tests at its first test, a declaration, the first use of a link), its file selected, a
  * list the contents cut ending with the count of the rest ("Cache, Reader, Store and 16 more"); of a step none of whose
  * code lands, the commit that took it out, which shows its step; its units the section of another step shows ("Removes
@@ -29,6 +29,12 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
       </span>
     )),
     ...(facts.newApi.places.length === 0 ? [] : [<FactPlaces key="api" title="New API:" list={facts.newApi} testId="review-step-new-api" />]),
+    ...facts.newModules.map(added => (
+      <span key={`module:${added.key}`} data-testid="review-step-new-module">
+        <FactPlaces title="New module" list={{ places: [added.module], more: 0 }} testId="review-step-new-module-name" />
+        {`: ${added.count}`}
+      </span>
+    )),
     ...(facts.opensWider.places.length === 0 ? [] : [<FactPlaces key="wider" title="Opens wider:" list={facts.opensWider} testId="review-step-opens-wider" />]),
     ...(facts.moduleEdges.places.length === 0
       ? []

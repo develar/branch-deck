@@ -262,16 +262,17 @@ test.describe("The review plan in the branch review", () => {
     await repo.commit("(plan) open the format", { "src/Format.kt": 'fun format(value: Int): String = "$value"\n' }, 1704121200)
     const window = await openPlanWindow(page, syncAndWaitForBranches)
 
-    // the verdict, muted, the widening folded under it with its forms; nothing under Possible Breakage
-    const breakage = window.getByTestId("review-overview").getByTestId("review-plan-breakage")
-    const unbroken = breakage.getByTestId("review-plan-unbroken")
-    const verdict = unbroken.getByRole("button", { name: "No use left outside breaks · 1 API change" })
+    // the verdict once, on the API line of the map, muted, the widening folded under it; no Possible Breakage
+    const api = window.getByTestId("review-overview").getByTestId("review-map-api")
+    const verdict = api.getByRole("button", { name: "No use left outside breaks · 1 API change" })
     await expect(verdict).toBeVisible()
-    await expect(breakage).not.toContainText("Possible Breakage")
+    await expect(window.getByTestId("review-overview").getByTestId("review-plan-breakage")).toHaveCount(0)
     await verdict.click()
-    const entry = unbroken.getByTestId("review-plan-unbroken-entry")
+    const entry = window.getByTestId("review-overview").getByTestId("review-plan-unbroken-entry")
     await expect(entry).toHaveAttribute("data-name", "format")
     await expect(entry).toContainText("Opens wider")
+    // the map names what it opens wider, which no row of the shape does
+    await expect(api.getByRole("button", { name: "format", exact: true })).toBeVisible()
 
     // a fact of the range: opened wider, the name at its declaration
     const overview = window.getByTestId("review-overview")
@@ -692,7 +693,7 @@ test.describe("The review plan in the branch review", () => {
     // fact of its step, the two modules by their labels, at its first use; the dependency changes and the same edit are on their rows only
     const overview = window.getByTestId("review-overview")
     await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
-    await expect(overview.getByTestId("review-plan-unbroken")).toContainText("No use left outside breaks · 1 API change")
+    await expect(overview.getByTestId("review-map-verdict")).toHaveText("No use left outside breaks · 1 API change")
     // the map names the new module; a range of no told step names the new use between the modules in its facts
     await expect(overview.getByTestId("review-map-module").filter({ hasText: "New module" })).toContainText("src/b")
     const moduleLink = overview.getByTestId("review-step-module-edge")

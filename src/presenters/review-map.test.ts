@@ -1,25 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, ContractEntry, DependencyChange, FileFacts, Registration } from "@/lib/bindings"
+import type { ApiChange, ContractEntry, DependencyChange, Registration } from "@/lib/bindings"
 import { MAP_ROWS, presentMap, specName } from "@/presenters/review-map"
-import { moduleShape, reviewPlan, reviewStep } from "@/test-support/review-step"
-
-function file(path: string, module: number | null): FileFacts {
-  return {
-    path,
-    oldPath: null,
-    mechanical: null,
-    generated: null,
-    uses: 0,
-    usedBy: 0,
-    newLinks: 0,
-    breaks: 0,
-    breaksComplete: true,
-    untested: false,
-    repeatedEdit: null,
-    repeatedEditOnly: false,
-    module,
-  }
-}
+import { fileFacts as file, moduleShape, reviewPlan, reviewStep } from "@/test-support/review-step"
 
 function entry(path: string, kind: ContractEntry["kind"], rules: number | null = null): ContractEntry {
   return {
@@ -117,18 +99,26 @@ describe("the map of a review", () => {
       newSpecs: [{ key: "spec/media.spec.md", name: "Media", rules: 14, place: { path: "spec/media.spec.md", side: "new", line: null, name: null } }],
       changed: "2 specs and 1 doc changed",
     })
-    expect(view.api).toEqual({
-      widened: [{ key: "s.isNightly:shared/src/Flag.kt", name: "isNightly", place: { path: "shared/src/Flag.kt", side: "new", line: 3, name: "isNightly" } }],
-      verdict: "No use left outside breaks",
-    })
+    // the row of shared/code names what it opens wider; the API line the verdict once, the changes it covers under it
+    expect([view.api?.widened, view.api?.verdict?.label, view.api?.verdict?.entries.map(entry => [entry.kind, entry.name])]).toEqual([
+      [],
+      "No use left outside breaks · 1 API change",
+      [["Opens wider", "isNightly"]],
+    ])
   })
 
   it("names the rows past its budget once, and the folders of a large change of one module; a small change has no shape", () => {
     const many = Array.from({ length: MAP_ROWS + 2 }, (_, index) =>
       moduleShape(`m${index}`, `module-${index}`, { files: { code: 2, tests: 0, resources: 0, build: 0, prose: 0 }, additions: 10 - index }),
     )
-    const view = presentMap(reviewPlan({ modules: many }))
+    // a module past the budget has no row to name what it opens wider: the API line names it, at its declaration; no
+    // verdict without Rust's
+    const view = presentMap(reviewPlan({ modules: many, files: [file("m7/src/Flag.kt", 7)], api: [{ ...widened, path: "m7/src/Flag.kt" }], verdict: "pending" }))
     expect([view.rows.length, view.more]).toEqual([MAP_ROWS, { count: 2, labels: "module-6, module-7" }])
+    expect(view.api).toEqual({
+      widened: [{ key: "s.isNightly:m7/src/Flag.kt", name: "isNightly", place: { path: "m7/src/Flag.kt", side: "new", line: 3, name: "isNightly" } }],
+      verdict: null,
+    })
 
     const one = moduleShape("gui", "gui", {
       files: { code: 20, tests: 5, resources: 0, build: 0, prose: 0 },

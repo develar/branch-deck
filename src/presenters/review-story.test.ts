@@ -20,7 +20,7 @@ import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { ContractFile, ContractParagraph, FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
-import { moduleShape, reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
+import { fileFacts, moduleShape, reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -442,6 +442,21 @@ describe("the document of a review", () => {
       ["Cache"],
       [{ key: "a.mediaDuration:src/a/mediaDuration.kt:3", label: "mediaDuration", place: { path: "src/a/mediaDuration.kt", side: "new", line: 3, name: "mediaDuration" } }],
     ])
+    // the new declarations of a module the change adds are counted under its label, their names in its hover, a click
+    // at the first: its whole surface is new; a new declaration of a module that was there stays named
+    const media = (name: string): ReviewPlan["api"][number] => ({ ...added(name), path: `media/src/${name}.kt` })
+    const surface = [media("Player"), media("Decoder"), added("Cache")]
+    const adding = { ...rule, newApi: surface.map(it => it.key) }
+    const modular = presentStepFacts(adding, {
+      ...plan([adding], []),
+      api: surface,
+      modules: [moduleShape("media", "view.gui.media", { state: "added" }), moduleShape("src", "view.gui")],
+      files: [fileFacts("media/src/Player.kt", 0), fileFacts("media/src/Decoder.kt", 0), fileFacts("src/a/Cache.kt", 1)],
+    })
+    expect([modular.newApi.places.map(it => it.label), modular.newModules.map(it => [it.module.label, it.module.detail, it.module.place.path, it.count])]).toEqual([
+      ["Cache"],
+      [["view.gui.media", "Player, Decoder", "media/src/Player.kt", "2 declarations"]],
+    ])
     // a step none of whose code lands names the commit that took it out, which shows its step
     const tookOut = presentStepFacts(
       step("d", [commit("the try")], [], {}, { takenOutBy: "the paint" }),
@@ -751,7 +766,7 @@ describe("the document of a review", () => {
             [commit("the rule"), commit("the rule again", "followsUp"), commit("wip", "noStory")],
             [["u:rule", "src/a/Rule.kt"]],
             {},
-            { newApi: ["a.Cache", "a.Store"], moduleEdges: [{ from: 0, to: 1, links: [0] }] },
+            { newApi: ["a.Cache", "a.Store"], moduleEdges: [{ from: 0, to: 1, links: [0, 1] }] },
           ),
           step("no-story", [commit("tidy", "noStory")], [["u:tidy", "src/Tidy.kt"]]),
         ],
@@ -762,7 +777,10 @@ describe("the document of a review", () => {
             { path: "src/a/Cache.kt", line: 3, name: "Cache", key: "a.Cache", kind: "added", widened: false, changes: [], before: null, after: "class Cache", usages: null },
             { path: "src/a/Store.kt", line: 4, name: "Store", key: "a.Store", kind: "changed", widened: false, changes: [], before: null, after: null, usages: null },
           ],
-          links: [{ from: "src/a/Reader.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 3 }], state: "added", crossModule: true, newBetweenModules: true }],
+          links: [
+            { from: "src/a/Reader.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 3 }], state: "added", crossModule: true, newBetweenModules: true },
+            { from: "src/a/Writer.kt", to: "src/b/Cache.kt", symbols: [{ name: "Cache", line: 5 }], state: "added", crossModule: true, newBetweenModules: true },
+          ],
           modules: [moduleShape("src/a", "src/a"), moduleShape("src/b", "src/b")],
         },
       ),
@@ -778,8 +796,8 @@ describe("the document of a review", () => {
     expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleEdges.places.map(({ label, place }) => [label, place])]).toEqual([
       null,
       { places: [{ key: "a.Cache:src/a/Cache.kt:3", label: "Cache", place: { path: "src/a/Cache.kt", side: "new", line: 3, name: "Cache" } }], more: 0 },
-      // a pair of modules once, at the first use of its first link, in the file that uses
-      [["src/a → src/b", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
+      // a pair of modules once, its links counted, at the first use of its first link, in the file that uses
+      [["src/a → src/b (2 links)", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
     ])
     // the contents leave the new uses between modules to the map: the opening names them
     const contents = presentPrologue(

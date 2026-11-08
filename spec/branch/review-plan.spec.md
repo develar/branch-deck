@@ -817,8 +817,9 @@ comes from accio's port of the platform's reader; the plan parses no descriptor 
   unknown". An entry whose count is not `complete` says "At least N uses left outside", or "No use left outside found,
   the search stopped early" at 0. Only the entries Rust says are `unbroken` and the widenings (`widened`, the badge
   "Opens wider") fold into one collapsed line, muted, never in the warning tone: "No use left outside breaks · 12 API
-  changes" where the `verdict` of the plan is `noUseBreaks`, else "12 API changes, no use left outside breaks" under the
-  entries listed; an unknown, incomplete or by-name count never reads as safe. Another addition is not listed there.
+  changes" where the `verdict` of the plan is `noUseBreaks`, the API line of the map then
+  ([The Map](review-tour.spec.md#the-map)), else "12 API changes, no use left outside breaks" under the entries
+  listed; an unknown, incomplete or by-name count never reads as safe. Another addition is not listed there.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold a widening under the verdict that no use left outside breaks, never under Possible Breakage, and name it opened wider at its declaration`)
   [@test] ../../src/presenters/review-plan.test.ts (`folds a widening with what breaks nothing, and leads the line with the verdict when no use left outside breaks`)

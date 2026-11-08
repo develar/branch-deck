@@ -2,6 +2,8 @@ import type { ModuleShape, Registered, Registration, ReviewPlan } from "@/lib/bi
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import { joinNames } from "@/lib/text"
+import type { BreakageEntry } from "@/presenters/review-plan"
+import { presentBreakage } from "@/presenters/review-plan"
 
 /**
  * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change on one screen before any
@@ -70,10 +72,13 @@ export interface MapContract {
 }
 
 export interface MapApi {
-  /** The names the change opens wider, each at its declaration */
+  /** The names the change opens wider that no row of the shape names, each at its declaration */
   readonly widened: readonly { readonly key: string; readonly name: string; readonly place: ReviewPlace }[]
-  /** "No use left outside breaks" when Rust says so of every removed and changed entry; null otherwise */
-  readonly verdict: string | null
+  /**
+   * Where Rust says no use left outside breaks and nothing can break, the API none of whose uses breaks folded under
+   * that verdict, said once: "No use left outside breaks · 2 API changes"; null otherwise (Possible Breakage lists it)
+   */
+  readonly verdict: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
 }
 
 /** The rows of the shape before "and N more" */
@@ -104,6 +109,8 @@ export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" 
   const scaled = rows.map(row => ({ ...row, share: (row.additions + row.deletions) / max }))
   const shown = withRegistrations(scaled.slice(0, MAP_ROWS), plan)
   const left = scaled.slice(MAP_ROWS)
+  // the modules whose rows name what they open wider
+  const named = new Set(shaped ? readable.slice(0, MAP_ROWS).map(({ index }) => index) : [])
   return {
     total: {
       files: plan.files.length,
@@ -113,7 +120,7 @@ export function presentMap(plan: Pick<ReviewPlan, "modules" | "files" | "order" 
     rows: shown,
     more: left.length === 0 ? null : { count: left.length, labels: left.map(row => row.label).join(", ") },
     contract: contractOf(plan),
-    api: apiOf(plan),
+    api: apiOf(plan, module => module !== null && named.has(module)),
   }
 }
 
@@ -240,11 +247,14 @@ export function specName(path: string): string {
     .join(" ")
 }
 
-function apiOf(plan: Pick<ReviewPlan, "api" | "verdict">): MapApi | null {
+function apiOf(plan: Pick<ReviewPlan, "api" | "verdict" | "files">, onRow: (module: number | null) => boolean): MapApi | null {
+  const moduleOf = new Map(plan.files.map(file => [file.path, file.module]))
   const widened = plan.api
-    .filter(change => change.widened)
+    .filter(change => change.widened && !onRow(moduleOf.get(change.path) ?? null))
     .map(change => ({ key: `${change.key}:${change.path}`, name: change.name, place: { path: change.path, side: "new" as const, line: change.line, name: change.name } }))
-  const verdict = plan.verdict === "noUseBreaks" && plan.api.some(change => change.kind !== "added" || change.widened) ? "No use left outside breaks" : null
+  // the verdict is of a whole answer, so no use is pending: Possible Breakage lists nothing then
+  const breakage = presentBreakage(plan.api, false, plan.verdict)
+  const verdict = plan.verdict === "noUseBreaks" && breakage.entries.length === 0 ? breakage.unbroken : null
   return widened.length === 0 && verdict === null ? null : { widened, verdict }
 }
 

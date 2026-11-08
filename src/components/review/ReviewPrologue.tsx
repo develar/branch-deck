@@ -12,6 +12,7 @@ import { MessageChangeView } from "@/components/review/MessageChangeView"
 import { ReviewMap } from "@/components/review/ReviewMap"
 import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
+import { UnbrokenApiList } from "@/components/review/UnbrokenApiList"
 import { BreakableCode } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
 import { ReadingColumn } from "@/components/shared/ReadingColumn"
@@ -223,21 +224,7 @@ function PrologueSections({ view }: { view: PrologueView }) {
           )}
           {breakage.unbroken !== null && (
             <Disclosure tone="muted" title={breakage.unbroken.label} testId="review-plan-unbroken" className="text-xs font-medium">
-              <ul aria-label="API changes no use left outside breaks" className="flex flex-col gap-0.5">
-                {breakage.unbroken.entries.map(entry => (
-                  <li key={entry.key} className="flex min-w-0 items-center gap-2" data-testid="review-plan-unbroken-entry" data-name={entry.name}>
-                    <Badge variant={entry.tone} className="shrink-0">
-                      {entry.kind}
-                    </Badge>
-                    <FileButton place={entry.place} title={entry.location}>
-                      <code className="shrink-0 font-mono">{entry.name}</code>
-                      <span className="min-w-0 truncate text-xs text-muted-foreground" dir="rtl">
-                        <bdi dir="ltr">{entry.location}</bdi>
-                      </span>
-                    </FileButton>
-                  </li>
-                ))}
-              </ul>
+              <UnbrokenApiList entries={breakage.unbroken.entries} />
             </Disclosure>
           )}
         </div>

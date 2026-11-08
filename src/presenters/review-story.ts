@@ -259,12 +259,17 @@ export interface StepFacts {
   readonly tests: readonly TestFact[]
   /** Of a step of tests: the other steps whose code its tests reach ("Proves step 2"), each showing that step */
   readonly proves: readonly { readonly key: string; readonly step: string; readonly stepId: string }[]
-  /** The public declarations it adds ("New API:"), each at its declaration */
+  /** The public declarations it adds to a module that was there ("New API:"), each at its declaration */
   readonly newApi: FactList
+  /**
+   * The public declarations it adds in a module the change adds, counted, not named: the whole surface of a new module
+   * is new ("New module view.gui.media: 13 declarations"), the names in the hover of its label, which shows the first
+   */
+  readonly newModules: readonly { readonly key: string; readonly module: FactPlace; readonly count: string }[]
   /** The declarations it opens wider, which breaks no use ("Opens wider:", `ApiChange.widened`), each at its declaration */
   readonly opensWider: FactList
   /**
-   * The new uses between modules it adds ("New use between modules: view.gui.media → view.gui, 38 links"), each pair of
+   * The new uses between modules it adds ("New use between modules: view.gui.media → view.gui (38 links)"), each pair of
    * modules once, at the first use of its first link
    */
   readonly moduleEdges: FactList
@@ -346,7 +351,7 @@ function proofPlaces(proof: ReviewStep["tests"]["proof"]): FactPlace[] {
  * list its first names and the count of the rest (`cutList`); the opening names them all. The warning of a step no test
  * reaches names its code in both
  */
-export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "modules" | "steps" | "units">, form: FactsForm = "opening"): StepFacts {
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "modules" | "steps" | "units" | "files">, form: FactsForm = "opening"): StepFacts {
   const { answered, proof, reached, unreached, scenarios } = step.tests
   const newApi = new Set(step.newApi)
   const addedChanges = plan.api.filter(change => change.kind === "added" && newApi.has(change.key))
@@ -357,13 +362,27 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
       label: changes.filter(other => other.name === change.name).length > 1 ? ownerLed(change.key, change.name) : change.name,
       place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
     }))
+  // the new declarations of a module the change adds, by that module
+  const moduleOf = new Map(plan.files.map(file => [file.path, file.module]))
+  const newModuleOf = (change: ApiChange): number | null => {
+    const module = moduleOf.get(change.path) ?? null
+    return module !== null && plan.modules[module]?.state === "added" ? module : null
+  }
+  const fresh = addedChanges.filter(change => !change.widened)
+  const ofNewModules = new Map<number, ApiChange[]>()
+  for (const change of fresh) {
+    const module = newModuleOf(change)
+    if (module !== null) {
+      ofNewModules.set(module, [...(ofNewModules.get(module) ?? []), change])
+    }
+  }
   const edges = step.moduleEdges.flatMap(edge => {
     const [from, to, link] = [plan.modules[edge.from], plan.modules[edge.to], plan.links[edge.links[0] ?? -1]]
     if (from === undefined || to === undefined || link === undefined) {
       return []
     }
     const count = edge.links.length
-    return [{ key: `${edge.from}:${edge.to}`, label: `${from.label} → ${to.label}${count > 1 ? `, ${count} links` : ""}`, place: firstUse(link) }]
+    return [{ key: `${edge.from}:${edge.to}`, label: `${from.label} → ${to.label}${count > 1 ? ` (${count} links)` : ""}`, place: firstUse(link) }]
   })
   const takenOutBy = takenOutOf(step, plan)
   const contents = form === "contents"
@@ -389,7 +408,12 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
       const proved = plan.steps.steps[index]
       return proved === undefined ? [] : [{ key: proved.id, step: `step ${index + 1}`, stepId: proved.id }]
     }),
-    newApi: list(declared(addedChanges.filter(change => !change.widened))),
+    newApi: list(declared(fresh.filter(change => newModuleOf(change) === null))),
+    newModules: [...ofNewModules].map(([module, changes]) => ({
+      key: `${module}`,
+      module: { key: `${module}`, label: plan.modules[module]?.label ?? "", place: declared(changes)[0]!.place, detail: changes.map(change => change.name).join(", ") },
+      count: changes.length === 1 ? "1 declaration" : `${changes.length} declarations`,
+    })),
     opensWider: list(declared(addedChanges.filter(change => change.widened))),
     // the contents leave to the map the new uses between modules, and to the opening the units shown in another step
     moduleEdges: contents ? { places: [], more: 0 } : list(edges),
@@ -717,18 +741,20 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   // a repeated replacement is of the whole change: named once in the overview, its paragraphs quiet where they are quoted
   const substitutions = presentSubstitutions(plan)
   const breakage = presentBreakage(plan.api, pending, plan.verdict)
+  const map = presentMap(plan)
   return {
     issue: plan.brief.issue,
     title: plan.title,
     // without a step of a task the diffs have no opening: the whole story is told here
     untold: one === null ? null : { subject: one.title, story: presentStory(one, part => part.told.kind === "overview", words) },
-    map: presentMap(plan),
+    map,
     contract,
     substitutions,
     steps,
     source: told ? formatStepSource(plan.steps.source) : null,
     facts: told ? null : rangeFacts(plan),
-    breakage,
+    // the API none of whose uses breaks is said once: under the verdict on the line of the map when nothing can break
+    breakage: map.api?.verdict == null ? breakage : { ...breakage, unbroken: null },
     since:
       since === null || plan.interdiff === null
         ? null
@@ -891,6 +917,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     line: lines.length === 0 ? null : lines.join(" · "),
     tests: all.flatMap(it => it.tests),
     newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
+    newModules: all.flatMap(it => it.newModules),
     opensWider: { places: all.flatMap(it => it.opensWider.places), more: 0 },
     moduleEdges: { places: all.flatMap(it => it.moduleEdges.places), more: 0 },
     proves: [],
@@ -898,7 +925,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     shownElsewhere: [],
     unproven: null,
   }
-  const named = [facts.newApi, facts.opensWider, facts.moduleEdges].some(it => it.places.length > 0)
+  const named = [facts.newApi, facts.opensWider, facts.moduleEdges].some(it => it.places.length > 0) || facts.newModules.length > 0
   return facts.line === null && facts.tests.length === 0 && !named ? null : facts
 }
 

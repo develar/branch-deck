@@ -1,4 +1,23 @@
-import type { ModuleShape, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+import type { FileFacts, ModuleShape, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+
+/** The facts of a file of the review plan at `path` in the module at `module`, nothing else known of it */
+export function fileFacts(path: string, module: number | null): FileFacts {
+  return {
+    path,
+    oldPath: null,
+    mechanical: null,
+    generated: null,
+    uses: 0,
+    usedBy: 0,
+    newLinks: 0,
+    breaks: 0,
+    breaksComplete: true,
+    untested: false,
+    repeatedEdit: null,
+    repeatedEditOnly: false,
+    module,
+  }
+}
 
 /** A commit of a step by its title, which is its id too */
 export function stepCommit(title: string, role: StepCommit["role"] = "starts"): StepCommit {
