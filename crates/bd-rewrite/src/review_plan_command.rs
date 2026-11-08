@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 24` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 25` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -44,7 +44,9 @@
 //! version 23 the `modules` of the changed files and the `module` of each file, the `moduleEdges` of a step in place of
 //! its `moduleLinks`, and the mechanical kind `moduleList`;
 //! version 24 the `groups` of a large step (`contract`, a `module` or a `folder` with its `also`, `mechanical`, each its
-//! `start`, `tests` and `end` in the stops), in place of the `concern` of a stop
+//! `start`, `tests` and `end` in the stops), in place of the `concern` of a stop;
+//! version 25 the `registrations` of the plugin descriptors, from accio (`accio parse --descriptor --resolve`, one
+//! process per side)
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -62,6 +64,7 @@ use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, MessageChange, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
 use review_plan::modules::ModuleShape;
+use review_plan::registrations::Registration;
 use review_plan::steps::ReviewSteps;
 use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
@@ -70,7 +73,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 24;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 25;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -171,6 +174,15 @@ pub struct ReviewPlanOutput {
   /// modules that add it as content (`contentOf`) and the entries its build files add that name no module of the review
   /// (`newDependencies`, by their place in `dependencies`)
   pub modules: Vec<ModuleShape>,
+  /// What the commits register in the platform: the services, extension points, listeners, extensions, registry keys
+  /// (`registryKey`, its `defaultValue` the option marked `*` of a key of `options`), actions and groups, and content
+  /// modules their plugin descriptors add, remove or change (`change`; of a `changed` one what it was `before` and the
+  /// attributes or `<child>` elements that `changed`), read by accio at the base and the head (with `--since-reviewed`
+  /// the ends of `scope`, none when its carry conflicts), each with its `descriptor`, the `module` of the descriptor by
+  /// its place in `modules`, a content module the `reviewModule` it names, and the `classes` it names as accio resolved
+  /// them at the head (of a removed one at the base): `declared` with `path` and `line`, `ambiguous` with `count`,
+  /// `notFound`, `null` without an index (`index_note`); by module, descriptor, then kind. Empty without accio
+  pub registrations: Vec<Registration>,
   /// The groups of 3 or more files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditOutput>,
   /// The changes a reviewer reads once, in the order of the story, of the diff of `base..head` (with `--since-reviewed`
@@ -219,8 +231,9 @@ pub struct ReviewPlanOutput {
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
   /// between files with no edge
   pub order: Vec<String>,
-  /// Why a removed or changed declaration has no `usages`: accio is not installed, has no index of this repository, or
-  /// failed; `null` when every query answered or none was asked
+  /// Why a removed or changed declaration has no `usages`, a step no tests, the plan no `registrations` or their classes
+  /// no place: accio is not installed, has no index of this repository, or failed; `null` when every query answered or
+  /// none was asked
   pub index_note: Option<String>,
 }
 
@@ -529,6 +542,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     links: plan.links.into_iter().map(link_output).collect(),
     dependencies: plan.dependencies,
     modules: plan.modules,
+    registrations: plan.registrations,
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
     units: plan.units.into_iter().map(unit_output).collect(),
     concerns: plan.concerns,

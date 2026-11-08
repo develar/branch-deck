@@ -1418,6 +1418,22 @@ export type ChildrenPush = {
 	offers?: boolean,
 };
 
+/**  Where accio found a class a registration names, in the index at the side of the registration */
+export type ClassFound = 
+/**  One declaration: its file and the line of its name, from 1 */
+{ resolved: "declared"; path: string; line: number } | 
+/**  Several declarations of the name */
+{ resolved: "ambiguous"; count: number } | 
+/**  No declaration of the name: a class the side lacks */
+{ resolved: "notFound" };
+
+/**  What a class is to its registration: the field that names it */
+export type ClassRole = "interface" | "implementation" | "testImplementation" | "headlessImplementation" | "beanClass" | 
+/**  The class of a listener or of an action */
+"class" | 
+/**  The topic of a listener */
+"topic";
+
 /**  The parameters of `clear_activity` */
 export type ClearActivityParams = {
 	/**  The recent project whose log goes: the journal of its repository and the page entries of it */
@@ -1974,6 +1990,9 @@ export type ConflictFix = {
 	search: SearchState,
 	trials: number,
 };
+
+/**  When the platform loads a content module (`loading`) */
+export type ContentLoading = "optional" | "required" | "embedded" | "onDemand";
 
 /**  A change of a file of prose: the paragraphs of one place of it, or the file added or deleted whole */
 export type ContractEntry = {
@@ -6419,6 +6438,81 @@ export type RefusedReviewer = {
 	reason: string,
 };
 
+/**  What a descriptor registers */
+export type Registered = 
+/**  `applicationService`, `projectService`, `moduleService` */
+{ kind: "service"; area: RegistrationArea; interface: string | null; implementation: string | null; testImplementation: string | null; headlessImplementation: string | null; 
+/**  `client`: the frontend or the backend of a remote development it serves */
+client: string | null; os: string | null; preload: string | null; overrides: boolean; open: boolean } | 
+/**  `extensionPoint` */
+{ kind: "extensionPoint"; area: RegistrationArea; name: string | null; qualifiedName: string | null; interface: string | null; beanClass: string | null; dynamic: boolean } | 
+/**  A listener of `applicationListeners`, `projectListeners` */
+{ kind: "listener"; area: RegistrationArea; topic: string; class: string; os: string | null } | 
+/**  An extension of a point other than `com.intellij.registryKey` */
+{ kind: "extension"; 
+/**  The qualified name of the point */
+point: string; implementation: string | null; 
+/**  Its attribute `id` */
+id: string | null; 
+/**  Its attributes as written, by name */
+attributes: { [key in string]: string } } | 
+/**  An extension of `com.intellij.registryKey` */
+{ kind: "registryKey"; key: string; 
+/**
+ *  The value it has unless the user sets one: of a key of options the option marked `*` (none when none is), else
+ *  its `defaultValue`
+ */
+defaultValue: string | null; 
+/**  The options of a key of options (`[ENABLED|NIGHTLY_ENABLED*|DISABLED]`), without the mark; empty for another */
+options: string[]; description: string | null; restartRequired: boolean } | 
+/**  An action or a group of actions */
+{ kind: "action"; id: string | null; class: string | null; 
+/**  Its attribute `text`; most actions take their text from a bundle */
+text: string | null; group: boolean } | 
+/**  A module of the `content` of a plugin */
+{ kind: "contentModule"; name: string; loading: ContentLoading; 
+/**  The module of the review of that name, by its place in `ReviewPlan::modules` */
+reviewModule: number | null };
+
+/**  A class a registration names */
+export type RegisteredClass = {
+	role: ClassRole,
+	/**  Its qualified name, as the descriptor writes it */
+	name: string,
+	/**  At the head, of a removed registration at the base; `None` without a usable index (`ReviewPlan::index_note`) */
+	found: ClassFound | null,
+};
+
+/**  A registration the commits add, remove or change in a plugin descriptor */
+export type Registration = {
+	/**  The descriptor, at its last path */
+	descriptor: string,
+	/**  The module of the descriptor, by its place in `ReviewPlan::modules` */
+	module: number | null,
+	change: RegistrationChange,
+	/**  What is registered at the head; of a removed one, at the base */
+	registered: Registered,
+	/**  Of a changed one: what was registered at the base */
+	before: Registered | null,
+	/**
+	 *  Of a changed one: the fields that differ, by the attribute of the descriptor (`serviceImplementation`,
+	 *  `defaultValue`, `loading`), a child element by its tag (`<add-to-group>`), in the order of their names
+	 */
+	changed: string[],
+	/**  The classes it names */
+	classes: RegisteredClass[],
+};
+
+/**  The container a service, an extension point or a listener lives in */
+export type RegistrationArea = 
+/**  The application: `applicationService`, `applicationListeners` */
+"app" | "project" | "module";
+
+/**  How the commits change a registration */
+export type RegistrationChange = "added" | "removed" | 
+/**  A field beside what identifies it differs */
+"changed";
+
 /**
  *  Where commits go: `{"branches": {"auth/login": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]},
  *  "ungroup_issues": [keys], "unstack": [branches]}`
@@ -6929,6 +7023,13 @@ export type ReviewPlan = {
 	 *  tests; `FileFacts::module` of each file names its own
 	 */
 	modules: ModuleShape[],
+	/**
+	 *  What the commits register in the platform (`registrations`): the services, extension points, listeners,
+	 *  extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, read by
+	 *  accio at the base and the head; by the module of the descriptor, the descriptor, then the kind. None without accio
+	 *  (`index_note`), and in the plan sent while the index is asked
+	 */
+	registrations: Registration[],
 	/**  The groups of files that get the same edit, the most files first */
 	repeatedEdits: RepeatedEditGroup[],
 	/**
@@ -6963,7 +7064,7 @@ export type ReviewPlan = {
 export type ReviewPlanEvent = 
 /**
  *  The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, no step
- *  knows the tests that reach its code, and the plan with them follows
+ *  knows the tests that reach its code, it has no registrations, and the plan with them follows
  */
 { kind: "plan"; plan: ReviewPlan; pending: boolean } | 
 /**  The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none */

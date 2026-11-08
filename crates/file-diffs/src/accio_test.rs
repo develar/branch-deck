@@ -3,7 +3,9 @@
 
 #[cfg(unix)]
 use crate::accio::AccioSearch;
-use crate::accio::{Access, AccioCli, CallArgument, DeclarationAt, HitKind, Lenient, ReferenceHit, Resolved, SearchCanceled, SymbolHit, SymbolIndex};
+use crate::accio::{
+  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, Lenient, ReferenceHit, Resolved, SearchCanceled, SymbolHit, SymbolIndex,
+};
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -162,6 +164,89 @@ fn an_index_format_mismatch_says_which_accio_version_to_run() {
     let expected = format!("the index of this repository is from {version} accio than {}: {action}", executable.display());
     assert_eq!(lenient.unavailable().as_deref(), Some(expected.as_str()));
   }
+}
+
+/// The descriptors of one side are read in one process, `parse --descriptor --resolve` at the revision, the paths on its
+/// standard input: one line per path in their order, a path the revision lacks `missing`; without a usable index a line
+/// has no classes and its note says which accio to run, as a query's does
+#[test]
+fn the_descriptors_of_a_side_are_read_in_one_process() {
+  let dir = tempfile::tempdir().unwrap();
+  let (args, stdin) = (dir.path().join("args"), dir.path().join("stdin"));
+  let service = r#"{"area":"app","interface":"a.Players","implementation":"a.PlayersImpl","test":null,"headless":null,"schemaKey":null,"overrides":false,"open":false,"preload":"FALSE","client":null,"os":null}"#;
+  let lines = [
+    format!(
+      r#"{{"path":"gui/resources/intellij.gui.xml","root":"idea-plugin","id":null,"content":[],"services":[{service}],"listeners":[],"extensions":[],"actions":[],"later":1,"classes":[{{"role":"services.interface","name":"a.Players","resolved":"exact","path":"gui/src/Players.kt","line":3}}]}}"#
+    ),
+    r#"{"path":"gui/media/resources/intellij.gui.media.xml","missing":true}"#.to_string(),
+    r#"{"path":"plugin/resources/META-INF/plugin.xml","root":"idea-plugin","classes":null,"note":"archive /x/index.shard has format 30, expected 32"}"#.to_string(),
+  ];
+  let executable = fake_executable(
+    dir.path(),
+    "accio",
+    &format!(
+      "printf '%s\\n' \"$@\" > {}\ncat > {}\nprintf '%s\\n' '{}'",
+      shell_path(&args),
+      shell_path(&stdin),
+      lines.join("' '")
+    ),
+  );
+  let accio = AccioCli::at(executable.clone());
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let paths = [
+    "gui/resources/intellij.gui.xml".to_string(),
+    "gui/media/resources/intellij.gui.media.xml".to_string(),
+    "plugin/resources/META-INF/plugin.xml".to_string(),
+  ];
+  let descriptors = search.descriptors(ROOT, &paths, "head").unwrap().unwrap();
+  let asked = std::fs::read_to_string(&args).unwrap();
+  assert_eq!(
+    asked.lines().collect::<Vec<_>>(),
+    [
+      "parse",
+      "--descriptor",
+      "--resolve",
+      "--no-build",
+      "--project",
+      ROOT,
+      "--root",
+      ROOT,
+      "--ref",
+      "head",
+      "--files-from",
+      "-"
+    ]
+  );
+  assert_eq!(std::fs::read_to_string(&stdin).unwrap(), format!("{}\n", paths.join("\n")));
+  assert_eq!(
+    descriptors[0].services,
+    [DescriptorService {
+      area: "app".to_string(),
+      interface: Some("a.Players".to_string()),
+      implementation: Some("a.PlayersImpl".to_string()),
+      preload: Some("FALSE".to_string()),
+      ..DescriptorService::default()
+    }]
+  );
+  assert_eq!(
+    descriptors[0].classes.as_deref(),
+    Some(
+      [DescriptorClass {
+        role: "services.interface".to_string(),
+        name: "a.Players".to_string(),
+        resolved: "exact".to_string(),
+        count: None,
+        path: Some("gui/src/Players.kt".to_string()),
+        line: Some(3),
+      }]
+      .as_slice()
+    )
+  );
+  assert!(descriptors[0].is_read());
+  assert_eq!((descriptors[1].missing, descriptors[1].is_read()), (true, false));
+  let expected = format!("the index of this repository is from an older accio than {}: run accio index", executable.display());
+  assert_eq!((descriptors[2].classes.as_ref(), descriptors[2].note.as_deref()), (None, Some(expected.as_str())));
 }
 
 /// The places of a plan are asked in one process, `--at` each, at the revision of the answer: one entry per place in

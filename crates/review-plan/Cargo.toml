@@ -3,7 +3,7 @@ name = "review-plan"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the facts of each file, the links between the files, the dependency changes of the build files and the dependency order, read by `bd review-plan` and the review windows"
+description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the facts of each file, the links between the files, the dependency changes of the build files, the registrations of the plugin descriptors and the dependency order, read by `bd review-plan` and the review windows"
 publish = false
 
 [dependencies]
@@ -17,7 +17,7 @@ history-rewrite = { path = "../history-rewrite" }
 trial-check = { path = "../trial-check" }
 code-symbols = { path = "../code-symbols" }
 object-cache = { path = "../object-cache" }
-# the blocks of the diffs, and accio for the fan-in (`SymbolIndex`, `Lenient`)
+# the blocks of the diffs, and accio for the fan-in, the tests and the descriptors (`SymbolIndex`, `Lenient`)
 file-diffs = { path = "../file-diffs" }
 # the generated files: by their name, the attributes of the head, the header a tool wrote (`files::generated_of`)
 generated-files = { path = "../generated-files" }

@@ -15,6 +15,8 @@
 //! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
 //!   add or delete
 //! - `modules`: the modules the commits add, change or delete, the shape of each part and what each newly uses
+//! - `registrations`: what the commits register in the platform, the services, extension points, listeners,
+//!   extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, from accio
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
 //!   removes or changes and whether its tests changed with it
 //! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, of one commit the
@@ -43,6 +45,7 @@ pub mod modules;
 pub mod order;
 pub mod pair;
 pub mod prose;
+pub mod registrations;
 pub mod steps;
 pub mod story;
 pub mod units;
@@ -59,6 +62,7 @@ use crate::mark_reviewed::{BranchOnBase, branch_on_base, resolve_branch};
 use crate::modules::{ModuleShape, Modules, ModulesInput, module_shapes};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
+use crate::registrations::{Registration, RegistrationsInput, changed_descriptors, registrations_of};
 use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
 use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
@@ -164,6 +168,11 @@ pub struct ReviewPlan {
   /// The modules of the changed files (`modules`): one the commits add first, then the most changed lines of code and
   /// tests; `FileFacts::module` of each file names its own
   pub modules: Vec<ModuleShape>,
+  /// What the commits register in the platform (`registrations`): the services, extension points, listeners,
+  /// extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, read by
+  /// accio at the base and the head; by the module of the descriptor, the descriptor, then the kind. None without accio
+  /// (`index_note`), and in the plan sent while the index is asked
+  pub registrations: Vec<Registration>,
   /// The groups of files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditGroup>,
   /// The changes of the pair the plan reads (`units`): every block of its diffs in one unit, every changed file in one
@@ -197,7 +206,7 @@ fn resolved(git: &GitCommandExecutor, repository_path: &str, rev: &str) -> Resul
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ReviewPlanEvent {
   /// The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, no step
-  /// knows the tests that reach its code, and the plan with them follows
+  /// knows the tests that reach its code, it has no registrations, and the plan with them follows
   Plan { plan: Box<ReviewPlan>, pending: bool },
   /// The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none
   Disabled,
@@ -493,6 +502,12 @@ pub fn review_plan_of(
     issue: brief.issue.as_deref(),
     modules: &modules,
   });
+  // the revisions the registrations compare: of Since Your Review the ends of its scope, none when its carry conflicted
+  let sides = match interdiff.as_ref().filter(|_| params.since_reviewed) {
+    Some(found) => found.scope.as_ref().map(|scope| (scope.base.clone(), scope.head.clone())),
+    None => Some((base.clone(), head.clone())),
+  };
+  let descriptors = changed_descriptors(&changed);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -511,6 +526,7 @@ pub fn review_plan_of(
     links,
     dependencies,
     modules: Vec::new(),
+    registrations: Vec::new(),
     repeated_edits: Vec::new(),
     units,
     concerns,
@@ -519,7 +535,8 @@ pub fn review_plan_of(
     order,
     index_note: None,
   };
-  let asks = api.iter().any(|change| change.kind != ApiChangeKind::Added) || plan.steps.steps.iter().any(|step| !step.code.is_empty());
+  let asks =
+    api.iter().any(|change| change.kind != ApiChangeKind::Added) || plan.steps.steps.iter().any(|step| !step.code.is_empty()) || (sides.is_some() && !descriptors.is_empty());
   plan.modules.clone_from(&modules.shapes);
   if sources.index.is_some() && asks {
     (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
@@ -527,15 +544,29 @@ pub fn review_plan_of(
     plan.api.clone_from(&api);
     pending(&plan);
   }
-  // the usages of the API and the tests of the steps, each one query of the index, at once
+  // the usages of the API, the tests of the steps and the descriptors of each side, each one query of the index, at once
   let head = plan.head.clone();
   let steps = &mut plan.steps;
-  let (usages, tests) = std::thread::scope(|scope| {
+  let registrations_input = RegistrationsInput {
+    repository_path,
+    sides: sides.as_ref().map(|(base, head)| (base.as_str(), head.as_str())),
+    files: &descriptors,
+    changed: &changed,
+    modules: &modules,
+  };
+  let (usages, tests, registrations) = std::thread::scope(|scope| {
     let tests = scope.spawn(in_current_span(|| add_tests(sources.index, repository_path, &head, steps)));
+    let registrations = scope.spawn(in_current_span(|| registrations_of(sources.index, &registrations_input)));
     let usages = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api);
-    (usages, tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked"))))
+    (
+      usages,
+      tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked"))),
+      registrations.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the descriptors panicked"))),
+    )
   });
-  plan.index_note = usages?.or(tests?);
+  let (registrations, registrations_note) = registrations?;
+  plan.index_note = usages?.or(tests?).or(registrations_note);
+  plan.registrations = registrations;
   (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
   with_modules(&mut plan.files, &changed, &modules);
   plan.verdict = verdict_of(&api);
@@ -612,6 +643,8 @@ mod modules_test;
 mod order_test;
 #[cfg(test)]
 mod prose_test;
+#[cfg(test)]
+mod registrations_test;
 #[cfg(test)]
 mod steps_test;
 #[cfg(test)]

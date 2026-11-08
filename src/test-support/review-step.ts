@@ -60,6 +60,7 @@ export function reviewPlan(more: Partial<ReviewPlan> = {}): ReviewPlan {
     links: [],
     dependencies: [],
     modules: [],
+    registrations: [],
     repeatedEdits: [],
     units: [],
     concerns: [],

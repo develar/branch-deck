@@ -163,6 +163,12 @@ fn format_of(path: &str) -> Option<Format> {
   }
 }
 
+/// Whether the file at `path` can be a plugin descriptor by its path, which only its root tells for sure: what
+/// `registrations` asks accio to read
+pub(crate) fn may_be_descriptor(path: &str) -> bool {
+  format_of(path) == Some(Format::PluginXml)
+}
+
 /// Whether an `*.xml` at `path` can be a plugin descriptor: `plugin.xml`, or in a `META-INF` or `resources` directory,
 /// and not in `.idea`
 fn is_descriptor_path(path: &str) -> bool {

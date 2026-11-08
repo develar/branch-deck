@@ -14,6 +14,7 @@ targets:
   - ../../crates/generated-files/src/generated_by.rs
   - ../../crates/review-plan/src/links.rs
   - ../../crates/review-plan/src/dependencies.rs
+  - ../../crates/review-plan/src/registrations.rs
   - ../../crates/review-plan/src/order.rs
   - ../../crates/trial-check/src/declaration_checks.rs
   - ../../crates/code-symbols/src/kotlin/summary.rs
@@ -195,10 +196,10 @@ group at the end. The overview at the top of the document of the review, before 
 - `brd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope`
   with `base`, `head` and `carried`), with
-  `"schema": 24`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 25`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`, version 21 the form `row` of a paragraph of the brief, the `excerpt` of every changed paragraph of several sentences and no paragraph of front matter or metadata ([Review Tour](review-tour.spec.md#brief)), version 22 the `table` block of a body ([Commit Row](../commit/commit-row.spec.md#message-body)) and its `summary`, version 23 the `modules` of the changed files ([Modules](#modules)), the `module` of a file and the `moduleEdges` of a step in place of its `moduleLinks`, version 24 the `groups` of a large step ([Review Tour](review-tour.spec.md#groups-of-a-step)) in place of the `concern` of a stop; the other outputs of `brd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); version 19 added repeated replacements to the brief, version 20 a widening as an `added` entry with `widened`, the reach in the forms and the `verdict`, version 21 the form `row` of a paragraph of the brief, the `excerpt` of every changed paragraph of several sentences and no paragraph of front matter or metadata ([Review Tour](review-tour.spec.md#brief)), version 22 the `table` block of a body ([Commit Row](../commit/commit-row.spec.md#message-body)) and its `summary`, version 23 the `modules` of the changed files ([Modules](#modules)), the `module` of a file and the `moduleEdges` of a step in place of its `moduleLinks`, version 24 the `groups` of a large step ([Review Tour](review-tour.spec.md#groups-of-a-step)) in place of the `concern` of a stop, version 25 the `registrations` ([Registrations](#registrations)); the other outputs of `brd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -591,6 +592,51 @@ and what each newly uses. The review opens on it ([Review Tour](review-tour.spec
 - The modules must read the trees above every changed file in the `cat-file --batch` of the summaries: a plan of
   build files alone runs that batch too.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
+
+### Registrations
+
+How a change plugs into the platform: what its plugin descriptors register, as the platform reads them. Every fact
+comes from accio's port of the platform's reader; the plan parses no descriptor of its own for it.
+- `registrations` must list each service, extension point, listener, extension, registry key, action or group, and
+  content module that the changed plugin descriptors add, remove or change between the base and the head. A changed
+  file can be a descriptor by its path as in [Dependency Changes](#dependency-changes); only accio's answer of its root
+  (`idea-plugin`) makes it one. Each side is read by one `accio parse --descriptor --resolve --no-build --ref <side>`
+  with the paths on its standard input: at the base the files the commits do not add, at their first path, at the head
+  those they do not delete. The two run at once, beside the usages and the tests of the plan.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`the_registrations_are_what_the_descriptors_add_remove_and_change_between_the_base_and_the_head`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`the_descriptors_of_a_side_are_read_in_one_process`)
+- A registration must be known by what identifies it to the platform: a service by its area (`app`, `project`,
+  `module`), its interface (else its implementation), its client and its OS; an extension point by its area and its
+  qualified name (else its name); a listener by its area, its topic and its class; an extension of
+  `com.intellij.registryKey` by its key (`registryKey`, its `defaultValue` the option marked `*` of a key of `options`,
+  its `description`); another extension by its point and its implementation, else its `id`, else its whole element; an
+  action or a group by its `id`, else its class, nested in a group too; a content module by its name (its `loading`,
+  the `reviewModule` of that name).
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`the_registrations_are_what_the_descriptors_add_remove_and_change_between_the_base_and_the_head`, `a_refused_descriptor_registers_nothing_and_a_service_is_known_by_its_interface_and_client`)
+- The registrations of one key must pair in their order. A pair whose other fields differ must be `changed`, with
+  what it was `before` and the fields it `changed`: an attribute by its name (`serviceImplementation`, `defaultValue`,
+  `loading`), a child element by its tag (`<add-to-group>`). The rest are `added` or `removed`; a descriptor the commits
+  add or delete adds or removes all it registers.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`the_registrations_are_what_the_descriptors_add_remove_and_change_between_the_base_and_the_head`, `a_refused_descriptor_registers_nothing_and_a_service_is_known_by_its_interface_and_client`)
+- A side whose root is no `idea-plugin` must register nothing. A descriptor the platform's reader refuses on either
+  side must have no registration.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`a_refused_descriptor_registers_nothing_and_a_service_is_known_by_its_interface_and_client`)
+- Each registration must name its `descriptor` at its last path, the `module` of the descriptor, and the `classes` it
+  names, each as accio resolved it at the head (of a removed one, at the base): `declared` with its `path` and `line`,
+  `ambiguous` with the `count`, `notFound`. Without a usable index accio still reads the descriptors: their classes are
+  unknown (`null`), never `notFound`, and the reason joins `index_note`. Without accio, or when accio fails, there is no
+  registration and `index_note` says why.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`the_registrations_are_what_the_descriptors_add_remove_and_change_between_the_base_and_the_head`, `without_an_index_the_registrations_are_listed_and_their_classes_unknown`, `without_accio_a_plan_lists_no_registration_and_says_why`)
+- The registrations must come by the module of the descriptor in the order of `modules`, then the descriptor in tree
+  order, then the kind (service, extension point, listener, extension, registry key, action, content module), then
+  the order of the head, the removed ones last in the order of the base.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`the_registrations_are_what_the_descriptors_add_remove_and_change_between_the_base_and_the_head`)
+- Since Your Review must compare the two ends of its scope, never what the reviewer already read; when its carry
+  conflicts, its commits are read one at a time, which no two revisions hold, and it must list no registration.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`since_the_review_the_registrations_are_those_of_the_commits_added_on_top`)
+- The plan sent while the index is asked must have no registration; the plan that follows has them. A change of
+  descriptors alone is a query to ask.
+  [@test] ../../crates/review-plan/src/registrations_test.rs (`the_plan_sent_while_the_index_is_asked_has_no_registration`)
 
 ### Dependency Order
 

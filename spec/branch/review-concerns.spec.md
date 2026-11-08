@@ -120,7 +120,7 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_concern_name_from_a_backticked_kotlin_function_is_unquoted`)
 
 ### In `brd`
-- `brd review-plan` must print `concerns` (`"schema": 24`): per concern its `id`, `name` (`source` `token` with
+- `brd review-plan` must print `concerns` (`"schema": 25`): per concern its `id`, `name` (`source` `token` with
   `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `file` with `path`, `directory` with `directory`, `rest`),
   its `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
   `detail` and `joins`, the most joins first) and its `fingerprint`. The hidden `--concern-edges uses,tokens,rest`

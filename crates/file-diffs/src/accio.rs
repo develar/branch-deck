@@ -3,7 +3,10 @@
 //! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout. A review
 //! plan asks about declarations by their place (spec/branch/review-plan.spec.md, "Fan-in";
 //! spec/branch/review-tour.spec.md, "Tests That Reach It"): `accio references --at <path>:<line>[:<column>]` and
-//! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel.
+//! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel. It
+//! reads what a change registers in the platform ("Registrations") with accio's port of the platform's reader:
+//! `accio parse --descriptor --resolve --ref <revision>`, the changed plugin descriptors of one side in one process, the
+//! paths on its standard input, each class a descriptor names resolved in the index at that revision.
 //!
 //! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked, so
 //!   the names of one lookup go in one process (`symbols_any`: `Owner.name`, then the bare name). On the IntelliJ
@@ -30,6 +33,7 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::OnceLock;
 use sync_utils::child_process::{ChildPriority, ChildProcessError, cached_login_shell_path, find_executable, run_child_until_superseded, windowless_command_at};
 
@@ -298,6 +302,173 @@ pub struct TestReach {
   pub unavailable: bool,
 }
 
+/// A plugin descriptor at a revision as the platform's reader reads it (`accio parse --descriptor --resolve`, one JSON
+/// line per path, `plugin_xml::dump_line` of accio, whose fields are only ever added): what it registers, and each class
+/// it names resolved in the index at that revision
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Descriptor {
+  /// As asked, relative to the root of the repository
+  pub path: String,
+  /// The revision has no file at the path
+  #[serde(default)]
+  pub missing: bool,
+  /// The name of its root element: `idea-plugin` for a descriptor; `None` for malformed XML
+  #[serde(default)]
+  pub root: Option<String>,
+  /// The XML is malformed, or the platform's reader refuses the descriptor
+  #[serde(default)]
+  pub error: bool,
+  #[serde(default)]
+  pub id: Option<String>,
+  #[serde(default)]
+  pub content: Vec<DescriptorContentModule>,
+  #[serde(default)]
+  pub extension_points: Vec<DescriptorExtensionPoint>,
+  #[serde(default)]
+  pub services: Vec<DescriptorService>,
+  #[serde(default)]
+  pub listeners: Vec<DescriptorListener>,
+  #[serde(default)]
+  pub extensions: Vec<DescriptorExtension>,
+  #[serde(default)]
+  pub actions: Vec<DescriptorAction>,
+  /// Every class it names by the field that names it, resolved at the revision; `None` without a usable index (`note`
+  /// says why)
+  #[serde(default)]
+  pub classes: Option<Vec<DescriptorClass>>,
+  /// Why `classes` is `None`, phrased as `IndexUnavailable`
+  #[serde(default)]
+  pub note: Option<String>,
+}
+
+impl Descriptor {
+  /// It is a plugin descriptor the platform reads: there, its root `idea-plugin`, and read without an error
+  pub fn is_read(&self) -> bool {
+    !self.missing && !self.error && self.root.as_deref() == Some("idea-plugin")
+  }
+}
+
+/// A content module of a plugin descriptor (`<content><module name loading>`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DescriptorContentModule {
+  pub name: String,
+  /// `OPTIONAL`, `REQUIRED`, `EMBEDDED`, `ON_DEMAND`
+  #[serde(default)]
+  pub loading: String,
+}
+
+/// An extension point a descriptor declares, in its area (`app`, `project`, `module`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptorExtensionPoint {
+  pub area: String,
+  #[serde(default)]
+  pub name: Option<String>,
+  #[serde(default)]
+  pub qualified_name: Option<String>,
+  #[serde(default)]
+  pub interface: Option<String>,
+  #[serde(default)]
+  pub bean_class: Option<String>,
+  #[serde(default)]
+  pub dynamic: bool,
+}
+
+/// A service a descriptor registers, in its area (`app`, `project`, `module`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptorService {
+  pub area: String,
+  #[serde(default)]
+  pub interface: Option<String>,
+  #[serde(default)]
+  pub implementation: Option<String>,
+  #[serde(default)]
+  pub test: Option<String>,
+  #[serde(default)]
+  pub headless: Option<String>,
+  #[serde(default)]
+  pub schema_key: Option<String>,
+  #[serde(default)]
+  pub overrides: bool,
+  #[serde(default)]
+  pub open: bool,
+  #[serde(default)]
+  pub preload: Option<String>,
+  #[serde(default)]
+  pub client: Option<String>,
+  #[serde(default)]
+  pub os: Option<String>,
+}
+
+/// A listener a descriptor registers on a topic, in its area (`app`, `project`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptorListener {
+  pub area: String,
+  pub class: String,
+  pub topic: String,
+  #[serde(default)]
+  pub test_mode: bool,
+  #[serde(default)]
+  pub headless_mode: bool,
+  #[serde(default)]
+  pub os: Option<String>,
+}
+
+/// An extension a descriptor registers on a point, by the point's qualified name
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescriptorExtension {
+  pub point: String,
+  /// Its attribute `implementation` (or `implementationClass`)
+  #[serde(default)]
+  pub implementation: Option<String>,
+  /// Its attribute `id`
+  #[serde(default)]
+  pub order_id: Option<String>,
+  #[serde(default)]
+  pub element: Option<DescriptorElement>,
+}
+
+/// An entry of the `<actions>` of a descriptor: an action, a group (whose element holds its nested actions and groups),
+/// a reference
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DescriptorAction {
+  /// `action`, `group`, …
+  pub kind: String,
+  #[serde(default)]
+  pub element: Option<DescriptorElement>,
+}
+
+/// An XML element as the reader keeps it: its attributes by name, its children in document order
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DescriptorElement {
+  #[serde(default)]
+  pub name: String,
+  #[serde(default)]
+  pub attributes: std::collections::BTreeMap<String, String>,
+  #[serde(default)]
+  pub children: Vec<Self>,
+}
+
+/// A class a descriptor names, by the field that names it (`services.implementation`, `listeners.topic`, …), resolved
+/// to its declaration at the revision of the answer
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct DescriptorClass {
+  pub role: String,
+  pub name: String,
+  /// `exact`, `ambiguous` (`count` declarations), `none`
+  pub resolved: String,
+  #[serde(default)]
+  pub count: Option<u32>,
+  #[serde(default)]
+  pub path: Option<String>,
+  #[serde(default)]
+  pub line: Option<u32>,
+}
+
 /// The usages an index answered, and its name-only candidates excluded by `--resolved`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct References {
@@ -354,6 +525,12 @@ pub trait SymbolIndex: Send + Sync {
   /// any number of calls, only by calls tied by a type or an import, in their order; `None` when the repository has no
   /// index
   fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], given: &[String], revision: &str) -> Result<Option<Vec<TestReach>>>;
+
+  /// Each file of `paths` in the tree of `revision` read as a plugin descriptor, in their order, each class it names
+  /// resolved at that revision, asked in one process; `None` when the index reads no descriptor
+  fn descriptors(&self, _repository_root: &str, _paths: &[String], _revision: &str) -> Result<Option<Vec<Descriptor>>> {
+    Ok(None)
+  }
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, with a format mismatch
@@ -501,14 +678,8 @@ impl AccioSearch<'_> {
         declarations.len()
       }
     };
-    let output = run_child_until_superseded(&mut command, None, self.canceled).map_err(|error| match error {
-      ChildProcessError::Superseded => anyhow::Error::new(SearchCanceled),
-      other => anyhow::anyhow!("{other:?}"),
-    })?;
-    if !output.status.success() {
-      bail!("{}", output.failure_message("accio"));
-    }
-    let entries: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).context("the answer of accio")?;
+    let stdout = self.run(&mut command, None)?;
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(&stdout).context("the answer of accio")?;
     if let Some(unavailable) = entries.iter().find(|entry| entry.get("available").and_then(serde_json::Value::as_bool) == Some(false)) {
       let note = unavailable
         .get("note")
@@ -520,6 +691,19 @@ impl AccioSearch<'_> {
       bail!("accio answered {} entries for {asked} targets", entries.len());
     }
     entries.into_iter().map(|entry| serde_json::from_value(entry).context("the answer of accio")).collect()
+  }
+
+  /// The standard output of `command`, given `stdin`, run until it answers; `SearchCanceled` once the search is
+  /// canceled, an error with what accio printed when it fails
+  fn run(&self, command: &mut Command, stdin: Option<Vec<u8>>) -> Result<Vec<u8>> {
+    let output = run_child_until_superseded(command, stdin, self.canceled).map_err(|error| match error {
+      ChildProcessError::Superseded => anyhow::Error::new(SearchCanceled),
+      other => anyhow::anyhow!("{other:?}"),
+    })?;
+    if !output.status.success() {
+      bail!("{}", output.failure_message("accio"));
+    }
+    Ok(output.stdout)
   }
 }
 
@@ -577,6 +761,37 @@ impl SymbolIndex for AccioSearch<'_> {
     }
     self.query("tests", &options, repository_root, &Targets::At(declarations), Some(revision)).map(Some)
   }
+
+  /// `accio parse --descriptor --resolve --ref <revision>`, the paths on its standard input: one line per path in their
+  /// order, a path the revision lacks `missing`; without a usable index each line has no `classes` and the reason in
+  /// `note`, which a format mismatch phrases as `IndexUnavailable` does
+  fn descriptors(&self, repository_root: &str, paths: &[String], revision: &str) -> Result<Option<Vec<Descriptor>>> {
+    if paths.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
+    // `--root`: the paths are of the repository, whatever the directory the app runs in
+    command.args(["parse", "--descriptor", "--resolve", "--no-build", "--project", repository_root, "--root", repository_root]);
+    command.args(["--ref", revision, "--files-from", "-"]);
+    let listed = paths.iter().fold(String::new(), |mut listed, path| {
+      listed.push_str(path);
+      listed.push('\n');
+      listed
+    });
+    let stdout = self.run(&mut command, Some(listed.into_bytes()))?;
+    let mut descriptors = stdout
+      .split(|byte| *byte == b'\n')
+      .filter(|line| !line.is_empty())
+      .map(|line| serde_json::from_slice::<Descriptor>(line).context("the answer of accio"))
+      .collect::<Result<Vec<_>>>()?;
+    if descriptors.len() != paths.len() {
+      bail!("accio answered {} descriptors for {} paths", descriptors.len(), paths.len());
+    }
+    for note in descriptors.iter_mut().filter_map(|descriptor| descriptor.note.as_mut()) {
+      *note = index_unavailable_note(note, &self.accio.executable);
+    }
+    Ok(Some(descriptors))
+  }
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
@@ -631,6 +846,12 @@ impl<'a> Lenient<'a> {
     self.answered(self.index.tests(repository_root, declarations, given, revision))
   }
 
+  /// Each descriptor of `paths` at `revision`, as `SymbolIndex::descriptors`: `None` when the index reads none or the
+  /// query failed (`error` says why)
+  pub fn descriptors(&self, repository_root: &str, paths: &[String], revision: &str) -> Result<Option<Vec<Descriptor>>> {
+    self.answered(self.index.descriptors(repository_root, paths, revision))
+  }
+
   /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
   pub fn unavailable(&self) -> Option<String> {
     self.unavailable.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
@@ -672,8 +893,8 @@ impl<'a> Lenient<'a> {
 
 /// The index of a fixture, for the e2e server: `<git dir>/branch-deck-accio.json`, the hits of each query of `symbol`
 /// and of `references` (by a name, or by a place as `<path>:<line>`, whatever its revision), the answer of `tests` of
-/// each place whatever the given tests, or the `error` every query fails with; a repository without the file has no
-/// index
+/// each place whatever the given tests, the line of `parse --descriptor` of each `<full commit id>:<path>` (a path it
+/// lacks is `missing`), or the `error` every query fails with; a repository without the file has no index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -684,6 +905,8 @@ struct Fixture {
   references: std::collections::HashMap<String, Vec<ReferenceHit>>,
   #[serde(default)]
   tests: std::collections::HashMap<String, TestReach>,
+  #[serde(default)]
+  descriptors: std::collections::HashMap<String, Descriptor>,
   error: Option<String>,
 }
 
@@ -726,6 +949,21 @@ impl SymbolIndex for FixtureIndex {
       declarations
         .iter()
         .map(|declaration| fixture.tests.remove(&fixture_place(declaration)).unwrap_or_default())
+        .collect()
+    }))
+  }
+
+  fn descriptors(&self, repository_root: &str, paths: &[String], revision: &str) -> Result<Option<Vec<Descriptor>>> {
+    Ok(Self::read(repository_root)?.map(|mut fixture| {
+      paths
+        .iter()
+        .map(|path| {
+          fixture.descriptors.remove(&format!("{revision}:{path}")).unwrap_or_else(|| Descriptor {
+            path: path.clone(),
+            missing: true,
+            ..Descriptor::default()
+          })
+        })
         .collect()
     }))
   }

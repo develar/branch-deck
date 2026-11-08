@@ -359,7 +359,8 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    diff: `git diff <base> <head>` of it, the plain range of commits added on top, or with `carried` the reviewed
    change carried onto the base, also after an amend or a rebase; its `api` names the public declarations they change, ranked by their usages
    from accio, `files` the facts of each file (mechanical, untested, its links), `links` which file uses which and
-   `dependencies` the entries the commits add to, remove from or change in the build files;
+   `dependencies` the entries the commits add to, remove from or change in the build files, `registrations` what their
+   plugin descriptors register (services, extensions, registry keys, listeners, actions, content modules), from accio;
    `order` lists the files to read, each declaration before its uses, and `units` the changes to read once in that
    order (a form, a body, a new or removed declaration, one unit per mechanical kind and repeated edit).
 5. Return your worktree once your commits landed: `brd lease return` inside it (or --workspace <dir>; --lease-id <id>
