@@ -444,8 +444,9 @@ With the plan, the diffs of All Changes and of Since Your Review MUST be the sto
 
 ### Requirement: In the Review Window: A run of units of one file is one section
 
-In the story, a run of units of one file MUST be one section, each change under its heading, a unit with no block of
-its own beside the heading before it; a group MUST be a section per file of it.
+In the story, a run of units of one file MUST be one section, each change under its heading (none over a block of a
+file of no language the review parses, whose header names it), a unit with no block of its own beside the heading
+before it; a group MUST be a section per file of it.
 
 #### Scenario: A run of changes of one file
 - **WHEN** several units of one file follow each other in the story
