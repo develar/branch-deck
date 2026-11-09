@@ -121,7 +121,8 @@ and modes) to the branch whose stack has what it needs.
 ### Requirement: Candidates: A conflict pulls in what the commit needs, at most 6 commits
 
 For a conflict, a candidate SHALL pull what the commit needs into the branch, at most 6 commits, from a branch
-stacked on it, from the unassigned commits, or from a branch where no commit that stays depends on them.
+stacked on it, from the unassigned commits, or from a branch where no commit that stays depends on them, in it or in a
+branch built on it (by its lines or by a name it declares).
 
 #### Scenario: An unassigned commit the branch needs
 - **GIVEN** a conflicting commit that needs an unassigned commit
@@ -133,9 +134,15 @@ stacked on it, from the unassigned commits, or from a branch where no commit tha
 - **WHEN** the commit needs more than 6 commits
 - **THEN** no candidate pulls them in
 
-#### Scenario: Where the pulled commits come from
-- **WHEN** the commit needs at most 6 commits
-- **THEN** a candidate pulls them from a branch stacked on the branch, from the unassigned commits, or from a branch where no commit that stays depends on them
+#### Scenario: From a branch stacked on it
+- **GIVEN** the commit needs at most 6 commits of a branch stacked on its branch
+- **WHEN** the fix makes its candidates
+- **THEN** one pulls them into the branch, whatever stays in the branch stacked on it
+
+#### Scenario: From another branch
+- **GIVEN** the commit needs at most 6 commits of a branch that is not stacked on its branch
+- **WHEN** the fix makes its candidates
+- **THEN** one pulls them into the branch only when no commit that stays depends on them, in that branch or in a branch built on it other than the conflicting branch and the branches built on that
 
 ### Requirement: Candidates: A conflict restacks the branch on what it needs
 
@@ -157,7 +164,7 @@ its stack).
 ### Requirement: Candidates: A branch on a parent of its own keeps it
 
 A branch on a parent of its own MUST keep it: the ancestor that leaves the stack of that branch is restacked instead,
-and a parent the `--plan` gives is replaced, never doubled.
+and a parent the `--plan` gives the restacked branch is replaced, never doubled.
 
 #### Scenario: A leaf on a parent of its own
 - **GIVEN** a conflicting branch stacked on a parent of its own that needs the lines of a sibling of the parent
@@ -166,11 +173,15 @@ and a parent the `--plan` gives is replaced, never doubled.
   [@test] crates/trial-check/src/conflict_fix_test.rs (`a_leaf_on_a_parent_of_its_own_keeps_it_and_the_parent_is_restacked_on_what_the_leaf_needs`)
 
 #### Scenario: A restack on top of a plan
-- **GIVEN** a `--plan` that gives the branch its parent
+- **GIVEN** a `--plan` that stacks the conflicting branch on a parent of its own
 - **WHEN** the fix restacks on top of it
-- **THEN** the branch keeps the parent the plan gives
-- **AND** a parent the `--plan` gives is replaced by the restack, never doubled
+- **THEN** the branch keeps the parent the plan gives, and that parent is restacked instead
   [@test] crates/trial-check/src/conflict_fix_test.rs (`a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives`)
+
+#### Scenario: A restacked branch the plan gave a parent
+- **GIVEN** a `--plan` that gives a branch a parent
+- **WHEN** the fix restacks that branch on another parent
+- **THEN** a parent the `--plan` gives is replaced by the restack, never doubled: the commits of the branch go to the new path only
 
 ### Requirement: Candidates: A dangling reference pulls in the use or moves the removal
 
@@ -194,12 +205,13 @@ that branch then needs, and tried again.
 
 ### Requirement: Verification and choice: A candidate is taken only when its trial build is better
 
-A candidate MUST be taken only when its trial build has more branches that apply cleanly and no branch that applied
-cleanly before fails.
+A candidate MUST be taken only when its trial build has fewer failing branches (a conflict, or a proven dangling
+reference) and no branch that applied cleanly before fails.
 
 #### Scenario: A trial that fixes a branch and breaks none
-- **WHEN** the trial build of a candidate has more branches that apply cleanly and no branch that applied cleanly before fails
+- **WHEN** the trial build of a candidate has fewer failing branches and no branch that applied cleanly before fails
 - **THEN** the candidate is verified
+- **AND** a failing branch the candidate empties counts as no longer failing
 
 #### Scenario: A trial that breaks a clean branch
 - **WHEN** the trial build of a candidate fails a branch that applied cleanly before
@@ -207,14 +219,14 @@ cleanly before fails.
 
 ### Requirement: Verification and choice: The least of the verified candidates is chosen
 
-Among the verified candidates the fix SHALL choose the least by the failing branches, the emptied branches, the
-commits that change branch or base (a restack changes the base of every commit of its branch), the rewritten
-subjects.
+Among the verified candidates the fix SHALL choose the least by the failing branches, then the emptied branches,
+the commits that change branch or base (a restack changes the base of every commit of its branch), the rewritten
+subjects, each deciding only between candidates equal by the ones before.
 
 #### Scenario: Several verified candidates
 - **GIVEN** several verified candidates
 - **WHEN** the fix chooses one
-- **THEN** it takes the least by the failing branches, the emptied branches, the commits that change branch or base, the rewritten subjects
+- **THEN** it takes the least by the failing branches, then the emptied branches, the commits that change branch or base, the rewritten subjects, in this order
 - **AND** a restack counts every commit of its branch as changing its base
 
 #### Scenario: A move that keeps both branches over one that empties a branch
