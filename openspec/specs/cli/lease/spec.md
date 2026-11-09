@@ -118,7 +118,23 @@ commits, and what a commit holds.
 
 The files of a run: on the host the scans of the slot before and after its command, on the client (`brd-host run`,
 `git_ops::host_client`) the commit the run ships, its pack and the apply of its changes. A commit of the files of a
-worktree (`worktree_commit`) is what `git add --all` stages, on HEAD, as the requirements of Host runs below say.
+worktree (`worktree_commit`) is what `git add --all` stages, on HEAD, as the requirements of Host runs below say. Its
+author and committer stayed `bd-host <bd-host@bd-host.invalid>` through the rename to brd-host, never
+`brd-host <brd-host@brd-host.invalid>`, so the same tree on the same HEAD stays the same commit.
+
+### Measurements
+
+- On 2026-10-24 fourteen gets cloned the idea-1 checkout at once: several ran past the deadline of their caller, and
+  the disk stalled for 1.5 h: the reason a pool adds one slot at a time under the clones lock.
+- On 2026-11-02 each slot of idea-1 held 14 to 16 GB of its own worktree (`worktree_bytes`), the files its moves by
+  the diff rewrote since the clone it came from.
+- On 2026-11-03 each free slot of branch-deck held 50 to 59 GiB, mostly `target/`, and the volume had 227 GiB against
+  a minimum of 200 GiB: the rules of a return keep the 8 newest units of every group, warm output that the next lease
+  of a slot rarely reuses, as a get takes the slot returned last, and no trim deleted a slot of pools within their
+  limit; `brd lease clean --free --keep 0 --age 1m` freed about 600 GiB: the reason a get below the minimum shrinks
+  the free slots.
+- On the user's Mac a report of `brd lease disk` from the file takes half a second, a walk of every slot with its
+  worktree (32 slots, 12 of them of idea-1 with 1.4M files each, 860 GB) five minutes.
 
 ## Requirements
 
@@ -214,7 +230,8 @@ never adds slots past the minimum.
 #### Scenario: A get that waited for the clones lock
 - **WHEN** a get waited for the clones lock to add a slot
 - **THEN** it reads `branchdeck.leaseMinFree` again
-- **AND** below the minimum it refuses with nothing reserved
+- **AND** below the minimum it releases the lock for the trash, the trim, the shrink and the eviction below, takes its
+  turn again after each, and still below the minimum after them it refuses with nothing reserved
   [@test] crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
 
 ### Requirement: Get: A free slot is a linked worktree no other session works in
@@ -276,6 +293,7 @@ with its `lease_id` and `idle`), and so MUST `low_disk_space`.
 - **GIVEN** a `ready` lease whose holder process is gone
 - **WHEN** a get adds a new slot, or refuses with `low_disk_space`
 - **THEN** the lease stays and the answer names it in `idle_leases`
+  [@test] crates/bd-lease/src/lease_test.rs (`the_status_tells_whether_the_holder_of_a_lease_is_alive`)
 
 ### Requirement: Get: A get takes over an idle lease before it adds a slot
 
@@ -453,13 +471,6 @@ deleted once the marker is gone.
 - **WHEN** a get that waited for the clones lock is below the minimum
 - **THEN** it checks the minimum free space under the lock, and shrinks only after it released it
   [@test] crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
-
-#### Scenario: The free slots of 2026-11-03
-- **GIVEN** on 2026-11-03 each free slot of branch-deck held 50 to 59 GiB, mostly `target/`, and the volume had
-  227 GiB against a minimum of 200 GiB
-- **WHEN** the rules of a return keep the 8 newest units of every group, warm output that the next lease of a slot
-  rarely reuses, as a get takes the slot returned last, and no trim deleted a slot of pools within their limit
-- **THEN** `brd lease clean --free --keep 0 --age 1m` freed about 600 GiB
 
 ### Requirement: Get: The shrink takes the free slots returned longest ago first
 
@@ -864,11 +875,6 @@ that the lock does not guard. A get that reuses a slot MUST never take the lock.
 - **WHEN** the new slot is checked out
 - **THEN** the get releases the clones lock before it seeds the slot
   [@test] crates/bd-lease/src/clones_lock_test.rs (`a_get_seeds_its_new_slot_without_the_clones_lock`)
-
-#### Scenario: Fourteen gets at once
-- **GIVEN** on 2026-10-24 fourteen gets cloned the idea-1 checkout at once
-- **WHEN** they ran side by side
-- **THEN** several ran past the deadline of their caller, and the disk stalled for 1.5 h
 
 ### Requirement: Get: A slot freed while a get waits for the clones lock ends the wait
 
@@ -2115,6 +2121,7 @@ volume and `min_free`.
 #### Scenario: The pools of the report
 - **WHEN** `brd lease disk` reports a pool past its limit
 - **THEN** the free slots a trim deletes now are `trims_next`, in `trim_order`
+  [@test] crates/bd-lease/src/trim_test.rs (`the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is_leased`)
 
 ### Requirement: Disk: Each slot names what its worktree holds of its own
 
@@ -2122,10 +2129,10 @@ Each slot MUST also have `worktree_bytes`, what its worktree holds of its own be
 walk skips: its files rewritten since the clone it came from (each move by the diff writes the files it changes, which
 then share no block with the template).
 
-#### Scenario: The worktrees of idea-1
-- **GIVEN** the slots of idea-1 on 2026-11-02
-- **WHEN** the report measures their worktrees
-- **THEN** each held 14 to 16 GB of its own
+#### Scenario: The worktree and the build directories count apart
+- **WHEN** the report measures a slot
+- **THEN** `worktree_bytes` counts the files of its worktree, not its build directories, which count apart
+  [@test] crates/bd-lease/src/trim_test.rs (`the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is_leased`)
 
 ### Requirement: Disk: Every byte counted is what a delete frees
 
@@ -2181,11 +2188,6 @@ and counts as a read (`brd help`).
 - **WHEN** the report prints a slot
 - **THEN** its line names the cache source, the measurement age and the elapsed time
   [@test] crates/pool-disk/src/report_test.rs (`lines_name_the_slot_cache_source_age_and_elapsed_time`)
-
-#### Scenario: The time of a report on the user's Mac
-- **GIVEN** the user's Mac with 32 slots, 12 of them of idea-1 with 1.4M files each, 860 GB
-- **WHEN** the report comes from the file, or walks every slot with its worktree
-- **THEN** it takes half a second, or five minutes
 
 ### Requirement: Reclaimed: A command of another session in a taken-over slot is refused
 
@@ -2419,6 +2421,7 @@ than slots are idle. A repeat of a lend MUST get the same slot. A ticket of a go
 - **THEN** the abandoned slot is not lent again before a give-back (of `reclaim` or of a waiting lend)
 - **AND** each waiting run is a process of its own (the supervisor of the run), since its ticket lasts as long as its
   process
+  [@test] crates/bd-lease/src/host_slots_test.rs (`an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot`)
 
 ### Requirement: Host slots: A give-back stops the processes of the run
 
@@ -2444,8 +2447,8 @@ A process left after the stop MUST quarantine the slot: no run gets it, the queu
 
 #### Scenario: The process is gone
 - **WHEN** the process of a quarantine is gone
-- **THEN** `reclaim` gives the slot back before another run gets it
-  [@test] crates/bd-lease/src/host_slots_test.rs (`an_abandoned_lend_is_given_back_by_reclaim_before_another_run_gets_the_slot`)
+- **THEN** `reclaim` gives the slot back, and the next run gets it
+  [@test] crates/bd-lease/src/host_slots_test.rs (`the_give_back_stops_the_processes_of_the_run_and_quarantines_the_slot_for_an_older_one`)
 
 ### Requirement: Host slots: The fsmonitor daemon of a host slot outlives the give-back
 
@@ -2907,8 +2910,9 @@ stay.
 #### Scenario: The commit of the working tree
 - **WHEN** the snapshot runs with `Scan::WorkingTree`
 - **THEN** `commit` is HEAD when the tree is that of HEAD, else a commit on HEAD by
-  `brd-host <brd-host@brd-host.invalid>`, dated as the committer of HEAD, so the same tree on the same HEAD is the same
-  commit; else `commit` is HEAD
+  `bd-host <bd-host@bd-host.invalid>`, dated as the committer of HEAD, so the same tree on the same HEAD is the same
+  commit
+- **AND** with another scan `commit` is HEAD
   [@test] crates/git-ops/src/host_client_test.rs (`the_commit_of_the_working_tree_is_head_or_the_same_commit_on_head_for_the_same_tree`)
 
 #### Scenario: The candidates
