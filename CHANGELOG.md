@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.1](https://github.com/develar/branch-deck/compare/v1.5.0...v1.5.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **cache:** the object cache's environments are psi-syntax's lmdb-env, with accio's fixes ([9e37f67](https://github.com/develar/branch-deck/commit/9e37f67cfd1ef2c1cb1cd45348f72f38fe73f6be))
+* **fs-walk:** the stubs of Linux and Windows pass clippy's missing_const_for_fn ([24b50f6](https://github.com/develar/branch-deck/commit/24b50f6cb5b7f09ef44eb05b2174b54d65910010))
+* **lease-pool:** removal_error passes clippy's missing_const_for_fn on Linux and Windows ([30770ca](https://github.com/develar/branch-deck/commit/30770caf3bc519c533082ec575e56c63b09f855e))
+* **review:** the fold of a new spec in the contract says it is new and how many requirements it has ([2695e0f](https://github.com/develar/branch-deck/commit/2695e0f4de58910be6b21678691fc826ef7c2748))
+* **review:** the opening of a step names a long list by its first names, the rest on a click ([7af4428](https://github.com/develar/branch-deck/commit/7af4428bf1ba4dfec3193586cfa73c4a1120f5be))
+* **review:** the review window reads no plan before its sync says the plan is on ([ea487a5](https://github.com/develar/branch-deck/commit/ea487a5657f3967acbd6516847866817b7f81310))
+
 ## [1.5.0](https://github.com/develar/branch-deck/compare/v1.4.0...v1.5.0) (2026-11-09)
 
 
