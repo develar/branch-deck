@@ -1,0 +1,41 @@
+schema: spec-driven
+
+# The workflow of a change in Branch Deck: docs/contributing/specs.md ("Changes"); the format of a spec: the same file.
+context: |
+  Branch Deck: a Tauri desktop app (React page, Rust workspace under crates/) and `brd`, its agent CLI.
+  The specs are openspec/specs/<area>/<name>/spec.md, the capability id `<area>/<name>` (branch/unapply).
+  Their format is docs/contributing/specs.md; every artifact follows it. A requirement is named
+  `<Group>: <behaviour>`, its text one to three sentences with MUST or SHALL and at most 500 characters, its
+  scenarios WHEN/THEN with the test links `  [@test] <path from the root> (`<test>`)` under the last step.
+  OpenSpec is a devDependency: run it as `pnpm exec openspec`, never a global `openspec`.
+  Work happens in a lease of `brd` (AGENTS.md, Session Workflow): the change, its code, its tests and its archive land
+  in one commit with `brd -C <lease> lease pick`. Search source with accio, never the archive:
+  `accio locate '<text>' --scope '!openspec/changes/archive/**'`.
+
+rules:
+  proposal:
+    - The change id is `<issue>-<slug>` (`191-review-step-proof`) or a `<slug>` alone, unique among the changes and the archive.
+    - Name the capabilities it changes by their ids (`branch/unapply`); a new one by `<area>/<name>` in an existing area.
+  specs:
+    - A delta has no front matter, only `## ADDED Requirements`, `## MODIFIED Requirements`, `## REMOVED Requirements` or `## RENAMED Requirements`.
+    - A MODIFIED requirement copies the whole requirement of the main spec, every scenario and every test link, then changes it; archive replaces the block and fails when a scenario name is missing.
+    - "A requirement keeps its group; an ADDED one is named `<Group>: <behaviour>` with the group of the rules it joins."
+    - Every test link path is from the root of the repository, as archive copies the delta two directories up.
+    - At most 10 deltas in one change; more is several changes in one commit.
+    - Removing, renaming or splitting a scenario, and fixing links, test names, targets, Purpose or the UX tokens, is an edit of the main spec, not a delta.
+  design:
+    - Only what the change needs while it is open; a decision that outlives it goes into docs/design/ in the same commit.
+  tasks:
+    - Only the tasks done before the archive, every one checked before it; `openspec validate --archived` fails an unchecked task.
+
+operations:
+  apply:
+    guidance:
+      - Verify by the table in AGENTS.md ("Verification"); heavy runs go to the Studio with `brd-host run studio -- <command>`.
+  archive:
+    guidance:
+      - Archive in the commit of the code, so that the specs of master always describe the code.
+      - After `pnpm exec openspec archive <id> --yes`, move each ADDED requirement next to the requirements of its group; archive appends it at the end of Requirements.
+      - "A capability the archive created gets its front matter (name, description, `style: plain-1`, targets), its title, Status and Date, its Purpose, as docs/contributing/specs.md says."
+      - Update `targets:` of every spec whose feature moved to other files.
+      - Run `pnpm lint:specs`, then commit and land it with `brd -C <lease> lease pick`.

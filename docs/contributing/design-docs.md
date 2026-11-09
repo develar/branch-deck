@@ -21,6 +21,10 @@ Create a design document when:
 - Performance considerations are critical
 - Multiple alternatives were evaluated
 
+The `design.md` of a change of OpenSpec (`openspec/changes/<id>/design.md`, [Specs → Changes](specs.md#changes)) lives
+only while the change is open and goes into the archive with it. A decision of it that outlives the change goes into a
+design doc here in the same commit.
+
 ## Document Format
 
 ```markdown

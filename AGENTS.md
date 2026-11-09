@@ -56,7 +56,8 @@ Hard rules in one place; the linked section says why and what to do instead.
    ([Worktrees](#worktrees)).
 2. **Read** the spec and the design doc of what you change ([Feature Index](#feature-index)): the spec is the
    contract, the doc the why. Before changing a git operation, [Adding a git operation](#adding-a-git-operation).
-3. **Change** the code together with its spec, its `[@test]` links and the docs it contradicts.
+3. **Change** the code with its spec (a change of `openspec/changes/`, archived in the same commit), its `[@test]`
+   links and the docs it contradicts.
 4. **Verify** by the table in [Verification](#verification).
 5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
    then land it on `master` of the main checkout with `brd -C <path> lease pick`: the commit goes onto `master` as it
@@ -154,9 +155,9 @@ Mistakes agents made here; each cost a session.
 ### Specs and Docs
 Specs (`openspec/specs/<area>/<name>/spec.md`, [Specs](docs/contributing/specs.md)) and design docs (`docs/design/`)
 are part of the change, not a follow-up.
-- **Same commit**: a behaviour change updates its spec: requirements, `[@test]` links, `targets:` front matter (the
-  files where the feature lives: its rule, intent, `brd` command and presenter) and the UX tokens. A renamed or moved
-  test or file updates every link to it in `openspec/` and `docs/`.
+- **Same commit**: a behaviour change goes through a change of `openspec/changes/`, archived with the code
+  ([Specs → Changes](docs/contributing/specs.md#changes)): requirements, `[@test]` links, `targets:`, UX tokens.
+  A renamed or moved test or file updates every link to it in `openspec/` and `docs/`.
 - **New user-visible feature**: a new spec in the OpenSpec format (copy an existing one), a row in the
   [Code Map](docs/contributing/code-map.md#feature-index), at most one sentence and a spec link in README "Features".
   README is the pitch for a newcomer: no bullet per feature, no shortcut lists, nothing internal to one
@@ -164,7 +165,7 @@ are part of the change, not a follow-up.
 - **Git**: a new git operation or a changed flow gets its section in [Git Operations](docs/design/git-operations.md);
   a new or changed hard rule goes into [Git Rules](docs/contributing/git-rules.md) and one line below.
 - **AGENTS.md** holds the rules an agent must not miss, one line each, and pointers; at most 32 KB
-  (`pnpm lint:specs`), because every session of every agent reads all of it. The detail goes to its owner: a feature
+  (`pnpm lint:specs`), because every agent session reads all of it. The detail goes to its owner: a feature
   into its spec, a git flow into the design doc, a rule into `docs/contributing/`, a guide for a person who uses
   Branch Deck into `docs/guide/`.
 - **Truth**: docs describe the code as it is; a doc that contradicts the code is a bug, fixed in the same change

@@ -105,3 +105,29 @@ A markdown link between specs is relative (`../parked-branches/spec.md`, `../../
 one into `docs/` relative too (`../../../../docs/design/git-operations.md`). Its anchor is the one GitHub gives the
 heading: `### Requirement: Undo: The undo token names full ids` is `#requirement-undo-the-undo-token-names-full-ids`;
 the group alone, `#undo`, names its first requirement. `pnpm lint:specs` checks both.
+
+## Changes
+
+A change of behaviour goes through a change of OpenSpec, `openspec/changes/<id>/`, archived in the commit of its code,
+so that the specs of `master` always describe the code. Its workflow is the skills `openspec-propose`,
+`openspec-apply-change` and `openspec-archive-change` (`.claude/skills/`, `.junie/skills/`, made by `openspec init`);
+`openspec/config.yaml` gives them the rules of this repository. Run OpenSpec as `pnpm exec openspec`.
+
+- **Its id** is `<issue>-<slug>` (`191-review-step-proof`) or a `<slug>`, unique among the changes and the archive.
+- **`proposal.md`** says why and what; **`design.md`** what the change needs while it is open, a decision that outlives
+  it going into `docs/design/` in the same commit; **`tasks.md`** only the tasks done before the archive, each checked
+  before it (`openspec validate --archived` fails an unchecked one).
+- **Its delta specs**, `openspec/changes/<id>/specs/<area>/<name>/spec.md`, have no front matter: `## ADDED
+  Requirements`, `## MODIFIED Requirements`, `## REMOVED Requirements`, `## RENAMED Requirements`. A MODIFIED
+  requirement is the whole requirement of the main spec, every scenario and test link, changed: the archive replaces
+  the block and fails when a scenario of it is missing. An ADDED one is named in the group it joins. Ten deltas at most
+  in one change; more is several changes in one commit. Every test link is from the root, as in a main spec.
+- **The archive**, `pnpm exec openspec archive <id> --yes`, writes the deltas into the main specs and moves the change to
+  `openspec/changes/archive/<date>-<id>/`. Then: move each ADDED requirement next to its group (the archive appends it
+  at the end of Requirements; `pnpm lint:specs` fails a group in two places); give a capability the archive created its
+  front matter, title, Status, Date and Purpose; update the `targets:`; `pnpm lint:specs`; commit with the code and land
+  it with `brd -C <lease> lease pick`.
+- **Without a change**: the edits a delta cannot say go straight into the main spec, in the commit of their cause: a
+  scenario removed, renamed or split; a link, a test name, a target, the Purpose or the UX tokens fixed.
+- **The archive is history**, as CHANGELOG.md: nothing in it is read as a rule, its links are not checked, and a search
+  leaves it out (`accio locate '<text>' --scope '!openspec/changes/archive/**'`).
