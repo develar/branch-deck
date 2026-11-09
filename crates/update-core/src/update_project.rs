@@ -261,9 +261,10 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     if holds {
       break lock;
     }
-    // HEAD or the upstream moved during the check (another session's update, a commit): once more without the lock, so
-    // no other writer waits for its replay, `CHECKS_WITHOUT_THE_LOCK` times; then, and after files that followed under
-    // the lock, under it, so nothing moves again. The step is the check again, no longer the wait for another operation
+    // HEAD or the upstream moved during the check (another session's update, a commit), or files followed under the
+    // lock: the lock is released and the update checks once more without it, every time the witness misses, so no other
+    // writer waits for its replay; past `CHECKS_WITHOUT_THE_LOCK` checks it is only logged. The step is the check again,
+    // no longer the wait for another operation
     discard_start(git_executor, repo_path, start.take().as_ref());
     on_progress(UpdatePhase::Checking.into());
     if recovered || checks >= CHECKS_WITHOUT_THE_LOCK {

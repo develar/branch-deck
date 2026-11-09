@@ -643,14 +643,16 @@ without waiting for the lock, unless an interrupted update left files to follow.
 - **WHEN** a check moves nothing
 - **THEN** the update still takes the lock
 
-### Requirement: Update: A branch or upstream moved during the check is checked again
+### Requirement: Update: A branch or upstream moved during the check is checked again without the lock
 
-A branch or an upstream moved during the check MUST be checked once more without the lock, so no other writer waits
-for its replay, and the second time under the lock; a file the update writes, edited during the check, MUST block it.
+A branch or an upstream moved between the check and the witness MUST make the update release the lock and check once
+more without it, every time the witness misses, so no other writer waits for its replay; the update MUST apply only a
+check whose witness held under the lock. A file the update writes, edited during the check, MUST block it.
 
 #### Scenario: A regroup during the replay
 - **WHEN** a regroup moves the branch during the replay of an update
-- **THEN** the regroup is done, and the update checks once more without the lock, then the second time under it
+- **THEN** the regroup is done, and the update releases the lock and checks once more without it, on the regrouped
+  branch
   [@test] crates/bd-update/src/update_test.rs (`a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock`)
 
 #### Scenario: A file edited during the replay

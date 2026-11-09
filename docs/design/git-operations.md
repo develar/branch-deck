@@ -1254,8 +1254,8 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 1. Upstream | `remote`, `for-each-ref --format=%(upstream)%00%(upstream:remotename)%00%(upstream:remoteref) refs/heads/<b>` | a local baseline: nothing to update from |
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `brd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: its operation fetched first as the `FetchBaseline` of its session, the same fetch); under the fetch lock, none when another fetch of the tracking ref ran meanwhile ("Fetch lock" below) | error (`FetchFailed`), nothing changed |
 | 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `WaitingForLock` of the app's operation (`brd`: the phase `waiting`) | `locked` after 10 s (the app: only a holder no record names), nothing changed |
-| 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again | `finish_pending`: the branch moved since, nothing changed |
-| 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more without the lock, the second time (`CHECKS_WITHOUT_THE_LOCK`) and after pending files under it | as steps 0 and 3 |
+| 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again without the lock (2d) | `finish_pending`: the branch moved since, nothing changed |
+| 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U, or pending files that followed: the lock released, steps 3 to 8 once more without it, every time the witness misses | as steps 0 and 3 |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U`; exit 1: no common history, any other exit (a history git can't read) an error with git's message |
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
@@ -1279,8 +1279,8 @@ Details:
   Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
   move (9, 10), so the app's Update Project, `brd update` and every rewrite of the app or of brd never interleave with
   the move. A writer that moved the branch or the upstream during the check makes the update release the lock and
-  check once more without it, so no other writer waits for its replay, the second time under it, so an update never
-  applies a check made before another writer moved the branch
+  check once more without it, every time the witness misses, so no other writer waits for its replay, and an update
+  applies only a check whose witness held under the lock, never one made before another writer moved the branch
   (`a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock`); the progress says the
   check again (`Checking`), no longer the wait (`the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move`
   of `update_project_test.rs` pins what runs under the lock: `rev-parse`, `symbolic-ref`, `update-index`, `read-tree`,
@@ -1297,7 +1297,7 @@ Details:
   and upstream (`prepare_session_start`: the check found the first conflict with its binary search of `replay`
   probes; the round replays the runs before it, merges it and reads its objects); under the lock, after the witness,
   only the state commit with the session ref in one transaction and the copies of the round, and a witness that
-  missed computes the check and the round once more there ("Resolve session" below,
+  missed releases the lock and computes the check and the round once more without it ("Resolve session" below,
   `a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`).
   `brd update --dry-run` is the check inside sync (below): no fetch, no lock, no move.
 - **Fetch scope.** Only the baseline's remote branch is fetched, into its tracking ref. The other tracking refs stay
@@ -1621,7 +1621,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 
 | Step | Command |
 |---|---|
-| Start | the check of "Update project" conflicted before the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer). Everything up to the state runs before the lock, on the HEAD and the upstream of the check (`prepare_session_start`, a `PreparedStart`); under it the mark and the witness of the update (`recheck_update`), then the state and the copies (`PreparedStart::start`); a witness that missed checks and opens the round once more under the lock. The view of the round is read after the release |
+| Start | the check of "Update project" conflicted before the lock, and the session replays its `ReplayPlan`: the local commits without the proven ones, in runs, and the candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer). Everything up to the state runs before the lock, on the HEAD and the upstream of the check (`prepare_session_start`, a `PreparedStart`); under it the mark and the witness of the update (`recheck_update`), then the state and the copies (`PreparedStart::start`); a witness that missed releases the lock, checks and opens the round once more without it and takes the lock for the witness again. The view of the round is read after the release |
 | Find the conflict | at the start, the first conflict of the check: one `replay` per run of the commits before it, and its round opens without a search (a commit before it that the words resolve conflicts on the way and is searched). After a resolution, one `replay` per run of the rest, and in the first that conflicts a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`, each probe from the longest clean prefix: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
 | Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
 | Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`), the stage blobs and the original side blobs of rename/rename pairs, which also writes the copies |
