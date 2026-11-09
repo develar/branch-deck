@@ -258,6 +258,7 @@ build doesn't conflict; `Stale`, not rebuilt for another reason, said in words.
 #### Scenario: Not rebuilt for another reason
 - **WHEN** the stack branch is not rebuilt for another reason
 - **THEN** the state is `Stale`, the reason said in words
+  [@test] crates/sync-core/src/stack_branch_test.rs (`another_process_moving_the_stack_branch_keeps_its_tip_stale`)
 
 ### Requirement: The stack branch: A stack branch that is not built keeps its tip and is never pushed
 
@@ -482,18 +483,19 @@ only branch it pushes; a straight chain from its last branch.
 
 ### Requirement: The Safe Push of the whole stack: brd safe-push --whole-stack is refused unless it can land
 
-`brd safe-push <branch> --whole-stack` MUST be refused unless the stack branch is `built` (`conflict`,
-`stack_not_built`, exit 1), and both ways while a robot of the stack or of a branch of it runs
+`brd safe-push <branch> --whole-stack` MUST be refused unless the stack branch is `built` (`stack_conflict`,
+`stack_not_built`, exit 4), and both ways while a robot of the stack or of a branch of it runs (`robot_running`, exit 4)
 ([Agent CLI](../../cli/agent-cli/spec.md#brd-safe-push)).
 
 #### Scenario: The stack branch conflicts
 - **WHEN** the stack branch is not `built`, as it conflicts
-- **THEN** `brd safe-push <branch> --whole-stack` is refused with the conflict (`conflict`, else `stack_not_built`), exit 1
+- **THEN** `brd safe-push <branch> --whole-stack` is refused with the conflict (`stack_conflict`, else `stack_not_built`), exit 4
   [@test] crates/bd-remote/src/safe_push_test.rs (`a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
 
 #### Scenario: A robot of the stack or of a branch of it runs
 - **WHEN** a robot of the whole stack runs and a branch of it is asked, or a robot of a branch of it runs and the whole stack is asked
-- **THEN** the Safe Push is refused
+- **THEN** the Safe Push is refused as `robot_running`, exit 4
+  [@test] crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
 
 ### Requirement: The Safe Push of the whole stack: Push with Children of the root takes the stack branch along
 
@@ -523,6 +525,13 @@ which `brd` pushes over only with `--force`).
 #### Scenario: Its remote has commits it lacks
 - **WHEN** the remote of the stack branch has commits it lacks
 - **THEN** Push with Children leaves it, and `brd` pushes over them only with `--force`
+  [@test] crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
+
+#### Scenario: Its push is held
+- **GIVEN** a Safe Push of the whole stack runs on the stack branch
+- **WHEN** `brd push <root> --with-children` runs
+- **THEN** it pushes the branches and leaves the stack branch as it is, saying why
+  [@test] crates/bd-remote/src/safe_push_test.rs (`push_with_children_leaves_the_stack_branch_of_a_running_whole_stack_safe_push`)
 
 ### Requirement: The Safe Push of the whole stack: brd robot --whole-stack prints its robot
 
@@ -555,9 +564,13 @@ whose `robotId` the app reads (`RobotIndex::branch_robot` of `domain_policy::rob
 
 #### Scenario: The session's view
 - **WHEN** the session's view holds the robot of the whole stack
-- **THEN** no branch has it as its `robotId`: the branches it lands are held by the whole stack
-  [@test] crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
+- **THEN** no branch has it as its `robotId`, not even the root
   [@test] src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`)
+
+#### Scenario: brd robot
+- **WHEN** `brd robot` prints the robot of the whole stack
+- **THEN** it names the root of its stack (`stack_root`) and no branch
+  [@test] crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 
 ### Requirement: The Safe Push of the whole stack: The pull request of a stack branch is the stack's
 
@@ -591,6 +604,7 @@ and a section per branch, its description or the subjects of its commits, from w
 - **GIVEN** the stack branch has a description of its own
 - **WHEN** the text of its pull request is made
 - **THEN** it is that description
+  [@test] crates/remote-facts/src/stack_pull_request_test.rs (`the_pull_request_of_the_whole_stack_names_each_member_by_its_description_else_its_commits`)
 
 #### Scenario: A text too long for GitHub
 - **WHEN** the text is longer than the 65,536 characters of a body or the 256 of a title GitHub takes
@@ -620,6 +634,7 @@ branch.
 #### Scenario: The app starts the whole stack
 - **WHEN** the app starts the Safe Push of the whole stack
 - **THEN** it is the `Land` of `Subject::WholeStack`, whose robot starts from the stack branch
+  [@test] tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 
 ### Requirement: The whole stack in the app: It is named as brd names it
 
@@ -675,32 +690,34 @@ The landing overview MUST list the robot of the whole stack as "Whole air stack"
 #### Scenario: A small stack
 - **GIVEN** a small stack, without an island
 - **WHEN** the robot of its whole stack runs
-- **THEN** the robots of the landing overview name it "Whole auth stack", the rows of the stack say what lands them, and its actions are in the root's menu
+- **THEN** the robots of the landing overview name it "Whole auth stack"
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`)
 
 ### Requirement: The whole stack in the app: The header of its island counts it as the root's
 
-The header of its island MUST count the robot of the whole stack as the root's ("1 running" with its ring,
-[Stack Island](../stack-island/spec.md#header)).
+The header of its island MUST count the robot of the whole stack as no branch's: while it runs every branch it lands
+is landing ("7 landing" with its ring, [Stack Island](../stack-island/spec.md#header)), a click on the count showing
+the root.
 
 #### Scenario: The count of the header
 - **WHEN** the robot of the whole stack runs
-- **THEN** the header of its island counts it as the root's, its ring on the count, as "1 running"
+- **THEN** the header of its island counts every branch it lands as landing, "7 landing", its ring on the count
 - **AND** a click on the count shows the root
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
 
 ### Requirement: The whole stack in the app: Its failure asks for the user only on a built stack branch
 
-The failure of the robot of the whole stack MUST ask for the user (the landing overview's attention, "1 failed" of the
-island, the Dock badge) only on a stack branch the sync built (`domain_policy::attention::stack_attention`, the view's
+The failure of the robot of the whole stack MUST ask for the user (the landing overview's attention, the root's "1 to fix"
+of the island, the Dock badge) only on a stack branch the sync built (`domain_policy::attention::stack_attention`, the view's
 `attention` of `stack:<root>`).
 
 #### Scenario: A failed robot on a built stack branch
 - **GIVEN** the sync built the stack branch
 - **WHEN** the robot of the whole stack failed
-- **THEN** the landing overview asks for the user, the island counts "1 failed", and the Dock badge counts it
+- **THEN** the landing overview asks for the user, the island counts "1 to fix", the root's, and the Dock badge counts it
   [@test] crates/domain-policy/src/attention_test.rs (`the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch_no_robot_of_a_branch_lands`)
   [@test] tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
+  [@test] src/lib/stack-state.test.ts (`counts a fix of the whole stack, whose stack branch has no row, as the root's`)
 
 #### Scenario: A failed robot on a stack branch not rebuilt
 - **GIVEN** the stack branch is not rebuilt (`Stale`, kept for its remote branch once the stack no longer forks; `Blocked`; `Conflict`)
@@ -723,6 +740,7 @@ the content tells, [Patronus](../patronus/spec.md#pushing-into-a-branch-whose-sa
 - **AND** their push and their Safe Push wait ("A Safe Push of the whole air stack is running: it lands 1 commit of auth with it")
   [@test] src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`)
   [@test] crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`)
 
 #### Scenario: The stack changed since it started
 - **WHEN** a branch of the stack changed since the robot started
@@ -739,6 +757,8 @@ build and the robot on its commit.
 - **WHEN** a robot of a branch of the stack runs
 - **THEN** the restart and the start of the whole stack wait for it, "A Safe Push of auth is running: wait until it merges", the `landingMember` of the view
   [@test] crates/repository-model/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
+  [@test] crates/domain-policy/src/land_test.rs (`the_whole_stack_says_its_build_first_and_its_own_robot_holds_or_is_replaced`)
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
 
 #### Scenario: The order of the start refusals
 - **WHEN** the start of the whole stack is refused (`domain_policy::land::start_refusal`, `landing.start`)
@@ -772,6 +792,11 @@ robot canceled first), only while the sync built it; cancel, the prompts, Patron
 - **WHEN** Rust offers the actions of the robot
 - **THEN** the restart is offered once Patronus tells why it failed and its approvals count, and cancel, the prompts, Patronus and its pull request beside it
   [@test] crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
+
+#### Scenario: Cancel, the prompt and Patronus of a small stack and an island
+- **WHEN** the robot of the whole stack runs on a small stack, or failed on an island
+- **THEN** "Whole Stack ›" of the root's menu cancels it, and the hover of the island's node offers its prompt and opens it in Patronus
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`, `should show the failed robot of the whole stack in the hover of the island's node, with its actions`)
 
 ### Requirement: The whole stack in the app: Its restart is refused once every branch of the stack landed
 
@@ -925,6 +950,7 @@ waits for), and only a pull request that holds nothing its branch lacks; never t
 #### Scenario: The stack branch as it is
 - **WHEN** the robot of the whole stack merged on the stack branch as it is
 - **THEN** the pull requests of its branches are closed, only one that holds nothing its branch lacks: its head is the branch's tip, or the remote branch has no commit the branch lacks
+  [@test] crates/domain-policy/src/landed_test.rs (`closes_the_pull_requests_of_the_branches_a_merged_robot_landed_whole_not_of_its_own_branch`, `leaves_a_pull_request_with_a_commit_the_branch_lacks_one_of_a_branch_with_work_left_and_one_the_table_lacks`)
 
 #### Scenario: A branch changed since
 - **WHEN** a change of a branch since rebuilt the stack branch
@@ -963,7 +989,6 @@ filter chip MUST leave them out.
 #### Scenario: The counts of what to push
 - **WHEN** the whole stack landed some branches
 - **THEN** the "to push" counts of the header, the island and the filter chip leave them out
-  [@test] src/presenters/reasons.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
 
 ### Requirement: The whole stack in the app: A branch changed since is read by content
 
@@ -1412,6 +1437,7 @@ approvals before a click.
 #### Scenario: Before the answer
 - **WHEN** Patronus has not answered yet
 - **THEN** "Safe Push Whole Stack" is disabled with "Waits for Patronus to check the approvals" ([Facts without an answer](../next-step/spec.md#facts-without-an-answer))
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
 
 ### Requirement: The Safe Push of the whole stack in the app: S on the header says why it cannot start
 
