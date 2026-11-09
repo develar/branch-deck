@@ -209,7 +209,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - `brd safe-push <branch> --whole-stack` must land the whole stack of the branch in one robot from its stack branch,
   the only branch it pushes; a straight chain from its last branch; refused unless the stack branch is `built`
   (`conflict`, `stack_not_built`, exit 1), and both ways while a robot of the stack or of a branch of it runs
-  ([Agent CLI](../../cli/agent-cli/spec.md#bd-safe-push)). Push with Children of the root, the app's and `brd push <root>
+  ([Agent CLI](../../cli/agent-cli/spec.md#brd-safe-push)). Push with Children of the root, the app's and `brd push <root>
   --with-children`, must take the stack branch along after the branches once it is on the remote or its pull request
   is open, only when the sync built it, so its pull request follows the branches
   ([Stacked Branches](../stacked-branches/spec.md#pull-requests)), by one rule (`domain_policy::push::stack_branch_along`:

@@ -200,7 +200,7 @@ The contract is [Landing Routes](../../openspec/specs/branch/landing-routes/spec
   the cancel of the Safe Push it replaces, the push, the start), the same witness of the refs before the first effect;
   only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--dry-run`; only
   `--dry-run` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
-  the dangling references, so a start runs no trial ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#bd-safe-push)).
+  the dangling references, so a start runs no trial ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#brd-safe-push)).
   The app's start and `brd safe-push` of one piece never run side by side: the operations registry of the repository
   makes the second one `busy`, naming the first ([Running Operations](operations.md)), and a start whose answer was
   lost holds the piece for both until Patronus settles it or the user forgets it.
@@ -238,7 +238,7 @@ to the baseline (`PATCH pulls/<n>`, `operations::pull_request::retarget`):
 - `brd push`, after the push and the lock, for the pushed branches; `brd safe-push` before its push, for the branch and
   the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus
   would merge it into the old base. `--create-pull-request` takes the open pull request of the branch whatever its base
-  ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#bd-push)).
+  ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#brd-push)).
 
 Any other base (a release branch) may be meant: the push leaves it, the next step only opens the pull request (row
 5′), and the menu keeps "Retarget #7 to master". A Safe Push that counts approvals refuses it: they don't count in a
@@ -284,7 +284,7 @@ beside the branches ([Whole Stack](../../openspec/specs/branch/whole-stack/spec.
   request may be open, and the user decides on it.
 - **Its Safe Push.** One robot from the stack branch lands the whole stack; only the stack branch is pushed, leased,
   and the branches of the stack stay as they are on the remote. `brd safe-push <branch> --whole-stack` does it for any
-  branch of the stack ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#bd-safe-push)); a straight chain starts from its
+  branch of the stack ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#brd-safe-push)); a straight chain starts from its
   leaf. A stack branch that is not `Built` refuses it (`conflict` when its own commit conflicts, `stack_not_built`
   otherwise): the stack then lands in pieces. Push with Children of the root (the app's and `brd push <root>
   --with-children`) takes the stack branch along once it is on the remote or its pull request is open, and only when

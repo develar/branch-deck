@@ -636,7 +636,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   [@test] src/presenters/review.test.ts (`names whom GitHub asked, and whom it refused as a warning`, `is none when GitHub asked nobody: the error says why`)
 - `brd request-review <branch>` runs the same intent from the agent CLI: the same code owners, `--reviewer <login>`
   others; work the remote lacks refuses it (`needs_push`) until `--push` pushes it first
-  ([Agent CLI](../../cli/agent-cli/spec.md#bd-request-review)).
+  ([Agent CLI](../../cli/agent-cli/spec.md#brd-request-review)).
 
 ### Branch preview
 

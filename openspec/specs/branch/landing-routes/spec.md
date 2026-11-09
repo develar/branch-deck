@@ -286,7 +286,7 @@ target, read before anything is pushed.
   [@test] crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
   [@test] crates/domain-policy/src/actions_test.rs (`a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_start_of_the_robot`)
   [@test] src/presenters/next-step.test.ts (`row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route`)
-- `brd land` must land by the same plan ([Agent CLI](../../cli/agent-cli/spec.md#bd-land)), its sync and its trial with no
+- `brd land` must land by the same plan ([Agent CLI](../../cli/agent-cli/spec.md#brd-land)), its sync and its trial with no
   fetch and no check against the newest target (a push is its own), and `brd status` must decide the steps by the same
   route over what its grouping read of git, GitHub not asked: the gate of a push into a repository on GitHub waits.
   [@test] crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`, `bd_status_decides_the_steps_by_the_route_of_the_repository`)
@@ -363,7 +363,7 @@ target, read before anything is pushed.
   `merge′`; the merge is `merge-pull-request` in place of the robot's starts.
   [@test] crates/operations/src/auto_merge_test.rs (`cancel_auto_merge_disables_the_auto_merge_of_an_open_pull_request_that_has_one`)
   [@test] crates/domain-policy/src/actions_test.rs (`a_merge_of_the_pull_request_offers_its_merge_and_cancel_auto_merge_while_github_merges_it`)
-- `brd land` must merge by the same plan ([Agent CLI](../../cli/agent-cli/spec.md#bd-land)): `pull_request` names the pull
+- `brd land` must merge by the same plan ([Agent CLI](../../cli/agent-cli/spec.md#brd-land)): `pull_request` names the pull
   request, `auto_merge` an auto-merge enabled (now or before), `landed` a merge; its refusals `not_mergeable`,
   `merge_blocked` and `no_pull_request`, a mirror or a repository off GitHub `landing_route_unsupported`. On Space the
   pull-request route is the Safe Push, as in the app while Patronus lands the repository.
@@ -401,7 +401,7 @@ target, read before anything is pushed.
   [@test] src/presenters/activity.test.ts (`says each close of a landing without a robot by its comment, which no toast says`)
   [@test] tests/e2e/landing/push-to-master.spec.ts (`should close the pull requests of what a push of a stacked piece landed that show an older version of a branch, its own too`)
 - `brd land` must list the pull requests its push closes as `closes`, by the same rule, and close none: the app's session
-  closes them ([Agent CLI](../../cli/agent-cli/spec.md#bd-land)).
+  closes them ([Agent CLI](../../cli/agent-cli/spec.md#brd-land)).
 
 ### The page
 
