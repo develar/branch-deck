@@ -171,7 +171,7 @@ pub struct RepositoryConfig {
   /// (`LandingSetting::agent_pull_request_off`): under Push the work lands without a pull request. `None`: the rule may
   /// apply
   pub agent_pull_request_off: Option<String>,
-  /// `branchdeck.reviewExperimental`, off by default and for a value git refuses
+  /// `branchdeck.reviewExperimental`, on by default and for a value git refuses
   pub review_experimental: ConfigSetting<bool>,
   /// The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name
   pub companions: Vec<CompanionSetting>,
@@ -460,7 +460,7 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], origin: OriginFac
     agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
     agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, true, |value| bool_setting(value, true)),
     agent_pull_request: resolve_setting(entries, RepositoryConfigKey::AgentPullRequest, false, |value| bool_setting(value, false)),
-    review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, false, |value| bool_setting(value, false)),
+    review_experimental: resolve_setting(entries, RepositoryConfigKey::ReviewExperimental, true, |value| bool_setting(value, true)),
     companions: companion_settings(entries),
     primary: entries
       .iter()

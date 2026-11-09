@@ -987,7 +987,8 @@ function resetTable(): void {
     unassignedCommits: [],
     autosquashPlan: null,
     baselineStatus: null,
-    reviewExperimental: false,
+    // the default of `branchdeck.reviewExperimental` until a sync of the repository says
+    reviewExperimental: true,
     issueGroups: {},
     stackParents: {},
     parked: {},

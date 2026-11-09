@@ -390,7 +390,8 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   autosquashPlan: null,
   baselineStatus: null,
   groupedRun: 0,
-  reviewExperimental: false,
+  // the default of `branchdeck.reviewExperimental` until a sync says
+  reviewExperimental: true,
   issueGroups: {},
   stackParents: {},
   parked: {},

@@ -58,7 +58,7 @@ fn nothing_set_is_the_defaults() {
   // the landing of an agent's commit stops at the pick: the push and the pull request wait for the user
   assert_eq!(config.agent_pull_request, unset(false));
   // the review windows show the review plan
-  assert_eq!(config.review_experimental, unset(false));
+  assert_eq!(config.review_experimental, unset(true));
   assert_eq!(config.detected_github_repository, None);
   assert_eq!(config.landing_default, LandingDefault::of(false));
 }
@@ -132,7 +132,7 @@ fn invalid_values_fall_back_to_the_default_and_say_why() {
   );
   assert_eq!(
     (config.review_experimental.value, config.review_experimental.invalid.as_deref()),
-    (false, Some("maybe is not a boolean (true or false)"))
+    (true, Some("maybe is not a boolean (true or false)"))
   );
   assert_eq!(
     (config.symbols.value, config.symbols.invalid.as_deref()),
@@ -215,7 +215,7 @@ fn a_write_goes_to_the_local_config_and_reads_back() {
       scope: Some(ConfigScope::Local),
       local_set: true,
       invalid: None,
-      fallback_value: false,
+      fallback_value: true,
       fallback_scope: None,
     }
   );
@@ -418,7 +418,7 @@ fn the_fallback_is_the_last_global_or_system_value_parsed() {
   // an invalid global value falls back to the default, as the effective one would
   assert_eq!(
     (config.review_experimental.fallback_value, config.review_experimental.fallback_scope),
-    (false, Some(ConfigScope::Global))
+    (true, Some(ConfigScope::Global))
   );
 }
 
@@ -494,25 +494,25 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
 }
 
 /// `branchdeck.reviewExperimental` is read with the other keys in the one `git config` of the settings, and written to the
-/// local config like them; unset is off, and a value git refuses is off, with the reason
+/// local config like them; unset is on, and a value git refuses is on, the default, with the reason
 #[test]
-fn the_review_experiments_are_off_until_the_config_turns_them_on() {
+fn the_review_experiments_are_on_until_the_config_turns_them_off() {
   let test_repo = TestRepo::new();
   let path = test_repo.path_str();
   let (_global, git) = with_own_global_config(&test_repo);
   let git = &git;
-  let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(true)), WriteScope::Local).unwrap();
-  assert_eq!((config.review_experimental.value, config.review_experimental.scope), (true, Some(ConfigScope::Local)));
-  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("true"))]);
+  let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(false)), WriteScope::Local).unwrap();
+  assert_eq!((config.review_experimental.value, config.review_experimental.scope), (false, Some(ConfigScope::Local)));
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("false"))]);
 
   // "Use Default": the local value goes, the default applies again
   let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(None), WriteScope::Local).unwrap();
-  assert_eq!(config.review_experimental, unset(false));
+  assert_eq!(config.review_experimental, unset(true));
 
   let config = repository_config_from_entries(&[entry(ConfigScope::Local, "branchdeck.reviewExperimental", Some("maybe"))], OriginFacts::default());
   assert_eq!(
     (config.review_experimental.value, config.review_experimental.invalid),
-    (false, Some("maybe is not a boolean (true or false)".to_string()))
+    (true, Some("maybe is not a boolean (true or false)".to_string()))
   );
 }
 

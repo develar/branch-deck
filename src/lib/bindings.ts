@@ -6662,7 +6662,7 @@ export type RepositoryConfig = {
 	 *  apply
 	 */
 	agentPullRequestOff: string | null,
-	/**  `branchdeck.reviewExperimental`, off by default and for a value git refuses */
+	/**  `branchdeck.reviewExperimental`, on by default and for a value git refuses */
 	reviewExperimental: ConfigSetting<boolean>,
 	/**  The companion repositories this repository is the primary of (`branchdeck.companion.<name>.path`), by name */
 	companions: CompanionSetting[],

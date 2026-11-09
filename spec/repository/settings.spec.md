@@ -467,7 +467,7 @@ differs (the repository's own value, with Reset).
   default (the sync, Update Project and `brd update` commit a conflict of git that its words resolve, [Git
   Operations](../../docs/design/git-operations.md#resolve-by-words)).
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should resolve conflicts by words in the global config, and say where the repository's own value wins`)
-- "Review": "Review plan (experimental)", `branchdeck.reviewExperimental`, off by default: Mark Reviewed, Since Your
+- "Review": "Review plan (experimental)", `branchdeck.reviewExperimental`, on by default: Mark Reviewed, Since Your
   Review, the overview of the plan and the marks of the files in the branch review ([Review
   Plan](../branch/review-plan.spec.md)); a review window opened after the sync takes the new value.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Branches`)

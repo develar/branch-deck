@@ -760,11 +760,11 @@ them only as cards of a diff.
 - A newer commit of the table of the same repository must supersede the read ahead in flight: its queries of accio are
   killed, and the newer one reads what is left to read.
   [@test] ../../crates/app-api/src/reads/review_prefetch_test.rs (`a_newer_commit_supersedes_the_read_ahead_in_flight`)
-- `branchdeck.reviewExperimental` must be off unless git config turns it on (Settings → Branches → Review), read
-  and written like the other keys of Settings; a value git refuses must be off with its reason and fail no sync: an
-  experiment never turns on from a broken value.
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_off_until_the_config_turns_them_on`, `nothing_set_is_the_defaults`)
-  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_off_unless_the_config_turns_them_on`)
+- `branchdeck.reviewExperimental` must be on unless git config turns it off (Settings → Branches → Review), read
+  and written like the other keys of Settings; a value git refuses must be the default, on, with its reason, and fail
+  no sync.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_on_until_the_config_turns_them_off`, `nothing_set_is_the_defaults`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_on_unless_the_config_turns_them_off`)
 - The switch "Review plan (experimental)" of Settings → Branches → Review must turn it on and off for every
   repository in the global git config on "All repositories", and the repository's own `.git/config` value, written on
   its tab, must win over it, as `branchdeck.resolveByWords` does (spec/repository/settings.spec.md).

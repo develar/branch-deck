@@ -188,22 +188,22 @@ fn the_resolve_by_words_is_on_unless_the_config_turns_it_off() {
   snapshot(&repo).resolve_mode().unwrap_err();
 }
 
-/// The flag of the review windows rides on the snapshot of a sync: off when unset and for a false, on for a true, and a
-/// value git refuses is off without failing the sync
+/// The flag of the review windows rides on the snapshot of a sync: on when unset and for a true, off for a false, and a
+/// value git refuses is on, the default, without failing the sync
 #[test]
-fn the_review_experiments_are_off_unless_the_config_turns_them_on() {
+fn the_review_experiments_are_on_unless_the_config_turns_them_off() {
   let repo = TestRepo::new();
   // an empty global config: the developer's own `branchdeck.reviewExperimental` must not reach the test
   let global = tempfile::NamedTempFile::new().unwrap();
   let git = repo.git_executor().with_env("GIT_CONFIG_GLOBAL", global.path().to_str().unwrap());
   let on = || ConfigSnapshot::read(&git, repo.path_str()).unwrap().review_experimental();
-  assert!(!on());
+  assert!(on());
   repo.set_config("branchdeck.reviewExperimental", "no").unwrap();
   assert!(!on());
   repo.set_config("branchdeck.reviewExperimental", "yes").unwrap();
   assert!(on());
   repo.set_config("branchdeck.reviewExperimental", "maybe").unwrap();
-  assert!(!on());
+  assert!(on());
 }
 
 #[test]

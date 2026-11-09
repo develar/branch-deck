@@ -4495,7 +4495,7 @@ each subject with its `(branch)`, which the copies of the virtual branches drop)
 git boolean, off when unset: the landing of an agent's commit includes its pull request, the push of the branch after
 the pick and the `gh pr create` it prints, without asking, off under the Push route of the repository's own config
 (`LandingSetting::agent_pull_request_off`); `lease_config` reads it and `branchdeck.landing` with their scopes too, for
-the `next` of `brd lease get`), and the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset
+the `next` of `brd lease get`), and the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, on when unset
 and for a value git refuses: Mark Reviewed, the local Since Your Review, the overview of the plan and the marks of the
 files, [Review Plan](../../spec/branch/review-plan.spec.md); `brd review-plan` and `brd mark-reviewed` work without
 it). `brd` reads the same keys, so the app keeps nothing of them in its own settings; the
