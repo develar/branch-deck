@@ -267,9 +267,14 @@ function contractOf(plan: Pick<ReviewPlan, "brief">): MapContract | null {
   return { newSpecs: [...newSpecs.values()], changed: counted.length === 0 ? null : `${counted.join(" and ")} changed` }
 }
 
-/** The name of a spec by its file: `transcript-media-playback.spec.md` is "Transcript Media Playback" */
+/**
+ * The name of a spec by its file: `transcript-media-playback.spec.md` is "Transcript Media Playback", and a spec of
+ * OpenSpec by its capability, `openspec/specs/branch/stack-parents/spec.md` "Stack Parents"
+ */
 export function specName(path: string): string {
-  const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.spec\.md$|\.md$/i, "")
+  const parts = path.split("/")
+  const file = parts.at(-1) ?? ""
+  const name = file.toLowerCase() === "spec.md" && parts.length > 1 ? (parts.at(-2) ?? "") : file.replace(/\.spec\.md$|\.md$/i, "")
   return name
     .split(/[-_]+/)
     .filter(word => word !== "")

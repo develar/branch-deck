@@ -1,5 +1,5 @@
 use crate::ReviewPlan;
-use crate::brief::{ContractKind, Substitution, contract_kind, shared_issue};
+use crate::brief::{ContractKind, NewSpec, Substitution, contract_kind, new_spec, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
@@ -685,6 +685,35 @@ fn the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests() {
   );
 }
 
+/// A scenario a spec of OpenSpec adds is placed under its requirement, and its `[@test]` lines, from the root, prove the
+/// step that adds it
+#[test]
+fn the_brief_places_a_scenario_of_openspec_under_its_requirement_with_its_tests() {
+  let repo = TestRepo::new();
+  let spec = "---\nname: Window\n---\n\n# Window\n\n## Purpose\n\nThe window of a review.\n\n## Requirements\n\n### Requirement: Layout: The window keeps its layout\n\nThe window MUST keep the layout it stored.\n\n#### Scenario: Open\n- **WHEN** the window opens\n- **THEN** it has its layout\n";
+  let path = "openspec/specs/window/spec.md";
+  let base = repo.create_commit_with_files("Add", &[(path, spec), ("src/a/Api.kt", API)]);
+  repo.create_commit_with_files(
+    "IJAI-1 the window keeps its layout across a restart",
+    &[(
+      path,
+      &format!("{spec}\n#### Scenario: Restart\n- **WHEN** the app restarts\n- **THEN** the window has the layout it stored\n  [@test] tests/restart.json\n"),
+    )],
+  );
+  let head = repo.create_commit_with_files("IJAI-1 the open asks the layout", &[("src/a/Api.kt", &API.replace("= 1", "= 5"))]);
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(plan.steps.steps[0].tests.scenarios, ["tests/restart.json"]);
+  let [entry] = plan.brief.contract.as_slice() else { panic!("{:?}", plan.brief) };
+  assert_eq!(
+    (entry.kind, entry.heading.as_deref(), entry.proven_by.as_slice()),
+    (
+      ContractKind::Spec,
+      Some("Layout: The window keeps its layout"),
+      ["tests/restart.json".to_string()].as_slice()
+    )
+  );
+}
+
 /// A replacement repeated across the spec and guide is named once and taken out of its paragraph diffs
 #[test]
 fn a_substitution_repeated_across_paragraphs_is_named_once_and_marked_in_place() {
@@ -955,6 +984,73 @@ fn a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place() {
   assert_eq!(contract_kind("plugins/air/docs/flows/flow-restart.txt"), Some(ContractKind::Doc));
   assert_eq!(contract_kind("spec/a.spec.ts"), None);
   assert_eq!(contract_kind("src/notes.md"), None);
+}
+
+/// Of OpenSpec, a main spec and the delta of a change are specs, the proposal and the design of a change its decision;
+/// its tasks are none, nor is a delta of an archived change, whose words the diff of the main spec holds
+#[test]
+fn a_file_of_openspec_is_a_spec_a_decision_or_none_by_its_place_in_a_change() {
+  assert_eq!(contract_kind("openspec/specs/branch/unapply/spec.md"), Some(ContractKind::Spec));
+  assert_eq!(contract_kind("openspec/changes/add-undo/specs/branch/unapply/spec.md"), Some(ContractKind::Spec));
+  assert_eq!(contract_kind("openspec/changes/add-undo/proposal.md"), Some(ContractKind::Decision));
+  assert_eq!(contract_kind("openspec/changes/add-undo/design.md"), Some(ContractKind::Decision));
+  assert_eq!(contract_kind("openspec/changes/archive/2026-11-09-add-undo/proposal.md"), Some(ContractKind::Decision));
+  assert_eq!(contract_kind("openspec/changes/add-undo/tasks.md"), None);
+  assert_eq!(contract_kind("openspec/changes/archive/2026-11-09-add-undo/specs/branch/unapply/spec.md"), None);
+}
+
+/// A new spec counts its requirements: the `### Requirement:` headings of OpenSpec (of a delta, the added and the
+/// modified ones), else the items of its "Requirements"; its description is its `description:`, else its purpose
+#[test]
+fn a_new_spec_counts_its_requirements_in_either_format() {
+  let plain = [
+    "---",
+    "description: The window.",
+    "---",
+    "## Requirements",
+    "- The window opens.",
+    "- It closes.",
+    "## User Experience",
+    "- A note.",
+  ];
+  assert_eq!(
+    new_spec(&plain),
+    NewSpec {
+      description: Some("The window.".to_string()),
+      rules: 2
+    }
+  );
+  let openspec = [
+    "# Window",
+    "## Purpose",
+    "",
+    "The window of a review,",
+    "where it opens.",
+    "",
+    "## Requirements",
+    "### Requirement: Opening: The window opens",
+    "The window MUST open.",
+    "#### Scenario: Open",
+    "- **WHEN** the user opens it",
+    "- **THEN** it opens",
+    "### Requirement: Opening: It closes",
+  ];
+  assert_eq!(
+    new_spec(&openspec),
+    NewSpec {
+      description: Some("The window of a review, where it opens.".to_string()),
+      rules: 2
+    }
+  );
+  let delta = [
+    "## ADDED Requirements",
+    "### Requirement: A",
+    "## MODIFIED Requirements",
+    "### Requirement: B",
+    "## REMOVED Requirements",
+    "### Requirement: C",
+  ];
+  assert_eq!(new_spec(&delta).rules, 2);
 }
 
 /// A manager whose hooks a commit drops, then a commit of `rule` in their place: the repository and the base

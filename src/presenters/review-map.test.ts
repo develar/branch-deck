@@ -172,6 +172,10 @@ describe("the map of a review", () => {
     expect([specName("plugins/air/spec/session-view/transcript-media-playback.spec.md"), specName("docs/guide_notes.md")]).toEqual(["Transcript Media Playback", "Guide Notes"])
   })
 
+  it("names a spec of OpenSpec by its capability, a main spec and the delta of a change alike", () => {
+    expect([specName("openspec/specs/branch/stack-parents/spec.md"), specName("openspec/changes/add-undo/specs/branch/unapply/spec.md")]).toEqual(["Stack Parents", "Unapply"])
+  })
+
   it("names under the row of a module what its descriptors register by simple names, a click at the class it registers; a content module none, past the budget a count", () => {
     const registration = (registered: Registration["registered"], more: Partial<Registration> = {}): Registration => ({
       descriptor: "gui/media/resources/media.xml",

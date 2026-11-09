@@ -43,9 +43,10 @@ pub struct Substitution {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum ContractKind {
-  /// A spec: the contract of a feature (`*.spec.md`, a file below `spec/` or `specs/`)
+  /// A spec: the contract of a feature (`*.spec.md`, a file below `spec/` or `specs/`, the delta of a change of OpenSpec
+  /// that is not archived: `openspec/changes/<id>/specs/…`)
   Spec,
-  /// A record of a decision (below `decisions/` or `adr/`)
+  /// A record of a decision (below `decisions/` or `adr/`, the proposal and the design of a change of OpenSpec)
   Decision,
   /// A guide of agents (`AGENTS.md`, `CLAUDE.md`, a file below `.ai/`)
   Guide,
@@ -86,9 +87,9 @@ pub struct ContractEntry {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct NewSpec {
-  /// `description:` of its front matter
+  /// `description:` of its front matter, else the first paragraph of its "Purpose" section
   pub description: Option<String>,
-  /// The items of its "Requirements" section
+  /// Its requirements: the `### Requirement:` headings of OpenSpec, else the items of its "Requirements" section
   pub rules: u32,
 }
 
@@ -110,13 +111,25 @@ pub(crate) fn shared_issue<'a>(messages: impl Iterator<Item = &'a str>) -> Optio
     .map(|key| (*key).to_string())
 }
 
-/// The kind of the file of prose at `path`, `None` for another file
+/// The kind of the file of prose at `path`, `None` for another file. Of a change of OpenSpec (`openspec/changes/<id>/`),
+/// the proposal and the design are its decision and its delta specs a spec; its tasks are none, nor is any delta of an
+/// archived change, as the diff of the main spec it changed holds its words
 pub(crate) fn contract_kind(path: &str) -> Option<ContractKind> {
   let lower = path.to_ascii_lowercase();
   let (directories, name) = lower.rsplit_once('/').map_or(("", lower.as_str()), |(directories, name)| (directories, name));
   let extension = name.rsplit_once('.').map_or("", |(_, extension)| extension);
   if !matches!(extension, "md" | "markdown" | "txt" | "rst" | "adoc") {
     return None;
+  }
+  let parts: Vec<&str> = directories.split('/').collect();
+  if let Some(at) = parts.windows(2).position(|pair| pair == ["openspec", "changes"]) {
+    let below = &parts[at + 2..];
+    return match name {
+      "proposal.md" | "design.md" => Some(ContractKind::Decision),
+      _ if below.first() == Some(&"archive") || name == "tasks.md" => None,
+      _ if below.contains(&"specs") => Some(ContractKind::Spec),
+      _ => None,
+    };
   }
   let under = |names: &[&str]| directories.split('/').any(|directory| names.contains(&directory));
   if name.ends_with(".spec.md") || under(&["spec", "specs"]) {
@@ -294,15 +307,17 @@ fn is_substitution_word(text: &str) -> bool {
 }
 
 /// The nearest heading (`#`) above line `line` (from 0) of `lines` and below the front matter (its lines up to
-/// `front`), without its marks
+/// `front`), without its marks; of a scenario of OpenSpec (`#### Scenario:`), its requirement, without `Requirement:`
 fn heading_above(lines: &[&str], front: usize, line: usize) -> Option<String> {
   let end = line.min(lines.len());
   lines
     .get(front.min(end)..end)?
     .iter()
     .rev()
-    .find(|text| text.starts_with('#'))
-    .map(|text| text.trim_start_matches('#').trim().to_string())
+    .filter(|text| text.starts_with('#'))
+    .map(|text| text.trim_start_matches('#').trim())
+    .find(|heading| !heading.starts_with("Scenario:"))
+    .map(|heading| heading.strip_prefix("Requirement:").map_or(heading, str::trim_start).to_string())
 }
 
 /// `block` without its lines in the front matter of either side (the first `old_front` and `new_front` lines), `None`
@@ -336,26 +351,47 @@ fn reads_as_prose(paragraph: &str) -> bool {
   words >= 3
 }
 
-/// The description and the count of the rules of a new spec: the `description:` of its front matter, the items of its
-/// "Requirements" section (a line `- ` at its start, below `## Requirements` up to the next `## `)
-fn new_spec(lines: &[&str]) -> NewSpec {
+/// The description and the count of the rules of a new spec: the `description:` of its front matter, else the first
+/// paragraph of its "Purpose" section; the `### Requirement:` headings of OpenSpec below `## Requirements` (of a delta:
+/// `## ADDED Requirements` and `## MODIFIED Requirements`), else the items of its "Requirements" section (a line `- ` at
+/// its start, below `## Requirements` up to the next `## `)
+pub(crate) fn new_spec(lines: &[&str]) -> NewSpec {
   let front: Vec<&str> = if lines.first() == Some(&"---") {
     lines.iter().skip(1).take_while(|line| **line != "---").copied().collect()
   } else {
     Vec::new()
   };
+  let purpose = || {
+    let start = lines
+      .iter()
+      .position(|line| line.strip_prefix("## ").is_some_and(|heading| heading.trim().eq_ignore_ascii_case("purpose")))?;
+    let paragraph: Vec<&str> = lines[start + 1..]
+      .iter()
+      .skip_while(|line| line.trim().is_empty())
+      .take_while(|line| !line.trim().is_empty() && !line.starts_with('#'))
+      .map(|line| line.trim())
+      .collect();
+    (!paragraph.is_empty()).then(|| paragraph.join(" "))
+  };
   let description = front
     .iter()
     .find_map(|line| line.strip_prefix("description:"))
-    .map(|text| text.trim().trim_matches('"').to_string());
+    .map(|text| text.trim().trim_matches('"').to_string())
+    .or_else(purpose);
   let mut inside = false;
-  let mut rules = 0;
+  let (mut requirements, mut items) = (0, 0);
   for line in lines {
     if let Some(heading) = line.strip_prefix("## ") {
-      inside = heading.trim().eq_ignore_ascii_case("requirements");
+      let heading = heading.trim().to_ascii_lowercase();
+      inside = matches!(heading.as_str(), "requirements" | "added requirements" | "modified requirements");
+    } else if inside && line.starts_with("### Requirement:") {
+      requirements += 1;
     } else if inside && line.starts_with("- ") {
-      rules += 1;
+      items += 1;
     }
   }
-  NewSpec { description, rules }
+  NewSpec {
+    description,
+    rules: if requirements > 0 { requirements } else { items },
+  }
 }

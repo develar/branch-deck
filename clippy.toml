@@ -1,4 +1,4 @@
 # product names, not code
-doc-valid-idents = ["TeamCity", "YouTrack", ".."]
+doc-valid-idents = ["TeamCity", "YouTrack", "OpenSpec", ".."]
 # a test may print what it measured (`print_stderr` is on)
 allow-print-in-tests = true

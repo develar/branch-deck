@@ -2023,9 +2023,12 @@ export type ContractEntry = {
 
 /**  What a file of prose is to the change */
 export type ContractKind = 
-/**  A spec: the contract of a feature (`*.spec.md`, a file below `spec/` or `specs/`) */
+/**
+ *  A spec: the contract of a feature (`*.spec.md`, a file below `spec/` or `specs/`, the delta of a change of OpenSpec
+ *  that is not archived: `openspec/changes/<id>/specs/…`)
+ */
 "spec" | 
-/**  A record of a decision (below `decisions/` or `adr/`) */
+/**  A record of a decision (below `decisions/` or `adr/`, the proposal and the design of a change of OpenSpec) */
 "decision" | 
 /**  A guide of agents (`AGENTS.md`, `CLAUDE.md`, a file below `.ai/`) */
 "guide" | 
@@ -4793,9 +4796,9 @@ export type NewPullRequest = {
 
 /**  A spec the commits add */
 export type NewSpec = {
-	/**  `description:` of its front matter */
+	/**  `description:` of its front matter, else the first paragraph of its "Purpose" section */
 	description: string | null,
-	/**  The items of its "Requirements" section */
+	/**  Its requirements: the `### Requirement:` headings of OpenSpec, else the items of its "Requirements" section */
 	rules: number,
 };
 
