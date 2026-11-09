@@ -51,6 +51,8 @@ pub struct TestHost {
   pub repository: String,
   /// The fakes of its CLIs
   pub cli_tools: Arc<CliToolsHost>,
+  /// The runtime of the server: a blocking read of the host waits there for the gate of its held answer
+  pub runtime: tokio::runtime::Handle,
 }
 
 impl TestHost {
@@ -134,8 +136,12 @@ impl AppHost for TestHost {
     self.cli_tools.environment()
   }
 
-  /// The hosts of the fixture of the test (`POST /repositories/{id}/host-disks`), none by default
+  /// The hosts of the fixture of the test (`POST /repositories/{id}/host-disks`), none by default; while a test holds
+  /// them (`HeldAnswer::HostDisks`) they answer at the release, as a host of `bd-host` answers after this Mac is measured
   fn host_disks(&self, _fresh: bool) -> Vec<app_api::app::disk::HostDisk> {
+    if let Some(remote) = self.existing_remote() {
+      self.runtime.block_on(remote.pass_held(HeldAnswer::HostDisks));
+    }
     self.state.upgrade().map_or_else(Vec::new, |state| {
       state.repositories.get(&self.repository).map_or_else(Vec::new, |repository| {
         let hosts = repository.host_disks.read().unwrap_or_else(PoisonError::into_inner);

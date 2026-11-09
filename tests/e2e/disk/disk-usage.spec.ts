@@ -1,8 +1,9 @@
 // @spec spec/repository/disk-usage.spec.md
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { expect, test } from "../fixtures/test-fixtures"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
+import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 
 /** What `brd-host disk --json` carries for a host: one pool of three slots, a limit of 2, one free slot past it */
 const STUDIO_REPORT = {
@@ -29,30 +30,32 @@ const STUDIO_REPORT = {
 test.describe("Disk usage", () => {
   test("should show the pools of this Mac and of the hosts, and trim the free slots of this Mac past the limit", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple")
-    // eleven free slots: one past the default limit of 10, the one returned first
-    const slots = await repo.addLeaseSlots(11)
-    const [first, last] = [slots[0] ?? "", slots[10] ?? ""]
-    const progressSlot = slots[1] ?? ""
-    appendFileSync(join(progressSlot, ".gitignore"), "\n.disk-progress/\n")
-    const progress = join(progressSlot, ".disk-progress")
-    mkdirSync(progress)
-    for (let index = 0; index < 80_000; index += 1) {
-      writeFileSync(join(progress, String(index)), "x")
-    }
+    // three free slots: one past the limit of the repository's config, the one returned first. Each slot is a real get
+    // and return (15 git processes): eleven past the default limit of 10 took half the test under load
+    appendFileSync(join(repo.path, ".git", "config"), "[branchdeck]\n\tleaseMaxSlots = 2\n")
+    const slots = await repo.addLeaseSlots(3)
+    const [first, last] = [slots[0] ?? "", slots[2] ?? ""]
     await repo.setHostDisks([
       { alias: "studio", report: STUDIO_REPORT },
       { alias: "mini", error: "the agent on mini has no feature disk: `brd-host upgrade mini` sends it this build" },
     ])
+    // the hosts answer once the test lets them: until then the walk of this Mac shows its progress, each slot counted
+    await repo.holdRemoteAnswers({ hold: ["hostDisks"] })
     await openPalette(page)
     await runByKeyboard(page, "disk usage", "Show Disk Usage…")
     const dialog = page.getByTestId("disk-usage-dialog")
-    await expect(dialog.getByRole("status").filter({ hasText: "Measured" })).toContainText(/Measured \d+ of 11 slots/)
+    const progress = dialog.getByRole("status").filter({ hasText: "Measured" })
+    await expect(progress).toHaveText("Measured 3 of 3 slots")
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("hostDisks")
+    await expect(dialog.getByRole("region", { name: "studio" })).toHaveCount(0)
+    await repo.holdRemoteAnswers({ release: ["hostDisks"] })
+    await expect(progress).toHaveCount(0)
 
     const thisMac = dialog.getByRole("region", { name: "This Mac" })
     const pool = thisMac.getByRole("group")
-    await expect(pool.getByRole("listitem")).toHaveCount(11)
+    await expect(pool.getByRole("listitem")).toHaveCount(3)
     await expect(pool.getByRole("listitem").first()).toContainText(/Measured (just now|[0-9]+ (minutes?|hours?|days?) ago)/)
-    await expect(pool).toContainText("11 slots, limit 10, 1 goes with a trim")
+    await expect(pool).toContainText("3 slots, limit 2, 1 goes with a trim")
     await expect(pool.getByRole("listitem").filter({ hasText: "Goes with a trim" })).toHaveCount(1)
     await expect(pool.getByRole("listitem").filter({ hasText: "Goes with a trim" })).toHaveAttribute("title", first)
 
@@ -64,10 +67,11 @@ test.describe("Disk usage", () => {
     await expect(dialog.getByRole("region", { name: "mini" })).toContainText("`brd-host upgrade mini` sends it this build")
 
     await expect(dialog).toContainText("Trim deletes 1 free slot on this Mac")
-    await dialog.getByRole("button", { name: "Trim to Limit" }).click()
+    // the trim deletes the slot, then the dialog reads the pools again: seconds under load
+    await runAndWaitForAnswer(page, "trim_pools", () => dialog.getByRole("button", { name: "Trim to Limit" }).click())
     await expect(page.getByText("Trimmed 1 slot")).toBeVisible()
     // the slot returned first is gone with its number directory; the dialog measured again
-    await expect(pool.getByRole("listitem")).toHaveCount(10)
+    await expect(pool.getByRole("listitem")).toHaveCount(2)
     expect(existsSync(dirname(first))).toBe(false)
     expect(existsSync(last)).toBe(true)
     await expect(dialog.getByRole("button", { name: "Trim to Limit" })).toBeDisabled()

@@ -73,7 +73,8 @@ const fn patronus_route(answer: HeldAnswer) -> Option<(&'static str, &'static st
     | HeldAnswer::RequestReviewers
     | HeldAnswer::SubmitReview
     | HeldAnswer::Sync
-    | HeldAnswer::YouTrackConfig => None,
+    | HeldAnswer::YouTrackConfig
+    | HeldAnswer::HostDisks => None,
   }
 }
 
@@ -177,6 +178,9 @@ pub enum HeldAnswer {
   /// The configuration of the fake YouTrack (`GET /api/config`), which names its Hub: the sign-in in the browser asks
   /// it first, so the page is seen while that sign-in starts
   YouTrackConfig,
+  /// The reports of the hosts of `bd-host` (`TestHost::host_disks`, the fixture of `POST /repositories/{id}/host-disks`):
+  /// Disk Usage measures this Mac meanwhile and shows its progress until the hosts answer
+  HostDisks,
 }
 
 /// The route of the fake GitHub that gives `answer`: held there
@@ -201,7 +205,8 @@ const fn github_route(answer: HeldAnswer) -> Option<(&'static str, &'static str)
     | HeldAnswer::CliTools
     | HeldAnswer::Push
     | HeldAnswer::Sync
-    | HeldAnswer::YouTrackConfig => None,
+    | HeldAnswer::YouTrackConfig
+    | HeldAnswer::HostDisks => None,
   }
 }
 
@@ -479,7 +484,8 @@ impl RemoteHost {
         | HeldAnswer::RepositoryView
         | HeldAnswer::AuthStatus
         | HeldAnswer::CliTools
-        | HeldAnswer::Sync => Arc::new(FakeGate::default()),
+        | HeldAnswer::Sync
+        | HeldAnswer::HostDisks => Arc::new(FakeGate::default()),
       };
       if let Some(before) = held.insert(*answer, gate) {
         before.open();

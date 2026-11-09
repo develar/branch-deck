@@ -610,6 +610,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | `POST`/`GET …/branch-name-suggestions` | the answer claude would give, and its calls | `setBranchNameSuggestions`, `getBranchNameSuggestionCalls` |
 | `GET …/remote`, `POST …/remote/push`, `…/remote/commit`, `…/remote/fetch`, `…/remote/refusal`, `POST`/`GET …/landing` | the remote of the repository and its route into master ([The remote of a repository](#the-remote-of-a-repository)) | `getRemoteBranches`, `getRemotePushes`, `pushInTerminal`, `commitOnRemote`, `fetchInTerminal`, `refuseRemotePushes`, `setLanding`, `getLanding` |
 | `POST`/`GET …/remote-gates` | answers of the fakes held or failed, and those that arrived | `holdRemoteAnswers`, `getArrivedAnswers` |
+| `POST …/host-disks`, `…/lease-slots` | the hosts of `brd-host` Disk Usage shows (held with `hostDisks`), free slots in the pool of the fake home by real gets and returns (`disk_fixtures.rs`) | `setHostDisks`, `addLeaseSlots` |
 | `POST …/update`, `POST`/`GET …/cli-tools` | the update of the updater; the CLIs of Settings → Tools and what they were asked | `setAvailableUpdate`, `setCliTools`, `getCliToolsLog` |
 | `POST …/sessions/close`, `…/clock/advance` | the app quits; the clock of the sessions moves | `closeSessions`, `advanceBackendClock` |
 | `POST …/warm-start/build`, `GET …/warm-start` | the frame an earlier run of the app left, the start of the app on it (`session_routes.rs`) | `buildWarmStart`, `warmStartModel` (the option `warmStart` of `setupRepo`, `reloadWarm`) |
@@ -775,7 +776,9 @@ log of the fake). No test answers a remote write in the page: the registry test 
   `repositoryView` (fails the view of the robots a session derives, `before_patronus_view`), `branchRules` (the
   session's read of the rules of a base, `TestFactSources::branch_rules`), `profiles` (its read of the merge profiles,
   `TestFactSources::profiles`), `authStatus` (the status of the sign-ins: the session's read, `TestFactSources::auth`,
-  and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `sync` (a sync
+  and the read of a window without a session, `get_auth_status`, held in `TestHost::before_auth_status`), `cliTools` (the tools of Settings), `hostDisks` (the
+  reports of the hosts of `brd-host`, `TestHost::host_disks`: Disk Usage shows the progress of the walk of this Mac until
+  they answer), `sync` (a sync
   run of the session, held in `TestSessionEnvironment::run_setup` before it reads anything: the session's sync runs
   until the release, so a push that waits for it, `WaitingForSync`, is seen waiting; a page hold of the `sync` command
   never reaches the session; a path "during a sync" presses Sync held with `pressSyncHeld` and ends it with

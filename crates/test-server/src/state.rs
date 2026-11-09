@@ -79,6 +79,7 @@ impl AppState {
         state: std::sync::Arc::downgrade(self),
         repository: repository_id.to_owned(),
         cli_tools: std::sync::Arc::clone(&hosts.cli_tools),
+        runtime: tokio::runtime::Handle::current(),
       }),
       remote: app_api::remote::RemoteMemory::default(),
       desktop: app_api::transport::Desktop {

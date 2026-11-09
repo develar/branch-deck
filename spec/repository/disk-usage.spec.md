@@ -112,8 +112,10 @@ palette opens it.
 ## Testing / Local Run
 
 - `pnpm e2e tests/e2e/disk/`: the pool of the test repository lives in its fake home, where `POST
-  /repositories/{id}/lease-slots` adds free slots by real gets and returns, and the hosts are the fixture of `POST
-  /repositories/{id}/host-disks`.
+  /repositories/{id}/lease-slots` adds free slots by real gets and returns (three, past `branchdeck.leaseMaxSlots = 2`
+  of the repository: a slot costs a get and a return), and the hosts are the fixture of `POST
+  /repositories/{id}/host-disks`, held (`hostDisks` of `holdRemoteAnswers`) while the test reads the progress of this
+  Mac.
 - `cargo nextest run -p app-api -E 'test(/hosts_of/)'`, `pnpm test:unit src/presenters/disk.test.ts`.
 
 ## Open Questions / Risks
