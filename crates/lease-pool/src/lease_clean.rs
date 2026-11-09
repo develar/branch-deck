@@ -619,6 +619,10 @@ impl std::error::Error for ProtectedAppRemoval {
   }
 }
 
+#[cfg_attr(
+  not(target_os = "macos"),
+  expect(clippy::missing_const_for_fn, reason = "only macOS reads the path, to name a protected app bundle")
+)]
 fn removal_error(path: &Path, error: std::io::Error) -> std::io::Error {
   #[cfg(target_os = "macos")]
   if error.raw_os_error() == Some(EPERM)
