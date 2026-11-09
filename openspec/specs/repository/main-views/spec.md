@@ -234,6 +234,7 @@ period every island counts, kept in the app settings for every window and the ne
 the last 14 days in every period.
 
 #### Scenario: The chosen period is counted and kept
+- **GIVEN** the Period of 30 days, the default
 - **WHEN** the user chooses another Period
 - **THEN** every island counts that period
 - **AND** the choice is kept in the app settings for every window and the next start
@@ -241,7 +242,7 @@ the last 14 days in every period.
 
 #### Scenario: The periods
 - **WHEN** the Period opens
-- **THEN** it offers Last 14 days, Last 30 days, Last 10 weeks, Last 6 months, 30 days by default
+- **THEN** it offers Last 14 days, Last 30 days, Last 10 weeks, Last 6 months
   [@test] src/lib/robot-stats.test.ts (`names every period by its days, the shortest first`)
 
 #### Scenario: The failure causes in a longer period
@@ -435,10 +436,13 @@ of the failure causes is busy until the checks are read.
 After a change of the period the numbers of the one before MUST stay dimmed until those of the chosen one come; the
 numbers say their period (`data-period`).
 
-#### Scenario: A change of the period
+#### Scenario: The numbers of the period before
 - **WHEN** the user chooses another Period
 - **THEN** the numbers of the one before stay dimmed until those of the chosen one come
-- **AND** the numbers say their period (`data-period`)
+
+#### Scenario: The numbers say their period
+- **WHEN** the numbers of a period show
+- **THEN** they say their period (`data-period`)
   [@test] tests/e2e/landing/statistics.spec.ts (`should count the chosen period: its robots, its weeks, and keep the choice`)
 
 ## User Experience
