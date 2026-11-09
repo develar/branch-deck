@@ -5,10 +5,15 @@
 //   node scripts/openspec-migration/convert.mjs verify <spec> [--old <rev>] [--map <map.json>]
 //     the problems of the converted spec against the old one at <rev> (HEAD by default): nothing of its front matter,
 //     its other sections and its test links lost, the structure and limits of `openspec validate --strict`, the groups
-//     in their order, every code span, quoted string, link and measure of the old rules kept, every old id mapped.
+//     in their order, every code span, quoted string, link and measure of the old rules kept, every old id mapped;
+//   node scripts/openspec-migration/convert.mjs assemble <spec> --parts <dir> [--rev <rev>]
+//     writes the converted spec from the old one at <rev> and the parts of <dir>: `## Summary` becomes `## Purpose`
+//     (`purpose.md` when it had none), `concepts.md` becomes `## Concepts` before Requirements, the parts `<nn>*.md`
+//     in the order of their names become the body of `## Requirements`, a section of requirements outside it
+//     (`## Code owners`) goes, and every other line stays as it is.
 // <spec> is `openspec/specs/<area>/<name>/spec.md`. Deleted once every spec is converted.
 import { execFileSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, posix } from "node:path"
 import { headingSlug, openspecValidate } from "../check-spec-links.mjs"
 
@@ -397,6 +402,56 @@ export function verify(path, rev = "HEAD", mapPath = null) {
   return problems
 }
 
+/** The converted spec of `path` from its old text at `rev` and the parts of `dir` (see the head of this file) */
+export function assemble(path, dir, rev = "HEAD") {
+  const at = textAt(rev, path)
+  const part = name => (existsSync(join(dir, name)) ? readFileSync(join(dir, name), "utf8").trim() : null)
+  const parts = readdirSync(dir)
+    .filter(name => /^\d+.*\.md$/.test(name))
+    .sort()
+    .map(name => readFileSync(join(dir, name), "utf8").trim())
+  if (parts.length === 0) {
+    throw new Error(`no parts <nn>*.md in ${dir}`)
+  }
+  const folded = new Set(extract(path, rev).groups.filter(group => group.section !== undefined).map(group => group.section))
+  const out = []
+  let fence = false
+  let skip = false
+  let purpose = false
+  for (const line of at.text.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fence = !fence
+    }
+    const title = !fence && line.startsWith("## ") ? line.slice(3).trim() : null
+    if (title === null) {
+      if (!skip) {
+        out.push(line)
+      }
+      continue
+    }
+    skip = false
+    if (title === "Summary") {
+      out.push("## Purpose")
+      purpose = true
+    } else if (title.toLowerCase() === "requirements") {
+      if (!purpose && part("purpose.md") !== null) {
+        out.push("## Purpose", "", part("purpose.md"), "")
+        purpose = true
+      }
+      if (part("concepts.md") !== null) {
+        out.push("## Concepts", "", part("concepts.md"), "")
+      }
+      out.push("## Requirements", "", parts.join("\n\n"), "")
+      skip = true
+    } else if (folded.has(title)) {
+      skip = true
+    } else {
+      out.push(line)
+    }
+  }
+  writeFileSync(join(root, path), out.join("\n"))
+}
+
 if (import.meta.main) {
   const [command, path, ...rest] = process.argv.slice(2)
   const option = name => {
@@ -413,8 +468,11 @@ if (import.meta.main) {
       process.exit(1)
     }
     console.log(`${path}: converted, nothing lost`)
+  } else if (command === "assemble") {
+    assemble(path, option("--parts"), option("--rev") ?? "HEAD")
+    console.log(`${path}: assembled`)
   } else {
-    console.error("usage: convert.mjs extract|verify <openspec/specs/<area>/<name>/spec.md> [--rev|--old <rev>] [--map <map.json>]")
+    console.error("usage: convert.mjs extract|verify|assemble <openspec/specs/<area>/<name>/spec.md> [--rev|--old <rev>] [--map <map.json>]")
     process.exit(2)
   }
 }
