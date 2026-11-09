@@ -366,11 +366,14 @@ A refusal MUST keep the commits and show "Cannot drop the commits" with why.
 
 ### Requirement: `brd drop`: `--dry-run` changes nothing
 
-`--dry-run` SHALL build the drop and drop it, with no ref, note or file changed and no record.
+`--dry-run` MUST compute the drop as a drop does, with its refusals and the dry run of its files, before the
+repository lock, then discard what it wrote: it prints what the drop would do, with no ref, note or file changed (only
+git objects written) and no record in the operations registry.
 
 #### Scenario: `brd drop --dry-run`
 - **WHEN** `brd drop --dry-run` runs
-- **THEN** it builds the drop and drops it, with no ref, note or file changed and no record
+- **THEN** it prints `dry_run: true`, the commits that would leave in `dropped`, `files_changed` and `rebuilt_branches`, `new_head` equal to `previous_head`, and no `undo_token`
+- **AND** HEAD, the refs, the mapping notes and the files stay as they were, and no operation is recorded
   [@test] crates/bd-update/src/drop_test.rs (`drop_takes_the_commit_and_its_file_out_of_head_and_the_undo_brings_them_back`)
 
 ### Requirement: `brd drop`: A commit the home branch has is dropped there
