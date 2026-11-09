@@ -672,7 +672,29 @@ toast of a copied prompt), else the first one the CLI knows, else typed.
 #### Scenario: A typed server
 - **WHEN** neither names a server
 - **THEN** the user types it
+  [@test] tests/e2e/settings/tools-settings.spec.ts (`should refuse a TeamCity without the browser sign-in at once, and sign in again from a server's line`)
+
+### Requirement: Sign-in: The server is an http or https URL
+
+The server of a sign-in MUST be an `http://` or `https://` URL, trimmed and without its trailing `/`: Sign In stays
+disabled until the field holds one, and a sign-in to another server fails before the CLI runs: "the URL of the
+TeamCity server starts with https://".
+
+#### Scenario: A server without its scheme
+- **WHEN** a sign-in of `teamcity` to `ci.example` runs
+- **THEN** it fails before the CLI runs: "the URL of the TeamCity server starts with https://"
   [@test] crates/cli-tools/src/teamcity_login_test.rs (`a_sign_in_needs_the_url_of_the_server`)
+
+#### Scenario: A server with a trailing slash
+- **WHEN** a sign-in of `teamcity` to `https://ci.example/` runs
+- **THEN** the CLI runs with `--server https://ci.example`
+  [@test] crates/cli-tools/src/teamcity_login_test.rs (`signs_in_through_the_browser_login_of_the_cli_without_a_terminal_and_names_the_user`)
+
+#### Scenario: An empty field
+- **GIVEN** no open names a server and the CLI knows none
+- **WHEN** the field of the server is empty
+- **THEN** Sign In is disabled
+  [@test] tests/e2e/settings/tools-settings.spec.ts (`should refuse a TeamCity without the browser sign-in at once, and sign in again from a server's line`)
 
 ### Requirement: Sign-in: Each server line has Sign In Again
 
