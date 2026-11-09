@@ -332,8 +332,16 @@ test.describe("The scopes of the stack", () => {
     await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
     const opened = await openedReview(page, 1)
     expect(opened.data.from?.map(branch => branch.name)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
-    const window = await openLinkedSubWindow(page, opened)
+    // a segment pressed before the window holds the view of its session goes down once it does: the branch is in it
+    let view: Awaited<ReturnType<typeof holdCommandCalls>> | undefined
+    const window = await openLinkedSubWindow(page, opened, {
+      beforeLoad: async window => {
+        view = await holdCommandCalls(window, "subscribe_view")
+      },
+    })
+    await expect.poll(() => view?.calls.length).toBe(1)
     await window.getByTestId("branch-review-segment").filter({ hasText: "runtime" }).click()
+    view?.release()
     expect((await openedReview(window, 1)).data).toMatchObject({ chain: ["air", "bazel", "bridge", "runtime"] })
   })
 

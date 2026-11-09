@@ -46,7 +46,7 @@ import { REVIEW_WINDOW } from "@/lib/window-label"
 import { showReviewReadiness } from "@/model/demand"
 import { ensureSession, viewVersionKey } from "@/model/store"
 import { archivedBranchesStore } from "@/stores/archived-branches"
-import { branchSyncStore, getBranch, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, isForkingRoot, mainLineOf, whenTableSettled } from "@/stores/branch-sync"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { unappliedBranchesStore } from "@/stores/unapplied-branches"
 import type { KeptReview, ReviewWindowData } from "@/types/sub-window"
@@ -455,12 +455,17 @@ function reviewWholeStackOf(
   return openBranchReviewWindow(mainLineOf(branchSyncStore.getState(), root).at(-1) ?? root, { range: "all" })
 }
 
-/** The review of the branch `name` of the stack on screen, at its commit of `commitKey` (`reviewCommitKey`) of the whole stack */
-function reviewBranchOf(name: string, commitKey: string | undefined): Promise<boolean> {
+/**
+ * The review of the branch `name` of the stack on screen, at its commit of `commitKey` (`reviewCommitKey`) of the whole
+ * stack. A branch is gone only from the table the window holds whole, as `gone` of the review: a press before the
+ * window's first view, or while the session builds the branches, waits for it
+ */
+async function reviewBranchOf(name: string, commitKey: string | undefined): Promise<boolean> {
+  await whenTableSettled()
   const branch = getBranch(name)
   if (branch === undefined) {
     notifyError(`Cannot review ${name}`, branchGoneReason(name))
-    return Promise.resolve(false)
+    return false
   }
   const commit = commitKey === undefined ? undefined : branch.commits.find(it => reviewCommitKey({ ...it, subject: it.strippedSubject }) === commitKey)
   return (commit === undefined ? null : reviewBranchCommit(name, commit.originalHash, null)) ?? openBranchReviewWindow(name)

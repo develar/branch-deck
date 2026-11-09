@@ -188,7 +188,9 @@ session, a form of a row by the main window at that row; the footer holds the ke
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built`)
 - The stack bar of the review of the whole stack must show the chain it came from (`from` of the window data; the
   main line from the island and the menus), each segment with its number of commits, none pressed, then "Whole
-  Stack", pressed; a segment reviews its branch, which the window opens itself. Each commit of the column (with the plan,
+  Stack", pressed; a segment reviews its branch, which the window opens itself, once it holds the table of its session
+  whole: a press before its first view, or while the session builds the branches, waits for it and never says the branch
+  is gone. Each commit of the column (with the plan,
   each commit row of the tree) names its branch, muted after its subject, matched across the copies by author, author
   time and subject (`reviewCommitKey`: the stack branch has no mapping notes; `stackCommits` of the table the window reads), and
   the heading of the shown commit ends with

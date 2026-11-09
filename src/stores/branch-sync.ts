@@ -1396,6 +1396,25 @@ export function whenSynced(): Promise<void> {
 }
 
 /**
+ * Resolves once the window holds the view of its session and no sync runs, at once then: the table whole, never the
+ * empty one before the first view nor the rows of a run that is still building them
+ */
+export function whenTableSettled(): Promise<void> {
+  const settled = (state: BranchSyncState) => state.viewVersion !== null && !state.isSyncing
+  if (settled(branchSyncStore.getState())) {
+    return Promise.resolve()
+  }
+  return new Promise(resolve => {
+    const unsubscribe = branchSyncStore.subscribe(state => {
+      if (settled(state)) {
+        unsubscribe()
+        resolve()
+      }
+    })
+  })
+}
+
+/**
  * How far the sync run is, 0 to 1: its synced commits of all the commits it groups; null before its grouping arrived,
  * when the branches are still those of an older run, or without commits
  */
