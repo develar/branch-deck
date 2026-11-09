@@ -308,8 +308,13 @@ body](../../commit/commit-row/spec.md)), an LCS of whole blocks.
 #### Scenario: The body of a message changes by its blocks
 - **WHEN** the body of a reworded commit changed
 - **THEN** each hunk is the blocks `added` at `start` of the body now and the reviewed blocks `removed` right before it, with the code of their lines
-- **AND** a subject that differs without the `(prefix)` is its `subjectBefore`
+- **AND** a subject that is the same without the `(prefix)` has no `subjectBefore`
   [@test] crates/review-plan/src/interdiff_test.rs (`the_body_of_a_message_changes_by_its_blocks`)
+
+#### Scenario: A reword by the lines with another subject
+- **WHEN** a commit that changes the same lines was amended with another subject
+- **THEN** it is `reworded`, and its `message_change` has the subject of its reviewed version without the `(prefix)` as `subjectBefore`
+  [@test] crates/review-plan/src/interdiff_test.rs (`a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
 
 #### Scenario: A commit amended with a new body
 - **WHEN** a commit was amended with a new body and new lines
@@ -319,13 +324,20 @@ body](../../commit/commit-row/spec.md)), an LCS of whole blocks.
 ### Requirement: Since Your Review: A trailer, a rewrap or a prefix changes no message
 
 A trailer added, a paragraph wrapped anew and a `(prefix)` changed MUST say the same: no `message_change`, and a pair
-`unchanged`. The messages MUST be those of the `rev-list` of each side: no process more.
+`unchanged`.
 
 #### Scenario: A new trailer or a rewrap
 - **WHEN** the only change of a message is a trailer added, a paragraph wrapped anew or a `(prefix)` changed
 - **THEN** the commit has no `message_change` and its pair is `unchanged`
-- **AND** the messages come from the `rev-list` of each side, no process more
   [@test] crates/review-plan/src/interdiff_test.rs (`a_new_trailer_or_a_rewrap_changes_no_message`)
+
+### Requirement: Since Your Review: The messages come from the rev-list of each side
+
+The messages compared MUST be those of the `rev-list` of each side: no process more.
+
+#### Scenario: The messages of a plan since the review
+- **WHEN** the plan compares the messages of the commits with those of their reviewed versions
+- **THEN** it reads them from the `rev-list` of each side and runs no process more for them
 
 ### Requirement: Since Your Review: A reworded commit is unchanged for the scope
 
@@ -490,9 +502,7 @@ declaration it changed is changed, not added again) and an unchanged commit betw
 ### Requirement: API Surface: Without a scope each changed commit is read against its parent
 
 Only without a scope (the carry conflicted) the reviewed commits MUST be the `added` and the `rewritten` commits, each
-read against its own parent. A branch never marked has no reviewed commit, so all of its commits MUST be read. The
-`api`, the `files`, the `links`, the `dependencies`, the `repeated_edits` and the `order` MUST be computed from these
-alone.
+read against its own parent. A branch never marked has no reviewed commit, so all of its commits MUST be read.
 
 #### Scenario: The carry conflicted
 - **WHEN** the plan runs with `--since-reviewed` and the carry conflicted
@@ -501,7 +511,17 @@ alone.
 #### Scenario: A branch never marked
 - **WHEN** the plan of a branch never marked is read
 - **THEN** all of its commits are read
-- **AND** the `api`, the `files`, the `links`, the `dependencies`, the `repeated_edits` and the `order` are computed from the reviewed commits alone
+
+### Requirement: API Surface: The facts of the plan come from the reviewed commits alone
+
+The `api`, the `files`, the `links`, the `dependencies`, the `repeated_edits` and the `order` MUST be computed from the
+reviewed commits alone: of the range, of the scope, or without a scope the `added` and the `rewritten` commits.
+
+#### Scenario: The facts since the review
+- **WHEN** the plan runs with `--since-reviewed` on a marked branch
+- **THEN** the `api`, the `files`, the `links`, the `dependencies`, the `repeated_edits` and the `order` hold nothing of a commit the reviewer already read
+  [@test] crates/review-plan/src/api_test.rs (`since_the_review_an_unchanged_commit_between_two_of_one_file_adds_nothing`)
+  [@test] crates/review-plan/src/dependencies_test.rs (`since_the_review_an_unchanged_commit_between_two_of_one_manifest_adds_no_entry`)
 
 ### Requirement: API Surface: The api lists the public declarations added, removed or changed in form
 
@@ -523,12 +543,17 @@ declaration is API or unstable API before or after it (below), so a narrowed rea
 ### Requirement: API Surface: A private change, a body alone and a member of a new type are not listed
 
 A change of a private declaration or of a body alone MUST NOT be listed, nor a member of a type added or removed with
-it. A name of one or two characters MUST be listed too (the checks of a sync search only longer ones).
+it.
 
 #### Scenario: Private changes and bodies
 - **WHEN** the commits change a private declaration, a body alone, or add or remove a type with its members
 - **THEN** none of them is listed, only the type
   [@test] crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`)
+
+### Requirement: API Surface: A public declaration of a short name is listed
+
+A public declaration whose name has one or two characters MUST be listed too (the checks of a sync search only longer
+ones).
 
 #### Scenario: A short name
 - **WHEN** a public declaration of a name of one or two characters changes
@@ -555,7 +580,7 @@ declares the API. A change is of an override when the member overrides before an
 
 #### Scenario: An override is no entry
 - **WHEN** the commits add or change a member marked `override` or `@Override`
-- **THEN** it is no entry, and a member is asked by its place
+- **THEN** it is no entry
   [@test] crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_place_and_an_override_is_no_entry`, `a_changed_override_in_kotlin_or_java_is_no_entry`)
 
 ### Requirement: API Surface: Test code is not listed
@@ -573,13 +598,16 @@ type around a nested test class, a Rust module that holds a test), and every dec
 
 ### Requirement: API Surface: The climb from a test stops at a Rust module
 
-The climb from a test MUST stop at a Rust module, so the module around a `mod tests` and its other items stay API. A
-public helper beside a test in the same file, outside the test class, MUST be listed.
+The climb from a test MUST stop at a Rust module, so the module around a `mod tests` and its other items stay API.
 
 #### Scenario: A Rust public inline module
 - **WHEN** a public Rust module holds a `mod tests` and other items
 - **THEN** it and its other items stay API
   [@test] crates/trial-check/src/declaration_checks_test.rs (`a_rust_public_inline_module_is_not_test_code`)
+
+### Requirement: API Surface: A public helper beside a test is listed
+
+A public helper beside a test in the same file, outside the test class, MUST be listed.
 
 #### Scenario: A public helper beside a test
 - **WHEN** a public helper is declared beside a test in the same file, outside the test class
@@ -663,12 +691,16 @@ no entry, as an addition of it is none.
 
 The reach of an overridable member (an `open` Kotlin member, a method of a Java class that is not final) MUST stay
 `changed`: an override MUST NOT weaken the access of what it overrides; so MUST an `open` member of a final Kotlin class,
-whose modality the summary does not read, and a widening with another change of the form (a parameter more).
+whose modality the summary does not read.
 
 #### Scenario: A widening of an open member
 - **WHEN** the reach of an `open` Kotlin member or of a method of a Java class that is not final widens
 - **THEN** it stays `changed`
   [@test] crates/review-plan/src/api_test.rs (`a_widening_of_an_open_member_stays_a_change`)
+
+### Requirement: API Surface: A widening with another change of the form stays a change
+
+A widening of the reach together with another change of the form (a parameter more) MUST stay `changed`.
 
 #### Scenario: A widening with another change of the form
 - **WHEN** the reach widens and the form changes otherwise too (a parameter more)
@@ -806,7 +838,8 @@ entries of one place MUST share it.
 
 #### Scenario: An entry of a renamed file
 - **WHEN** the file of the entry was renamed
-- **THEN** its place is at its new path in the last commit that touched it
+- **THEN** its place is its line in the last commit that touched it, at the path the file has in that commit: the old path when a rename came after that commit
+- **AND** of a removal, its line at the parent of the commit that first touched it, at the path the file had there
   [@test] crates/review-plan/src/api_test.rs (`the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
 
 ### Requirement: Fan-in: A place with no declaration leaves its usages unknown
@@ -1065,7 +1098,7 @@ a removal whose entry names the old path. A usage inside the change and an addit
 #### Scenario: A renamed file and a member
 - **WHEN** the API is of a renamed file, or a removal's entry names the old path
 - **THEN** its usages count at the new path
-- **AND** a member is asked by its place, and an override is no entry
+- **AND** of a member, only its usages left outside count in the `breaks` of its file, not those inside the change
   [@test] crates/review-plan/src/api_test.rs (`the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`, `a_member_is_asked_by_its_place_and_an_override_is_no_entry`)
 
 ### Requirement: Files: breaks_complete only when every usage count is complete
@@ -2825,6 +2858,7 @@ the name selected, a file it uses at its header.
 - **WHEN** the user clicks a link in the card of a file
 - **THEN** that file is selected, the card closes and the file is shown: a file that uses this one at its first use, the name selected, a file it uses at its header
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`)
+  [@test] src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
 
 ### Requirement: In the Review Window: A file of a card is selected also under a filter
 
@@ -2844,7 +2878,6 @@ The click selects the file once: a later change of the owner chip or the search 
 - **WHEN** the file is revealed
 - **THEN** the search is cleared and the chip stays
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should reveal an overview file under a text search while retaining its owner chip`)
-  [@test] src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
 
 ### Requirement: In the Review Window: The card says what breaks, as a lower bound when cut
 
