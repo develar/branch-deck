@@ -154,7 +154,6 @@ MUST join first.
 #### Scenario: The order of the joins
 - **WHEN** several pairs of nodes are alike
 - **THEN** the pairs most alike join first
-  [@test] crates/review-plan/src/concerns_test.rs (`one_shared_identifier_bridges_no_two_concerns`)
 
 ### Requirement: Edges: A token is a name of code, never a word of prose
 
@@ -248,21 +247,6 @@ the concern of its subject (a file of the stem it names).
 - **AND** the change joins the concern of its file
   [@test] crates/review-plan/src/concerns_test.rs (`a_test_follows_its_subject_and_a_change_alone_the_concern_of_its_file`)
 
-### Requirement: The Rest: With it on, a generated file follows the file its header names
-
-With the rest on, a generated file MUST follow the concern of the changed file its header names by its whole path, of
-the most changed lines, at the end of its parts; a glob (`edit docs/*`) names none, and such a file stays in the
-Mechanical group.
-
-#### Scenario: A header that names its source by its whole path
-- **GIVEN** the rest is on
-- **WHEN** the header of a generated file names a changed file by its whole path
-- **THEN** the generated file follows the concern of that file, of the most changed lines, at the end of its parts
-
-#### Scenario: A header that names a glob
-- **WHEN** the header of a generated file names a glob (`edit docs/*`)
-- **THEN** it names no file, and the generated file stays in the Mechanical group
-
 ### Requirement: The Rest: A consequence follows the concern of its cause
 
 A consequence MUST follow the concern of its cause, folded at the end of its parts, also with the rest off; of
@@ -280,12 +264,19 @@ several, the one of the most changed lines among the causes.
 
 ### Requirement: The Rest: A generated file is a consequence of the file its header names
 
-A generated file MUST be a consequence of the changed file its header names by its whole path.
+A generated file MUST be a consequence of the changed file its header names by its whole path, with the rest on or
+off: it follows the concern of that file, of the most changed lines, at the end of its parts. A glob (`edit docs/*`)
+names none, and such a file stays in the Mechanical group.
 
 #### Scenario: A generated guide
+- **GIVEN** the rest is off
 - **WHEN** a generated file's header names a changed guide by its whole path
-- **THEN** the generated file follows the concern of the guide
+- **THEN** the generated file follows the concern of the guide, at the end of its parts
   [@test] crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`)
+
+#### Scenario: A header that names a glob
+- **WHEN** the header of a generated file names a glob (`edit docs/*`)
+- **THEN** it names no file, and the generated file stays in the Mechanical group
 
 ### Requirement: The Rest: A mechanical build file follows the code of its module that needs it
 
@@ -476,7 +467,7 @@ The hidden `--concern-edges uses,tokens,rest` (or `none`) MUST pick the edges fo
 
 #### Scenario: Edges for a measurement
 - **WHEN** `brd review-plan` runs with `--concern-edges` naming some of `uses,tokens,rest`, or `none`
-- **THEN** only those edges join
+- **THEN** of the uses, the tokens and the rest only those it names join
 
 ### Requirement: In `brd`: The concerns run no git process
 
