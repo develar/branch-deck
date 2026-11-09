@@ -210,8 +210,13 @@ segment otherwise.
 - **GIVEN** a commit of the range left out by its patch id
 - **WHEN** the rest is replayed
 - **THEN** its child lands on the copy before it, one chain, never a fork onto the branch's HEAD
-- **AND** the pick runs one `replay` without a left out commit, one more per segment otherwise
   [@test] crates/git-ops/src/pick_test.rs (`a_commit_with_the_patch_id_of_a_target_commit_is_left_out_and_its_child_lands_on_the_copy_before_it`)
+
+#### Scenario: The replays of a pick
+- **WHEN** no commit of the range is left out
+- **THEN** the pick runs one `replay`
+- **AND** with left out commits, one more per segment
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_pick`)
 
 ### Requirement: Pick: A commit the replay drops as empty is present by empty
 
@@ -294,6 +299,12 @@ has.
 #### Scenario: A prefix of a new branch
 - **WHEN** a picked commit's prefix names a branch the branch does not have
 - **THEN** the dependency check reads no diffs for it
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_pick`)
+
+#### Scenario: A prefix of a branch the branch has
+- **WHEN** a picked commit's prefix names a branch the branch has
+- **THEN** the dependency check reads the diffs of the commits ahead and of the copy
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_pick_into_a_branch_the_target_has`)
 
 ### Requirement: Pick: A parent/leaf prefix on a root stacks the whole branch
 
@@ -570,10 +581,15 @@ setting and without --dry-run the pick MUST read neither the records nor git for
 - **THEN** it runs one `rev-parse` of the git dir, HEAD and its tree, and one `diff-tree` for a stale tree
   [@test] crates/bd-cli/src/process_budget_test.rs (`the_tree_check_of_a_lease_pick`)
 
+#### Scenario: The check of a dry run without a record
+- **WHEN** `--dry-run` of `--from` reports the check of a worktree that has no record
+- **THEN** the check runs one `rev-parse` of the git dir, HEAD and its tree, and no `diff-tree`
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_pick_into_a_branch_the_target_has`)
+
 #### Scenario: A pick without the setting
 - **WHEN** a pick without the setting and without --dry-run runs
 - **THEN** it reads neither the records nor git for the check
-  [@test] crates/bd-cli/src/process_budget_test.rs (`a_pick_into_a_branch_the_target_has`)
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_pick`)
 
 ### Requirement: The check of the tree: Revisions with the setting land nothing
 
@@ -975,9 +991,10 @@ the repository lock and in the move, at most 30 s per write, and MUST never roll
   [@test] crates/git-ops/src/index_lock_test.rs (`a_step_blocked_by_the_lock_of_another_process_runs_again_once_the_lock_is_gone`)
 
 #### Scenario: A step that fails on its own
-- **GIVEN** a younger index lock exists
-- **WHEN** a step fails for a cause of its own
-- **THEN** it returns its error after one run, without a wait for the lock
+- **GIVEN** an index lock that another process took after a step of the pick started
+- **WHEN** that step fails for a cause of its own
+- **THEN** it returns its error after one run, without a wait for the lock: only a lock that was there when the step
+  started blocked it
   [@test] crates/git-ops/src/index_lock_test.rs (`a_step_that_fails_on_its_own_returns_its_error_after_one_run_although_a_younger_lock_exists`)
 
 ### Requirement: The lock: An index lock that appears under the repository lock sends the pick back
@@ -1124,7 +1141,8 @@ Undoing again MUST be no error (`already_undone`), and the worktree's commits MU
 
 ### Requirement: Undo: The undo is refused unless the pick is the last reflog entry
 
-The last entry of each reflog MUST be that pick, else the undo is refused; a branch that moved on MUST be `undo_stale`.
+The last entry of each reflog MUST be that pick, else the undo is refused as `invalid_arguments`; a branch that moved
+on MUST be `undo_stale`.
 
 #### Scenario: The undo of a pick that is the last entry
 - **WHEN** the last entry of each reflog is that pick
@@ -1135,6 +1153,13 @@ The last entry of each reflog MUST be that pick, else the undo is refused; a bra
 - **WHEN** the branch moved on since the pick
 - **THEN** the undo is refused as `undo_stale`
   [@test] crates/git-ops/src/pick_test.rs (`the_undo_moves_the_target_and_the_detached_source_back`)
+  [@test] crates/bd-update/src/error_code_test.rs (`bd_undo_answers_the_code_of_each_refusal_that_the_app_answers_and_a_moved_head_makes_it_stale`)
+
+#### Scenario: The last move is another one
+- **GIVEN** the branch at the new head of the pick, and the last entry of its reflog another move
+- **WHEN** `brd undo` runs with the token of the pick
+- **THEN** the undo is refused as `invalid_arguments`
+  [@test] crates/bd-update/src/error_code_test.rs (`bd_undo_answers_the_code_of_each_refusal_that_the_app_answers_and_a_moved_head_makes_it_stale`)
 
 ### Requirement: Undo: The undo locks only the witness and the moves back
 
@@ -1143,9 +1168,10 @@ and the mark of an interrupted move, read in its own directory) and the moves ba
 before it as every pick. A worktree with such a mark before the check MUST let its files follow under the lock first.
 
 #### Scenario: A remote pick and its undo
-- **WHEN** a remote pick and its undo run
-- **THEN** each fetches and checks before the repository lock, which holds only the witness of each worktree, read in
-  its own directory, and the moves
+- **WHEN** a remote pick runs
+- **THEN** it fetches and checks before the repository lock, as every pick
+- **AND** its undo checks before the repository lock, which holds only the witness of each worktree, read in its own
+  directory, and the moves back
   [@test] crates/bd-update/src/pick_test.rs (`a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move`)
 
 #### Scenario: A worktree with the mark of an interrupted move
@@ -1153,21 +1179,43 @@ before it as every pick. A worktree with such a mark before the check MUST let i
 - **WHEN** the undo takes the lock
 - **THEN** it lets the files of that worktree follow under the lock first
 
-### Requirement: Error codes: Each code has its exit code
+### Requirement: Error codes: A conflict exits 1, an output and not an error
 
-The refusals of `brd pick` MUST exit with the exit code of their code as the table of the scenario gives it; a conflict
-MUST be an output, not an error.
+A pick whose commit conflicts MUST exit 1 with `state: "conflict"`: an output, not an error.
 
-#### Scenario: The exit of each code
-- **WHEN** `brd pick` ends with a conflict or fails with a code
-- **THEN** it exits with the exit of its row
+#### Scenario: The exit of a conflict
+- **WHEN** a commit of the pick conflicts
+- **THEN** `brd pick` prints `state: "conflict"` and exits 1
+  [@test] crates/bd-update/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
 
-  | Exit | Codes |
-  |---|---|
-  | 1 | a commit conflicts (`state: "conflict"`): an output, not an error |
-  | 2 | `invalid_arguments` |
-  | 3 | `head_moved`, `locked` (retryable) |
-  | 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`, `unchecked_tree`, `message_format`, `baseline_parent`; with --remote `lease_rejected`, `nothing_to_pick` |
+### Requirement: Error codes: invalid_arguments exits 2
+
+`invalid_arguments` MUST exit 2.
+
+#### Scenario: The exit of invalid arguments
+- **WHEN** `brd pick` fails with `invalid_arguments`
+- **THEN** it exits 2
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
+
+### Requirement: Error codes: head_moved and locked exit 3, retryable
+
+`head_moved` and `locked` MUST exit 3, retryable.
+
+#### Scenario: The exit of a moved head or a lock
+- **WHEN** `brd pick` fails with `head_moved` or `locked`
+- **THEN** it exits 3, retryable
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
+
+### Requirement: Error codes: The refusals exit 4
+
+`range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`,
+`detached_head`, `finish_pending`, `undo_stale`, `unchecked_tree`, `message_format`, `baseline_parent`, and with
+--remote `lease_rejected` and `nothing_to_pick`, MUST exit 4.
+
+#### Scenario: The exit of a refusal
+- **WHEN** `brd pick` or its undo is refused with one of these codes
+- **THEN** it exits 4
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
 
 ### Requirement: Error codes: The outputs match brd schema
 
