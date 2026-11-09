@@ -1856,10 +1856,13 @@ fn the_discrepancy_cases_name_every_id_as_the_register_does() {
   assert_group("discrepancies");
 }
 
-/// The rows of the table of `openspec/specs/branch/next-step/spec.md` (`  | <row> | ` under "The table"; a removed row is none)
+/// The rows of the tables of `openspec/specs/branch/next-step/spec.md` (`  | <row> | ` from the requirement "The table: …" on;
+/// a removed row is none)
 fn next_step_rows() -> Vec<String> {
   let text = std::fs::read_to_string(format!("{ROOT}/openspec/specs/branch/next-step/spec.md")).unwrap();
-  let table = &text[text.find("\n### The table\n").expect("openspec/specs/branch/next-step/spec.md has The table")..];
+  let table = &text[text
+    .find("\n### Requirement: The table: ")
+    .expect("openspec/specs/branch/next-step/spec.md has a requirement The table: …")..];
   table
     .lines()
     .filter_map(|line| line.strip_prefix("  | ")?.split_once(" | "))
