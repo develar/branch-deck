@@ -315,7 +315,6 @@ at the field of its prefix; "Open Agent Settings" SHALL open Agents on the tab o
 - **WHEN** the user clicks "Set GitHub Repository…" on the review line of the Safe Push popover
 - **THEN** Settings opens at Landing on the tab of the repository, at the field of the GitHub repository
   [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
-  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
 
 #### Scenario: Open <repository> of the prefix of all repositories
 - **GIVEN** a repository with a prefix of its own
