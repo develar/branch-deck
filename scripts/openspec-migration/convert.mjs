@@ -201,8 +201,8 @@ function tokensOf(text) {
   const add = token => counts.set(token, (counts.get(token) ?? 0) + 1)
   // a fenced block is one token, its lines without their indent; its backticks are no code span
   const unfenced = text.replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm, block => (add(block.replace(/^[ \t]+/gm, "").trim()), " "))
-  // a line wrapped anew changes no token: the lines of the text are joined first
-  const plain = unfenced.replace(/\s*\n\s*/g, " ").replace(/`[^`]+`/g, span => (add(span), " "))
+  // a line wrapped anew changes no token: the lines of the text are joined first; a span of two backticks holds one
+  const plain = unfenced.replace(/\s*\n\s*/g, " ").replace(/``.+?``|`[^`]+`/g, span => (add(span), " "))
   for (const [match] of plain.matchAll(/"[^"\n]{1,120}"|“[^”\n]{1,120}”|‹[^›\n]{1,60}›/g)) {
     add(match)
   }
