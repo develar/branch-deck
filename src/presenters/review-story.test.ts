@@ -187,6 +187,8 @@ describe("the document of a review", () => {
       ["spec/new.spec.md", [[null, [["A new spec of 3 rules", null]], null]]],
       ["spec/old.spec.md", [[null, [["Deleted", null]], null]]],
     ])
+    // the line a fold shows: of a changed file its changes and their sections, of a new spec its requirements
+    expect(view.contract.map(it => it.summary)).toEqual(["4 changes in Storage and Requirements", "New spec (3 requirements)", "Deleted"])
     // a link to a changed file shows it at its top, one to a page opens it, one to a file the review does not show is text
     expect(paragraphsOf(view.contract[0]!.entries[0]!)[0]!.links).toEqual([
       { start: 4, end: 9, place: { path: "spec/store.spec.md", side: "new", line: null, name: null }, href: null },

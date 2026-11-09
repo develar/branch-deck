@@ -584,7 +584,10 @@ export interface ContractFile {
   readonly path: string
   /** "Spec rule", "Decision", "Agent guide", "Doc" */
   readonly kind: string
-  /** "7 changes in User Experience and Requirements": the line of a file whose quotes the opening folds */
+  /**
+   * "7 changes in User Experience and Requirements": the line of a file whose quotes the opening folds; "New spec (9
+   * requirements)" of a spec the change adds, "Deleted" of a file it deletes
+   */
   readonly summary: string
   /** Its sections, each its heading once with the paragraphs the change adds, removes or changes under it */
   readonly entries: readonly {
@@ -808,7 +811,14 @@ function contractNote(key: string, text: string): ContractParagraph {
  */
 function presentContract(plan: Pick<ReviewPlan, "brief" | "files">, keep: (entry: ContractEntry, index: number) => boolean = () => true): ContractFile[] {
   const shown = new Set(plan.files.flatMap(file => (file.oldPath === null ? [file.path] : [file.path, file.oldPath])))
-  const files: { key: string; path: string; kind: string; entries: { key: string; heading: string | null; paragraphs: ContractParagraph[]; provenBy: string[] }[] }[] = []
+  const files: {
+    key: string
+    path: string
+    kind: string
+    // the line of a file the change adds as a spec or deletes, whose one note counts no change
+    whole: string | null
+    entries: { key: string; heading: string | null; paragraphs: ContractParagraph[]; provenBy: string[] }[]
+  }[] = []
   plan.brief.contract.forEach((entry, index) => {
     if (!keep(entry, index)) {
       return
@@ -846,8 +856,13 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">, keep: (entry
             }))
     let file = files.at(-1)
     if (file?.path !== entry.path) {
-      file = { key, path: entry.path, kind: CONTRACT_WORDS[entry.kind], entries: [] }
+      file = { key, path: entry.path, kind: CONTRACT_WORDS[entry.kind], whole: null, entries: [] }
       files.push(file)
+    }
+    if (entry.newSpec !== null) {
+      file.whole = `New spec (${entry.newSpec.rules === 1 ? "1 requirement" : `${entry.newSpec.rules} requirements`})`
+    } else if (entry.deleted) {
+      file.whole = "Deleted"
     }
     const section = file.entries.at(-1)
     if (section !== undefined && section.heading === entry.heading) {
@@ -857,9 +872,9 @@ function presentContract(plan: Pick<ReviewPlan, "brief" | "files">, keep: (entry
       file.entries.push({ key, heading: entry.heading, paragraphs, provenBy: [...entry.provenBy] })
     }
   })
-  return files.map(file => ({
+  return files.map(({ whole, ...file }) => ({
     ...file,
-    summary: contractSummary(file.entries),
+    summary: whole ?? contractSummary(file.entries),
     entries: file.entries.map(entry => ({
       key: entry.key,
       heading: entry.heading,

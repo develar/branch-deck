@@ -428,7 +428,8 @@ it added a module.
   replacements stays muted in place without a change bar; an entry of the brief is quoted in the first step whose
   stops show its unit and one of its blocks, so a section two commits change has its part in the opening of each. The
   opening of a step quotes its contract whole up to 8 blocks; past them each file folds under the line of its sections
-  ("5 changes in Storage, Limits and Commands"), its header kept, a click opening it, ⌘F finding its words (the opening
+  ("5 changes in Storage, Limits and Commands"; of a spec the change adds "New spec (9 requirements)", of a file it
+  deletes "Deleted"), its header kept, a click opening it, ⌘F finding its words (the opening
   is one screen, the spec of a large step is no wall in front of its code). A code span keeps one chip with its inserted and deleted
   words diffed inside it. A fenced code block is a `pre`, preserves line breaks, and diffed by words without code
   heuristics; a long block changed in several lines first shows changed lines and one line of context, with a button
