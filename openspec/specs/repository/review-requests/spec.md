@@ -183,16 +183,16 @@ opened; who asked MUST be that event's actor, not the author.
 - **AND** who asked is that event's actor, not the author
   [@test] crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
 
-### Requirement: Reading the requests: A review newer than the request event drops the request
+### Requirement: Reading the requests: A review since the request event drops the request
 
-A request MUST be re-requested when the user's latest submitted review is older than its request event; a pending
-review is no review. A request whose latest review is newer than the event MUST be dropped (the search index lags
-behind a review).
+A request MUST count as re-requested when the user's latest submitted review is older than its request event; a
+pending review is no review. A request whose latest review is not older than the event MUST be dropped (the search
+index lags behind a review).
 
 #### Scenario: A re-request and a lagging review
 - **WHEN** the user's latest submitted review is older than the request event
-- **THEN** the request is re-requested, a pending review being no review
-- **AND** a request whose latest review is newer than the event is dropped (the search index lags behind a review)
+- **THEN** the request counts as re-requested, a pending review being no review
+- **AND** a request whose latest review is not older than the event is dropped (the search index lags behind a review)
   [@test] crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
 
 ### Requirement: Reading the requests: A request lists its reviewers
@@ -238,9 +238,11 @@ app posts as the user) MUST be no answer.
 
 ### Requirement: Reading the requests: A move of the other side gives the turn back
 
-A move after the answer MUST give the turn back: a commit (by its date), a force push, a comment or a submitted review
-of someone else than the user; a bot (`Bot`) MUST never move. The request waits since the first move then, and says
-what it was (`backToYou`: who replied, or new commits).
+A move after the answer MUST give the turn back: a commit (by its date, of anyone), a force push, or a comment or a
+submitted review of someone else than the user; a force push, a comment or a review of a bot (`Bot`) MUST never move.
+The request waits since the first move then, and says what it was (`backToYou`: who replied, or new commits). Only the
+times are compared, not the order of the timeline; a commit made before the answer and pushed after it is missed, as a
+plain push has no event.
 
 #### Scenario: Someone else moves after the answer
 - **WHEN** a commit, a force push, a comment or a submitted review of someone else than the user comes after the answer
@@ -252,19 +254,18 @@ what it was (`backToYou`: who replied, or new commits).
 - **WHEN** a bot (`Bot`) comments after the answer
 - **THEN** nothing moves and the request stays dropped
 
+#### Scenario: A commit pushed after the answer
+- **WHEN** a commit made before the answer is pushed after it
+- **THEN** it is missed, as only the times are compared and a plain push has no event
+
 ### Requirement: Reading the requests: A comment hides only a request by name
 
-Without a request event of the user (a team request, an event beyond the last 20) a comment MUST hide nothing. Only
-the times are compared, not the order of the timeline.
+Without a request event of the user (a team request, an event beyond the last 20) a comment MUST hide nothing.
 
 #### Scenario: No request event of the user
 - **WHEN** the user commented on a pull request without a request event of the user (a team request, an event beyond the last 20)
 - **THEN** the comment hides nothing
   [@test] crates/remote-facts/src/review_requests_test.rs (`an_answer_counts_only_after_a_request_by_name`)
-
-#### Scenario: A commit pushed after the answer
-- **WHEN** a commit made before the answer is pushed after it
-- **THEN** it is missed, as only the times are compared and a plain push has no event
 
 ### Requirement: Reading the requests: The count leaves out the requests that don't wait
 
@@ -1202,13 +1203,20 @@ hash in its card, the mark of its card; a click and Enter review the changes at 
 
 ### Requirement: Review window: Below md the rail goes under the description
 
-Below `md` the rail MUST go under the description. The key hints below the islands MUST be ↑↓ Previous/next, Esc
-Close; Space scrolls.
+Below `md` the rail MUST go under the description.
 
 #### Scenario: A narrow window
 - **WHEN** the window is narrower than `md`
 - **THEN** the rail goes under the description
-- **AND** the key hints below the islands say ↑↓ Previous/next, Esc Close
+
+### Requirement: Review window: The key hints below the islands
+
+The key hints below the islands MUST be ↑↓ Previous/next, Esc Close; Space scrolls.
+
+#### Scenario: The hints of the overview
+- **WHEN** the window shows a pull request
+- **THEN** the key hints below the islands say ↑↓ Previous/next, Esc Close
+- **AND** Space scrolls
 
 ### Requirement: Review window: The changes open on the summary of the description
 
