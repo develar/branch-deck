@@ -114,15 +114,22 @@ A fixup whose target landed MUST count as landed with it once the replay drops i
 - **THEN** the fixup landed with its target
   [@test] crates/update-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
 
-### Requirement: Detection: Without a replay only key matches count
-
-Without a replay (a conflict) only key matches MUST count, so a fixup made after the push MUST NOT be reported as landed.
-
 #### Scenario: A fixup made after the push
-- **GIVEN** the target of a fixup landed
-- **WHEN** a fixup of it was made after the push
-- **THEN** that fixup is never reported as landed: it stays local
+- **GIVEN** the target of a fixup landed and the robot folded the fixup pushed with it
+- **WHEN** another fixup of it was made after the push
+- **THEN** the replay drops the folded fixup, which landed with its target
+- **AND** the replay keeps the fixup made after the push: it is not reported as landed and stays local
   [@test] crates/update-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
+
+### Requirement: Detection: Without a replay a fixup counts only by its own key
+
+Without a replay (a conflict) a fixup MUST count as landed only by a key match of its own (or its proof, "The proof"),
+never with its target, so a fixup made after the push MUST NOT be reported as landed.
+
+#### Scenario: The replay conflicts
+- **GIVEN** the target of a fixup landed by its key, and the replay conflicts
+- **WHEN** the baseline has no commit of the fixup's own key
+- **THEN** the fixup is not reported as landed: it counts among the commits that stay local
 
 ### Requirement: Detection: A commit the replay drops landed without a counterpart
 
@@ -615,17 +622,18 @@ row 1).
 ### Requirement: Before the update: A landed branch has no Safe Push
 
 The Safe Push and Dry Run of a landed branch MUST be disabled with "Landed in origin/master", and `brd safe-push` MUST
-refuse it as `landed` (a whole stack: every branch of it).
+refuse it as `landed` (a whole stack: every branch of it, a whole stack being landed in the baseline only when the
+fetched baseline has all of every branch of it).
 
 #### Scenario: Safe Push of a landed branch
-- **WHEN** the branch landed
+- **WHEN** the fetched baseline has all of the branch
 - **THEN** its Safe Push and Dry Run are disabled with "Landed in origin/master"
 - **AND** `brd safe-push` refuses it as `landed`
   [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 
 #### Scenario: A whole stack
-- **WHEN** a Safe Push of a whole stack starts and every branch of it landed
-- **THEN** the whole stack landed, and `brd safe-push` refuses it as `landed`
+- **WHEN** the fetched baseline has all of every branch of a whole stack
+- **THEN** the whole stack is landed in origin/master, and `brd safe-push` refuses it as `landed`
   [@test] crates/domain-policy/src/landed_test.rs (`a_whole_stack_landed_when_every_branch_of_it_did`)
 
 ### Requirement: After the update: The toast leads with what landed
@@ -754,11 +762,11 @@ commits read by `get_review` of the target `commits`).
 
 ### Requirement: After the update: Activity lists the same rows
 
-Activity MUST list the same rows, without that review.
+Activity MUST list the same rows as the island, without that review: no D and no Review Changes button.
 
 #### Scenario: The Activity entry of the report
 - **WHEN** the user opens the Activity entry of an update that landed commits
-- **THEN** it lists the same rows as the island, without the review of D
+- **THEN** it lists the same rows as the island, without D and the Review Changes buttons
   [@test] tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island, in the window`)
 
 ### Requirement: After the update: The island hides after the user saw it
