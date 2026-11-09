@@ -210,12 +210,93 @@ fn an_ancestor_is_a_process_above_this_one_with_its_start_time() {
     processes,
     own: std::collections::HashSet::new(),
   };
-  assert!(scan.has_ancestor(100, Some(7)));
-  assert!(scan.has_ancestor(100, None));
-  assert!(scan.has_ancestor(200, None));
-  assert!(!scan.has_ancestor(100, Some(8)), "another process with the pid of the holder");
-  assert!(!scan.has_ancestor(300, None), "a sibling of the same group");
-  assert!(!ProcessScan::Unavailable.has_ancestor(100, None));
+  assert_eq!(scan.has_ancestor(100, Some(7)), Some(true));
+  assert_eq!(scan.has_ancestor(100, None), Some(true));
+  assert_eq!(scan.has_ancestor(200, None), Some(true));
+  assert_eq!(scan.has_ancestor(100, Some(8)), Some(false), "another process with the pid of the holder");
+  assert_eq!(scan.has_ancestor(300, None), Some(false), "a sibling of the same group");
+  assert_ne!(ProcessScan::Unavailable.has_ancestor(100, None), Some(true));
+}
+
+/// The chain of Windows: exes without `.exe`, a runner whatever its case (`Bash`, `cmd`), the agent above them. A parent
+/// that started after its child is another process that got the pid of a gone one: the chain ends there, not whole, so
+/// nothing above it is told and no ancestor is denied. A link whose start the system won't tell stays in it, but is no
+/// holder. A chain that reaches the init process or a parent no longer in the list is whole: what it lacks is no
+/// ancestor
+#[test]
+fn the_chain_skips_the_runners_of_windows_and_ends_at_a_parent_younger_than_its_child() {
+  use crate::process_scan::chain;
+  let me = 500;
+  let mut processes = vec![
+    process(4, 0, &["System"]),
+    process(100, 4, &["claude"]),
+    process(200, 100, &["Bash"]),
+    process(300, 200, &["cmd"]),
+    process(me, 300, &["brd"]),
+  ];
+  for (process, started) in processes.iter_mut().zip([1, 10, 20, 30, 40]) {
+    process.started = Some(started);
+  }
+  let started = |process: &crate::process_scan::ProcessInfo| process.started;
+  let ancestors = chain(&processes, me, started, true);
+  assert_eq!(ancestors.session().map(|process| process.pid), Some(100));
+  assert_eq!(ancestors.contains(100, Some(10)), Some(true));
+  assert_eq!(ancestors.contains(100, Some(11)), Some(false), "a whole chain tells a reused pid apart");
+
+  // the cmd exited and its pid went to a younger process, which is not the parent
+  processes[3].started = Some(50);
+  let ancestors = chain(&processes, me, started, true);
+  assert_eq!(ancestors.session().map(|process| process.pid), None);
+  assert_eq!(ancestors.contains(100, Some(10)), None);
+  // where the system gives an orphan to the init process, a younger parent is a clock that stepped back
+  assert_eq!(chain(&processes, me, started, false).session().map(|process| process.pid), Some(100));
+
+  // a link whose start the system won't tell (a service of another user) stays in the chain: what is above it is still
+  // told, and a younger parent above it is still found by the start of the nearest child that has one
+  processes[3].started = Some(30);
+  processes[2].started = None;
+  let ancestors = chain(&processes, me, started, true);
+  assert_eq!((ancestors.session().map(|process| process.pid), ancestors.contains(100, Some(10))), (Some(100), Some(true)));
+  processes[1].started = Some(35);
+  assert_eq!(
+    chain(&processes, me, started, true).contains(100, Some(35)),
+    None,
+    "older than the cmd below the unknown link"
+  );
+  // a holder must have a start time: the nearest non-runner without one names no holder
+  processes[1].started = None;
+  assert_eq!(chain(&processes, me, started, true).session().map(|process| process.pid), None);
+  processes[1].started = Some(10);
+  processes[2].started = Some(20);
+
+  // the cmd is gone from the list: nothing above it is an ancestor any more
+  processes.remove(3);
+  let ancestors = chain(&processes, me, started, true);
+  assert_eq!((ancestors.session().map(|process| process.pid), ancestors.contains(100, Some(10))), (None, Some(false)));
+}
+
+/// The ancestors of this process are read on every platform, the scan's or, without one (Windows), a snapshot of the
+/// process list: the parent first, with its start time, still running and told as an ancestor; none only under a
+/// parent of pid 1 (a test runner in a container)
+#[test]
+fn the_ancestors_of_this_process_are_read_on_every_platform() {
+  for scan in [ProcessScan::scan(), ProcessScan::Unavailable] {
+    let ancestors = scan.ancestors().unwrap();
+    #[cfg(unix)]
+    let orphan = std::os::unix::process::parent_id() <= 1;
+    #[cfg(not(unix))]
+    let orphan = false;
+    let Some(parent) = ancestors.links.first() else {
+      assert!(orphan, "{ancestors:?}");
+      continue;
+    };
+    #[cfg(unix)]
+    assert_eq!(parent.pid, std::os::unix::process::parent_id());
+    let started = parent.started.unwrap();
+    assert!(is_running(parent.pid, Some(started)));
+    assert_eq!(scan.has_ancestor(parent.pid, Some(started)), Some(true));
+    assert_eq!(scan.session().is_some(), ancestors.session().is_some());
+  }
 }
 
 /// A kill names the start time of the process it means: another start time (the pid of a process that exited, given to

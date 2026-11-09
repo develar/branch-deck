@@ -97,8 +97,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A fetch: the slot moves to the HEAD of the source as it is.
 - A reset of a returned slot to master: the next get moves it.
 - A walk of the tree for `.worktreeinclude`: only literal paths and globs in one directory are seeded.
-- The process scan on Windows: there it is reported as not checked, and a lease never waits for it; only the Bazel
-  servers of a slot are found there, by their output base.
+- The scan of the working directories on Windows: there the processes in a slot are reported as not checked, and a
+  lease never waits for them; only the Bazel servers of a slot (by their output base) and the ancestors of brd (the
+  holder of a lease, from a snapshot of the process list) are found there.
 
 ## Concepts
 
@@ -275,13 +276,22 @@ the pool's, a server serves only it, and a `--watchfs` server could miss the eve
 
 A get MUST record the process it runs for, the nearest ancestor that is no shell or wrapper (the coding agent, the
 terminal), with its start time (`holder_pid`, `holder_started`): the `pid` of a lease is of the get, which exits at
-once.
+once. On Windows the ancestors MUST come from one snapshot of the process list (the pid, the parent and the exe of
+each), a parent that started after its child ending the chain.
 
 #### Scenario: The holder of a lease
 - **WHEN** a get records its lease
 - **THEN** the lease names the nearest ancestor that is no shell or wrapper with its start time
 - **AND** the status tells whether that holder is alive
   [@test] crates/bd-lease/src/lease_test.rs (`the_status_tells_whether_the_holder_of_a_lease_is_alive`)
+
+#### Scenario: On Windows
+- **WHEN** a get runs on Windows, under a `bash` or a `cmd` of the agent
+- **THEN** the lease names the agent, read from the snapshot of the process list
+- **AND** a parent pid that a younger process got since ends the chain there, and a process whose start the system
+  won't tell (a service of another user) is no holder
+  [@test] crates/sync-utils/src/process_scan_test.rs (`the_chain_skips_the_runners_of_windows_and_ends_at_a_parent_younger_than_its_child`)
+  [@test] crates/sync-utils/src/process_scan_test.rs (`the_ancestors_of_this_process_are_read_on_every_platform`)
 
 ### Requirement: Get: A gone holder alone frees no lease
 
@@ -1995,6 +2005,12 @@ its lease, its holder still gone and its slot as the check found it, its slot fr
 - **WHEN** a lease is not quiet for an hour, busy, changed meanwhile or its check failed
 - **THEN** it is `skipped` with its reason
 
+#### Scenario: A lease whose holder is unknown
+- **GIVEN** a `ready` lease whose get recorded no holder process
+- **WHEN** reclaim runs, with `--dry-run` or not
+- **THEN** it is `skipped` as `holder_unknown`, checked by nothing, and stays `ready`
+  [@test] crates/bd-lease/src/takeover_test.rs (`reclaim_names_a_lease_without_a_holder_as_holder_unknown`)
+
 #### Scenario: A dry run
 - **WHEN** reclaim runs with `--dry-run`
 - **THEN** it checks the same and writes nothing
@@ -2204,12 +2220,19 @@ holder, the new one, the home branch and the old branch, which stays, and `next_
 ### Requirement: Reclaimed: The session that holds the slot is told by its process
 
 The session that holds it MUST be told by its process: refused unless the holder (pid and start time) is an ancestor of
-bd. The check MUST read the state, no git, with a process scan only in such a slot.
+bd, on Windows too. The check MUST read the state, no git, with a process scan only in such a slot; a chain of
+ancestors cut below the init process MUST refuse nothing.
 
 #### Scenario: The holder is an ancestor
 - **WHEN** the holder recorded with its pid and start time is an ancestor of bd
 - **THEN** the command is not refused
   [@test] crates/sync-utils/src/process_scan_test.rs (`an_ancestor_is_a_process_above_this_one_with_its_start_time`)
+
+#### Scenario: A chain cut below the init process
+- **WHEN** the chain of the ancestors ends at a parent younger than its child, past a link whose start the system
+  won't tell or not
+- **THEN** the holder is neither found nor denied, and the command is not refused
+  [@test] crates/sync-utils/src/process_scan_test.rs (`the_chain_skips_the_runners_of_windows_and_ends_at_a_parent_younger_than_its_child`)
 
 ### Requirement: Reclaimed: Reads pass and a coordinator may return the current lease
 
@@ -3053,7 +3076,8 @@ exact counts in the worktree safety scan.
   global `core.excludesFile` that comes to ignore the stray file, the file itself untouched, keeps the slot skipped
   until something touches a recorded path or the slot moves.
 - A takeover can't tell a resumed session of the old holder from one of the new holder once the new holder is gone
-  too, nor any session where no process scan runs (Windows): there `lease_reclaimed` refuses nothing.
+  too, nor any session whose chain of ancestors is cut below the init process: there `lease_reclaimed` refuses
+  nothing.
 - A brd older than `taking_over`, `idle_check` and `reclaimed` drops them when it writes the state: the get gives the
   idle lease back from its own copy, but a get that dies meanwhile beside such a brd leaves the slot free.
 - The trash of a takeover stays until the next return or clean, or a get below the minimum free space; `brd lease

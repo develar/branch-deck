@@ -2,9 +2,8 @@
 //! (openspec/specs/cli/lease/spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
 //! older than the quiet time
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states, trash_of_a_run};
-#[cfg(unix)]
-use bd_cli::fixture_test::PREFIX;
-use bd_cli::fixture_test::{assert_covered, assert_error, make_lease_idle, run_in};
+use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, make_lease_idle, run_in};
+use bd_core::bd_command::shell_word;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -12,6 +11,23 @@ use std::path::Path;
 /// The lease of the slot at `path` idle (`make_lease_idle`)
 fn make_idle(fixture: &Fixture, path: &str) {
   make_lease_idle(&fixture.state_file(), &slot_path(path));
+}
+
+/// A live process of another session, no ancestor of brd: on Unix a `sleep` in a process group of its own in `dir`
+#[cfg(unix)]
+fn another_session(dir: &str) -> std::process::Child {
+  crate::lease_test::busy_in(dir)
+}
+
+/// A live process of another session, no ancestor of brd: on Windows a `ping` that waits half a minute
+#[cfg(windows)]
+fn another_session(dir: &str) -> std::process::Child {
+  std::process::Command::new("ping")
+    .args(["-n", "30", "127.0.0.1"])
+    .current_dir(dir)
+    .stdout(std::process::Stdio::null())
+    .spawn()
+    .unwrap()
 }
 
 /// Change the lease of the slot at `path` in the state file
@@ -230,7 +246,6 @@ fn a_get_killed_while_it_checks_an_idle_lease_gives_the_lease_back() {
 /// A resumed session of the old holder in a slot taken over is refused (`lease_reclaimed`), with the next step: its
 /// writes and `brd workspace`, its reads not. The session that holds the slot now passes, and a coordinator with the
 /// current lease id; once the new lease is returned, a write in the free slot is refused too
-#[cfg(unix)]
 #[test_log::test]
 fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaimed() {
   let fixture = Fixture::new();
@@ -242,7 +257,7 @@ fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaim
   let (exit_code, output) = fixture.run_in(slot, &["--prefix", PREFIX, "lease", "pick", "--dry-run"]);
   assert_eq!(exit_code, 0, "the holder's own session: {output}");
 
-  let other = crate::lease_test::Killed(crate::lease_test::busy_in(fixture.repo.path().to_str().unwrap()));
+  let other = crate::lease_test::Killed(another_session(fixture.repo.path().to_str().unwrap()));
   let started = sync_utils::process_scan::process_started(other.0.id());
   update_lease(&fixture, &path, |lease| {
     lease["holder_pid"] = json!(other.0.id());
@@ -254,7 +269,11 @@ fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaim
   assert!(message.contains("gone-agent") && message.contains("next-agent") && message.contains("lane"), "{output}");
   assert_eq!(
     output["error"]["next_steps"][0]["command"],
-    json!(format!("brd lease get --holder gone-agent -C {}", slot_path(fixture.repo.path().to_str().unwrap()))),
+    // the source of the lease, as git names its top level (`C:/…` on Windows)
+    json!(format!(
+      "brd lease get --holder gone-agent -C {}",
+      shell_word(slot_git(fixture.repo.path().to_str().unwrap(), &["rev-parse", "--show-toplevel"]).trim())
+    )),
     "{output}"
   );
   assert_matches_schema(&fixture, "error", &output);
@@ -306,6 +325,35 @@ fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
   assert_eq!((&slot["state"], &slot["reclaimed"]["holder"]), (&json!("free"), &json!("landed-agent")), "{slot}");
   assert_eq!(slot_status(&fixture, &kept)["lease"]["idle"]["state"], json!("idle_with_work"));
   assert_eq!(slot_status(&fixture, &young)["state"], json!("ready"));
+}
+
+/// A ready lease whose get recorded no holder process (a brd that named none on Windows) can't be told idle: the
+/// reclaim names it as `holder_unknown`, checks nothing and leaves it ready, the dry run and the reclaim alike
+#[test_log::test]
+fn reclaim_names_a_lease_without_a_holder_as_holder_unknown() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&["--holder", "unknown-agent"]);
+  let path = path_of(&got);
+  make_idle(&fixture, &path);
+  update_lease(&fixture, &path, |lease| {
+    let lease = lease.as_object_mut().unwrap();
+    lease.remove("holder_pid");
+    lease.remove("holder_started");
+  });
+  let state = std::fs::read(fixture.state_file()).unwrap();
+  for arguments in [&["lease", "reclaim", "--idle", "--dry-run"][..], &["lease", "reclaim", "--idle"]] {
+    let (exit_code, output) = fixture.run(arguments);
+    assert_eq!(exit_code, 0, "{output}");
+    assert_eq!(
+      output["skipped"],
+      json!([{ "path": slot_path(&path), "holder": "unknown-agent", "lease_id": got["lease_id"], "reason": "holder_unknown" }]),
+      "{output}"
+    );
+    assert_eq!((&output["reclaimed"], &output["kept"]), (&json!([]), &json!([])), "{output}");
+    assert_matches_schema(&fixture, "lease_reclaim", &output);
+    assert_eq!(std::fs::read(fixture.state_file()).unwrap(), state, "nothing is written");
+  }
+  assert_eq!(slot_status(&fixture, &path)["state"], json!("ready"));
 }
 
 /// `brd lease reclaim` frees every slot it reclaims before it deletes their trash: what the clean rules of the first slot

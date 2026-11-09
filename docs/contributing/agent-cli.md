@@ -1195,7 +1195,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `trash_bytes`; no `git status`. `--processes` adds the processes in each slot.
 - `brd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` returns every idle lease of the pool whose
   work landed, as a takeover would (`reclaimed`, with `landed`, `stopped_servers`, `cleaned`), keeps the ones with
-  work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`);
+  work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`, and
+  `holder_unknown` for a lease whose get recorded no holder process: never checked, the user returns it);
   `--dry-run` writes nothing. Output `lease_reclaim`.
 - In a slot whose lease was taken over, a write of another session than the one that holds it now (a resumed
   session of the old holder) and its `brd workspace` are `lease_reclaimed` (exit 4): the message names both leases, the

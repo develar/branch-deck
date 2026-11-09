@@ -256,8 +256,9 @@ checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own
    holder, its lease and the commits it found landed (`landed`, each with its `proof`). One with work its home branch
    lacks is never touched: `skipped` (`idle_with_work`) and `idle_leases` name it with its `commits`, `paths` or
    `operation`; tell the user, never give it up with `brd lease return --confirm-preserved` on your own. `brd lease reclaim --idle`
-   returns every idle lease whose work landed (`reclaimed`) and names the rest (`kept`); --dry-run only reports,
-   --keep and --age as for the return.
+   returns every idle lease whose work landed (`reclaimed`) and names the rest (`kept`; `skipped` with its `reason`,
+   `holder_unknown` when no holder process was recorded: tell the user, never return it on your own); --dry-run only
+   reports, --keep and --age as for the return.
    `lease_reclaimed` (exit 4): your lease was taken over while your session was gone, as its work had landed; that
    worktree is another session's now (its branch stays): stop working there and get a lease of your own (`next`).
 

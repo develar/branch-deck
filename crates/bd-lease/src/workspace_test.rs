@@ -5,7 +5,6 @@ use domain_types::landing_route::AGENT_PULL_REQUEST_OFF_UNDER_PUSH;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
-use sync_utils::process_scan::ProcessScan;
 
 fn workspace_in(fixture: &Fixture, cwd: &Path) -> Value {
   let (exit_code, output) = fixture.run_in(cwd, &["workspace"]);
@@ -75,12 +74,11 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
     output["next"].as_array().unwrap().iter().all(|command| command.as_str().unwrap().starts_with(CLI_NAME)),
     "{output}"
   );
-  // without a scan of the processes (Windows) the get records no holder process, and the lease names none
-  let mut active = json!({ "lease_id": lease["lease_id"], "holder": "lane-1", "path": slot });
-  if ProcessScan::scan().is_available() {
-    active["holder_alive"] = json!(true);
-  }
-  assert_eq!(output["active_leases"], json!([active]));
+  // the get recorded the process it runs for on every platform, and it still runs
+  assert_eq!(
+    output["active_leases"],
+    json!([{ "lease_id": lease["lease_id"], "holder": "lane-1", "path": slot, "holder_alive": true }])
+  );
   // the shared checkout names the lease too: a session that lost its path finds it by its holder
   assert_eq!(workspace_in(&fixture, fixture.repo.path())["active_leases"], output["active_leases"]);
 }

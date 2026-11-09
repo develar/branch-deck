@@ -1,8 +1,11 @@
 //! The processes whose working directory is inside a directory, for the lease pool (`lease`): a slot with a process in
 //! it is busy, a shell or a build daemon there would see its files change. One scan reads every process of the user
-//! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`. Windows has no scan:
-//! `ProcessScan::Unavailable`, and a lease never waits for it; it tells the start of a process by its pid
-//! (`process_started`), as the other two do. The scan leaves out the session that runs `bd`: this
+//! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`. Windows has no scan of
+//! the working directories: `ProcessScan::Unavailable`, and a lease never waits for it; it tells the start of a process
+//! by its pid (`process_started`), as the other two do, and the ancestors of this process from one snapshot of the
+//! process list (`CreateToolhelp32Snapshot`: the pid, the parent and the exe of each, no memory of another process), so
+//! a lease names the session it was got for there too (`ProcessScan::ancestors`). The scan leaves out the session that
+//! runs `brd`: this
 //! process, its ancestors and every process of their process groups (the `jq` of `brd lease return | jq`, the
 //! `caffeinate` of the agent). It reads the argv of each process too (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
 //! on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
@@ -118,7 +121,9 @@ impl ProcessInfo {
 }
 
 /// Shells and wrappers that run a command for someone else: the holder of a lease is the nearest ancestor that is
-/// none of them (`ProcessScan::session`)
+/// none of them (`Ancestors::session`), compared ignoring case (an exe of Windows, its `.exe` cut). Not `node`: Claude
+/// Code installed by npm is that `node.exe` itself, and the terminal above it would outlive every session; not
+/// `conhost`, which is a child of the console program, never its parent
 const RUNNERS: &[&str] = &[
   "sh",
   "bash",
@@ -130,15 +135,84 @@ const RUNNERS: &[&str] = &[
   "csh",
   "nu",
   "pwsh",
+  "powershell",
+  "cmd",
   "env",
   "nohup",
   "timeout",
   "xargs",
   "time",
   "sudo",
-  "bd",
+  "brd",
   "branch-deck",
 ];
+
+/// The ancestors of this process, its parent first, each with its start time when the system tells it (not of another
+/// user's process or a protected one on Windows)
+#[derive(Debug, Clone)]
+pub struct Ancestors {
+  links: Vec<ProcessInfo>,
+  /// Whether the chain reached its end: a parent of pid 1 or below, or one no longer in the list. A chain cut at a pid
+  /// seen twice or, on Windows, at a parent that started after its child is not whole: what was above it is unknown
+  whole: bool,
+}
+
+impl Ancestors {
+  /// The process this one works for: the nearest ancestor that is no shell or wrapper (`RUNNERS`), the coding agent or
+  /// the terminal; `None` when the chain has none below the init process, or when the system won't tell its start (a
+  /// service that runs the command on Windows), since a holder must be told from a process that got its pid later
+  pub fn session(&self) -> Option<&ProcessInfo> {
+    self
+      .links
+      .iter()
+      .find(|process| !RUNNERS.iter().any(|runner| runner.eq_ignore_ascii_case(&process.name)))
+      .filter(|process| process.started.is_some())
+  }
+
+  /// Whether the process `pid`, started at `started` when known, is one of them: `None` when it is not among the links
+  /// of a chain that is not whole, since it may be above the cut
+  pub fn contains(&self, pid: u32, started: Option<u64>) -> Option<bool> {
+    let found = self
+      .links
+      .iter()
+      .any(|process| process.pid == pid && started.is_none_or(|started| process.started == Some(started)));
+    (found || self.whole).then_some(found)
+  }
+}
+
+/// The ancestors of `pid` among `processes`, each with the start time `started` tells, when it does. With
+/// `younger_parent_ends`, a parent that started after the nearest child whose start is known ends the chain, not
+/// whole: Windows keeps the parent pid of a process after that parent exited, and may have given the pid to a younger
+/// process since; macOS and Linux give an orphan to the init process instead, and a wall clock that stepped back must
+/// not cut their chain
+pub(crate) fn chain(processes: &[ProcessInfo], pid: u32, started: impl Fn(&ProcessInfo) -> Option<u64>, younger_parent_ends: bool) -> Ancestors {
+  let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
+  let mut links = Vec::new();
+  let Some(own) = by_pid.get(&pid) else { return Ancestors { links, whole: false } };
+  let mut child_started = started(own);
+  let mut seen = HashSet::from([pid]);
+  let mut current = own.parent;
+  let whole = loop {
+    if current <= 1 {
+      break true;
+    }
+    if !seen.insert(current) {
+      break false;
+    }
+    let Some(process) = by_pid.get(&current) else { break true };
+    let process_started = started(process);
+    if younger_parent_ends && process_started.zip(child_started).is_some_and(|(parent, child)| parent > child) {
+      break false;
+    }
+    links.push(ProcessInfo {
+      started: process_started,
+      ..(*process).clone()
+    });
+    child_started = process_started.or(child_started);
+    current = process.parent;
+  };
+  Ancestors { links, whole }
+}
 
 /// The processes of one scan
 #[derive(Debug, Clone)]
@@ -148,7 +222,8 @@ pub enum ProcessScan {
     /// The session that runs this process: it, its ancestors and the processes of their groups
     own: HashSet<u32>,
   },
-  /// No scan on this platform: nothing is known to be inside a directory
+  /// No scan on this platform: nothing is known to be inside a directory; on Windows the ancestors of this process are
+  /// still known (`ancestors`)
   Unavailable,
 }
 
@@ -220,40 +295,30 @@ impl ProcessScan {
     processes.iter().filter(|process| !own.contains(&process.pid) && process.works_in(&dir)).collect()
   }
 
-  /// The process this one works for: the nearest ancestor that is no shell or wrapper (`RUNNERS`), the coding agent or
-  /// the terminal; `None` without a scan or when the chain has none below the init process
-  pub fn session(&self) -> Option<&ProcessInfo> {
-    let Self::Done { processes, .. } = self else { return None };
-    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
-    let mut seen = HashSet::new();
-    let mut current = by_pid.get(&std::process::id())?.parent;
-    while current > 1 && seen.insert(current) {
-      let process = by_pid.get(&current)?;
-      if !RUNNERS.contains(&process.name.as_str()) {
-        return Some(process);
+  /// The ancestors of this process: from the scan, or where there is none from the list of the processes the platform
+  /// gives (Windows: a snapshot of their pids, parents and exes); `None` where the system tells no list
+  pub fn ancestors(&self) -> Option<Ancestors> {
+    let pid = std::process::id();
+    match self {
+      Self::Done { processes, .. } => Some(chain(processes, pid, |process| process.started, false)),
+      Self::Unavailable => {
+        let processes = platform::process_tree()?;
+        Some(chain(&processes, pid, |process| process.started.or_else(|| platform::started(process.pid)), cfg!(windows)))
       }
-      current = process.parent;
     }
-    None
   }
-}
 
-impl ProcessScan {
+  /// The process this one works for (`Ancestors::session`); `None` without a list of the processes or when the chain
+  /// has none below the init process
+  pub fn session(&self) -> Option<ProcessInfo> {
+    self.ancestors()?.session().cloned()
+  }
+
   /// Whether the process `pid`, started at `started` when known, is an ancestor of this one: the session a lease was got
-  /// for is one of the processes above a `bd` it runs, a shell or `cargo` between them or not. False without a scan
-  pub fn has_ancestor(&self, pid: u32, started: Option<u64>) -> bool {
-    let Self::Done { processes, .. } = self else { return false };
-    let by_pid: HashMap<u32, &ProcessInfo> = processes.iter().map(|process| (process.pid, process)).collect();
-    let mut seen = HashSet::new();
-    let mut current = by_pid.get(&std::process::id()).map_or(0, |process| process.parent);
-    while current > 1 && seen.insert(current) {
-      let Some(process) = by_pid.get(&current) else { return false };
-      if process.pid == pid {
-        return started.is_none_or(|started| process.started == Some(started));
-      }
-      current = process.parent;
-    }
-    false
+  /// for is one of the processes above a `brd` it runs, a shell or `cargo` between them or not. `None` when that can't
+  /// be told: no list of the processes, or a chain cut below the init process (`Ancestors::contains`)
+  pub fn has_ancestor(&self, pid: u32, started: Option<u64>) -> Option<bool> {
+    self.ancestors()?.contains(pid, started)
   }
 }
 
@@ -421,6 +486,11 @@ mod platform {
         })
         .collect(),
     )
+  }
+
+  /// The list the ancestors are read from: the scan itself
+  pub(super) fn process_tree() -> Option<Vec<ProcessInfo>> {
+    processes()
   }
 
   pub(super) fn started(pid: u32) -> Option<u64> {
@@ -659,6 +729,11 @@ mod platform {
     )
   }
 
+  /// The list the ancestors are read from: the scan itself
+  pub(super) fn process_tree() -> Option<Vec<ProcessInfo>> {
+    processes()
+  }
+
   /// A zombie has exited: it waits only for its parent to reap it
   pub(super) fn started(pid: u32) -> Option<u64> {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
@@ -735,16 +810,61 @@ mod platform {
 }
 
 #[cfg(windows)]
-#[expect(unsafe_code, reason = "Win32: the start time of a process (OpenProcess, GetProcessTimes, GetExitCodeProcess)")]
+#[expect(
+  unsafe_code,
+  reason = "Win32: the start time of a process (OpenProcess, GetProcessTimes, GetExitCodeProcess) and the snapshot of the process list (CreateToolhelp32Snapshot)"
+)]
 mod platform {
   use super::ProcessInfo;
-  use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+  use std::os::windows::io::{AsRawHandle, FromRawHandle, HandleOrInvalid, OwnedHandle};
   use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, FILETIME, STILL_ACTIVE};
+  use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
   use windows_sys::Win32::System::Threading::{GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
   /// No scan of the working directories: reading another process's needs its memory
   pub(super) const fn processes() -> Option<Vec<ProcessInfo>> {
     None
+  }
+
+  /// Every process of the system with its parent and its exe (`.exe` cut), from one snapshot of the process list, which
+  /// reads no memory of another process; no start times (`started` reads those of the links of a chain), working
+  /// directories, arguments or groups. The parent is the pid the process was started by, which the system may have
+  /// given to another process once that one exited (`super::chain`)
+  pub(super) fn process_tree() -> Option<Vec<ProcessInfo>> {
+    // SAFETY: plain arguments; the result is a handle nothing else owns, or `INVALID_HANDLE_VALUE`
+    let snapshot = unsafe { HandleOrInvalid::from_raw_handle(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)) };
+    let snapshot = OwnedHandle::try_from(snapshot).ok()?;
+    let mut entry = PROCESSENTRY32W {
+      dwSize: u32::try_from(size_of::<PROCESSENTRY32W>()).ok()?,
+      ..PROCESSENTRY32W::default()
+    };
+    let mut processes = Vec::new();
+    // SAFETY: the snapshot is open while `snapshot` lives, and the entry is a local whose `dwSize` names its size
+    let mut read = unsafe { Process32FirstW(snapshot.as_raw_handle(), &raw mut entry) };
+    while read != 0 {
+      processes.push(ProcessInfo {
+        pid: entry.th32ProcessID,
+        parent: entry.th32ParentProcessID,
+        group: 0,
+        name: exe_name(&entry.szExeFile),
+        cwd: None,
+        argv: Vec::new(),
+        started: None,
+      });
+      // SAFETY: as for the first entry
+      read = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) };
+    }
+    Some(processes)
+  }
+
+  /// The exe of an entry up to its NUL, without its `.exe`, whatever its case
+  fn exe_name(exe: &[u16]) -> String {
+    let length = exe.iter().position(|&unit| unit == 0).unwrap_or(exe.len());
+    let name = String::from_utf16_lossy(&exe[..length]);
+    match name.len().checked_sub(4) {
+      Some(stem) if name.is_char_boundary(stem) && name[stem..].eq_ignore_ascii_case(".exe") => name[..stem].to_string(),
+      _ => name,
+    }
   }
 
   /// The creation time of the process, while it runs: a process that exited keeps its pid as long as a handle to it is
@@ -784,6 +904,10 @@ mod platform {
   use super::ProcessInfo;
 
   pub(super) const fn processes() -> Option<Vec<ProcessInfo>> {
+    None
+  }
+
+  pub(super) const fn process_tree() -> Option<Vec<ProcessInfo>> {
     None
   }
 

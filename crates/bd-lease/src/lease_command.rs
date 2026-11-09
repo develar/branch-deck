@@ -1224,8 +1224,9 @@ pub struct LeaseReclaimOutput {
   /// holder may resume, or `brd lease return --lease-id <id> --confirm-preserved` gives the work up once the user said
   /// it is kept elsewhere
   pub kept: Vec<IdleLeaseOutput>,
-  /// The idle leases not checked or not returned now: `not_quiet` (its get or the last move of its HEAD is younger
-  /// than an hour), `busy` (`processes`), `changed` (a get or a session acted on it meanwhile), `failed` (`error`)
+  /// The leases not checked or not returned now: `not_quiet` (its get or the last move of its HEAD is younger than an
+  /// hour), `busy` (`processes`), `changed` (a get or a session acted on it meanwhile), `failed` (`error`),
+  /// `holder_unknown` (no holder process recorded, so whether its session runs can't be told: the user returns it)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub skipped: Vec<SkippedIdleOutput>,
   /// Whether the processes were checked; false where brd can't see them (Windows)
@@ -1269,6 +1270,7 @@ pub enum SkippedIdleReason {
   NotQuiet,
   Busy,
   Changed,
+  HolderUnknown,
   Failed,
 }
 
@@ -1319,6 +1321,7 @@ pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<
           IdleSkip::NotQuiet => (SkippedIdleReason::NotQuiet, Vec::new(), None),
           IdleSkip::Busy { processes } => (SkippedIdleReason::Busy, processes_output(processes), None),
           IdleSkip::Changed => (SkippedIdleReason::Changed, Vec::new(), None),
+          IdleSkip::HolderUnknown => (SkippedIdleReason::HolderUnknown, Vec::new(), None),
           IdleSkip::Failed { error } => (SkippedIdleReason::Failed, Vec::new(), Some(error.clone())),
         };
         SkippedIdleOutput {

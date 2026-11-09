@@ -2253,12 +2253,15 @@ trash for the next return or clean (the trash of a run that is gone, `Trash::swe
 reuse; a get below the minimum free space sweeps it first. The fill of the host slots takes over nothing: the trash of
 the agent's process would outlive every return. `brd lease reclaim --idle` applies the same check to every idle lease,
 with a CAS on each, and returns it at once; it deletes the trash of all of them once the last one is free, as `brd lease
-clean` does, so no idle lease waits for the delete of the build output of the one before it.
+clean` does, so no idle lease waits for the delete of the build output of the one before it. A ready lease whose get
+recorded no holder process can't be idle, since nothing tells whether its session runs: the reclaim names it
+(`skipped`, `holder_unknown`) for the user to return, rather than leave the pool silently one slot larger.
 
 A resumed session of the old holder must not work in the slot its lease lost. Every command of `brd` checks it in the
 resolvers of its context (`refuse_reclaimed`, one read of `leases.json`): in a slot with the record, a write of
 another session than the one that holds the slot now, told by the process the lease was got for (its pid and start
-time an ancestor of `brd`, `ProcessScan::has_ancestor`, a scan only in such a slot), is `lease_reclaimed`, naming both
+time an ancestor of `brd`, `ProcessScan::has_ancestor`, a scan only in such a slot, on Windows the snapshot of the
+process list; a chain cut below the init process refuses nothing), is `lease_reclaimed`, naming both
 leases, the home branch, the old branch and `brd lease get` as the next step; `brd workspace`, the first command of a
 session, refuses too, a read passes. A session whose new holder died too can't be told from the old one, and nothing
 is refused there; the slot is idle again.
@@ -2440,7 +2443,13 @@ components. Windows has no scan: the outputs say `processes_checked: false`, and
 the working directory of another process there needs its memory, through its PEB: fragile unsafe code for a pool that
 runs on macOS and Linux). It does tell the start of a process by its pid (`OpenProcess`, `GetProcessTimes`; one that
 exited while a handle keeps its pid has an exit code), so a lease, a trash directory or a lock record of a gone
-process is told apart there too.
+process is told apart there too. And it tells the ancestors of `brd`, from one snapshot of the process list
+(`CreateToolhelp32Snapshot`: the pid, the parent and the exe of each, no memory of another process), so a get records
+the session it runs for (`holder_pid`) and a reclaimed slot tells its holder there too. A parent pid there outlives its
+process and may name a younger one that got the pid since: a parent that started after its child ends the chain, and
+a chain cut so tells no ancestor and denies none (`process_scan::chain`). A process whose start can't be read there
+(another user's, such as the service that runs a command for a remote session) stays in the chain but is no holder:
+a lease got under it names none, and the reclaim names it `holder_unknown`.
 
 Code: `crates/git-ops/src/lease_slot.rs`, `crates/lease-pool/src/lease.rs`, `crates/lease-pool/src/clone_dir.rs`,
 `crates/lease-pool/src/free_space.rs`, `crates/sync-utils/src/process_scan.rs`, `crates/bd-lease/src/lease_command.rs`.

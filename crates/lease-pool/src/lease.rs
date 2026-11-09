@@ -354,7 +354,8 @@ pub struct Lease {
   #[serde(default)]
   pub reused: bool,
   /// The process the get ran for: the nearest ancestor that is no shell (`ProcessScan::session`, the coding agent or the
-  /// terminal), and when it started. `pid` is of the get itself, which exits at once
+  /// terminal), and when it started, on Windows too (from a snapshot of the process list). `pid` is of the get itself,
+  /// which exits at once; `None` when the system named no ancestors, or of a brd that recorded none on Windows
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub holder_pid: Option<u32>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -424,7 +425,13 @@ impl Lease {
   /// Whether the lease is idle: `ready`, its holder gone, and no host slot (idle between runs by design; only
   /// `brd-host slots --local --shrink` gives one back)
   pub fn is_idle(&self) -> bool {
-    self.state == LeaseState::Ready && self.holder_alive() == Some(false) && !self.holder.starts_with(HOST_HOLDER_PREFIX)
+    self.is_agent_ready() && self.holder_alive() == Some(false)
+  }
+
+  /// Whether the lease is `ready` and of an agent, no host slot: `is_idle` once its holder is gone, and a reclaim names
+  /// it when no holder was recorded (`IdleSkip::HolderUnknown`)
+  fn is_agent_ready(&self) -> bool {
+    self.state == LeaseState::Ready && !self.holder.starts_with(HOST_HOLDER_PREFIX)
   }
 }
 
@@ -1168,8 +1175,8 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     branch: params.branch.clone(),
     seeded: Vec::new(),
     reused: false,
-    holder_pid: holder.map(|process| process.pid),
-    holder_started: holder.and_then(|process| process.started),
+    holder_pid: holder.as_ref().map(|process| process.pid),
+    holder_started: holder.as_ref().and_then(|process| process.started),
     taking_over: None,
     idle_check: None,
   };
@@ -3251,7 +3258,7 @@ pub fn reclaimed_refusal(git_common_dir: &Path, top_level: &str, mutates: bool, 
     Some(lease) if lease.state == LeaseState::Ready && lease.holder_alive() == Some(true) => {
       let holder = lease.holder_pid.unwrap_or_default();
       let scan = ProcessScan::scan();
-      if scan.is_available() && !scan.has_ancestor(holder, lease.holder_started) {
+      if scan.has_ancestor(holder, lease.holder_started) == Some(false) {
         Ok(refusal(reclaimed, false))
       } else {
         Ok(None)
@@ -3471,6 +3478,9 @@ pub enum IdleSkip {
   Busy { processes: Vec<BusyProcess> },
   /// It changed while the reclaim checked it: a get took it over, a session committed in it
   Changed,
+  /// No holder process is recorded (by a brd that named none on Windows, or where the system named no ancestors):
+  /// whether its session still runs can't be told, so it is never checked; the user returns it once the session is done
+  HolderUnknown,
   /// The check or the return failed
   Failed { error: String },
 }
@@ -3494,7 +3504,11 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
     ..LeaseReclaim::default()
   };
   for slot in store.slots {
-    let Some(lease) = slot.lease.clone().filter(|lease| lease.is_idle() && is_worktree_of(Path::new(&slot.path), &git_common_dir)) else {
+    let Some(lease) = slot
+      .lease
+      .clone()
+      .filter(|lease| lease.is_agent_ready() && is_worktree_of(Path::new(&slot.path), &git_common_dir))
+    else {
       continue;
     };
     let path = slot.path.clone();
@@ -3503,6 +3517,14 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       lease: lease.clone(),
       reason,
     };
+    match lease.holder_alive() {
+      Some(false) => {}
+      Some(true) => continue,
+      None => {
+        answer.skipped.push(skip(IdleSkip::HolderUnknown));
+        continue;
+      }
+    }
     if !is_quiet(&slot, &lease, now) {
       answer.skipped.push(skip(IdleSkip::NotQuiet));
       continue;

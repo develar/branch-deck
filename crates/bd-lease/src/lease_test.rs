@@ -1754,8 +1754,8 @@ fn the_eviction_keeps_dirty_and_never_returned_free_slots() {
 }
 
 /// A get records the process it ran for, the nearest ancestor that is no shell, and the status tells whether it runs;
-/// once it is gone, a get that adds a new slot names the lease, and the lease stays the holder's
-#[cfg(unix)]
+/// once it is gone, a get that adds a new slot names the lease, and the lease stays the holder's. On Windows too, where
+/// the holder comes from a snapshot of the process list
 #[test_log::test]
 fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   let fixture = Fixture::new();
