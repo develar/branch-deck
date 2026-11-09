@@ -347,7 +347,7 @@ time with the browser sign-in, and the same tells of a changed account.
 #### Scenario: Save Token while the browser sign-in asks for the Hub
 - **GIVEN** the browser sign-in asks the YouTrack for its Hub
 - **WHEN** the user typed a token
-- **THEN** Save Token is disabled, its hover saying why
+- **THEN** Save Token is disabled, its hover saying why: "The sign-in in the browser is starting: Cancel Sign-In to save a token instead"
 - **AND** "Cancel Sign-In", beside the spinner of that sign-in, ends it at once, and the token typed stays
   [@test] tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should cancel the browser sign-in, and paste a token instead`)
 
@@ -364,7 +364,8 @@ time with the browser sign-in, and the same tells of a changed account.
 ### Requirement: A pasted token, the environment: YOUTRACK_TOKEN comes before the token file
 
 `YOUTRACK_TOKEN` with `YOUTRACK_BASE_URL`, the variables of the `youtrack` CLI, MUST come before the token file:
-"Uses the token of YOUTRACK_TOKEN for <host>", without Sign Out.
+Settings says "Uses YOUTRACK_TOKEN for <host>" and "Set in the environment of Branch Deck: unset it to sign in here.",
+without Sign Out.
 
 #### Scenario: The environment and a token file
 - **GIVEN** `YOUTRACK_TOKEN` with `YOUTRACK_BASE_URL` set, and a token file
@@ -375,7 +376,8 @@ time with the browser sign-in, and the same tells of a changed account.
 #### Scenario: Settings of a token of the environment
 - **GIVEN** the token of `YOUTRACK_TOKEN`
 - **WHEN** Settings shows the sign-in
-- **THEN** it says "Uses the token of YOUTRACK_TOKEN for <host>", without Sign Out
+- **THEN** it says "Uses YOUTRACK_TOKEN for <host>" and "Set in the environment of Branch Deck: unset it to sign in here."
+- **AND** it has no Sign Out
 
 ### Requirement: The token file and the renewal: The sign-in is kept in a secret of the secret store
 
@@ -602,6 +604,7 @@ session, any other window by `get_auth_status`, Settings again on each open of i
 - **WHEN** the sign-in changes
 - **THEN** the window takes the status from the fact `auth` of its session (`applyAuthFacts`, which the store of the session calls with every view)
   [@test] tests/e2e/youtrack/issue-popover.spec.ts (`should leave the links of a signed-out user as they are`)
+  [@test] src/stores/auth.test.ts (`comes from the fact of the session, which keeps the last status until it answered and says why a read failed`)
 
 #### Scenario: Any other window
 - **GIVEN** a window without a repository
@@ -696,8 +699,9 @@ here", "Open the Page Again", Cancel and "Waiting for the browser…" with a spi
 
 ### Requirement: Settings: Signed in, the section says who and how
 
-Signed in, the section MUST say who, "Signed in to youtrack.example.com as Jane Doe (jane)", and how: through the
-browser, with a pasted token, or for `YOUTRACK_TOKEN` set in the environment.
+Signed in, the section MUST say who, "Signed in to youtrack.example.com as Jane Doe (jane)" ("Uses YOUTRACK_TOKEN for
+youtrack.example.com" for the environment), and how: through the browser, with a pasted token, or for `YOUTRACK_TOKEN`
+set in the environment.
 
 #### Scenario: Through the browser
 - **GIVEN** a browser sign-in
@@ -716,7 +720,8 @@ browser, with a pasted token, or for `YOUTRACK_TOKEN` set in the environment.
 #### Scenario: YOUTRACK_TOKEN
 - **GIVEN** the token of `YOUTRACK_TOKEN`
 - **WHEN** the section shows
-- **THEN** it says "Set in the environment of Branch Deck: unset it to sign in here."
+- **THEN** it says "Uses YOUTRACK_TOKEN for youtrack.example.com"
+- **AND** "Set in the environment of Branch Deck: unset it to sign in here."
 
 ### Requirement: Settings: Sign Out and the page that lists the token
 
@@ -784,7 +789,8 @@ page says why with Retry ([Settings](../settings/spec.md#pages)).
 
 #### Scenario: The page of Settings
 - **WHEN** a read of the status fails
-- **THEN** the page of Settings says why with Retry
+- **THEN** the page of Settings says why with Retry, above the last status
+  [@test] src/stores/auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
 
 ### Requirement: Settings: The main window tells a failed read once, with Retry
 
@@ -926,6 +932,12 @@ The popover MUST close once its link leaves the page (a sync, a collapsed branch
 - **WHEN** its link leaves the page, by a sync, a collapsed branch or a closed toast
 - **THEN** the popover closes
 
+#### Scenario: The view of its link hides
+- **GIVEN** an open popover of a link of the branches
+- **WHEN** the view of the link hides (Landing in place of the branches)
+- **THEN** the popover closes, and a hover of the link opens it again once the view shows
+  [@test] tests/e2e/youtrack/issue-popover.spec.ts (`should close as the view of its link hides`)
+
 ### Requirement: The issue popover: It lies in the layer of its link, above it
 
 The popover MUST lie in the layer of its link: the popup of another popover, a dialog (the branch preview) or the
@@ -973,12 +985,14 @@ second ask while one runs MUST wait for it.
 #### Scenario: An answer of the last minute
 - **WHEN** the popover asks an issue the backend answered within a minute
 - **THEN** the backend answers what it keeps, without asking YouTrack
+  [@test] crates/youtrack/src/service_test.rs (`an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept`)
 
 ### Requirement: The issue popover: It says an issue not found, a failure and a sign-in problem
 
 The popover MUST say "Not found, or no access" (YouTrack answers 404 for both), "Cannot load ABC-1: <reason>" with
-Try Again, and for a rejected or expired sign-in the reason with "YouTrack Settings…", which opens Settings → Accounts
-at YouTrack; such an answer MUST have the window read the sign-ins again, so every surface of it knows the problem.
+Try Again, and for a sign-in problem "Your YouTrack sign-in expired: sign in again" (an expired sign-in) or "Sign in
+to YouTrack to see the issue" (a rejected one) with "YouTrack Settings…", which opens Settings → Accounts at YouTrack;
+such an answer MUST have the window read the sign-ins again, so every surface of it knows the problem.
 
 #### Scenario: Not found
 - **WHEN** YouTrack answers 404
@@ -989,9 +1003,13 @@ at YouTrack; such an answer MUST have the window read the sign-ins again, so eve
 - **THEN** the popover says "Cannot load ABC-1: <reason>" with Try Again
 
 #### Scenario: An expired sign-in
-- **WHEN** the answer is a rejected or expired sign-in
-- **THEN** the popover says the reason with "YouTrack Settings…", which opens Settings → Accounts at YouTrack
+- **WHEN** the answer is an expired sign-in
+- **THEN** the popover says "Your YouTrack sign-in expired: sign in again" with "YouTrack Settings…", which opens Settings → Accounts at YouTrack
   [@test] tests/e2e/youtrack/issue-popover.spec.ts (`should show a resolved issue without Mark Fixed, and send an expired sign-in to Settings`)
+
+#### Scenario: A rejected sign-in
+- **WHEN** the answer is a rejected sign-in
+- **THEN** the popover says "Sign in to YouTrack to see the issue" with "YouTrack Settings…"
 
 #### Scenario: The window reads the sign-ins again
 - **WHEN** the answer is a sign-in problem
@@ -1141,6 +1159,7 @@ the keyboard path, where the work landed.
 - **WHEN** the user opens its menu
 - **THEN** it offers "Mark ABC-1 Fixed"
   [@test] tests/e2e/youtrack/issue-popover.spec.ts (`should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
+  [@test] src/stores/youtrack-issues.test.ts (`names the key of a branch's issue only when its link is an issue of the YouTrack signed in to`)
 
 #### Scenario: A commit that says it fixes the issue
 - **GIVEN** a commit that says so ("fixed ABC-1", also "ABC-1 fix the …"), for which Patronus marks the issue fixed itself
