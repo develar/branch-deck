@@ -574,8 +574,10 @@ it added a module.
   its step while its files scroll under it, and folds as a directory does (a click, its chevron, Space, → and ←; ←
   from a file goes to it); the mechanical group starts folded, and in a review of more than 100 files every group but
   its tests. The dependency changes of a build file of a module of the step show on the row of its group, where a
-  module the commits add or delete leaves its own new module to its badge. A step without groups (a small step, a
-  step of the concerns, a review without the plan) is listed as before.
+  module the commits add or delete leaves its own new module to its badge. The rows of the step of the selected file
+  are tinted, and a line in the primary tone at the chevron of the step runs from under its row to its last row,
+  under its row when that row sticks, never across its chevron. A step without groups (a small step, a step of the
+  concerns, a review without the plan) is listed as before.
   [@test] ../../src/lib/file-tree.test.ts (`lists a group per section of the step, its files by name with their directory below what the module shares, its tests last, the build files under Wiring`, `lists a file of a group whose own row is in another step as a row also in that group, by its directory too`, `words the mechanical group Mechanical when it holds more than build files and lists of modules, and keeps a step without groups a list`, `shows the dependency changes of the build file of a module on the row of its group, the new module its badge alone`)
   [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should read a large step by its groups: their files flat by their directory in the module, their tests last, a new module marked, the wiring folded at the end`)
 - The window must count the files of a step with groups the reader saw, on the row of the step and of each of its

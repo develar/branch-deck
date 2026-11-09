@@ -92,6 +92,12 @@ test.describe("Review groups", () => {
       await expect(kind).toBeVisible()
       // ← from a file goes to the heading of its group, ← folds it, → opens it; Space and the chevron fold it as well
       await kind.click()
+      // the line of the selected step runs from under its row, never across its chevron
+      const line = tree.getByTestId("tree-step-line")
+      await expect(line).toBeVisible()
+      const stepBox = await row("2 · play the media embeds of the chat inline").boundingBox()
+      const lineBox = await line.boundingBox()
+      expect(lineBox!.y).toBeGreaterThanOrEqual(stepBox!.y + stepBox!.height - 1)
       await window.keyboard.press("ArrowLeft")
       await expect(row("view.gui")).toBeFocused()
       await window.keyboard.press("ArrowLeft")

@@ -367,15 +367,20 @@ export function FileTree(props: FileTreeProps) {
       }
       renderedRows.push(
         <div key={node.key} role="none" className="relative" ref={group.some(isTreeHeading) ? stickBelowStepRow : undefined}>
-          {activeGroup && (
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 z-20 w-0.5 rounded-full bg-primary/60"
-              style={{ left: `calc(${ROW_START} + ${node.depth * INDENT_REM}rem + ${CHEVRON_MIDDLE})` }}
-            />
-          )}
           {renderRow(node, "step", activeGroup)}
-          {renderStepRows(group, activeGroup)}
+          <div role="none" className="relative">
+            {activeGroup && (
+              // the line of the selected step at its chevron, from under its row to its last row: above the headings of
+              // its groups (z-5), under its own row when that row sticks (z-10), so it never crosses its chevron
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 z-[7] w-0.5 rounded-full bg-primary/60"
+                style={{ left: `calc(${ROW_START} + ${node.depth * INDENT_REM}rem + ${CHEVRON_MIDDLE})` }}
+                data-testid="tree-step-line"
+              />
+            )}
+            {renderStepRows(group, activeGroup)}
+          </div>
         </div>,
       )
     } else {
