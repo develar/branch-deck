@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.6.0](https://github.com/develar/branch-deck/compare/v1.5.1...v1.6.0) (2026-11-09)
+
+
+### Features
+
+* **review:** each group of a large step opens above its first card ([80c5ca8](https://github.com/develar/branch-deck/commit/80c5ca8bc539c30c7b42d3f9c2d15e4977589e06))
+* **review:** the brief reads the specs and the changes of OpenSpec ([86e22ad](https://github.com/develar/branch-deck/commit/86e22adb9aa8eb3ee2cc08792117525274cec424))
+* **review:** the group of a new module names what enters it and reads from there ([1005c26](https://github.com/develar/branch-deck/commit/1005c26d33798bac19112393827aeffa06ad1f0f))
+
+
+### Bug Fixes
+
+* **e2e:** Disk Usage holds the reports of the hosts instead of slowing the walk with 80,000 files ([58287c2](https://github.com/develar/branch-deck/commit/58287c2d0d18b61279db6f51cce9c7cf4b9b51a3))
+* **e2e:** the index of a declaration outside the review answers the columns of its name, as accio does ([0fdab39](https://github.com/develar/branch-deck/commit/0fdab39162aa4cf805053b9500dc4047765ae918))
+* **e2e:** the snapshots of a commit body wait for the body Rust read ([e3e202c](https://github.com/develar/branch-deck/commit/e3e202c338c40cfee9b5b2eebaebd748c1035703))
+* **e2e:** the toast of a review request is asserted after the answer of its request ([1fb6691](https://github.com/develar/branch-deck/commit/1fb66914f9a550c260f96af61a54925c92d5f584))
+* **host:** the spec names the author of the commit of a working tree as the code writes it, bd-host ([0c73a00](https://github.com/develar/branch-deck/commit/0c73a008dea595a3b72305cbfd612828025d693e))
+* **host:** the spec of brd-host is in the OpenSpec format ([5c46b68](https://github.com/develar/branch-deck/commit/5c46b68f8348ac8d296bb5ce7afa0f5da6052860))
+* **navigation:** a declaration and a usage outside the review are where accio says, never a word guessed on the line ([eda5bdc](https://github.com/develar/branch-deck/commit/eda5bdca22849be514cc3c8d78877c4e8b441d61))
+* **review:** a review stays at the file on screen by its path while the files of its chip lack it ([4a3dce9](https://github.com/develar/branch-deck/commit/4a3dce9d62e1c5065097f2597264ef0376cdb619))
+* **review:** a segment of the whole stack pressed before the window holds its view opens its branch ([e0293a7](https://github.com/develar/branch-deck/commit/e0293a7aa52d7c826f00fbe62202172db18d8940))
+* **review:** the read ahead of a review answers once it ended ([43e99dc](https://github.com/develar/branch-deck/commit/43e99dcd69d79ff6aa488aa61788de43ef55f6d9))
+* **specs:** convert.mjs closes a code span at a run of as many backticks as opened it, as CommonMark does ([bb60b9e](https://github.com/develar/branch-deck/commit/bb60b9e86d4093c632bd4eb6f2db4e217a61b29f))
+* **specs:** convert.mjs counts a fenced block as one token, its backticks no code span ([96f8ce7](https://github.com/develar/branch-deck/commit/96f8ce7885c72bbcab465695de2f08ea60c87c6c))
+* **specs:** convert.mjs reads a code span of two backticks as one token ([9d4259e](https://github.com/develar/branch-deck/commit/9d4259e120ad61726a1294791a96499a32edf0f6))
+* **specs:** convert.mjs takes two old groups of one title as one group ([86c3a0e](https://github.com/develar/branch-deck/commit/86c3a0e77b458215955aa93ad5151721fee39d6e))
+
 ## [1.5.1](https://github.com/develar/branch-deck/compare/v1.5.0...v1.5.1) (2026-11-09)
 
 
