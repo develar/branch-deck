@@ -79,14 +79,21 @@ The main window MUST come to the front and open the palette with the focus in it
 
 ### Requirement: Sources: The groups stand in their order
 
-The groups MUST stand in this order (`paletteCommands`): Views, Activity, Commands, the actions of the branch at hand
-(below) and Branches.
+The groups MUST stand in this order (`paletteCommands`): Views, Activity, Commands (Add Pull Request by Link…, Show Disk
+Usage…, Open Repository…, then the items of the app's menu), the actions of the branch at hand (below) and Branches.
 
 #### Scenario: The groups of the palette
 - **WHEN** the palette opens with a branch at hand
 - **THEN** its groups are Views, Activity, Commands, the actions of the branch at hand and Branches, in this order
   [@test] src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the header and of the app's menu and the branches, by namespaced ids`)
   [@test] tests/e2e/command-palette/command-palette.spec.ts (`should open from ⌘K of the native menu, list every source and give the focus back on Escape`)
+
+#### Scenario: The order of Commands
+- **GIVEN** a repository selected
+- **WHEN** the palette opens
+- **THEN** Commands lists Add Pull Request by Link…, Show Disk Usage…, Open Repository…, then the items of the app's menu
+  [@test] src/lib/command-palette.test.ts (`offers Show Disk Usage… with a repository, before Open Repository…`)
+  [@test] tests/e2e/command-palette/command-palette.spec.ts (`should show the views, Activity and every command of the app without a scroll in the window of the start`)
 
 ### Requirement: Sources: Views lists the views of MAIN_VIEWS
 
@@ -225,10 +232,15 @@ Every command MUST have an id in the namespace of its source (`view:branches`, `
 - **THEN** it is left out, so the command shows once
   [@test] src/lib/command-palette.test.ts (`keeps one entry per id, the first source's`)
 
-### Requirement: Sources: Landing and Reviews show their view, a Go to shows the branches
+### Requirement: Sources: A view of the Views shows that view, a Go to shows the branches
 
-Landing of the Views MUST show the Landing view, Reviews the Reviews view; Go to <branch> from either MUST show the
-branches first.
+Branches of the Views MUST show the branches, Landing the Landing view, Reviews the Reviews view; Go to <branch> from
+Landing or Reviews MUST show the branches first.
+
+#### Scenario: Branches of the Views
+- **WHEN** the user runs Branches of the Views
+- **THEN** the branches show
+  [@test] tests/e2e/command-palette/command-palette.spec.ts (`should show the branches view`)
 
 #### Scenario: Landing of the Views and a Go to from it
 - **WHEN** the user runs Landing of the Views, and then Go to <branch>
@@ -325,8 +337,14 @@ focus.
 
 #### Scenario: What a command runs
 - **WHEN** the user runs a command of the palette
-- **THEN** the palette closes, the focus goes back where it was, and then the command runs what its source runs
+- **THEN** it runs what its source runs
   [@test] src/lib/command-palette.test.ts (`runs what its source runs`)
+
+#### Scenario: What the command focuses keeps the focus
+- **WHEN** the user runs a command that focuses something, as "Go to <branch>" focuses its row
+- **THEN** the palette closes and the focus goes back where it was before the command runs
+- **AND** what the command focuses keeps the focus
+  [@test] tests/e2e/command-palette/command-palette.spec.ts (`should go to a branch: the row expanded, selected and focused`)
 
 ### Requirement: Running: Go to a branch reveals, selects and focuses its row
 
@@ -338,11 +356,6 @@ where it was, a push button of another row too).
 - **WHEN** the user runs "Go to <branch>" of a collapsed row
 - **THEN** the branches show, and the row is expanded, scrolled into view (`requestReveal`), selected and focused
   [@test] tests/e2e/command-palette/command-palette.spec.ts (`should go to a branch: the row expanded, selected and focused`)
-
-#### Scenario: The Branches view
-- **WHEN** the user runs Branches of the Views
-- **THEN** the branches show
-  [@test] tests/e2e/command-palette/command-palette.spec.ts (`should show the branches view`)
 
 #### Scenario: A row a collapsed stack hid
 - **GIVEN** the row of the branch hidden by a collapsed stack or the filter, and the focus on a push button of another row
