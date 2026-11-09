@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 27` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 28` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -48,7 +48,9 @@
 //! version 25 the `registrations` of the plugin descriptors, from accio (`accio parse --descriptor --resolve`, one
 //! process per side);
 //! version 26 the `texts` of the UI, the keys the commits add to, remove from or change in the message bundles;
-//! version 27 the `folder` of each file, below the folders the files of its module share
+//! version 27 the `folder` of each file, below the folders the files of its module share;
+//! version 28 the `tested` of each group of a large step: the tests of the change that reach the code of its files and
+//! its code none reaches
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -76,7 +78,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 27;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 28;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]

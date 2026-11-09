@@ -5,6 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `review_modules` template: the branch `media` of a plugin `player`, its second commit a large step that adds the
 // module `view.gui.media`, cut into Contract, `view.gui`, `view.gui.media` (also `shared/code`) and its wiring
@@ -13,6 +14,31 @@ const ROOT = "plugins/player"
 const GUI = `${ROOT}/view.gui/src/com/example/player/gui`
 const MEDIA = `${ROOT}/view.gui.media/src/com/example/player/media`
 const MEDIA_TESTS = `${ROOT}/view.gui.media/testSrc/com/example/player/media`
+const DESCRIPTOR = `${ROOT}/view.gui.media/resources/intellij.player.view.gui.media.xml`
+const DECODER = `${MEDIA}/avfoundation/AvFoundationDecoder.kt`
+/** The registry key of inline playback, an extension of the descriptor of the new module */
+const REGISTRY_KEY = {
+  point: "com.intellij.registryKey",
+  implementation: null,
+  element: { name: "", attributes: { key: "player.media.inline.playback", defaultValue: "true", description: "Play the media embeds of the chat inline" }, children: [] },
+}
+
+/**
+ * accio's answer for the descriptor the change adds, at the head the review reads (the copy the sync builds of the
+ * branch): its application service, the `extensions` given, its class resolved there; the base has none
+ */
+async function answerDescriptor(repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>, extensions: readonly unknown[]): Promise<void> {
+  const line = {
+    path: DESCRIPTOR,
+    root: "idea-plugin",
+    services: [{ area: "app", interface: "com.example.player.media.MediaDecoder", implementation: "com.example.player.media.avfoundation.AvFoundationDecoder", preload: "FALSE" }],
+    extensions,
+    classes: [{ role: "services.implementation", name: "com.example.player.media.avfoundation.AvFoundationDecoder", resolved: "exact", path: DECODER, line: 3 }],
+  }
+  await syncAndWaitForBranches()
+  const head = await repo.revision(virtualBranch("media"))
+  writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ descriptors: { [`${head}:${DESCRIPTOR}`]: line } }))
+}
 
 test.describe("Review groups", () => {
   test(
@@ -162,36 +188,15 @@ test.describe("Review groups", () => {
   }) => {
     const repo = await setupRepo("review_modules")
     turnOnReviewPlan(repo)
-    // accio reads the descriptor the change adds at the head, its classes resolved there; the base has none
-    const descriptor = `${ROOT}/view.gui.media/resources/intellij.player.view.gui.media.xml`
-    const decoder = `${MEDIA}/avfoundation/AvFoundationDecoder.kt`
-    const line = {
-      path: descriptor,
-      root: "idea-plugin",
-      services: [
-        { area: "app", interface: "com.example.player.media.MediaDecoder", implementation: "com.example.player.media.avfoundation.AvFoundationDecoder", preload: "FALSE" },
-      ],
-      extensions: [
-        {
-          point: "com.intellij.registryKey",
-          implementation: null,
-          element: { name: "", attributes: { key: "player.media.inline.playback", defaultValue: "true", description: "Play the media embeds of the chat inline" }, children: [] },
-        },
-      ],
-      classes: [{ role: "services.implementation", name: "com.example.player.media.avfoundation.AvFoundationDecoder", resolved: "exact", path: decoder, line: 3 }],
-    }
-    // the head the review reads is the copy the sync builds of the branch
-    await syncAndWaitForBranches()
-    const head = await repo.revision(virtualBranch("media"))
-    writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ descriptors: { [`${head}:${descriptor}`]: line } }))
+    await answerDescriptor(repo, syncAndWaitForBranches, [REGISTRY_KEY])
     const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
 
     const media = window.getByTestId("review-map-module").filter({ has: window.getByTestId("review-map-label").getByText("view.gui.media", { exact: true }) })
     const registrations = media.getByTestId("review-map-registration")
     await expect(registrations).toHaveText(["+applicationServiceMediaDecoder → AvFoundationDecoder", "+registryKeyplayer.media.inline.playback = true"])
-    await expect(registrations.nth(1)).toHaveAttribute("title", `Play the media embeds of the chat inline\n${descriptor}`)
+    await expect(registrations.nth(1)).toHaveAttribute("title", `Play the media embeds of the chat inline\n${DESCRIPTOR}`)
     await registrations.first().click()
-    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: decoder, exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: DECODER, exact: true })).toHaveAttribute("aria-selected", "true")
   })
 
   test("should quote on a line of the map the texts of the UI the change adds, all of them under it on a click, a quote showing its entry in its bundle", async ({
@@ -205,10 +210,12 @@ test.describe("Review groups", () => {
     const bundle = `${ROOT}/view.gui/resources/messages/PlayerBundle.properties`
 
     // the counts and the first two quoted, the rest folded under "and 2 more"
-    const line = window.getByTestId("review-map-texts")
+    // the map's line (the opening of the group of view.gui has its own)
+    const map = window.getByTestId("review-map")
+    const line = map.getByTestId("review-map-texts")
     await expect(line).toContainText("4 new:")
     await expect(line.getByTestId("review-map-text-quote")).toHaveText(["“Video: {0}”", "“Sound: {0}”"])
-    const texts = window.getByTestId("review-map-text")
+    const texts = map.getByTestId("review-map-text")
     // folded until found: in the page for ⌘F, out of sight
     await expect(texts.first()).toBeHidden()
     await line.getByTestId("review-map-texts-more").click()
@@ -224,5 +231,41 @@ test.describe("Review groups", () => {
     // a quote shows the bundle, its file selected in the tree
     await texts.nth(3).getByTestId("review-map-text-quote").click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: bundle, exact: true })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should open each group of a module above its first card, what it is, its new API, its new uses between modules, what it registers and its texts of the UI, and leave them out of the opening of the step", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_modules")
+    turnOnReviewPlan(repo)
+    await answerDescriptor(repo, syncAndWaitForBranches, [])
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
+
+    // the two groups of modules of step 2 open, each above its first card; the contract and the wiring do not
+    const openings = window.getByTestId("review-group-opening")
+    await expect(openings.getByTestId("review-group-opening-name")).toHaveText(["view.gui", "view.gui.media"])
+    const gui = openings.filter({ has: window.getByTestId("review-group-opening-name").getByText("view.gui", { exact: true }) })
+    const media = openings.filter({ has: window.getByTestId("review-group-opening-name").getByText("view.gui.media", { exact: true }) })
+    await expect(media.getByTestId("review-group-opening-state")).toHaveText("New module")
+    await expect(media).toContainText("also shared/code")
+    // what each group does to the rest: its new API by name, the uses between modules by their direction, what it
+    // registers, its texts of the UI
+    await expect(gui.getByTestId("review-step-new-api")).toHaveText(["VIDEO", "AUDIO", "playable", "supports"])
+    await expect(gui.getByTestId("review-step-module-user")).toHaveText(/^view\.gui\.media \(\d+ links\)$/)
+    await expect(gui.getByTestId("review-group-opening-texts")).toContainText("4 new:")
+    await expect(media.getByTestId("review-step-module-use").first()).toHaveText(/^view\.gui( \(\d+ links\))?$/)
+    await expect(media.getByTestId("review-step-opens-wider")).toHaveText("isNightlyBuild")
+    await expect(media.getByTestId("review-map-registration")).toHaveText(["+applicationServiceMediaDecoder → AvFoundationDecoder"])
+    // the opening of the step keeps its story and its contract, no new API of its own
+    const opening = window.getByTestId("review-opening").filter({ hasText: "play the media embeds of the chat inline" })
+    await expect(opening.getByTestId("review-brief-contract-entry").first()).toBeAttached()
+    await expect(opening.getByTestId("review-step-new-api")).toHaveCount(0)
+    await captureHtmlSnapshot(media, "review-group-opening")
+
+    // a name of a group shows its declaration, its file selected in the tree
+    await media.getByTestId("review-map-registration").click()
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: DECODER, exact: true })).toHaveAttribute("aria-selected", "true")
   })
 })

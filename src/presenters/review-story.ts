@@ -27,11 +27,11 @@ import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
 import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 import type { EvidencePart } from "@/presenters/review-concerns"
 import { presentConcernEvidence } from "@/presenters/review-concerns"
-import type { MapView } from "@/presenters/review-map"
-import { presentMap } from "@/presenters/review-map"
+import type { MapRegistration, MapTexts, MapView } from "@/presenters/review-map"
+import { moduleRegistrations, presentMap, textsOf } from "@/presenters/review-map"
 import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
-import { formatStepNumber, headOf, presentChapters } from "@/presenters/review-steps"
+import { alsoOf, formatModuleState, formatStepNumber, groupOpeningKey, headOf, opensGroup, presentChapters } from "@/presenters/review-steps"
 import type { NarrativeSection } from "@/presenters/review-units"
 
 /*
@@ -279,6 +279,13 @@ export interface StepFacts {
    */
   readonly moduleEdges: FactList
   /**
+   * Of the opening of a group of a module, its new uses between modules by their direction: the modules it now uses
+   * ("Now uses view.gui (32 links) and shared/code") and those that now use it ("Now used by view.gui.media"), each at
+   * the first use of its first link; absent elsewhere, where `moduleEdges` names the pairs
+   */
+  readonly uses?: FactList
+  readonly usedBy?: FactList
+  /**
    * Of a step none of whose code lands, the step of the later commit that took it out ("Nothing of it lands: step 5
    * took it out"): its words, the title of that commit in their hover, and the id of the step, which a click shows; null
    * otherwise, and for a step that lands nothing with no such commit known the line says "a later commit"
@@ -332,9 +339,10 @@ function fileName(path: string): string {
 
 /**
  * Where the facts of a step stand: the contents of the overview, one short line a reader scans ("Tested by
- * ManagerTest.kt"), or its opening, every name
+ * ManagerTest.kt"); its opening, its first names and the rest on a click; or the opening of a group of it, as the
+ * opening does, the new declarations of a new module by their names, since the group is that module
  */
-export type FactsForm = "contents" | "opening"
+export type FactsForm = "contents" | "opening" | "group"
 
 /**
  * The hover of a test: its name, what of the step it reaches and through what ("joins two rows: calls Joiner", "opens:
@@ -381,11 +389,11 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
       label: changes.filter(other => other.name === change.name).length > 1 ? ownerLed(change.key, change.name) : change.name,
       place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
     }))
-  // the new declarations of a module the change adds, by that module
+  // the new declarations of a module the change adds, by that module; the opening of its group names them
   const moduleOf = new Map(plan.files.map(file => [file.path, file.module]))
   const newModuleOf = (change: ApiChange): number | null => {
     const module = moduleOf.get(change.path) ?? null
-    return module !== null && plan.modules[module]?.state === "added" ? module : null
+    return form !== "group" && module !== null && plan.modules[module]?.state === "added" ? module : null
   }
   const fresh = addedChanges.filter(change => !change.widened)
   const ofNewModules = new Map<number, ApiChange[]>()
@@ -1045,12 +1053,102 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
           commits: [...rest.filter(commit => commit.role === "followsUp"), ...rest.filter(commit => commit.role === "noStory")].map(commit =>
             commitOf(commit.id, commit.title, commit.role),
           ),
-          facts: presentStepFacts(step, plan),
+          facts: step.groups.some(opensGroup) ? withoutGroupFacts(presentStepFacts(step, plan)) : presentStepFacts(step, plan),
           contract: plan.steps.told ? presentContract(plan, (_, entry) => stepOfEntry[entry] === index) : [],
         },
       ]
     }),
   )
+}
+
+const NO_FACTS: FactList = { places: [], more: 0 }
+
+/**
+ * The facts of a step whose groups open: what the groups say of their code (its tests and its code none reaches, its new
+ * API, what it opens wider, its new uses between modules) leaves the opening of the step (`presentGroupOpenings`)
+ */
+function withoutGroupFacts(facts: StepFacts): StepFacts {
+  return { ...facts, tests: [], newApi: NO_FACTS, newModules: [], opensWider: NO_FACTS, moduleEdges: NO_FACTS, unproven: null }
+}
+
+/**
+ * The opening of a group of a large step (spec/branch/review-tour.spec.md, "In the Review Window"): above the first card
+ * of the group, in place of its divider, what the group is and what its code does to the rest
+ */
+export interface GroupOpeningView {
+  /** `groupOpeningKey` of its step and its place */
+  readonly key: string
+  /** The label of its module ("view.gui.media"), of a group of a folder the folder */
+  readonly name: string
+  /** A module's label is set in the code font */
+  readonly code: boolean
+  /** "New module", "Deleted module"; null for a module the change only changes and for a folder */
+  readonly state: string | null
+  /** "also shared/code": the small modules it holds */
+  readonly also: string | null
+  /** The root of its module: the hover of its name */
+  readonly root: string | null
+  /**
+   * Its facts as a step's (`presentStepFacts`, the form "group"): the tests of the change that reach the code of its
+   * files and its code none reaches, its new API by name, what it opens wider, its new uses between modules
+   */
+  readonly facts: StepFacts
+  /** What its module registers in the platform, the first `OPENING_FACTS` (a group of a module, not of a folder) */
+  readonly registrations: readonly MapRegistration[]
+  readonly moreRegistrations: number
+  /** The texts of the UI its module adds, changes or removes (a group of a module) */
+  readonly texts: MapTexts | null
+}
+
+/** The opening of each group of a large step that opens (`opensGroup`), by `groupOpeningKey` */
+export function presentGroupOpenings(plan: Pick<ReviewPlan, "steps" | "api" | "links" | "modules" | "units" | "files" | "registrations" | "texts">): Map<string, GroupOpeningView> {
+  const openings = new Map<string, GroupOpeningView>()
+  for (const step of plan.steps.steps) {
+    step.groups.forEach((group, place) => {
+      if (!opensGroup(group)) {
+        return
+      }
+      const stops = step.stops.slice(group.start, group.end)
+      const paths = new Set(stops.map(stop => stop.path))
+      const modules = group.module === null ? [] : [group.module, ...group.also]
+      // the step as its group reads it: its stops, its tests, the new API of its files, the uses between modules of its own
+      const ofGroup: ReviewStep = {
+        ...step,
+        stops,
+        tests: group.tested,
+        newApi: step.newApi.filter(key => plan.api.some(change => change.key === key && paths.has(change.path))),
+        moduleEdges: [],
+        shownElsewhere: [],
+        proves: [],
+      }
+      // its new uses between modules by their direction: of its modules, then of the others of it
+      const edge = (other: number, links: readonly number[]): FactPlace[] => {
+        const [label, link] = [plan.modules[other]?.label, plan.links[links[0] ?? -1]]
+        return label === undefined || link === undefined
+          ? []
+          : [{ key: `${other}:${links[0]}`, label: links.length > 1 ? `${label} (${links.length} links)` : label, place: firstUse(link) }]
+      }
+      const uses = step.moduleEdges.flatMap(it => (modules.includes(it.from) ? edge(it.to, it.links) : []))
+      const usedBy = step.moduleEdges.flatMap(it => (!modules.includes(it.from) && modules.includes(it.to) ? edge(it.from, it.links) : []))
+      const module = group.module === null ? undefined : plan.modules[group.module]
+      const ofModule = group.kind === "module" && group.module !== null
+      const { registrations, more } = ofModule ? moduleRegistrations(plan, group.module!, OPENING_FACTS) : { registrations: [], more: 0 }
+      const key = groupOpeningKey(step.id, place)
+      openings.set(key, {
+        key,
+        name: group.kind === "folder" && group.folder !== null && group.folder !== "" ? group.folder : (module?.label ?? ""),
+        code: group.kind === "module",
+        state: module === undefined || module.state === "changed" || group.kind === "folder" ? null : formatModuleState(module.state),
+        also: alsoOf(group.also, plan.modules),
+        root: module?.root ?? null,
+        facts: { ...presentStepFacts(ofGroup, plan, "group"), takenOutBy: null, uses: openingList(uses), usedBy: openingList(usedBy) },
+        registrations,
+        moreRegistrations: more,
+        texts: ofModule ? textsOf(plan.texts.filter(text => text.module === group.module)) : null,
+      })
+    })
+  }
+  return openings
 }
 
 /** "7 changes in User Experience and Requirements": how much of a file the change quotes, by its sections */

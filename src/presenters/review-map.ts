@@ -278,7 +278,7 @@ export function specName(path: string): string {
 }
 
 /** The texts of the UI the change adds, removes or changes, counted by what it does to them, each at its entry */
-function textsOf(texts: readonly UiText[]): MapTexts | null {
+export function textsOf(texts: readonly UiText[]): MapTexts | null {
   if (texts.length === 0) {
     return null
   }
@@ -324,14 +324,30 @@ function withRegistrations(rows: readonly MapRow[], plan: Pick<ReviewPlan, "modu
   let left = MAP_REGISTRATIONS
   return rows.map(row => {
     const module = plan.modules.findIndex(it => it.root === row.key)
-    const all = module < 0 ? [] : plan.registrations.filter(registration => registration.module === module && registration.registered.kind !== "contentModule")
-    const shown = all.slice(0, Math.min(ROW_REGISTRATIONS, left))
-    left -= shown.length
-    return { ...row, registrations: shown.map(mapRegistration), moreRegistrations: all.length - shown.length }
+    if (module < 0) {
+      return { ...row, registrations: [], moreRegistrations: 0 }
+    }
+    const { registrations, more } = moduleRegistrations(plan, module, Math.min(ROW_REGISTRATIONS, left))
+    left -= registrations.length
+    return { ...row, registrations, moreRegistrations: more }
   })
 }
 
 /** The words of a registration on the map */
+/**
+ * What the descriptors of the module at `module` register (a content module none: the line of the module says where it
+ * plugs in), the first `limit`, and how many more
+ */
+export function moduleRegistrations(
+  plan: Pick<ReviewPlan, "registrations">,
+  module: number,
+  limit: number,
+): { readonly registrations: readonly MapRegistration[]; readonly more: number } {
+  const all = plan.registrations.filter(registration => registration.module === module && registration.registered.kind !== "contentModule")
+  const shown = all.slice(0, limit)
+  return { registrations: shown.map(mapRegistration), more: all.length - shown.length }
+}
+
 function mapRegistration(registration: Registration, index: number): MapRegistration {
   const { kind, name, title } = registrationWords(registration.registered)
   // the class it registers: its implementation, else the first the index declares

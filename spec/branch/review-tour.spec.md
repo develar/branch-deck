@@ -19,6 +19,7 @@ targets:
   - ../../src/components/review/ContractList.tsx
   - ../../crates/review-plan/src/groups.rs
   - ../../src/components/review/ChapterOpening.tsx
+  - ../../src/components/review/GroupOpening.tsx
   - ../../src/components/review/ContractParagraphView.tsx
   - ../../src/components/shared/ReadingColumn.tsx
   - ../../src/components/review/StoryBody.tsx
@@ -197,6 +198,12 @@ stops).
   `tests`, `testSrc` or `testFixtures` directory or with a mark of a test, or a unit of test code). Every stop is in one
   group, once.
   [@test] ../../crates/review-plan/src/groups_test.rs (`a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring`, `the_modules_template_reads_as_its_contract_its_modules_and_its_wiring`)
+- Each group must know the tests of the change that reach the code of its files and its code none reaches (`tested`,
+  in the form of the tests of a step, `"schema": 28`), from the same answer of accio as its step: a declaration is of
+  the group of the first stop of its file outside the mechanical group, so a test of one group that reaches the code of
+  another is that other's, and the code of a small module a group holds is that group's; the contract and the wiring
+  have none, answered when the step is.
+  [@test] ../../crates/review-plan/src/groups_test.rs (`a_group_knows_the_tests_that_reach_its_code_and_its_code_none_reaches`)
 
 ### Tests That Reach It
 The question a step answers is which tests of the change prove it, not which tests of the repository its code is
@@ -354,7 +361,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_paragraph_changed_in_one_of_its_sentences_shows_it_first`, `a_short_paragraph_of_two_sentences_changed_in_one_shows_that_sentence`, `the_front_matter_is_the_lines_up_to_its_closing_rule`, `a_thematic_break_ends_a_paragraph`, `a_line_of_metadata_is_no_prose`, `a_table_with_one_added_row_is_its_header_and_that_row`, `a_changed_row_is_diffed_by_word_in_its_cells`, `a_line_of_pipes_without_a_delimiter_row_is_prose`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 27`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 28`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -584,6 +591,20 @@ it added a module.
   concerns, a review without the plan) is listed as before.
   [@test] ../../src/lib/file-tree.test.ts (`lists a group per section of the step, its files by name with the folder Rust gives them in their module, its tests last, the build files under Wiring`, `lists a file of a group whose own row is in another step as a row also in that group, by its directory too`, `words the mechanical group Mechanical when it holds more than build files and lists of modules, and keeps a step without groups a list`, `shows the dependency changes of the build file of a module on the row of its group, the new module its badge alone`)
   [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should read a large step by its groups: their files flat by their directory in the module, their tests last, a new module marked, the wiring folded at the end`)
+- Each group of a module or of a folder must open above its first card, in place of its divider, a card of prose as
+  the opening of a step, lighter: its name (a module's label in the code font, its root in its hover; a folder), "New
+  module" (`success`) or "Deleted module", the small modules it holds ("also shared/code"); then, a line each in the
+  facts' tone, what its code does to the rest: the tests of the change that reach its code and its code none reaches
+  (`tested`, in the warning tone when none is reached), its new API by name (of a new module too: the group is that
+  module), what it opens wider, its new uses between modules by their direction ("Now uses view.gui (32 links) and
+  shared/code", "Now used by view.gui.media (6 links)"), each name showing its place, every list cut as the opening of
+  a step cuts one; what its module registers in the platform (a line each, as the row of the map, a click showing the
+  class) and its texts of the UI (as the map's line, in the facts' tone). The opening of a step whose groups open keeps
+  its story, its rounds, its contract and what is of the whole step (Proven by, Proves, shown in another step, taken
+  out), and says no tests, new API, widening or uses between modules of its own: its groups say them where their code
+  is. The contract and the wiring keep their divider.
+  [@test] ../../src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
+  [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should open each group of a module above its first card, what it is, its new API, its new uses between modules, what it registers and its texts of the UI, and leave them out of the opening of the step`)
 - The window must count the files of a step with groups the reader saw, on the row of the step and of each of its
   groups from the first one ("3 / 13 seen", muted, after the counts of the step and before those of a group; in the
   description of the row too). A file is seen once the window showed it on purpose (its row, J and K at its card, N

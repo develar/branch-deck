@@ -8595,6 +8595,11 @@ export type StepGroup = {
 	start: number,
 	tests: number,
 	end: number,
+	/**
+	 *  The tests of the change that reach the code of its files and its code none reaches (`steps::add_tests`), as
+	 *  `ReviewStep::tests` are of the whole step: what the opening of the group says, the step's opening no more
+	 */
+	tested: StepTests,
 };
 
 /**  What helps after a read failed: the step of row 0 instead of a start */

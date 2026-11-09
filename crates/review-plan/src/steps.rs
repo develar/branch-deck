@@ -37,7 +37,7 @@ use crate::brief::ContractEntry;
 use crate::concerns::{Concern, names_word};
 use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
-use crate::groups::{StepGroup, cut_groups};
+use crate::groups::{GroupKind, StepGroup, cut_groups};
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
 use crate::message_steps::message_steps;
@@ -1322,40 +1322,59 @@ pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &
   let reach_of: HashMap<&DeclarationAt, _> = places.iter().zip(&answers).collect();
   let ReviewSteps { steps, range_tests, .. } = steps;
   for step in steps.iter_mut() {
-    let tests = &mut step.tests;
+    let ReviewStep { code, tests, groups, stops, .. } = step;
     tests.answered = true;
-    for code in &step.code {
+    // the group of each file of a large step: of its first stop outside the mechanical group
+    let mut group_of: HashMap<&str, usize> = HashMap::new();
+    for (place, group) in groups.iter_mut().enumerate() {
+      group.tested.answered = true;
+      if group.kind != GroupKind::Mechanical {
+        for stop in &stops[group.start as usize..group.end as usize] {
+          group_of.entry(stop.path.as_str()).or_insert(place);
+        }
+      }
+    }
+    for code in code.iter() {
       // a place accio found no declaration at is neither reached nor unreached: it answered nothing of it
       let Some(reach) = reach_of.get(&code.at).filter(|reach| !reach.unavailable) else {
         continue;
       };
       // a test of a given file the change did not touch is no test of the change
       let of_change: Vec<(&ReachingTest, String)> = reach.tests.iter().filter_map(|test| range_unit(test, range_tests).map(|unit| (test, unit))).collect();
-      if of_change.is_empty() {
-        if reach.complete {
-          tests.unreached.push(UnreachedDeclaration {
-            name: code.name.clone(),
-            path: code.at.path.clone(),
-            line: code.at.line,
-          });
-        }
-        continue;
-      }
-      tests.reached += 1;
-      for (test, unit) in of_change {
-        let file = tests.proof.iter().position(|file| file.path == test.path).unwrap_or_else(|| {
-          tests.proof.push(ProofFile {
-            path: test.path.clone(),
-            tests: Vec::new(),
-          });
-          tests.proof.len() - 1
-        });
-        add_test(&mut tests.proof[file].tests, test, unit, &code.name);
+      record_tests(tests, code, reach.complete, &of_change);
+      if let Some(&place) = group_of.get(code.at.path.as_str()) {
+        record_tests(&mut groups[place].tested, code, reach.complete, &of_change);
       }
     }
   }
   add_proves(steps);
   Ok(None)
+}
+
+/// What accio answered of `code` into `tests` of a step or of a group of it: its tests of the change (`of_change`), else
+/// that none reaches it when accio walked every way (`complete`)
+fn record_tests(tests: &mut StepTests, code: &StepCode, complete: bool, of_change: &[(&ReachingTest, String)]) {
+  if of_change.is_empty() {
+    if complete {
+      tests.unreached.push(UnreachedDeclaration {
+        name: code.name.clone(),
+        path: code.at.path.clone(),
+        line: code.at.line,
+      });
+    }
+    return;
+  }
+  tests.reached += 1;
+  for (test, unit) in of_change {
+    let file = tests.proof.iter().position(|file| file.path == test.path).unwrap_or_else(|| {
+      tests.proof.push(ProofFile {
+        path: test.path.clone(),
+        tests: Vec::new(),
+      });
+      tests.proof.len() - 1
+    });
+    add_test(&mut tests.proof[file].tests, test, unit.clone(), &code.name);
+  }
 }
 
 /// To each step, the other steps whose proof holds a test of one of its units (`ReviewStep::proves`)

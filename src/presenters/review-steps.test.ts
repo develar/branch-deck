@@ -14,7 +14,7 @@ import {
   withCommitTitles,
 } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
-import { moduleShape, reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
+import { moduleShape, reviewPlan, reviewStep, stepCommit, stepGroup } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -335,10 +335,10 @@ describe("the groups of a large step", () => {
       ["mechanical:buildModel", "gui/media/BUILD.bazel"],
     ]
     const groups: StepGroup[] = [
-      { kind: "contract", module: null, folder: null, also: [], start: 0, tests: 1, end: 1 },
-      { kind: "module", module: 1, folder: null, also: [], start: 1, tests: 2, end: 2 },
-      { kind: "module", module: 0, folder: null, also: [2], start: 2, tests: 4, end: 5 },
-      { kind: "mechanical", module: null, folder: null, also: [], start: 5, tests: 6, end: 6 },
+      stepGroup("contract", null, [0, 1, 1]),
+      stepGroup("module", 1, [1, 2, 2]),
+      stepGroup("module", 0, [2, 4, 5], { also: [2] }),
+      stepGroup("mechanical", null, [5, 6, 6]),
     ]
     const step = reviewStep("a", [stepCommit("Play a video")], stops, {}, { groups })
     const modules = [moduleShape("gui/media", "gui/media", { state: "added" }), moduleShape("gui", "gui"), moduleShape("shared", "shared")]

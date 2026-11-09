@@ -143,6 +143,11 @@
   padding: 12px 15px;
 }
 
+/* the opening of a group of a large step: a card of prose as a step's, lighter, a part of the step it is of */
+.dv-group-opening {
+  padding: 9px 15px;
+}
+
 /*
  * The divider of a section that starts a group: a line on the canvas between the gap above the card and the card, at
  * the inset of the cards, its words at its bottom near the card they head; it scrolls with the card and never sticks.

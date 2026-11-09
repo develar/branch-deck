@@ -178,7 +178,7 @@ function ShapeRow({ row }: { row: MapRow }) {
 }
 
 /** "+ applicationService TranscriptEmbedPlayers → TranscriptEmbedPlayersImpl": a click shows the class it registers */
-function RegistrationLine({ registration }: { registration: MapRegistration }) {
+export function RegistrationLine({ registration }: { registration: MapRegistration }) {
   const navigator = useSelectReviewFile()
   return (
     <button
@@ -201,11 +201,11 @@ function RegistrationLine({ registration }: { registration: MapRegistration }) {
  * then "and N more", which opens all of them under the line, a line each: the sign of what the change does to it, its
  * words (of a change the old ones struck through before them), its key muted
  */
-function TextsLine({ texts }: { texts: MapTexts }) {
+export function TextsLine({ texts, fact = false }: { texts: MapTexts; fact?: boolean }) {
   const quoted = texts.texts.slice(0, MAP_TEXTS)
   const rest = texts.texts.length - quoted.length
-  const line = (
-    <MapLine label="UI texts" testId="review-map-texts">
+  const parts = (
+    <>
       <span className="shrink-0 text-muted-foreground">{texts.counts}:</span>
       {quoted.map((text, index) => (
         <span key={text.key} className="flex min-w-0 items-baseline">
@@ -222,6 +222,17 @@ function TextsLine({ texts }: { texts: MapTexts }) {
           {`and ${rest} more`}
         </CollapsibleTrigger>
       )}
+    </>
+  )
+  // in the map a line of its own with its label in the gutter; in the opening of a group a fact, as small as the others
+  const line = fact ? (
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-xs" data-testid="review-group-opening-texts">
+      <span className="shrink-0 text-muted-foreground">UI texts</span>
+      {parts}
+    </div>
+  ) : (
+    <MapLine label="UI texts" testId="review-map-texts">
+      {parts}
     </MapLine>
   )
   if (rest === 0) {
@@ -230,7 +241,7 @@ function TextsLine({ texts }: { texts: MapTexts }) {
   return (
     <Collapsible className="flex min-w-0 flex-col gap-1">
       {line}
-      <CollapsibleContent hiddenUntilFound className="pl-22">
+      <CollapsibleContent hiddenUntilFound className={fact ? "pl-3" : "pl-22"}>
         <ul aria-label="Texts of the UI" className="flex min-w-0 flex-col gap-0.5 text-xs">
           {texts.texts.map(text => (
             <li key={text.key} className="flex min-w-0 items-baseline gap-1.5" data-testid="review-map-text">

@@ -136,6 +136,11 @@ export interface DiffSection {
    * `step`, in the one layer of openings of the section (each element of it `data-opening-step` its id), J one stop each
    */
   readonly before?: readonly { readonly id: string; readonly number: string; readonly title: string }[]
+  /**
+   * The opening of the group of a large step the section starts (`presentGroupOpenings`), by its key: above its card in
+   * the layer of its openings, in place of the divider of `heading`
+   */
+  readonly group?: string | null
   /** The words of the step the section is of, on every section of it: the hover of the map of the files names it */
   readonly stepHeading: string | null
   /** The blocks of the stories that name the section (`storyMarks`): its header marks it, a click shows the block */
@@ -604,8 +609,8 @@ export function DiffView({
             rows,
             notice: notices[index] !== null,
             visualLines: visualLines[index],
-            opening: opens && file.section?.step != null ? (measured.get(file.key) ?? OPENING_ESTIMATE) : undefined,
-            divider: divides && file.section?.heading != null,
+            opening: opens && (file.section?.step != null || file.section?.group != null) ? (measured.get(file.key) ?? OPENING_ESTIMATE) : undefined,
+            divider: divides && file.section?.heading != null && file.section.group == null,
             footer: footers && endsWithFooter(rows, index === prepared.length - 1),
           }
         }),

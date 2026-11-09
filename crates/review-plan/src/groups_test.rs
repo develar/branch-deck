@@ -1,6 +1,9 @@
 use crate::ReviewPlan;
+use crate::fan_in_test::Counts;
 use crate::groups::GroupKind;
-use crate::test_support::plan_of_range;
+use crate::steps::StepTests;
+use crate::test_support::{plan_of, plan_of_range, range};
+use file_diffs::accio::{ReachingTest, TestClass, TestReach};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -63,25 +66,25 @@ fn classes(dir: &str, package: &str, prefix: &str, count: usize, uses: Option<(&
     .collect()
 }
 
-/// A commit that adds a module and changes two: its spec first, then each module after those whose declarations it
-/// newly uses, its tests at its end; a small module the new one uses joins its group; the build files last
-#[test]
-fn a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring() {
-  let repo = TestRepo::new();
-  let base = repo.create_commit_with_files(
-    "Add the GUI",
-    &[
-      ("gui/BUILD.bazel", "# gui\n"),
-      ("gui/src/a/Box.kt", "package a\n\nclass Box\n"),
-      ("shared/BUILD.bazel", "# shared\n"),
-      ("shared/src/s/Flag.kt", "package s\n\nclass Flag\n"),
-      ("spec/player.spec.md", "# Player\n\nThe chat shows a card.\n"),
-      ("build/module-list.txt", "gui\nshared\n"),
-    ],
-  );
+/// A range of a large step: the GUI, a small shared module and a spec at the base (and a list of the modules with
+/// `list`), a told first commit, then one that adds the module `gui/media` (`players` classes that use `a.Embed0`, the
+/// `tests` given, its flags over `s.Flag`, its build file), adds 5 classes to `gui`, and changes the flag of `shared`
+/// and the spec (and the list): its base and its head
+fn media_range(repo: &TestRepo, players: usize, tests: Vec<(String, String)>, list: bool) -> (String, String) {
+  let mut at_base = vec![
+    ("gui/BUILD.bazel", "# gui\n"),
+    ("gui/src/a/Box.kt", "package a\n\nclass Box\n"),
+    ("shared/BUILD.bazel", "# shared\n"),
+    ("shared/src/s/Flag.kt", "package s\n\nclass Flag\n"),
+    ("spec/player.spec.md", "# Player\n\nThe chat shows a card.\n"),
+  ];
+  if list {
+    at_base.push(("build/module-list.txt", "gui\nshared\n"));
+  }
+  let base = repo.create_commit_with_files("Add the GUI", &at_base);
   let mut files: Vec<(String, String)> = Vec::new();
-  files.extend(classes("gui/media/src/b", "b", "Player", 6, Some(("a.Embed0", "Embed0"))));
-  files.extend(classes("gui/media/testSrc/b", "b", "PlayerTest", 2, None));
+  files.extend(classes("gui/media/src/b", "b", "Player", players, Some(("a.Embed0", "Embed0"))));
+  files.extend(tests);
   files.extend(classes("gui/src/a", "a", "Embed", 5, None));
   files.push((
     "gui/media/src/b/Flags.kt".to_string(),
@@ -90,10 +93,21 @@ fn a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and
   files.push(("gui/media/BUILD.bazel".to_string(), "# media\n".to_string()));
   files.push(("shared/src/s/Flag.kt".to_string(), "package s\n\nclass Flag(val on: Boolean)\n".to_string()));
   files.push(("spec/player.spec.md".to_string(), "# Player\n\nThe chat plays a video in its card.\n".to_string()));
-  files.push(("build/module-list.txt".to_string(), "gui\ngui/media\nshared\n".to_string()));
+  if list {
+    files.push(("build/module-list.txt".to_string(), "gui\ngui/media\nshared\n".to_string()));
+  }
   let files: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect();
-  told_first(&repo);
+  told_first(repo);
   let head = repo.create_commit_with_files("Play a video\n\nThe chat plays a video in its card through a player of its own.", &files);
+  (base, head)
+}
+
+/// A commit that adds a module and changes two: its spec first, then each module after those whose declarations it
+/// newly uses, its tests at its end; a small module the new one uses joins its group; the build files last
+#[test]
+fn a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and_its_wiring() {
+  let repo = TestRepo::new();
+  let (base, head) = media_range(&repo, 6, classes("gui/media/testSrc/b", "b", "PlayerTest", 2, None), true);
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     groups(&plan),
@@ -124,6 +138,90 @@ fn a_large_step_reads_as_its_contract_its_modules_in_the_order_of_their_uses_and
   assert_eq!(step.groups.last().map(|group| group.end as usize), Some(step.stops.len()));
   assert_eq!(plan.steps.coverage.twice, 0);
   assert_eq!(plan.steps.coverage.missing, 0);
+}
+
+/// The tests of a step as a group reads them: its test files, each test with what of the code it reaches, its code no
+/// test of the change reaches, and how many of its declarations one does
+type GroupTested<'a> = (Vec<(&'a str, Vec<(&'a str, Vec<&'a str>)>)>, Vec<&'a str>, u32);
+
+fn group_tested(tested: &StepTests) -> GroupTested<'_> {
+  let proof = tested
+    .proof
+    .iter()
+    .map(|file| {
+      let tests = file
+        .tests
+        .iter()
+        .map(|test| (test.name.as_str(), test.reaches.iter().map(String::as_str).collect()))
+        .collect();
+      (file.path.rsplit('/').next().unwrap_or(&file.path), tests)
+    })
+    .collect();
+  let mut unreached: Vec<&str> = tested.unreached.iter().map(|it| it.name.as_str()).collect();
+  unreached.sort_unstable();
+  (proof, unreached, tested.reached)
+}
+
+/// A group of a large step knows the tests of the change that reach the code of its files and its code none reaches,
+/// as the step knows them of all of its code: a test of one group that reaches the code of another is that other's; the
+/// code of a small module a group holds is that group's; the contract and the wiring have none
+#[test]
+fn a_group_knows_the_tests_that_reach_its_code_and_its_code_none_reaches() {
+  let repo = TestRepo::new();
+  // two tests of the new module, each a test function at line 6
+  let tests = (0..2)
+    .map(|index| {
+      (
+        format!("gui/media/testSrc/b/PlayerTest{index}.kt"),
+        format!("package b\n\nimport org.junit.Test\n\nclass PlayerTest{index} {{\n  @Test fun `plays {index}`() = Unit\n}}\n"),
+      )
+    })
+    .collect();
+  let (base, head) = media_range(&repo, 2, tests, false);
+  let test = |path: &str, reads_as: &str| ReachingTest {
+    path: path.to_string(),
+    line: 6,
+    declaration: format!("b.{reads_as}"),
+    reads_as: reads_as.to_string(),
+    framework: "junit4".to_string(),
+    depth: 1,
+    via: Vec::new(),
+    class: TestClass::Direct,
+    through_hub: false,
+  };
+  let reached = |tests: Vec<ReachingTest>| TestReach {
+    tests,
+    complete: true,
+    unavailable: false,
+  };
+  // a test of the new module reaches a class of gui, the other one a class of the new module; a place the index does
+  // not know no test reaches
+  let index = Counts::of(&[]).with_tests([
+    ("gui/src/a/Embed0.kt:3", reached(vec![test("gui/media/testSrc/b/PlayerTest0.kt", "plays 0")])),
+    ("gui/media/src/b/Player0.kt:5", reached(vec![test("gui/media/testSrc/b/PlayerTest1.kt", "plays 1")])),
+  ]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  let step = &plan.steps.steps[1];
+  let found: Vec<(GroupKind, GroupTested<'_>)> = step.groups.iter().map(|group| (group.kind, group_tested(&group.tested))).collect();
+  assert_eq!(
+    found,
+    [
+      (GroupKind::Contract, (vec![], vec![], 0)),
+      (
+        GroupKind::Module,
+        (vec![("PlayerTest0.kt", vec![("plays 0", vec!["Embed0"])])], vec!["Embed1", "Embed2", "Embed3", "Embed4"], 1)
+      ),
+      (
+        GroupKind::Module,
+        (vec![("PlayerTest1.kt", vec![("plays 1", vec!["Player0"])])], vec!["Flag", "Flags", "Player1", "on"], 1)
+      ),
+      (GroupKind::Mechanical, (vec![], vec![], 0)),
+    ]
+  );
+  assert!(step.groups.iter().all(|group| group.tested.answered));
+  // the step knows the same of all of its code
+  assert_eq!(step.tests.reached, 2);
+  assert_eq!(step.tests.unreached.len(), 8);
 }
 
 /// The template of the review window (`review_modules`): a plugin of the shape of an IntelliJ one whose second commit

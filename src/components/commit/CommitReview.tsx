@@ -66,7 +66,7 @@ import {
   presentOwnerMarks,
 } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
-import { presentOpenings, storyMarks } from "@/presenters/review-story"
+import { presentGroupOpenings, presentOpenings, storyMarks } from "@/presenters/review-story"
 import type { StoryMark } from "@/presenters/review-story"
 import { presentNarrative } from "@/presenters/review-units"
 import type { NarrativeSection } from "@/presenters/review-units"
@@ -870,6 +870,7 @@ function ReviewLayout({
             units: section.units ?? NO_UNITS,
             targets: section.targets,
             heading: section.heading,
+            group: section.group,
             step: stepOf(section, chapterOf),
             before: withoutCard.before.get(section.key),
             stepHeading: stepHeadingOf(section, chapterOf),
@@ -1081,6 +1082,7 @@ function ReviewLayout({
   )
   // the opening of each step above the card of its first section
   const openings = useMemo(() => (reviewFacts === null ? undefined : presentOpenings(reviewFacts)), [reviewFacts])
+  const groupOpenings = useMemo(() => (reviewFacts === null ? undefined : presentGroupOpenings(reviewFacts)), [reviewFacts])
   const topStep = useMemo(() => {
     const chapter = topOpening ?? narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
     const index = chapters.findIndex(it => it.id === chapter)
@@ -1390,6 +1392,7 @@ function ReviewLayout({
                         onShowStep={showStep}
                         prologue={prologue}
                         openings={openings}
+                        groupOpenings={groupOpenings}
                         after={withoutCard.after}
                         nextSection={nextSection}
                         onShowSection={showSection}

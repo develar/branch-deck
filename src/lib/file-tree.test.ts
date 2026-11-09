@@ -26,7 +26,7 @@ import {
 } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeNode, ReviewCommitItem } from "@/lib/file-tree"
 import { concernChapters, placeCommits, presentChapters, presentGroupCounts, presentOwnerMarks } from "@/presenters/review-steps"
-import { moduleShape, reviewStep } from "@/test-support/review-step"
+import { moduleShape, reviewStep, stepGroup } from "@/test-support/review-step"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
@@ -689,10 +689,10 @@ describe("the groups of a large step in the tree of a review", () => {
       {
         title: "play the media embeds",
         groups: [
-          { kind: "contract", module: null, folder: null, also: [], start: 0, tests: 1, end: 1 },
-          { kind: "module", module: 1, folder: null, also: [], start: 1, tests: 4, end: 5 },
-          { kind: "module", module: 0, folder: null, also: [2], start: 5, tests: 8, end: 9 },
-          { kind: "mechanical", module: null, folder: null, also: [], start: 9, tests: 10 + mechanical.length, end: 10 + mechanical.length },
+          stepGroup("contract", null, [0, 1, 1]),
+          stepGroup("module", 1, [1, 4, 5]),
+          stepGroup("module", 0, [5, 8, 9], { also: [2] }),
+          stepGroup("mechanical", null, [9, 10 + mechanical.length, 10 + mechanical.length]),
         ],
       },
     )

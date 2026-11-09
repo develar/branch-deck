@@ -13,14 +13,15 @@ import type {
   StoryCommit,
   StoryPlace,
   StepTest,
+  StepTests,
 } from "@/lib/bindings"
 import { joinNames } from "@/lib/text"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
-import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
+import { mentionWords, presentGroupOpenings, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { ContractFile, ContractParagraph, FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
-import { fileFacts, moduleShape, reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
+import { fileFacts, moduleShape, reviewPlan, reviewStep, stepCommit, stepGroup } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -1002,6 +1003,7 @@ describe("the document of a review", () => {
       story,
       targets: new Map(),
       heading: null,
+      group: null,
       concern: "b",
       concernHeading: null,
       folded: null,
@@ -1042,6 +1044,7 @@ describe("the document of a review", () => {
       story: [{ commit: "the sizes", block: 1, item: 3, step: 0 }],
       targets: new Map(),
       heading: null,
+      group: null,
       concern: "a",
       concernHeading: null,
       folded: null,
@@ -1064,5 +1067,141 @@ describe("the document of a review", () => {
       ),
     )
     expect(textOf(parted)).toEqual({ lead: "The sizes.", shown: [["", "Part | Where / the frame | `Frame.kt`"]], folded: [] })
+  })
+
+  it("opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them", () => {
+    const api = (name: string, path: string): ReviewPlan["api"][number] => ({
+      path,
+      line: 3,
+      name,
+      key: `k.${name}`,
+      kind: "added",
+      widened: false,
+      changes: [],
+      before: null,
+      after: null,
+      usages: null,
+    })
+    const link = (symbol: string, line: number): ReviewPlan["links"][number] => ({
+      from: "media/src/Player.kt",
+      to: "gui/src/Kind.kt",
+      symbols: [{ name: symbol, line }],
+      state: "added",
+      crossModule: true,
+      newBetweenModules: true,
+    })
+    // the tests of the group of the new module, as Rust gives them: a test reaches the player, none the flag of shared/code
+    const tested: StepTests = {
+      answered: true,
+      proof: [
+        {
+          path: "media/testSrc/PlayerTest.kt",
+          tests: [{ unit: "u:test", path: "media/testSrc/PlayerTest.kt", line: 6, name: "plays", depth: 1, way: "calls", reaches: ["Player"] }],
+        },
+      ],
+      reached: 1,
+      unreached: [{ name: "Flag", path: "shared/src/Flag.kt", line: 3 }],
+      scenarios: [],
+    }
+    const media = step(
+      "media",
+      [commit("play the media")],
+      [
+        ["u:spec", "spec/media.spec.md"],
+        ["u:kind", "gui/src/Kind.kt"],
+        ["u:player", "media/src/Player.kt"],
+        ["u:flag", "shared/src/Flag.kt"],
+        ["u:test", "media/testSrc/PlayerTest.kt"],
+        ["mechanical:build", "media/BUILD.bazel"],
+      ],
+      {},
+      {
+        newApi: ["k.VIDEO", "k.Player"],
+        moduleEdges: [{ from: 1, to: 0, links: [0, 1] }],
+        groups: [
+          stepGroup("contract", null, [0, 1, 1]),
+          stepGroup("module", 0, [1, 2, 2]),
+          stepGroup("module", 1, [2, 4, 5], { also: [2], tested }),
+          stepGroup("mechanical", null, [5, 6, 6]),
+        ],
+      },
+    )
+    const whole = plan([media], [], {
+      api: [api("VIDEO", "gui/src/Kind.kt"), api("Player", "media/src/Player.kt")],
+      links: [link("Kind", 4), link("VIDEO", 5)],
+      modules: [moduleShape("gui", "view.gui"), moduleShape("media", "view.gui.media", { state: "added" }), moduleShape("shared", "shared/code")],
+      files: [fileFacts("gui/src/Kind.kt", 0), fileFacts("media/src/Player.kt", 1), fileFacts("shared/src/Flag.kt", 2), fileFacts("media/testSrc/PlayerTest.kt", 1)],
+      registrations: [
+        {
+          descriptor: "media/resources/media.xml",
+          module: 1,
+          change: "added",
+          registered: {
+            kind: "service",
+            area: "app",
+            interface: "a.gui.Players",
+            implementation: "a.media.PlayersImpl",
+            testImplementation: null,
+            headlessImplementation: null,
+            client: null,
+            os: null,
+            preload: null,
+            overrides: false,
+            open: false,
+          },
+          before: null,
+          changed: [],
+          classes: [],
+        },
+      ],
+      texts: [{ path: "gui/resources/messages/GuiBundle.properties", key: "embed.play", change: "added", before: null, after: "Play", line: 4, module: 0 }],
+    })
+    const openings = presentGroupOpenings(whole)
+    // the groups of the modules open, the contract and the wiring do not
+    expect([...openings.keys()]).toEqual(["media:1", "media:2"])
+    const labels = (list: FactList | undefined) => list?.places.map(it => it.label) ?? []
+    const gui = openings.get("media:1")!
+    expect([
+      gui.name,
+      gui.code,
+      gui.state,
+      gui.also,
+      labels(gui.facts.newApi),
+      labels(gui.facts.uses),
+      labels(gui.facts.usedBy),
+      gui.facts.tests,
+      gui.registrations,
+      gui.texts?.counts,
+    ]).toEqual(["view.gui", true, null, null, ["VIDEO"], [], ["view.gui.media (2 links)"], [], [], "1 new"])
+    // the new module names its new API, since the group is the module; its tests and its code none reaches, the flag of
+    // the small module it holds too
+    const player = openings.get("media:2")!
+    expect([
+      player.name,
+      player.state,
+      player.also,
+      labels(player.facts.newApi),
+      player.facts.newModules,
+      labels(player.facts.uses),
+      player.facts.tests.map(it => [it.words, labels(it.names)]),
+      player.registrations.map(it => `${it.sign} ${it.kind} ${it.name}`),
+      player.texts,
+    ]).toEqual([
+      "view.gui.media",
+      "New module",
+      "also shared/code",
+      ["Player"],
+      [],
+      ["view.gui (2 links)"],
+      [
+        ["Tested by", ["PlayerTest.kt"]],
+        ["No test of the change reaches", ["Flag"]],
+      ],
+      ["+ applicationService Players → PlayersImpl"],
+      null,
+    ])
+    // the opening of the step leaves to them what they say of its code
+    const facts = presentOpenings(whole).get("media")!.facts
+    expect([facts.tests, facts.newApi.places, facts.newModules, facts.opensWider.places, facts.moduleEdges.places, facts.unproven]).toEqual([[], [], [], [], [], null])
   })
 })

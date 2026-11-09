@@ -19,7 +19,7 @@
 //!   (`tests`: the first of them), so a reader meets the design before the code that checks it.
 
 use crate::modules::{ModuleShape, ModuleState, SharedFolders, is_prose};
-use crate::steps::{ReviewStep, StepStop, StepsInput};
+use crate::steps::{ReviewStep, StepStop, StepTests, StepsInput};
 use crate::units::{ReviewUnit, UnitKind};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -66,6 +66,9 @@ pub struct StepGroup {
   pub start: u32,
   pub tests: u32,
   pub end: u32,
+  /// The tests of the change that reach the code of its files and its code none reaches (`steps::add_tests`), as
+  /// `ReviewStep::tests` are of the whole step: what the opening of the group says, the step's opening no more
+  pub tested: StepTests,
 }
 
 /// What a stop is to the groups
@@ -193,6 +196,7 @@ fn cut(input: &StepsInput<'_>, old: &[StepStop]) -> Option<(Vec<StepStop>, Vec<S
         start: to_u32(start),
         tests: to_u32(tests_at),
         end: to_u32(stops.len()),
+        tested: StepTests::default(),
       });
     }
   };

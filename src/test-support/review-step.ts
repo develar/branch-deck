@@ -1,4 +1,4 @@
-import type { FileFacts, ModuleShape, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+import type { FileFacts, ModuleShape, ReviewPlan, ReviewStep, StepCommit, StepGroup, StepTests } from "@/lib/bindings"
 
 /** The facts of a file of the review plan at `path` in the module at `module`, nothing else known of it */
 export function fileFacts(path: string, module: number | null): FileFacts {
@@ -18,6 +18,14 @@ export function fileFacts(path: string, module: number | null): FileFacts {
     module,
     folder: "",
   }
+}
+
+/** The tests of a step or of a group of it accio has not answered */
+export const NOT_TESTED: StepTests = { answered: false, proof: [], reached: 0, unreached: [], scenarios: [] }
+
+/** A group of a large step over its stops `start..end`, its tests from `tests` on, accio not asked */
+export function stepGroup(kind: StepGroup["kind"], module: number | null, [start, tests, end]: readonly [number, number, number], more: Partial<StepGroup> = {}): StepGroup {
+  return { kind, module, folder: null, also: [], start, tests, end, tested: NOT_TESTED, ...more }
 }
 
 /** A commit of a step by its title, which is its id too */

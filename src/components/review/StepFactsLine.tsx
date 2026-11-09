@@ -37,6 +37,10 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
       </span>
     )),
     ...(facts.opensWider.places.length === 0 ? [] : [<FactPlaces key="wider" title="Opens wider:" list={facts.opensWider} testId="review-step-opens-wider" />]),
+    ...(facts.uses === undefined || facts.uses.places.length === 0 ? [] : [<FactPlaces key="uses" title="Now uses" list={facts.uses} testId="review-step-module-use" />]),
+    ...(facts.usedBy === undefined || facts.usedBy.places.length === 0
+      ? []
+      : [<FactPlaces key="used-by" title="Now used by" list={facts.usedBy} testId="review-step-module-user" />]),
     ...(facts.moduleEdges.places.length === 0
       ? []
       : [

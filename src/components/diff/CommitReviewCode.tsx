@@ -16,6 +16,7 @@ import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { ChapterOpening } from "@/components/review/ChapterOpening"
+import { GroupOpening } from "@/components/review/GroupOpening"
 import { StoryText } from "@/components/review/StoryText"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
@@ -25,7 +26,7 @@ import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { presentCardEnd } from "@/presenters/review-card-end"
-import type { OpeningView, StoryMark } from "@/presenters/review-story"
+import type { GroupOpeningView, OpeningView, StoryMark } from "@/presenters/review-story"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
@@ -72,6 +73,8 @@ export interface CommitReviewCodeProps {
   prologue?: ReactNode
   /** The opening of each step by its id, above the card of its first section */
   openings?: ReadonlyMap<string, OpeningView>
+  /** The opening of each group of a large step that opens, by its key (`DiffSection.group`), above its first card */
+  groupOpenings?: ReadonlyMap<string, GroupOpeningView>
   /**
    * The steps of no card told after the last card, in their order: their openings are the epilogue of the diffs, each an
    * element `data-opening-step` of it
@@ -107,6 +110,7 @@ export function CommitReviewCode({
   onShowStep,
   prologue,
   openings,
+  groupOpenings,
   after,
   nextSection,
   onShowSection,
@@ -191,7 +195,7 @@ export function CommitReviewCode({
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={false} />}
         prologue={prologue}
         epilogue={after === undefined || after.length === 0 ? undefined : <LayerOfOpenings steps={after} openings={openings} group={null} onShowStep={onShowStep} />}
-        renderOpening={section => <SectionOpenings section={section} openings={openings} onShowStep={onShowStep} />}
+        renderOpening={section => <SectionOpenings section={section} openings={openings} groupOpenings={groupOpenings} onShowStep={onShowStep} />}
         renderDivider={section => <ReviewDivider section={section} />}
         renderFooter={
           nextSection === undefined
@@ -283,20 +287,48 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
  * The openings above the card of a section: of the steps of no card told before its own (`DiffSection.before`), each
  * its element of the layer (`data-opening-step`), then of its own step with the group the section starts; each a card
  */
-function SectionOpenings({ section, openings, onShowStep }: { section: DiffSection; openings: ReadonlyMap<string, OpeningView> | undefined; onShowStep?: (step: string) => void }) {
-  return <LayerOfOpenings steps={[...(section.before ?? []), section.step!]} openings={openings} group={section.heading} onShowStep={onShowStep} />
+function SectionOpenings({
+  section,
+  openings,
+  groupOpenings,
+  onShowStep,
+}: {
+  section: DiffSection
+  openings: ReadonlyMap<string, OpeningView> | undefined
+  groupOpenings: ReadonlyMap<string, GroupOpeningView> | undefined
+  onShowStep?: (step: string) => void
+}) {
+  const group = section.group == null ? undefined : groupOpenings?.get(section.group)
+  if (section.step === null) {
+    // a group that starts after the first section of its step: its opening alone
+    return <div className="dv-openings">{group !== undefined && <GroupOpening opening={group} />}</div>
+  }
+  return (
+    <LayerOfOpenings
+      steps={[...(section.before ?? []), section.step]}
+      openings={openings}
+      group={group === undefined ? section.heading : null}
+      groupOpening={group}
+      onShowStep={onShowStep}
+    />
+  )
 }
 
-/** The openings of several steps in one layer, each its element (`data-opening-step`), the last with `group` */
+/**
+ * The openings of several steps in one layer, each its element (`data-opening-step`), the last with the divider words of
+ * `group`, else followed by the opening of the group its section starts
+ */
 function LayerOfOpenings({
   steps,
   openings,
   group,
+  groupOpening,
   onShowStep,
 }: {
   steps: readonly NonNullable<DiffSection["step"]>[]
   openings: ReadonlyMap<string, OpeningView> | undefined
   group: string | null
+  groupOpening?: GroupOpeningView
   onShowStep?: (step: string) => void
 }) {
   return (
@@ -307,6 +339,7 @@ function LayerOfOpenings({
           <ChapterOpening opening={openingOf(step, openings)} group={index === steps.length - 1 ? group : null} onShowStep={onShowStep} />
         </div>
       ))}
+      {groupOpening !== undefined && <GroupOpening opening={groupOpening} />}
     </div>
   )
 }

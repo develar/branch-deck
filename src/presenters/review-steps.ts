@@ -10,6 +10,7 @@ import type {
   ReviewPlan,
   ReviewStep,
   StepCommit,
+  StepGroup,
   StepSource,
   StoryRef,
 } from "@/lib/bindings"
@@ -41,6 +42,21 @@ export interface ChapterPart extends ConcernPart {
    * for the other parts, for a step read as one list and for the mechanical group, whose kinds head their sections
    */
   readonly groupHeading: string | null
+  /**
+   * Of the first part of a group that opens (`opensGroup`): the key of its opening (`groupOpeningKey`), which stands
+   * above the card of its section in place of the divider; null for the other parts
+   */
+  readonly groupOpening: string | null
+}
+
+/** Whether a group of a large step has an opening above its first card: of a module or of a folder, not the contract nor the wiring */
+export function opensGroup(group: StepGroup): boolean {
+  return group.kind === "module" || group.kind === "folder"
+}
+
+/** The key of the opening of a group: its step and its place among the groups of the step */
+export function groupOpeningKey(step: string, group: number): string {
+  return `${step}:${group}`
 }
 
 /**
@@ -197,7 +213,7 @@ function groupWords(
 }
 
 /** "also shared/code": the labels of the small modules a group holds */
-function alsoOf(also: readonly number[], modules: readonly ModuleShape[]): string | null {
+export function alsoOf(also: readonly number[], modules: readonly ModuleShape[]): string | null {
   const labels = also.flatMap(module => (modules[module] === undefined ? [] : [modules[module].label]))
   return labels.length === 0 ? null : `also ${labels.join(", ")}`
 }
@@ -232,6 +248,8 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
   return plan.steps.steps.map((step, index) => {
     const number = index + 1
     const headings = groupHeadings(step, plan.modules ?? [])
+    // the first stop of each group that opens, by its place in the stops
+    const openings = new Map(step.groups.flatMap((group, place) => (opensGroup(group) ? [[group.start, groupOpeningKey(step.id, place)] as const] : [])))
     const parts = step.stops.map((stop, at) => ({
       unit: stop.unit,
       path: stop.path,
@@ -239,6 +257,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
       joined: stop.joined,
       marks: stop.marks,
       groupHeading: headings.get(at) ?? null,
+      groupOpening: openings.get(at) ?? null,
     }))
     const concern = step.concern === null ? undefined : concerns.get(step.concern)
     if (concern !== undefined) {
@@ -500,7 +519,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       told: !rest,
       code: isCodeName(concern.name),
       titleInBody: false,
-      parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS, groupHeading: null })),
+      parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS, groupHeading: null, groupOpening: null })),
       paths: concern.paths,
       elsewhere: concern.elsewhere,
       groups: NO_GROUPS,

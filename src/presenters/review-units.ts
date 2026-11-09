@@ -36,6 +36,8 @@ export interface NarrativeSection {
   readonly targets: ReadonlyMap<number, string>
   /** The group it is of, on its first file: "Same edit in 3 files", "Imports only (2)" */
   readonly heading: string | null
+  /** The opening of the group of a large step it starts (`ChapterPart.groupOpening`), by its key; null otherwise */
+  readonly group: string | null
   /** `Concern.id` of the concern it is of; null without concerns, for the mechanical groups and a use left outside */
   readonly concern: string | null
   /** The name of its concern, on the first section of the concern: "proxy", "grep → accio", "Other changes" */
@@ -138,6 +140,8 @@ interface Draft {
   /** The lines of the told bodies that name what it shows */
   story?: StoryRef[]
   heading: string | null
+  /** The opening of the group it starts (`NarrativeSection.group`) */
+  group?: string | null
   folded: string | null
   /** The uses left outside of its changes, shown after it */
   ghosts: NarrativeSection[]
@@ -157,6 +161,8 @@ interface Step {
   readonly marks: ReadonlyMap<string, readonly StoryRef[]>
   /** It starts a group of its step, or the tests of one: the words of the divider above its section (`ChapterPart.groupHeading`) */
   readonly groupHeading?: string | null
+  /** It starts a group that opens: the key of its opening (`ChapterPart.groupOpening`) */
+  readonly groupOpening?: string | null
 }
 
 const NO_JOINED: ReadonlyMap<string, readonly JoinedUnit[]> = new Map()
@@ -207,6 +213,7 @@ function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]):
           joined: new Map([[slice.path, part.joined]]),
           marks: new Map([[slice.path, part.marks]]),
           groupHeading: part.groupHeading,
+          groupOpening: part.groupOpening,
         })
       }
     }
@@ -317,10 +324,10 @@ export function presentNarrative(
   }
   // the section of each file shown whole, which the units of the file are of
   const wholeDrafts = new Map<string, Draft>()
-  const placeWhole = (path: string, unit?: string, heading: string | null = null) => {
+  const placeWhole = (path: string, unit?: string, heading: string | null = null, group: string | null = null) => {
     if (!placed.has(path)) {
       placed.add(path)
-      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading, folded: null, ghosts: [] }))
+      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading, group, folded: null, ghosts: [] }))
     }
     const draft = wholeDrafts.get(path)
     if (draft !== undefined && unit !== undefined) {
@@ -360,6 +367,7 @@ export function presentNarrative(
           marks: new Map(),
           // a generated file at the end of the concern of its source says why it is folded, no group
           heading: first && startsGroup !== null ? startsGroup : first && (concern === null || unit.kind.kind !== "mechanical") ? groupHeading(unit) : null,
+          group: first ? (step.groupOpening ?? null) : null,
           folded,
           ghosts: [],
         })
@@ -375,7 +383,7 @@ export function presentNarrative(
     const joined = step.joined.get(slice.path) ?? []
     if (whole.has(slice.path) || slice.whole) {
       last = null
-      tell(placeWhole(slice.path, unit.id, startsGroup), step, slice.path)
+      tell(placeWhole(slice.path, unit.id, startsGroup, step.groupOpening ?? null), step, slice.path)
       for (const it of joined) {
         placeWhole(slice.path, it.unit)
       }
@@ -386,7 +394,16 @@ export function presentNarrative(
     const heading = unit.kind.kind === "other" && unit.kind.reason === "noLanguage" ? null : formatUnitHeading(unit)
     let draft: Draft | undefined = last?.draft.path === slice.path ? last.draft : undefined
     if (draft === undefined) {
-      draft = push({ key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: startsGroup, folded: null, ghosts: [] })
+      draft = push({
+        key: nextKey("file", slice.path),
+        path: slice.path,
+        blocks: new Set(),
+        marks: new Map(),
+        heading: startsGroup,
+        group: step.groupOpening ?? null,
+        folded: null,
+        ghosts: [],
+      })
     }
     tell(draft, step, slice.path)
     const first = slice.blocks[0]
@@ -468,6 +485,7 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     story: NO_STORY,
     targets: new Map(),
     heading: null,
+    group: null,
     concern: null,
     concernHeading: null,
     folded: null,
@@ -488,6 +506,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
         story: draft.story ?? NO_STORY,
         targets: new Map(),
         heading: draft.heading,
+        group: draft.group ?? null,
         concern,
         concernHeading,
         folded: draft.folded,
@@ -515,6 +534,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
       story: draft.story ?? NO_STORY,
       targets,
       heading: draft.heading,
+      group: draft.group ?? null,
       concern,
       concernHeading,
       folded: draft.folded,
