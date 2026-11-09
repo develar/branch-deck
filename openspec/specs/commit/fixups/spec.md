@@ -247,23 +247,38 @@ A scope with nothing to squash MUST be refused.
 - **THEN** the squash is refused
   [@test] crates/history-rewrite/src/autosquash_test.rs (`squashes_only_the_fixups_of_one_branch_or_one_fixup`)
 
-### Requirement: Rewrite: The app runs the squash on the head of the table it names
+### Requirement: Rewrite: The app runs the squash on HEAD as its session reads it
 
-The squash of the app MUST be the rewrite `squashFixups` of the engine, named on the table the window shows; the
-session MUST run it on the HEAD of that table, or on the one the rewrites before it in its queue left.
+The squash of the app MUST be the rewrite `squashFixups` of the engine, named on the table the window shows. Once its
+turn in the queue comes, the session MUST run it on HEAD as it reads it then: the HEAD of that table, the one the
+rewrites before it in its queue left, or one another process moved it to.
 
 #### Scenario: A squash of the app
 - **WHEN** the app squashes fixups
 - **THEN** it sends the rewrite `squashFixups` of the engine, named on the table the window shows
-- **AND** the session runs it on the HEAD of that table, or on the one the rewrites before it in its queue left
+- **AND** once its turn comes the session runs it on HEAD as it reads it then: the HEAD of that table, the one the
+  rewrites before it in its queue left, or one another process moved it to
+
+### Requirement: Rewrite: The app runs the squash once more on HEAD another process moved during its wait
+
+When another process moves HEAD while the squash of the app waits for the lock, so that the squash refuses that HEAD
+with nothing written, the session MUST run it once more on HEAD as it is then, at most three runs in all and none after
+a Stop Waiting.
+
+#### Scenario: Another process moves HEAD during the wait for the lock
+- **GIVEN** the squash waits for the lock another process holds
+- **WHEN** that process moves HEAD
+- **THEN** the squash refuses that HEAD with nothing written
+- **AND** the session runs it once more on HEAD as it is then, at most three runs in all
 
 ### Requirement: Rewrite: The plan is computed again and another HEAD refuses the squash
 
-The plan MUST be computed again and the squash MUST be refused if HEAD is not that one.
+The plan MUST be computed again on HEAD as the squash reads it, and the squash MUST be refused (`HeadMoved`, nothing
+written) if HEAD is not the one its request names (the one the session of the app runs it on, `brd fold --expect-head`).
 
 #### Scenario: The branch moved since the plan
 - **WHEN** HEAD is not the head the squash names
-- **THEN** the squash is refused
+- **THEN** the squash is refused with nothing written
   [@test] crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
 
 ### Requirement: Rewrite: HEAD, the planned range and the rewritten history are one head
@@ -290,6 +305,7 @@ more under the lock).
 #### Scenario: HEAD moved before the lock
 - **WHEN** HEAD moved meanwhile
 - **THEN** the squash plans once more under the lock
+- **AND** one whose request names its HEAD is refused there if HEAD is another one
 
 ### Requirement: Rewrite: The squash waits while a named holder lives
 
@@ -530,12 +546,12 @@ failed.
 - **THEN** nothing closes the confirmation
 - **AND** it closes when the squash is done or failed
 
-### Requirement: UI: The title says what the squash does in the number of the fixups
+### Requirement: UI: The confirmation says what the squash does in the number of the fixups
 
-The title of the confirmation, "Squash N fixups" ("Squash 1 fixup"), MUST say in the number of the fixups what the
-squash does: "It is folded into its target, as with rebase --autosquash. A target it cancels leaves the history; your
-files are not touched." for one, "Each one is folded… A target they cancel…" for more; "No fixups to squash" has no
-such sentence.
+The title of the confirmation MUST be "Squash N fixups" ("Squash 1 fixup"), and the sentence under it MUST say in the
+number of the fixups what the squash does: "It is folded into its target, as with rebase --autosquash. A target it
+cancels leaves the history; your files are not touched." for one, "Each one is folded" and "A target they cancel"
+in it for more; with nothing to squash the title MUST be "No fixups to squash", without such a sentence.
 
 #### Scenario: One fixup
 - **WHEN** the confirmation of one fixup opens
@@ -546,12 +562,13 @@ such sentence.
 
 #### Scenario: More fixups
 - **WHEN** the confirmation of more fixups opens
-- **THEN** its title is "Squash N fixups" and it says "Each one is folded… A target they cancel…"
+- **THEN** its title is "Squash N fixups" and it says "Each one is folded into its target, as with rebase
+  --autosquash. A target they cancel leaves the history; your files are not touched."
   [@test] src/lib/autosquash.test.ts (`says what the squash does in the number of its fixups, one as one`)
 
 #### Scenario: No fixups
-- **WHEN** there is nothing to squash
-- **THEN** "No fixups to squash" has no such sentence
+- **WHEN** the confirmation opens with nothing to squash
+- **THEN** its title is "No fixups to squash" and no such sentence follows it
   [@test] src/lib/autosquash.test.ts (`says what the squash does in the number of its fixups, one as one`)
 
 ### Requirement: UI: The menu of a fixup offers "Squash into “X”"
