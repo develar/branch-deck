@@ -213,11 +213,18 @@ branch without a node yet MUST be in All only.
 A parked branch MUST be in no chip and in no row of the table: its row is in the Parked card
 ([Parked Branches](../parked-branches/spec.md)).
 
-#### Scenario: A parked branch
-- **GIVEN** a parked branch
-- **WHEN** the chips count and the table shows its rows
-- **THEN** the parked branch is in no chip and no row of the table, its row is in the Parked card
+#### Scenario: The node of a parked branch takes it into no state chip
+- **GIVEN** a branch whose node is parked
+- **WHEN** the chips take the branches by their nodes
+- **THEN** it is in none of Your Move, Landing, Waiting and In Master
+- **AND** F2 does not step to it
   [@test] src/lib/branch-filter.test.ts (`puts a parked branch into All only: it has a card of its own, no chip, no move for F2`)
+
+#### Scenario: A parked branch is no row of the table
+- **GIVEN** a parked branch
+- **WHEN** the table shows its rows and the chips count them
+- **THEN** it is in no row of the table, and All does not count it either
+- **AND** its row is in the Parked card
 
 ### Requirement: State chips: The chips count branches, the header counts moves
 
@@ -263,9 +270,14 @@ A dimmed row MUST be a row: it expands, opens its menu and takes the keys.
 
 #### Scenario: A dimmed row expands
 - **GIVEN** a dimmed row of a branch the matches are stacked on
-- **WHEN** the user clicks it, opens its menu or presses its keys
-- **THEN** it expands, opens its menu and takes the keys as any row
+- **WHEN** the user clicks it
+- **THEN** it expands as any row
   [@test] tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
+
+#### Scenario: A dimmed row opens its menu and takes the keys
+- **GIVEN** a dimmed row of a branch the matches are stacked on
+- **WHEN** the user opens its menu or presses its keys
+- **THEN** it opens its menu and takes the keys as any row
 
 ### Requirement: Rows: A shown branch stays until the filter changes
 
