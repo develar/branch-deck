@@ -83,6 +83,7 @@ of the last 14 days in every period.
 - **WHEN** the statistics are counted
 - **THEN** every number counts the period
 - **AND** the failure causes, the flaky checks and the commits per merge are of the last 14 days
+  [@test] crates/remote-facts/src/robot_stats_aggregate_test.rs (`failure_causes_count_the_kinds_and_checks_of_the_failed_robots_of_the_runs_window`)
 
 ### Requirement: What counts: The robots that count
 
@@ -117,7 +118,7 @@ no week is cut by the start of the period.
 #### Scenario: The number of weeks of each period
 - **WHEN** the weeks of a period are counted
 - **THEN** they are 2 of 14 days, 4 or 5 of 30, 10 of 10 weeks, 26 of 6 months, the current one always
-  [@test] crates/remote-facts/src/robot_stats_aggregate_test.rs (`weeks_count_by_the_local_monday_a_robot_finished_in_with_their_median_time_to_merge`)
+  [@test] crates/remote-facts/src/robot_stats_aggregate_test.rs (`the_period_sets_the_window_and_its_weeks_from_the_mondays_inside_it`)
   [@test] crates/domain-types/src/calendar_test.rs (`a_week_starts_on_the_local_monday`)
 
 ### Requirement: What counts: A robot counts in the week it finished
@@ -324,6 +325,7 @@ its list is 5 minutes old, or on Refresh.
 #### Scenario: Refresh
 - **WHEN** the user asks for Refresh
 - **THEN** the weeks that have not settled are listed again
+  [@test] crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`)
 
 ### Requirement: Load on Patronus: A read with nothing to ask answers from the cache at once
 
@@ -340,8 +342,8 @@ whatever another read is asking.
 ### Requirement: Load on Patronus: Two reads at once ask once
 
 A read that asks MUST lead the read of its repository and target, and one that comes meanwhile MUST show its progress
-and wait for that read to end, then read the cache again, so two reads at once ask once, and only the one that asks
-makes the salt of the owner keys; nothing MUST be locked across the lists.
+and wait for that read to end, then read the cache again, so two reads at once ask once; nothing MUST be locked across
+the lists.
 
 #### Scenario: Two reads at once
 - **WHEN** two reads of one repository and target come at once
@@ -354,10 +356,19 @@ makes the salt of the owner keys; nothing MUST be locked across the lists.
 - **THEN** it shows the progress of the read it waits for
   [@test] crates/remote-facts/src/robot_stats_test.rs (`a_refresh_that_waits_for_a_running_read_shows_its_progress_and_lists_nothing_it_listed`)
 
-#### Scenario: The salt and the lock
-- **WHEN** two reads come at once
+#### Scenario: Nothing is locked across the lists
+- **GIVEN** a read is listing the weeks
+- **WHEN** another read comes
+- **THEN** no lock of the first is held across its lists: the other answers from the cache or waits for the end of
+  the first
+
+### Requirement: Load on Patronus: Only the read that asks makes the salt
+
+Only the read that asks MUST make the salt of the owner keys.
+
+#### Scenario: Two reads at once
+- **WHEN** two reads come at once and one of them asks Patronus
 - **THEN** only the one that asks makes the salt of the owner keys
-- **AND** nothing is locked across the lists
 
 ### Requirement: Load on Patronus: A week the awaited read listed is not listed again
 
@@ -370,17 +381,22 @@ A week the read it waited for listed MUST NOT be listed again, not even on Refre
 
 ### Requirement: Load on Patronus: A read that waited writes its own start
 
-A read that waited MUST write its own start as when it listed; a run Patronus keeps failing MUST keep the next reads on
-the path that asks.
+A read that waited MUST write its own start as when it listed.
 
 #### Scenario: After a wait
-- **WHEN** a read that waited ends
-- **THEN** it writes its own start as when it listed
+- **GIVEN** a read waited for another one
+- **WHEN** it lists the weeks the other did not list
+- **THEN** it writes its own start as when it listed: the weeks are kept as listed at the start of the read, not at the
+  end of the wait
+
+### Requirement: Load on Patronus: A run Patronus keeps failing keeps the reads asking
+
+A run Patronus keeps failing MUST keep the next reads on the path that asks.
 
 #### Scenario: A run Patronus keeps failing
 - **GIVEN** Patronus keeps failing the read of a run
 - **WHEN** the next reads come
-- **THEN** they stay on the path that asks
+- **THEN** they stay on the path that asks: the run is not kept, so none answers from the cache at once
 
 ### Requirement: Load on Patronus: Each two weeks are kept once listed
 
@@ -398,6 +414,14 @@ later, and one that comes meanwhile, ask only for the rest.
 The checks of a finished robot of the user MUST be read once, with its problems when it failed and its changes when it
 merged; only of the merged and failed robots of the last 14 days, at most 4 robots at once and 120 per read, the
 newest first: the next read asks for the rest.
+
+#### Scenario: The runs of the user's merged and failed robots, read once
+- **GIVEN** the user's merged, failed and canceled robots, an older one and another person's
+- **WHEN** a read reads the checks, and a later one again
+- **THEN** only the checks of the user's merged and failed robots of the last 14 days are read, the problems of the
+  failed one only
+- **AND** the later read reads none of them again
+  [@test] crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`)
 
 #### Scenario: More runs than one read takes
 - **GIVEN** more merged and failed robots of the last 14 days than 120
@@ -470,7 +494,7 @@ A second run of `brd robot-stats` MUST ask Patronus nothing; `--refresh` MUST li
 #### Scenario: A chosen period
 - **WHEN** `brd robot-stats` runs with `--period`
 - **THEN** it counts the robots of that period, 30 days without it
-  [@test] crates/bd-remote/src/robot_stats_test.rs (`the_period_is_the_days_that_count`)
+  [@test] crates/bd-remote/src/robot_stats_test.rs (`the_period_is_the_days_that_count`, `the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`)
 
 ### Requirement: `brd robot-stats`: A failure prints the kept numbers or says why there are none
 
@@ -507,6 +531,11 @@ progress and the numbers of the lists (`RobotStatsEvent::Partial`) through its c
 - **THEN** it answers the same `RobotStats` as `brd robot-stats` from the same core
 - **AND** the progress and the numbers of the lists come through its channel before the checks are read
 
+#### Scenario: The numbers of the lists before the runs
+- **WHEN** the core reads the statistics
+- **THEN** it sends the progress, then the numbers of the lists (`RobotStatsEvent::Partial`), before the runs are read
+  [@test] crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`)
+
 ### Requirement: The app: Two reads of one repository at once read once
 
 Two reads of one repository at once by `get_robot_stats` MUST read once, and one from the cache MUST wait for none.
@@ -514,7 +543,9 @@ Two reads of one repository at once by `get_robot_stats` MUST read once, and one
 #### Scenario: Two reads at once and one from the cache
 - **WHEN** two reads of one repository come at once
 - **THEN** they read once
+  [@test] crates/remote-facts/src/robot_stats_test.rs (`two_reads_at_once_ask_once`)
 - **AND** a read from the cache waits for none
+  [@test] crates/remote-facts/src/robot_stats_test.rs (`a_read_with_nothing_to_ask_does_not_wait_for_a_running_read`)
 
 ### Requirement: The app: The open of the object cache runs off the async workers
 
