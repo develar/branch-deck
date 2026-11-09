@@ -137,7 +137,7 @@ A whole stack that holds a parked branch lands in pieces, so its unit MUST take 
 ### Requirement: Units: A merge of the pull request on GitHub is the user's move
 
 Where the repository lands by a merge of the pull request on GitHub, Merge #7 and Auto-Merge #7 MUST be the user's move
-(the node ready), and an enabled auto-merge lands ([Landing Routes](../../branch/landing-routes/spec.md#merge)).
+(the node ready), and a unit whose auto-merge is enabled MUST be landing ([Landing Routes](../../branch/landing-routes/spec.md#merge)).
 
 #### Scenario: Merge and Auto-Merge are offered
 - **GIVEN** a repository that lands by a merge of the pull request on GitHub
@@ -147,7 +147,7 @@ Where the repository lands by a merge of the pull request on GitHub, Merge #7 an
 #### Scenario: An auto-merge is enabled
 - **GIVEN** a repository that lands by a merge of the pull request on GitHub
 - **WHEN** the auto-merge of a unit is enabled
-- **THEN** the unit lands
+- **THEN** its node is landing, no move of the user
 
 ### Requirement: Indicator: The button shows while work is on its way or a robot ran
 
@@ -160,10 +160,15 @@ ran in the last day, and MUST hide it otherwise.
 - **THEN** the button is there after Update Project
   [@test] tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
 
+#### Scenario: A pushed branch still waits for its pull request
+- **GIVEN** a lone branch whose step is its push, "On the way to master: 1 move is yours"
+- **WHEN** the user pushes it and it waits for its pull request
+- **THEN** the button stays, "On the way to master: 1 waiting"
+  [@test] tests/e2e/landing/landing-overview.spec.ts (`should be hidden while nothing is on the way to master and nothing ran in the last day`)
+
 #### Scenario: Nothing on the way, nothing in master, no robot of the last day
 - **WHEN** nothing is on the way to master, nothing is in master and no robot ran in the last day
 - **THEN** the overview is empty ("Nothing on the way to master") and the button is hidden
-  [@test] tests/e2e/landing/landing-overview.spec.ts (`should be hidden while nothing is on the way to master and nothing ran in the last day`)
   [@test] src/lib/landing-overview.test.ts (`is empty with nothing on the way, nothing in master and no robot of the last day`)
 
 ### Requirement: Indicator: Its icon is the node of the most urgent move
@@ -547,11 +552,13 @@ closes the overview, the robot whose state it tells.
 
 ### Requirement: Overview: A click on the name of a unit shows its row
 
-A click on the name of a unit MUST close the overview and show the row; of a stack, the stack expanded.
+A click on the name of a unit, or on the branch of a robot row that has a row, MUST close the overview and show that
+row; the name of a stack's unit shows it expanded.
 
-#### Scenario: A branch name
-- **WHEN** the user clicks the name of a branch in the overview
-- **THEN** the overview closes and its row shows, open
+#### Scenario: The branch of a robot row
+- **GIVEN** a running Safe Push of JIRA-456, listed in Landing by its robot row
+- **WHEN** the user clicks JIRA-456 in that row
+- **THEN** the overview closes and the row of JIRA-456 shows, open
   [@test] tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
 
 #### Scenario: A row the filter hides
@@ -748,6 +755,11 @@ Below a rule, the footer MUST show the update state of the baseline with Update
 - **WHEN** the overview opens
 - **THEN** its footer says how the pull requests were checked, with its action
   [@test] tests/e2e/github-sign-in/github-sign-in.spec.ts (`should sign in from the hint of a repository without a token, and ask GitHub again`)
+
+#### Scenario: Refresh of the pull requests
+- **WHEN** the user clicks Refresh of the pull requests in the footer
+- **THEN** GitHub is asked for the pull requests again
+  [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should refresh from the overview`)
 
 #### Scenario: Patronus
 - **WHEN** the user clicks Refresh of Patronus in the footer
