@@ -1695,7 +1695,7 @@ review on GitHub first"), as the session reads the open pull request of the subj
 ### Requirement: Request Review: Work the remote lacks is pushed by the request first
 
 Work the remote lacks by content MUST be no reason to disable it: the request (the intent `RequestReview` with
-`pushFirst`, D5) pushes it first, the `Push` of its plan (the push of the push button, the stack branch of a whole
+`pushFirst`) pushes it first, the `Push` of its plan (the push of the push button, the stack branch of a whole
 stack, no push toast; one only rebuilt on a newer baseline is up to date, an unknown remote status pushes nothing), so
 the reviewers see the commits.
 

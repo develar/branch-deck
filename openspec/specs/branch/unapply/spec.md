@@ -538,7 +538,7 @@ run the push until the first sync; a push, a reapply or a delete that runs shows
 ### Requirement: The Unapplied card: Push pushes the branch under its own name
 
 Push MUST push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, the
-intent `Push` with the scope `unapplied` (`operations::push`): no robot read, no hold, no retarget (C3), "Force Push
+intent `Push` with the scope `unapplied` (`operations::push`): no robot read, no hold, no retarget, "Force Push
 Branch" of its menu the user's choice to drop what the remote has. A pull request of its virtual branch stays as it was.
 
 #### Scenario: Push Branch of an unapplied row

@@ -3,15 +3,16 @@
 //   name a test in it: a TypeScript test by its title (a string literal), a Rust test by its function. A path that
 //   starts with `./` or `../` is from the file, any other from the root; under `openspec/` every path is from the root,
 //   as `openspec archive` copies the text of a delta into the main spec two directories up;
-// - every spec lists its `targets:` in its front matter, each once, a path of a file that exists: from the root for a
-//   spec of `openspec/specs/<area>/<name>/spec.md`, `../../` for one of `spec/<area>/<name>.spec.md`;
+// - every spec (`openspec/specs/<area>/<name>/spec.md`) lists its `targets:` in its front matter, each once, a path
+//   from the root of a file that exists;
 // - every rule of the domain (`crates/domain-policy/src/<rule>.rs`) names its spec in its `//!` header, and every spec
 //   it names lists it as a target;
 // - every presenter of the page (`src/presenters/*.ts`) is a target of a spec;
-// - a link into a spec of the OpenSpec format names one of its headings by the anchor GitHub gives it, or a group of
-//   its requirements (`#refusals` for the requirements `### Requirement: Refusals: …`);
+// - a link into a spec names one of its headings by the anchor GitHub gives it, or a group of its requirements
+//   (`#refusals` for the requirements `### Requirement: Refusals: …`);
+// - in every spec the requirements of a group (`### Requirement: <Group>: <behaviour>`) stand together;
 // - no file lies under `spec/`, and none names a spec by its old path `spec/<area>/<name>.spec.md`;
-// - `openspec validate --strict` passes for every spec of the OpenSpec format and every change;
+// - `openspec validate --strict` passes for every spec and every change;
 // - AGENTS.md keeps within its budget, which every session of every agent reads whole (Codex reads no more than 32 KiB).
 // A renamed, moved or deleted test or file fails here, not in a reader. Every path is one from the root with `/` on
 // every platform, as the links, the targets and the `//!` headers name a file (`globSync` answers `\` on Windows).
@@ -24,14 +25,14 @@ const LINK = /^\s*\[@test\] (\S+) \(((?:`[^`]+`(?:, )?)+)\)$/
 const RULES = "crates/domain-policy/src/*.rs"
 const PRESENTERS = "src/presenters/*.ts"
 const AGENTS_BUDGET = 32 * 1024
-const SPEC_NAME = /\b(?:spec\/[a-z0-9-]+\/[a-z0-9-]+\.spec\.md|openspec\/specs\/(?:[a-z0-9-]+\/)+spec\.md)\b/g
-/** The specs, in either format */
-const SPECS = ["spec/**/*.spec.md", "openspec/specs/**/spec.md"]
+const SPEC_NAME = /\bopenspec\/specs\/(?:[a-z0-9-]+\/)+spec\.md\b/g
+/** The specs */
+const SPECS = "openspec/specs/**/spec.md"
 /** The files of prose whose `[@test]` lines and links are checked; an archived change is history, as CHANGELOG.md */
-const DOCS = ["spec/**/*.md", "openspec/**/*.md", "docs/**/*.md"]
+const DOCS = ["openspec/**/*.md", "docs/**/*.md"]
 const ARCHIVE = "openspec/changes/archive/"
-/** A requirement of the OpenSpec format, the mark of a spec in it */
-const REQUIREMENT = /^### Requirement: /m
+/** The heading of a requirement, its name the group */
+const REQUIREMENT = /^### Requirement: (.+)$/
 /** A markdown link to a spec of OpenSpec, `[text](<path>/spec.md#anchor)` */
 const SPEC_LINK = /\]\(([^)\s#]*\/spec\.md)(?:#([^)\s]*))?\)/g
 
@@ -146,24 +147,10 @@ function moduleHeader(source) {
   return header.join("\n")
 }
 
-/** The problem of the path of a target of `spec`, or none: from the root under openspec/, `../../` under spec/ */
-function targetPathProblem(spec, path) {
-  if (underOpenSpec(spec)) {
-    return /^\.\.?\//.test(path) ? `the target ${path} is not from the root of the repository, as every path under openspec/` : null
-  }
-  return path.startsWith("../../") ? null : `the target ${path} is no \`../../\` path from the root of the repository`
-}
-
-/** How `spec` names `file` as its target */
-function targetName(spec, file) {
-  return underOpenSpec(spec) ? file : `../../${file}`
-}
-
 /**
- * The problems of the `targets:` of the specs under `root`: a spec without them, a target that is no path of a file
- * (from the root under openspec/, `../../` under spec/), one listed twice; a rule of `crates/domain-policy/src/` whose
- * `//!` header names no spec, or a spec that lists it not; a presenter of `src/presenters/` that no spec lists. `glob`
- * lists the files
+ * The problems of the `targets:` of the specs under `root`: a spec without them, a target that is no path from the
+ * root of a file, one listed twice; a rule of `crates/domain-policy/src/` whose `//!` header names no spec, or a spec
+ * that lists it not; a presenter of `src/presenters/` that no spec lists. `glob` lists the files
  */
 export function checkSpecTargets(root, glob = globSync) {
   const problems = []
@@ -179,12 +166,11 @@ export function checkSpecTargets(root, glob = globSync) {
     const seen = new Set()
     for (const { path, line } of found.targets) {
       const at = `${spec}:${line}`
-      const pathProblem = targetPathProblem(spec, path)
-      if (pathProblem !== null) {
-        problems.push(`${at}: ${pathProblem}`)
+      if (/^\.\.?\//.test(path)) {
+        problems.push(`${at}: the target ${path} is not from the root of the repository, as every path under openspec/`)
         continue
       }
-      const file = linkedFile(spec, path)
+      const file = posix.normalize(path)
       if (seen.has(file)) {
         problems.push(`${at}: lists ${path} twice`)
         continue
@@ -216,7 +202,7 @@ export function checkSpecTargets(root, glob = globSync) {
       if (!existsSync(join(root, spec))) {
         problems.push(`${rule}: its \`//!\` header names ${spec}, which does not exist`)
       } else if (!listedBy.get(rule)?.has(spec)) {
-        problems.push(`${spec}: no target ${targetName(spec, rule)}, whose \`//!\` header names the spec`)
+        problems.push(`${spec}: no target ${rule}, whose \`//!\` header names the spec`)
       }
     }
   }
@@ -240,22 +226,31 @@ export function headingSlug(heading) {
     .replaceAll(" ", "-")
 }
 
+/** The lines of `text` outside its fenced code, each with its number */
+function proseLines(text) {
+  const lines = []
+  let fence = null
+  text.split(/\r?\n/).forEach((line, index) => {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+    if (marker === undefined) {
+      if (fence === null) {
+        lines.push({ line, number: index + 1 })
+      }
+    } else if (fence === null) {
+      fence = marker
+    } else if (marker[0] === fence[0] && marker.length >= fence.length) {
+      fence = null
+    }
+  })
+  return lines
+}
+
 /** The anchors of the headings of `text` outside its fenced code, a repeated one with the `-1`, `-2` GitHub gives it */
 export function headingAnchors(text) {
   const anchors = new Set()
   const counts = new Map()
-  let fence = null
-  for (const line of text.split(/\r?\n/)) {
-    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
-    if (marker !== undefined) {
-      if (fence === null) {
-        fence = marker
-      } else if (marker[0] === fence[0] && marker.length >= fence.length) {
-        fence = null
-      }
-      continue
-    }
-    const heading = fence === null ? /^#{1,6} (.+)$/.exec(line) : null
+  for (const { line } of proseLines(text)) {
+    const heading = /^#{1,6} (.+)$/.exec(line)
     if (heading === null) {
       continue
     }
@@ -273,9 +268,8 @@ export function namesHeading(anchors, anchor) {
 }
 
 /**
- * The problems of the links of the files of prose under `root` (the specs, `docs/`, AGENTS.md, the READMEs) into a spec
- * of OpenSpec: a file that is gone; for a spec of its format, an anchor that names none of its headings and no group of
- * its requirements. `glob` lists the files
+ * The problems of the links of the files of prose under `root` (the specs, `docs/`, AGENTS.md, the READMEs) into a spec:
+ * a file that is gone, an anchor that names none of its headings and no group of its requirements. `glob` lists the files
  */
 export function checkSpecAnchors(root, glob = globSync) {
   const anchorsOf = new Map()
@@ -295,15 +289,45 @@ export function checkSpecAnchors(root, glob = globSync) {
             continue
           }
           if (!anchorsOf.has(file)) {
-            const text = readFileSync(join(root, file), "utf8")
-            anchorsOf.set(file, REQUIREMENT.test(text) ? headingAnchors(text) : null)
+            anchorsOf.set(file, headingAnchors(readFileSync(join(root, file), "utf8")))
           }
-          const anchors = anchorsOf.get(file)
-          if (anchor !== undefined && anchors !== null && !namesHeading(anchors, anchor)) {
+          if (anchor !== undefined && !namesHeading(anchorsOf.get(file), anchor)) {
             problems.push(`${at}: ${file} has no heading of the anchor #${anchor}`)
           }
         }
       })
+  }
+  return problems
+}
+
+/**
+ * The problems of the order of the requirements of the specs under `root`: the requirements of a group stand together.
+ * The group of `### Requirement: <Group>: <behaviour>` is the text before its first `: `, of a name without one the
+ * untitled group; a group of two runs fails at the first requirement of its second. `glob` lists the files
+ */
+export function checkRequirementGroups(root, glob = globSync) {
+  const problems = []
+  for (const spec of filesOf(root, SPECS, glob)) {
+    const ended = new Set()
+    let current
+    for (const { line, number } of proseLines(readFileSync(join(root, spec), "utf8"))) {
+      const name = REQUIREMENT.exec(line)?.[1]
+      if (name === undefined) {
+        continue
+      }
+      const separator = name.indexOf(": ")
+      const group = separator < 0 ? "" : name.slice(0, separator)
+      if (group === current) {
+        continue
+      }
+      if (ended.has(group)) {
+        problems.push(`${spec}:${number}: the requirements of the group "${group}" are not together`)
+      }
+      if (current !== undefined) {
+        ended.add(current)
+      }
+      current = group
+    }
   }
   return problems
 }
@@ -378,22 +402,16 @@ export function openspecValidate(root, args) {
 }
 
 /**
- * The problems `openspec validate --strict` reports of the specs under `openspec/specs/` of its format (a spec still in
- * the old one aside while the specs move), of the changes under `openspec/changes/` and of the archived ones (a task not
- * done). `validate` answers the report of its arguments
+ * The problems `openspec validate --strict` reports of every spec under `openspec/specs/`, of the changes under
+ * `openspec/changes/` and of the archived ones (a task not done). `validate` answers the report of its arguments
  */
 export function checkOpenSpec(root, glob = globSync, validate = openspecValidate) {
   if (!existsSync(join(root, "openspec"))) {
     return []
   }
-  const ofFormat = new Set(
-    filesOf(root, "openspec/specs/**/spec.md", glob)
-      .filter(spec => REQUIREMENT.test(readFileSync(join(root, spec), "utf8")))
-      .map(spec => spec.slice("openspec/specs/".length, -"/spec.md".length)),
-  )
   const problems = []
-  const report = (answer, keep) => {
-    for (const item of (answer.items ?? []).filter(keep)) {
+  const report = answer => {
+    for (const item of answer.items ?? []) {
       const issues = item.issues ?? []
       for (const issue of issues) {
         const line = issue.line === undefined ? "" : `:${issue.line}`
@@ -404,25 +422,33 @@ export function checkOpenSpec(root, glob = globSync, validate = openspecValidate
       }
     }
   }
-  if (ofFormat.size > 0) {
-    report(validate(root, ["--specs"]), item => ofFormat.has(item.id))
+  if (filesOf(root, SPECS, glob).length > 0) {
+    report(validate(root, ["--specs"]))
   }
   if (filesOf(root, "openspec/changes/*/proposal.md", glob).length > 0) {
-    report(validate(root, ["--changes"]), () => true)
+    report(validate(root, ["--changes"]))
   }
   if (filesOf(root, `${ARCHIVE}*/proposal.md`, glob).length > 0) {
-    report(validate(root, ["--archived"]), () => true)
+    report(validate(root, ["--archived"]))
   }
   return problems
 }
 
 if (import.meta.main) {
   const root = join(import.meta.dirname, "..")
-  const problems = [...checkTestLinks(root), ...checkSpecTargets(root), ...checkSpecAnchors(root), ...checkOldLayout(root), ...checkOpenSpec(root), ...checkAgentsBudget(root)]
+  const problems = [
+    ...checkTestLinks(root),
+    ...checkSpecTargets(root),
+    ...checkSpecAnchors(root),
+    ...checkRequirementGroups(root),
+    ...checkOldLayout(root),
+    ...checkOpenSpec(root),
+    ...checkAgentsBudget(root),
+  ]
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} broken link(s) of the specs: a [@test] link names a test that exists, a target a file, a rule its spec, a presenter is a target, a link into a spec its heading, no path of the old layout, openspec validate --strict passes, AGENTS.md within its budget (scripts/check-spec-links.mjs)`,
+      `${problems.length} broken link(s) of the specs: a [@test] link names a test that exists, a target a file, a rule its spec, a presenter is a target, a link into a spec its heading, the requirements of a group together, no path of the old layout, openspec validate --strict passes, AGENTS.md within its budget (scripts/check-spec-links.mjs)`,
     )
     process.exit(1)
   }

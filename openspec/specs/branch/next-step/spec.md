@@ -133,7 +133,7 @@ other surface MUST disable "Safe Push" with (`safePushBlocker`, the `safe-push` 
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
-  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | enabled: the start retargets #7 into master first, then starts from it, as `brd safe-push` (D11, `PlannedEffect::Retarget` of `domain_policy::land::decide`) |
+  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | enabled: the start retargets #7 into master first, then starts from it, as `brd safe-push` (`PlannedEffect::Retarget` of `domain_policy::land::decide`) |
   | 5 | Merge route: an open pull request into the branch of the layer below it that GitHub lists in no stack (`layerNotLinked` of the merge, [Stacks of GitHub](../stacked-branches/spec.md#stacks-of-github)): its merge would land nothing | "Link GitHub Stack" ("Link Stack" in the slot): Link GitHub Stack (`Intent::LinkStack`) | its merge waits for the link |
   | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `brd safe-push` (D3b) |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
@@ -357,7 +357,7 @@ the commits it has.
 ### Requirement: The table: A pull request lands the branch only merged with the commits it has
 
 A merged pull request MUST land the branch only when its head is the branch's tip (the stack branch's), or its remote
-branch, which has what the branch has (a branch only rebuilt on a newer baseline since, D13), and it merged into the
+branch, which has what the branch has (a branch only rebuilt on a newer baseline since), and it merged into the
 target. A merged pull request of other commits is new work under the same name; a closed one lands nothing.
 
 #### Scenario: Its head is the tip or the remote branch

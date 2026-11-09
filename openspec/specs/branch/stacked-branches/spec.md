@@ -1259,7 +1259,7 @@ on the head the session has).
 ### Requirement: Pull requests: A plan of Push with Children that asks more asks again
 
 A plan that asks more by then (the remote got another commit) MUST ask again. Nothing is pushed before that, and a plan
-that asks of more than one branch MUST be refused, each drop named (D12).
+that asks of more than one branch MUST be refused, each drop named.
 
 #### Scenario: The remote got another commit
 - **GIVEN** the user accepted a drop with Force Push
@@ -1269,7 +1269,7 @@ that asks of more than one branch MUST be refused, each drop named (D12).
 
 #### Scenario: The plan asks of more than one branch
 - **WHEN** the plan of Push with Children drops remote commits of more than one branch
-- **THEN** it is refused, each drop named (D12), and nothing is pushed
+- **THEN** it is refused, each drop named, and nothing is pushed
   [@test] src/lib/push-run.test.ts (`of a stack that drops remote commits of more than one branch is refused, each drop named`)
 
 ### Requirement: Pull requests: Push with Children names what it pushes

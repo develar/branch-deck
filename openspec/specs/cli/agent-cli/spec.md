@@ -4638,7 +4638,7 @@ A Dry Run MUST replace no Safe Push: its push into the branch of a running Safe 
 
 A branch whose push would drop commits (`behind`) MUST refuse the check and the start with `push_refused` and the
 `brd push` that drops them after the user approves; the start's error carries the branch in `error.branches`, nothing
-pushed or started. `--force`, once the user approved, MUST start with the drop pushed away (D12).
+pushed or started. `--force`, once the user approved, MUST start with the drop pushed away.
 
 #### Scenario: Remote commits the push would drop
 - **GIVEN** the remote branch has commits the push would drop (`behind`)
@@ -4734,7 +4734,7 @@ without them, as the app's start does (`skipsApprovals`).
 
 ### Requirement: `brd safe-push`: A review Patronus cannot answer refuses as `review_unknown`
 
-A pre-check that failed MUST be no answer, never `approved` and never a failure of the command (D14): it MUST refuse
+A pre-check that failed MUST be no answer, never `approved` and never a failure of the command: it MUST refuse
 the start with `review_unknown` (exit 4, also in `refusals`), the `review` saying `unavailable`, unless
 `--allow-unknown-review`, which starts and leaves the approvals to the robot.
 
@@ -4959,8 +4959,7 @@ the rest.
 
 A branch landed otherwise MUST be refused as `landed` too, by the rule of the app
 (`domain_policy::landed::landed_state`): the fetched baseline has every commit of it, or GitHub merged its pull request
-with the commits it has, the head of the merged pull request of the listing at its tip or its remote branch up to date
-(D13).
+with the commits it has, the head of the merged pull request of the listing at its tip or its remote branch up to date.
 
 #### Scenario: The baseline has every commit of it
 - **GIVEN** the fetched baseline has every commit of the branch
@@ -5278,7 +5277,7 @@ branch).
 
 ### Requirement: `brd safe-push`: The whole stack is the app's, by declared parent
 
-The whole stack MUST be the app's, by declared parent (D8): a blocked branch whose declared parent has no commits heads
+The whole stack MUST be the app's, by declared parent: a blocked branch whose declared parent has no commits heads
 one of its own.
 
 #### Scenario: A blocked branch with an inactive declared parent
@@ -5290,7 +5289,7 @@ one of its own.
 ### Requirement: `brd safe-push`: An older build on the remote stack branch is pushed over once
 
 A remote stack branch that moved since the sync without commits the stack branch lacks (an older build of the stack)
-MUST be pushed over again at once, once, leased on the fetched head, as `brd push` does (D4): `pushed[0].pushed_over`,
+MUST be pushed over again at once, once, leased on the fetched head, as `brd push` does: `pushed[0].pushed_over`,
 and the robot starts; one with commits the stack lacks, or that moves again, MUST be `lease_rejected`, nothing started.
 
 #### Scenario: The remote moved to an older build of the stack
@@ -5717,7 +5716,7 @@ without it), and write nothing but the push of `--push` and the request on GitHu
 
 ### Requirement: `brd request-review`: Work the remote branch lacks is `needs_push`
 
-A branch with work its remote branch lacks MUST be `needs_push` (exit 4, D5) with the next step
+A branch with work its remote branch lacks MUST be `needs_push` (exit 4) with the next step
 `brd request-review <branch> --push` (`needs_approval: true`): the reviewers would not see the commits.
 
 #### Scenario: Commits not pushed yet
@@ -5880,7 +5879,7 @@ Without the Space token it MUST be `not_logged_in`, and outside Space `not_on_sp
 
 For a merged Safe Push it MUST list `closes`: the open pull requests of the branches it landed whole besides its own (a
 branch it is built on, every branch of its whole stack), each holding nothing the branch lacks, never the pull request
-it started from: the ones the app closes, by the same rule (`domain_policy::landed::pull_requests_to_close`, D7);
+it started from: the ones the app closes, by the same rule (`domain_policy::landed::pull_requests_to_close`);
 `brd` MUST close none.
 
 #### Scenario: A merged robot

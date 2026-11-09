@@ -384,7 +384,7 @@ The app MUST keep the stack branches of the last sync by root (`useStackBranch`,
 ### Requirement: The Safe Push of the whole stack: The whole stack of a branch is the stack of its declared root
 
 The whole stack of a branch MUST be the stack of its root by declared parent, for the app and `brd` alike
-(`domain_policy::stack::whole_stack_of`, D8, the owner's decision: the stack as the user declared it; the parent that
+(`domain_policy::stack::whole_stack_of`, the owner's decision: the stack as the user declared it; the parent that
 blocks a branch is a detail of its build).
 
 #### Scenario: The root of a branch by its declared parents

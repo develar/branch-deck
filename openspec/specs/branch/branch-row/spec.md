@@ -877,7 +877,7 @@ the remote status the sync brought.
 ### Requirement: Status cell: A rewrite during a sync goes to the session at once
 
 A rewrite (the menu, a drag, M) during a sync MUST go to the session at once, named on the table the row shows, and is
-decided on HEAD as it is when it runs (C14).
+decided on HEAD as it is when it runs.
 
 #### Scenario: A rewrite started during a sync
 - **WHEN** the user starts a rewrite of a row from the menu, a drag or M while a sync runs
@@ -1995,7 +1995,7 @@ with the reason, as Rust decides them, except the fixes of a stack problem, whic
 
 ### Requirement: Branch menu: A sync that runs disables no rewrite
 
-A sync that runs MUST disable no rewrite (C14): its start goes to the session at once, named on the table the window
+A sync that runs MUST disable no rewrite: its start goes to the session at once, named on the table the window
 shows, and runs once HEAD is as the session knows it; its row shows the rewrite on its "⋯" meanwhile, no info toast
 refuses it, and each rewrite asks one sync after it.
 

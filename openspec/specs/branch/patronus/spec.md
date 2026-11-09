@@ -446,7 +446,7 @@ fetched answers the page's next list.
 
 ### Requirement: Load on Patronus: A start of a Safe Push or a Dry Run asks no list of its own
 
-A start of a Safe Push or a Dry Run MUST ask no list of its own (C2): it is an operation of the session (`execute`),
+A start of a Safe Push or a Dry Run MUST ask no list of its own: it is an operation of the session (`execute`),
 whose plan, witness, push and start read the robots the session holds, and whose robot goes into them at once.
 
 #### Scenario: A start through the engine
@@ -1808,8 +1808,8 @@ Each fact without an answer MUST be a wait that names it, never a refusal.
 ### Requirement: Starting a Safe Push or a Dry Run: What Patronus would refuse or fail is a refusal
 
 What Patronus would refuse or fail MUST be a refusal with the reason: a target Patronus does not push into, a draft,
-missing approvals (also for a repository only on Space whose merge request misses them, D14), a hold of the push, a
-push that would drop commits of the remote branch the branch lacks (D12).
+missing approvals (also for a repository only on Space whose merge request misses them), a hold of the push, a
+push that would drop commits of the remote branch the branch lacks.
 
 #### Scenario: The refusals of a start
 - **WHEN** Patronus would refuse or fail the start
@@ -1850,7 +1850,7 @@ A start that can run MUST either start or confirm first, and MUST confirm only f
 ### Requirement: Starting a Safe Push or a Dry Run: The effects of a start are Rust's, run in order
 
 What the start does then MUST be Rust's too (`PlannedEffect`, run in order by the engine): the retarget of a pull
-request into a virtual branch into the target (D11), the cancel of the Safe Push it replaces, the push, then the robot,
+request into a virtual branch into the target, the cancel of the Safe Push it replaces, the push, then the robot,
 from the pull request or through the API with the profile.
 
 #### Scenario: The effects in order
@@ -2884,7 +2884,7 @@ on (`domain_policy::pull_request::start_pull_request`), and such a branch MUST s
 
 Every pull request of a virtual branch goes into the target ([Pull Requests](../pull-requests/spec.md)); an old one of
 a stacked branch into its parent's branch (`{prefix}/virtual/…`) MUST be retargeted, by a push of the branch too
-([Stacked Branches](../stacked-branches/spec.md#pull-requests)), and by the start itself first (D11): the start
+([Stacked Branches](../stacked-branches/spec.md#pull-requests)), and by the start itself first: the start
 comments on it once GitHub took it, and its approvals count, as the readiness is asked with it.
 
 #### Scenario: The start retargets first
@@ -3254,7 +3254,7 @@ the toast and Activity MUST say it.
 
 ### Requirement: Merged: One rule of Rust decides which pull requests a landing closes
 
-One rule MUST decide which, in Rust (`domain_policy::landed::pull_requests_to_close`, D7), for the app and `brd robot`
+One rule MUST decide which, in Rust (`domain_policy::landed::pull_requests_to_close`), for the app and `brd robot`
 (`closes`, which `brd` lists and never closes): by content, the branches the robot landed whole besides its own, as
 the Patronus view of the robots it merged in names them (`landedByRobot`), and only a pull request that holds nothing
 its branch lacks. The pull request the robot started from is Patronus'.
@@ -3933,7 +3933,7 @@ fails for them. `unknown` lets it start, as the robot decides.
 ### Requirement: Code-owner review: `brd safe-push` refuses an unavailable review until told
 
 `unavailable` (the pre-check failed) is no answer: it MUST refuse the start as `review_unknown` until the user says to
-start anyway (`--allow-unknown-review`, the decision's confirmation `ReviewUnknown`, D14).
+start anyway (`--allow-unknown-review`, the decision's confirmation `ReviewUnknown`).
 
 #### Scenario: Patronus cannot answer the review
 - **WHEN** the pre-check of `brd safe-push` failed
@@ -3976,7 +3976,7 @@ Space is read once there, whatever reason the answer gives: the merge request Pa
 A repository only on Space (no GitHub repository of the branches) keeps the merge request path: its slot MUST NOT be
 held back (merge requests are deprecated and the robot decides, [Next Step](../next-step/spec.md#the-table)), but the
 click on the start of one whose approvals are required MUST open its popover, which names them and refuses the start a
-robot would fail (D14, as `brd`'s `approvals_missing`). No button creates anything.
+robot would fail (as `brd`'s `approvals_missing`). No button creates anything.
 
 #### Scenario: A merge request Patronus found open
 - **GIVEN** the approvals of a branch of a repository only on Space are required and Patronus found its merge request IJ-CR-7 open
@@ -5030,7 +5030,7 @@ on it lands it, then that a robot lands an ancestor (`domain_policy::land::start
 
 A Dry Run MUST say the first two refusals of a start, then, while its start pushes, that a running Safe Push of a
 branch built on it lands the branch: its push would fail that Safe Push at the end, as any push into what a running
-Safe Push lands (`landing.dryRun`, D15: `brd safe-push --mode dry-run` refuses it too, `robot_running`).
+Safe Push lands (`landing.dryRun`; `brd safe-push --mode dry-run` refuses it too, `robot_running`).
 
 #### Scenario: A Dry Run below a running Safe Push
 - **GIVEN** a Safe Push of a branch built on the branch runs and lands it

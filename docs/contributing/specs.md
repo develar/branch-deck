@@ -5,7 +5,7 @@
 A spec is the contract of a feature: what it does, as a user or an agent sees it, each rule with the tests that prove
 it. The specs are of [OpenSpec](https://github.com/Fission-AI/OpenSpec) 1.16 (`@fission-ai/openspec`, a devDependency):
 one capability per file, `openspec/specs/<area>/<name>/spec.md`, its id `<area>/<name>` (`branch/unapply`).
-`pnpm lint:specs` checks their links and runs `openspec validate --strict`; `pnpm exec openspec show branch/unapply`
+`pnpm lint:specs` checks their links and the order of their requirements and runs `openspec validate --strict`; `pnpm exec openspec show branch/unapply`
 and `pnpm exec openspec list --specs` read them.
 
 ## The file
@@ -75,9 +75,10 @@ The files the commits changed MUST follow them out of the current branch, so tha
 
 - **Its name** is `<Group>: <behaviour>`: the group of the rules it belongs to (`Result`, `Refusals`, `` `brd` ``),
   then the behaviour in sentence case, about 70 characters at most, without a period. OpenSpec has no group headings,
-  so the group lives in the name: the requirements of a group stand together, in the order of the old groups; a link
-  to `#refusals` names the group (the first requirement `### Requirement: Refusals: …`). Names are unique in their
-  spec, and so are their anchors.
+  so the group lives in the name: the requirements of a group stand together, which `pnpm lint:specs` checks (the
+  group is the text before the first `: `; a name without one is of the untitled group), and a link to `#refusals`
+  names the group (its first requirement `### Requirement: Refusals: …`). Names are unique in their spec, and so are
+  their anchors.
 - **Its text** (everything between its heading and its first scenario) states one rule with SHALL or MUST, in one to
   three sentences, 500 characters at most (`openspec validate --strict` fails longer ones). No test link and no
   table in it; examples and cases go into its scenarios. A requirement that holds several rules is several
@@ -104,10 +105,3 @@ A markdown link between specs is relative (`../parked-branches/spec.md`, `../../
 one into `docs/` relative too (`../../../../docs/design/git-operations.md`). Its anchor is the one GitHub gives the
 heading: `### Requirement: Undo: The undo token names full ids` is `#requirement-undo-the-undo-token-names-full-ids`;
 the group alone, `#undo`, names its first requirement. `pnpm lint:specs` checks both.
-
-## While the specs move
-
-The specs are moving from their old format (`### <Group>` headings of `- ` bullets, each with its test links) to
-the one above, one spec per commit. A spec without `### Requirement:` is still in the old format: edit it in that
-format until its conversion lands; `openspec validate` skips it until then, the links and targets are checked as of
-every spec.

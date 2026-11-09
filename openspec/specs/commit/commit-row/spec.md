@@ -990,7 +990,7 @@ The preview of a commit in a branch table or in the unassigned commits card MUST
 
 The menu of a commit row MUST offer "Reword…" (one commit), which opens the preview with the message in edit, also while
 a sync or another rewrite runs: the save goes to the session at once, named on the table the preview shows, and waits
-there (C14). Escape ends that edit as any other, the preview stays.
+there. Escape ends that edit as any other, the preview stays.
 
 #### Scenario: Reword from the menu of a row
 - **WHEN** the user chooses "Reword…" in the menu of a commit row
@@ -1002,7 +1002,7 @@ there (C14). Escape ends that edit as any other, the preview stays.
 - **GIVEN** a sync or another rewrite runs
 - **WHEN** the user chooses "Reword…" and saves
 - **THEN** the preview opens with the message in edit
-- **AND** the save goes to the session at once, named on the table the preview shows, and waits there (C14)
+- **AND** the save goes to the session at once, named on the table the preview shows, and waits there
 
 ### Requirement: Message editing: A commit off the current branch offers no edit
 
@@ -1114,12 +1114,12 @@ A save that moves the commit to another list MUST close the preview.
 ### Requirement: Message editing: The edit stays enabled while a sync runs
 
 The edit and the save MUST stay enabled while a sync runs: the reword goes to the session at once, named on the table
-the preview shows, and waits there (C14).
+the preview shows, and waits there.
 
 #### Scenario: A save during a sync
 - **GIVEN** a sync runs
 - **WHEN** the user edits and saves a message
-- **THEN** the reword goes to the session at once, named on the table the preview shows, and waits there (C14)
+- **THEN** the reword goes to the session at once, named on the table the preview shows, and waits there
   [@test] tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit enabled while a sync runs: the save goes to the session at once`)
 
 ### Requirement: Message editing: A failed save keeps the draft
