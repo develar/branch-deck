@@ -4017,7 +4017,7 @@ of another owner, stays without files.
 ### Requirement: Code-owner review: Review Changes reviews the branch with the groups as filters
 
 "Review Changes" of the popover (and D on the row) MUST review the branch in its review window, on the whole stack,
-the groups as filters ([Branch Review](../branch-review/spec.md#the-files-of-each-reviewer-group-safe-push-form)).
+the groups as filters ([Branch Review](../branch-review/spec.md#the-files-of-each-reviewer-group-safe-push-popover)).
 
 #### Scenario: Review Changes of the popover
 - **WHEN** the user clicks "Review Changes" of the popover, or presses D on the row
