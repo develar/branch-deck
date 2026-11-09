@@ -404,10 +404,12 @@ back before it closes the window.
 #### Scenario: A prefix git cannot take
 - **WHEN** the user types `jane doe` and presses Enter
 - **THEN** the field is marked invalid and nothing is saved
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
 
 #### Scenario: Escape
 - **WHEN** the user types and presses Escape
 - **THEN** the field takes the typing back and the window stays open
+  [@test] tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`)
 
 ### Requirement: Welcome card: An empty field applies the prefix of the global git config
 
@@ -619,16 +621,10 @@ The main window MUST record every run of its session that ended, the ones no req
 the open, of a rewrite, of `brd`).
 
 #### Scenario: Runs that ended
-- **WHEN** runs of the session end, one a request of the window waited for and others
-- **THEN** the window counts every run that ended, Sync busy from the request to the last patch of the run that
-  serves it
+- **WHEN** a run of the session ends
+- **THEN** the window counts it and records it as the sync of the repository: when it ended and how many branches it
+  had
   [@test] src/model/store.test.ts (`keeps Sync busy from the request to the last patch of the run that serves it, and counts the runs that ended`)
-
-#### Scenario: The answer of a run
-- **WHEN** a run ends while a follow-up is queued
-- **THEN** the request of that run resolves when its run ends, not the chain, with the version its last patch brought
-  the view to
-  [@test] crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
 
 ### Requirement: Before the first sync: The start reads the frame the session saved last
 
@@ -714,9 +710,9 @@ stack that is no more) MUST wait for it ("Waits for the first sync").
 
 ### Requirement: Before the first sync: The backend refuses an intent of the remote on the frame
 
-The backend MUST refuse an intent of the remote on the rows of the frame (`plan_changed`) whoever asks it; after a
-first sync that failed (or that git deferred) it MUST refuse with the error of that sync a push that waited for it too
-(as a rewrite does).
+The backend MUST refuse an intent of the remote on the rows of the frame whoever asks it: with `plan_changed`, and
+after a first sync that failed (or that git deferred) with the error of that sync, a push that waited for it too (as a
+rewrite does).
 
 #### Scenario: An intent of the remote on a seeded table
 - **GIVEN** the table of the session is the seed
@@ -728,6 +724,7 @@ first sync that failed (or that git deferred) it MUST refuse with the error of t
 - **GIVEN** a push waits for the first sync
 - **WHEN** that sync fails, or git defers it
 - **THEN** the push is refused with the error of that sync and sends nothing
+- **AND** an intent of the remote asked after it on the rows of the frame is refused with that error too
   [@test] crates/operations/src/rewrite_test.rs (`a_push_that_waited_for_a_first_sync_that_failed_is_refused_and_sends_nothing`)
 
 ### Requirement: Before the first sync: A rewrite pressed on the frame waits for the first sync
@@ -1216,12 +1213,14 @@ its commits"); a sync the app started (on open, on focus, after a change) MUST w
 
 #### Scenario: A detached HEAD
 - **WHEN** the user's sync is deferred by a detached HEAD
-- **THEN** the toast says "Not synced: HEAD is detached" / "Check out a branch to sync its commits"
+- **THEN** the toast says "Not synced: HEAD is detached" / "Check out a branch to sync its commits", and the view of the
+  session the same
+  [@test] src/model/store.test.ts (`is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for`)
 
 #### Scenario: A sync the app started
 - **WHEN** the sync of the open, of a focus or after a change is deferred
 - **THEN** it waits without a toast
-  [@test] tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
+  [@test] src/model/store.test.ts (`is no failure when deferred: no error, the table as it was, an info toast only for a sync the user asked for`)
 
 ### Requirement: Before the first sync: The view says why the sync waits
 
