@@ -355,7 +355,7 @@ are, and no ref names the commit.
 
 ### Requirement: run: The same tree on the same HEAD is the same commit
 
-The author and the committer of that commit MUST be `brd-host <brd-host@brd-host.invalid>` at the date of the
+The author and the committer of that commit MUST be `bd-host <bd-host@bd-host.invalid>` at the date of the
 committer of HEAD, and its message names HEAD. So the same tree on the same HEAD is the same commit, and a second run
 of it sends no pack.
 
