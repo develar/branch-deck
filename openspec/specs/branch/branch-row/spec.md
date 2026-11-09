@@ -468,8 +468,9 @@ is the user's again.
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click`)
 
 #### Scenario: The state of the subject itself
-- **WHEN** a move of the row runs while the branch is parked, fails, landed, is blocked or its robot runs
+- **WHEN** a move of the row runs while the sync of the branch failed or it conflicts (parked or not), all of it is in master, it is blocked or its own robot runs
 - **THEN** the node keeps the state of the subject itself, which a move doesn't replace
+- **AND** a move of a parked branch without a conflict, or the restart of a robot that failed, shows in place of the node
   [@test] crates/domain-policy/src/landing_node_test.rs (`the_node_of_the_subject_itself_parked_failing_landed_blocked_or_its_robot_running_stays_through_a_move`)
 
 #### Scenario: An action that fails
@@ -1253,8 +1254,9 @@ Children of a root.
   [@test] src/presenters/push-button.test.ts (`keeps a push that updates the remote branch, and the first push where nothing else pushes`)
 
 #### Scenario: A branch a Safe Push holds
-- **WHEN** a Safe Push holds the branch
-- **THEN** its push is no first push of its landing: its description says why it won't land and offers the robot
+- **WHEN** a Safe Push holds a branch the remote lacks
+- **THEN** its push is no first push of its landing: the row shows no push button, as for every branch a running Safe Push holds
+- **AND** where the push keeps its place (the branch preview, the review window) it is disabled, and its description says why it won't land and offers the robot
   [@test] src/presenters/push-button.test.ts (`keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot`)
 
 ### Requirement: Actions cell: No push button until the landing answers are in
@@ -1298,9 +1300,9 @@ reason. The focus in the button or its description when it leaves goes to the ro
 - **THEN** it keeps the disabled push button with its reason
   [@test] tests/e2e/outgoing/outgoing.spec.ts (`should describe a disabled push on hover`)
 
-### Requirement: Actions cell: A branch with an error or without commits has no push button
+### Requirement: Actions cell: The preview footer keeps the labelled push button
 
-The preview footer MUST keep the labelled button. A branch with an error or without commits MUST have no push button.
+The preview footer MUST keep the labelled push button.
 
 #### Scenario: The kind of push by the remote status
 - **WHEN** the remote status says whether a push creates, pushes, forces or has nothing to send
@@ -1308,6 +1310,10 @@ The preview footer MUST keep the labelled button. A branch with an error or with
   [@test] crates/domain-types/src/remote_status_test.rs (`a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status`)
   [@test] src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)
+
+### Requirement: Actions cell: A branch with an error or without commits has no push button
+
+A branch with an error or without commits MUST have no push button.
 
 #### Scenario: A branch with an error or without commits
 - **WHEN** a branch has an error or no commits
@@ -1887,8 +1893,7 @@ also of a root no branch is built on any more), and whether it can run.
 
 ### Requirement: Branch menu: The groups come in the order of how often they are wanted
 
-The groups MUST come in the order of how often their actions are wanted, Safe Push first; an item with a key (P, S, D,
-O, M) is never in a submenu; a key of an item in a submenu (⌘C of "Copy Full Branch Name") works on the row as well.
+The groups MUST come in the order of how often their actions are wanted, Safe Push first.
 
 #### Scenario: The order of the groups
 - **WHEN** the menu of a branch opens
@@ -1915,12 +1920,25 @@ O, M) is never in a submenu; a key of an item in a submenu (⌘C of "Copy Full B
 - **AND** what sets the branch aside ("Park Branch…": [Parked Branches](../parked-branches/spec.md), "Unapply…")
 - **AND** last "Copy ›" ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a branch
   with a pull request, "Copy Retarget Command" for an open one into a virtual branch)
-- **AND** every keyed item is on top, the rarer starts and the copies in submenus
   [@test] src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] src/presenters/robot-actions.test.ts (`cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from`)
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
+
+### Requirement: Branch menu: An item with a key is never in a submenu
+
+An item with a key (P, S, D, O, M) MUST NOT be in a submenu; a key of an item in a submenu (⌘C of "Copy Full Branch
+Name") MUST work on the row as well.
+
+#### Scenario: The keyed items and the submenus
+- **WHEN** the menu of a branch opens
+- **THEN** every keyed item is on top, the rarer starts and the copies in submenus
+  [@test] src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`)
+
+#### Scenario: The key of an item in a submenu
+- **WHEN** the user presses ⌘C, the key of "Copy Full Branch Name" in "Copy ›", on the focused row
+- **THEN** it copies the full branch name as the item does
 
 ### Requirement: Branch menu: Off Space the landing starts with the push
 
@@ -2377,7 +2395,7 @@ for a form with one input), so it doesn't stretch across a wide window.
 - **WHEN** a form opens below a row in a wide window
 - **THEN** its row is `bg-muted/50`, and its content doesn't stretch across the window
 
-### Requirement: Inline forms: The title and the description of a form
+### Requirement: Inline forms: The title of a form is medium and its description muted
 
 The title MUST be `text-sm font-medium`, the description below it `text-sm text-muted-foreground`; the progress row keeps
 the title for the screen reader only.
@@ -2403,6 +2421,10 @@ pointer and the row of the keys never look the same.
 #### Scenario: The row of the keys and the row under the pointer
 - **WHEN** the arrows focus one row and the pointer is over another
 - **THEN** the focused row has the outline inside it, the hovered one `bg-muted`, and they never look the same
+
+### Requirement: Inline forms: A dimmed row is faded until hover or focus
+
+A dimmed row MUST be `opacity-55`, full on hover or focus.
 
 #### Scenario: A dimmed row
 - **WHEN** a row is dimmed
@@ -2602,7 +2624,7 @@ before the delete, or one that fails, does not bring it back.
 - **THEN** the branch stays deleted
   [@test] crates/repository-model/src/table_test.rs (`a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails`)
 
-### Requirement: Archived table: The status icon and word, and the New badge
+### Requirement: Archived table: The status is a size-4 icon and a muted word, New an info badge
 
 The status icon MUST be `size-4`, the word `text-sm text-muted-foreground`. "New" MUST be an `info` badge.
 
@@ -2610,7 +2632,7 @@ The status icon MUST be `size-4`, the word `text-sm text-muted-foreground`. "New
 - **WHEN** an archived row shows its status, and is new
 - **THEN** its icon is `size-4`, its word `text-sm text-muted-foreground`, and "New" is an `info` badge
 
-### Requirement: Archived table: An expanded archived row and its merged-by line
+### Requirement: Archived table: An expanded archived row is tinted and its merged-by line muted
 
 An expanded archived row MUST be `bg-muted`; its merged-by line MUST be `text-sm text-muted-foreground`, behind the rail of
 the commits.
