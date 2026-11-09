@@ -187,8 +187,9 @@ of its last branch.
 
 ### Requirement: Header: The states count the branches by the nodes of their rows
 
-After the name, the header MUST say where the branches of the stack are on their way into master, by the
-nodes of their rows as they show them, as the stack chip counts them (`summarizeStackState` over the whole stack,
+After the name, among the actions of the header (after the button of the pull request of the whole stack, before
+the push), the header MUST say where the branches of the stack are on their way into master, by the nodes of their
+rows as they show them, as the stack chip counts them (`summarizeStackState` over the whole stack,
 `getStackStateChips`), the strongest first in the colours of the nodes.
 
 #### Scenario: The counts of the header
@@ -474,18 +475,25 @@ push nothing beyond the root.
 - **WHEN** the stack is on the remote and its stack branch has nothing to push either
 - **THEN** the push is disabled, "↑", with "Nothing to push: the stack is on the remote" in its hover
 
-#### Scenario: The branches are on the remote, the stack branch is not
-- **WHEN** the branches of the stack are on the remote and its stack branch is not
+#### Scenario: The branches are on the remote, the stack branch is not published
+- **WHEN** the branches of the stack are on the remote, and its stack branch is neither on the remote nor in an open pull request
 - **THEN** the push is disabled, named "Push with Children", with "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack" in its hover
   [@test] tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`)
+
+#### Scenario: The branches are on the remote, the stack branch stays
+- **WHEN** the branches of the stack are on the remote, and its stack branch stays: the sync did not build it, its push is held, or its push would drop remote commits it lacks
+- **THEN** its hover says "The branches of the stack are on the remote." and then why the stack branch stays
+  [@test] src/presenters/actions.test.ts (`says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
 
 #### Scenario: Only the root has commits to push
 - **WHEN** only the root has commits to push
 - **THEN** its hover says "Only air has commits to push: its own push sends them"
 
 #### Scenario: The branches beyond the root ask first
-- **WHEN** the branches beyond the root that have commits to push ask first
-- **THEN** its hover names the branches that ask first
+- **WHEN** the only branches beyond the root with work for the remote are ones whose push drops remote commits, which ask first in their rows (`NothingBeyond::AskFirst`), whether the root has commits of its own or not
+- **THEN** its hover names the branches that ask first: "login and oauth ask first in their rows: the push drops remote commits"
+  [@test] src/presenters/actions.test.ts (`says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
+  [@test] crates/domain-policy/src/actions_test.rs (`push_with_children_pushes_more_than_the_branch_or_says_what_it_lacks`)
 
 #### Scenario: Merged Safe Pushes landed every branch of the stack
 - **WHEN** merged Safe Pushes landed every branch of the stack, its stack branch held too
