@@ -2368,6 +2368,46 @@ stays.
 - **WHEN** the user moved the focus elsewhere while the form was open, and the form closes
 - **THEN** the focus stays where the user moved it
 
+### Requirement: Inline forms: The form row is tinted and its content is narrow
+
+The form row MUST be `bg-muted/50` with `bd-padding-content`. Its content MUST be `flex max-w-3xl flex-col gap-4` (`gap-2`
+for a form with one input), so it doesn't stretch across a wide window.
+
+#### Scenario: A form in a wide window
+- **WHEN** a form opens below a row in a wide window
+- **THEN** its row is `bg-muted/50`, and its content doesn't stretch across the window
+
+### Requirement: Inline forms: The title and the description of a form
+
+The title MUST be `text-sm font-medium`, the description below it `text-sm text-muted-foreground`; the progress row keeps
+the title for the screen reader only.
+
+#### Scenario: A form and its progress row
+- **WHEN** a form shows, then its action runs
+- **THEN** the form has its title and description, and the progress row keeps the title for the screen reader only
+
+### Requirement: Inline forms: An input is followed by Cancel and the submit button
+
+An input MUST be `max-w-md`, followed by Cancel and the submit button (`xs`); the submit of a delete is `destructive`.
+
+#### Scenario: The buttons of a delete
+- **WHEN** a form of a delete shows
+- **THEN** its input is followed by Cancel and the `destructive` submit button
+
+### Requirement: Inline forms: A focused row has the outline and no tint of its own
+
+A focused row MUST have the focus outline inside it (`bd-focus-inset focus-visible:bd-focus`, also when the arrows moved
+the focus there) and no tint of its own: `bg-muted` is the hover, `bg-primary/15` the selection, so a row under the
+pointer and the row of the keys never look the same.
+
+#### Scenario: The row of the keys and the row under the pointer
+- **WHEN** the arrows focus one row and the pointer is over another
+- **THEN** the focused row has the outline inside it, the hovered one `bg-muted`, and they never look the same
+
+#### Scenario: A dimmed row
+- **WHEN** a row is dimmed
+- **THEN** it is `opacity-55`, full on hover or focus
+
 ### Requirement: Archived table: The table has four columns and shows the last segment
 
 The archived table MUST have the columns Branch Name, Status, Integrated and Actions. The name shows the last segment of
@@ -2561,6 +2601,23 @@ before the delete, or one that fails, does not bring it back.
 - **WHEN** a sync that listed the branch before the delete ends, or a sync fails
 - **THEN** the branch stays deleted
   [@test] crates/repository-model/src/table_test.rs (`a_deleted_archived_or_unapplied_branch_stays_deleted_by_the_sync_that_listed_it_before_and_by_one_that_fails`)
+
+### Requirement: Archived table: The status icon and word, and the New badge
+
+The status icon MUST be `size-4`, the word `text-sm text-muted-foreground`. "New" MUST be an `info` badge.
+
+#### Scenario: An archived row
+- **WHEN** an archived row shows its status, and is new
+- **THEN** its icon is `size-4`, its word `text-sm text-muted-foreground`, and "New" is an `info` badge
+
+### Requirement: Archived table: An expanded archived row and its merged-by line
+
+An expanded archived row MUST be `bg-muted`; its merged-by line MUST be `text-sm text-muted-foreground`, behind the rail of
+the commits.
+
+#### Scenario: An expanded archived row
+- **WHEN** the user expands an archived row
+- **THEN** it is `bg-muted`, and its merged-by line is `text-sm text-muted-foreground`, behind the rail of the commits
 
 ### Requirement: Row: The cells have the vertical padding of a dense list
 
@@ -2805,63 +2862,6 @@ with an 8px gutter after it while its column has content; the header of a stack 
 #### Scenario: The tracks of the cell
 - **WHEN** a row or the header of a stack island shows its actions
 - **THEN** the tracks `push`, `step` and `more` follow each other, the push and the step each with an 8px gutter after it while its column has content
-
-### Requirement: Inline forms: The form row is tinted and its content is narrow
-
-The form row MUST be `bg-muted/50` with `bd-padding-content`. Its content MUST be `flex max-w-3xl flex-col gap-4` (`gap-2`
-for a form with one input), so it doesn't stretch across a wide window.
-
-#### Scenario: A form in a wide window
-- **WHEN** a form opens below a row in a wide window
-- **THEN** its row is `bg-muted/50`, and its content doesn't stretch across the window
-
-### Requirement: Inline forms: The title and the description of a form
-
-The title MUST be `text-sm font-medium`, the description below it `text-sm text-muted-foreground`; the progress row keeps
-the title for the screen reader only.
-
-#### Scenario: A form and its progress row
-- **WHEN** a form shows, then its action runs
-- **THEN** the form has its title and description, and the progress row keeps the title for the screen reader only
-
-### Requirement: Inline forms: An input is followed by Cancel and the submit button
-
-An input MUST be `max-w-md`, followed by Cancel and the submit button (`xs`); the submit of a delete is `destructive`.
-
-#### Scenario: The buttons of a delete
-- **WHEN** a form of a delete shows
-- **THEN** its input is followed by Cancel and the `destructive` submit button
-
-### Requirement: Inline forms: A focused row has the outline and no tint of its own
-
-A focused row MUST have the focus outline inside it (`bd-focus-inset focus-visible:bd-focus`, also when the arrows moved
-the focus there) and no tint of its own: `bg-muted` is the hover, `bg-primary/15` the selection, so a row under the
-pointer and the row of the keys never look the same.
-
-#### Scenario: The row of the keys and the row under the pointer
-- **WHEN** the arrows focus one row and the pointer is over another
-- **THEN** the focused row has the outline inside it, the hovered one `bg-muted`, and they never look the same
-
-#### Scenario: A dimmed row
-- **WHEN** a row is dimmed
-- **THEN** it is `opacity-55`, full on hover or focus
-
-### Requirement: Archived table: The status icon and word, and the New badge
-
-The status icon MUST be `size-4`, the word `text-sm text-muted-foreground`. "New" MUST be an `info` badge.
-
-#### Scenario: An archived row
-- **WHEN** an archived row shows its status, and is new
-- **THEN** its icon is `size-4`, its word `text-sm text-muted-foreground`, and "New" is an `info` badge
-
-### Requirement: Archived table: An expanded archived row and its merged-by line
-
-An expanded archived row MUST be `bg-muted`; its merged-by line MUST be `text-sm text-muted-foreground`, behind the rail of
-the commits.
-
-#### Scenario: An expanded archived row
-- **WHEN** the user expands an archived row
-- **THEN** it is `bg-muted`, and its merged-by line is `text-sm text-muted-foreground`, behind the rail of the commits
 
 ### Requirement: Dark theme: The rows use only semantic tokens
 
