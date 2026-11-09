@@ -271,9 +271,17 @@ How an open of a list goes on from the review on screen SHALL be the one rule of
 
 ### Requirement: Opening and closing: The commits of the list stand above the files
 
-The window SHALL show the commits of the list above its files (the commits of a range review, without a scope), the
-commit at the top of the document of its diffs as the branch preview heads one, so it scrolls away with the overview
-of the plan below it.
+The window of a list of several commits SHALL show the commits of the list above its files (the commits of a range
+review, without a scope), and every review of a list the commit at the top of the document of its diffs as the branch
+preview heads one, so it scrolls away with the overview of the plan below it.
+
+#### Scenario: A list of several commits
+- **WHEN** the review of a list of several commits is shown
+- **THEN** the commits of the list stand above its files, the commits of a range review without a scope
+
+#### Scenario: A list of one commit
+- **WHEN** the review of a list of one commit is shown
+- **THEN** no column of commits stands above its files
 
 #### Scenario: The head of the document of the diffs
 - **WHEN** the review of a list shows a commit
@@ -303,7 +311,7 @@ it has no action and no "⋯". Nothing is edited there.
 ⌥↑/⌥↓ (Alt+↑/↓) MUST show the previous or next commit of the list.
 
 #### Scenario: Alt and an arrow
-- **WHEN** the user presses ⌥↑ or ⌥↓ in the review of a list
+- **WHEN** the user presses ⌥↑ or ⌥↓ in the review of a commit, of its branch or of its list
 - **THEN** the previous or next commit of the list is shown
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 
@@ -492,15 +500,15 @@ the view, so their place on screen never depends on the height of the opening.
 - **WHEN** N or P shows a change, the find goes to a hit or a declaration is shown
 - **THEN** it lands in its card, the opening of its step above the view
   [@test] src/lib/diff/layout.test.ts (`shows a change, a hit of the find and a declaration in a card below the opening of its step: the top of the card is their least top`)
-  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 
 ### Requirement: The sidebar and the diffs: A file chosen in the tree scrolls its header to the top
 
 A file chosen in the tree MUST scroll its header to the top.
 
 #### Scenario: A row of the tree
-- **WHEN** the user chooses a file in the tree, also the last one
+- **WHEN** the user chooses a file in the tree
 - **THEN** the diffs scroll its header to the top
+- **AND** the last file, whose header can never reach the top, is shown and selected all the same
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 
 ### Requirement: The sidebar and the diffs: The file whose header is at the top is the selected one
@@ -527,6 +535,7 @@ also for a last file that cannot reach the top.
 #### Scenario: A choice of the last file
 - **WHEN** a choice, J, K, N or P scrolls the diffs, also to a last file that cannot reach the top
 - **THEN** the selection is the one of the key or the row that made the scroll
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 
 ### Requirement: The sidebar and the diffs: The top of the diffs keeps the gap of the first card
 
@@ -661,6 +670,7 @@ pixels are too few for every section, the ticks of several are one.
 - **WHEN** the map is drawn
 - **THEN** each section has a tick at its start, a step of the plan one across the map
   [@test] src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 #### Scenario: Too few pixels for every section
 - **WHEN** the pixels are too few for every section
@@ -684,7 +694,6 @@ An owner chip MUST filter the map to its files with the diffs.
 #### Scenario: A chosen owner chip
 - **WHEN** the user chooses an owner chip
 - **THEN** the map shows its files, as the diffs do
-  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should filter tree, diffs and navigation to the files of an owner chip`)
 
 ### Requirement: The sidebar and the diffs: The map scrolls, shows and names the sections
 
@@ -698,6 +707,7 @@ from there; the hover names its file, the directory after the name, and its step
 - **AND** a click shows the section under the pointer as a row of the tree does, the diffs taking the focus
 - **AND** the hover names its file, the directory after the name, and its step
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 ### Requirement: The sidebar and the diffs: What comes before the first section is a band of the map
 
@@ -709,7 +719,6 @@ shows.
 - **THEN** the map has a band for it without a tick, "Overview" in its hover
 - **AND** a click on it shows the overview
   [@test] src/lib/diff/file-map.test.ts (`leaves the prologue above the first section a band without a tick, which the hover and a click tell from the sections and the map fills at the top`)
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 ### Requirement: The sidebar and the diffs: The map is neutral and outside the tab order
 
@@ -782,6 +791,7 @@ focus, so ⌥↑/⌥↓ and Escape still work.
 #### Scenario: Another commit loads
 - **WHEN** another commit loads, or one without files or that cannot be read is shown
 - **THEN** the review keeps the focus, and ⌥↑/⌥↓ and Escape still work
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 
 ### Requirement: The sidebar and the diffs: What the user works in beside the diffs keeps the focus
 
@@ -991,6 +1001,8 @@ The diffs SHALL come from `get_file_diffs` and their texts from `get_blob_texts`
 #### Scenario: Blocks the policy ignores
 - **WHEN** a file has a block of changed lines that is `Ignored`
 - **THEN** N and P step past it
+  [@test] src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`N and P skip a block the whitespace policy ignores`)
 
 ### Requirement: The sidebar and the diffs: The Split/Unified/Inline toggle switches the layout
 
@@ -1022,8 +1034,8 @@ Soft wraps MUST follow the setting of Settings → Diffs ([Commit Files](../comm
 
 ### Requirement: The sidebar and the diffs: A review may show the owner of each file
 
-A review SHALL be allowed to show the owner of each file, muted in the header of its diff and in the hover of its tree
-row; a tree row keeps its width for the name.
+Where a review shows the owner of each file, it SHALL show it muted in the header of its diff and in the hover of its
+tree row, and a tree row keeps its width for the name.
 
 #### Scenario: The owners of a branch review
 - **WHEN** a review shows the owners of its files
@@ -1060,11 +1072,12 @@ A link to a file hidden by the chip MUST clear the chip; an owner with no files 
 #### Scenario: A link to a hidden file
 - **WHEN** the user follows a link to a file hidden by the chip
 - **THEN** the chip is cleared
+  [@test] tests/e2e/branch-review/review-plan.spec.ts (`should reveal a linked file from another owner by clearing its chip and clear a search that hides the target`)
 
 #### Scenario: An owner with no files in the range
 - **WHEN** the chosen owner has no files in this range
 - **THEN** it does not filter
-  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should filter tree, diffs and navigation to the files of an owner chip`)
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner with no files in the range and show no chips when one owner has them all`)
 
 ### Requirement: The search of the files: A review of 8 files or more has a search of the files
 
