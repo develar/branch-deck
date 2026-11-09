@@ -780,7 +780,6 @@ constructor only in the initializers of the class.
 - **THEN** the use in the extension has no `receiver_type`, an extension of the class itself keeps it
 - **AND** the parameter has its type in the initializer and in `init` only
   [@test] crates/code-symbols/src/kotlin_test.rs (`an_extension_receiver_or_a_function_hides_the_type`)
-  [@test] crates/code-symbols/src/kotlin_test.rs (`an_extension_receiver_or_a_function_hides_the_type`)
 
 #### Scenario: A context parameter of a property
 - **WHEN** a property has a context parameter `c: Ctx` and uses a member on `c`
@@ -887,9 +886,15 @@ type of `extends`, in Kotlin the only supertype of the class, named without argu
 - **THEN** it is a call of the class around it, and the name of a constructor is no reference
   [@test] crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
 
-#### Scenario: `super(…)` of a Kotlin constructor
-- **WHEN** a secondary constructor of a Kotlin class of the only supertype `: Base` calls `super(…)`
-- **THEN** it is a call of `Base`, and none beside a second supertype
+#### Scenario: `super(…)` of a Kotlin constructor of one supertype or two
+- **WHEN** a secondary constructor of a Kotlin class of the only supertype `: Base` calls `super(…)`, and one of a
+  class `: Base, Runnable`
+- **THEN** the first is a call of `Base`, the second no reference
+  [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_super_call_that_needs_a_new_constructor_parameter_is_an_edge`, `a_kotlin_super_call_with_two_supertypes_is_no_edge`)
+
+#### Scenario: `super(…)` of a Kotlin class without a supertype
+- **WHEN** a secondary constructor of a Kotlin class without a supertype calls `super()`
+- **THEN** it is no reference
   [@test] crates/code-symbols/src/kotlin_test.rs (`a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
 
 #### Scenario: Java `super(…)` without `extends`
@@ -1614,23 +1619,23 @@ extension and only a compiler knows that type.
 In the same file, a private member MUST be a use only where the compiler lets the file see it, in every form: in Java
 the whole top-level class, nested classes included, for a qualified use (`Inner.helper()`), but only its own type for a
 bare name, `this.name` or `super.name`, which outside it mean a member of the class around it (its own `helper`, an
-inherited one, a static import).
+inherited one, a static import). Another top-level class of the Java file MUST see none.
 
 #### Scenario: A Java private member
 - **WHEN** a Java top-level class calls `Inner.helper()` of a private member of a nested class, and a bare `helper()`
-  outside the nested class
-- **THEN** the qualified call is a use, the bare one is not
+  outside the nested class, and another top-level class of the file uses the private member
+- **THEN** the qualified call is a use, the bare one and the other class's are not
   [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_private_member_is_a_use_in_the_top_level_java_class_and_the_class_of_its_companion`)
 
 ### Requirement: Edges: A Kotlin private member is seen in its type, a companion's in the class around it
 
 In Kotlin a private member MUST be a use in its own type, but in the class around a companion for a member of the
-companion. Another top-level class of the Java file, and the class around a nested Kotlin object, MUST see none.
+companion. The class around a nested Kotlin object MUST see none of the object's.
 
 #### Scenario: A private member of a companion and of a nested object
 - **WHEN** the class around a companion uses its private member, and the class around a nested object uses one of the
-  object, and another top-level Java class uses a private member of the first
-- **THEN** the first is a use, the others are not
+  object
+- **THEN** the first is a use, the second is not
   [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_private_member_is_a_use_in_the_top_level_java_class_and_the_class_of_its_companion`)
 
 ### Requirement: Edges: An override of a member another commit adds is a use of it
@@ -1738,14 +1743,14 @@ the two files are in one package or the name is of the common default imports (`
 
 ### Requirement: Edges: Other default types and a shared wildcard import are unknown for an exact form
 
-For the exact form of an override, another default type, and a name each file reaches by the same wildcard import,
-MUST count as unknown.
+For the exact form of an override whose file and the member's are in two packages, another default type, and a name
+each file reaches by the same wildcard import, MUST count as unknown: each file may mean a type of its own package or
+of its wildcard imports.
 
 #### Scenario: Another default type or a wildcard import
-- **WHEN** a parameter type of the exact form is another default type, or a name both files reach by the same
-  wildcard import
+- **WHEN** the two files are in two packages, and a parameter type of the exact form is another default type, or a
+  name both files reach by the same wildcard import
 - **THEN** the type is unknown, and the override no edge
-  [@test] crates/trial-check/src/symbol_dependencies_test.rs (`an_exact_form_needs_one_package_for_a_type_name_neither_file_binds`)
 
 ### Requirement: Edges: A bare call of a member the supertype gets is an inherited use
 
@@ -1976,9 +1981,10 @@ A `@JvmField` property of a companion MUST be a field of the class around it (`O
 
 ### Requirement: Edges: A Java accessor of a property without that accessor is no use
 
-No accessor of a `@JvmField`, `const` or `@get:JvmName` property, of an `internal` member, of an extension property,
-nor one beside a function of the accessor's name, no setter of a `val` or a `private set`, no `getIsReady()` of an
-`isReady`, and no getter called with an argument MUST be a use.
+No accessor of a `@JvmField`, `const` or `@get:JvmName` property, of an `internal` member (Java names it by a mangled
+name; an `internal` top-level property keeps its accessor's name), of an extension property, nor one beside a function
+of the accessor's name, no setter of a `val` or a `private set`, no `getIsReady()` of an `isReady`, and no getter
+called with an argument MUST be a use.
 
 #### Scenario: A property without the accessor
 - **WHEN** Java calls `m.getField()` of a `@JvmField` property, the getter of a `@get:JvmName` one, or `m.getSize(1)`
@@ -2001,8 +2007,15 @@ nor one beside a function of the accessor's name, no setter of a `val` or a `pri
 - **THEN** it is no edge
   [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_boolean_property_has_its_own_accessor_names`)
 
-#### Scenario: A `const`, an `internal` member and an extension property
-- **WHEN** Java calls the accessor of a `const` property, of an `internal` member or of an extension property
+#### Scenario: An `internal` member and an `internal` top-level property
+- **WHEN** Java calls `m.isSecret()` or `m.setSecret(1)` of `internal` members, and `UtilKt.getConfig()` of an
+  `internal val config` at the top level of `util.kt`
+- **THEN** the calls of the members are no edge, the one of the top-level property is an edge with the evidence
+  `facade`
+  [@test] crates/trial-check/src/symbol_dependencies_test.rs (`a_boolean_property_has_its_own_accessor_names`, `a_java_setter_of_a_property_without_a_visible_setter_is_no_edge`, `a_java_field_read_needs_a_field_of_the_property`)
+
+#### Scenario: A `const` and an extension property
+- **WHEN** Java calls the accessor of a `const` property or of an extension property
 - **THEN** it is no use
 
 ### Requirement: Edges: A Java use of a renamed, synthetic or unexposed Kotlin declaration is no use
@@ -2217,13 +2230,15 @@ supertype other than `Any` or `Object`, or a Kotlin extension around it.
 
 ### Requirement: Edges: An extension of the member's type the range doesn't show is a known limit
 
-An extension of the member's type that the range doesn't show (`fun Registry.register(id: Int)` beside a new member
-`register(id: Long)`) may take a call the old overloads reject; that is a known limit, and no check SHALL rule it out.
+A call MUST be told apart by the overloads of the member's type and the extensions the range shows. An extension of
+the member's type that the range doesn't show (`fun Registry.register(id: Int)` beside a new member
+`register(id: Long)`) may take a call the old overloads reject; the check does not look at it, a known limit.
 
 #### Scenario: An extension outside the range
-- **GIVEN** `fun Registry.register(id: Int)` outside the range and a new member `register(id: Long)`
-- **WHEN** a call passes an `Int`
-- **THEN** it may depend on the new member's commit, though the extension takes it
+- **GIVEN** `fun Registry.register(id: Int)`, which the range doesn't show
+- **WHEN** a commit adds the member `register(id: Long)`, and another calls `register` with an argument the old
+  overloads reject
+- **THEN** the call depends on the new member's commit, though the extension may take it
 
 ### Requirement: Edges: A new form of an entry is a new step, a new body is none
 
@@ -2393,13 +2408,15 @@ A top-level function or property MUST have no forms, only presence.
 
 ### Requirement: Edges: An extension of another file while the member is private is a known limit
 
-An extension of another file (`fun Panes.helper()`, `val Panes.size`) may take a use while the member of its name is
-private; that is a known limit, and no check SHALL rule it out.
+The reach of a use MUST be judged by the forms of the member alone. An extension of another file
+(`fun Panes.helper()`, `val Panes.size`) may take a use while the member of its name is private; the check does not
+look at it, a known limit.
 
 #### Scenario: An extension beside a private member
-- **GIVEN** `fun Panes.helper()` or `val Panes.size` in another file, while the member of its name is private
-- **WHEN** a use of the name is widened by a later step
-- **THEN** it may depend on that step, though the extension takes it
+- **GIVEN** `fun Panes.helper()` or `val Panes.size` in another file
+- **WHEN** a commit widens a private member `helper` or `size` of `Panes`, and another file uses it where only the new
+  reach lets it in
+- **THEN** the use depends on the step that widened the member, though the extension may have taken it before
 
 ### Requirement: Edges: In the file of an old key a use means only a member of its type
 
@@ -2456,13 +2473,14 @@ default imports.
 
 ### Requirement: Edges: Another file's function or an unlisted default function is a known limit
 
-The rule of the file of an old key SHALL NOT look at a top-level function of the package in another file, nor at a
-default function the list leaves out, which may take such a call too; that is a known limit.
+In the file of an old key, a call MUST be judged by what that file shows and by the list of the common default
+functions. A top-level function of the package in another file, or a default function the list leaves out, may take
+such a call too; the check does not look at it, a known limit.
 
 #### Scenario: A function the file does not show
 - **GIVEN** a top-level function of the name in another file of the package, or a default function not in the list
-- **WHEN** the file of an old key calls the name
-- **THEN** the call may still count as a use of the key
+- **WHEN** the file of an old key calls the name with arguments that only a new member overload accepts
+- **THEN** the call is a use of the new member overload, though that function may take it
 
 ### Requirement: Edges: A new key and an old top-level type keep the same file as evidence
 
@@ -2619,15 +2637,16 @@ beside the import of the type), and else need the key only, as a call of a membe
 
 ### Requirement: Edges: Functions and members of a type's name outside the file are a known limit
 
-The judgement of such a call SHALL NOT look at a function of the type's name in a file of the package that the range
-doesn't change, an `invoke` of its companion declared in another file, or a member of a receiver of the name, which
-may take such a call too; that is a known limit.
+A call of a type's name MUST be judged by the type's constructors, an `invoke` of its companion in its file and the
+functions of its name that the range adds. A function of the type's name in a file of the package that the range doesn't change, an `invoke` of its companion
+declared in another file, and a member of a receiver of the name may take such a call too; the check does not look at
+them, a known limit.
 
 #### Scenario: A function of the name the range does not show
 - **GIVEN** a function of the type's name in an unchanged file of the package, or an `invoke` of its companion in
   another file
-- **WHEN** a call of the type's name passes a new parameter
-- **THEN** it may depend on the commit of the parameter, though the function takes it
+- **WHEN** a call of the type's name passes a new constructor parameter
+- **THEN** it depends on the commit of the parameter, as a call of the constructors, though the function may take it
 
 ### Requirement: Edges: A use through a wildcard import needs only the type as it came
 
@@ -2698,8 +2717,8 @@ remove the type's entries though the function keeps the key.
 
 ### Requirement: Edges: A function of a type's name takes a call its parameters accept now
 
-A function of a type's name SHALL take a call of the name that its parameters as its file has them now accept, judged
-as an `invoke` of the companion by the arguments that tell the constructors apart.
+A function of a type's name MUST count as a taker of a call of the name that its parameters, as its file has them now,
+accept, judged as an `invoke` of the companion by the arguments that tell the constructors apart.
 
 #### Scenario: By its parameters now
 - **WHEN** a commit changes the parameters of the function
@@ -2735,8 +2754,9 @@ language, nor any for a Java `new`. No type position MUST mean it.
 
 ### Requirement: Edges: A call beside an unchanged type of the baseline has no evidence, a known limit
 
-A type of the baseline that the range doesn't change SHALL be no entry, so such a call from another file of the
-package has no evidence; that is a known limit.
+A call that a function of a type's name takes from another file of the package MUST be linked only through the type.
+A type of the baseline that the range doesn't change is no entry, so such a call has no evidence; that is a known
+limit.
 
 #### Scenario: An unchanged type and a new function of its name
 - **GIVEN** a type of the baseline that the range doesn't change, and a function of its name a commit adds
