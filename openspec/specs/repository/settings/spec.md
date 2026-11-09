@@ -314,6 +314,7 @@ at the field of its prefix; "Open Agent Settings" SHALL open Agents on the tab o
 - **GIVEN** a repository only on Space whose GitHub repository is unknown ([Patronus](../../branch/patronus/spec.md#code-owner-review))
 - **WHEN** the user clicks "Set GitHub Repository…" on the review line of the Safe Push popover
 - **THEN** Settings opens at Landing on the tab of the repository, at the field of the GitHub repository
+  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
   [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
 
 #### Scenario: Open <repository> of the prefix of all repositories
@@ -496,6 +497,7 @@ signs in or out (`get_auth_status`), the `youtrack` part read with GitHub's in o
 - **WHEN** the window starts, opens again, or any window signs in or out
 - **THEN** the page asks `get_auth_status`: at the start of the window, again on each later open (`useAuthStatusOnOpen` of the Settings page), and on `auth-changed` (`useAuthSync` of every window)
 - **AND** the `youtrack` part of the same status comes with GitHub's, in one read
+  [@test] tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 
 #### Scenario: GitHub
 - **WHEN** the user opens Accounts
@@ -669,9 +671,15 @@ in an open popover it MUST close the popover only (Base UI prevents the event).
   [@test] tests/e2e/settings/settings.spec.ts (`should close on Escape, which takes the typing of a field back first`)
 
 #### Scenario: Escape in an open popover
-- **GIVEN** a popover of a sub-window is open
+- **GIVEN** a menu of Settings is open, the Whitespace menu of Diffs
 - **WHEN** the user presses Escape
-- **THEN** it closes the popover only, not the window (Base UI prevents the event)
+- **THEN** it closes the menu only, not the window (Base UI prevents the event)
+  [@test] tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs, the Whitespace menu naming its choice`)
+
+#### Scenario: Escape in an open popover of another sub-window
+- **GIVEN** the form of Request Changes of the review window is open
+- **WHEN** the user presses Escape
+- **THEN** it closes the form only, not the window, as in every sub-window
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request`)
 
 ### Requirement: Keys: The footer says Esc Close and no ↑↓ hint
@@ -1217,16 +1225,11 @@ A failed write MUST be a toast in the words of the change (`notifyError`).
   [@test] src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
   [@test] tests/e2e/settings/repository-settings.spec.ts (`should tell a failed write in a toast`)
 
-#### Scenario: A failed write of the push size limit
-- **WHEN** a write of the push size limit of every repository fails
-- **THEN** the toast says "Cannot change the push size limit of every repository"
-  [@test] src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
-
 ### Requirement: Scope: After a write the main window acts for the selected repository
 
 After a write the backend MUST tell the main window (`repository_config_changed` `{ repositoryPath, key }`), which acts
-for the selected repository only, by the key written. A repository never synced only loads its prefix: its first sync
-is the user's.
+for the selected repository only, by the key written. A repository never synced MUST NOT be synced by a write: its
+first sync is the user's.
 
 #### Scenario: The branch prefix
 - **WHEN** the branch prefix of the selected repository is written
@@ -1234,14 +1237,16 @@ is the user's.
 - **AND** a changed one is another session, which the window opens and syncs for a repository synced before ([Onboarding](../onboarding/spec.md))
   [@test] tests/e2e/settings/repository-settings.spec.ts (`should name the branches by the repository's own prefix over the app's, in the main window too`, `should open and sync the session of a prefix written here, for a repository synced before`)
 
-#### Scenario: The symbol mode, the resolve by words, the review plan and the route
-- **WHEN** the symbol mode, the resolve by words, the review plan or the route is written
-- **THEN** the main window syncs, and the stack-independence checks of the Safe Push popover ask again
+#### Scenario: The symbol mode, the resolve by words, the review plan, the route and the companions
+- **GIVEN** the selected repository was synced before
+- **WHEN** the symbol mode, the resolve by words, the review plan, the route or the companions are written
+- **THEN** the main window syncs
+- **AND** for the symbol mode alone the stack-independence checks of the Safe Push popover ask again
   [@test] tests/e2e/settings/repository-settings.spec.ts (`should turn the symbol dependencies off, and back to the default, the main window syncing each change`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
 
 #### Scenario: The GitHub repository
 - **WHEN** the GitHub repository is written
-- **THEN** the main window syncs and asks for the pull requests (`refreshPullRequests("manual")`)
+- **THEN** the main window asks for the pull requests (`refreshPullRequests("manual")`), and syncs a repository synced before
   [@test] tests/e2e/settings/repository-settings.spec.ts (`should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`)
 
 #### Scenario: The push size limit and the rules of agents
@@ -1251,7 +1256,8 @@ is the user's.
 #### Scenario: A repository never synced
 - **GIVEN** the selected repository was never synced
 - **WHEN** a key of it is written
-- **THEN** the main window only loads its prefix, leaving its first sync to the user
+- **THEN** the main window does not sync it, leaving its first sync to the user
+- **AND** a write of the prefix still subscribes again, and one of the GitHub repository still asks for the pull requests
 
 ### Requirement: Scope: A write waits for no sync
 
@@ -1465,6 +1471,11 @@ config ([Scope](#scope)). A write MUST sync nothing: a push reads the limit as i
 #### Scenario: A write of the limit
 - **WHEN** the limit is written
 - **THEN** nothing syncs
+
+#### Scenario: A failed write of the limit
+- **WHEN** a write of the push size limit of every repository fails
+- **THEN** the toast says "Cannot change the push size limit of every repository"
+  [@test] src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
 
 ### Requirement: Landing: Typing of the push size limit is refused in the backend's words
 
