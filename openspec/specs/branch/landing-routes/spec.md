@@ -563,6 +563,7 @@ requested on its pull request and what the gate asks (`routeRule`); a commit wit
 #### Scenario: What the gate asks
 - **WHEN** the gate of the route asks a confirmation
 - **THEN** the push asks it (`routeRule`)
+  [@test] crates/domain-policy/src/land_direct_test.rs (`the_gate_of_the_route_refuses_waits_or_asks_and_a_dry_run_needs_patronus`)
 
 ### Requirement: Push to master: `brd land` accepts the confirmations only by their flags
 
@@ -692,7 +693,7 @@ refuses for another reason or waits keeps its answer.
   [@test] crates/domain-policy/src/landing_route_test.rs (`a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update`)
   [@test] crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 
-### Requirement: Push to master: A landing of this session on the target holds the push back
+### Requirement: Push to master: A landing of this session on the target lifts the refusal of a baseline ahead
 
 The refusal of a baseline ahead MUST NOT apply while an operation in this session holds the same target ref for a
 landing: that landing will move the target and rebuild the copies, so the Push to master action stays enabled and
@@ -742,13 +743,38 @@ originals whose copies landed. `brd land` names `brd update` instead.
   [@test] crates/domain-policy/src/land_direct_test.rs (`the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved`)
   [@test] crates/operations/src/update_test.rs (`a_push_into_the_target_is_followed_by_an_update_of_its_own_that_drops_the_original_whose_copy_landed`)
 
-#### Scenario: A second push waits for the update and the sync of the first
+### Requirement: Push to master: A second push waits for the first and runs on the plan it left
+
+A push into the target started while another landing of the session holds its target ref (`refs/remotes/origin/master`)
+MUST wait in the queue until that landing's update and sync end, then run on the plan they left
+(`Accepted::decided_again`) while the user accepted every confirmation of it: one that asks more is `plan_changed`.
+
+#### Scenario: Two pushes land one after the other
 - **GIVEN** a push into the target runs its update under its operation guard
-- **WHEN** a second push into the same target starts
-- **THEN** it is queued until the update and the sync of the first end, then runs on what they left
+- **WHEN** a second push into the same target is started
+- **THEN** it is queued behind the first
+- **AND** once the update and the sync of the first end, it is planned again and pushes, both landing in the target
   [@test] crates/operations/src/update_test.rs (`two_pushes_into_the_target_run_one_after_the_other_with_the_second_replanned`)
-  [@test] crates/operations/src/land_execute_test.rs (`only_a_waited_landing_with_its_target_ref_moved_gets_one_retry_signal`, `a_replanned_landing_still_requires_a_new_confirmation`)
   [@test] tests/e2e/landing/push-to-master.spec.ts (`should queue a second push to master until the first landing's update and sync finish`)
+
+#### Scenario: The plan the wait left asks a new confirmation
+- **GIVEN** a push waited in the queue
+- **WHEN** the plan the wait left asks a confirmation the user did not accept
+- **THEN** it takes that plan's fingerprint but not the confirmation, and is refused as `plan_changed`
+  [@test] crates/operations/src/land_execute_test.rs (`a_replanned_landing_still_requires_a_new_confirmation`)
+
+### Requirement: Push to master: A waited push whose target ref alone moved updates and plans once more
+
+A push that waited MUST, when the only ref that moved since its plan is the remote-tracking ref of its target, run
+Update Project with its fetch under its guard and plan again once (`witnessed_or_retry_target`: `baseline_moved`); any
+other moved ref, and any moved ref of a push that did not wait, MUST be `plan_changed`.
+
+#### Scenario: Only the target ref moved
+- **GIVEN** a push waited in the queue
+- **WHEN** the remote-tracking ref of its target is the only ref of its witness that moved
+- **THEN** the start updates the project with its fetch, plans again and runs that plan once
+- **AND** when another ref moved too, or the push did not wait, it is `plan_changed`
+  [@test] crates/operations/src/land_execute_test.rs (`only_a_waited_landing_with_its_target_ref_moved_gets_one_retry_signal`)
 
 #### Scenario: `brd land` after a push that landed
 - **WHEN** a push of `brd land` landed
@@ -1069,19 +1095,32 @@ conflict, a state GitHub still computes: a wait); GitHub has no auto-merge of a 
 run hold it.
 
 #### Scenario: A layer below can't be merged now
-- **WHEN** a layer below lacks approvals, conflicts, has a state GitHub still computes, or has required checks that still run
-- **THEN** the first such layer holds the merge by its number and reason, a state still computed a wait
+- **WHEN** a layer below lacks approvals, conflicts, or has a state GitHub still computes
+- **THEN** the first such layer holds the merge by its number and reason (`mergeNeedsApprovals`, `mergeConflict`), a state still computed a wait
+  [@test] crates/domain-policy/src/land_direct_test.rs (`a_layer_of_a_stack_merges_with_the_layers_below_it_and_the_first_one_that_cant_holds_it`)
+
+#### Scenario: Required checks that still run
+- **WHEN** required checks of the layer still run
+- **THEN** the merge is held (`mergeChecksRunning`), no auto-merge enabled
   [@test] crates/domain-policy/src/land_direct_test.rs (`a_layer_of_a_stack_merges_with_the_layers_below_it_and_the_first_one_that_cant_holds_it`)
 
 ### Requirement: Merge: A pull request into the branch below outside a stack is not merged
 
-A pull request into the branch below it that GitHub lists in no stack would merge into that branch: it MUST be refused
-with "#9 goes into login outside a stack of GitHub: its merge would land nothing, link the stack first"
-(`layerNotLinked`), or retargeted as one into a virtual branch.
+A pull request into the branch below it that GitHub lists in no stack would merge into that branch, landing nothing:
+it MUST NOT be merged. The step, which knows the branch below (`RepositoryView.githubLayers`), MUST hold it with "#9
+goes into login outside a stack of GitHub: its merge would land nothing, link the stack first" (`layerNotLinked`); the
+start, which reads its base alone (`start_base`), refuses it as `otherBase`, as one into a virtual branch.
 
-#### Scenario: A layer outside a stack
+#### Scenario: The step of a layer outside a stack
 - **WHEN** the pull request of the layer goes into the branch below it and GitHub lists it in no stack
-- **THEN** the merge is refused with "#9 goes into login outside a stack of GitHub: its merge would land nothing, link the stack first" (`layerNotLinked`), or the pull request is retargeted as one into a virtual branch
+- **THEN** its step is Link GitHub Stack (row 5 of [Next Step](../next-step/spec.md#the-table)), its merge held with "#9 goes into login outside a stack of GitHub: its merge would land nothing, link the stack first" (`layerNotLinked`)
+- **AND** once GitHub lists it in the stack, the step merges it
+  [@test] crates/domain-policy/src/next_step_test.rs (`row_5_links_the_stack_of_a_layer_github_lists_in_none`)
+
+#### Scenario: The start of a layer outside a stack
+- **WHEN** a start merges a layer GitHub lists in no stack
+- **THEN** it is refused as `otherBase`, a pull request into a virtual branch, as any such (row 5 of [Next Step](../next-step/spec.md#the-table): Retarget #7 to master)
+- **AND** the merge retargets nothing
   [@test] crates/domain-policy/src/land_direct_test.rs (`a_layer_outside_a_stack_is_not_merged`)
 
 ### Requirement: Merge: Cancel Auto-Merge disables the auto-merge
@@ -1390,8 +1429,11 @@ while required checks run.
 #### Scenario: The review window
 - **WHEN** the user starts it from the title bar of the review window
 - **THEN** the review window asks the main window (`merge-pull-request`), which merges
-- **AND** while its auto-merge is on the title bar says "GitHub merges the pull request of JIRA-456 once its checks pass"
   [@test] tests/e2e/landing/merge-pull-request.spec.ts (`should merge when the review window asks the main window`)
+
+#### Scenario: The review window while the auto-merge is on
+- **WHEN** the auto-merge of the pull request is on
+- **THEN** the title bar of the review window says "GitHub merges the pull request of JIRA-456 once its checks pass"
 
 #### Scenario: A whole stack
 - **WHEN** the user starts it from the header of the island of a whole stack, or from "Whole Stack ›" of the menu of its root
