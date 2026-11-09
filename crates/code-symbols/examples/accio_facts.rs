@@ -34,6 +34,8 @@ fn main() {
   let mut args = arguments();
   let parse_only = take_flag(&mut args, "--parse-only");
   let (probes, root, paths) = inputs(&mut args);
+  // the declarations alone: no probe asks the navigation, which on a corpus of tens of thousands of files is hours of it
+  let probes = if parse_only { 0 } else { probes };
   let project = root.unwrap_or_else(|| std::env::current_dir().unwrap());
   let project = if project.is_absolute() {
     project
