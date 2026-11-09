@@ -5,7 +5,7 @@
 //   node scripts/openspec-migration/convert.mjs verify <spec> [--old <rev>] [--map <map.json>]
 //     the problems of the converted spec against the old one at <rev> (HEAD by default): nothing of its front matter,
 //     its other sections and its test links lost, the structure and limits of `openspec validate --strict`, the groups
-//     in their order, every code span, quoted string, link and measure of the old rules kept, every old id mapped, a new test link only from `added` of the map;
+//     in their order, every code span, quoted string, link and measure of the old rules kept, every old id mapped, a new test link only from `added` of the map, a lost one only from its `dropped`;
 //   node scripts/openspec-migration/convert.mjs assemble <spec> --parts <dir> [--rev <rev>]
 //     writes the converted spec from the old one at <rev> and the parts of <dir>: `## Summary` becomes `## Purpose`
 //     (`purpose.md` when it had none), `concepts.md` becomes `## Concepts` before Requirements, the parts `<nn>*.md`
@@ -354,7 +354,13 @@ export function verify(path, rev = "HEAD", mapPath = null) {
   const count = pairs => pairs.reduce((map, pair) => map.set(pair, (map.get(pair) ?? 0) + 1), new Map())
   const oldPairs = count([...old.groups.flatMap(group => group.items.flatMap(item => item.tests)), ...old.outside.flatMap(block => block.tests)])
   const nowPairs = count(text.split("\n").flatMap(line => testPairs(line, path) ?? []))
-  for (const [pair, times] of oldPairs) {
+  // a link to a test that proves no rule it stood under goes as `dropped` of the map: `{ pair, why }`, once a cite
+  const droppedPairs = count(mapPath === null ? [] : (JSON.parse(readFileSync(mapPath, "utf8")).dropped ?? []).filter(entry => entry.pair !== undefined).map(entry => entry.pair))
+  for (const [pair, all] of oldPairs) {
+    const times = all - (droppedPairs.get(pair) ?? 0)
+    if (times <= 0) {
+      continue
+    }
     if (!nowPairs.has(pair)) {
       problems.push(`the test link ${pair} is gone`)
     } else if (nowPairs.get(pair) < times) {
