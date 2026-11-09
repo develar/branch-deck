@@ -217,8 +217,8 @@ MUST widen a narrower window.
 ### Requirement: Window size: A sub-window keeps the CSS px of its islands by its label
 
 A sub-window MUST keep the CSS px of its islands the same way, by its label (`sub_window_min_size`, `minSubWindowSize`):
-a review 640 px beside its 800px minimum (wider above 125%), Settings 560 px beside its 600px minimum (wider above
-107%).
+a review 640 px beside its 800px minimum (wider above 125%), Settings 600 px beside its 640px minimum (wider above
+107%), Activity 400 px beside its 440px minimum (wider above 110%).
 
 #### Scenario: A review
 - **WHEN** a review window is zoomed
@@ -228,18 +228,27 @@ a review 640 px beside its 800px minimum (wider above 125%), Settings 560 px bes
 
 #### Scenario: Settings
 - **WHEN** the Settings window is zoomed
-- **THEN** it keeps 560 px for its islands beside its 600px minimum, wider above 107%
+- **THEN** it keeps 600 px for its islands beside its 640px minimum, wider above 107%
   [@test] src-tauri/src/zoom_test.rs (`the_settings_window_is_smaller_and_widens_above_107_percent`)
   [@test] src/lib/zoom.test.ts (`is smaller for Settings, and wider above 107%`)
+
+#### Scenario: Activity
+- **WHEN** the Activity window is zoomed
+- **THEN** it keeps 400 px for its islands beside its 440px minimum, wider above 110%
+  [@test] src/lib/zoom.test.ts (`is smaller still for Activity, and wider above 110%`)
 
 ### Requirement: Window size: A window gets the minimum of its level
 
 A window MUST get the minimum of its level when it opens and when the level changes (`useZoom`).
 
-#### Scenario: The level changes
-- **WHEN** a window opens, or the level changes
-- **THEN** the window gets the minimum of its level
+#### Scenario: The level of the main window changes
+- **WHEN** the level changes
+- **THEN** the main window gets the minimum of the new level: 1152px at 150%, 960px again at Actual Size
   [@test] tests/e2e/repository/zoom.spec.ts (`should zoom the islands but not the toolbar, the title bar of the window`)
+
+#### Scenario: A window opens
+- **WHEN** a window opens
+- **THEN** it gets the minimum of its level
 
 ### Requirement: Window size: Inputs and text areas are text-sm at any width
 
