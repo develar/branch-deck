@@ -37,7 +37,7 @@ pub struct AirIde {
   pub product: String,
   /// The build (`IU-263.1234`)
   pub build: String,
-  /// The base directory of its project that holds the directory
+  /// The launch directory of the IDE that holds the directory (its host): the directory or one of its parents
   pub project: String,
 }
 
@@ -77,7 +77,7 @@ pub enum AirLaunchAnswer {
   },
 }
 
-/// The IDE of `project` among the instance files of the host, with the client of its socket
+/// The IDE of `project` among the instance files of the host, asked for their hosts, with the client of its socket
 fn connect(dir: Option<&Path>, project: &str) -> Option<(AirIde, Client)> {
   let (instance, base) = find_instance(dir?, Path::new(project))?;
   let Instance { product, build, socket, .. } = instance;

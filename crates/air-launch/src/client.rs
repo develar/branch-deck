@@ -8,8 +8,8 @@
 //! `UNSUPPORTED_VERSION`), and the client sends nothing more.
 
 use crate::protocol::{
-  ENVELOPE_FRAME_BYTES, Envelope, HandshakeLine, HandshakeRefusal, Launch, LaunchRequest, OPENER_LINE, PROTOCOL_VERSION, Targets, TargetsRequest, WatchLine, WatchRequest,
-  envelope_line, handshake_line,
+  ENVELOPE_FRAME_BYTES, Envelope, HandshakeLine, HandshakeRefusal, Hosts, HostsRequest, Launch, LaunchRequest, OPENER_LINE, PROTOCOL_VERSION, Targets, TargetsRequest, WatchLine,
+  WatchRequest, envelope_line, handshake_line,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -83,6 +83,11 @@ impl Client {
 
   pub fn socket(&self) -> &Path {
     &self.socket
+  }
+
+  /// The launch directories of the IDE and the last focus of its windows; the IDE asks no consent for it
+  pub fn hosts(&self) -> Result<Hosts, ClientError> {
+    self.exchange("hosts", &HostsRequest)
   }
 
   /// The agents Air can start for the project of `project`, with their models

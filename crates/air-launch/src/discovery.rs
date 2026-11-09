@@ -1,17 +1,25 @@
-//! The instance files of the running IDEs with Air: one `<pid>.json` per IDE process in the directory of the user
-//! (`instance_dir`), which names its socket and the base directories of its open projects. A file of a process that
-//! no longer runs, one that does not parse and one of another schema are skipped. The IDE of a directory is the one
-//! whose project holds it, the deepest project first, then the IDE whose window got the focus last, then the newest
-//! file (`pick`).
+//! The running IDEs with Air and the IDE of a directory. Each IDE process writes one instance file `<pid>.json` at its
+//! start in the directory of the user (`instance_dir`), which names its socket. A file of a process that no longer runs,
+//! one that does not parse and one of another schema are skipped. Each running IDE is asked over its socket for the
+//! launch directories it hosts (`ask_hosts`, the request `hosts`), within `HOSTS_TIMEOUT`; an IDE that does not answer
+//! in time, fails or refuses is skipped. The IDE of a directory is the one with a host that holds it, the deepest host
+//! first, then the IDE whose window got the focus last, then the newest file (`pick`).
 
+use crate::client::Client;
+use crate::protocol::{Hosts, Refusal};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use sync_utils::process_scan::is_running;
+use sync_utils::span::in_current_span;
 use tracing::debug;
 
 /// The schema of the instance files this client reads; a file of another schema is skipped
 pub const SCHEMA_VERSION: u32 = 1;
+
+/// How long the discovery waits for the answer of one IDE to `hosts`: the IDE asks no consent for it, so a longer wait
+/// is an IDE that hangs
+pub const HOSTS_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A running IDE as its instance file names it
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,20 +32,26 @@ pub struct Instance {
   /// The build (`IU-263.1234`)
   pub build: String,
   pub socket: PathBuf,
-  /// The base directories of the open projects, absolute and normalized
-  pub projects: Vec<PathBuf>,
-  /// Unix milliseconds of the last focus of a window of the IDE; none when the file does not say
-  pub focused_at: Option<u64>,
-  /// When the IDE wrote the file last
+  /// When the IDE wrote the file
   pub modified: SystemTime,
 }
 
-/// The IDE of a directory and its project that holds it
+/// A running IDE and its answer to `hosts`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostedInstance {
+  pub instance: Instance,
+  /// The launch directories of the IDE, absolute
+  pub hosts: Vec<PathBuf>,
+  /// Unix milliseconds of the last focus of a window of the IDE; none when the IDE does not say
+  pub focused_at: Option<u64>,
+}
+
+/// The IDE of a directory and its host that holds it
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Match<'a> {
-  pub instance: &'a Instance,
-  /// The base directory of the project: the directory or one of its parents
-  pub project: &'a Path,
+  pub instance: &'a HostedInstance,
+  /// The launch directory of the IDE: the directory or one of its parents
+  pub host: &'a Path,
 }
 
 #[derive(Deserialize)]
@@ -50,9 +64,6 @@ struct InstanceFile {
   #[serde(default)]
   build: String,
   socket: PathBuf,
-  projects: Vec<PathBuf>,
-  #[serde(default)]
-  focused_at: Option<u64>,
 }
 
 /// The directory of the instance files: `~/Library/Application Support/JetBrains/air/launch` on macOS,
@@ -106,36 +117,64 @@ fn read_instance(file: &Path) -> Option<Instance> {
     product: parsed.product,
     build: parsed.build,
     socket: parsed.socket,
-    projects: parsed.projects,
-    focused_at: parsed.focused_at,
     modified,
   })
 }
 
-/// The IDE of `directory`: the instance with a project that is `directory` or one of its parents, the deepest project
-/// first, then the newest focus (an IDE that names none is older than any), then the newest file. The paths compare by
-/// their components, without a read of the file system
-pub fn pick<'a>(instances: &'a [Instance], directory: &Path) -> Option<Match<'a>> {
+/// The answers of `instances` to `hosts`, each asked on its own thread within `timeout`; an IDE that does not answer in
+/// time, fails or refuses is skipped
+pub fn ask_hosts(instances: Vec<Instance>, timeout: Duration) -> Vec<HostedInstance> {
+  std::thread::scope(|scope| {
+    // every ask starts before the first join
+    let mut asks = Vec::with_capacity(instances.len());
+    for instance in instances {
+      asks.push(scope.spawn(in_current_span(move || ask(instance, timeout))));
+    }
+    asks
+      .into_iter()
+      .filter_map(|ask| ask.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+      .collect()
+  })
+}
+
+fn ask(instance: Instance, timeout: Duration) -> Option<HostedInstance> {
+  match Client::new(&instance.socket).with_timeout(timeout).hosts() {
+    Ok(Hosts::Listed { hosts, focused_at }) => Some(HostedInstance { instance, hosts, focused_at }),
+    Ok(Hosts::Refused(Refusal { code, message })) => {
+      debug!(pid = instance.pid, socket = %instance.socket.display(), %code, ?message, "skipped an IDE that refused to name its hosts");
+      None
+    }
+    Err(error) => {
+      debug!(pid = instance.pid, socket = %instance.socket.display(), %error, "skipped an IDE that did not name its hosts");
+      None
+    }
+  }
+}
+
+/// The IDE of `directory`: the instance with a host that is `directory` or one of its parents, the deepest host first,
+/// then the newest focus (an IDE that names none is older than any), then the newest file. The paths compare by their
+/// components, without a read of the file system
+pub fn pick<'a>(instances: &'a [HostedInstance], directory: &Path) -> Option<Match<'a>> {
   instances
     .iter()
     .flat_map(|instance| {
       instance
-        .projects
+        .hosts
         .iter()
-        .filter(|project| project.is_absolute() && directory.starts_with(project))
-        .map(move |project| Match { instance, project })
+        .filter(|host| host.is_absolute() && directory.starts_with(host))
+        .map(move |host| Match { instance, host })
     })
     .max_by(|a, b| {
-      let depth = |it: &Match<'_>| it.project.components().count();
+      let depth = |it: &Match<'_>| it.host.components().count();
       depth(a)
         .cmp(&depth(b))
         .then_with(|| a.instance.focused_at.cmp(&b.instance.focused_at))
-        .then_with(|| a.instance.modified.cmp(&b.instance.modified))
+        .then_with(|| a.instance.instance.modified.cmp(&b.instance.instance.modified))
     })
 }
 
-/// The IDE of `directory` among the running processes of the instance files in `dir`
+/// The IDE of `directory` among the running processes of the instance files in `dir`, and its host that holds it
 pub fn find_instance(dir: &Path, directory: &Path) -> Option<(Instance, PathBuf)> {
-  let instances = read_instances(dir, |pid| is_running(pid, None));
-  pick(&instances, directory).map(|found| (found.instance.clone(), found.project.to_path_buf()))
+  let instances = ask_hosts(read_instances(dir, |pid| is_running(pid, None)), HOSTS_TIMEOUT);
+  pick(&instances, directory).map(|found| (found.instance.instance.clone(), found.host.to_path_buf()))
 }

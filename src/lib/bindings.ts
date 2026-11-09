@@ -630,7 +630,7 @@ export type AirIde = {
 	product: string,
 	/**  The build (`IU-263.1234`) */
 	build: string,
-	/**  The base directory of its project that holds the directory */
+	/**  The launch directory of the IDE that holds the directory (its host): the directory or one of its parents */
 	project: string,
 };
 

@@ -1,11 +1,12 @@
 //! The messages of the launch socket: the lines of the local peer handshake v2 (the opener, the greeting with its nonce,
-//! the envelope and a refusal of the handshake), then the request of protocol v1 (`targets`, `launch`, `watch`) and its
+//! the envelope and a refusal of the handshake), then the request of protocol v1 (`hosts`, `targets`, `launch`, `watch`) and its
 //! response lines, and the refusal codes. A response field the protocol adds later is ignored; a refusal code this client
 //! does not know stays as its text (`RefusalCode::Other`, `HandshakeRefusal::Other`). The types the page gets are `Air…`
 //! in its bindings (`serde(rename)`), beside the types of the app.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::path::PathBuf;
 
 /// The version of the request this client sends (`"v"` of the request object inside the envelope of the handshake)
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -251,6 +252,10 @@ pub(crate) struct Envelope<'a, T> {
   pub(crate) fields: &'a T,
 }
 
+/// The fields of a `hosts` request: none
+#[derive(Serialize)]
+pub(crate) struct HostsRequest;
+
 /// The fields of a `targets` request
 #[derive(Serialize)]
 pub(crate) struct TargetsRequest<'a> {
@@ -263,6 +268,21 @@ pub(crate) struct TargetsRequest<'a> {
 pub(crate) struct WatchRequest<'a> {
   pub(crate) project: &'a str,
   pub(crate) session_id: &'a str,
+}
+
+/// The response to `hosts`. The IDE asks no consent for it, so it never opens a dialog
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum Hosts {
+  #[serde(rename = "ok", rename_all = "camelCase")]
+  Listed {
+    /// The launch directories of the IDE, absolute
+    hosts: Vec<PathBuf>,
+    /// Unix milliseconds of the last focus of a window of the IDE; none when the IDE does not say
+    #[serde(default)]
+    focused_at: Option<u64>,
+  },
+  Refused(Refusal),
 }
 
 /// The response to `targets`

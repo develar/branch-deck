@@ -3,7 +3,7 @@
 //! open. No git, no network and no runtime: one synchronous exchange over a Unix-domain socket, which a caller runs on a
 //! blocking thread.
 //!
-//! - `discovery`: the instance files of the running IDEs, and the IDE of a directory
+//! - `discovery`: the instance files of the running IDEs, their hosts, and the IDE of a directory
 //! - `protocol`: the lines of the handshake, the requests, the responses and the refusal codes
 //! - `client`: the handshake, then one request and one response over the socket of an IDE, with the timeout of the
 //!   response
@@ -16,5 +16,7 @@ pub mod protocol;
 mod client_test;
 #[cfg(test)]
 mod discovery_test;
+#[cfg(test)]
+mod fake_ide_test;
 #[cfg(test)]
 mod protocol_test;
