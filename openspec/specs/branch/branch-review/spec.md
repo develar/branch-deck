@@ -768,9 +768,9 @@ commit), of the review of the whole stack the tip of its stack branch and the br
 - **THEN** it takes the tip of the stack branch and the branch of each of its commits by `reviewCommitKey`
   [@test] src/lib/branch-review.test.ts (`reads the tip of the stack branch of a whole stack and the branch of each of its commits`)
 
-### Requirement: The stack and the commits: The window takes them once the view settled
+### Requirement: The stack and the commits: The window takes the heads once the view settled
 
-The window MUST take them once the view settled: once per finished sync of the session, whichever window asked for it,
+The window MUST take the heads and the baseline once the view settled: once per finished sync of the session, whichever window asked for it,
 also while the main window shows another repository, never during a run, and not before a sync grouped the branches.
 
 #### Scenario: A running sync, a table no sync grouped
@@ -911,10 +911,15 @@ the push MUST stay in its place, disabled with why ("Safe Push and Create Pull R
 alone"), and so it is while Patronus or GitHub haven't answered whether they push it (`firstPushWait`), so their
 answers move no button of the title bar.
 
-#### Scenario: A first push the landing pushes
-- **WHEN** the landing of the branch pushes it (`isFirstPushInLanding`)
-- **THEN** the push stays in its place, disabled with why
-- **AND** the reason says that Safe Push and Create Pull Request… push it first and "⋯" pushes it alone
+#### Scenario: A first push the landing pushes, with Patronus
+- **GIVEN** Patronus is on the repository
+- **WHEN** the landing of the branch auth pushes it (`isFirstPushInLanding`)
+- **THEN** the push stays in its place, disabled with why: "Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone"
+
+#### Scenario: A first push the landing pushes, without Patronus
+- **GIVEN** Patronus is not on the repository
+- **WHEN** the landing of the branch auth pushes it (`isFirstPushInLanding`)
+- **THEN** the push stays in its place, disabled with why: "Create Pull Request… pushes auth first: "⋯" pushes it alone"
 
 #### Scenario: Patronus or GitHub haven't answered
 - **WHEN** Patronus or GitHub haven't answered whether they push the branch (`firstPushWait`)
@@ -958,9 +963,9 @@ context of the whole stack, `getStackPullRequestContext`; Create pushes its stac
 toast in the window).
 
 #### Scenario: The whole stack without a pull request
-- **WHEN** the user chooses "Create Pull Request of the Stack…" in the review of the whole stack and presses Create
+- **WHEN** the user chooses "Create Pull Request of the Stack…" in the review of the whole stack
 - **THEN** its dialog opens in the window, with the context of the whole stack (`getStackPullRequestContext`)
-- **AND** Create pushes its stack branch alone, then creates the pull request, the toast in the window
+- **AND** its Create pushes the stack branch alone, then creates the pull request, the toast in the window
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then`)
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should start the Safe Push of the whole stack with S in its review, its popover at the header, and its pull request in the window's dialog`)
 
@@ -1028,9 +1033,13 @@ open as the heading moves into the diffs), built when it opens, without key hint
 - **THEN** the menu of its row opens, built when it opens, without key hints and without submenus
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window`)
 
+#### Scenario: A part of one commit
+- **WHEN** the part has one commit, and so no column
+- **THEN** the "⋯" at the end of the heading of the commit has the menu of its row
+
 #### Scenario: The ⋯ of the heading while the diffs load
-- **WHEN** the "⋯" of the heading is open while the diffs of the commit load, or the part has one commit and no column
-- **THEN** the heading has the "⋯", and it stays open as the heading moves into the diffs
+- **WHEN** the "⋯" of the heading is open while the diffs of the commit load
+- **THEN** it stays open as the heading moves into the diffs
 
 ### Requirement: Title bar, footer and actions: The menu of a commit holds the items of its row
 
@@ -1465,19 +1474,28 @@ the open names (Review Changes of a group of the Safe Push popover) wins.
 ### Requirement: Code owners: A remembered owner and a group of its name are one chip
 
 A remembered owner MUST match a group of the same name and the other way round; a group whose files nobody tells MUST
-mark none. Until the user chooses, the first chip other than All MUST hold: the owners and the groups that come later
-never move it.
+mark none.
 
 #### Scenario: A group whose files nobody tells
 - **WHEN** the remembered chip is a group whose files nobody tells
 - **THEN** it marks no file, and the window does not open on it
   [@test] src/lib/review-owners.test.ts (`never opens on a group whose files Patronus doesn't tell, and opens on a branch-wide one`)
 
-#### Scenario: The groups come after the owners
-- **GIVEN** the window opened on an owner chip, and the user chose none
-- **WHEN** the reviewer groups come later, one of them of the owner's name
-- **THEN** the chip of the owner becomes the group of its name, one chip, still pressed, and the later owners and groups never move it
+#### Scenario: The groups come after an owner chip of their name
+- **GIVEN** an owner chip of the `OWNERSHIP` files holds before the reviewer groups come, remembered as the group or chosen as the owner
+- **WHEN** the reviewer groups come, one of them of the owner's name
+- **THEN** the chip is the group of its name: one chip, pressed, marking the group's files
   [@test] src/lib/review-owners.test.ts (`makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files`)
+
+### Requirement: Code owners: The first chip other than All holds until the user chooses
+
+Until the user chooses, the first chip other than All MUST hold: the owners and the groups that come later never move
+it.
+
+#### Scenario: Owners and groups that come after the chip the window opened on
+- **GIVEN** the window opened on a chip other than All, and the user chose none
+- **WHEN** more owners or reviewer groups come
+- **THEN** the chip stays
 
 ### Requirement: The files of each reviewer group (Safe Push popover): Each group names its files
 
