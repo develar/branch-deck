@@ -26,7 +26,7 @@ import { openReviewWindow } from "../helpers/review-window-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { pushedRemote } from "../helpers/sync-helpers"
+import { pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
 import { waitForStepFacts } from "../helpers/wait-helpers"
@@ -510,7 +510,7 @@ test.describe("Next step", () => {
     await popover.getByTestId("request-review-submit").click()
     // the request is the move made: the branch waits for the reviewer from the click on
     await expect(node).toHaveAttribute("data-kind", "waiting")
-    await repo.holdRemoteAnswers({ release: ["requestReviewers"] })
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["requestReviewers"] }))
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(popover).toHaveCount(0)
@@ -531,7 +531,8 @@ test.describe("Next step", () => {
     await expect(step).toBeEnabled()
     await step.click()
     const popover = page.getByTestId("request-review-popover")
-    await popover.getByTestId("request-review-submit").click()
+    // the answer of the request comes after its push: seconds under load
+    await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("request-review-submit").click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     await expectPushedToRemote(repo, [BRANCH])
     expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
@@ -590,7 +591,7 @@ test.describe("Next step", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #1078 to master" })).toBeVisible()
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot retarget" })).toHaveCount(0)
 
-    await repo.holdRemoteAnswers({ release: ["requestReviewers"] })
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["requestReviewers"] }))
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 1078, "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
   })

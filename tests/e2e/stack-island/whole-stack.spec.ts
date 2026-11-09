@@ -24,6 +24,7 @@ import {
   gitHubRequests,
   gitHubWrites,
   pullRequest,
+  requestReviewFromSearch,
   reviewer,
   stackPullRequest,
   withStackPullRequests,
@@ -461,7 +462,8 @@ test.describe("Whole stack", () => {
     // the request is the move made: the whole stack waits for the reviewer from the click on, its push included
     await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "waiting")
 
-    await held.release()
+    // the push ends, then the request: the answer of the request comes after both
+    await runAndWaitForAnswer(page, "execute", () => held.release())
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["ikorennoy"] }])
@@ -496,7 +498,7 @@ test.describe("Whole stack", () => {
     await item.click()
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     await expectPopoverAtSlot(popover, rootSlot)
-    await popover.getByTestId("request-review-submit").click()
+    await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("request-review-submit").click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
     expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(popover).toHaveCount(0)
@@ -643,9 +645,7 @@ test.describe("Whole stack", () => {
 
     await openWholeStackRequestReview(page, "auth")
     await expectPopoverAtSlot(popover, root)
-    await popover.getByTestId("request-review-reviewer-search").fill("ca")
-    await page.getByRole("option", { name: /carol/ }).click()
-    await popover.getByTestId("request-review-submit").click()
+    await requestReviewFromSearch(page, popover, "ca", /carol/)
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #12" })).toBeVisible()
     expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["carol"] }])
     await expect(popover).toHaveCount(0)

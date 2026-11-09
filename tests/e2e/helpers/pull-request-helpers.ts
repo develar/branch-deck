@@ -1,6 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { GitHubUser, MergeMethods, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/base-test"
+import { runAndWaitForAnswer } from "./sync-helpers"
 
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"
@@ -159,4 +160,15 @@ export const VIEWER_LOGIN = "user-name"
 
 export function createPullRequestDialog(page: Page): Locator {
   return page.getByTestId("create-pull-request-dialog")
+}
+
+/**
+ * Asks the user the search `query` finds (`option`, the login in its name) for a review in the open Request Review…
+ * popover, and waits for the answer of the request (`execute`): it pushes what the remote lacks first and may wait for a
+ * sync, seconds under load, so the toast after it is an assertion's
+ */
+export async function requestReviewFromSearch(page: Page, popover: Locator, query: string, option: RegExp): Promise<void> {
+  await popover.getByTestId("request-review-reviewer-search").fill(query)
+  await page.getByRole("option", { name: option }).click()
+  await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("request-review-submit").click())
 }

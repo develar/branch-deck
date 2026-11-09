@@ -13,6 +13,7 @@ import {
   gitHubWrites,
   pullRequest,
   repoPath,
+  requestReviewFromSearch,
   reviewer,
   unavailablePullRequests,
 } from "../helpers/pull-request-helpers"
@@ -476,9 +477,7 @@ test.describe("Request Review without Patronus", () => {
     await row.getByRole("button", { name: "More actions for ABC-123" }).click()
     await page.getByRole("menuitem", { name: "Request Review…" }).click()
     await expectPopoverAtSlot(popover, row)
-    await popover.getByTestId("request-review-reviewer-search").fill("ca")
-    await page.getByRole("option", { name: /carol/ }).click()
-    await popover.getByTestId("request-review-submit").click()
+    await requestReviewFromSearch(page, popover, "ca", /carol/)
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #761" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 761, "requested_reviewers")).toEqual([{ reviewers: ["carol"] }])
     expect(await remotePushes(repo)).toEqual([["ABC-123"]])
