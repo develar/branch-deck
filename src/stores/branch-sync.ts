@@ -390,8 +390,8 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   autosquashPlan: null,
   baselineStatus: null,
   groupedRun: 0,
-  // the default of `branchdeck.reviewExperimental` until a sync says
-  reviewExperimental: true,
+  // unknown until a sync says (its default is on, in Rust): no plan is read before
+  reviewExperimental: false,
   issueGroups: {},
   stackParents: {},
   parked: {},

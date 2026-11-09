@@ -987,8 +987,8 @@ function resetTable(): void {
     unassignedCommits: [],
     autosquashPlan: null,
     baselineStatus: null,
-    // the default of `branchdeck.reviewExperimental` until a sync of the repository says
-    reviewExperimental: true,
+    // unknown until a sync of the repository says (its default is on, in Rust): no plan is read before
+    reviewExperimental: false,
     issueGroups: {},
     stackParents: {},
     parked: {},
