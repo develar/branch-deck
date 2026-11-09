@@ -1,4 +1,4 @@
-//! The entry points of a module a change adds (spec/branch/review-plan.spec.md, "Modules"): its declarations something
+//! The entry points of a module a change adds (openspec/specs/branch/review-plan/spec.md, "Modules"): its declarations something
 //! outside it uses, from accio (`accio surface`, one process for every new module, at the head, within a budget): a
 //! class a plugin descriptor registers first, then the declarations the code of other modules uses, a use by the name
 //! alone or from test code entering nothing. The opening of the group of the module names them and its stops start with
