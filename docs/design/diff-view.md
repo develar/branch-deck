@@ -503,8 +503,8 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 ### Syntax highlighting
 
 **Two engines.** Kotlin, Java, C#, Starlark, Rust, TypeScript and JavaScript are coloured by the backend from a syntax
-tree (Kotlin's and Java's PSI, Roslyn's tree for C#, the Bazel plugin's tree for Starlark, tree-sitter's for the
-others), as IntelliJ colours them without resolving names ("Backend
+tree (Kotlin's and Java's PSI, Roslyn's tree for C#, the Bazel plugin's tree for Starlark, rust-analyzer's for Rust,
+oxc's for TypeScript and JavaScript), as IntelliJ colours them without resolving names ("Backend
 highlighting" below); the other languages by Shiki in a worker. The two sides of a file always share
 an engine: a file the backend cannot colour goes to the worker whole.
 
@@ -662,15 +662,14 @@ The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`),
 - the answer is raw bytes (`tauri::ipc::Response`, an `ArrayBuffer` in the view, `application/octet-stream` from the
   e2e server): `u32`s of a header (format, status, line count, the lines answered, the run count), the line starts of
   the lines asked for from 0, then their runs. The status says `Runs`, `Fallback` (no grammar, a binary or too large
-  file, a parse over its budget: the worker colours it) or `Missing`. The typed bindings cannot say raw bytes, so the
+  file, a file nested deeper than its parse reads: the worker colours it) or `Missing`. The typed bindings cannot say raw bytes, so the
   command has its own handler beside theirs (`lib.rs` of `src-tauri`).
 
-On the corpus of the comparison with Shiki (578 files of the IntelliJ monorepo and Branch Deck) every file was
-highlighted by tree-sitter at 77–115 ms of CPU per MB in a release build, the parse included; `opt-level = 3` for the
-grammars gains 0 to 18 % over the `s` of the release profile, so it stays. Kotlin and Java from their PSI take 18–19 ms
-per MB, the parse included (the first 5 000 files of each language of intellij-community on one thread, 18.6 MB each:
-343 and 365 ms, where tree-sitter took 1 527 and 1 257 ms). The rules have golden files
-(`crates/code-symbols/testdata/highlight/*.highlight`).
+Kotlin and Java from their PSI take 18–19 ms per MB, the parse included (the first 5 000 files of each language of
+intellij-community on one thread, 18.6 MB each: 343 and 365 ms, where tree-sitter took 1 527 and 1 257 ms); Rust from
+rust-analyzer's tree takes 5.0 s for the 21 092 Rust files of the IntelliJ monorepo against tree-sitter's 7.0 s, and
+TypeScript and JavaScript from oxc's 0.93 s for 5 000 files against 9.41 s ([Symbol Dependencies](symbol-dependencies.md),
+decisions 26 and 27). The rules have golden files (`crates/code-symbols/testdata/highlight/*.highlight`).
 
 **Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). The painter finds the word
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell

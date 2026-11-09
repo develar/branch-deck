@@ -12,7 +12,7 @@
 
 use crate::psi_tree::error_bytes;
 use crate::summary::{Argument, DeclKind, Declaration, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature};
-use crate::summary_builder::{SummaryBuilder, blank_declaration, column_at, end_line};
+use crate::summary_builder::{SummaryBuilder, blank_declaration, end_line};
 use psi_builder::document::Lines;
 use starlark_syntax::{FileKind, NodeId, NodeKind as N, TokenKind as T, Tree, psi};
 use std::collections::HashSet;
@@ -284,7 +284,7 @@ impl<'t> Walk<'t> {
     declaration.start_line = self.lines.line(range.start);
     declaration.end_line = end_line(|offset| self.lines.line(offset), self.text, range.start, range.end);
     declaration.name_line = self.lines.line(name_at);
-    declaration.name_column = column_at(self.text, name_at);
+    declaration.name_column = psi_builder::document::column(self.text, name_at);
     declaration.in_error = self.tree.ancestor_or_self(node, |it| self.tree.node_kind(it) == Some(N::ERROR_ELEMENT)).is_some();
   }
 

@@ -67,7 +67,7 @@ macro_rules! for_each_command {
       /// `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
       read json get_blob_texts(params: file_diffs::model::GetBlobTextsParams) -> Vec<file_diffs::model::BlobText> = $crate::reads::blobs::get_blob_texts;
 
-      /// The tree-sitter highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
+      /// The backend highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
       /// typed bindings cannot say, so it has its own handler (`raw_handler` of `src-tauri/src/api.rs`) and its own call in
       /// the view (`src/lib/diff/highlight/backend-syntax.ts`). From the blobs the diffs read, else one `cat-file --batch`
       read raw get_blob_syntax(params: file_diffs::model::GetBlobSyntaxParams) -> Vec<u8> = $crate::reads::blobs::get_blob_syntax;

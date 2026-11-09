@@ -36,7 +36,7 @@
 
 use super::{CONTEXTUAL_KEYWORDS, Lines, PRIMITIVES, is_callee, is_outer_doc, leading_start, span};
 use crate::summary::{DeclKind, Declaration, FileSummary, LineSpan, MemberKind, Reach, Role};
-use crate::summary_builder::{Bindings, SummaryBuilder, blank_declaration, column_at, end_line};
+use crate::summary_builder::{Bindings, SummaryBuilder, blank_declaration, end_line};
 use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxElement, SyntaxError, SyntaxKind as K, SyntaxNode, SyntaxToken, WalkEvent, ast};
 use std::collections::HashSet;
 
@@ -912,7 +912,7 @@ impl<'t> Walk<'t> {
     declaration.start_line = self.line(at.start);
     declaration.end_line = self.end_line(at.start, at.end);
     declaration.name_line = self.line(at.name);
-    declaration.name_column = column_at(self.source, at.name);
+    declaration.name_column = psi_builder::document::column(self.source, at.name);
     declaration.in_error = self.error_depth > 0;
     let id = self.out.add_declaration(declaration);
     self.checks.push((id, at.checked_from, at.name));
@@ -1227,7 +1227,7 @@ impl<'t> Walk<'t> {
     declaration.start_line = self.line(item.first).min(self.line(name_range.start));
     declaration.end_line = self.end_line(name_range.start, name_range.end).max(self.end_line(item.first, item.last));
     declaration.name_line = self.line(name_range.start);
-    declaration.name_column = column_at(self.source, name_range.start);
+    declaration.name_column = psi_builder::document::column(self.source, name_range.start);
     declaration.in_error = self.error_depth > 0;
     let id = self.out.add_declaration(declaration);
     self.checks.push((id, item.first, name_range.start));

@@ -1,4 +1,4 @@
-//! The tree-sitter highlighting of a blob for the diff views (docs/design/diff-view.md, "Tree-sitter highlighting"):
+//! The backend highlighting of a blob for the diff views (docs/design/diff-view.md, "Syntax highlighting"):
 //! `code_symbols::highlight` of its text, made once per blob and kept in memory, answered as raw bytes for the lines a
 //! view asks for.
 //!
@@ -37,7 +37,7 @@ const HEADER: usize = 6;
 pub enum SyntaxStatus {
   /// The runs of the lines asked for follow
   Runs = 0,
-  /// No highlighting here: no grammar, a binary or too large a file, a parse over its budget; the view uses Shiki
+  /// No highlighting here: no grammar, a binary or too large a file, a file nested deeper than its parse reads; the view uses Shiki
   Fallback = 1,
   /// Git has no such blob and the request no text: the view sends the text
   Missing = 2,

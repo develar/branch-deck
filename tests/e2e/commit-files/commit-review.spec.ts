@@ -170,7 +170,7 @@ simpleTest.describe("Commit review", () => {
   simpleTest("should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword", async ({ page }) => {
     const window = await openTreeReview(page)
     const code = window.getByTestId("commit-review-code")
-    // the tree-sitter highlighting of the backend: what IntelliJ resolves and the syntax shows, `field1` a property
+    // the highlighting of the backend: what IntelliJ resolves and the syntax shows, `field1` a property
     await expect(code.getByText("field1", { exact: true }).first()).toHaveCSS("color", await tokenColor(window, "--syntax-field"))
     await expect(code.getByText("map", { exact: true }).first()).toHaveCSS("color", await tokenColor(window, "--syntax-function-declaration"))
     await expect(code.getByText("@Test", { exact: true })).toHaveCSS("color", await tokenColor(window, "--syntax-annotation"))

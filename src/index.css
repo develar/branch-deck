@@ -422,7 +422,7 @@
   --syntax-tag: #0033b3;
   --syntax-attribute: #174ad4;
   /*
-   * The roles of the tree-sitter highlighting, from the scheme of Islands Light, "Light"
+   * The roles of the backend highlighting, from the scheme of Islands Light, "Light"
    * (`themes/expUI/expUI_lightScheme.xml`), its parent `Default` and what the Kotlin, JavaScript and RustRover plugins
    * add to it, resolved as IntelliJ resolves a key (its own entry anywhere in the chain, then its fallbacks): a comment
    * is italic, a doc comment too, its tag underlined, a JavaScript label and parameter underlined in the text colour, an

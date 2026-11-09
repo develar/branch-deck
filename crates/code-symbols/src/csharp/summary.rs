@@ -33,7 +33,7 @@
 use crate::jvm::{Holder, JvmFields, TypedReceiver, override_shape, type_name};
 use crate::psi_walk::{Span, WalkCore, Walker, has_error_in};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{Typed, column_at};
+use crate::summary_builder::Typed;
 use csharp_syntax::read;
 use csharp_syntax::syntax_getters as sg;
 use csharp_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree};
@@ -648,7 +648,7 @@ impl<'t> Walk<'t> {
         start,
         end: self.core.end_line(declarator_range.start, declarator_range.end),
         name: self.core.line_at(name),
-        name_column: column_at(self.core.source, self.tree.range(name).start),
+        name_column: psi_builder::document::column(self.core.source, self.tree.range(name).start),
       };
       let mut header = head.clone();
       if let Some(text) = self.text(name) {
@@ -701,7 +701,7 @@ impl<'t> Walk<'t> {
         start: self.core.lines.line(range.start),
         end: self.core.end_line(range.start, range.end),
         name: self.core.line_at(name),
-        name_column: column_at(self.core.source, self.tree.range(name).start),
+        name_column: psi_builder::document::column(self.core.source, self.tree.range(name).start),
       };
       let fields = JvmFields {
         unstable: self.unstable(id),

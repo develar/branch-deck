@@ -2,7 +2,7 @@
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
 **Updated:** 2026-10-21
-**Tags:** [dependencies, psi-syntax, tree-sitter, bd, check, suggest, conflict-fix]
+**Tags:** [dependencies, psi-syntax, rust-syntax, js-syntax, bd, check, suggest, conflict-fix]
 
 ## Problem
 
@@ -632,8 +632,8 @@ flowchart TD
     `m` as `m?.foo` does, so a property `m` gives the receiver its type (570 more files moved on the corpus).
 
 22. **Decision**: Kotlin and Java have one parser each, psi-syntax's, for the summary, the highlighting and the
-    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads the highlighting of
-    TypeScript and JavaScript (it read their summaries and navigation and Rust until decisions 26 and 27). tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
+    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)), as Rust and TypeScript have since
+    decisions 26 and 27, after which no reader of Branch Deck is tree-sitter's. tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
     (`jvm.rs`: the containers, the stack of supertypes and `enclosed`, the JVM facts of a declaration, the receivers'
     types, the smart casts), and `extractor_version` hashes the revision of psi-syntax for Kotlin and Java
     (`PSI_SYNTAX_REVISION`, which a test checks against `Cargo.toml` and `Cargo.lock`) where it hashed their grammars'
@@ -1195,9 +1195,21 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     in all, and of Rust an associated type without a value (`type Args: Send;`), the items of `lazy_static!` and the
     variants of an enum in an item macro (decision 17), 14 in all; the extractor of accio declares none of them.
 
-  This is the reference the move of Rust and TypeScript onto the parsers of accio is judged by
-  ([#198](https://github.com/develar/branch-deck/issues/198)): a moved declaration either joins a pair or is one of
-  these classes.
+  This was the reference the move of Rust and TypeScript onto the parsers of accio was judged by
+  ([#198](https://github.com/develar/branch-deck/issues/198), decisions 26 and 27): a moved declaration either joins a
+  pair or is one of these classes.
+- The same comparison after the move, on the IntelliJ monorepo (`examples/accio_facts.rs --parse-only`, 2026-11-09,
+  the 75 748 `.rs`, `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs` and `.cjs` files of a snapshot of
+  `~/projects/idea-1`, the summary of tree-sitter against that of rust-analyzer and oxc): of the 1 597 355
+  declarations of accio's extractor 657 860 met one of the summary before and 662 860 after, the declarations only one
+  side has went from 972 184 to 954 964 and the pairs that end on other lines from 1 904 to 104. Of the 5 774
+  differences the move added, 4 728 are a constructor signature of a `.d.ts` (`constructor(x: T);`), which accio
+  declares as a method and a summary never declares (a constructor is one of its class's), where tree-sitter's walk
+  had declared one without a body; the others are the classes above (a parameter property, a quoted member), a
+  function nested in a function of the TypeScript compiler's own sources (`module ts { … createTypeChecker(…) {
+  function addDiagnostic … } }`), which tree-sitter's walk had read at the top level and is a local now, and the enum
+  members of 87 files whose fatal parse the two walks read otherwise after the same recovery. The two oracles of the
+  readers' moves are in decisions 26 and 27.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_rust_impl_method_name_before_its_same_named_parameter_and_body_use`)
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_each_typescript_overload_signature_and_implementation_at_its_name`)
 

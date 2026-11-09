@@ -4,7 +4,7 @@ import type { Priority } from "@/lib/diff/highlight/protocol"
 import type { TokenCache } from "@/lib/diff/highlight/token-cache"
 
 /*
- * The tree-sitter highlighting of the backend (docs/design/diff-view.md, "Tree-sitter highlighting"): Kotlin, Java, C#,
+ * The highlighting of the backend (docs/design/diff-view.md, "Syntax highlighting"): Kotlin, Java, C#, Starlark,
  * Rust, TypeScript and JavaScript are coloured by `get_blob_syntax` as IntelliJ (and Rider) colour them, the other
  * languages by the Shiki worker. A call answers the runs of a range of pages, which go into the token cache as exact
  * pages; a file the backend cannot highlight (`Fallback`) goes to the worker as a whole, both sides, so its colours never
@@ -12,7 +12,7 @@ import type { TokenCache } from "@/lib/diff/highlight/token-cache"
  */
 
 /** The Shiki ids of the languages `grammar_of` of `code_symbols::highlight` reads */
-export const TREE_SITTER_LANGUAGES: ReadonlySet<string> = new Set(["kotlin", "kts", "java", "csharp", "rust", "typescript", "tsx", "javascript", "jsx"])
+export const BACKEND_LANGUAGES: ReadonlySet<string> = new Set(["kotlin", "kts", "java", "csharp", "rust", "typescript", "tsx", "javascript", "jsx"])
 
 /** The parameters of `get_blob_syntax` (`GetBlobSyntaxParams` of `crates/file-diffs/src/model.rs`) */
 export interface BlobSyntaxParams {

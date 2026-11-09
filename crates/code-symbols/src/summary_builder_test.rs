@@ -2,9 +2,9 @@
 
 use crate::language::Language;
 use crate::summary::{Constructor, DeclKind, MemberKind, Reach, Role, Signature};
-use crate::summary_builder::{SummaryBuilder, blank_declaration, column_at, count_lines, empty_summary, end_line, is_junit3_test};
+use crate::summary_builder::{SummaryBuilder, blank_declaration, count_lines, empty_summary, end_line, is_junit3_test};
 
-/// The 1-based line of an offset by its `\n`s, as tree-sitter's rows count them
+/// The 1-based line of an offset by its `\n`s
 fn line_of(source: &[u8]) -> impl Fn(usize) -> u32 + '_ {
   |offset| 1 + u32::try_from(source[..offset].split(|it| *it == b'\n').count() - 1).unwrap()
 }
@@ -19,22 +19,6 @@ fn a_node_that_ends_with_its_line_break_ends_on_the_line_before() {
   // a node of one line break alone ends on the line it breaks
   assert_eq!(end_line(line_of(source), source, 9, 10), 1);
   assert_eq!((count_lines(source), count_lines(b"a\n"), count_lines(b"")), (3, 1, 0));
-}
-
-/// The same arithmetic as `psi_builder::document::column`, which accio answers from: the units are UTF-16, a line
-/// starts after the last `\n` before it, and a byte that is no UTF-8 counts as one, as a lossy read shows it
-#[test]
-fn a_column_counts_the_utf16_units_of_its_line_before_it() {
-  let source = b"ab\r\ncd\ne";
-  assert_eq!((column_at(source, 0), column_at(source, 2)), (0, 2));
-  // the `\r` ends the line it is on, so what follows the `\n` starts the next one
-  assert_eq!((column_at(source, 3), column_at(source, 4), column_at(source, 6)), (3, 0, 2));
-  // a surrogate pair counts as two units, a two-byte character as one
-  assert_eq!(column_at("🦀x".as_bytes(), 4), 2);
-  assert_eq!(column_at("é x".as_bytes(), 3), 2);
-  // an offset past the end answers for the end, and a byte that is no UTF-8 counts as one
-  assert_eq!(column_at(source, 99), 1);
-  assert_eq!(column_at(&[b'a', 0xff, b'b'], 2), 2);
 }
 
 #[test]

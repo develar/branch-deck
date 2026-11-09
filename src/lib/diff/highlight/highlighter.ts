@@ -7,7 +7,7 @@ import { getDiffRepositoryPath } from "@/stores/repository"
 
 /*
  * The highlighting of the window (docs/design/diff-view.md, "Syntax highlighting"): created with the first diff and
- * never stopped. The backend colours the languages it reads with tree-sitter; the main window has two workers for the
+ * never stopped. The backend colours the languages it reads a syntax tree of; the main window has two workers for the
  * others, a review window one. A worker that does not start is replaced by
  * the engine on the main thread, in idle slices of 4 ms.
  */

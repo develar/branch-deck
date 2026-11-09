@@ -7,7 +7,7 @@
 
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver};
 use crate::summary::{DeclKind, MemberKind, Reach, Role};
-use crate::summary_builder::{Bindings, SummaryBuilder, Typed, blank_declaration, column_at, end_line};
+use crate::summary_builder::{Bindings, SummaryBuilder, Typed, blank_declaration, end_line};
 use psi_builder::document::Lines;
 use psi_builder::language::TreeLanguage;
 use psi_builder::{NodeId, Tree};
@@ -142,7 +142,7 @@ impl<'t, L: TreeLanguage, E: Default, M> WalkCore<'t, L, E, M> {
       start: doc.map_or(start, |it| start.min(self.line(it))),
       end: self.end_line(own.start, own.end),
       name: self.line(name),
-      name_column: column_at(self.source, name),
+      name_column: psi_builder::document::column(self.source, name),
     }
   }
 

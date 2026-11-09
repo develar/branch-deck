@@ -1,4 +1,4 @@
-import { TREE_SITTER_LANGUAGES } from "@/lib/diff/highlight/backend-syntax"
+import { BACKEND_LANGUAGES } from "@/lib/diff/highlight/backend-syntax"
 import type { BackendSyntax, BackendWant } from "@/lib/diff/highlight/backend-syntax"
 import { HighlightEngine } from "@/lib/diff/highlight/engine"
 import type { GrammarSource } from "@/lib/diff/highlight/engine"
@@ -8,7 +8,7 @@ import { TokenCache } from "@/lib/diff/highlight/token-cache"
 /*
  * The main-thread side of the highlighting (docs/design/diff-view.md, "Syntax highlighting"): pins each blob to one
  * worker, sends its text once, asks for the pages a view lacks, and keeps the answers in the token cache. A blob of a
- * language the backend reads with tree-sitter goes to the backend instead (`backend-syntax.ts`), and to the workers when
+ * language the backend reads a syntax tree of goes to the backend instead (`backend-syntax.ts`), and to the workers when
  * the backend cannot colour its file.
  */
 
@@ -60,7 +60,7 @@ export class HighlightClient {
     ports.forEach((port, index) => this.replacePort(index, port))
   }
 
-  /** The tree-sitter highlighting of the backend for its languages; without it the workers colour every language */
+  /** The highlighting of the backend for its languages; without it the workers colour every language */
   useBackend(backend: BackendSyntax): void {
     this.backend = backend
   }
@@ -102,7 +102,7 @@ export class HighlightClient {
         continue
       }
       const group = want.group ?? want.blobId
-      if (this.backend !== null && want.filePath !== undefined && TREE_SITTER_LANGUAGES.has(want.language) && !this.fallbackGroups.has(group)) {
+      if (this.backend !== null && want.filePath !== undefined && BACKEND_LANGUAGES.has(want.language) && !this.fallbackGroups.has(group)) {
         toBackend.push({
           blobId: want.blobId,
           text: want.text,

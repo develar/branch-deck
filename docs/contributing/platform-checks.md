@@ -9,7 +9,7 @@
 CI runs clippy and the tests on macOS, Linux and Windows. A check on this Mac compiles only the macOS side of every
 `#[cfg]` and runs only the macOS branch of every `cfg!`, so a change with platform code is checked on the other two
 before it lands. Clippy for Windows from the Mac (`--target x86_64-pc-windows-msvc`) does not build: the C of
-tree-sitter finds no Windows headers.
+`aws-lc-sys` (rustls's cryptography) finds no Windows headers (no C of tree-sitter is left since 2026-11-09).
 - **A platform branch in a test** asserts on every platform: an `if cfg!(target_os = "macos")` has an `else` that
   checks what the other platforms do (a `worktree add` where no APFS clone is), never a branch that asserts nothing.
   A helper or import that only `#[cfg(unix)]` tests use carries `#[cfg(unix)]` too, or Windows clippy fails on it.

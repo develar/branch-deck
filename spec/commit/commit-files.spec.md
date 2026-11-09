@@ -255,7 +255,7 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   continuation is one, the last binding of a name is the one its uses see (a `let`'s from after it), a `mut` shorthand
   of a struct pattern is a mutable binding, and a variant after a type in a pattern (`Either::One(_t)`) is a constant;
   a file nested deeper than rust-analyzer reads is coloured by Shiki. The two sides of a file are always
-  coloured alike: a file the syntax tree cannot colour (over 8 MiB, a parse over its budget) is coloured by its Shiki
+  coloured alike: a file the syntax tree cannot colour (over 8 MiB, a Rust or a script file nested deeper than its parse reads) is coloured by its Shiki
   grammar, both sides. The text of a blob git lacks (the result of a merge) goes to the backend once: the pages after
   an answer go without it, and an answer that the backend no longer has it brings it back once.
   [@test] ../../crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`, `splits_lines_and_counts_utf16_offsets_as_the_view`, `has_no_highlighting_over_the_limit`, `chooses_the_grammar_of_the_dialect_of_the_extension`, `roles_match_the_view`, `colours_a_kotlin_name_that_is_a_soft_keyword_as_a_name`, `colours_a_javascript_name_by_its_declaration_as_intellij_does`)

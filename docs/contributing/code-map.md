@@ -188,7 +188,7 @@ crates/
 ├── commit-clustering/ # What `brd suggest` and `brd commits` compute: the clustering, the areas of a commit, the hub files; no CLI, a library of bd-rewrite and bd-remote
 ├── commit-rules/    # The commit rules of a repository: `[commit]` of .branchdeck.toml, the commitMessageFormat of Patronus, the check of a message; no git, a library of update-core and bd-update
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and brd: the answers of the Patronus pre-check, the robots, the passed builds, the last frame of each session
-├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/C#/Starlark/Rust/TS/JS file (Kotlin, Java, C#, Starlark, Rust on psi-syntax, TypeScript and JavaScript on tree-sitter), no git; the highlighting (`highlight/`) and the navigation of the diffs
+├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/C#/Starlark/Rust/TS/JS file (all on psi-syntax: Kotlin's, Java's, C#'s and Starlark's ports, rust-analyzer's parser for Rust, oxc for TypeScript and JavaScript), no git; the highlighting (`highlight/`) and the navigation of the diffs
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
 ├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, why a view starts it collapsed (`collapse.rs`), and blob texts by id
 ├── generated-files/ # The files nobody writes by hand: by their name (lock files, minified, source maps, snapshots), the attributes of a revision, the header a tool wrote; one rule for `brd`, the plan and every view of a diff

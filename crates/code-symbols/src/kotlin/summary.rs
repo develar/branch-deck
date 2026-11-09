@@ -31,7 +31,7 @@ use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smar
 use crate::kotlin::parse;
 use crate::psi_tree::error_bytes;
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, column_at, end_line};
+use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
 use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind as N, TokenKind as K, Tree};
 use psi_builder::document::Lines;
@@ -1097,7 +1097,7 @@ impl<'t> Walk<'t> {
     declaration.start_line = leading.map_or(start, |it| it.min(start));
     declaration.end_line = end;
     declaration.name_line = name_line;
-    declaration.name_column = column_at(self.source, name_offset);
+    declaration.name_column = psi_builder::document::column(self.source, name_offset);
     declaration.in_error = self.error_depth > 0;
     self.out.add_declaration(declaration)
   }

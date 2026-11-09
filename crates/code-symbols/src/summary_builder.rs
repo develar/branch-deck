@@ -1,5 +1,5 @@
-//! The half of a summary walk that knows no parser: what any walk over any syntax tree (tree-sitter's in `extract.rs`,
-//! psi-syntax's in `kotlin/`, `java/` and `starlark/`) collects and how it becomes a `FileSummary`.
+//! The half of a summary walk that knows no parser: what any walk over any syntax tree (psi-syntax's in `kotlin/`,
+//! `java/`, `csharp/` and `starlark/`, rust-analyzer's in `rust/`, oxc's in `js/`) collects and how it becomes a `FileSummary`.
 //!
 //! - `SummaryBuilder`: the names (interned in the order the walk meets them, sorted by `finish`), the package, imports
 //!   and import lines, the declarations in source order, the references, the interned shapes, the error bytes, the
@@ -10,8 +10,8 @@
 //! - `finish`: the steps after the walk, the same for every parser: a Rust `impl` member to its type, exported
 //!   TypeScript declarations public, the implicit `()` of a JVM class without a constructor, the receiver types of
 //!   member references, then the names sorted and every id remapped, the references sorted and deduplicated.
-//! - Lines are 1-based. `end_line` is the last line of a node as tree-sitter's rows give it: a node that ends with its
-//!   line break ends on the line before.
+//! - Lines are 1-based. `end_line` is the last line of a node: a node that ends with its line break ends on the line
+//!   before.
 
 use crate::language::Language;
 use crate::summary::{Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
@@ -58,22 +58,9 @@ pub(crate) fn count_lines(source: &[u8]) -> u32 {
   u32::try_from(newlines + partial).unwrap_or(u32::MAX)
 }
 
-/// The column of the byte at `offset`, in UTF-16 code units from the start of its line, as a view counts them: the
-/// line starts after the last `\n` before it, so a `\r` of a CRLF end is on the line it ends, not the next one. Bytes
-/// that are no UTF-8 count as one each, as a lossy read shows them.
-///
-/// The same arithmetic as `psi_builder::document::column`, which accio's index answers from; the two meet when
-/// `psi-builder` stops being optional here, as Rust and TypeScript leave tree-sitter for it
-pub(crate) fn column_at(source: &[u8], offset: usize) -> u32 {
-  let offset = offset.min(source.len());
-  let start = source[..offset].iter().rposition(|&byte| byte == b'\n').map_or(0, |it| it + 1);
-  let before = String::from_utf8_lossy(&source[start..offset]);
-  u32::try_from(before.encode_utf16().count()).unwrap_or(u32::MAX)
-}
-
 /// The last line of a node of `source` that spans `start..end`, given the 1-based line of an offset: a node that ends
-/// right after a `\n`, on a later line than it starts, ends on the line before (as `extract.rs` reads tree-sitter's end
-/// position at column 0)
+/// right after a `\n`, on a later line than it starts, ends on the line before (an end at the start of a line is the line
+/// before's)
 pub(crate) fn end_line(line_of: impl Fn(usize) -> u32, source: &[u8], start: usize, end: usize) -> u32 {
   let (first, last) = (line_of(start), line_of(end));
   if end > 0 && source.get(end - 1) == Some(&b'\n') && last > first {

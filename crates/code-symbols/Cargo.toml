@@ -18,7 +18,7 @@ csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d
 java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
 js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
 kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb" }
 rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
 starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
 serde.workspace = true
@@ -30,12 +30,12 @@ sync-utils = { path = "../sync-utils" }
 
 [features]
 default = ["kotlin", "java", "csharp", "starlark", "rust", "typescript"]
-kotlin = ["dep:kotlin-syntax", "dep:psi-builder"]
-java = ["dep:java-syntax", "dep:psi-builder"]
-csharp = ["dep:csharp-syntax", "dep:psi-builder"]
-starlark = ["dep:starlark-syntax", "dep:psi-builder"]
-rust = ["dep:rust-syntax", "dep:psi-builder"]
-typescript = ["dep:js-syntax", "dep:psi-builder"]
+kotlin = ["dep:kotlin-syntax"]
+java = ["dep:java-syntax"]
+csharp = ["dep:csharp-syntax"]
+starlark = ["dep:starlark-syntax"]
+rust = ["dep:rust-syntax"]
+typescript = ["dep:js-syntax"]
 
 [lints]
 workspace = true

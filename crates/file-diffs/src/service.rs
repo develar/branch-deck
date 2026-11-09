@@ -88,7 +88,7 @@ pub struct FileDiffs {
   /// The conflicting paths of a merge with their stages, by repository and merge
   pub(crate) conflicts: Cache<(String, MergeSource), Arc<Vec<ConflictPath>>>,
   pub(crate) blobs: Cache<String, Arc<BlobText>>,
-  /// The tree-sitter highlighting of blobs by grammar and id, `None` when a blob has none (`syntax.rs`)
+  /// The backend highlighting of blobs by grammar and id, `None` when a blob has none (`syntax.rs`)
   pub(crate) syntax: Cache<(u8, String), Arc<Option<LineRuns>>>,
   pub(crate) limits: DiffLimits,
   /// `blocks_of` keeps the blobs it reads in `blobs` (`for_scans`)

@@ -138,7 +138,7 @@ pub enum DiffContent {
   Missing,
 }
 
-/// The parameters of `get_blob_syntax`, the tree-sitter highlighting of one blob (`syntax.rs`)
+/// The parameters of `get_blob_syntax`, the backend highlighting of one blob (`syntax.rs`)
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlobSyntaxParams {
