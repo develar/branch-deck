@@ -178,13 +178,9 @@ as its walk completes and advance the measured count. Host answers MUST arrive a
 - **THEN** the host answers arrive as `Machine`, and `Done` ends progress
   [@test] crates/app-api/src/app/disk_test.rs (`disk_usage_events_serialize_their_channel_type`)
 
-### Requirement: Report: Measure Again walks everything, closing keeps what came
+### Requirement: Report: Closing the dialog keeps the values received
 
-Measure Again MUST always request a full walk; closing the dialog MUST NOT discard values already received.
-
-#### Scenario: Measure Again
-- **WHEN** the user chooses Measure Again
-- **THEN** a full walk is requested
+Closing the dialog MUST NOT discard values already received.
 
 #### Scenario: The dialog closes during a read
 - **WHEN** the dialog closes while the events still come
@@ -192,7 +188,8 @@ Measure Again MUST always request a full walk; closing the dialog MUST NOT disca
 
 ### Requirement: Report: On macOS an unchanged slot stays cached
 
-On macOS, a slot whose saved volume mark has no changes MUST stay cached regardless of its age or lease.
+On macOS, a slot whose saved volume mark has no changes MUST stay cached regardless of its age or lease, while it is
+returned and leased as when it was measured.
 
 #### Scenario: No change since the saved mark
 - **GIVEN** macOS
@@ -219,8 +216,8 @@ On macOS, a changed path MUST remeasure the nearest saved node (through depth 3)
 ### Requirement: Report: A full walk where a partial sum could double-count
 
 A node or root with hardlinks, a newly created hardlink or directory, missing marks, a different root set or volume,
-incomplete FSEvents history, and Measure Again MUST require a full walk so a partial sum never double-counts a linked
-file.
+incomplete FSEvents history, and a slot returned or leased since it was measured MUST require a full walk so a partial
+sum never double-counts a linked file.
 
 #### Scenario: A node or root with hardlinks
 - **WHEN** a changed path lies in a node or root with hardlinks
@@ -247,21 +244,32 @@ file.
 - **THEN** the slot is walked in full
   [@test] crates/fs-walk/src/changes_test.rs (`fsevents_refuses_a_mark_from_the_future`)
 
-#### Scenario: Measure Again walks in full
-- **WHEN** the user chooses Measure Again
-- **THEN** every slot is walked in full
+#### Scenario: A slot returned or leased since its measurement
+- **WHEN** a slot was returned, leased or freed since it was measured
+- **THEN** the slot is walked in full
 
-### Requirement: Report: Other platforms keep the returned and leased cache rules
+### Requirement: Report: Other platforms cache a slot by its return and its lease
 
-On other platforms, the system MUST retain the current returned/leased cache rules because there is no FSEvents
-history.
+On other platforms, where there is no FSEvents history, a slot MUST stay cached while it is returned and leased as
+when it was measured, a leased one only for 15 minutes (`LEASED_STALE`: its builds write while it is leased); any other
+slot MUST be walked in full.
 
 #### Scenario: A platform without FSEvents
 - **GIVEN** a platform other than macOS
 - **WHEN** the dialog reads `disk_usage`
-- **THEN** the current returned/leased cache rules decide what is walked, as there is no FSEvents history
+- **THEN** no volume mark is taken and any check of the history asks a full walk
   [@test] crates/fs-walk/src/changes_test.rs (`platforms_without_fsevents_always_require_a_full_walk`)
+
+#### Scenario: A leased slot measured within 15 minutes
+- **GIVEN** a platform other than macOS
+- **WHEN** a slot, leased as when it was measured, was measured less than 15 minutes ago
+- **THEN** it stays cached
   [@test] crates/pool-disk/src/disk_test.rs (`disk_usage_streams_the_cached_overview_then_each_finished_slot`)
+
+#### Scenario: A leased slot measured longer ago
+- **GIVEN** a platform other than macOS
+- **WHEN** a leased slot was measured 15 minutes ago or longer
+- **THEN** it is walked in full
 
 ### Requirement: Report: Sizes come in MiB and are worded binary
 
@@ -273,15 +281,19 @@ worded binary, as the minimum of the git config counts them.
 - **THEN** it is worded in binary units, as the minimum of the git config counts them
   [@test] src/presenters/disk.test.ts (`words a size in binary units, MiB below a GiB`)
 
-### Requirement: Report: Measure Again reads fresh, the shown answer stays until the new one
+### Requirement: Report: Measure Again walks every slot in full
 
-Measure Again MUST read with `fresh`, every slot walked again; the answer shown MUST stay until the new one comes, and
-a read that a later one overtook MUST be dropped.
+Measure Again MUST read with `fresh`: every slot walked again in full, whatever `disk.json` holds and whatever
+FSEvents says; the answer shown MUST stay until the new one comes.
 
 #### Scenario: Measure Again reads with `fresh`
 - **WHEN** the user chooses Measure Again
-- **THEN** the dialog reads with `fresh`, every slot walked again
+- **THEN** the dialog reads with `fresh`, every slot walked again in full
 - **AND** the answer shown stays until the new one comes
+
+### Requirement: Report: A read that a later one overtook is dropped
+
+A read that a later one overtook MUST be dropped.
 
 #### Scenario: A read that a later one overtook
 - **WHEN** a later read overtakes an earlier one
