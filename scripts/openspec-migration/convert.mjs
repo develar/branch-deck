@@ -5,7 +5,7 @@
 //   node scripts/openspec-migration/convert.mjs verify <spec> [--old <rev>] [--map <map.json>]
 //     the problems of the converted spec against the old one at <rev> (HEAD by default): nothing of its front matter,
 //     its other sections and its test links lost, the structure and limits of `openspec validate --strict`, the groups
-//     in their order, every code span, quoted string, link and measure of the old rules kept, every old id mapped;
+//     in their order, every code span, quoted string, link and measure of the old rules kept, every old id mapped, a new test link only from `added` of the map;
 //   node scripts/openspec-migration/convert.mjs assemble <spec> --parts <dir> [--rev <rev>]
 //     writes the converted spec from the old one at <rev> and the parts of <dir>: `## Summary` becomes `## Purpose`
 //     (`purpose.md` when it had none), `concepts.md` becomes `## Concepts` before Requirements, the parts `<nn>*.md`
@@ -361,8 +361,10 @@ export function verify(path, rev = "HEAD", mapPath = null) {
       problems.push(`the test link ${pair} is cited ${nowPairs.get(pair)} times, ${times} before`)
     }
   }
+  // a test the old text never named, linked where it proves a rule, is listed in `added` of the map with its reason
+  const added = new Set((mapPath === null ? [] : (JSON.parse(readFileSync(mapPath, "utf8")).added ?? [])).map(entry => entry.pair))
   for (const pair of nowPairs.keys()) {
-    if (!oldPairs.has(pair)) {
+    if (!oldPairs.has(pair) && !added.has(pair)) {
       problems.push(`a new test link ${pair}`)
     }
   }
