@@ -15,6 +15,12 @@ fn display(path: &Path) -> String {
   canonical(path).to_string_lossy().into_owned()
 }
 
+/// The lease at `path` as the commands of a pick name it: the top level git prints (`C:/…` on Windows, where the get
+/// prints `C:\…`)
+fn lease_word(path: &str) -> String {
+  shell_word(&test_utils::git_test_utils::git_canonical_path(Path::new(path)))
+}
+
 /// `brd lease pick` in the slot at `path`
 fn lease_pick(fixture: &Fixture, path: &str, args: &[&str]) -> (i32, Value) {
   fixture.run_in(Path::new(path), &[&["--prefix", PREFIX, "lease", "pick"][..], args].concat())
@@ -153,7 +159,7 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   assert_eq!(output["update"]["upstream"], json!("master"));
   let next = output["conflict"]["next"].as_str().unwrap();
   // both commands run in the lease, where the resolve session is: one `-C`, the lease, never the home checkout
-  let lease_bd = format!("brd -C {}", shell_word(&path));
+  let lease_bd = format!("brd -C {}", lease_word(&path));
   assert!(next.contains(&format!("`{lease_bd} update --continue`")), "{next}");
   assert!(next.contains(&format!("`{lease_bd} lease pick` again")), "{next}");
   assert_eq!(next.matches(" -C ").count(), 2, "{next}");
@@ -360,7 +366,7 @@ fn a_lease_pick_refuses_a_rejected_message_until_the_reword_in_the_lease() {
   assert_error(&refused, exit_code, (4, "message_format"));
   let message = refused["error"]["message"].as_str().unwrap();
   assert!(
-    message.starts_with("brd lease pick: ") && message.contains(&format!("-C {} reword {}", shell_word(&path), &own[..8])) && message.contains("lease pick --allow-message-format"),
+    message.starts_with("brd lease pick: ") && message.contains(&format!("-C {} reword {}", lease_word(&path), &own[..8])) && message.contains("lease pick --allow-message-format"),
     "{message}"
   );
   assert_eq!(fixture.repo.head(), home, "nothing landed");
