@@ -47,7 +47,7 @@ one dialog.
 Each IDE process with Air writes one instance file, `<pid>.json`, in `~/Library/Application Support/JetBrains/air/launch`
 (macOS), `%APPDATA%\JetBrains\air\launch` (Windows), `$XDG_DATA_HOME/JetBrains/air/launch` or
 `~/.local/share/JetBrains/air/launch` (Linux). A file whose process does not run, a file that does not parse and a file
-of another `schemaVersion` MUST be skipped.
+of another `schemaVersion` MUST be skipped. A directory that does not exist MUST read as no instance, not as an error.
 
 #### Scenario: The files of running processes are read, the others skipped
 - **GIVEN** the directory of instance files of the platform
@@ -57,8 +57,8 @@ of another `schemaVersion` MUST be skipped.
   [@test] crates/air-launch/src/discovery_test.rs (`reads_the_files_of_running_processes_and_skips_dead_garbled_and_later_ones`, `find_instance_checks_the_processes_of_the_files`)
 
 #### Scenario: No directory of instance files
-- **WHEN** the directory of instance files does not exist
-- **THEN** no IDE process with Air is found
+- **WHEN** Branch Deck reads a directory of instance files that does not exist
+- **THEN** it reads no instance, and no error
   [@test] crates/air-launch/src/discovery_test.rs (`no_directory_is_no_instance`)
 
 ### Requirement: The IDE: The IDE of the repository has its directory or a parent open
@@ -134,7 +134,8 @@ and close the connection.
 ### Requirement: The exchange: Limits and bad answers are errors of the command
 
 A request longer than 1 MiB in its envelope MUST NOT be sent; a response longer than 1 MiB, one that is not JSON or
-has an unknown `status`, a close without an answer, and no answer in time MUST be errors of the command.
+has an unknown `status`, a close without an answer, and no answer in time MUST be errors of the command. A socket
+nobody listens on (the instance file names a socket that is gone) MUST be a connect error, also an error of the command.
 
 #### Scenario: A request longer than the limit
 - **WHEN** the envelope of a request is longer than 1 MiB
@@ -162,8 +163,8 @@ has an unknown `status`, a close without an answer, and no answer in time MUST b
   [@test] crates/air-launch/src/client_test.rs (`an_ide_that_does_not_answer_in_time_is_a_timeout`)
 
 #### Scenario: Nobody listens on the socket
-- **WHEN** no IDE listens on the socket
-- **THEN** the connection fails, an error of the command
+- **WHEN** the client sends a request to a socket path nobody listens on
+- **THEN** the request fails with a connect error (`ClientError::Connect`), an error of the command
   [@test] crates/air-launch/src/client_test.rs (`a_socket_nobody_listens_on_is_a_connect_error`)
 
 ### Requirement: The exchange: AF_UNIX on every platform
@@ -284,8 +285,8 @@ after 4 h), with the refusal `NO_SESSION`, or with a close. Nothing MUST be read
   [@test] crates/air-launch/src/client_test.rs (`a_watch_names_the_session_and_reads_each_status_until_the_end`)
 
 #### Scenario: The session is gone, or the IDE closes the connection
-- **WHEN** the IDE answers the watch with `NO_SESSION`, or closes the connection
-- **THEN** the watch ends, a close without a line
+- **WHEN** the IDE answers the watch with `NO_SESSION`, or closes the connection after a status
+- **THEN** the watch ends with the refusal `NO_SESSION`, or, at the close, without another line
   [@test] crates/air-launch/src/client_test.rs (`a_watch_of_a_session_that_is_gone_ends_with_no_session_and_a_close_ends_it_without_a_line`)
 
 #### Scenario: A watch waits without a timeout
@@ -303,8 +304,9 @@ after 4 h), with the refusal `NO_SESSION`, or with a close. Nothing MUST be read
 A refusal of v1 SHALL be read when it comes before the first status of a watch (`BUSY` when 8 watches are open).
 
 #### Scenario: Eight watches are open
-- **WHEN** 8 watches are open and the client starts another
-- **THEN** the IDE answers `BUSY` before the first status, and the watch reads it as a refusal
+- **WHEN** the IDE answers a watch with `BUSY` (8 watches are open) before the first status
+- **THEN** the watch reads it as a refusal and ends
+  [@test] crates/air-launch/src/client_test.rs (`a_watch_of_a_session_that_is_gone_ends_with_no_session_and_a_close_ends_it_without_a_line`)
 
 ### Requirement: The exchange: A stop from another thread ends a watch
 
@@ -385,8 +387,9 @@ Plan is on, "Default" first and the efforts of the model.
   [@test] src/lib/air-launch.test.ts (`offers the modes without the mode of Plan, and Plan only for a target that can start in it`)
 
 #### Scenario: The plan effort only while Plan is on
-- **WHEN** Plan is on
-- **THEN** the plan effort picker offers "Default" first and the efforts of the model
+- **WHEN** the user turns Plan on
+- **THEN** the plan effort starts at "Default"
+- **AND** turning Plan off drops the plan effort
   [@test] src/lib/air-launch.test.ts (`keeps the plan effort only with Plan and while the model takes it`)
 
 ### Requirement: The dialog: Run or Draft, and an editable prompt
@@ -550,11 +553,16 @@ An accepted launch MUST close the dialog, remember the choice in the recent proj
 
 ### Requirement: The dialog: A launch without a session id says it started
 
-Without a session id (a draft, an agent of a terminal that has no id yet) a toast MUST say "Started Codex in Air".
+Without a session id (a draft, an agent of a terminal that has no id yet) a toast MUST say "Started Codex in Air" for
+Run and "Opened a draft for Codex in Air" for a draft, with the title of the session and the IDE.
 
-#### Scenario: A draft is accepted
-- **WHEN** the IDE accepts a launch and answers no session id
+#### Scenario: Run is accepted without a session id
+- **WHEN** the IDE accepts a launch with Run and answers no session id
 - **THEN** a toast says "Started Codex in Air"
+
+#### Scenario: A draft is accepted without a session id
+- **WHEN** the IDE accepts a launch with Draft and answers no session id
+- **THEN** a toast says "Opened a draft for Codex in Air"
 
 ### Requirement: The dialog: A refusal stays in the dialog in its words
 
@@ -579,11 +587,13 @@ After a refusal, Start MUST send again only after a change of a picker or the pr
 
 ### Requirement: The dialog: An error of the exchange says it cannot start the session
 
-An error of the exchange MUST be "Cannot start the session in Air" with the reason.
+An error of the exchange of the launch MUST be the error toast "Cannot start the session in Air" with the reason
+(`notifyError`); the dialog stays open with its choice and prompt.
 
 #### Scenario: The exchange fails
 - **WHEN** the launch ends with an error of the exchange
-- **THEN** the error is "Cannot start the session in Air" with the reason
+- **THEN** an error toast says "Cannot start the session in Air" with the reason
+- **AND** the dialog stays open, and Start can send again
 
 ### Requirement: The session toast: The toast follows the session in place
 
@@ -617,8 +627,8 @@ At `ready` or `unread` the toast MUST say "Codex is done in Air", stop the watch
 
 ### Requirement: The session toast: The toast says how the watch ended
 
-`NO_SESSION` MUST read "The session of Codex is gone in Air"; the end after 4 h, a close, a refusal and an error MUST
-say that the toast stopped following, and why.
+`NO_SESSION` MUST read "The session of Codex is gone in Air"; the end after 4 h, a close, no IDE, a refusal and an
+error MUST say that the toast stopped following, and why.
 
 #### Scenario: The session is gone
 - **WHEN** the watch ends with `NO_SESSION`
@@ -664,8 +674,8 @@ a Tauri channel of such a page never fails its send.
 
 ### Requirement: The session toast: A watch tells the page each status and how it ended
 
-A watch MUST tell the page each status and how it ended: `refused` with its code, `ended` with its reason, `closed`,
-or `stopped`.
+A watch MUST tell the page each status and how it ended: `noIde` (no IDE with Air has the repository open), `refused`
+with its code, `ended` with its reason, `closed`, or `stopped`.
 
 #### Scenario: Each status, then the end
 - **WHEN** a watch runs to its end
