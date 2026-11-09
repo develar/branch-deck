@@ -120,14 +120,21 @@ impl HitKind {
   }
 }
 
-/// A declaration an index knows: a path of the repository, a line from 1 and an optional zero-based UTF-16 name column
+/// A declaration an index knows: a path of the repository, a line from 1, and the zero-based UTF-16 columns of its place
+/// on that line
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SymbolHit {
   #[serde(rename = "file")]
   pub path: String,
   pub line: u32,
+  /// Where the declaration is: its written name, or the token of a declaration that writes none (an anonymous class at
+  /// `new`); absent from an accio older than 0.16, and for a name it found written nowhere before 0.21
   #[serde(default)]
   pub column: Option<u32>,
+  /// Where the name written at `column` ends, `column` itself for a place that writes no name: what a review selects;
+  /// absent from an accio older than 0.21
+  #[serde(default)]
+  pub end_column: Option<u32>,
   pub kind: HitKind,
   /// The declaration in the nine words a review shares (accio's `Kind::group`), the list `declarations::SymbolGroup`
   /// filters both sides of the boundary by; absent from an accio older than it, and from what is no code
@@ -157,8 +164,8 @@ pub enum Access {
   Unknown,
 }
 
-/// A usage an index knows: a path, a line and a column from 1, the text of the line, how it uses the name, and what ties
-/// it to the declaration.
+/// A usage an index knows: a path, a line from 1 and a column in the units of the index (`Columns::hit` reads it), the
+/// text of the line, how it uses the name, and what ties it to the declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ReferenceHit {
   #[serde(rename = "file")]
@@ -226,8 +233,61 @@ pub struct DeclarationAt {
   pub revision: Option<String>,
   pub path: String,
   pub line: u32,
-  /// A 1-based byte column of the declared name, when the caller knows it
+  /// The column of the declared name in the units the index takes (`Columns::at`), when the caller knows it
   pub column: Option<u32>,
+}
+
+/// How accio counts the column it takes in `--at` and answers in a `references` hit. An accio before 0.21 counts bytes
+/// from 1 in both; from 0.21 (accio's decision 2026-11-09-one-column-unit) `--at` counts characters from 1 and a hit's
+/// `column` UTF-16 units from 0, as a review does. Every column a review sends to the index or reads from it goes
+/// through these two conversions, so no reader guesses a column from the words of a line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Columns {
+  Bytes,
+  Characters,
+}
+
+impl Columns {
+  /// The units of the accio whose `--version` printed `version` (`accio 0.21.0`, `accio 0.21.0 (source)`): `Bytes` for
+  /// one before 0.21 or one it cannot read
+  pub fn of_version(version: &str) -> Self {
+    let number = version.split_whitespace().nth(1).unwrap_or_default();
+    let mut parts = number.split('.').map(|it| it.parse::<u32>().unwrap_or(0));
+    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    if (major, minor) >= (0, 21) { Self::Characters } else { Self::Bytes }
+  }
+
+  /// The `--at` column of the zero-based UTF-16 `column` on line `line` (from 0) of `text`; `None` past the line's end
+  /// or inside a character
+  pub fn at(self, text: &str, line: u32, column: u32) -> Option<u32> {
+    let (byte, character, _) = boundaries(line_of(text, line)?).find(|&(_, _, utf16)| utf16 == column)?;
+    u32::try_from(1 + if self == Self::Bytes { byte } else { character }).ok()
+  }
+
+  /// The zero-based UTF-16 column of a `references` hit's `column` on line `line` (from 0) of `text`; `None` past the
+  /// line's end or inside a character (a hit of another text)
+  pub fn hit(self, text: &str, line: u32, column: u32) -> Option<u32> {
+    let mut found = boundaries(line_of(text, line)?);
+    match self {
+      Self::Bytes => found.find(|&(byte, _, _)| byte + 1 == column as usize).map(|(_, _, utf16)| utf16),
+      Self::Characters => found.find(|&(_, _, utf16)| utf16 == column).map(|(_, _, utf16)| utf16),
+    }
+  }
+}
+
+/// Line `line` (from 0) of `text`, without its line end
+fn line_of(text: &str, line: u32) -> Option<&str> {
+  text.split('\n').nth(line as usize).map(|it| it.trim_end_matches('\r'))
+}
+
+/// Each character boundary of `line`, its end included: the bytes, the characters and the UTF-16 units before it
+fn boundaries(line: &str) -> impl Iterator<Item = (usize, usize, u32)> + '_ {
+  let mut utf16 = 0u32;
+  line.char_indices().map(Some).chain(std::iter::once(None)).enumerate().map(move |(character, it)| {
+    let here = (it.map_or(line.len(), |(byte, _)| byte), character, utf16);
+    utf16 += it.map_or(0, |(_, c)| u32::try_from(c.len_utf16()).unwrap_or(0));
+    here
+  })
 }
 
 impl DeclarationAt {
@@ -508,6 +568,12 @@ pub trait SymbolIndex: Send + Sync {
     Ok(Some(answers))
   }
 
+  /// How the index counts the columns it takes and answers (`Columns`); an index that does not say counts as an accio
+  /// before 0.21
+  fn columns(&self) -> Columns {
+    Columns::Bytes
+  }
+
   /// The whole-word usages of `name` in the tree of `revision`; `None` when the repository has no index
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>>;
 
@@ -561,6 +627,8 @@ impl std::error::Error for SearchCanceled {}
 /// The `accio` executable of this machine
 pub struct AccioCli {
   executable: PathBuf,
+  /// Its `Columns`, from its `--version`, asked once
+  columns: OnceLock<Columns>,
 }
 
 /// The lookups of one navigation: each query runs until it answers, at `priority`, and is killed once `canceled` turns
@@ -582,7 +650,10 @@ impl AccioCli {
         // an app started from the Finder has a short PATH: the login shell's has the user's directories
         find_accio(home.as_deref(), path.as_deref())
           .or_else(|| cached_login_shell_path().and_then(|path| find_executable("accio", path)))
-          .map(|executable| Self { executable })
+          .map(|executable| Self {
+            executable,
+            columns: OnceLock::new(),
+          })
       })
       .as_ref()
   }
@@ -600,7 +671,21 @@ impl AccioCli {
   /// accio at `executable`, for a test
   #[cfg(test)]
   pub(crate) const fn at(executable: PathBuf) -> Self {
-    Self { executable }
+    Self {
+      executable,
+      columns: OnceLock::new(),
+    }
+  }
+
+  /// How this accio counts columns (`Columns::of_version` of its `--version`), asked once; `Bytes` when it answers none
+  pub fn columns(&self) -> Columns {
+    *self.columns.get_or_init(|| {
+      let output = windowless_command_at(&self.executable, ChildPriority::Normal).arg("--version").output();
+      output
+        .ok()
+        .filter(|it| it.status.success())
+        .map_or(Columns::Bytes, |it| Columns::of_version(&String::from_utf8_lossy(&it.stdout)))
+    })
   }
 }
 
@@ -708,6 +793,10 @@ impl AccioSearch<'_> {
 }
 
 impl SymbolIndex for AccioSearch<'_> {
+  fn columns(&self) -> Columns {
+    self.accio.columns()
+  }
+
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
     let entries = self.query::<Answer>("symbol", &["--limit", LIMIT], repository_root, &Targets::Names(&[query]), revision)?;
     Ok(Some(entries.into_iter().flat_map(|entry| entry.hits).collect()))

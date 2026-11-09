@@ -1,7 +1,7 @@
 //! Find Usages in a review: the names of a local in its file, the names of a word in the files of the review from the
 //! texts the diffs read, then those outside the review that the index knows
 
-use crate::accio::{DeclarationAt, ReferenceHit, References, Resolved, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
+use crate::accio::{Columns, DeclarationAt, ReferenceHit, References, Resolved, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use crate::declarations_test::{params, review, single_file_params};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::FoundUsages;
@@ -21,12 +21,27 @@ fn places(found: &FoundUsages) -> Vec<(&str, u32, u32, &str)> {
 
 #[test]
 fn the_accio_column_counts_bytes_after_a_utf16_surrogate_pair() {
-  let position = code_symbols::navigate::Position { line: 0, column: 6 };
-  assert_eq!(crate::usages::byte_column("val 😀count = 1", position), Some(9));
-  assert_eq!(
-    crate::usages::byte_column("val 😀count = 1", code_symbols::navigate::Position { column: 5, ..position }),
-    None
-  );
+  use crate::accio::Columns;
+  // `😀` is two UTF-16 units, one character and four bytes: `count` starts at UTF-16 column 6 from 0.
+  assert_eq!(Columns::Bytes.at("val 😀count = 1", 0, 6), Some(9));
+  assert_eq!(Columns::Characters.at("val 😀count = 1", 0, 6), Some(6));
+  // inside the surrogate pair, or past the line: no column
+  assert_eq!(Columns::Bytes.at("val 😀count = 1", 0, 5), None);
+  assert_eq!(Columns::Characters.at("val 😀count = 1", 1, 0), None);
+  // a hit read back: accio before 0.21 answers the byte from 1, from 0.21 the UTF-16 unit from 0
+  assert_eq!(Columns::Bytes.hit("val 😀count = 1", 0, 9), Some(6));
+  assert_eq!(Columns::Characters.hit("val 😀count = 1", 0, 6), Some(6));
+  assert_eq!(Columns::Bytes.hit("val 😀count = 1", 0, 7), None);
+  assert_eq!(Columns::Characters.hit("val 😀count = 1", 0, 5), None);
+}
+
+#[test]
+fn the_column_units_follow_the_version_of_accio() {
+  use crate::accio::Columns;
+  assert_eq!(Columns::of_version("accio 0.20.0\n"), Columns::Bytes);
+  assert_eq!(Columns::of_version("accio 0.21.0 (source)\n"), Columns::Characters);
+  assert_eq!(Columns::of_version("accio 1.0.0"), Columns::Characters);
+  assert_eq!(Columns::of_version("something else"), Columns::Bytes);
 }
 
 #[test]
@@ -51,6 +66,8 @@ fn finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_o
 
 /// An index that answers the references of each name from a fixed list, cut short, and records the queries
 struct FakeReferences {
+  /// The units of the columns it takes and answers
+  columns: Columns,
   hits: Vec<ReferenceHit>,
   at_hits: Vec<ReferenceHit>,
   by_name: usize,
@@ -59,6 +76,10 @@ struct FakeReferences {
 }
 
 impl SymbolIndex for FakeReferences {
+  fn columns(&self) -> Columns {
+    self.columns
+  }
+
   fn symbols(&self, _repository_root: &str, _query: &str, _revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
     Ok(None)
   }
@@ -128,12 +149,15 @@ fn find_store_add_usages(index: &FakeReferences) -> FoundUsages {
   diffs.find_usages(repo.git_executor(), Some(index), &params).unwrap()
 }
 
-#[test]
-fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side() {
+/// A repository whose `lib/Outside.kt` (with `outside`) and `more` files the review of its last commit lacks, the review
+/// adding `Uses.kt`, which calls `outsider` at column 13 of its first line: the params of that call and the commit
+fn outside_review(outside: &[u8], more: &[(&str, &[u8])]) -> (TestRepo, crate::service::FileDiffs, crate::model::FindDeclarationParams, String) {
   let repo = TestRepo::new();
   std::fs::create_dir_all(repo.path().join("lib")).unwrap();
-  write(&repo, "lib/Outside.kt", b"package lib\n\nfun outsider() = 1\n\nval twice = outsider() + outsider()\n");
-  write(&repo, "README.md", b"outsider\n");
+  write(&repo, "lib/Outside.kt", outside);
+  for (path, text) in more {
+    write(&repo, path, text);
+  }
   commit_all(&repo, "Initial");
   write(&repo, "Uses.kt", b"fun run() = outsider()\n");
   let commit = commit_all(&repo, "Use it");
@@ -149,10 +173,20 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
     .unwrap();
   let mut params = single_file_params(&repo, &files, &commit);
   params.site.column = 13;
+  (repo, diffs, params, commit)
+}
+
+#[test]
+fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side() {
+  let (repo, diffs, params, commit) = outside_review(
+    b"package lib\n\nfun outsider() = 1\n\nval twice = outsider() + outsider()\n",
+    &[("README.md", b"outsider\n")],
+  );
   // the file of the review and a text file are not usages the review takes from the index
   let mut name_only = reference("lib/Outside.kt", 5, 13, "call");
   name_only.resolved = Resolved::Name;
   let index = FakeReferences {
+    columns: Columns::Bytes,
     hits: vec![
       name_only,
       reference("Uses.kt", 1, 13, "call"),
@@ -178,7 +212,7 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
       ("lib/Outside.kt", 4, 12, "call")
     ]
   );
-  // the second `outsider` of its line, nearest to the column of the index
+  // the second `outsider` of its line, at the column the index answers
   assert_eq!((found.usages[2].text.as_str(), found.usages[2].text_column), ("val twice = outsider() + outsider()", 25));
   assert!(found.more_outside);
   assert_eq!(found.filtered_count, 0);
@@ -188,12 +222,37 @@ fn adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_th
   assert!(index.places.lock().unwrap().is_empty());
 }
 
+/// An accio from 0.21 answers a usage's column in UTF-16 units from 0, as the review counts: no word is looked for on its
+/// line, so a namesake before it (`"outsider"` of a string after an emoji) is not taken for it
+#[test]
+fn an_outside_usage_is_at_the_column_the_index_answers_in_its_units() {
+  let (repo, diffs, params, _) = outside_review("package lib\n\nfun outsider() = 1\n\nval x = \"😀outsider\" + outsider()\n".as_bytes(), &[]);
+  // `val x = "😀outsider" + ` is 22 UTF-16 units: the call, not the string
+  let index = FakeReferences {
+    columns: Columns::Characters,
+    hits: vec![reference("lib/Outside.kt", 5, 22, "call")],
+    at_hits: Vec::new(),
+    by_name: 0,
+    queries: Mutex::default(),
+    places: Mutex::default(),
+  };
+  let found = diffs.find_usages(repo.git_executor(), Some(&index), &params).unwrap();
+  let outside: Vec<(u32, u32, u32)> = found
+    .usages
+    .iter()
+    .filter(|it| it.target.path == "lib/Outside.kt")
+    .map(|it| (it.target.line, it.target.column, it.target.end_column))
+    .collect();
+  assert_eq!(outside, [(4, 22, 30)]);
+}
+
 #[test]
 fn does_not_list_a_name_only_namesake_when_the_review_has_the_declaration() {
   let mut namesake = reference("lib/Namesake.kt", 3, 13, "call");
   namesake.resolved = Resolved::Name;
   let actual = reference("lib/Outside.kt", 3, 27, "call");
   let index = FakeReferences {
+    columns: Columns::Bytes,
     hits: vec![actual.clone(), namesake.clone()],
     at_hits: vec![actual, namesake],
     by_name: 1,
@@ -223,6 +282,7 @@ fn does_not_list_a_name_only_namesake_when_the_review_has_the_declaration() {
 #[test]
 fn an_unknown_accio_access_kind_is_shown_as_read() {
   let index = FakeReferences {
+    columns: Columns::Bytes,
     hits: Vec::new(),
     at_hits: vec![reference("lib/Outside.kt", 3, 27, "config")],
     by_name: 0,

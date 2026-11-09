@@ -53,6 +53,7 @@ fn waits_for_a_slow_index_as_long_as_it_runs() {
       path: "src/Base.kt".to_string(),
       line: 1,
       column: None,
+      end_column: None,
       kind: HitKind::Function,
       group: None,
       name: "outsider".to_string(),

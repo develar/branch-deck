@@ -336,6 +336,7 @@ fn hit(path: &str, line: u32, kind: HitKind, name: &str) -> SymbolHit {
     path: path.to_string(),
     line,
     column: None,
+    end_column: None,
     kind,
     group: None,
     name: name.to_string(),
@@ -396,8 +397,18 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
     hits: vec![("outsider", hit("lib/Outside.kt", 3, HitKind::Function, "outsider"))],
     queries: std::sync::Mutex::default(),
   };
+  // an accio that answers no column: the line, no word guessed on it (the first `outsider` is the annotation's)
   let fallback = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), Some(&old_index), &params).unwrap();
-  assert_eq!((fallback.targets[0].column, fallback.targets[0].end_column), (13, 21));
+  assert_eq!((fallback.targets[0].line, fallback.targets[0].column, fallback.targets[0].end_column), (2, 0, 0));
+  // an accio from 0.21 answers where the selection ends: a place that writes no name selects nothing
+  let mut nameless = hit_with_column("lib/Outside.kt", 3, 12, HitKind::Class, "outsider");
+  nameless.end_column = Some(12);
+  let place_index = FakeIndex {
+    hits: vec![("outsider", nameless)],
+    queries: std::sync::Mutex::default(),
+  };
+  let place = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), Some(&place_index), &params).unwrap();
+  assert_eq!((place.targets[0].column, place.targets[0].end_column), (12, 12));
 
   // a declaration of the review is found there, without the index
   params.site.column = 25;

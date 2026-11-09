@@ -91,9 +91,10 @@ outside it.
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 - That position is the one the parser of the file read, never a word found on the line: a declaration of the review is
   selected at the column its summary carries (`Declaration::name_column`, in UTF-16 units, written by every walk), one
-  outside it at the column accio answers, and the same declaration is at the same column on either side. Only an accio
-  too old to answer a column falls back to the first match of the word on its line, so
-  `#[doc(alias = "needle")] pub fn needle(…)` selects the name of the function, not the word of its attribute.
+  outside it from the column to the end column accio answers, and the same declaration is at the same column on either
+  side, so `#[doc(alias = "needle")] pub fn needle(…)` selects the name of the function, not the word of its attribute.
+  A declaration that writes no name (an anonymous class at `new`) selects nothing at its place; a hit of an accio that
+  answers no column goes to its line with no selection, and one before 0.21 selects as many units as the name has.
   [@test] ../../crates/code-symbols/src/summary_test.rs (`a_declaration_whose_line_writes_its_name_twice_is_found_at_its_own_column`, `a_name_column_counts_the_utf16_units_of_its_line_before_it`, `a_doc_comment_above_a_name_leaves_the_column_of_the_name`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`finds_the_rust_impl_method_at_one_column_inside_and_outside_the_review`, `goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
@@ -198,11 +199,13 @@ outside it.
 - The usages outside the review must come from the index of accio at the commit of the side (100 at most), only in the
   files the review lacks and in a language that sees the name; one `cat-file --batch-check` and one `cat-file --batch`
   read their files, for their lines and the view of each. When the review has the declaration, usages are queried at its
-  path, line and column with `--resolved`: only type- or import-linked hits are listed, and the number of name-only
+  path, line and column with `--resolved`, and every column sent to accio or read from its hits is converted between
+  the review's UTF-16 units and the units of that accio (`Columns`: bytes before 0.21, characters for `--at` and UTF-16
+  for a hit from 0.21, by its `--version`), never looked for as a word on the line: only type- or import-linked hits are listed, and the number of name-only
   candidates omitted is shown. Without a declaration in the review, usages remain queried by name, with typed and import
   hits ahead of name-only hits. A cut answer says "The index has more usages outside the review"; nothing runs when
   accio is missing or has no index of the repository.
-  [@test] ../../crates/file-diffs/src/usages_test.rs (`does_not_list_a_name_only_namesake_when_the_review_has_the_declaration`, `adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side`, `the_accio_column_counts_bytes_after_a_utf16_surrogate_pair`)
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`does_not_list_a_name_only_namesake_when_the_review_has_the_declaration`, `adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side`, `the_accio_column_counts_bytes_after_a_utf16_surrogate_pair`, `the_column_units_follow_the_version_of_accio`, `an_outside_usage_is_at_the_column_the_index_answers_in_its_units`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`resolved_usages_are_asked_at_a_name_column_and_count_name_only_hits`)
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should list the usages of a name in the review and outside it, from ⌥F7 and from the menu of the code, and show the one chosen`)
 - An index that fails must take nothing from what the review knows: the usages of the review stay, with "accio did not

@@ -9,14 +9,14 @@
 //!   `cat-file --batch-check` names the missing blobs and one `cat-file --batch` reads them; a failed index takes
 //!   nothing from the review's usages.
 
-use crate::accio::{Access as IndexAccess, DeclarationAt, Lenient, ReferenceHit, Resolved, SymbolIndex};
-use crate::declarations::{Candidate, candidate, in_review, outside_file, revision_of, site_position, word_columns};
+use crate::accio::{Access as IndexAccess, Columns, DeclarationAt, Lenient, ReferenceHit, Resolved, SymbolIndex};
+use crate::declarations::{Candidate, candidate, in_review, outside_file, revision_of, site_position};
 use crate::model::{DeclarationTarget, DiffSide, FindDeclarationParams, FoundUsages, UsageTarget};
 use crate::service::FileDiffs;
 use anyhow::Result;
 use code_symbols::highlight::grammar_of;
 use code_symbols::language::{Language, language_of};
-use code_symbols::navigate::{Access as NavigationAccess, Position, Usage, usages_at, usages_of};
+use code_symbols::navigate::{Access as NavigationAccess, Usage, usages_at, usages_of};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use std::collections::HashMap;
@@ -80,7 +80,18 @@ impl FileDiffs {
         index_error: None,
       });
     };
-    let declaration = self.declaration_at(git, params, &found.usages, &text, &others, &texts)?;
+    let columns = index.columns();
+    // the text of a file of the review: the site's, or another's the diffs read
+    let text_of = |path: &str| {
+      if path == params.site.path {
+        return Some(text.as_str());
+      }
+      others
+        .iter()
+        .find(|other| other.path == path)
+        .and_then(|other| texts.get(&other.request.id).map(String::as_str))
+    };
+    let declaration = self.declaration_at(git, params, columns, &found.usages, &text_of)?;
     let (hits, more_outside, filtered_count, index_error) = if let Some(declaration) = declaration {
       let index_at = Lenient::new(index);
       let references = index_at.references_at_resolved(&params.repository_path, std::slice::from_ref(&declaration), revision_of(params))?;
@@ -106,7 +117,7 @@ impl FileDiffs {
     } else {
       references_by_name(index, params, &found.name)?
     };
-    usages.extend(self.outside_usages(git, params, &found.name, language, hits)?);
+    usages.extend(self.outside_usages(git, params, &found.name, language, columns, hits)?);
     Ok(FoundUsages {
       name: found.name,
       usages,
@@ -116,14 +127,13 @@ impl FileDiffs {
     })
   }
 
-  fn declaration_at(
+  fn declaration_at<'t>(
     &self,
     git: &GitCommandExecutor,
     params: &FindDeclarationParams,
+    columns: Columns,
     usages: &[Usage],
-    site_text: &str,
-    others: &[Candidate<'_>],
-    texts: &HashMap<String, String>,
+    text_of: &dyn Fn(&str) -> Option<&'t str>,
   ) -> Result<Option<DeclarationAt>> {
     let position = site_position(params);
     if usages.iter().any(|usage| usage.access == NavigationAccess::Declaration && usage.start == position) {
@@ -131,30 +141,14 @@ impl FileDiffs {
         revision: None,
         path: params.site.path.clone(),
         line: position.line.saturating_add(1),
-        column: byte_column(site_text, position),
+        column: text_of(&params.site.path).and_then(|text| columns.at(text, position.line, position.column)),
       }));
     }
     let declarations = self.find_declaration(git, &ObjectCache::disabled(), None, params)?;
     let Some(target) = declarations.targets.iter().find(|target| target.outside.is_none()) else {
       return Ok(None);
     };
-    let text = if target.path == params.site.path {
-      Some(site_text)
-    } else {
-      others
-        .iter()
-        .find(|other| other.path == target.path)
-        .and_then(|other| texts.get(&other.request.id).map(String::as_str))
-    };
-    let column = text.and_then(|text| {
-      byte_column(
-        text,
-        Position {
-          line: target.line,
-          column: target.column,
-        },
-      )
-    });
+    let column = text_of(&target.path).and_then(|text| columns.at(text, target.line, target.column));
     Ok(Some(DeclarationAt {
       revision: None,
       path: target.path.clone(),
@@ -164,7 +158,15 @@ impl FileDiffs {
   }
 
   /// The usages the index knows in the files the review lacks, in a language that sees the name, read at the revision
-  fn outside_usages(&self, git: &GitCommandExecutor, params: &FindDeclarationParams, name: &str, language: Language, hits: Vec<ReferenceHit>) -> Result<Vec<UsageTarget>> {
+  fn outside_usages(
+    &self,
+    git: &GitCommandExecutor,
+    params: &FindDeclarationParams,
+    name: &str,
+    language: Language,
+    columns: Columns,
+    hits: Vec<ReferenceHit>,
+  ) -> Result<Vec<UsageTarget>> {
     let hits: Vec<ReferenceHit> = hits
       .into_iter()
       .filter(|hit| in_review(params, &hit.path).is_none() && language_of(&hit.path).is_some_and(|it| it.family() == language.family()))
@@ -184,9 +186,8 @@ impl FileDiffs {
           let id = ids.get(&hit.path)?;
           let text = texts.get(id)?;
           let line = hit.line.checked_sub(1)?;
-          // the occurrence of the word nearest to the column of the index
-          let near = hit.column.saturating_sub(1);
-          let column = word_columns(text, line, name).min_by_key(|it| it.abs_diff(near))?;
+          // the column the index answers, in the units of the review (`Columns::hit`), never a word found on the line
+          let column = columns.hit(text, line, hit.column)?;
           let (line_text, indent) = line_text(text, line);
           Some(UsageTarget {
             text: line_text,
@@ -224,22 +225,6 @@ const fn resolved_order(resolved: Resolved) -> u8 {
     Resolved::Import => 1,
     Resolved::Name => 2,
   }
-}
-
-/// Convert a zero-based UTF-16 position to accio's one-based byte column.
-pub(crate) fn byte_column(text: &str, position: Position) -> Option<u32> {
-  let line = text.split('\n').nth(position.line as usize)?.trim_end_matches('\r');
-  let mut utf16 = 0u32;
-  for (byte, character) in line.char_indices() {
-    if utf16 == position.column {
-      return u32::try_from(byte + 1).ok();
-    }
-    utf16 += u32::try_from(character.len_utf16()).ok()?;
-    if utf16 > position.column {
-      return None;
-    }
-  }
-  (utf16 == position.column).then(|| u32::try_from(line.len() + 1).ok()).flatten()
 }
 
 /// The usages of a text of the review as targets with their lines

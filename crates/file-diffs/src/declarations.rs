@@ -315,14 +315,20 @@ impl FileDiffs {
           let id = id_of(&hit.path)?;
           let text = texts.get(&id)?;
           let line = hit.line.saturating_sub(1);
-          let column = hit.column.unwrap_or_else(|| column_of(text, line, name).unwrap_or(0));
+          // the place the index answers; a hit without one (an accio before 0.16) has no selection
+          let column = hit.column.unwrap_or(0);
           let outside = file.is_none().then(|| outside_file(revision, &id, text));
           Some(DeclarationTarget {
             path: file.map_or_else(|| hit.path.clone(), |it| it.path.clone()),
             side: site.side,
             line,
             column,
-            end_column: column + u32::try_from(name.encode_utf16().count()).unwrap_or(0),
+            end_column: match (hit.column, hit.end_column) {
+              (Some(_), Some(end)) => end,
+              // an accio before 0.21 answers a column for a written name alone
+              (Some(_), None) => column + u32::try_from(name.encode_utf16().count()).unwrap_or(0),
+              (None, _) => column,
+            },
             kind: hit.kind.name().to_string(),
             container: hit.parent,
             outside,
@@ -511,12 +517,6 @@ fn imports(site: &FileSummary, summary: &FileSummary, name: &str) -> bool {
 
 fn directory_of(path: &str) -> &str {
   path.rsplit_once('/').map_or("", |(directory, _)| directory)
-}
-
-/// The UTF-16 column of `name` as a whole word on `line` of `text`: the fallback for a hit of the index that carries
-/// no column of its own, where a summary of the review would have said it (`Declaration::name_column`)
-fn column_of(text: &str, line: u32, name: &str) -> Option<u32> {
-  word_columns(text, line, name).next()
 }
 
 /// The UTF-16 columns of `name` as a whole word on `line` of `text`
