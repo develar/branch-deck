@@ -91,8 +91,8 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 ### Requirement: Move operation: A move makes the smallest regroup
 
-A move MUST make the smallest regroup (`plan_move`), computed from the commits read under the repository lock. An
-issue is whole when the move takes every commit of its key without a prefix, and there is at least one; the fixups of
+A move MUST make the smallest regroup (`plan_move`), computed from the commits it read before the repository lock,
+which the witness under the lock confirms. An issue is whole when the move takes every commit of its key without a prefix, and there is at least one; the fixups of
 a moved commit count as moved.
 
 #### Scenario: Whole issues join a branch
@@ -218,17 +218,22 @@ of its key.
 ### Requirement: Move operation: A dry run writes nothing
 
 A dry run MUST say what the move would do and write nothing, without the lock (`preview_move`, the preview of the
-Move to… form as the user types). A move SHALL allow naming the HEAD it expects.
+Move to… form as the user types).
 
 #### Scenario: A dry run
 - **WHEN** a move runs as a dry run
 - **THEN** it says what it would do and writes nothing
   [@test] crates/sync-core/src/move_commits_test.rs (`a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head`)
 
+### Requirement: Move operation: A move may name the HEAD it expects
+
+A move SHALL allow naming the HEAD it expects (`expect_head`); another HEAD MUST refuse it as `HeadMoved`, nothing
+written.
+
 #### Scenario: A move names the HEAD it expects
 - **GIVEN** a move that names the HEAD it expects
 - **WHEN** HEAD is another one
-- **THEN** the move is refused
+- **THEN** the move is refused as `HeadMoved`, and nothing is written
   [@test] crates/sync-core/src/move_commits_test.rs (`a_dry_run_writes_nothing_and_expect_head_refuses_a_moved_head`)
 
 ### Requirement: Move operation: An autosquash marker stays in front
@@ -940,8 +945,9 @@ A target MUST refuse as the menu of the same action does, and say why while the 
 
 ### Requirement: Drag and drop: A target takes a drop while a sync runs
 
-A target MUST take a drop while a sync runs (C14): its move goes to the session at once, named on the table the drag
-started on.
+A target MUST take a drop while a sync runs, as a sync disables no rewrite
+([Running Operations](../../../../docs/design/operations.md#conflicts)): its move goes to the session at once, named on
+the table the drag started on.
 
 #### Scenario: A drop of a branch during a sync
 - **GIVEN** a sync that runs
@@ -1196,6 +1202,11 @@ compare-and-swap, under the repository lock (the rewrite `undo` with the token o
 - **WHEN** the user presses Undo of a move
 - **THEN** HEAD and the issue groups move back
   [@test] tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`)
+
+#### Scenario: The rewrite undo with the token of the outcome
+- **GIVEN** a rewrite that answered its undo token (`Outcome.undo`)
+- **WHEN** the rewrite `undo` runs with that token
+- **THEN** HEAD is the old one again
   [@test] crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_that_brings_the_old_head_back`)
 
 #### Scenario: A rename undone
