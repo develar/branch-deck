@@ -258,10 +258,14 @@ declared after its use, a hoisted TypeScript function) MUST go there; the name o
   [@test] crates/code-symbols/src/navigate_test.rs (`finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`)
 
 #### Scenario: C# names go to their declarations by the scopes
-- **WHEN** a name of a C# file is a parameter, a field, a local or a pattern variable, or a member after a qualifier
+- **WHEN** a name of a C# file is a parameter, a field, a local, a pattern variable or a type parameter
 - **THEN** Go to Declaration goes to the declaration the scopes bind it to
-- **AND** a member after a qualifier has its qualifier and no declaration of the scopes
-  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_member_after_a_qualifier_has_its_qualifier_and_no_declaration`, `the_names_of_a_namespace_and_a_using_are_values_and_members`)
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`)
+
+#### Scenario: A C# member after a qualifier
+- **WHEN** a name of a C# file is a member after a qualifier (`a.b`)
+- **THEN** it has its qualifier, and the scopes bind it to no declaration
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_member_after_a_qualifier_has_its_qualifier_and_no_declaration`)
 
 #### Scenario: A local of the review, and the name of a declaration
 - **WHEN** Go to Declaration runs on a local of a file of the review
@@ -291,8 +295,9 @@ In Kotlin a label and a name in a doc comment MUST be no names, but the `Outer` 
 ### Requirement: C# local functions, labels, verbatim names and using static
 
 In C# a local function MUST be seen in all of its block, `goto` MUST go to the label of its name in the blocks around it
-(the innermost first), a name MUST compare by its value (`@count` is `count`), and the target of a `using static` SHALL
-be a type.
+(the innermost first), a name MUST compare by its value (`@count` is `count`), and the target of a `using static`
+written as one name (`using static Console;`) SHALL be a type; a dotted target is read as the names of any `using`, a
+value and members after it (`Math` of `using static System.Math;` is a member).
 
 #### Scenario: A local function is seen in all of its block
 - **WHEN** a name calls a local function declared after the statement of the use
@@ -310,8 +315,13 @@ be a type.
   [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_verbatim_identifier_is_found_by_its_value`)
 
 #### Scenario: The target of a using static
-- **WHEN** a name is the target of a `using static`
+- **WHEN** the target of a `using static` is one name (`using static Console;`)
 - **THEN** it is a type
+
+#### Scenario: The dotted names of a using
+- **WHEN** a `using` or a namespace writes a dotted name (`using System.Text;`, `using static System.Math;`)
+- **THEN** its first name is a value and the names after it are members
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_names_of_a_namespace_and_a_using_are_values_and_members`)
 
 ### Requirement: C# documentation comments and directives have no names
 
@@ -496,10 +506,10 @@ A label in a string (`":x"`, `"//pkg:x"`) MUST be no name: a target is reached b
 - **THEN** there is no name there
   [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_label_in_a_string_is_no_name`)
 
-### Requirement: Else the declarations in the files of the review, ranked
+### Requirement: A name its own file does not bind is looked for in the review, ranked
 
-Else the declarations of the name MUST be looked for in the files of the review, on the side of the name, in a
-language that sees it, ranked by what the name says of its owner: a member reached through a type, `this` or `self`,
+The declarations of a name that its own file does not declare by the scopes MUST be looked for in the files of the
+review, on the side of the name, in a language that sees it, ranked by what the name says of its owner: a member reached through a type, `this` or `self`,
 or a property of a declared type (`items.add` of `val items: Store`) prefers that type; then the same file, the files
 that import its package, its directory.
 
@@ -573,9 +583,9 @@ there.
 - **THEN** only those of the language family and of a kind the name can mean are taken (a call: a function, a constructor or a type; a type: a type)
 - **AND** they are ranked by the imports of the file, the owner, then the top directory
 
-#### Scenario: A declaration in a file of the review
-- **WHEN** a declaration lies in a file of the review
-- **THEN** it is shown there, without the index
+#### Scenario: A declaration the index finds in a file of the review
+- **WHEN** the index answers a declaration that lies in a file of the review
+- **THEN** it is shown in the review, not in a view of its file
   [@test] crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`)
 
 ### Requirement: The files outside the review are read in two git processes
@@ -767,6 +777,10 @@ sees.
 - **WHEN** Find Usages runs on a declaration inside code outside a function (an `init` block, a `catch` or a `when` of a property's initializer)
 - **THEN** it is a local
   [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_local_outside_a_function_is_a_local`)
+
+#### Scenario: A local of a Java initializer
+- **WHEN** Find Usages runs on a local declared in an initializer block of a Java class (`{ … }`, `static { … }`)
+- **THEN** it is a local
   [@test] crates/code-symbols/src/java/navigate_test.rs (`a_local_of_an_initializer_is_a_local`)
 
 #### Scenario: A parameter of a Kotlin function type
@@ -792,21 +806,34 @@ the other files of the review in a language that sees it, from the texts the dif
 - **THEN** each usage is at its place, with how it uses the name
   [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_package_of_one_segment_is_one_usage`, `the_qualifier_of_an_assigned_member_is_its_whole_receiver`, `a_call_with_type_arguments_is_a_call_and_an_increment_a_write`, `the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text`)
 
-### Requirement: Out and ref arguments and destructuring assignments write
+### Requirement: A write is an assignment, an increment, a C# out or ref argument or a destructuring target
 
-In C# an `out` or `ref` argument MUST be a write, as an assignment and an increment are; in TypeScript and JavaScript
-the targets of a destructuring assignment MUST be writes too.
+A usage MUST be a write where its name ends the left side of an assignment, in every language but Bazel (where every
+`=` declares its name), or is the operand of `++` or `--` (Kotlin, Java, C#, TypeScript and JavaScript; Rust has
+none). In C# an `out` or `ref` argument MUST be a write, as an assignment and an increment are; only C# has one, and an
+argument of any other language reads (a Rust `&mut x` too). In TypeScript and JavaScript the targets of a destructuring
+assignment MUST be writes too.
 
 #### Scenario: An assignment and an increment write
-- **WHEN** a name is the left side of an assignment or the operand of an increment
+- **WHEN** a name ends the left side of an assignment or is the operand of `++` or `--`
 - **THEN** its usage is a write
   [@test] crates/code-symbols/src/navigate_test.rs (`tells_a_java_write_an_increment_and_an_import`)
   [@test] crates/code-symbols/src/java/navigate_test.rs (`a_write_is_the_left_side_of_an_assignment_and_the_operand_of_an_increment`)
+  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_call_with_type_arguments_is_a_call_and_an_increment_a_write`)
+
+#### Scenario: A Bazel assignment declares
+- **WHEN** a name of a Bazel file is assigned by `=`
+- **THEN** its usage there is its declaration, no write
+  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`)
 
 #### Scenario: A C# out or ref argument writes
 - **WHEN** a C# name is passed as an `out` or `ref` argument
 - **THEN** its usage is a write
   [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`)
+
+#### Scenario: An argument of any other language reads
+- **WHEN** a name of a Kotlin, Java, Rust, TypeScript or JavaScript file is passed as an argument, a Rust `&mut x` too
+- **THEN** its usage is a read
 
 #### Scenario: The targets of a TypeScript destructuring assignment write
 - **WHEN** a TypeScript or JavaScript name is a target of a destructuring assignment
