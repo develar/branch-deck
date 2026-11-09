@@ -144,7 +144,8 @@ that moved meanwhile.
 
 #### Scenario: A result without changes
 - **WHEN** the result has no changes, as the commits cancel each other
-- **THEN** the squash is refused, "drop them instead": a squash gives one commit, so they are dropped instead
+- **THEN** the squash is refused and nothing changes: a squash gives one commit, so the refusal says to drop them
+  instead ("drop them instead")
   [@test] crates/git-ops/src/rewrite_plan_test.rs (`squash_refuses_empty_result`)
 
 #### Scenario: A later commit would become empty
@@ -210,6 +211,12 @@ window shows) and run under the repository lock.
 - **THEN** it runs as the rewrite `squash` or `undo` of the engine, under the repository lock
   [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_waits_for_the_holder`)
 
+#### Scenario: A wait that ends before the holder lets go
+- **GIVEN** another process holds the repository lock
+- **WHEN** the wait of the squash ends before the holder released it
+- **THEN** the squash is refused, naming the holder by its command and its pid, and nothing changes
+  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`)
+
 ### Requirement: Rewrite: The squash waits while a named holder lives
 
 While another process holds the lock (an agent's `brd pick --follow`, `brd`) or the app's own push, the squash and its
@@ -228,7 +235,6 @@ press.
 - **WHEN** the squash waits for the holder
 - **THEN** the squash dialog says whom for, the step of its operation: "Waiting for `brd pick` (pid 4242, for 12 s)"
 - **AND** it squashes once the holder released the lock
-  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`)
   [@test] tests/e2e/repository/repository-lock.spec.ts (`should wait for the holder in the squash dialog, say whom for, and squash once it released the lock`)
 
 #### Scenario: Stop Waiting
