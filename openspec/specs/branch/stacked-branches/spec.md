@@ -236,7 +236,7 @@ menu stacks, unstacks and renames branches.
   identities of every branch's ancestors once, from the commits it grouped, along the chain of effective bases; a push
   outside the sync reads them from the parent's virtual branch with one `rev-list`, only while a remote commit
   matches nothing of the child. `brd` reports them as `remote.restacked` and pushes such a branch without `--force`
-  ([Agent CLI](../../cli/agent-cli/spec.md#bd-push)).
+  ([Agent CLI](../../cli/agent-cli/spec.md#brd-push)).
   [@test] crates/sync-core/src/detection_remote_status_test.rs (`a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`)
   [@test] crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] crates/bd-remote/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
@@ -264,7 +264,7 @@ menu stacks, unstacks and renames branches.
   what its Safe Push lands, so its approvals are the ones Patronus counts ([Landing](../../../../docs/design/landing.md)).
   "Create Pull Request…" creates it into the baseline ([Pull Requests](../pull-requests/spec.md#creating-a-pull-request)),
   and its dialog says what it holds ("Includes the commits of auth and login, which oauth is built on: 3 branches · 12
-  commits"); `brd push` prints its `gh pr create` with `--base master` ([Agent CLI](../../cli/agent-cli/spec.md#bd-push)).
+  commits"); `brd push` prints its `gh pr create` with `--base master` ([Agent CLI](../../cli/agent-cli/spec.md#brd-push)).
   [@test] src/lib/stack.test.ts (`is the baseline as the remote names it for every branch, stacked or not`)
   [@test] src/lib/pull-request-dialog.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
   [@test] src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
@@ -286,7 +286,7 @@ menu stacks, unstacks and renames branches.
   Request" ([Activity](../../repository/activity/spec.md)). A failed retarget is a "Cannot retarget pull request #802"
   error and the push still runs; its toast then says "the pull request goes into auth: retarget it to master" with
   "Copy gh pr edit". "Copy Retarget Command" in the copy group of the branch menu copies the command before a push.
-  `brd push` and `brd safe-push` retarget the same way ([Agent CLI](../../cli/agent-cli/spec.md#bd-push)).
+  `brd push` and `brd safe-push` retarget the same way ([Agent CLI](../../cli/agent-cli/spec.md#brd-push)).
   [@test] src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and says it in the toast of the push`, `pushes and copies the command that retargets a pull request when the retarget fails`)
   [@test] crates/test-server/src/github_host_test.rs (`a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first`)
   [@test] src/presenters/push-button.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
@@ -334,7 +334,7 @@ menu stacks, unstacks and renames branches.
   commits: that ancestor asks first in its own row. `Push Stack (3 branches)` of the description of a button that
   pushes the branch alone covers every ancestor with work up to the nearest one a Safe Push holds, the ones that drop
   remote commits too: the intent forced (`force`), as the description named each drop. `brd push` takes them along too
-  ([Agent CLI](../../cli/agent-cli/spec.md#bd-push)).
+  ([Agent CLI](../../cli/agent-cli/spec.md#brd-push)).
   [@test] crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] crates/domain-policy/src/stack_test.rs (`the_ancestors_are_the_chain_of_the_effective_bases_in_the_table`)
   [@test] src/hooks/useBranchContextActions.test.ts (`pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`)
@@ -417,7 +417,7 @@ menu stacks, unstacks and renames branches.
   either: one on no remote and in no pull request is "The branches of the stack are on the remote. Its stack branch
   goes there with the pull request or the Safe Push of the whole stack", one the sync didn't build says why. A refused
   push names a stack branch that moved as the stack branch, apart from its root ("Cannot push the whole stack branch of
-  auth"). `brd push <root> --with-children` follows the same rule ([Agent CLI](../../cli/agent-cli/spec.md#bd-push)).
+  auth"). `brd push <root> --with-children` follows the same rule ([Agent CLI](../../cli/agent-cli/spec.md#brd-push)).
   [@test] crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
   [@test] src/lib/stack.test.ts (`names Push with Children by what it pushes`)
   [@test] src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`, `says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
@@ -465,7 +465,7 @@ menu stacks, unstacks and renames branches.
   ancestor lands without it ("Safe Push" where it was "Safe Push · 2"). A new commit of an ancestor rebuilds the
   branches built on it: they stay landed by content, the new commit the only work left of its branch ("Landed with
   oauth · 1 commit after it"). `brd safe-push` lands a stacked branch the same way, with its ancestors in one robot
-  ([Agent CLI](../../cli/agent-cli/spec.md#bd-safe-push)).
+  ([Agent CLI](../../cli/agent-cli/spec.md#brd-safe-push)).
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 
 ### Stacks of GitHub

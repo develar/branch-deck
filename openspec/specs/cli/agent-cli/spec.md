@@ -340,10 +340,16 @@ mode of the start, with its profiles) and `--bypass-rules` (GitHub's word, three
 - **THEN** it keeps its verb: `--force`, `--cancel-running`, `--restart-running`, `--without-approvals`,
   `--bypass-rules`
 
-### Requirement: Flag names: One flag has one sense
+### Requirement: Flag names: One sense has one word, and one flag one sense
 
-One flag MUST have one sense: `brd update --force` was two, now `--overwrite-edited` (with `--materialize`) and
-`--allow-live-session` (with `--abort --worktree`).
+One sense MUST have one word in every command (`crates/bd-cli/src/flag_names.rs`), and one flag MUST have one sense:
+`brd update --force` was two, now `--overwrite-edited` (with `--materialize`) and `--allow-live-session` (with
+`--abort --worktree`).
+
+#### Scenario: One sense in two commands
+- **WHEN** two commands have a flag of the same sense
+- **THEN** it is the same word in both: `--dry-run` in every command, `--allow-unchecked` of `brd lease pick` and
+  `brd pick`
 
 #### Scenario: The two senses of the old `--force` of `brd update`
 - **WHEN** an agent overwrites edited files of a materialize, or aborts the update of a live session
@@ -483,7 +489,7 @@ working tree: at most git objects (a trial sync, a replay, the trees of a move) 
 - **GIVEN** staged and untracked work
 - **WHEN** a read-only command or a dry run runs, with `--no-cache` and without
 - **THEN** no ref, config, index or working tree changed and HEAD stayed
-- **AND** with `--no-cache` the object cache was neither read nor written
+- **AND** with `--no-cache` the object cache was not written
   [@test] crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 
 #### Scenario: The dry run of an update
@@ -737,8 +743,22 @@ field of a pull request.
 
 #### Scenario: The registry while its holder lives
 - **WHEN** the registry of the repository holds a record whose process lives
-- **THEN** an admission of what it holds is `busy`
+- **THEN** an admission of what it holds is `busy`, naming that holder
+  [@test] crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`)
+
+#### Scenario: A registry of another schema
+- **WHEN** the registry file of the repository is of another schema
+- **THEN** an admission is `busy`, and the file is never written
   [@test] crates/operations/src/registry_file_test.rs (`a_registry_of_another_schema_is_busy_and_never_written`)
+
+### Requirement: Output contract: An operation of another branch runs beside it
+
+An operation of another branch MUST run beside such a push, start or review request.
+
+#### Scenario: An operation of another branch
+- **WHEN** an operation of another branch runs
+- **THEN** the push, the start or the review request runs beside it
+  [@test] crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`)
 
 ### Requirement: Output contract: `error.holder` names the operation that holds it
 
@@ -753,8 +773,8 @@ what.
 
 ### Requirement: Output contract: The record of an operation leaves once it ended or its process is gone
 
-An operation of another branch MUST run beside it, and the record of an operation MUST leave the registry once it
-ended, or at the next admission once its process is gone.
+The record of an operation MUST leave the registry once it ended, or at the next admission once its process is
+gone.
 
 #### Scenario: The record of an ended operation
 - **WHEN** an operation ends
@@ -765,10 +785,6 @@ ended, or at the next admission once its process is gone.
 - **WHEN** the process of a record is gone
 - **THEN** the record leaves the registry at the next admission
   [@test] crates/operations/src/registry_file_test.rs (`a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`)
-
-#### Scenario: An operation of another branch
-- **WHEN** an operation of another branch runs
-- **THEN** the push, the start or the review request runs beside it
 
 ### Requirement: Output contract: The operation of the app holds `brd` and `brd`'s holds the app
 
@@ -2720,14 +2736,17 @@ that builds otherwise MUST be `missing_declaration` (exit 1).
 
 ### Requirement: `brd check`: `--allow-missing` keeps the result and counts the branch as building
 
-With `--allow-missing` it MUST keep that `result`, and only `ok` and the exit code MUST count it as building, as
-`brd safe-push --allow-missing` starts anyway.
+With `--allow-missing` a branch that is `missing_declaration` MUST keep that `result`, and only `ok` and the exit code
+MUST count it as building, as `brd safe-push --allow-missing` starts anyway.
 
 #### Scenario: A missing declaration allowed
-- **WHEN** `brd check --allow-missing` finds a missing declaration
-- **THEN** the branch keeps its `result`
-- **AND** only `ok` and the exit code count it as building
+- **WHEN** `brd check --allow-missing` finds a missing declaration and nothing else fails
+- **THEN** `ok` is true and the exit code is 0
   [@test] crates/bd-rewrite/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
+
+#### Scenario: The result of an allowed missing declaration
+- **WHEN** `brd check --allow-missing` finds a missing declaration
+- **THEN** the branch keeps its `result` `missing_declaration`
 
 ### Requirement: `brd check`: A removed declaration the virtual tree still uses dangles
 
@@ -2783,8 +2802,9 @@ still be exit 1.
   [@test] crates/bd-rewrite/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
 
 #### Scenario: Another failure with `--allow-dangling`
-- **WHEN** a branch fails otherwise
+- **WHEN** a branch fails otherwise, a missing declaration or a conflict
 - **THEN** the exit code is still 1
+  [@test] crates/bd-rewrite/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
 
 ### Requirement: `brd check`: A use no commit changes is a possible dangling reference
 
@@ -2840,8 +2860,8 @@ Rust crates rule out ([Symbol Dependencies](../../commit/symbol-dependencies/spe
 
 ### Requirement: `brd check`: `via` says how the uses were found
 
-`via` MUST say whether the trees confirmed the uses (`syntax_tree`) or the lines alone found them (`lines`). Only the
-paths where the trees differ SHALL be read.
+`via` MUST say whether the trees confirmed the uses (`syntax_tree`) or the lines alone found them (`lines`). The check
+MUST read no path but those where the trees differ.
 
 #### Scenario: A dangling reference reported
 - **WHEN** a dangling reference is reported
@@ -2963,7 +2983,7 @@ dangling reference; with no fix that builds, a `reason` instead.
 
 `--build <command>` MUST run the command in the tree of each `ok` branch, extracted outside every working tree
 (`--build-paths`: only those paths, names, never patterns), and make a failure `build_failed` with its exit code and
-the end of its output; without it nothing MUST run.
+the end of its output; without `--build` the check MUST run no command.
 
 #### Scenario: A build on each branch tree
 - **WHEN** `brd check --build <command>` runs
@@ -3637,8 +3657,11 @@ versions of commits it has ([Outgoing Commits](../../repository/outgoing/spec.md
 #### Scenario: Amended and restacked commits
 - **WHEN** the remote has older versions of commits amended here, or of commits of the branches it is built on
 - **THEN** they count as `amended` (of commits amended here) and `restacked` (of commits of the branches it is built on), not as `behind`
-- **AND** a commit it has in another version, another message or author, counts as `reworded`
   [@test] crates/bd-remote/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
+
+#### Scenario: Reworded commits
+- **WHEN** the remote has a commit of the branch in another version, another message or author
+- **THEN** it counts as `reworded`, not as `behind`
 
 #### Scenario: Landed commits
 - **WHEN** the remote has commits the baseline has
@@ -3819,8 +3842,9 @@ one on the remote as it is stays out, and one taken along brings no children wit
   [@test] crates/bd-remote/src/push_test.rs (`parents_go_first_and_a_child_alone_carries_its_parents_commits`)
 
 #### Scenario: A parent on the remote as it is
-- **WHEN** a parent is on the remote as it is, or is taken along with `--with-children`
-- **THEN** it stays out, and one taken along brings no children
+- **WHEN** a parent of the pushed branch is on the remote as it is
+- **THEN** it stays out of the push
+- **AND** with `--with-children`, a parent taken along brings no children of its own
   [@test] crates/bd-remote/src/push_test.rs (`a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children`)
 
 ### Requirement: `brd push`: `--alone` and `--expect-remote` push only the named branches
@@ -3950,8 +3974,8 @@ request of the whole stack is open, only when this sync built it (`built`) and t
 
 ### Requirement: `brd push`: `stacks` lists a pushed stack branch as `branches` lists a branch
 
-`stacks` MUST list it as `branches` lists a branch, `name` the root, with the pull request of the whole stack. One on
-no remote and in no pull request MUST stay local without a warning.
+`stacks` MUST list a stack branch the push takes along as `branches` lists a branch, `name` the root, with the pull
+request of the whole stack. A stack branch on no remote and in no pull request MUST stay local without a warning.
 
 #### Scenario: A stack branch on no remote
 - **WHEN** the stack branch is on no remote and in no pull request
@@ -4062,9 +4086,10 @@ and loses nothing of a remote that moved only to commits the branch has.
 - **WHEN** the app's Force Push finds the remote moved only to commits the branch has
 - **THEN** it pushes over it as `brd push` does, losing nothing
 
-### Requirement: `brd push`: Otherwise a moved remote is `lease_rejected`
+### Requirement: `brd push`: A moved remote it does not push over is `lease_rejected`
 
-Otherwise, or when the remote moved again, it MUST be `lease_rejected` (exit 4, not retryable) with nothing pushed,
+A push over a moved remote that brd does not push again over (a remote with commits its branch lacks, or no work of
+the branch for it), or one whose remote moved again, MUST be `lease_rejected` (exit 4, not retryable) with nothing pushed,
 listing the branches whose remote moved in `error.branches` with their remote status as fetched (`head`, `behind`,
 `dropped_commits`). A branch refused as behind MUST be listed the same way, and `brd sync` prints the same remote
 status per branch.
@@ -4173,11 +4198,12 @@ pull requests, one `PATCH pulls/<n>` each); `retargeted` MUST list them (`branch
 #### Scenario: A pull request into a parent's virtual branch
 - **WHEN** a pushed branch has an open pull request into a virtual branch of the user
 - **THEN** it is retargeted to the baseline before the push, and `retargeted` lists it
+- **AND** so GitHub never compares the pushed commits with a parent's branch the pull request no longer goes into (D3a)
   [@test] crates/bd-remote/src/safe_push_test.rs (`push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline`)
 
 #### Scenario: A push the remote then refuses
 - **WHEN** the remote refuses the push after the retarget
-- **THEN** the retarget stays done (D3a: GitHub never compares the pushed commits with a parent's branch the pull request no longer goes into)
+- **THEN** the retarget stays done
   [@test] crates/bd-remote/src/safe_push_test.rs (`push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget`)
 
 ### Requirement: `brd push`: A pull request into another base stays
@@ -4554,7 +4580,8 @@ branch, and `--create-pull-request` opens the pull request of the remote branch 
 
 ### Requirement: `brd safe-push`: A robot running on the remote branch refuses the start
 
-A robot running on that remote branch MUST refuse the start as one on the last commit does.
+A robot running on the remote branch a start without a push starts from (a branch only rebuilt on a newer baseline)
+MUST refuse the start as one on the last commit does.
 
 #### Scenario: A robot on the remote branch the start would start from
 - **GIVEN** a robot runs on the remote branch the robot would start from
@@ -4670,7 +4697,7 @@ request the robot starts from, always asked again ([Patronus](../../branch/patro
 
 ### Requirement: `brd safe-push`: Missing approvals refuse the Safe Push with `approvals_missing`
 
-A `missing` readiness MUST refuse it with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
+A `missing` readiness MUST refuse the Safe Push with `approvals_missing` (exit 4), nothing pushed or started, `error.review`
 naming the groups, their reviewers and files, as the app refuses the start (`domain_policy::land::decide`: "Patronus
 checks the approvals when the robot starts and fails without them"), and its next step disables Safe Push.
 
@@ -5600,7 +5627,7 @@ brings the branch onto the target and drops the commits that landed.
 
 #### Scenario: After a landing
 - **WHEN** a push or a merge of `brd land` landed
-- **THEN** it prints `landed: true` and `next: "brd update"`, and changes nothing locally
+- **THEN** it prints `landed: true` and `next: "brd update"`, and does not update the branch itself
   [@test] crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
 
 ### Requirement: `brd land`: It lists the pull requests its push closes and closes none
@@ -5949,7 +5976,8 @@ on Windows `brd.exe` next to the app.
 #### Scenario: macOS and Linux
 - **WHEN** `brd install` or Help → Install Agent CLI… runs on macOS or Linux
 - **THEN** a symlink in `~/.local/bin` points at the app binary, replacing a symlink there
-- **AND** anything else there is refused with `install_refused`
+- **AND** anything else there is refused with `install_refused`, and left as it is
+  [@test] crates/bd-cli/src/install_test.rs (`a_file_in_the_way_is_refused`)
 
 #### Scenario: Windows
 - **WHEN** it runs on Windows
@@ -6106,9 +6134,9 @@ symlink.
 - **AND** the uninstall removes the skills and only its own symlink
   [@test] crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 
-#### Scenario: A file in the way
-- **WHEN** a file that is not its symlink is in the way
-- **THEN** the install is refused
+#### Scenario: `brd` not on `PATH`
+- **WHEN** `brd install` runs and `~/.local/bin` is not on `PATH`
+- **THEN** it installs and says that `brd` is not on `PATH` (`on_path: false`)
   [@test] crates/bd-cli/src/install_test.rs (`a_file_in_the_way_is_refused`)
 
 ### Requirement: `brd install`: The toast of the app says where agents find brd
@@ -6187,14 +6215,29 @@ the symlink when it points at the running app, else the app binary with `cli` (`
 
 ### Requirement: `brd install`: A binary named `brd` is the CLI itself
 
-A binary named `brd` (a cargo build) MUST be the CLI itself and get no `cli`; `brd update` MUST name its next command
-(`session.next`) the same way, and a path of the binary shorter than 260 characters MUST have no `\\?\` prefix.
+A binary named `brd` (a cargo build) MUST be the CLI itself and get no `cli`.
 
 #### Scenario: A cargo build
 - **WHEN** the binary is named `brd`
-- **THEN** its command has no `cli`, and `brd update` names its next command (`session.next`) the same way
-- **AND** a path of the binary shorter than 260 characters has no `\\?\` prefix
+- **THEN** its command is the binary alone, with no `cli`
   [@test] crates/bd-cli/src/install_test.rs (`the_brd_command_is_the_link_to_this_app_or_the_app_with_cli`)
+
+### Requirement: `brd install`: `brd update` names its next command the same way
+
+`brd update` MUST name its next command (`session.next`) as `agent_cli_command` names brd: the symlink when it points at
+the running app, else the app binary with `cli`, a binary named `brd` alone.
+
+#### Scenario: The next command of an update
+- **WHEN** `brd update` prints its next command
+- **THEN** `session.next` names brd as `agent_cli_command` does
+
+### Requirement: `brd install`: A short path of the binary has no `\\?\` prefix
+
+A path of the binary shorter than 260 characters MUST have no `\\?\` prefix in the command brd names.
+
+#### Scenario: A path on Windows
+- **WHEN** the path of the binary is shorter than 260 characters
+- **THEN** the command names it without the `\\?\` prefix
 
 ### Requirement: `brd help agent`: It is a short core every agent reads first
 
@@ -6375,7 +6418,7 @@ or `brd pick --from <worktree> --follow` (both with `unchecked_tree` and `--allo
 
 ### Requirement: `brd help worktrees`: The one rewrite of a session is a reword of its landed commit
 
-It MUST say that the one rewrite of such a session is a `brd reword` of its own landed commit with
+It MUST say that the one rewrite of a session that does not own the shared branch is a `brd reword` of its own landed commit with
 `-C <shared checkout>` and `--expect-head`, without `--sync`; and that after a rewrite a session's next write is
 `head_moved`, which `--allow-append` does not cure.
 
