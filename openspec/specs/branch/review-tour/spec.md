@@ -484,7 +484,7 @@ more than 6 stops name it.
 
 #### Scenario: A declaration more than 6 stops name
 - **WHEN** more than 6 stops name the declaration
-- **THEN** the declaration does not come before them and they do not follow it with `uses`
+- **THEN** the declaration and those stops keep the order of the story, none of them with `uses`
 
 ### Requirement: Groups of a Step: The groups are a reading order inside a step
 
@@ -690,6 +690,7 @@ them, and `index_note` says why.
 #### Scenario: No accio or no usable index
 - **WHEN** accio is missing or has no usable index
 - **THEN** a step has none of its tests, and `index_note` says why
+  [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Requirement: Tests That Reach It: A step names the steps its tests prove
 
@@ -1284,8 +1285,8 @@ heading of its section names the change.
 
 ### Requirement: Brief: A table of a doc, the front matter and metadata are no quote
 
-A table of a doc MUST be its bookkeeping (a map of the specs that own a topic), which only its diff card shows, as the
-front matter and the lines of metadata of every file, and MUST NOT be named by a heading.
+A table of a doc, its bookkeeping (a map of the specs that own a topic), MUST NOT be quoted, nor the front matter and
+the lines of metadata of every file: only their diff card shows them, and no heading names them.
 
 #### Scenario: A table of a doc and a table of a spec
 - **WHEN** a change touches a table of a doc, the front matter and lines of metadata
@@ -1442,6 +1443,7 @@ a click its top, then how many specs and docs the change changes ("3 specs and 3
 - **THEN** the line "Contract" names the new spec by its name and the count of its requirements ("New spec Transcript Media Playback (14 requirements)", a click its top)
 - **AND** then how many specs and docs the change changes ("3 specs and 3 docs changed")
   [@test] src/presenters/review-map.test.ts (`names the modules of a change in Rust's order: a new one with what it uses and where it plugs in, a changed one by its folders and what it adds beside its code`, `names the rows past its budget once, and the folders of a large change of one module; a small change has no shape`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 #### Scenario: The name of a spec
 - **WHEN** the line names a new spec
@@ -1503,7 +1505,6 @@ change, not a card of a `.properties` diff.
 - **THEN** all of them open under the line, a line each: the sign of what the change does to it ("+", "−", "~"), its words, its key muted
 - **AND** of a changed one the old words struck through, "→", the new
   [@test] tests/e2e/branch-review/review-groups.spec.ts (`should quote on a line of the map the texts of the UI the change adds, all of them under it on a click, a quote showing its entry in its bundle`)
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
 
 ### Requirement: In the Review Window: The right column is one document that scrolls
 
@@ -2515,7 +2516,8 @@ task or a commit wraps as many lines as needed at the width of the sidebar (24re
 
 ### Requirement: In the Review Window: A step row sticks, a file row stays one line
 
-The row MUST stick to the top of the tree's scroll area on an opaque background; a file row MUST stay one line. A
+The row of a step MUST stick to the top of the tree's scroll area on an opaque background; a file row MUST stay one
+line. A
 commit-derived step dims its conventional prefix, as the commit row does.
 
 #### Scenario: Scrolling the files of a step
@@ -2538,7 +2540,7 @@ its name, cut at half the row), its hover in words.
 
 ### Requirement: In the Review Window: A row of a commit with a body has the mark of its card
 
-Either row, of a commit with a body, MUST show the mark of its card, which its hover and `I` on the focused row open
+The row of a step of the commits and a commit row, of a commit with a body, MUST show the mark of its card, which its hover and `I` on the focused row open
 as in the main window ([Commit Row](../../commit/commit-row/spec.md#commit-card)), Escape giving the focus back to the
 row; a commit row MUST be no file (no position, no count, no owner mark of its own: it is muted with its step).
 
@@ -2553,7 +2555,7 @@ row; a commit row MUST be no file (no position, no count, no owner mark of its o
 
 ### Requirement: In the Review Window: The column lists only the scopes while the tree lists commits
 
-The column above the tree MUST then list only the scopes; without the plan, for a range of one commit and for a commit
+While the tree lists the commits of the plan, the column above it MUST list only the scopes; without the plan, for a range of one commit and for a commit
 shown alone the column lists every commit as before.
 
 #### Scenario: The column with and without the commits in the tree
