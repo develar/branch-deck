@@ -85,10 +85,11 @@ The files the commits changed MUST follow them out of the current branch, so tha
 - **Its scenarios**, one at least: `#### Scenario: <case>`, its steps `- **GIVEN** …` (optional), `- **WHEN** …`,
   `- **THEN** …`, `- **AND** …`, its test links indented two spaces under the last step. A scenario no test
   proves yet has no test link.
-- **A table** stays a table, in the body of a scenario (`openspec/specs/branch/next-step/spec.md` "The table", its rows
-  `  | <row> | … |`, which the cases of `crates/domain-policy/cases/` name by `#the-table:<row>`), or in a section of its
-  own outside Requirements when a test reads it from the first column (the refusal codes and the golden reports of
-  `cli/host`).
+- **A table** stays a table, in the body of a scenario: `openspec/specs/branch/next-step/spec.md` "The table", its rows
+  `  | <row> | … |`, which the cases of `crates/domain-policy/cases/` name by `#the-table:<row>`; the refusal codes of
+  `cli/host` at column 0, which a test reads from the first column.
+- **A fenced block** may stand in the text of a requirement, its fences at column 0; `openspec validate` counts no
+  line of it (the golden reports of `cli/host`, which its tests read by the fence `json golden=<name>`).
 
 ## Test links
 
