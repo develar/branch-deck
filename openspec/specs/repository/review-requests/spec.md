@@ -510,6 +510,13 @@ Safe Push it allows.
   Space, where no approval is needed, and for a pull request into another branch: the chips are the owners by the
   `OWNERSHIP` files alone. A group that comes later takes its place among the chips.
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should mark by the OWNERSHIP files alone where Patronus doesn't answer, opening on All`)
+- A new head must keep the file on screen by its path, not by its place in the files: until the groups of the new head
+  are known the chosen group is the owner of its name by the `OWNERSHIP` files, whose files may lack the file on screen.
+  The first of them stands in for it (no place of the reader: a review read again starts at the file on screen, and
+  Approve does not count the stand-in), and the review selects the file on screen again once the files of the chip show
+  it, unless the reader moved: after a new head that adds `ui/button.css`, `ui/login.js` is File 3 / 3 of Design, and K
+  goes to `ui/login.css`. The review of a branch keeps it the same way ([Branch Review](../../branch/branch-review/spec.md#the-stack-and-the-commits)).
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`)
 - The window opens each request (each open from the main window, the same request again too, and each request ↑/↓
   shows) on the chip the user last chose in a review window of the repository when it marks at least one file of the
   pull request, else on the user's first group that still needs an approval and has files there, else on All

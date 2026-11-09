@@ -35,4 +35,8 @@ describe("shownPath", () => {
     expect(shownPath({ path: "src/a.ts", index: 0, count: 9, overview: true })).toBeNull()
     expect(shownPath({ path: null, index: -1, count: 0 })).toBeNull()
   })
+
+  it("shows no file while one stands in for the file on screen the chip lacks", () => {
+    expect(shownPath({ path: "ui/login.css", index: 0, count: 1, owner: "Design", standIn: true })).toBeNull()
+  })
 })

@@ -1442,9 +1442,14 @@ test.describe("Owner part and Approve", () => {
     })
     await commitNewHead(page, repo, syncAndWaitForBranches)
     await expect.poll(() => ownerChips(window)).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
-    await expect(reviewPosition(window)).toHaveText(/All Changes · File \d+ \/ 3 · Design$/)
+    // the review stays at the file on screen by its path, also while the chip of the new head showed fewer files, the
+    // groups of the new head not told yet: login.js, after the new button.css and login.css
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 3 / 3 · Design")
+    await expect(tree.getByRole("treeitem", { name: "login.js" })).toHaveAttribute("aria-selected", "true")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 3 files")
     await pressFileKey(window, "k", "All Changes · File 2 / 3 · Design")
+    await expect(tree.getByRole("treeitem", { name: "login.css" })).toHaveAttribute("aria-selected", "true")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
 
     // #8: the user is in no group that still needs an approval

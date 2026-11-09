@@ -1,13 +1,13 @@
 // @spec openspec/specs/branch/branch-review/spec.md
 import type { Page } from "@playwright/test"
-import type { PatronusProfile } from "../../../src/lib/bindings"
+import type { PatronusProfile, PatronusReviewRequirement } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, restOnBranchRow } from "../helpers/branch-helpers"
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { settledInvokes } from "../helpers/ipc-helpers"
-import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, codeOwner, evaluatedGroup } from "../helpers/patronus-helpers"
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
@@ -367,15 +367,29 @@ test.describe("The scopes of the stack", () => {
   })
 })
 
+/**
+ * stacked_ownership with the code-owner check of login answering `answer`, held: the review window of login open before
+ * the check answers, its diffs shown
+ */
+async function openLoginBeforeTheCheck(
+  page: Page,
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  answer: PatronusReviewRequirement,
+): Promise<{ repo: TestRepositoryBuilder; window: Page }> {
+  const repo = await setupRepo("stacked_ownership", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+  await repo.setReviewAnswers({ answers: { login: answer } })
+  await repo.holdRemoteAnswers({ hold: ["readiness"] })
+  await syncAndWaitForBranches()
+  await expect.poll(() => repo.getArrivedAnswers()).toContain("readiness")
+  const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+  await expect(window.getByTestId("review-file-header").first()).toBeVisible()
+  return { repo, window }
+}
+
 test.describe("Branch review window", () => {
   test("should mark the groups that need approval as the code-owner check answers while the window is open", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_ownership", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
-    await repo.setReviewAnswers({ answers: { login: AWAITING_CODE_OWNER } })
-    await repo.holdRemoteAnswers({ hold: ["readiness"] })
-    await syncAndWaitForBranches()
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("readiness")
-    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
-    await expect(window.getByTestId("review-file-header").first()).toBeVisible()
+    const { repo, window } = await openLoginBeforeTheCheck(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER)
     // the check hasn't answered: the owners of the files, no group that needs approval
     await expect.poll(() => ownerChips(window)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
 
@@ -385,6 +399,42 @@ test.describe("Branch review window", () => {
     await expect(group).toHaveText("IJPL Code Platform4")
     await group.hover()
     await expect(window.getByRole("tooltip", { name: "Needs approval for a Safe Push" })).toBeVisible()
+  })
+
+  test("should stay at the file on screen by its path when a sync moves the head while the chip of its group shows fewer files, until the check of the new head answers", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the group Design of the check: the files of ui/ and the README; the OWNERSHIP files name Design the owner of ui/*.css
+    const design = (paths: string[]): PatronusReviewRequirement => ({
+      required: true,
+      mergeRequest: null,
+      groups: [evaluatedGroup("Design", false, [codeOwner("Ilya Korennoy", "ikorennoy", { suggested: true, approvalState: "reviewing" })], { paths, branchWide: false })],
+      skipped: false,
+    })
+    // the window opens before the check answers: it knows the groups only as the check of the head tells them
+    const { repo, window } = await openLoginBeforeTheCheck(page, setupRepo, syncAndWaitForBranches, design(["README.md", "ui/login.css", "ui/login.js"]))
+    const position = window.getByTestId("review-position")
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect.poll(() => ownerChips(window)).toContain("Design3")
+    await window.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
+    await expect.poll(() => reviewedPaths(window)).toEqual(["ui/login.css", "ui/login.js", "README.md"])
+    await tree.getByRole("treeitem", { name: "login.js" }).click()
+    await expect(position).toHaveText("All Changes · File 2 / 3 · Design")
+
+    // a new head: until its check answers, the chip is the owner Design of the OWNERSHIP files, whose files lack login.js
+    await repo.setReviewAnswers({ answers: { login: design(["README.md", "ui/button.css", "ui/login.css", "ui/login.js"]) } })
+    await repo.holdRemoteAnswers({ hold: ["readiness"] })
+    await repo.commit("(login) Style the button", { "ui/button.css": "button {}\n" }, 1704124800)
+    await syncAndWaitForBranches()
+    await expect.poll(() => reviewedPaths(window)).toEqual(["ui/button.css", "ui/login.css"])
+    await expect.poll(() => repo.getArrivedAnswers()).toContain("readiness")
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect.poll(() => reviewedPaths(window)).toEqual(["ui/button.css", "ui/login.css", "ui/login.js", "README.md"])
+    await expect(position).toHaveText("All Changes · File 3 / 4 · Design")
+    await expect(tree.getByRole("treeitem", { name: "login.js" })).toHaveAttribute("aria-selected", "true")
   })
 
   test("should review a stacked branch on its parent, then the whole stack, by owner", async ({ page, setupRepo, syncAndWaitForBranches }) => {

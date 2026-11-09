@@ -323,6 +323,7 @@ export function CommitReview({
   } else if (shownFiles.length === 0) {
     message = <p className="p-6 text-sm text-muted-foreground">No changed files</p>
   } else {
+    const askedShown = initialPath !== null && shownFiles.some(file => file.path === initialPath)
     loaded = {
       // the selection and the collapsed directories belong to one commit or range; an owner chip keeps them
       key: subjectId,
@@ -331,7 +332,10 @@ export function CommitReview({
       totalCount: allFiles?.length ?? shownFiles.length,
       diffs: entry?.kind === "loaded" ? entry.files : null,
       diffsComplete: entry?.kind === "loaded" && entry.complete,
-      initialPath: revealPath ?? (initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null),
+      initialPath: revealPath ?? (askedShown ? initialPath : null),
+      // a file of the changes an owner chip does not show now: its files may be still read (a new head, whose groups the
+      // check tells later), so the first file stands in for it
+      awaitedPath: revealPath === null && !askedShown && initialPath !== null && allFiles?.some(file => file.path === initialPath) === true ? initialPath : null,
       revealPath,
       revealPlace,
       // the commits of the sides: a declaration outside the review is read at them
@@ -426,6 +430,11 @@ interface LoadedReview {
   /** Every diff of the subject arrived: a file without one has none */
   diffsComplete: boolean
   initialPath: string | null
+  /**
+   * The file the review was asked to open at (`CommitReviewProps.initialPath`, the file on screen of the review before)
+   * while the changes have it and the shown files lack it: the first file stands in for it until a filter shows it
+   */
+  awaitedPath: string | null
   /** The file a link of a mark selected while the search hid it, now shown: the tree selects it */
   revealPath: string | null
   /** Its place, which the diffs show once the tree selected it */
@@ -467,6 +476,8 @@ interface TreeSelection {
   key: string | null
   filterText: string
   ownerFilterKey: string
+  /** The chosen owner chip whose files `ownerFilterKey` names (`OwnerMarks.label`): its files may change, it stays */
+  chip: string | null
   collapsed: ReadonlySet<string>
   selectedPath: string | null
   /** The row of the selected file when it is not its main row: the file "also in" another concern of a review */
@@ -477,14 +488,54 @@ interface TreeSelection {
   initialPath: string | null
   /** The first file of the tree, selected because nothing else was: a plan that comes after the files moves it */
   defaultPath: string | null
+  /**
+   * The file the first file stands in for, the file on screen the files of the chip lack now (`LoadedReview.awaitedPath`
+   * at the start of the key, or a file the files of the same chip hid): selected once they show it, unless the reader
+   * moved from the first file
+   */
+  awaited: string | null
+  /** The awaited file once a filter showed it: the diffs go to it */
+  arrived: string | null
   /** The file of a link this selection selected (`LoadedReview.revealPath`) */
   revealed: string | null
+}
+
+/** The first file stands in for the awaited one: the reader has not moved from it */
+function standsIn(selection: TreeSelection): boolean {
+  return selection.awaited !== null && selection.selectedPath !== null && selection.selectedPath === selection.defaultPath
+}
+
+/**
+ * The selection once the shown files changed (another filter, the plan): the awaited file in place of the first file
+ * that stood in for it, once they show it
+ */
+function withAwaited(selection: TreeSelection, nodes: readonly FileTreeNode[], files: readonly CommitFile[]): TreeSelection {
+  if (selection.awaited === null) {
+    return selection
+  }
+  if (!standsIn(selection)) {
+    return { ...selection, awaited: null }
+  }
+  const awaited = selection.awaited
+  if (!files.some(file => file.path === awaited)) {
+    return selection
+  }
+  return {
+    ...selection,
+    selectedPath: awaited,
+    selectedRow: null,
+    defaultPath: null,
+    awaited: null,
+    arrived: awaited,
+    collapsed: revealInTree(selection.collapsed, awaited, nodes),
+  }
 }
 
 function initialSelection(
   loaded: LoadedReview | null,
   filterText: string,
   ownerFilterKey: string,
+  chip: string | null,
   nodes: readonly FileTreeNode[],
   fileCount: number,
   firstPath: string | null,
@@ -494,12 +545,15 @@ function initialSelection(
       key: null,
       filterText,
       ownerFilterKey,
+      chip,
       collapsed: new Set(),
       selectedPath: null,
       selectedRow: null,
       grouped: false,
       initialPath: null,
       defaultPath: null,
+      awaited: null,
+      arrived: null,
       revealed: null,
     }
   }
@@ -510,65 +564,87 @@ function initialSelection(
     key: loaded.key,
     filterText,
     ownerFilterKey,
+    chip,
     collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath, nodes),
     selectedPath: loaded.initialPath ?? firstPath,
     selectedRow: null,
     grouped: hasReviewGroups(nodes),
     initialPath: loaded.initialPath,
     defaultPath: loaded.initialPath === null ? firstPath : null,
+    awaited: loaded.initialPath === null ? loaded.awaitedPath : null,
+    arrived: null,
     revealed: loaded.revealPath,
   }
 }
 
 /**
  * Another filter: the directories as a new tree has them, the selected file kept while the filter keeps it; the file a
- * link revealed (`revealPath`) selected
+ * link revealed (`revealPath`) selected, else the awaited file once the filter shows it (`withAwaited`). A file on
+ * screen that the files of the same chip hide (the groups of a new head not told yet, the owners read) is awaited, the
+ * first file standing in for it; another chip or search the reader chose selects the first file of what it keeps
  */
 function filteredSelection(
   previous: TreeSelection,
   filterText: string,
   ownerFilterKey: string,
+  chip: string | null,
   nodes: readonly FileTreeNode[],
   files: readonly CommitFile[],
   revealPath: string | null,
 ): TreeSelection {
   const kept = revealPath ?? previous.selectedPath
-  const selectedPath = files.some(file => file.path === kept) ? kept : (files[0]?.path ?? null)
+  const shown = files.some(file => file.path === kept)
+  const selectedPath = shown ? kept : (files[0]?.path ?? null)
+  const sameChip = revealPath === null && filterText === previous.filterText && chip === previous.chip
+  const awaited = !sameChip ? null : standsIn(previous) ? previous.awaited : shown ? null : kept
   const narrowed = filterText.trim() !== "" || ownerFilterKey !== ""
   const collapsed = narrowed ? new Set<string>() : getInitiallyCollapsed(nodes, files.length)
-  return {
-    ...previous,
-    filterText,
-    ownerFilterKey,
-    collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
-    selectedPath,
-    selectedRow: null,
-    grouped: hasReviewGroups(nodes),
-    revealed: revealPath,
-  }
+  return withAwaited(
+    {
+      ...previous,
+      filterText,
+      ownerFilterKey,
+      chip,
+      collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
+      selectedPath,
+      selectedRow: null,
+      grouped: hasReviewGroups(nodes),
+      // the file that stands in for the awaited one: the reader has not moved from it
+      defaultPath: awaited !== null ? selectedPath : previous.defaultPath,
+      awaited,
+      revealed: revealPath,
+    },
+    nodes,
+    files,
+  )
 }
 
 /**
  * The plan came, or went: the Mechanical group and the generated files of each concern start collapsed unless they
  * hold the selected file. A file selected only as the first of the tree without the plan, which may be a generated
- * one, gives way to the first of the new tree
+ * one, gives way to the first of the new tree, or to the awaited file the new tree shows (`withAwaited`)
  */
-function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[], firstPath: string | null): TreeSelection {
+function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[], files: readonly CommitFile[]): TreeSelection {
   const grouped = hasReviewGroups(nodes)
   if (!grouped) {
-    return { ...previous, grouped, selectedRow: null }
+    return withAwaited({ ...previous, grouped, selectedRow: null }, nodes, files)
   }
+  const firstPath = files[0]?.path ?? null
   const moved = previous.selectedPath !== null && previous.selectedPath === previous.defaultPath
   const selectedPath = moved ? firstPath : previous.selectedPath
   const collapsed = new Set([...previous.collapsed, ...foldedGroups(nodes)])
-  return {
-    ...previous,
-    grouped,
-    selectedPath,
-    selectedRow: null,
-    defaultPath: moved ? firstPath : previous.defaultPath,
-    collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
-  }
+  return withAwaited(
+    {
+      ...previous,
+      grouped,
+      selectedPath,
+      selectedRow: null,
+      defaultPath: moved ? firstPath : previous.defaultPath,
+      collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
+    },
+    nodes,
+    files,
+  )
 }
 
 /** The concern of the selected tree row, or the main row of the selected path */
@@ -753,14 +829,15 @@ function ReviewLayout({
     return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters, commitPlaces, narrowed)
   }, [loadedFiles, reviewFacts, mechanical, chapters, commitPlaces, narrowed])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
-  const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, ownerFilterKey, nodes, files.length, files[0]?.path ?? null))
+  const chip = ownerMarks?.label ?? null
+  const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, ownerFilterKey, chip, nodes, files.length, files[0]?.path ?? null))
   const loadedKey = loaded?.key ?? null
   if (selection.key !== loadedKey) {
-    setSelection(initialSelection(loaded, filterText, ownerFilterKey, nodes, files.length, files[0]?.path ?? null))
-  } else if (selection.filterText !== filterText || selection.ownerFilterKey !== ownerFilterKey) {
-    setSelection(filteredSelection(selection, filterText, ownerFilterKey, nodes, files, loaded?.revealPath ?? null))
+    setSelection(initialSelection(loaded, filterText, ownerFilterKey, chip, nodes, files.length, files[0]?.path ?? null))
+  } else if (selection.filterText !== filterText || selection.ownerFilterKey !== ownerFilterKey || selection.chip !== chip) {
+    setSelection(filteredSelection(selection, filterText, ownerFilterKey, chip, nodes, files, loaded?.revealPath ?? null))
   } else if (selection.grouped !== hasReviewGroups(nodes)) {
-    setSelection(groupedSelection(selection, nodes, files[0]?.path ?? null))
+    setSelection(groupedSelection(selection, nodes, files))
   }
   const { collapsed, selectedPath, selectedRow } = selection
   const activeGroupKey = useMemo(() => activeConcernGroup(nodes, selectedRow ?? selectedPath), [nodes, selectedRow, selectedPath])
@@ -787,6 +864,13 @@ function ReviewLayout({
   useEffect(() => {
     scrollToSelected()
   }, [filterText])
+  // the awaited file, once a filter showed it: the diffs go to it as the tree selected it
+  const arrived = selection.arrived
+  useEffect(() => {
+    if (arrived !== null) {
+      code.current?.scrollToFile(arrived)
+    }
+  }, [arrived])
 
   // the diffs mount with the models of the engine; each file reads its texts by blob id as it comes into view, and the
   // window shows once the rows of the first screen are painted (`onFirstScreen`)
@@ -1221,6 +1305,7 @@ function ReviewLayout({
   }
   const overviewAtTop = overviewShown && prologue !== undefined && prologue !== null && planned
   const stepAtTop = topStep !== null && topStep.chapter.told ? topStep.chapter.number : undefined
+  const standIn = standsIn(selection)
   useEffect(() => {
     if (loadedKey !== null) {
       onPositionChange({
@@ -1230,9 +1315,10 @@ function ReviewLayout({
         ...(ownerLabel !== null && { owner: ownerLabel }),
         ...(overviewAtTop && { overview: true }),
         ...(stepAtTop !== undefined && { step: stepAtTop }),
+        ...(standIn && { standIn: true }),
       })
     }
-  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, overviewAtTop, stepAtTop])
+  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, overviewAtTop, stepAtTop, standIn])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) {
@@ -1385,7 +1471,7 @@ function ReviewLayout({
                         ref={code}
                         files={viewFiles}
                         diffViewMode={diffViewMode}
-                        initialPath={selection.initialPath}
+                        initialPath={selection.initialPath ?? selection.arrived}
                         onVisibleSectionChange={showVisibleSection}
                         onFirstScreen={showWindow}
                         fileOwners={fileOwners}

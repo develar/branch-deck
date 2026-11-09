@@ -9,14 +9,20 @@ export interface ReviewPosition {
   overview?: boolean
   /** The number of the step of the story at the top, from 1: "Step 2 · File 3 / 9" */
   step?: number
+  /**
+   * The file stands in for the one the review was asked to open, the file on screen before, which the changes have and
+   * the chosen owner chip does not show yet (its files of a new head are still read): no place of the reader
+   */
+  standIn?: boolean
 }
 
 /**
  * The file a position shows the reader: none while the overview is at the top, though the tree keeps the first file for
- * its keys; a review read again starts at it, and the review of a pull request counts it as opened for Approve
+ * its keys, nor while a file stands in for the one the reader was at; a review read again starts at it, and the review
+ * of a pull request counts it as opened for Approve
  */
 export function shownPath(position: ReviewPosition): string | null {
-  return position.overview === true ? null : position.path
+  return position.overview === true || position.standIn === true ? null : position.path
 }
 
 /**

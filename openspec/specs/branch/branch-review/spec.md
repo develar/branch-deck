@@ -24,6 +24,8 @@ targets:
   - src/stores/settings/repositorySettings.ts
   - src/lib/range-review.ts
   - src/components/review/RangeReview.tsx
+  - src/components/commit/CommitReview.tsx
+  - src/lib/review-position.ts
   - src/hooks/useReviewActions.ts
   - src/hooks/useReviewRuns.ts
   - src/lib/review-actions.ts
@@ -222,6 +224,13 @@ session, a form of a row by the main window at that row; the footer holds the ke
 - Another commit, another owner chip or a sync that reads the stack again must keep the file on screen when the new
   changes have it; an owner chip keeps every file, the selection and the collapsed directories.
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- The file on screen is kept by its path also while the files of the chosen chip lack it for a while: a sync that moves
+  the head before the code-owner check of the new head answers makes the chip of a group the owner of its name by the
+  `OWNERSHIP` files, with fewer files. The first of them stands in for the file on screen (no place of the reader: the
+  review read again starts at the file on screen), and the review selects that file again once the files of the chip
+  show it, unless the reader moved. Another chip or search the reader chooses selects the first file of what it keeps.
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should stay at the file on screen by its path when a sync moves the head while the chip of its group shows fewer files, until the check of the new head answers`)
+  [@test] src/lib/review-position.test.ts (`shows no file while one stands in for the file on screen the chip lacks`)
 - A sync that moves a head of the part, or another part chosen in the stack bar, must keep the review on screen (the
   tree with the steps of its plan and their commits, the column, the files, the diffs, the file on screen and the
   position of the footer) until the files, the diffs and the plan of the new changes are read, which the window reads
