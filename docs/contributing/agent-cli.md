@@ -544,13 +544,14 @@ See [Symbol Dependencies](../design/symbol-dependencies.md).
 ### The object cache
 
 The changes of a commit never change, so `brd commits` and `brd status --stats` keep them in a disk cache keyed by the
-commit id (`crates/object-cache`, LMDB through heed):
+commit id (`crates/object-cache`, LMDB through psi-syntax's `lmdb-env`):
 
 - It lives in `$GIT_COMMON_DIR/branch-deck/cache/`, so all worktrees share it. The app and parallel `brd` calls can use
   it at once: LMDB serializes writers through its lock file, and readers never wait.
 - git runs only for the ids the cache misses, in one batch process, and the results are written back in one
   transaction.
-- The cap is the LMDB map size, 1 GiB by default. A write that finds the map full clears the cache and is retried.
+- The cap is the LMDB map size, 1 GiB by default. A write that would fill the map, or finds it full, clears the stores
+  of its environment and is retried.
 - Each store's version is part of its database name (`commit_diff.v1`). Opening drops the older versions of a store,
   so a new value type of one store keeps the entries of the others.
 - Any cache failure is a miss, logged with `-v`; it never fails a command. `--no-cache` bypasses it.

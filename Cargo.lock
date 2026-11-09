@@ -3984,6 +3984,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
+name = "lmdb-env"
+version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=abef29d0987c61fb86efbbd2eb6f297ed6c1c0b0#abef29d0987c61fb86efbbd2eb6f297ed6c1c0b0"
+dependencies = [
+ "heed",
+ "libc",
+]
+
+[[package]]
 name = "lmdb-master-sys"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4677,8 +4686,7 @@ dependencies = [
 name = "object-cache"
 version = "0.1.0"
 dependencies = [
- "heed",
- "libc",
+ "lmdb-env",
  "postcard",
  "serde",
  "specta",

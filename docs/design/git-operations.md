@@ -3053,16 +3053,19 @@ under `Default` (`file_diffs::blocks`).
   store versions its values in its database name (`commit_diff.v4`, `Store::version`), bumped when their type, the
   options or the engine that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
   others, the costly `merge_result` above all.
-- **Shared by processes.** The cache is four LMDB environments (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
+- **Shared by processes.** The cache is four LMDB environments in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `brd` calls: writers are serialized by LMDB's lock file, readers never
   wait. This is why LMDB: redb, fjall and sled lock their file for one process, and SQLite would add a query and a copy
-  to every read of immutable, id-keyed values. Within a process there is one environment per directory, as LMDB
-  requires, kept in a slot of its own whose guard alone spans its open and its close (`ENVS` is locked only to find
-  the slot: an open that waits for `open.lock` of another process keeps no other directory waiting,
-  `an_environment_opens_while_the_open_of_another_waits_for_its_open_lock`), and it closes with the last handle (`EnvHandle`; the app keeps one per repository while it runs): on macOS
-  LMDB locks an environment with a System V semaphore set that only its close removes, so the environments of deleted
-  test directories would use up the system's sets (`kern.sysv.semmns`) until every open fails with `ENOSPC`.
-- **A semaphore set of its own** (`object_cache::semaphore_key`, macOS). LMDB keys the set by `ftok(lock.mdb, 'M')`,
+  to every read of immutable, id-keyed values. Each environment is a store of psi-syntax's `lmdb-env` (a revision of
+  the public mirror, `crates/object-cache/Cargo.toml`), the crate accio's forward store shares (decision
+  2026-11-09-lmdb-env-in-psi-syntax of accio), and holds the rules both learned, each a doc comment and a test there:
+  one environment per directory in a process, its slot alone held across the open and the close, so an open that waits
+  for `open.lock` of another process keeps no other directory waiting; the last handle closes it (the app keeps one
+  per repository while it runs), as on macOS LMDB locks an environment with a System V semaphore set that only its
+  close removes, and the environments of deleted test directories would use up the system's sets until every open
+  fails with `ENOSPC`; a reader slot is held per transaction, not per thread, and the readers of a dead process are
+  cleared, so a `brd` killed in a read pins no page while the app keeps the environment open.
+- **A semaphore set of its own** (`lmdb-env`'s `semaphore`, macOS). LMDB keys the set by `ftok(lock.mdb, 'M')`,
   and macOS's `ftok` keeps only the low 16 bits of the inode and the low 8 of the device, so two lock files of one
   volume could share a set: the first user of one reset it, and the last user of either removed it under the other,
   whose every later open failed with `EINVAL`. The tests of a checkout, thousands of environments in temporary
@@ -3076,11 +3079,11 @@ under `Default` (`file_diffs::blocks`).
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
   id in `merge_result`, and a check would build a branch from it (LMDB keeps its integrity without the sync only on a
   file system that keeps the order of writes, which APFS does not promise; LMDB stores no checksum).
-  `an_environment_syncs_every_commit` (`cache_test.rs`) pins it. Only a test opens the cache without it
+  `lmdb-env`'s `the_default_config_syncs_every_commit_and_a_tests_does_not` pins it. Only a test opens the cache without it
   (`CacheConfig::sync_commits` off: `brd` of the fixtures through `Environment::flush_to_drive`, `empty_cache` of
   `test_utils::process_budget`, the tests of the crate), a value the app and `brd` never have: a test outlives no power
   loss, and the thousands of commits of a full run in 20 processes at once queued at the drive, 66 s of the tests' time
-  (`the_environments_of_a_test_commit_without_a_flush`; [Fast Rust Tests](../contributing/rust-tests.md#beyond-the-processes)).
+  (the same test; [Fast Rust Tests](../contributing/rust-tests.md#beyond-the-processes)).
   The first open of an environment in a process decides for every later handle of it. Measured 2026-10-24 on the monorepo clone of `pnpm
   perf:monorepo`: a write transaction of 20 entries takes 3.9-4.0 ms synced, 0.02 ms with `MDB_NOSYNC`, and as much
   with `MDB_NOMETASYNC` as synced (LMDB on macOS syncs the data with `F_FULLFSYNC` and writes the meta page with

@@ -3083,7 +3083,7 @@ rewrites между процессами через файл `s10`; `s12` ждё
     flush'и 20 слотов встают в очередь к устройству), 2 836 durable-записей (`sync_all`, из них 1 904 —
     `operations.json`) — 28 с; без обоих прогон короче на 13–17 с. Продукт sync сохраняет: [Object
     cache](git-operations.md#object-cache) держит его против неверного, но читаемого tree id после потери питания
-    (`an_environment_syncs_every_commit`), [Operations registry](git-operations.md#operations-registry) — против
+    (`lmdb-env`: `the_default_config_syncs_every_commit_and_a_tests_does_not`), [Operations registry](git-operations.md#operations-registry) — против
     состояния, потерянного при крахе; команде пользователя он стоит не больше ~30 мс. Поэтому flush снимается
     только в тестах — значением окружения тестов, которого у продукта нет (как `remote_retry_delay`), а тест
     по-прежнему утверждает sync продукта; не выходит чисто — числа и вердикт в rust-tests.md, код не меняется.

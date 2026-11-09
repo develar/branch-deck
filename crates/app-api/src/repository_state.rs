@@ -63,7 +63,7 @@ impl RepositoryStateCache {
       // never stale: an entry holds only while `.idea/vcs.xml` has the stamp it was read with
       cache: Cache::new(100),
       // never stale: a repository doesn't move its git directories; an evicted cache closes its environment once no
-      // operation holds it (`EnvHandle`)
+      // operation holds it (`lmdb_env::Store`)
       dirs: Cache::new(100),
       object_caches: Some(Cache::new(100)),
       github_repositories: Cache::builder().max_capacity(100).time_to_live(GITHUB_REPOSITORY_TTL).build(),

@@ -55,7 +55,7 @@ impl ObjectCache {
     let mut encoded = Vec::with_capacity(keys.len());
     for (bytes_key, (key, info)) in keys.iter().zip(infos) {
       match postcard::to_allocvec(info) {
-        Ok(bytes) if bytes.len() <= MAX_CONFLICT_INFO_BYTES => encoded.push((bytes_key.as_slice(), bytes)),
+        Ok(bytes) if bytes.len() <= MAX_CONFLICT_INFO_BYTES => encoded.push((bytes_key.clone(), bytes)),
         Ok(bytes) => debug!(commit = %key.commit, bytes = bytes.len(), "the conflict view is too big to keep"),
         Err(e) => debug!(error = %e, "conflict view not encodable"),
       }

@@ -1,6 +1,4 @@
-use crate::cache::{
-  CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, DEFAULT_PATCH_MAP_SIZE, ObjectCache, STORES, Store, is_env_open, is_env_opening, open_env,
-};
+use crate::cache::{CacheConfig, Environment, ObjectCache, STORES, Store};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::conflict_info::{ConflictKey, MAX_CONFLICT_INFO_BYTES};
@@ -9,11 +7,6 @@ use crate::file_merge::FileMergeKey;
 use crate::merge_result::{MergeKey, MergeResult};
 use crate::review_answer::ReviewAnswer;
 use crate::word_resolution::WordResolutionResult;
-use heed::CommitOrAbort;
-use heed::types::{Bytes, DecodeIgnore};
-#[cfg(target_os = "macos")]
-use std::collections::HashMap;
-use std::convert::Infallible;
 use std::path::Path;
 use std::process::Command;
 
@@ -54,8 +47,8 @@ fn merge() -> (MergeKey, MergeResult) {
   (key, MergeResult::Clean { tree: "result".to_string() })
 }
 
-/// The config of these tests: the app's, without the sync of each commit (`CacheConfig::sync_commits`), which
-/// `an_environment_syncs_every_commit` asserts of the app's
+/// The config of these tests: the app's, without the sync of each commit (`CacheConfig::sync_commits`; lmdb-env's
+/// `the_default_config_syncs_every_commit_and_a_tests_does_not`)
 fn test_config() -> CacheConfig {
   CacheConfig {
     sync_commits: false,
@@ -144,86 +137,6 @@ fn with_bumped(dir: &Path, bumped: &[Store]) -> ObjectCache {
     config.versions[store.index()] += 1;
   }
   ObjectCache::open_dir(dir, &config)
-}
-
-/// The directories of the four environments of the cache in `dir`, canonical, as heed knows them
-fn environment_dirs(dir: &Path) -> Vec<std::path::PathBuf> {
-  let dir = dir.canonicalize().unwrap();
-  vec![dir.clone(), dir.join("patches"), dir.join("merges"), dir.join("conflicts")]
-}
-
-/// The ids of the System V semaphore sets of the system, by key (`ipcs -s`)
-#[cfg(target_os = "macos")]
-fn semaphore_sets() -> HashMap<u32, String> {
-  let output = Command::new("ipcs").arg("-s").output().unwrap();
-  assert!(output.status.success());
-  String::from_utf8(output.stdout)
-    .unwrap()
-    .lines()
-    .filter_map(|line| {
-      let fields: Vec<&str> = line.split_whitespace().collect();
-      let key = u32::from_str_radix(fields.get(2)?.strip_prefix("0x")?, 16).ok()?;
-      (fields.first() == Some(&"s")).then(|| (key, fields[1].to_string()))
-    })
-    .collect()
-}
-
-/// A closed cache gives back the semaphore set of each environment: LMDB (`MDB_USE_SYSV_SEM` on macOS) creates one per
-/// environment, keyed by `ftok(lock.mdb, 'M')`, and only the close of its last user removes it. The test follows the
-/// sets of its own lock files by id, not the system's count, which the tests of other processes change meanwhile; an id
-/// is not given again right after its set is removed
-#[cfg(target_os = "macos")]
-#[test_log::test]
-fn a_closed_cache_gives_back_its_semaphores() {
-  use std::os::unix::fs::MetadataExt;
-
-  for _ in 0..3 {
-    let dir = tempfile::tempdir().unwrap();
-    let cache = open(dir.path());
-    assert!(cache.is_enabled());
-    // the key of macOS's `ftok`: the project id, the low byte of the device and the low 16 bits of the inode
-    let keys: Vec<u32> = environment_dirs(dir.path())
-      .iter()
-      .map(|env_dir| {
-        let metadata = std::fs::metadata(env_dir.join("lock.mdb")).unwrap();
-        u32::from(b'M') << 24 | u32::try_from(metadata.dev() & 0xff).unwrap() << 16 | u32::try_from(metadata.ino() & 0xffff).unwrap()
-      })
-      .collect();
-    let sets = semaphore_sets();
-    let ids: Vec<&String> = keys.iter().map(|key| sets.get(key).unwrap_or_else(|| panic!("no semaphore set of key {key:#x}"))).collect();
-    drop(cache);
-    let sets = semaphore_sets();
-    let left: Vec<&&String> = ids.iter().filter(|id| sets.values().any(|set| set == **id)).collect();
-    assert!(left.is_empty(), "the semaphore sets {left:?} outlive their cache");
-  }
-}
-
-/// An environment kept open to the end of the process left its System V semaphore set behind on macOS, one per
-/// temporary directory of a test, until the system had none left
-#[test_log::test]
-fn the_last_handle_closes_the_environment() {
-  let dir = tempfile::tempdir().unwrap();
-  let cache = open(dir.path());
-  let other = open(dir.path());
-  assert!(cache.is_enabled() && other.is_enabled());
-  let (key, merge) = merge();
-  cache.put_merge_results(&[(key.clone(), merge.clone())]);
-  drop(cache);
-  // the other handle keeps it open, the same environment
-  assert!(is_env_open(dir.path()));
-  assert_eq!(other.get_merge_results(std::slice::from_ref(&key)), vec![Some(merge.clone())]);
-  drop(other);
-  assert!(!is_env_open(dir.path()));
-  assert!(!is_env_open(&dir.path().join("merges")));
-  // closed by LMDB too, not only gone from `ENVS`: heed knows no open environment of the four directories
-  for env_dir in environment_dirs(dir.path()) {
-    assert!(heed::env_closing_event(&env_dir).is_none(), "{} is still open", env_dir.display());
-  }
-
-  // opened again, with what was written
-  let again = open(dir.path());
-  assert!(is_env_open(dir.path()));
-  assert_eq!(again.get_merge_results(std::slice::from_ref(&key)), vec![Some(merge)]);
 }
 
 #[test]
@@ -526,72 +439,60 @@ fn a_full_main_store_keeps_the_merges() {
   assert_eq!(cache.get_commit_trees(&["c1".to_string()])["c1"], "t1");
 }
 
-/// The names of the databases of the environment in `dir`
-fn database_names(env: &heed::Env) -> Vec<String> {
-  let mut names = Vec::new();
-  env
-    .open_databases_and_commit(env.read_txn().unwrap(), |opener, txn| -> heed::Result<_> {
-      let unnamed = opener.open_database::<Bytes, DecodeIgnore>(txn, None)?.expect("the unnamed database");
-      names = unnamed.iter(txn)?.map(|item| String::from_utf8(item.unwrap().0.to_vec()).unwrap()).collect();
-      Ok(CommitOrAbort::<_, Infallible>::Commit(()))
-    })
-    .unwrap();
-  names
+/// Create the tables `names` in the environment in `dir`, each with one entry, as a binary of another layout left them
+fn create_tables_with_an_entry(dir: &Path, names: &[(&str, u32)]) {
+  let store = lmdb_env::Store::open(dir, &lmdb_env_config(), names, &[]).unwrap();
+  for index in 0..names.len() {
+    store.put(store.table(index).unwrap(), &[(b"key".to_vec(), b"value".to_vec())]).unwrap();
+  }
 }
 
-/// Create the databases `names` in `env`, each with one entry, as a binary of another layout left them
-fn create_databases_with_an_entry(env: &heed::Env, names: &[&str]) {
-  env
-    .create_databases_and_commit(env.write_txn().unwrap(), |opener, txn| -> heed::Result<_> {
-      for name in names {
-        let database = opener.create_database::<Bytes, Bytes>(txn, Some(name))?;
-        database.put(txn, b"key", b"value")?;
-      }
-      Ok(CommitOrAbort::<_, Infallible>::Commit(()))
-    })
-    .unwrap();
+/// Does the table `name` of the environment in `dir` still hold the entry `create_tables_with_an_entry` wrote? Opening it
+/// makes it again, empty, once a cache dropped it
+fn holds_its_entry(dir: &Path, name: (&str, u32)) -> bool {
+  let store = lmdb_env::Store::open(dir, &lmdb_env_config(), &[name], &[]).unwrap();
+  store.get(store.table(0).unwrap(), b"key").is_some()
+}
+
+fn lmdb_env_config() -> lmdb_env::Config {
+  lmdb_env::Config {
+    sync: false,
+    ..lmdb_env::Config::default()
+  }
 }
 
 /// The merges and trees of a binary that kept them in the main environment are dropped from it on open
 #[test_log::test]
 fn the_merges_of_the_main_environment_are_dropped() {
   let dir = tempfile::tempdir().unwrap();
-  let main = open_env(dir.path(), DEFAULT_MAP_SIZE, false).unwrap();
-  create_databases_with_an_entry(&main, &["merge_result.v1", "commit_tree.v1"]);
+  create_tables_with_an_entry(dir.path(), &[("merge_result", 1), ("commit_tree", 1)]);
 
   let cache = open(dir.path());
-
   assert!(cache.get_commit_trees(&["key".to_string()]).is_empty());
-  let names = database_names(&main);
-  assert!(!names.iter().any(|name| name.starts_with("merge_result") || name.starts_with("commit_tree")), "{names:?}");
-  assert!(names.iter().any(|name| name.starts_with("commit_diff")), "{names:?}");
-  let merges = open_env(&dir.path().join("merges"), DEFAULT_MERGE_MAP_SIZE, false).unwrap();
-  assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1", "word_resolution.v1"]);
+  drop(cache);
+
+  assert!(!holds_its_entry(dir.path(), ("merge_result", 1)));
+  assert!(!holds_its_entry(dir.path(), ("commit_tree", 1)));
 }
 
 /// A retired store (`commit_patch`, the patches of the old diff views) is dropped from its environment on open
 #[test_log::test]
 fn a_retired_store_is_dropped() {
   let dir = tempfile::tempdir().unwrap();
-  let patches = open_env(&dir.path().join("patches"), DEFAULT_PATCH_MAP_SIZE, false).unwrap();
-  create_databases_with_an_entry(&patches, &["commit_patch.v1"]);
+  let patches = dir.path().join("patches");
+  create_tables_with_an_entry(&patches, &[("commit_patch", 1)]);
 
   let cache = open(dir.path());
-  cache.put_file_diffs(
-    1,
-    &[(
-      DiffKey {
-        policy: 0,
-        old_id: "a",
-        new_id: "b",
-      },
-      &1u32,
-    )],
-  );
+  let key = DiffKey {
+    policy: 0,
+    old_id: "a",
+    new_id: "b",
+  };
+  cache.put_file_diffs(1, &[(key, &1u32)]);
+  assert_eq!(cache.get_file_diffs::<u32>(1, &[key]), [Some(1)]);
+  drop(cache);
 
-  let names = database_names(&patches);
-  assert!(!names.iter().any(|name| name.starts_with("commit_patch")), "{names:?}");
-  assert!(names.iter().any(|name| name.starts_with("file_diff")), "{names:?}");
+  assert!(!holds_its_entry(&patches, ("commit_patch", 1)));
 }
 
 /// The conflict views are read by the analysis version that wrote them, in their own environment; a view too big to
@@ -632,8 +533,8 @@ fn conflict_views_are_read_by_their_version_and_big_views_are_not_kept() {
   cache.put_conflict_infos(2, &[(key("c2"), &view)]);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c1")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c2")), Some(view));
-  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE, false).unwrap());
-  assert_eq!(names, ["conflict_chain.v1", "conflict_info.v1"]);
+  // the conflict environment holds them, apart from the merges
+  assert_eq!([Store::ConflictInfo, Store::ConflictChain].map(Store::environment), [Environment::Conflicts; 2]);
 }
 
 /// A passed build is read by the key version that wrote it; the first write of another version clears the store
@@ -709,8 +610,7 @@ fn conflict_chains_are_read_by_their_version() {
   cache.put_conflict_chains(2, &[([2; 32], &chain)]);
   assert_eq!(cache.get_conflict_chain::<Vec<String>>(1, &[1; 32]), None);
   assert_eq!(cache.get_conflict_chain::<Vec<String>>(2, &[2; 32]), Some(chain));
-  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE, false).unwrap());
-  assert!(names.contains(&"conflict_chain.v1".to_string()), "{names:?}");
+  assert_eq!(Store::ConflictChain.environment(), Environment::Conflicts);
 }
 
 /// The builds of the stack branches are read by the build version that wrote them, in the order of their keys, and the
@@ -765,121 +665,4 @@ fn an_environment_that_cannot_be_opened_misses_only_its_stores() {
   // the patch environment works
   let (pair, diff) = stored_diff(&cache);
   assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair]), [Some(diff)]);
-}
-
-/// macOS keys the semaphore set of a lock file by the low 16 bits of its inode: a lock file whose key another set holds
-/// (of another lock file of the same low bits) is made again before LMDB first opens it, so the close of this cache
-/// leaves the other set, and the open of the other environment its set, alone
-/// The inode of `path`; None where files have none (Windows), whose lock files are never made again
-fn inode(path: &Path) -> Option<u64> {
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(path).ok().map(|metadata| metadata.ino())
-  }
-  #[cfg(not(unix))]
-  {
-    std::fs::metadata(path).ok().map(|_| 0)
-  }
-}
-
-#[test_log::test]
-fn a_lock_file_whose_semaphore_key_another_set_holds_is_made_again() {
-  let dir = tempfile::tempdir().unwrap();
-  // the lock files exist, their sets removed by the close
-  drop(open(dir.path()));
-  let lock = dir.path().canonicalize().unwrap().join("merges").join("lock.mdb");
-  let before = inode(&lock).expect("the lock file");
-  let (key, merge) = merge();
-  #[cfg(target_os = "macos")]
-  {
-    use std::os::unix::ffi::OsStrExt;
-    let c_path = std::ffi::CString::new(lock.as_os_str().as_bytes()).unwrap();
-    let semaphore_key = crate::semaphore_key::key(&c_path).unwrap();
-    #[expect(unsafe_code, reason = "the set of another environment, made and removed by the test")]
-    // SAFETY: no pointer is passed
-    let other = unsafe { libc::semget(semaphore_key, 2, libc::IPC_CREAT | 0o600) };
-    assert!(other >= 0, "{}", std::io::Error::last_os_error());
-
-    let cache = open(dir.path());
-    cache.put_merge_results(&[(key.clone(), merge.clone())]);
-    assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(merge)]);
-    assert_ne!(inode(&lock), Some(before), "the lock file was made again");
-    drop(cache);
-    #[expect(unsafe_code, reason = "IPC_STAT tells the set still exists; IPC_RMID removes it")]
-    // SAFETY: a zeroed `semid_ds` is a valid buffer, and no other pointer is passed
-    unsafe {
-      let mut buffer: libc::semid_ds = std::mem::zeroed();
-      assert_eq!(
-        libc::semctl(other, 0, libc::IPC_STAT, &raw mut buffer),
-        0,
-        "the close removed the set of the other environment"
-      );
-      libc::semctl(other, 0, libc::IPC_RMID);
-    }
-  }
-  // without System V semaphores (robust mutexes on Linux, named mutexes on Windows) the lock file stays
-  #[cfg(not(target_os = "macos"))]
-  {
-    let cache = open(dir.path());
-    cache.put_merge_results(&[(key.clone(), merge.clone())]);
-    assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(merge)]);
-    assert_eq!(inode(&lock), Some(before));
-  }
-}
-
-/// Every environment of the app's config syncs each commit (no `MDB_NOSYNC`, no `MDB_NOMETASYNC`): a commit without it
-/// costs 0.02 ms instead of ~4 ms, but a command writes a few transactions at most, and after a power loss without it
-/// LMDB promises no integrity unless the file system keeps the order of writes, so a wrong but readable entry could be
-/// read back (git-operations.md, "One write transaction per phase")
-#[test]
-fn an_environment_syncs_every_commit() {
-  let dir = tempfile::tempdir().unwrap();
-  let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
-  let flags = cache.env_flags();
-  assert_eq!(flags.len(), 4, "{flags:x?}");
-  for flags in flags {
-    assert_eq!(flags & (heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC).bits(), 0, "{flags:#x}");
-  }
-}
-
-/// A test's config (`sync_commits` off) opens every environment without the sync of a commit: in a full run of the
-/// tests 2,920 commits each flushed the drive (`F_FULLFSYNC`) in 23 ms, 66 s of the tests' time, against 1.2 s without
-/// (docs/contributing/rust-tests.md, "Beyond the processes")
-#[test]
-fn the_environments_of_a_test_commit_without_a_flush() {
-  let dir = tempfile::tempdir().unwrap();
-  let flags = open(dir.path()).env_flags();
-  assert_eq!(flags.len(), 4, "{flags:x?}");
-  let unsynced = (heed::EnvFlags::NO_SYNC | heed::EnvFlags::NO_META_SYNC).bits();
-  for flags in flags {
-    assert_eq!(flags & unsynced, unsynced, "{flags:#x}");
-  }
-}
-
-/// An open of one environment that waits for `open.lock` (another process opens or closes it) holds only the slot of
-/// its directory: the environment of another directory opens meanwhile, and the waiting one opens once the lock is free
-#[test_log::test]
-fn an_environment_opens_while_the_open_of_another_waits_for_its_open_lock() {
-  let (waiting, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-  // another process opens the first one: it holds its `open.lock`
-  let held = std::fs::OpenOptions::new()
-    .write(true)
-    .create(true)
-    .truncate(false)
-    .open(waiting.path().join("open.lock"))
-    .unwrap();
-  held.lock().unwrap();
-  std::thread::scope(|scope| {
-    let opening = scope.spawn(|| open_env(waiting.path(), DEFAULT_MAP_SIZE, false).map(drop).map_err(|e| e.to_string()));
-    while !is_env_opening(waiting.path()) {
-      assert!(!opening.is_finished(), "the open waits for the lock of the other process");
-      std::thread::yield_now();
-    }
-    let opened = open_env(other.path(), DEFAULT_MAP_SIZE, false).unwrap();
-    assert!(is_env_open(other.path()));
-    drop(opened);
-    held.unlock().unwrap();
-    opening.join().unwrap().unwrap();
-  });
 }

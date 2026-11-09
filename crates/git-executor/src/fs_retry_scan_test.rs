@@ -10,18 +10,11 @@ use crate::source_scan_test::{Exemption, Source, check};
 /// The calls of `std::fs` that a holder fails on Windows
 const CALLS: [&str; 4] = ["fs::remove_dir_all(", "fs::remove_dir(", "fs::remove_file(", "fs::rename("];
 
-const EXEMPT: [Exemption; 2] = [
-  Exemption {
-    path: "crates/sync-utils/src/fs_retry.rs",
-    hits: 4,
-    reason: "the helper itself",
-  },
-  Exemption {
-    path: "crates/object-cache/src/semaphore_key.rs",
-    hits: 1,
-    reason: "macOS only (the System V semaphore of an LMDB lock file), where no holder fails a removal",
-  },
-];
+const EXEMPT: [Exemption; 1] = [Exemption {
+  path: "crates/sync-utils/src/fs_retry.rs",
+  hits: 4,
+  reason: "the helper itself",
+}];
 
 /// The lines of `source` with a call of `CALLS` of `std::fs`: not one of another module (`fs_retry::remove_file(`)
 fn unretried_calls(source: &Source) -> Vec<usize> {
