@@ -207,6 +207,7 @@ fn the_folders_of_a_module_start_below_the_packages_its_files_share() {
       ("gui/src/com/example/player/gui/markdown/C.kt", "class C\n"),
       ("gui/testSrc/com/example/player/gui/embeds/ATest.kt", "class ATest\n"),
       ("gui/resources/messages/GuiBundle.properties", "embed.open=Open\n"),
+      ("gui/BUILD.bazel", "# gui\n# with the embeds\n"),
       ("view/src/references/R.kt", "class R\n"),
       ("view/src/ui/embeds/E.kt", "class E\n"),
       ("view/testSrc/ui/embeds/ETest.kt", "class ETest\n"),
@@ -215,8 +216,27 @@ fn the_folders_of_a_module_start_below_the_packages_its_files_share() {
   let plan = plan_of_range(&repo, &base, &head);
   let gui = plan.modules.iter().find(|module| module.root == "gui").unwrap();
   let directories: Vec<(&str, u32)> = gui.directories.iter().map(|directory| (directory.path.as_str(), directory.files)).collect();
-  assert_eq!(directories, [("embeds", 3), ("markdown", 1), ("messages", 1)]);
+  // the build file right in the root of the module takes no part in what the others share
+  assert_eq!(directories, [("embeds", 3), ("", 1), ("markdown", 1), ("messages", 1)]);
   let view = plan.modules.iter().find(|module| module.root == "view").unwrap();
   let directories: Vec<(&str, u32)> = view.directories.iter().map(|directory| (directory.path.as_str(), directory.files)).collect();
   assert_eq!(directories, [("ui/embeds", 2), ("references", 1)]);
+  // the folder of each file, after its name in the tree: below every folder its kind shares, all of its levels, ""
+  // in its own
+  let mut folders: Vec<(&str, &str)> = plan.files.iter().map(|facts| (facts.path.as_str(), facts.folder.as_str())).collect();
+  folders.sort_unstable();
+  assert_eq!(
+    folders,
+    [
+      ("gui/BUILD.bazel", ""),
+      ("gui/resources/messages/GuiBundle.properties", ""),
+      ("gui/src/com/example/player/gui/embeds/A.kt", "embeds"),
+      ("gui/src/com/example/player/gui/embeds/B.kt", "embeds"),
+      ("gui/src/com/example/player/gui/markdown/C.kt", "markdown"),
+      ("gui/testSrc/com/example/player/gui/embeds/ATest.kt", "embeds"),
+      ("view/src/references/R.kt", "references"),
+      ("view/src/ui/embeds/E.kt", "ui/embeds"),
+      ("view/testSrc/ui/embeds/ETest.kt", "ui/embeds"),
+    ]
+  );
 }

@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 26` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 27` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -47,7 +47,8 @@
 //! `start`, `tests` and `end` in the stops), in place of the `concern` of a stop;
 //! version 25 the `registrations` of the plugin descriptors, from accio (`accio parse --descriptor --resolve`, one
 //! process per side);
-//! version 26 the `texts` of the UI, the keys the commits add to, remove from or change in the message bundles
+//! version 26 the `texts` of the UI, the keys the commits add to, remove from or change in the message bundles;
+//! version 27 the `folder` of each file, below the folders the files of its module share
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -75,7 +76,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 26;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 27;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -317,6 +318,9 @@ pub struct FileFactsOutput {
   pub repeated_edit_only: bool,
   /// Its module, by its place in `modules`
   pub module: Option<u32>,
+  /// Its directory below the folders the files of its module share, all of its levels: `ui/embeds` of
+  /// `src/ui/embeds/View.kt` and of `testSrc/ui/embeds/ViewTest.kt`; "" when that is its own directory
+  pub folder: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -598,6 +602,7 @@ fn file_output(facts: FileFacts) -> FileFactsOutput {
     repeated_edit: facts.repeated_edit,
     repeated_edit_only: facts.repeated_edit_only,
     module: facts.module,
+    folder: facts.folder,
   }
 }
 

@@ -584,10 +584,11 @@ pub fn review_plan_of(
   Ok(plan)
 }
 
-/// `FileFacts::module` of each file
+/// `FileFacts::module` and `FileFacts::folder` of each file
 fn with_modules(files: &mut [FileFacts], changed: &[files::ChangedFile<'_>], modules: &Modules) {
   for facts in files {
     facts.module = modules.of_path(changed, &facts.path);
+    facts.folder = modules.folder_of_path(changed, &facts.path);
   }
 }
 

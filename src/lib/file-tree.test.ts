@@ -663,7 +663,10 @@ describe("the groups of a large step in the tree of a review", () => {
     [paths.build]: 0,
   }
   const kinds: Record<string, MechanicalKind> = { [paths.build]: "buildModel", [paths.list]: "moduleList", [paths.lock]: "generated" }
-  const facts = (list: readonly CommitFile[]) => list.map(it => ({ path: it.path, mechanical: kinds[it.path] ?? null, module: moduleOf[it.path] ?? null }) as FileFacts)
+  // the folder of a file as Rust gives it: below what the code and the tests of its module share, the resources apart
+  const folderOf: Record<string, string> = { [paths.kind]: "embeds", [paths.markdown]: "markdown", [paths.guiTest]: "embeds", [paths.decoder]: "avfoundation" }
+  const facts = (list: readonly CommitFile[]) =>
+    list.map(it => ({ path: it.path, mechanical: kinds[it.path] ?? null, module: moduleOf[it.path] ?? null, folder: folderOf[it.path] ?? "" }) as FileFacts)
   /** The step of Rust: its stops group by group, the imports alone of `EmbedKind.kt` a stop of the mechanical group */
   const step = (mechanical: readonly string[]) =>
     reviewStep(
@@ -703,7 +706,7 @@ describe("the groups of a large step in the tree of a review", () => {
   const chapters = presentChapters(plan)
   const mechanical = mechanicalKindsOf({ files: plan.files, units: [] })
 
-  it("lists a group per section of the step, its files by name with their directory below what the module shares, its tests last, the build files under Wiring", () => {
+  it("lists a group per section of the step, its files by name with the folder Rust gives them in their module, its tests last, the build files under Wiring", () => {
     const tree = buildReviewTree(files, mechanical, chapters)
     expect(outline(tree)).toEqual([
       "1 · play the media embeds/",
@@ -737,15 +740,16 @@ describe("the groups of a large step in the tree of a review", () => {
     ])
     // the new module says so, and names the small module whose file it holds; its hover is its root
     expect([media!.section?.state, media!.section?.also, media!.title]).toEqual(["added", "also shared/code", `${ROOT}/view.gui.media`])
-    // a file of a module by its directory below what the files of its source directory share, one alone there by its
-    // name, a file of the small module by that module; a file of the contract by its whole path
+    // a file of a module by its folder below what the files of its module share (`FileFacts.folder`: a test in the
+    // folder of its code), nothing in that folder itself, a file of the small module by that module; a file of the
+    // contract by its whole path
     const directories = (group: FileTreeDirectory) =>
       flattenTreeNodes(group.children).flatMap(node => (node.kind === "file" ? [[node.name.slice(node.name.lastIndexOf("/") + 1), node.directory]] : []))
     expect(directories(gui!)).toEqual([
       ["PlayerBundle.properties", ""],
       ["EmbedKind.kt", "embeds"],
       ["MarkdownEmbeds.kt", "markdown"],
-      ["EmbedModelTest.kt", ""],
+      ["EmbedModelTest.kt", "embeds"],
     ])
     expect(directories(media!)).toEqual([
       ["NightlyBuild.kt", "shared/code"],

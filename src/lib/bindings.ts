@@ -3195,6 +3195,11 @@ export type FileFacts = {
 	repeatedEditOnly: boolean,
 	/**  Its module, by its place in `ReviewPlan::modules` */
 	module: number | null,
+	/**
+	 *  Its directory below the folders the files of its module share (`ModuleShape::directories`, all of its levels):
+	 *  `ui/embeds` of `src/ui/embeds/View.kt` and of `testSrc/ui/embeds/ViewTest.kt`; "" when that is its own directory
+	 */
+	folder: string,
 };
 
 /**  A changed file that uses another changed file */

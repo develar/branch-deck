@@ -103,7 +103,11 @@ export interface ChapterGroup {
   /** Its files (its rows and its rows "also in" another step) in the order of its stops; those from `tests` on are its tests */
   readonly paths: readonly string[]
   readonly tests: number
-  /** The directory after the name of each of its files (`directoryWords`), null for the whole directory */
+  /**
+   * The directory after the name of each of its files: of a file of its module the one Rust gives it below what the
+   * files of the module share (`FileFacts.folder`: `ui/embeds` of its code and of its tests, "" in its own), of a file
+   * of a small module the label of that module; null for the whole directory (the contract, the mechanical group)
+   */
   readonly directories: readonly (string | null)[]
 }
 
@@ -122,6 +126,7 @@ function chapterGroups(
   modules: readonly ModuleShape[],
   mechanical: ReadonlyMap<string, MechanicalKind>,
   moduleOf: ReadonlyMap<string, number>,
+  folderOf: ReadonlyMap<string, string>,
 ): readonly ChapterGroup[] {
   if (step.groups.length === 0) {
     return NO_GROUPS
@@ -147,12 +152,7 @@ function chapterGroups(
       const directories =
         words.root === null
           ? paths.map(() => null)
-          : directoryWords(
-              paths,
-              words.root,
-              path => moduleOf.get(path) === group.module,
-              path => modules[moduleOf.get(path) ?? -1]?.label ?? null,
-            )
+          : paths.map(path => (moduleOf.get(path) === group.module ? (folderOf.get(path) ?? "") : (modules[moduleOf.get(path) ?? -1]?.label ?? null)))
       groups.push({ ...words, also: alsoOf(group.also, modules), paths, tests: tests < 0 ? paths.length : tests, directories })
     }
   }
@@ -196,43 +196,6 @@ function groupWords(
   return { kind, name: module.label, code: true, hover: root, state, root: module.root }
 }
 
-/**
- * The directory after the name of each file of a group of a module, so the files of one folder read as one: below what
- * the files of the module share in the directory below its root they are in (`src`, `testSrc`, `resources`: of
- * `src/com/example/gui/embeds/View.kt` and `src/com/example/gui/markdown/Blocks.kt`, `embeds` and `markdown`), "" when
- * that is its own directory; a file of a small module the group also holds by the label of its module
- */
-function directoryWords(paths: readonly string[], root: string, own: (path: string) => boolean, labelOf: (path: string) => string | null): (string | null)[] {
-  const below = paths.map(path => {
-    const rest = root === "" ? path : path.slice(root.length + 1)
-    return rest.split("/").slice(0, -1)
-  })
-  // the directories all files of a source directory share, by that directory
-  const shared = new Map<string, string[]>()
-  paths.forEach((path, index) => {
-    if (own(path)) {
-      const segments = below[index]!
-      const known = shared.get(segments[0] ?? "")
-      if (known === undefined) {
-        shared.set(segments[0] ?? "", segments)
-      } else {
-        let common = 0
-        while (common < known.length && known[common] === segments[common]) {
-          common++
-        }
-        shared.set(segments[0] ?? "", known.slice(0, common))
-      }
-    }
-  })
-  return paths.map((path, index) => {
-    if (!own(path)) {
-      return labelOf(path)
-    }
-    const segments = below[index]!
-    return segments.slice(shared.get(segments[0] ?? "")?.length ?? 0).join("/")
-  })
-}
-
 /** "also shared/code": the labels of the small modules a group holds */
 function alsoOf(also: readonly number[], modules: readonly ModuleShape[]): string | null {
   const labels = also.flatMap(module => (modules[module] === undefined ? [] : [modules[module].label]))
@@ -263,6 +226,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
   const modules = plan.modules ?? []
   const mechanical = new Map((plan.files ?? []).flatMap(file => (file.mechanical === null ? [] : [[file.path, file.mechanical] as const])))
   const moduleOf = new Map((plan.files ?? []).flatMap(file => (file.module === null ? [] : [[file.path, file.module] as const])))
+  const folderOf = new Map((plan.files ?? []).map(file => [file.path, file.folder] as const))
   // of the steps of a message, a concern may be a step in part: its files are those of the step
   const message = plan.steps.source.kind === "message"
   return plan.steps.steps.map((step, index) => {
@@ -318,7 +282,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
         parts,
         paths: step.paths,
         elsewhere: step.elsewhere,
-        groups: chapterGroups(step, modules, mechanical, moduleOf),
+        groups: chapterGroups(step, modules, mechanical, moduleOf, folderOf),
       }
     }
     // Rust titles a step by the commit that starts it, as its author wrote it
@@ -337,7 +301,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
       parts,
       paths: step.paths,
       elsewhere: step.elsewhere,
-      groups: chapterGroups(step, modules, mechanical, moduleOf),
+      groups: chapterGroups(step, modules, mechanical, moduleOf, folderOf),
     }
   })
 }

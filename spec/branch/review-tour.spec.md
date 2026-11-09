@@ -354,7 +354,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_fenced_block_is_one_paragraph_with_its_lines_preserved`, `a_long_code_block_shows_changed_lines_with_one_line_of_context`, `a_link_reads_as_its_text_with_its_target`, `a_paragraph_changed_in_one_of_its_sentences_shows_it_first`, `a_short_paragraph_of_two_sentences_changed_in_one_shows_that_sentence`, `the_front_matter_is_the_lines_up_to_its_closing_rule`, `a_thematic_break_ends_a_paragraph`, `a_line_of_metadata_is_no_prose`, `a_table_with_one_added_row_is_its_header_and_that_row`, `a_changed_row_is_diffed_by_word_in_its_cells`, `a_line_of_pipes_without_a_delimiter_row_is_prose`)
 
 ### In `brd`
-- `brd review-plan` must print `steps` and `brief` (`"schema": 26`), the ids of the commits of the steps and of the
+- `brd review-plan` must print `steps` and `brief` (`"schema": 27`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -567,9 +567,10 @@ it added a module.
   "New module" (`success`) or "Deleted module" (muted) after its name, the small modules it holds muted on a second
   line ("also shared/code") with its counts. Its files are listed flat in the order of its stops, each once, at the
   first of its stops (a mechanical file in the mechanical group, as the groups of its kinds, "Build files (4)"), each
-  its name first and then, muted, its directory below what the files of its module share in the directory below the
-  root they lie in (`src`, `testSrc`, `resources`: `embeds`, `markdown`), nothing when that is its own, a file of a
-  small module by the label of that module, a file of the contract and of the mechanical group by its whole
+  its name first and then, muted, its `folder` ([Review Plan → Modules](review-plan.spec.md#modules)): its directory
+  below what the code and the tests of its module share, the resources apart (`embeds`, `markdown`; a test under
+  `testSrc` in the folder of its code, as the map names it), nothing when that is its own, a file of a small module by
+  the label of that module, a file of the contract and of the mechanical group by its whole
   directory; its tests last, under the muted heading "Tests". The heading of a group sticks right below the row of
   its step while its files scroll under it, and folds as a directory does (a click, its chevron, Space, → and ←; ←
   from a file goes to it); the mechanical group starts folded, and in a review of more than 100 files every group but
@@ -578,7 +579,7 @@ it added a module.
   are tinted, and a line in the primary tone at the chevron of the step runs from under its row to its last row,
   under its row when that row sticks, never across its chevron. A step without groups (a small step, a step of the
   concerns, a review without the plan) is listed as before.
-  [@test] ../../src/lib/file-tree.test.ts (`lists a group per section of the step, its files by name with their directory below what the module shares, its tests last, the build files under Wiring`, `lists a file of a group whose own row is in another step as a row also in that group, by its directory too`, `words the mechanical group Mechanical when it holds more than build files and lists of modules, and keeps a step without groups a list`, `shows the dependency changes of the build file of a module on the row of its group, the new module its badge alone`)
+  [@test] ../../src/lib/file-tree.test.ts (`lists a group per section of the step, its files by name with the folder Rust gives them in their module, its tests last, the build files under Wiring`, `lists a file of a group whose own row is in another step as a row also in that group, by its directory too`, `words the mechanical group Mechanical when it holds more than build files and lists of modules, and keeps a step without groups a list`, `shows the dependency changes of the build file of a module on the row of its group, the new module its badge alone`)
   [@test] ../../tests/e2e/branch-review/review-groups.spec.ts (`should read a large step by its groups: their files flat by their directory in the module, their tests last, a new module marked, the wiring folded at the end`)
 - The window must count the files of a step with groups the reader saw, on the row of the step and of each of its
   groups from the first one ("3 / 13 seen", muted, after the counts of the step and before those of a group; in the

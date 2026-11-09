@@ -14,6 +14,7 @@ import {
   presentFileBadges,
   presentRowFacts,
 } from "@/presenters/review-plan"
+import { fileFacts } from "@/test-support/review-step"
 
 function paired(state: PairedCommit["state"], id: string): PairedCommit {
   return { id: state === "dropped" ? null : id, reviewedId: state === "added" ? null : `r${id}`, subject: `subject ${id}`, state, changes: null, messageChange: null }
@@ -29,22 +30,7 @@ function usages(inside: number, outside: number): Usages {
 }
 
 function facts(patch: Partial<FileFacts>): FileFacts {
-  return {
-    path: "src/Store.kt",
-    oldPath: null,
-    mechanical: null,
-    generated: null,
-    uses: 0,
-    usedBy: 0,
-    newLinks: 0,
-    breaks: 0,
-    breaksComplete: true,
-    untested: false,
-    repeatedEdit: null,
-    repeatedEditOnly: false,
-    module: null,
-    ...patch,
-  }
+  return { ...fileFacts("src/Store.kt", null), ...patch }
 }
 
 describe("the words of the commits since the review", () => {

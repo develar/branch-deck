@@ -133,7 +133,7 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
 ### In `brd`
-- `brd review-plan` must print `units` (`"schema": 26`): per unit its `id`, `kind` (`shape` with `changes`,
+- `brd review-plan` must print `units` (`"schema": 27`): per unit its `id`, `kind` (`shape` with `changes`,
   `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles` with `directory`, `mechanical` with
   `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `api`, `test`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)

@@ -125,6 +125,9 @@ pub struct FileFacts {
   pub repeated_edit_only: bool,
   /// Its module, by its place in `ReviewPlan::modules`
   pub module: Option<u32>,
+  /// Its directory below the folders the files of its module share (`ModuleShape::directories`, all of its levels):
+  /// `ui/embeds` of `src/ui/embeds/View.kt` and of `testSrc/ui/embeds/ViewTest.kt`; "" when that is its own directory
+  pub folder: String,
 }
 
 /// What names a module the commits add or delete: the directory of its build file, and the name of its `*.iml`
@@ -748,6 +751,7 @@ pub(crate) fn file_facts(
         repeated_edit: group_of.get(&index).copied(),
         repeated_edit_only: only.contains(&index),
         module: None,
+        folder: String::new(),
       }
     })
     .collect();

@@ -16,6 +16,7 @@ export function fileFacts(path: string, module: number | null): FileFacts {
     repeatedEdit: null,
     repeatedEditOnly: false,
     module,
+    folder: "",
   }
 }
 
