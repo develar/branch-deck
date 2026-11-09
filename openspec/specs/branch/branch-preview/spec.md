@@ -80,7 +80,8 @@ Space MUST NOT expand or collapse the row.
 
 ↑ and ↓ MUST show the previous and the next branch in the order of the table, and the preview MUST show the position
 as `2 / 7`. Issue rows are not branches and MUST be skipped; under a filter, the arrows MUST walk the rows shown
-([Branch Filter](../branch-filter/spec.md)), and without one, MUST NOT walk the rows a collapsed stack hides.
+([Branch Filter](../branch-filter/spec.md)), the matches in a collapsed stack too, as a filter wins over the collapse,
+and without one, MUST NOT walk the rows a collapsed stack hides.
 
 #### Scenario: ↓ and ↑ show the next and the previous branch with the position
 - **GIVEN** the preview is open
@@ -94,9 +95,9 @@ as `2 / 7`. Issue rows are not branches and MUST be skipped; under a filter, the
 - **THEN** ↓ skips it, as it is not a branch
 
 #### Scenario: Under a filter
-- **GIVEN** a filter of the table is set
+- **GIVEN** a filter of the table is set, and a branch it matches is in a collapsed stack
 - **WHEN** the user steps with ↑ and ↓
-- **THEN** the preview walks the rows the filter shows
+- **THEN** the preview walks the rows the filter shows, the matched branch of the collapsed stack among them
 
 #### Scenario: Without a filter, a collapsed stack
 - **GIVEN** no filter is set and a collapsed stack hides some rows
