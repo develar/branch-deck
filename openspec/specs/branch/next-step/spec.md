@@ -122,7 +122,7 @@ other surface MUST disable "Safe Push" with (`safePushBlocker`, the `safe-push` 
 #### Scenario: The first row that matches decides the step
 - **WHEN** the next step of a branch is decided
 - **THEN** it is the first of these rows that matches, its slot as the row says
-- **AND** every other surface disables "Safe Push" with the reason of "Safe Push elsewhere"
+- **AND** every other surface offers "Safe Push" as "Safe Push elsewhere" says, disabled with its reason
 
   | # | State | Slot | Safe Push elsewhere |
   |---|---|---|---|
@@ -158,7 +158,7 @@ other surface MUST disable "Safe Push" with (`safePushBlocker`, the `safe-push` 
 #### Scenario: Row 1 offers nothing and the Status cell says why
 - **WHEN** the branch syncs, failed to sync, has no commits, is blocked, held, parked, landed, merged or its robot runs
 - **THEN** the slot offers nothing and the Status cell says why
-- **AND** both starts are disabled with the reason
+- **AND** both starts are disabled with the reason, but for a running robot of an older commit: its start is enabled and replaces it
   [@test] crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`)
   [@test] src/presenters/next-step.test.ts (`row 1: offers nothing, every surface says the reason of the subject: a sync, a failure, no commits, parked, landed`)
   [@test] tests/e2e/next-step/next-step.spec.ts (`should offer nothing after a merge, and say so in the menu`)
@@ -589,11 +589,6 @@ a quiet step: it only opens the pull request.
   [@test] src/presenters/next-step.test.ts (`lays what runs on the row over the step: its own action runs, the others wait, never a quiet step nor another field of the pull request`)
   [@test] src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`)
 
-#### Scenario: The notice of S while it runs
-- **WHEN** S is pressed on the row while the operation runs
-- **THEN** the notice is a short title naming the subject, a reason of the subject first
-  [@test] src/presenters/next-step.test.ts (`words the notice of S as a short title naming the subject, a reason of the subject first`)
-
 ### Requirement: The table: A step that writes another field of the pull request runs beside it
 
 An operation on the row MUST NOT disable a step that writes another field of the pull request than the operation
@@ -666,7 +661,7 @@ forks with each patch of its view (`RepositoryView.nextSteps`, `repository_model
 
 #### Scenario: `brd` prints the step of the app's row
 - **WHEN** `brd status` or `brd safe-push --dry-run` runs
-- **THEN** it prints the step of what it read ([Agent CLI](../../cli/agent-cli/spec.md#bd-status)), the step of the app's row
+- **THEN** it prints the step of what it read ([Agent CLI](../../cli/agent-cli/spec.md#brd-status)), the step of the app's row
   [@test] crates/bd-remote/src/landed_test.rs (`status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row`)
   [@test] crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`)
 
@@ -787,11 +782,18 @@ the name is landing in a running Safe Push, the reason MUST say so.
 - **THEN** the reason says "stills-codec is landing in its Safe Push, which tests it without this start: a start beside it fails too."
   [@test] src/presenters/landing.test.ts (`says that the branch the start needs is landing in a running Safe Push, which tests it without this start`)
 
-### Requirement: What the Safe Push needs: The whole stack and the declared needs
+### Requirement: What the Safe Push needs: The whole stack has no landing needs of its own
 
-The whole stack MUST have no landing needs of its own: the gate of its start checks it. The order the user declares
-(`brd need`) MUST be a need too, read of the repository rather than computed, so it needs no answer and comes before
-the waits of row 0; the whole stack has the declared needs of every branch it lands
+The whole stack MUST have no landing needs of its own: the gate of its start checks it.
+
+#### Scenario: The step of the whole stack
+- **WHEN** the step of the whole stack is decided
+- **THEN** no landing need of its own decides it, and the gate of its start checks what it lands
+
+### Requirement: What the Safe Push needs: A declared order is a need read of the repository
+
+The order the user declares (`brd need`) MUST be a need too, read of the repository rather than computed, so it needs
+no answer and comes before the waits of row 0; the whole stack MUST have the declared needs of every branch it lands
 ([Declared Needs](../declared-needs/spec.md#every-route)).
 
 #### Scenario: A declared need
@@ -868,14 +870,24 @@ doesn't, `PatronusAnswer::NotOnSpace` of `domain_policy::actions`).
 ### Requirement: Facts without an answer: Create Pull Request… waits for the listing
 
 "Create Pull Request…" of "⋯" MUST be disabled with "Waits for GitHub to list the pull requests" while the branch may
-have one; S MUST say it in an `info` notice ("Safe Push of JIRA-456 waits for GitHub"); the node of the row waits too
-and the header counts no move of it ([Landing Overview](../../repository/landing-overview/spec.md#indicator)).
+have one.
 
 #### Scenario: Before GitHub lists the pull requests
 - **WHEN** GitHub hasn't listed the pull requests yet
 - **THEN** "Create Pull Request…" of "⋯" is disabled with "Waits for GitHub to list the pull requests"
-- **AND** S says "Safe Push of JIRA-456 waits for GitHub" in an `info` notice
   [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Create Pull Request… before GitHub lists the pull requests, say a failed listing, and keep the last listing through a failed refresh`)
+
+### Requirement: Facts without an answer: S and the node of the row wait too
+
+While the step waits for a fact, S MUST say it in an `info` notice ("Safe Push of JIRA-456 waits for GitHub"), and the
+node of the row MUST wait too, the header counting no move of it
+([Landing Overview](../../repository/landing-overview/spec.md#indicator)).
+
+#### Scenario: S on a row that waits for GitHub
+- **WHEN** the user presses S on a row whose step waits for GitHub to list the pull requests
+- **THEN** an `info` notice says "Safe Push of JIRA-456 waits for GitHub"
+- **AND** the node of the row waits, and the header counts no move of it
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should wait with Checking… for the pull requests and the approvals, S and the menu saying why, then start the Safe Push they allow`)
 
 ### Requirement: Facts without an answer: A Dry Run waits only for Patronus
 
@@ -914,13 +926,20 @@ its start confirms first.
 
 A refresh GitHub fails for a while after a listing (an error, offline, the rate limit) MUST keep that listing
 (`listed`): the steps read its pull requests as of then, so a failed refresh never turns a wait back into a Safe Push.
-A view Patronus didn't give leaves the step to the rows below.
 
 #### Scenario: A refresh fails after a listing
 - **WHEN** a refresh of GitHub fails for a while after a listing
 - **THEN** the steps read the pull requests of that listing, a wait stays a wait
 - **AND** once the token is gone, the listing is not kept
   [@test] src/stores/pull-requests.test.ts (`keeps the last listing through a refresh GitHub failed for a while, never once its token is gone`)
+
+### Requirement: Facts without an answer: A view Patronus didn't give leaves the step to the rows below
+
+A view Patronus didn't give MUST leave the step to the rows below.
+
+#### Scenario: No view of Patronus
+- **WHEN** Patronus gave no view
+- **THEN** the rows below decide the step
 
 ### Requirement: Facts without an answer: A read of Patronus that failed decides no start
 
@@ -1314,6 +1333,7 @@ answer is the step's reason.
   [@test] tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say on S why the whole stack can't start without its pull request, and create it from the notice`)
   [@test] tests/e2e/next-step/next-step.spec.ts (`should open Request Review… from the notice of S while nobody of a group is asked`)
+  [@test] src/presenters/next-step.test.ts (`words the notice of S as a short title naming the subject, a reason of the subject first`)
 
 ### Requirement: The surfaces: The preview, the review window and the stack header read the same blocker
 
@@ -1325,11 +1345,6 @@ same blocker as the row. Your Turn is not a branch row: its Safe Push of a revie
 - **WHEN** the user presses S in the branch preview
 - **THEN** the Safe Push popover opens, and its footer button starts it
   [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover from the branch preview with S, and start from its footer button`)
-
-#### Scenario: The root of a small stack
-- **WHEN** the row of the root of a small stack shows
-- **THEN** the approvals of its whole stack are asked, and its pull request offered where they are missing
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
 
 ### Requirement: The surfaces: The node of the row renders the step as where the branch is
 
@@ -1426,6 +1441,11 @@ and stacks.
 - **THEN** they are a row on the screen, not one a collapsed stack, side stack or island hides (it is not rendered), and of the root of a stack that forks its whole stack too, so a small stack without an island knows the approvals of its whole stack before a click
 - **AND** the header of an island (its whole stack, below, or the last branch of a straight chain, also while collapsed), the preview and the review window (its chain, or `stack:<root>` of the review of the whole stack)
 
+#### Scenario: The root of a small stack
+- **WHEN** the row of the root of a small stack without an island shows
+- **THEN** the approvals of its whole stack are asked before a click, and its pull request offered where they are missing
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
+
 ### Requirement: The readiness store: The session asks only the subjects whose step waits for it
 
 The session MUST ask only those of the shown subjects whose own next step waits for the readiness
@@ -1479,6 +1499,11 @@ hidden ones, at most 4 pre-checks at a time, in table order, the next as one ans
 - **THEN** the kept answers come from the cache first, then the shown rows before the hidden ones, at most four in parallel
   [@test] crates/remote-facts/src/scheduler_test.rs (`asks_the_shown_rows_before_the_hidden_awaiting_ones_at_most_four_in_parallel`, `answers_the_cache_before_the_queue`)
 
+#### Scenario: The kept answers
+- **WHEN** the cache keeps the answer of the same inputs
+- **THEN** it comes from the cache without asking Patronus
+  [@test] crates/remote-facts/src/review_readiness_test.rs (`the_kept_answers_come_from_the_cache_without_asking_patronus`)
+
 ### Requirement: The readiness store: A hidden subject is asked once it shows
 
 A hidden subject MUST be asked once it shows; its answer stays meanwhile, marked stale when it shows with another
@@ -1519,11 +1544,6 @@ subject again only for new inputs (a tip it moved).
 - **WHEN** a window demands the readiness while a sync runs
 - **THEN** it is asked at once, and the end of the sync asks it once more only for new inputs
   [@test] crates/remote-facts/src/scheduler_test.rs (`a_demand_during_a_sync_is_asked_at_once_and_the_end_of_the_sync_asks_it_once_more_only_for_new_inputs`)
-
-#### Scenario: The kept answers
-- **WHEN** the cache keeps the answer of the same inputs
-- **THEN** it comes from the cache without asking Patronus
-  [@test] crates/remote-facts/src/review_readiness_test.rs (`the_kept_answers_come_from_the_cache_without_asking_patronus`)
 
 ### Requirement: The readiness store: An answer is keyed by its input
 
