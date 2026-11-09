@@ -306,6 +306,7 @@ The output MUST list each commit the words resolved in `resolved`: the `commit`,
 #### Scenario: A dry run
 - **WHEN** a dry run of such an update prints `resolved`
 - **THEN** each entry omits `new_id`
+  [@test] crates/bd-update/src/resolve_test.rs (`an_update_whose_conflict_resolves_by_words_applies_and_names_the_commit`)
 
 ### Requirement: Update: Each commit the words resolve gets a resolve note
 
@@ -518,13 +519,19 @@ update onto a newer baseline would make its pick refuse it (`source_on_newer_bas
 
 ### Requirement: In a lease: The other modes of `brd update` go on in a lease
 
-`--dry-run`, `--status`, `--continue` and `--abort` SHALL go on in a lease; a host slot of `brd-host` is no lease of a
-session.
+The lease MUST NOT refuse `--dry-run`, `--status`, `--continue` and `--abort`: they go on in a lease; a host slot of
+`brd-host` is no lease of a session.
 
-#### Scenario: A session in a lease is closed with `--abort`
+#### Scenario: A session in a lease is read with `--status` and closed with `--abort`
 - **GIVEN** a resolve session open in a lease
-- **WHEN** `brd update --abort` runs there
-- **THEN** the session is closed
+- **WHEN** `brd update --status` and then `brd update --abort` run there
+- **THEN** the status answers with exit 0, and the abort closes the session
+  [@test] crates/bd-lease/src/lease_pick_test.rs (`an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort`)
+
+#### Scenario: A dry run in a lease
+- **GIVEN** the detached HEAD of a lease
+- **WHEN** `brd update --dry-run` runs there
+- **THEN** the lease does not refuse it; the check of the baseline does, as `detached_head`, as on any detached HEAD
   [@test] crates/bd-lease/src/lease_pick_test.rs (`an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort`)
 
 #### Scenario: A host slot of `brd-host`
@@ -598,18 +605,25 @@ exit code MUST be 1.
 ### Requirement: Resolve session: The first round is computed before the repository lock
 
 The search for the first conflict and the first round (its replays, its merge, its objects) MUST run before the
-repository lock, on the HEAD and the upstream the check read; under it only the witness of the update, the state with
-the session ref and the copies of the round. A HEAD or an upstream that moved meanwhile (another process regrouped the
-branch) MUST check and open the round once more under the lock, on what it finds there.
+repository lock, on the HEAD and the upstream the check read; under it MUST run only the witness of the update, the
+state with the session ref and the copies of the round.
 
 #### Scenario: Only the witness and the write under the lock
 - **WHEN** a session starts
-- **THEN** the lock holds only the witness of the update and the write of the state with the session ref and the copies
+- **THEN** the replays and the merge of the check and of the first round run before the lock
+- **AND** the lock holds only the witness of the update and the write of the state with the session ref and the copies
   [@test] crates/update-core/src/update_project_test.rs (`the_start_of_a_resolve_session_locks_only_the_witness_and_its_write`)
+
+### Requirement: Resolve session: A HEAD or upstream that moved meanwhile is checked again without the lock
+
+A HEAD or an upstream that moved between the check and the witness (another process regrouped the branch) MUST release
+the lock, check and open the round once more without it, on what it finds then, and take the lock for the witness
+again.
 
 #### Scenario: A regroup during the search for the first conflict
 - **WHEN** another process regroups the branch while the first conflict is searched
-- **THEN** the regroup is done, and the session checks and opens its round once more under the lock, on what it finds
+- **THEN** the regroup is done, and the session checks and opens its round once more without the lock
+- **AND** the session starts from the regrouped HEAD
   [@test] crates/update-core/src/update_project_test.rs (`a_regroup_during_the_first_conflict_search_of_a_resolve_session_is_done_and_the_session_opens_on_it`)
 
 ### Requirement: Resolve session: A session belongs to one worktree and one branch
@@ -864,7 +878,8 @@ fixups summed: `local_only` (what a drop loses) and `upstream_only`, per path at
 
 #### Scenario: The round of a twin
 - **WHEN** the round of a candidate opens
-- **THEN** `session.commit.landed_as` has the baseline commit, its subject, `local_only` and `upstream_only`
+- **THEN** `session.commit.landed_as` has the baseline commit, its subject, `local_only` (absent when a drop loses
+  nothing) and `upstream_only`
   [@test] crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`)
 
 #### Scenario: The interdiff of a candidate with fixups
@@ -1116,6 +1131,7 @@ A commit that the words leave without a change MUST be dropped, as `git replay` 
 #### Scenario: The words leave the commit empty
 - **WHEN** the words resolve a commit to no change
 - **THEN** the commit is dropped
+  [@test] crates/git-ops/src/word_replay_test.rs (`a_commit_that_the_words_leave_without_a_change_is_dropped`)
 
 ### Requirement: Rounds: A second conflicting commit opens a new round with its own directory
 
@@ -1163,6 +1179,7 @@ Windows also no name Windows can't hold, which a tree made on Linux or macOS may
 - **WHEN** on Windows a tree path has `\`, a drive prefix, a device name such as `CON`, `<>:"|?*` or a control
   character, a trailing dot or space
 - **THEN** it is invalid
+  [@test] crates/git-ops/src/update_resolve_test.rs (`tree_paths_that_could_leave_a_directory_are_invalid`)
 
 ### Requirement: Copies: A long basename is cut and keeps its extension
 
@@ -1268,9 +1285,14 @@ unchanged modify/delete copy is no resolution either. A take of a side without t
 #### Scenario: A modify/delete resolved with a take or a delete
 - **GIVEN** a `modify_delete` round
 - **WHEN** it is resolved with `--take` or `--delete`, or its copy is left unchanged
-- **THEN** a take of a side without the file deletes it, the delete deletes it
+- **THEN** a take writes the version of its side, the delete deletes the file
 - **AND** an unchanged copy is `missing_resolution`
   [@test] crates/bd-update/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`)
+
+#### Scenario: A missing copy is no delete
+- **WHEN** the agent deletes the `edit` copy of a `content` file
+- **THEN** `--continue` is `missing_resolution`, and nothing moves
+  [@test] crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
 
 ### Requirement: `--continue`: The resolutions of a rename/rename file
 
@@ -1312,6 +1334,7 @@ and `commit`, MUST be `invalid_arguments`.
 #### Scenario: A take of another path or side
 - **WHEN** `--take` or `--delete` names a path the round does not have, or a side other than `onto` and `commit`
 - **THEN** it is `invalid_arguments`
+  [@test] crates/bd-update/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`)
 
 ### Requirement: `--continue`: A block is recognised only by brd's labels
 
@@ -1494,6 +1517,12 @@ candidate).
 #### Scenario: An empty commit dropped
 - **WHEN** `--continue --drop-empty <commit>` runs on an empty resolution
 - **THEN** the commit is dropped: `new_id` null, no note, `proof: user` in `dropped`
+- **AND** without a commit of its author, author time and subject in the baseline it is not in `landed`
+  [@test] crates/bd-update/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
+
+#### Scenario: `--drop-empty` of another commit
+- **WHEN** `--drop-empty` names another commit than the round's
+- **THEN** it is `invalid_arguments`
   [@test] crates/bd-update/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
 
 #### Scenario: A dropped candidate
@@ -1653,6 +1682,7 @@ its release, and print the `worktree`, the `branch` and the `round`; it writes n
 #### Scenario: An invalid id
 - **WHEN** the id of `--worktree` has another character than letters, digits, `.`, `_` and `-`
 - **THEN** it is `invalid_arguments`
+  [@test] crates/bd-update/src/resolve_test.rs (`aborting_the_live_session_of_another_worktree_needs_allow_live_session`)
 
 ### Requirement: `--abort` and `--status`: Temporary refs older than an hour are deleted
 
@@ -1725,6 +1755,16 @@ error.
   |---|---|
   | 1 | a round is open (`conflict`) or the finish is next (`pending`): an output, not an error |
 
+#### Scenario: An open round and a pending finish exit with 1
+- **WHEN** `brd update` opens a round, or prints `pending` with the finish next
+- **THEN** it exits with 1
+  [@test] crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `local_changes_on_the_finish_keep_the_session_ready`)
+
+#### Scenario: No error code exits with 1
+- **WHEN** the exit code of each error code is checked
+- **THEN** none is 1: a conflict is an output, never an error
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
+
 ### Requirement: Error codes: Exit 2 is a refused resolution or argument
 
 The codes `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`,
@@ -1738,6 +1778,11 @@ The codes `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `mi
   |---|---|
   | 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `not_landed_round`, `landed_differs`, `landed_not_empty`, `invalid_arguments` |
 
+#### Scenario: Each code of the row
+- **WHEN** the exit code and the retry of each error code are checked
+- **THEN** each code of this row exits with 2 and is not retryable
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
+
 ### Requirement: Error codes: Exit 3 is a retryable move or lock
 
 The codes `head_moved`, `round_moved` and `locked` MUST exit with 3, and they are retryable.
@@ -1749,6 +1794,11 @@ The codes `head_moved`, `round_moved` and `locked` MUST exit with 3, and they ar
   | Exit | Codes |
   |---|---|
   | 3 | `head_moved`, `round_moved`, `locked` (retryable) |
+
+#### Scenario: Each code of the row
+- **WHEN** the exit code and the retry of each error code are checked
+- **THEN** each code of this row exits with 3 and is retryable
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
 
 ### Requirement: Error codes: Exit 4 is a state the agent cannot retry out of
 
@@ -1762,6 +1812,11 @@ MUST exit with 4.
   | Exit | Codes |
   |---|---|
   | 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending`, `lease_follows_home` |
+
+#### Scenario: Each code of the row
+- **WHEN** the exit code and the retry of each error code are checked
+- **THEN** each code of this row exits with 4 and is not retryable
+  [@test] crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
 
 ### Requirement: Error codes: The refusals list their files in `paths`
 
