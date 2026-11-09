@@ -307,7 +307,9 @@ export function verify(path, rev = "HEAD", mapPath = null) {
       sequence.push(group)
     }
   }
-  const expected = groupTitles.filter(title => old.groups.find(group => group.title === title).items.some(item => item.kind === "bullet"))
+  // a title that two groups share (a group of `## User Experience` folded in beside the rules of the same name) is one
+  // group, at the place of its first
+  const expected = [...new Set(groupTitles)].filter(title => old.groups.some(group => group.title === title && group.items.some(item => item.kind === "bullet")))
   const seen = sequence.filter(group => expected.includes(group))
   if (JSON.stringify(seen) !== JSON.stringify(expected)) {
     problems.push(`the groups are not the old ones in their order: ${JSON.stringify(seen)} ≠ ${JSON.stringify(expected)}`)
