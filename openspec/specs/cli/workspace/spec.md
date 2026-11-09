@@ -94,12 +94,13 @@ read of the pool config.
 - **WHEN** an agent leases a worktree, then runs `brd workspace` in it
 - **THEN** the `next` of `brd lease get` and of `brd workspace` alike holds `brd -C <shared checkout> push <branch>`
   between the pick and the return
+- **AND** `brd lease get` reads the key in its one read of the pool config
   [@test] crates/bd-lease/src/workspace_test.rs (`the_pull_request_rule_pushes_the_branch_after_the_pick`)
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
 
 #### Scenario: The key of the repository turns the rule on
 - **WHEN** the repository's own config sets `branchdeck.agentPullRequest` on, the default being off
-- **THEN** the rule is on with the source `local`
-- **AND** `brd lease get` reads the key in its one read of the pool config
+- **THEN** the rule is on with the source `local`, for this repository alone
   [@test] crates/sync-core/src/repository_config_test.rs (`the_agent_keys_are_written_globally_and_a_repository_keeps_its_own`)
 
 ### Requirement: The Push route of the repository turns the pull request rule off
@@ -116,6 +117,7 @@ without a pull request, so `pull_request` set on MUST answer `on: false` with th
   work lands without a pull request"
 - **AND** neither `next` (of `brd workspace` and of `brd lease get`) holds the push
   [@test] crates/bd-lease/src/workspace_test.rs (`the_push_route_turns_the_pull_request_rule_off_and_a_global_push_route_does_not`)
+  [@test] crates/sync-core/src/repository_config_test.rs (`the_push_route_of_the_repository_turns_the_agent_pull_request_off`)
 
 ### Requirement: A Push route of the global or the system config changes nothing
 
@@ -144,8 +146,15 @@ route with its scope in its one read of the pool config, and Settings → Agents
 #### Scenario: Settings → Agents reads the same reason
 - **WHEN** the repository's own config names the Push route
 - **THEN** `RepositoryConfig.agentPullRequestOff` holds the same reason, which Settings → Agents reads
-- **AND** `brd lease get` reads the route with its scope in its one read of the pool config
   [@test] crates/sync-core/src/repository_config_test.rs (`the_push_route_of_the_repository_turns_the_agent_pull_request_off`)
+
+#### Scenario: `brd lease get` reads the route with its scope
+- **WHEN** an agent leases a worktree under a Push route of the repository's own config, then under one of the global
+  config
+- **THEN** the `next` of the first get lacks the push and the `next` of the second holds it
+- **AND** the get reads the route with its scope in its one read of the pool config
+  [@test] crates/bd-lease/src/workspace_test.rs (`the_push_route_turns_the_pull_request_rule_off_and_a_global_push_route_does_not`)
+  [@test] crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
 
 ### Requirement: In the main worktree the next command leases a worktree
 
@@ -296,14 +305,14 @@ sandbox, MUST turn the lease off with the reason; the probe file MUST be removed
 
 ### Requirement: `brd workspace` runs one git process per read
 
-`brd workspace` MUST run one `rev-parse`, one `git config` of the `branchdeck.*` keys, in the main worktree one more of
-the pool config, in the main worktree or a lease one `status` of the shared checkout (`GIT_OPTIONAL_LOCKS=0`), and in a
+`brd workspace` MUST run one `rev-parse`, one `git config` of the `branchdeck.*` keys, in the main worktree with the
+lease on one more of the pool config, in the main worktree or a lease one `status` of the shared checkout (`GIT_OPTIONAL_LOCKS=0`), and in a
 lease one more `rev-parse` of the branch the shared checkout has checked out now.
 
 #### Scenario: The git processes of `brd workspace`
 - **WHEN** an agent runs `brd workspace`
 - **THEN** it runs one `rev-parse` and one `git config` of the `branchdeck.*` keys
-- **AND** in the main worktree one more `git config` of the pool config
+- **AND** in the main worktree with the lease on one more `git config` of the pool config
 - **AND** in the main worktree or a lease one `status` of the shared checkout (`GIT_OPTIONAL_LOCKS=0`)
 - **AND** in a lease one more `rev-parse` of the branch the shared checkout has checked out now
   [@test] crates/bd-cli/src/process_budget_test.rs (`a_workspace`)
@@ -516,13 +525,14 @@ with `gh pr edit`.
 - **AND** a promise of the description it breaks is fixed with `gh pr edit`
   [@test] crates/bd-cli/src/agent_help_test.rs (`the_skill_opens_the_pull_request_only_where_the_rule_says_and_keeps_pushed_history`)
 
-### Requirement: A repository's instructions only rely on the skill
+### Requirement: A repository's instructions need say only that it relies on the skill
 
-With these rules in the skill, a repository's instructions SHALL say only that it relies on the skill.
+The skill MUST carry these rules in full, so that a repository's instructions need say only that it relies on the skill,
+without repeating them.
 
 #### Scenario: The agent instructions of a repository
 - **WHEN** a repository writes its agent instructions
-- **THEN** they say only that it relies on the skill
+- **THEN** it need not repeat the rules of the skill: saying that it relies on the skill is enough
 
 ### Requirement: `brd help worktrees` leases only when `brd workspace` says so
 
