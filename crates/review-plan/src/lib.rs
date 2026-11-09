@@ -35,6 +35,7 @@ pub mod api;
 pub mod brief;
 pub mod concerns;
 pub mod dependencies;
+pub mod entries;
 pub mod fan_in;
 pub mod files;
 pub mod groups;
@@ -56,8 +57,10 @@ use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, api_changes};
 use crate::brief::{ReviewBrief, review_brief};
 use crate::concerns::{Concern, ConcernEdges, review_concerns};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
+use crate::entries::add_entries;
 use crate::fan_in::{add_usages, verdict_of};
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
+use crate::groups::order_by_entries;
 use crate::interdiff::{Interdiff, MessageChange, PairState, commits_of, interdiff, message_change};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base, resolve_branch};
@@ -545,8 +548,10 @@ pub fn review_plan_of(
     order,
     index_note: None,
   };
-  let asks =
-    api.iter().any(|change| change.kind != ApiChangeKind::Added) || plan.steps.steps.iter().any(|step| !step.code.is_empty()) || (sides.is_some() && !descriptors.is_empty());
+  let asks = api.iter().any(|change| change.kind != ApiChangeKind::Added)
+    || plan.steps.steps.iter().any(|step| !step.code.is_empty())
+    || (sides.is_some() && !descriptors.is_empty())
+    || modules.shapes.iter().any(|module| module.state == modules::ModuleState::Added);
   plan.modules.clone_from(&modules.shapes);
   if sources.index.is_some() && asks {
     (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
@@ -554,9 +559,11 @@ pub fn review_plan_of(
     plan.api.clone_from(&api);
     pending(&plan);
   }
-  // the usages of the API, the tests of the steps and the descriptors of each side, each one query of the index, at once
+  // the usages of the API, the tests of the steps, the descriptors of each side and what enters each new module, each one
+  // query of the index, at once
   let head = plan.head.clone();
   let steps = &mut plan.steps;
+  let shapes = &mut plan.modules;
   let registrations_input = RegistrationsInput {
     repository_path,
     sides: sides.as_ref().map(|(base, head)| (base.as_str(), head.as_str())),
@@ -564,18 +571,23 @@ pub fn review_plan_of(
     changed: &changed,
     modules: &modules,
   };
-  let (usages, tests, registrations) = std::thread::scope(|scope| {
+  let (usages, tests, registrations, entries) = std::thread::scope(|scope| {
     let tests = scope.spawn(in_current_span(|| add_tests(sources.index, repository_path, &head, steps)));
     let registrations = scope.spawn(in_current_span(|| registrations_of(sources.index, &registrations_input)));
+    let entries = scope.spawn(in_current_span(|| add_entries(sources.index, repository_path, &head, shapes)));
     let usages = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api);
     (
       usages,
       tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked"))),
       registrations.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the descriptors panicked"))),
+      entries.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the entry points panicked"))),
     )
   });
   let (registrations, registrations_note) = registrations?;
+  entries?;
   plan.index_note = usages?.or(tests?).or(registrations_note);
+  // the group of a new module reads from its entry points
+  order_by_entries(&mut plan.steps.steps, &plan.modules);
   plan.registrations = registrations;
   (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
   with_modules(&mut plan.files, &changed, &modules);

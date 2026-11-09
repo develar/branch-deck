@@ -25,9 +25,10 @@ const REGISTRY_KEY = {
 
 /**
  * accio's answer for the descriptor the change adds, at the head the review reads (the copy the sync builds of the
- * branch): its application service, the `extensions` given, its class resolved there; the base has none
+ * branch): its application service, the `extensions` given, its class resolved there; the base has none. With
+ * `surface`, its answer of what enters the new module there
  */
-async function answerDescriptor(repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>, extensions: readonly unknown[]): Promise<void> {
+async function answerDescriptor(repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>, extensions: readonly unknown[], surface?: unknown): Promise<void> {
   const line = {
     path: DESCRIPTOR,
     root: "idea-plugin",
@@ -37,7 +38,8 @@ async function answerDescriptor(repo: TestRepositoryBuilder, syncAndWaitForBranc
   }
   await syncAndWaitForBranches()
   const head = await repo.revision(virtualBranch("media"))
-  writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ descriptors: { [`${head}:${DESCRIPTOR}`]: line } }))
+  const surfaces = surface === undefined ? {} : { [`${head}:${ROOT}/view.gui.media`]: surface }
+  writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ descriptors: { [`${head}:${DESCRIPTOR}`]: line }, surface: surfaces }))
 }
 
 test.describe("Review groups", () => {
@@ -267,5 +269,55 @@ test.describe("Review groups", () => {
     // a name of a group shows its declaration, its file selected in the tree
     await media.getByTestId("review-map-registration").click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: DECODER, exact: true })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should name what enters a new module in the opening of its group, read the group from the file of its entry point, and show its declaration on a click", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_modules")
+    turnOnReviewPlan(repo)
+    // accio: the class the descriptor of the new module registers enters it
+    const registration = {
+      file: DESCRIPTOR,
+      line: 7,
+      label: "descriptor",
+      point: "com.intellij.applicationService",
+      of: "com.example.player.media.MediaDecoder",
+      resolved: "typed",
+      test: false,
+    }
+    await answerDescriptor(repo, syncAndWaitForBranches, [], {
+      module: `${ROOT}/view.gui.media`,
+      complete: true,
+      declarations: [
+        {
+          file: DECODER,
+          line: 8,
+          kind: "class",
+          name: "AvFoundationDecoder",
+          qualified: "com.example.player.media.avfoundation.AvFoundationDecoder",
+          used_by: [{ file: DESCRIPTOR, line: 7 }],
+          uses: [registration],
+        },
+      ],
+    })
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
+
+    const media = window.getByTestId("review-group-opening").filter({ has: window.getByTestId("review-group-opening-name").getByText("view.gui.media", { exact: true }) })
+    const entry = media.getByTestId("review-step-entry")
+    await expect(entry).toHaveText("AvFoundationDecoder (applicationService of MediaDecoder)")
+    // the group of the new module reads from the file of its entry point
+    const { tree } = reviewSidebar(window)
+    const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))
+    await expect
+      .poll(async () => {
+        const all = await rows()
+        return all[all.indexOf("view.gui.media") + 1]
+      })
+      .toBe(DECODER)
+    await entry.click()
+    await expect(tree.getByRole("treeitem", { name: DECODER, exact: true })).toHaveAttribute("aria-selected", "true")
   })
 })

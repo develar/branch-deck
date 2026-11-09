@@ -17,6 +17,14 @@ import type { FactList, StepFacts } from "@/presenters/review-story"
  */
 export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFacts; testId: string; lines?: boolean }) {
   const parts = [
+    ...(facts.entries === undefined || facts.entries.places.length === 0 ? [] : [<FactPlaces key="entries" title="Entered by" list={facts.entries} testId="review-step-entry" />]),
+    ...(facts.entriesNote == null
+      ? []
+      : [
+          <span key="entries-note" data-testid="review-step-entries-note">
+            {facts.entriesNote}
+          </span>,
+        ]),
     ...facts.tests.map((fact, index) => <FactPlaces key={`tests:${fact.key}:${index}`} title={fact.words} list={fact.names} testId="review-step-tested" kind={fact.key} />),
     ...(facts.line === null ? [] : [<span key="line">{facts.line}</span>]),
     ...facts.proves.map((proved, index) => (

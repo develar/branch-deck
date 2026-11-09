@@ -48,6 +48,7 @@ export function moduleShape(root: string, label: string, more: Partial<ModuleSha
     usedBy: [],
     contentOf: [],
     newDependencies: [],
+    entries: null,
     ...more,
   }
 }

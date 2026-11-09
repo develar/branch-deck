@@ -39,6 +39,9 @@ use sync_utils::child_process::{ChildPriority, ChildProcessError, cached_login_s
 
 /// The declarations a lookup answers at most
 const LIMIT: &str = "20";
+/// The seconds `accio surface` may spend on the new modules of a side: the review waits for it beside the usages and
+/// the tests (opening the index comes on top, ~5 s)
+const SURFACE_BUDGET: &str = "15";
 /// The usages a lookup answers at most
 const REFERENCES_LIMIT: &str = "100";
 /// The tests a lookup answers at most, per declaration: the given tests of a change reach one declaration by the
@@ -362,6 +365,73 @@ pub struct TestReach {
   pub unavailable: bool,
 }
 
+/// The declarations of a module that something outside it uses (`accio surface`, accio#541), its answer for one
+/// `--module`: what enters the module, a class a plugin descriptor registers first
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct ModuleSurface {
+  /// The module's directory as asked
+  pub module: String,
+  /// Every declaration was asked and no scan was cut (the budget, the index): what it lists is all that enters
+  #[serde(default)]
+  pub complete: bool,
+  /// Why the answer is partial (`the budget of 15s ran out: …`) or empty (no usable index)
+  #[serde(default)]
+  pub note: Option<String>,
+  #[serde(default)]
+  pub declarations: Vec<SurfaceDeclaration>,
+}
+
+/// A declaration of a module used outside it (`ModuleSurface::declarations`)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct SurfaceDeclaration {
+  /// Its file at the revision asked, from the root of the repository
+  pub file: String,
+  /// The line of its name, from 1
+  pub line: u32,
+  /// accio's kind: `class`, `function`, …
+  #[serde(default)]
+  pub kind: String,
+  pub name: String,
+  /// Its qualified name; absent where the language qualifies none
+  #[serde(default)]
+  pub qualified: Option<String>,
+  /// Every file with a resolved or descriptor use of it, its first such line, by path
+  #[serde(default)]
+  pub used_by: Vec<SurfaceSite>,
+  /// Its uses, a registration first, at most `--limit` of them; one tied by the name alone is `resolved: "name"`
+  #[serde(default)]
+  pub uses: Vec<SurfaceUse>,
+}
+
+/// A file and a line of it, from 1
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct SurfaceSite {
+  pub file: String,
+  pub line: u32,
+}
+
+/// A use of a declaration of a module from outside it
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct SurfaceUse {
+  pub file: String,
+  pub line: u32,
+  /// `call`, `type`, `import`, …, or `descriptor` for a class a plugin descriptor registers
+  #[serde(default)]
+  pub label: String,
+  /// Of a `descriptor` use: the extension point (`com.intellij.applicationService`) and what the class is registered
+  /// for (the interface of a service, the topic of a listener)
+  #[serde(default)]
+  pub point: Option<String>,
+  #[serde(default)]
+  pub of: Option<String>,
+  /// How the use was tied to the declaration: `typed`, `import`, or `name` for a guess
+  #[serde(default)]
+  pub resolved: Option<String>,
+  /// The use is in test code
+  #[serde(default)]
+  pub test: bool,
+}
+
 /// A plugin descriptor at a revision as the platform's reader reads it (`accio parse --descriptor --resolve`, one JSON
 /// line per path, `plugin_xml::dump_line` of accio, whose fields are only ever added): what it registers, and each class
 /// it names resolved in the index at that revision
@@ -595,6 +665,12 @@ pub trait SymbolIndex: Send + Sync {
   /// Each file of `paths` in the tree of `revision` read as a plugin descriptor, in their order, each class it names
   /// resolved at that revision, asked in one process; `None` when the index reads no descriptor
   fn descriptors(&self, _repository_root: &str, _paths: &[String], _revision: &str) -> Result<Option<Vec<Descriptor>>> {
+    Ok(None)
+  }
+
+  /// What enters each of `modules` (their directories) at `revision`: its declarations something outside it uses, in
+  /// the order of `modules`; `None` when the index answers none
+  fn surface(&self, _repository_root: &str, _modules: &[String], _revision: &str) -> Result<Option<Vec<ModuleSurface>>> {
     Ok(None)
   }
 }
@@ -881,6 +957,37 @@ impl SymbolIndex for AccioSearch<'_> {
     }
     Ok(Some(descriptors))
   }
+
+  fn surface(&self, repository_root: &str, modules: &[String], revision: &str) -> Result<Option<Vec<ModuleSurface>>> {
+    if modules.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
+    command.args([
+      "surface",
+      "--no-build",
+      "--project",
+      repository_root,
+      "--ref",
+      revision,
+      "--budget",
+      SURFACE_BUDGET,
+      "--format",
+      "json",
+    ]);
+    for module in modules {
+      command.args(["--module", module]);
+    }
+    let stdout = self.run(&mut command, None)?;
+    let mut surfaces: Vec<ModuleSurface> = serde_json::from_slice(&stdout).context("the answer of accio")?;
+    if surfaces.len() != modules.len() {
+      bail!("accio answered {} modules for {}", surfaces.len(), modules.len());
+    }
+    for note in surfaces.iter_mut().filter_map(|surface| surface.note.as_mut()) {
+      *note = index_unavailable_note(note, &self.accio.executable);
+    }
+    Ok(Some(surfaces))
+  }
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
@@ -941,6 +1048,10 @@ impl<'a> Lenient<'a> {
     self.answered(self.index.descriptors(repository_root, paths, revision))
   }
 
+  pub fn surface(&self, repository_root: &str, modules: &[String], revision: &str) -> Result<Option<Vec<ModuleSurface>>> {
+    self.answered(self.index.surface(repository_root, modules, revision))
+  }
+
   /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
   pub fn unavailable(&self) -> Option<String> {
     self.unavailable.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
@@ -983,7 +1094,8 @@ impl<'a> Lenient<'a> {
 /// The index of a fixture, for the e2e server: `<git dir>/branch-deck-accio.json`, the hits of each query of `symbol`
 /// and of `references` (by a name, or by a place as `<path>:<line>`, whatever its revision), the answer of `tests` of
 /// each place whatever the given tests, the line of `parse --descriptor` of each `<full commit id>:<path>` (a path it
-/// lacks is `missing`), or the `error` every query fails with; a repository without the file has no index
+/// lacks is `missing`), the answer of `surface` of each `<full commit id>:<module>` (a module it lacks unknown, not
+/// `complete`; none without any), or the `error` every query fails with; a repository without the file has no index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -996,6 +1108,9 @@ struct Fixture {
   tests: std::collections::HashMap<String, TestReach>,
   #[serde(default)]
   descriptors: std::collections::HashMap<String, Descriptor>,
+  /// What enters a module, by `"<full commit id>:<module directory>"`
+  #[serde(default)]
+  surface: std::collections::HashMap<String, ModuleSurface>,
   error: Option<String>,
 }
 
@@ -1051,6 +1166,21 @@ impl SymbolIndex for FixtureIndex {
             path: path.clone(),
             missing: true,
             ..Descriptor::default()
+          })
+        })
+        .collect()
+    }))
+  }
+  fn surface(&self, repository_root: &str, modules: &[String], revision: &str) -> Result<Option<Vec<ModuleSurface>>> {
+    // a fixture that names no surface answers none, as an accio without the command
+    Ok(Self::read(repository_root)?.filter(|fixture| !fixture.surface.is_empty()).map(|mut fixture| {
+      modules
+        .iter()
+        .map(|module| {
+          // a module the fixture does not name: an answer that knows nothing of it, not that nothing enters it
+          fixture.surface.remove(&format!("{revision}:{module}")).unwrap_or_else(|| ModuleSurface {
+            module: module.clone(),
+            ..ModuleSurface::default()
           })
         })
         .collect()

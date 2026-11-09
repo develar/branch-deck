@@ -2401,6 +2401,46 @@ export type EmptyLastLine = {
 	new: boolean,
 };
 
+/**  A declaration of a new module something outside it uses */
+export type EntryPoint = {
+	name: string,
+	/**  Its qualified name; `None` where the language qualifies none */
+	qualified: string | null,
+	/**  accio's kind: `class`, `function`, … */
+	kind: string,
+	/**  Its file at the head and the line of its name, from 1 */
+	path: string,
+	line: number,
+	/**
+	 *  A plugin descriptor registers it: the extension point and what it is registered for (the interface of a service,
+	 *  the topic of a listener), of its first registration
+	 */
+	registered: EntryRegistration | null,
+	/**
+	 *  The files of the code outside the module that use it, each at its first use, by path: a descriptor's own file
+	 *  aside
+	 */
+	usedBy: EntrySite[],
+};
+
+/**  How a descriptor registers an entry point */
+export type EntryRegistration = {
+	/**  `com.intellij.applicationService` */
+	point: string,
+	/**  What it is registered for: the interface of a service, the topic of a listener; `None` for none */
+	of: string | null,
+	/**  The descriptor and the line of the registration, from 1 */
+	path: string,
+	line: number,
+};
+
+/**  A place of a use */
+export type EntrySite = {
+	path: string,
+	/**  From 1 */
+	line: number,
+};
+
 /**  A stable error code. Agents branch on the code and the exit code, never on the message */
 export type ErrorCode = 
 /**  The arguments don't parse */
@@ -4662,6 +4702,14 @@ export type ModuleEdge = {
 	links: number[],
 };
 
+/**  What enters a module the change adds (`ModuleShape::entries`) */
+export type ModuleEntries = {
+	/**  accio asked every declaration of the module within its budget: `points` is all that enters it */
+	complete: boolean,
+	/**  A class a descriptor registers first, then the declarations other code uses, as accio ranks them */
+	points: EntryPoint[],
+};
+
 /**  The changed files of a module by their role */
 export type ModuleFiles = {
 	code: number,
@@ -4692,6 +4740,11 @@ export type ModuleShape = {
 	contentOf: string[],
 	/**  The entries its build files add that name no module of the review, by their place in `ReviewPlan::dependencies` */
 	newDependencies: number[],
+	/**
+	 *  Of a module the change adds: what enters it, from accio (`entries::add_entries`); `None` before the index answers,
+	 *  without accio, and for a module the change changes or deletes
+	 */
+	entries: ModuleEntries | null,
 };
 
 /**  What the commits do to a module */

@@ -19,6 +19,7 @@ import type {
   StoryCommit,
   StoryPart,
   TextRange,
+  ModuleEntries,
 } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
@@ -28,7 +29,7 @@ import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 import type { EvidencePart } from "@/presenters/review-concerns"
 import { presentConcernEvidence } from "@/presenters/review-concerns"
 import type { MapRegistration, MapTexts, MapView } from "@/presenters/review-map"
-import { moduleRegistrations, presentMap, textsOf } from "@/presenters/review-map"
+import { moduleRegistrations, presentMap, simpleName, textsOf } from "@/presenters/review-map"
 import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
 import { alsoOf, formatModuleState, formatStepNumber, groupOpeningKey, headOf, opensGroup, presentChapters } from "@/presenters/review-steps"
@@ -285,6 +286,14 @@ export interface StepFacts {
    */
   readonly uses?: FactList
   readonly usedBy?: FactList
+  /**
+   * Of the opening of the group of a module the change adds: what enters it, from accio ("Entered by
+   * TranscriptEmbedPlayersImpl (applicationService of TranscriptEmbedPlayers)", "Flags (used in Embed0.kt)"), each at
+   * its declaration, its qualified name and the files that use it in the hover; absent elsewhere and before accio answers
+   */
+  readonly entries?: FactList
+  /** "Nothing outside the module uses it" of a complete answer of none, "accio stopped before it asked every declaration" of a partial one; null otherwise */
+  readonly entriesNote?: string | null
   /**
    * Of a step none of whose code lands, the step of the later commit that took it out ("Nothing of it lands: step 5
    * took it out"): its words, the title of that commit in their hover, and the id of the step, which a click shows; null
@@ -1100,6 +1109,29 @@ export interface GroupOpeningView {
   readonly texts: MapTexts | null
 }
 
+/** What enters a module the change adds, as the opening of its group names it (`StepFacts.entries`) */
+function entriesOf(entries: ModuleEntries | null | undefined): Pick<StepFacts, "entries" | "entriesNote"> {
+  if (entries == null) {
+    return {}
+  }
+  const places = entries.points.map((point): FactPlace => {
+    const how =
+      point.registered !== null
+        ? `${simpleName(point.registered.point)}${point.registered.of === null ? "" : ` of ${simpleName(point.registered.of)}`}`
+        : point.usedBy.length === 0
+          ? null
+          : `used in ${fileName(point.usedBy[0]!.path)}${point.usedBy.length > 1 ? ` and ${point.usedBy.length - 1} more` : ""}`
+    return {
+      key: `${point.path}:${point.line}`,
+      label: how === null ? point.name : `${point.name} (${how})`,
+      place: { path: point.path, side: "new", line: point.line, name: point.name },
+      detail: [point.qualified ?? point.name, ...point.usedBy.map(site => `${site.path}:${site.line}`)].join("\n"),
+    }
+  })
+  const note = !entries.complete ? "accio stopped before it asked every declaration" : places.length === 0 ? "Nothing outside the module uses it" : null
+  return { entries: openingList(places), entriesNote: note }
+}
+
 /** The opening of each group of a large step that opens (`opensGroup`), by `groupOpeningKey` */
 export function presentGroupOpenings(plan: Pick<ReviewPlan, "steps" | "api" | "links" | "modules" | "units" | "files" | "registrations" | "texts">): Map<string, GroupOpeningView> {
   const openings = new Map<string, GroupOpeningView>()
@@ -1141,7 +1173,13 @@ export function presentGroupOpenings(plan: Pick<ReviewPlan, "steps" | "api" | "l
         state: module === undefined || module.state === "changed" || group.kind === "folder" ? null : formatModuleState(module.state),
         also: alsoOf(group.also, plan.modules),
         root: module?.root ?? null,
-        facts: { ...presentStepFacts(ofGroup, plan, "group"), takenOutBy: null, uses: openingList(uses), usedBy: openingList(usedBy) },
+        facts: {
+          ...presentStepFacts(ofGroup, plan, "group"),
+          takenOutBy: null,
+          uses: openingList(uses),
+          usedBy: openingList(usedBy),
+          ...entriesOf(ofModule ? module?.entries : null),
+        },
         registrations,
         moreRegistrations: more,
         texts: ofModule ? textsOf(plan.texts.filter(text => text.module === group.module)) : null,

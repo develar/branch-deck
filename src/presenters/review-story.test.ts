@@ -14,6 +14,7 @@ import type {
   StoryPlace,
   StepTest,
   StepTests,
+  ModuleShape,
 } from "@/lib/bindings"
 import { joinNames } from "@/lib/text"
 import { MORE } from "@/presenters/commit-body"
@@ -1069,7 +1070,7 @@ describe("the document of a review", () => {
     expect(textOf(parted)).toEqual({ lead: "The sizes.", shown: [["", "Part | Where / the frame | `Frame.kt`"]], folded: [] })
   })
 
-  it("opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them", () => {
+  it("opens each group of a module of a large step above its first card: its name, its state, what enters a new module, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them", () => {
     const api = (name: string, path: string): ReviewPlan["api"][number] => ({
       path,
       line: 3,
@@ -1129,7 +1130,40 @@ describe("the document of a review", () => {
     const whole = plan([media], [], {
       api: [api("VIDEO", "gui/src/Kind.kt"), api("Player", "media/src/Player.kt")],
       links: [link("Kind", 4), link("VIDEO", 5)],
-      modules: [moduleShape("gui", "view.gui"), moduleShape("media", "view.gui.media", { state: "added" }), moduleShape("shared", "shared/code")],
+      modules: [
+        moduleShape("gui", "view.gui"),
+        moduleShape("media", "view.gui.media", {
+          state: "added",
+          // what enters the new module, as accio answers it: a class its descriptor registers, one the code of gui uses
+          entries: {
+            complete: true,
+            points: [
+              {
+                name: "PlayersImpl",
+                qualified: "a.media.PlayersImpl",
+                kind: "class",
+                path: "media/src/PlayersImpl.kt",
+                line: 4,
+                registered: { point: "com.intellij.applicationService", of: "a.gui.Players", path: "media/resources/media.xml", line: 3 },
+                usedBy: [],
+              },
+              {
+                name: "Player",
+                qualified: "a.media.Player",
+                kind: "class",
+                path: "media/src/Player.kt",
+                line: 3,
+                registered: null,
+                usedBy: [
+                  { path: "gui/src/Kind.kt", line: 7 },
+                  { path: "gui/src/View.kt", line: 9 },
+                ],
+              },
+            ],
+          },
+        }),
+        moduleShape("shared", "shared/code"),
+      ],
       files: [fileFacts("gui/src/Kind.kt", 0), fileFacts("media/src/Player.kt", 1), fileFacts("shared/src/Flag.kt", 2), fileFacts("media/testSrc/PlayerTest.kt", 1)],
       registrations: [
         {
@@ -1176,6 +1210,21 @@ describe("the document of a review", () => {
     // the new module names its new API, since the group is the module; its tests and its code none reaches, the flag of
     // the small module it holds too
     const player = openings.get("media:2")!
+    // what enters it first: a registration by its point and what it is for, a use by the file it is in
+    expect([labels(player.facts.entries), player.facts.entries?.places[1]?.detail, player.facts.entriesNote, gui.facts.entries]).toEqual([
+      ["PlayersImpl (applicationService of Players)", "Player (used in Kind.kt and 1 more)"],
+      "a.media.Player\ngui/src/Kind.kt:7\ngui/src/View.kt:9",
+      null,
+      undefined,
+    ])
+    // a complete answer of none says so; a partial one says it may lack some
+    const noteOf = (entries: ModuleShape["entries"]) =>
+      presentGroupOpenings({ ...whole, modules: whole.modules.map((module, place) => (place === 1 ? { ...module, entries } : module)) }).get("media:2")!.facts.entriesNote
+    expect([noteOf({ complete: true, points: [] }), noteOf({ complete: false, points: [] }), noteOf(null)]).toEqual([
+      "Nothing outside the module uses it",
+      "accio stopped before it asked every declaration",
+      undefined,
+    ])
     expect([
       player.name,
       player.state,

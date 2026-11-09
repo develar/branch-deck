@@ -4,7 +4,8 @@
 #[cfg(unix)]
 use crate::accio::AccioSearch;
 use crate::accio::{
-  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, Lenient, ReferenceHit, Resolved, SearchCanceled, SymbolHit, SymbolIndex,
+  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, Lenient, ReferenceHit, Resolved, SearchCanceled, SurfaceDeclaration, SurfaceSite,
+  SurfaceUse, SymbolHit, SymbolIndex,
 };
 use pretty_assertions::assert_eq;
 use std::path::Path;
@@ -248,6 +249,54 @@ fn the_descriptors_of_a_side_are_read_in_one_process() {
   assert_eq!((descriptors[1].missing, descriptors[1].is_read()), (true, false));
   let expected = format!("the index of this repository is from an older accio than {}: run accio index", executable.display());
   assert_eq!((descriptors[2].classes.as_ref(), descriptors[2].note.as_deref()), (None, Some(expected.as_str())));
+}
+
+/// What enters the new modules of a side is asked in one process at its revision, `--module` each, within the budget of
+/// the review: one answer per module in their order, each declaration with the files that use it and its uses (a
+/// registration with its point and what it is registered for), and why an answer is partial
+#[test]
+fn the_entry_points_of_the_new_modules_of_a_side_are_read_in_one_process() {
+  let dir = tempfile::tempdir().unwrap();
+  let args = dir.path().join("args");
+  let answer = r#"[{"module":"gui/media","checked":75,"complete":true,"quality":"structural","unresolved":0,"declarations":[{"file":"gui/media/src/PlayersImpl.kt","line":31,"kind":"class","name":"PlayersImpl","qualified":"a.media.PlayersImpl","total":1,"files":0,"unresolved":0,"used_by":[{"file":"gui/media/resources/media.xml","line":23}],"uses":[{"file":"gui/media/resources/media.xml","line":23,"label":"descriptor","role":"services.implementation","point":"com.intellij.applicationService","of":"a.gui.Players","resolved":"typed","test":false}]}]},{"module":"tools","checked":3,"complete":false,"quality":"structural","unresolved":2,"note":"the budget of 15s ran out: 4 declarations not asked","declarations":[]}]"#;
+  let executable = fake_executable(dir.path(), "accio", &format!("printf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{answer}'", shell_path(&args)));
+  let accio = AccioCli::at(executable);
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let modules = ["gui/media".to_string(), "tools".to_string()];
+  let surfaces = search.surface(ROOT, &modules, "head").unwrap().unwrap();
+  // the arguments the fake accio wrote, one a line
+  let arguments: Vec<String> = std::fs::read_to_string(&args).unwrap().lines().map(str::to_string).collect();
+  let mut expected = vec!["surface", "--no-build", "--project", ROOT, "--ref", "head", "--budget", "15", "--format", "json"];
+  expected.extend(modules.iter().flat_map(|module| ["--module", module.as_str()]));
+  assert_eq!(arguments, expected);
+  assert_eq!(
+    surfaces[0].declarations,
+    [SurfaceDeclaration {
+      file: "gui/media/src/PlayersImpl.kt".to_string(),
+      line: 31,
+      kind: "class".to_string(),
+      name: "PlayersImpl".to_string(),
+      qualified: Some("a.media.PlayersImpl".to_string()),
+      used_by: vec![SurfaceSite {
+        file: "gui/media/resources/media.xml".to_string(),
+        line: 23
+      }],
+      uses: vec![SurfaceUse {
+        file: "gui/media/resources/media.xml".to_string(),
+        line: 23,
+        label: "descriptor".to_string(),
+        point: Some("com.intellij.applicationService".to_string()),
+        of: Some("a.gui.Players".to_string()),
+        resolved: Some("typed".to_string()),
+        test: false,
+      }],
+    }]
+  );
+  assert_eq!(
+    surfaces.iter().map(|it| (it.module.as_str(), it.complete, it.note.as_deref())).collect::<Vec<_>>(),
+    [("gui/media", true, None), ("tools", false, Some("the budget of 15s ran out: 4 declarations not asked"))]
+  );
 }
 
 /// The places of a plan are asked in one process, `--at` each, at the revision of the answer: one entry per place in

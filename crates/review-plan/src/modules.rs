@@ -26,6 +26,7 @@
 //! - **The order**: a module the commits add first, then the most changed lines of code and tests, then tree order.
 
 use crate::dependencies::{AddedManifest, DependencyChange, DependencyChangeKind, DependencyKind};
+use crate::entries::ModuleEntries;
 use crate::files::{ChangedFile, MechanicalKind, test_subject};
 use crate::links::FileLink;
 use crate::pair::PairBlocks;
@@ -110,6 +111,9 @@ pub struct ModuleShape {
   pub content_of: Vec<String>,
   /// The entries its build files add that name no module of the review, by their place in `ReviewPlan::dependencies`
   pub new_dependencies: Vec<u32>,
+  /// Of a module the change adds: what enters it, from accio (`entries::add_entries`); `None` before the index answers,
+  /// without accio, and for a module the change changes or deletes
+  pub entries: Option<ModuleEntries>,
 }
 
 /// The modules of a review and the module of each changed file
@@ -209,6 +213,7 @@ pub(crate) fn module_shapes(input: &ModulesInput<'_>) -> Modules {
       used_by: Vec::new(),
       content_of: Vec::new(),
       new_dependencies: Vec::new(),
+      entries: None,
     })
     .collect();
   let place: HashMap<&str, usize> = distinct.iter().enumerate().map(|(index, &root)| (root, index)).collect();

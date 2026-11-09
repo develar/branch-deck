@@ -292,3 +292,38 @@ fn dependency_order(order: &[GroupKey], shapes: &[ModuleShape]) -> Vec<GroupKey>
 fn to_u32(value: usize) -> u32 {
   u32::try_from(value).unwrap_or(u32::MAX)
 }
+
+/// The group of each module the change adds starts with the files of its entry points (`ModuleShape::entries`), in
+/// their order, before the rest of its code in the order it had; its tests stay at its end; the files of each step
+/// (`ReviewStep::paths`) follow its stops
+pub(crate) fn order_by_entries(steps: &mut [ReviewStep], modules: &[ModuleShape]) {
+  for step in steps {
+    let mut moved = false;
+    for group in &step.groups {
+      let entries = group.module.and_then(|module| modules.get(module as usize)).and_then(|module| module.entries.as_ref());
+      let Some(entries) = entries.filter(|_| group.kind == GroupKind::Module) else { continue };
+      let rank = |path: &str| entries.points.iter().position(|point| point.path == path).unwrap_or(usize::MAX);
+      let code = &mut step.stops[group.start as usize..group.tests as usize];
+      if code.windows(2).any(|pair| rank(&pair[0].path) > rank(&pair[1].path)) {
+        // stable: the stops of one file keep their order, the files of no entry theirs
+        code.sort_by_key(|stop| rank(&stop.path));
+        moved = true;
+      }
+    }
+    if moved {
+      let mut paths: Vec<String> = Vec::new();
+      for stop in &step.stops {
+        if !paths.contains(&stop.path) {
+          paths.push(stop.path.clone());
+        }
+      }
+      // then the files only another step's stops show, in the order they had
+      for path in std::mem::take(&mut step.paths) {
+        if !paths.contains(&path) {
+          paths.push(path);
+        }
+      }
+      step.paths = paths;
+    }
+  }
+}

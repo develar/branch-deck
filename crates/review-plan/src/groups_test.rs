@@ -1,9 +1,10 @@
 use crate::ReviewPlan;
+use crate::entries::{EntryPoint, EntryRegistration, EntrySite, ModuleEntries};
 use crate::fan_in_test::Counts;
 use crate::groups::GroupKind;
 use crate::steps::StepTests;
 use crate::test_support::{plan_of, plan_of_range, range};
-use file_diffs::accio::{ReachingTest, TestClass, TestReach};
+use file_diffs::accio::{FixtureIndex, ReachingTest, TestClass, TestReach};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -222,6 +223,97 @@ fn a_group_knows_the_tests_that_reach_its_code_and_its_code_none_reaches() {
   // the step knows the same of all of its code
   assert_eq!(step.tests.reached, 2);
   assert_eq!(step.tests.unreached.len(), 8);
+}
+
+/// A module the change adds names what enters it, from accio at the head: a class its descriptor registers, then a
+/// declaration the code of another module uses; a use by the name alone or from test code enters nothing. Its group
+/// starts with the files of its entry points, its tests still last, and the files of the step follow its stops
+#[test]
+fn a_new_module_names_what_enters_it_and_its_group_starts_with_their_files() {
+  let repo = TestRepo::new();
+  // a step of more than 12 files: large enough to read by its groups
+  let (base, head) = media_range(&repo, 3, classes("gui/media/testSrc/b", "b", "PlayerTest", 1, None), false);
+  let declaration = |name: &str, line: u32, uses: serde_json::Value| serde_json::json!({ "file": format!("gui/media/src/b/{name}.kt"), "line": line, "kind": "class", "name": name, "qualified": format!("b.{name}"), "used_by": [], "uses": uses });
+  let mut flags = declaration(
+    "Flags",
+    5,
+    serde_json::json!([{ "file": "gui/src/a/Embed0.kt", "line": 3, "label": "type", "resolved": "typed", "test": false }]),
+  );
+  flags["used_by"] = serde_json::json!([{ "file": "gui/src/a/Embed0.kt", "line": 3 }]);
+  let surface = serde_json::json!({
+    "module": "gui/media",
+    "complete": true,
+    "declarations": [
+      declaration("Player1", 5, serde_json::json!([{ "file": "gui/media/resources/media.xml", "line": 4, "label": "descriptor", "point": "com.intellij.applicationService", "of": "a.Players", "resolved": "typed", "test": false }])),
+      flags,
+      // by the name alone, and from test code: no entry
+      declaration("Player0", 5, serde_json::json!([{ "file": "gui/src/a/Embed1.kt", "line": 3, "label": "call", "resolved": "name", "test": false }])),
+      declaration("PlayerTest0", 3, serde_json::json!([{ "file": "gui/testSrc/a/BoxTest.kt", "line": 3, "label": "call", "resolved": "typed", "test": true }])),
+    ],
+  });
+  std::fs::write(
+    std::path::Path::new(repo.path_str()).join(".git/branch-deck-accio.json"),
+    serde_json::json!({ "surface": { format!("{head}:gui/media"): surface } }).to_string(),
+  )
+  .unwrap();
+  let plan = plan_of(&repo, Some(&FixtureIndex), &range(&repo, &base, &head)).unwrap();
+  let media = plan.modules.iter().find(|module| module.root == "gui/media").unwrap();
+  assert_eq!(
+    media.entries,
+    Some(ModuleEntries {
+      complete: true,
+      points: vec![
+        EntryPoint {
+          name: "Player1".to_string(),
+          qualified: Some("b.Player1".to_string()),
+          kind: "class".to_string(),
+          path: "gui/media/src/b/Player1.kt".to_string(),
+          line: 5,
+          registered: Some(EntryRegistration {
+            point: "com.intellij.applicationService".to_string(),
+            of: Some("a.Players".to_string()),
+            path: "gui/media/resources/media.xml".to_string(),
+            line: 4,
+          }),
+          used_by: vec![],
+        },
+        EntryPoint {
+          name: "Flags".to_string(),
+          qualified: Some("b.Flags".to_string()),
+          kind: "class".to_string(),
+          path: "gui/media/src/b/Flags.kt".to_string(),
+          line: 5,
+          registered: None,
+          used_by: vec![EntrySite {
+            path: "gui/src/a/Embed0.kt".to_string(),
+            line: 3
+          }],
+        },
+      ],
+    })
+  );
+  // the changed modules know none
+  assert!(plan.modules.iter().filter(|module| module.root != "gui/media").all(|module| module.entries.is_none()));
+  let step = &plan.steps.steps[1];
+  let group = step
+    .groups
+    .iter()
+    .find(|group| group.module.is_some_and(|module| plan.modules[module as usize].root == "gui/media"))
+    .unwrap();
+  let files: Vec<&str> = step.stops[group.start as usize..group.end as usize]
+    .iter()
+    .map(|stop| stop.path.rsplit('/').next().unwrap())
+    .collect();
+  assert_eq!(&files[..2], ["Player1.kt", "Flags.kt"], "{files:?}");
+  assert_eq!(files.last(), Some(&"PlayerTest0.kt"));
+  // the files of the step in the order of its stops
+  let mut in_order: Vec<&str> = Vec::new();
+  for stop in &step.stops {
+    if !in_order.contains(&stop.path.as_str()) {
+      in_order.push(&stop.path);
+    }
+  }
+  assert_eq!(&step.paths[..in_order.len()], in_order.as_slice());
 }
 
 /// The template of the review window (`review_modules`): a plugin of the shape of an IntelliJ one whose second commit

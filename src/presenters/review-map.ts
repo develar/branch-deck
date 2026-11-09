@@ -410,6 +410,6 @@ function registrationWords(registered: Registered): { kind: string; name: string
 const AREA_WORDS = { app: "application", project: "project", module: "module" } as const
 
 /** The last part of a qualified name: `TranscriptEmbedPlayersImpl` of `com.intellij.air.….TranscriptEmbedPlayersImpl` */
-function simpleName(name: string): string {
+export function simpleName(name: string): string {
   return name.slice(Math.max(name.lastIndexOf("."), name.lastIndexOf("$")) + 1)
 }
