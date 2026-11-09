@@ -2938,7 +2938,7 @@ never read as safe.
 ### Requirement: In the Review Window: A row has no no-test mark
 
 A row MUST have no `no test`: the tests that name the code of a change are those of its step
-([Review Tour](../review-tour/spec.md#tests-that-name-it)); `untested` stays in `brd review-plan`.
+([Review Tour](../review-tour/spec.md#tests-that-reach-it)); `untested` stays in `brd review-plan`.
 
 #### Scenario: A file changed without its tests
 - **WHEN** a file of the tree changed without its tests
