@@ -54,7 +54,7 @@ targets:
 
 # Commit Files
 
-Status: Implemented (the typed file diffs: the backend; the views still show the patch)
+Status: Implemented
 Date: 2026-10-18
 
 ## Purpose
@@ -62,8 +62,8 @@ Date: 2026-10-18
 A commit row says what is in the commit: its meta line ends with the number of changed files and the added and deleted
 lines, "3 files · +42 −7".
 The commit preview has a Files section after the message, closed at first ("› Files 4"): opened, it lists the files
-grouped by directory as IntelliJ and Space show the changes of a commit. A file expands to its diff; the first one
-read the patch of the whole commit with one git process.
+grouped by directory as IntelliJ and Space show the changes of a commit. A file expands to its diff; the tree reads
+the typed diffs of all its files with one `get_file_diffs`, no patch.
 The context menu of a commit copies the paths it changed.
 Everything is read with read-only plumbing, one git process for a whole list, and cached by commit id.
 
@@ -1741,12 +1741,14 @@ When the files cannot be read, the copy MUST show an error toast and copy nothin
   the right: the coloured `+/−` counts in `text-xs`. A long name is cut with "…" only once nothing else gives way; the
   counts never wrap or shrink. A zero count is not coloured.
 - The diff of an expanded file is a `rounded-lg border` panel under its row, at the row's indent.
-- The diff is JetBrains Mono at 13px on the `card` background, added lines `success`, deleted `destructive`, a bar in
-  the gutter, the changed words a stronger tint ([UI Theme](../../../../docs/design/ui-theme.md) "Diffs"). The rows of a
-  whitespace-only block are paler, their gutter bar faded. The scope of a hunk follows the count of its separator in
+- The diff is JetBrains Mono at 13px on the `card` background, in IntelliJ's diff types (`--diff-inserted` green,
+  `--diff-deleted` grey, `--diff-modified` blue, `src/index.css`), the colour of a line filling its line number, no bar
+  beside the code, the changed ranges in the full colour of the pale lines of their block
+  ([UI Theme](../../../../docs/design/ui-theme.md) "Diffs"). The rows of a whitespace-only block are pale, nothing
+  strong. The scope of a hunk follows the count of its separator in
   `foreground`, cut with "…" when it is long.
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
-  read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.
+  read of the diffs is a destructive callout "Cannot read the changes of the commit" in the panel.
 - The footer shows the ghost `xs` buttons `D Review Changes` and `F Files` (pressed while the section is open) before
   `E Edit`.
 
