@@ -64,6 +64,8 @@ test.describe("Commit message", () => {
     await expect(body).toBeVisible()
     await expectPreviewFocused(preview)
 
+    // the body shows as Rust read it (`commit_body`), which answers after the preview opened
+    await expect(body.getByTestId("commit-body-lead")).toBeVisible()
     await captureHtmlSnapshot(body, "commit-message-body")
 
     // hard-wrapped lines are joined into one paragraph
@@ -389,7 +391,8 @@ test.describe("Commit message", () => {
 
     await unassignedRow.getByTestId("commit-row-mark").click()
     const body = getPreview(page).getByTestId("commit-message-body")
-    await expect(body).toBeVisible()
+    // the body shows as Rust read it (`commit_body`), which answers after the preview opened
+    await expect(body.getByTestId("commit-body-lead")).toBeVisible()
     await captureHtmlSnapshot(body, "commit-message-markdown")
 
     // the heading heads its section without its marks, the rule is a line of that section, the label heads the list
