@@ -287,24 +287,32 @@ bindings), the fix of a conflict, the forms and the rewrites of a commit.
 
 #### Scenario: The actions Rust names as forms under a row
 - **WHEN** an action opens a form under the row of its subject
-- **THEN** Rust names it (`ActionId::opens_row_form`, `ROW_FORM_ACTIONS` of the bindings): a rename, a move, a stack,
-  an ungroup, the amend, the issue reference, the squash, unapply, park, the typed delete of a kept branch, the popover
-  of a Safe Push and of its rarer starts, Request Review and Start in Air, a push, which asks at the row when it would
-  drop remote commits
+- **THEN** the catalog the page reads (`ROW_FORM_ACTIONS` of the bindings) names it as Rust does
+  (`ActionId::opens_row_form`): a rename, a move, a stack, an ungroup, the amend, the issue reference, the squash,
+  unapply, park, a declared need, the typed delete of a kept branch, the popover of a Safe Push and of its rarer starts,
+  Request Review and Start in Air, a push (also with its children), which asks at the row when it would drop remote
+  commits, the pick of remote commits, the push into the target and the merge of the pull request of a landing, the
+  close of the pull request of a stack
 - **AND** the window does not run it itself
   [@test] crates/domain-policy/src/action_catalog_test.rs (`every_action_and_every_blocker_code_is_in_the_action_catalog_the_page_reads`)
 
 ### Requirement: Actions: A form under a row is one request to the main window
 
 A form under a row MUST be one request to the main window, `review/run` (`{ id, repositoryPath, subject, itemId,
-commitIds? }`), answered by `review/reply` and, refused, `review/feedback`.
+commitIds?, request? }`), answered by `review/reply` and, refused, `review/feedback`.
 
-#### Scenario: The subject and the commits of a request
-- **WHEN** the window sends `review/run`
-- **THEN** its subject is a branch, `stack:<root>`, `unapplied:<full>` or `archived:<full>`
-- **AND** the item of a commit carries the commits of the item
-- **AND** `review/reply` answers it
+#### Scenario: An item of a branch
+- **WHEN** the window asks the main window to run the push or the Safe Push of a branch
+- **THEN** it sends one `review/run` per item, with the repository of the review, the branch as its subject and the
+  id of the item
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should run the Safe Push and the push of the title bar at the rows of the main window, switched to the repository of the review first`)
+
+#### Scenario: The subjects and the commits of a request
+- **WHEN** the window sends `review/run`
+- **THEN** its subject is a branch, `stack:<root>`, `unapplied:<full>`, `archived:<full>`, or a pull request
+  (`pull:<number>`, with the whole `request`;
+  [Review Requests](../../repository/review-requests/spec.md#review-window))
+- **AND** the item of a commit carries the commits of the item, of a pull request the reviewed commit
 
 ### Requirement: Actions: The main window runs the request at the row of its repository
 
@@ -422,7 +430,7 @@ A list of commits MUST keep its order, each commit against its first parent.
 ### Requirement: Targets: A review read again reads only its refs while they stay
 
 A review read again MUST run the `for-each-ref` of its refs alone while its tips and the baseline stay, and a list of
-commits nothing.
+commits nothing; a review whose baseline names no ref (a commit id) is read whole each time.
 
 #### Scenario: The same tips
 - **WHEN** a review is read again and its tips and the baseline stay
@@ -436,7 +444,7 @@ commits nothing.
 
 #### Scenario: A kept branch
 - **WHEN** a kept branch is read again
-- **THEN** it is read again only when its tip moves
+- **THEN** the review it read answers while its tip stays, and a moved tip reads its commits again
   [@test] crates/sync-core/src/review_target_test.rs (`a_memoised_kept_branch_is_read_again_only_when_its_tip_moves`)
 
 #### Scenario: A list of commits
@@ -444,13 +452,20 @@ commits nothing.
 - **THEN** it runs nothing
   [@test] crates/sync-core/src/review_target_test.rs (`a_list_of_commits_keeps_its_order`)
 
-### Requirement: Targets: The git processes of the read of a review
+#### Scenario: A branch, a kept branch and a list of commits read again
+- **GIVEN** a branch, a kept branch and a list of commits were reviewed
+- **WHEN** each is read again, nothing moved
+- **THEN** the branch and the kept branch run one `for-each-ref` each, the list nothing
+  [@test] crates/sync-core/src/process_budget_test.rs (`a_review_of_a_branch_a_kept_branch_and_a_list_of_commits`)
 
-A read MUST run one `for-each-ref` and one `log` for a branch; a kept branch adds the read of where its commits start
-(the stack notes, the merge base); a list MUST be one `log --no-walk`.
+### Requirement: Targets: The first read of a review is one for-each-ref and one log
+
+The first read of a review (nothing memoised for its tips and baseline) MUST run one `for-each-ref` and one `log` for
+a branch; a kept branch adds the read of where its commits start (a `log` of the stack notes, and the merge base with
+the baseline when they name no stack base); a list MUST be one `log --no-walk`.
 
 #### Scenario: A branch, a kept branch and a list of commits
-- **WHEN** a branch, a kept branch and a list of commits are reviewed
+- **WHEN** a branch, a kept branch without a stack base and a list of commits are reviewed the first time
 - **THEN** a branch is one `for-each-ref` and one `log`, a kept branch adds the read of where its commits start (the
   stack notes, the merge base), a list is one `log --no-walk`
   [@test] crates/sync-core/src/process_budget_test.rs (`a_review_of_a_branch_a_kept_branch_and_a_list_of_commits`)
@@ -589,12 +604,13 @@ it itself, the kept branch into its history).
 ### Requirement: Kept branches: After a delete the review keeps what it read
 
 After a delete the review MUST keep what it read, its actions disabled with why ("docs is no longer unapplied: it was
-reapplied or deleted").
+reapplied or deleted"; of an archived branch "The archived branch auth was deleted").
 
 #### Scenario: The kept branch is deleted
 - **WHEN** the kept branch the window shows is deleted
 - **THEN** the window keeps what it read
-- **AND** its actions are disabled with why: "docs is no longer unapplied: it was reapplied or deleted"
+- **AND** its actions are disabled with why: of an unapplied branch "docs is no longer unapplied: it was reapplied or
+  deleted", of an archived one "The archived branch auth was deleted"
 
 ### Requirement: Kept branches: The review plan of a kept branch reads its range
 
