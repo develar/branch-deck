@@ -12,7 +12,7 @@
 //!   own bytes (`Source::text`), where such a byte makes the name none.
 //! - **Recovery**: a parse oxc gives up on is parsed again with the region of its error blanked, up to sixteen times
 //!   (`js_syntax::recover`); the blanked bytes are the errors of the file (`Errors`), with the labels of the
-//!   diagnostics of the parse that made the tree. A file no recovery saves has no tree: every byte is an error.
+//!   syntax errors of the parse that made the tree (`js_syntax::is_syntax_error`: an early error is none). A file no recovery saves has no tree: every byte is an error.
 //! - **Bounded by the stack**: a parse and every walk of its tree run inside `with_program`, on the calling thread when
 //!   the file's nesting fits `psi_builder::stack::STACK`, else on a thread of the stack it needs; past
 //!   `js_syntax`'s limit there is no tree and the summary is `truncated`.
@@ -29,7 +29,6 @@ mod navigate_test;
 pub(crate) mod summary_test;
 
 use crate::highlight::Grammar;
-use crate::summary_builder::column_at;
 use js_syntax::oxc_ast::ast::{
   Argument, BindingPattern, Decorator, Expression, FormalParameterRest, FormalParameters, Function, FunctionBody, JSXOpeningElement, Program, PropertyKey, TSMappedType,
   TSThisParameter, TSTypeAnnotation, TSTypeName, TSTypeParameter, TSTypeParameterDeclaration, TSTypeParameterInstantiation, TSTypeQuery, TSTypeQueryExprName,
@@ -101,7 +100,7 @@ impl<'s> Source<'s> {
 
   /// The UTF-16 column of the byte at `offset` in its line
   pub(crate) fn column(&self, offset: u32) -> u32 {
-    column_at(self.bytes, offset as usize)
+    psi_builder::document::column(self.bytes, offset as usize)
   }
 
   /// The text of `span` as the file has it; `None` when it is no UTF-8
@@ -110,8 +109,9 @@ impl<'s> Source<'s> {
   }
 }
 
-/// The errors of a parse: the regions a recovery blanked and the labels of the diagnostics of the parse that made the
-/// tree, sorted, and the bytes they cover (`FileSummary::error_bytes`), a zero-width label one
+/// The errors of a parse: the regions a recovery blanked and the labels of the syntax errors of the parse that made the
+/// tree (`js_syntax::is_syntax_error`, never an early error), sorted, and the bytes they cover
+/// (`FileSummary::error_bytes`), a zero-width label one
 pub(crate) struct Errors {
   pub(crate) ranges: Vec<(u32, u32)>,
   pub(crate) bytes: u32,
@@ -140,7 +140,9 @@ impl Errors {
         ranges.push((from, u32::try_from(blanked.len()).unwrap_or(u32::MAX)));
       }
     }
-    for diagnostic in &parsed.diagnostics {
+    // an early error (a modifier where it may not stand, strict mode) leaves the tree whole: no error of the file, as
+    // accio reads it too
+    for diagnostic in parsed.diagnostics.iter().filter(|it| js_syntax::is_syntax_error(it)) {
       for label in &diagnostic.labels {
         ranges.push((label.offset(), label.offset().saturating_add(label.len())));
       }

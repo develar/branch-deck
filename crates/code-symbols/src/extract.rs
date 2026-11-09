@@ -14,7 +14,7 @@ use crate::summary::FileSummary;
 use crate::summary_builder::empty_summary;
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 27;
+pub const RULES_VERSION: u32 = 28;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -58,7 +58,7 @@ pub fn summarize(language: Language, path: &str, source: &[u8]) -> FileSummary {
 /// the `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`) of the psi-syntax dependencies in
 /// `Cargo.toml`
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub(crate) const PSI_SYNTAX_REVISION: &str = "2eaa382792a4f2bd0318dc13518bf8e066a9506b";
+pub(crate) const PSI_SYNTAX_REVISION: &str = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
 /// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax that reads it, so it is the same

@@ -778,8 +778,10 @@ flowchart TD
     before it (`typescript.rs`, gone with it). The header is the parse's tokens: a string literal is one token, a
     template literal its pieces (`` `x-${ name }` ``), which the review plan's `as_written` writes as code, and a type
     parameter keeps its default, where tree-sitter's walk
-    cut the header at its `=`. The errors are the bytes a recovery blanked and the labels of the parse's diagnostics,
-    early errors included (`const x;`); a declaration with one between its start and its name is `in_error`, a file no
+    cut the header at its `=`. The errors are the bytes a recovery blanked and the labels of the parse's syntax errors,
+    never an early error (`const x;`, a modifier where it may not stand), after which the tree is whole: which is which
+    is `js_syntax::is_syntax_error`, the rule accio reads a file's syntax errors by too (since 2026-11-09; 654 of the
+    monorepo's 54 656 script files read fewer error bytes and declarations in error); a declaration with one between its start and its name is `in_error`, a file no
     recovery saves is read with every byte in error, and one nested deeper than the parse reads (a gibibyte of stack)
     is `truncated`. Any nesting below that is read on a 2 MiB thread: the parse, the walk and the drop of the tree run
     on a thread of the stack the file needs.

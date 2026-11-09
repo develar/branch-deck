@@ -310,6 +310,17 @@ fn a_class_expression_binds_its_name() {
   assert_eq!(refs(&summary, "helper"), ["4 helper()"]);
 }
 
+/// An early error of oxc (a modifier where it may not stand, an implementation in an ambient context) leaves the tree
+/// whole: no error of the file and no declaration in one, as accio reads it (`js_syntax::is_syntax_error`)
+#[test]
+fn an_early_error_is_no_error_of_the_file() {
+  let summary = summarize(Language::TypeScript, b"public function f() {}\nclass A { declare m() {} }\n");
+  assert_eq!(
+    (summary.error_bytes, declaration(&summary, "f").in_error, declaration(&summary, "m").in_error),
+    (0, false, false)
+  );
+}
+
 /// The errors are what a recovery blanked and what the parse reports; a declaration with one between its start and
 /// its name is `in_error`; a file no recovery saves has every byte in error, and is read
 #[test]
