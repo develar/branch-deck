@@ -598,13 +598,24 @@ nothing waits for.
   [@test] crates/test-server/src/review_requests_test.rs (`a_link_joins_reviews_from_the_fake_github`)
   [@test] tests/e2e/reviews/reviews.spec.ts (`should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
 
-### Requirement: Links: A link another section lists stays a link
+### Requirement: Links: A link another list has shows once, in the first that has it, and stays a link
 
-A link another section lists MUST show there and stay a link.
+A link that another list also has MUST show once, as every pull request does: in Waiting for You when Your Turn's rows
+have it (a request by name, a returned own pull request), else in Added by Link, which comes before the sections that
+also list it and which leave it out. Either way it MUST stay a link: a list that has it never takes it from the links.
 
-#### Scenario: A link that another section lists
-- **WHEN** a link is a pull request another section lists
-- **THEN** it shows there and stays a link
+#### Scenario: A link that a later section lists
+- **GIVEN** a link that Requested from Your Teams also lists
+- **WHEN** the view derives the sections
+- **THEN** the link shows in Added by Link
+- **AND** Requested from Your Teams leaves it out, its count GitHub's less it
+  [@test] crates/domain-policy/src/reviews_test.rs (`each_pull_request_shows_once_in_the_first_section_after_your_turn_the_empty_ones_left_out`)
+
+#### Scenario: A link that Your Turn's rows have
+- **GIVEN** a link that is a request by name of the user
+- **WHEN** the view derives the sections
+- **THEN** the link shows in Waiting for You, and Added by Link leaves it out
+- **AND** it stays among the links of the repository
 
 ### Requirement: Search: The field stands in the header row
 
