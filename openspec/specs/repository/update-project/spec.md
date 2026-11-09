@@ -609,10 +609,9 @@ move, while a regroup, a push or an agent's `brd` goes on during the check.
 
 The fetch, the counts and notes of what the update did and the record of what landed MUST never run under the lock.
 
-#### Scenario: The counts and the notes after the lock
-- **WHEN** an update applies, resolving conflicts by words
-- **THEN** its counts and the notes of its commits are written after the lock
-- **AND** the fetch ran before it
+#### Scenario: The counts, the notes and the landed report after the lock
+- **WHEN** an update applies, also one that resolves conflicts by words
+- **THEN** the counts of what it did, the notes of its resolved commits and the report of what landed are written after the lock
   [@test] crates/bd-update/src/update_test.rs (`the_check_of_an_update_runs_before_the_lock`)
   [@test] crates/update-core/src/update_project_test.rs (`the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move`)
 
@@ -671,14 +670,14 @@ check of the local changes copies and its move takes as it is.
 
 ### Requirement: Update: A lock held for the whole wait is `locked` with its holder
 
-A lock held for the whole wait (10 s in the app) MUST be an error with only the fetch and the check done, `locked` with
-the holder its record names (`details.holder`: `brd` or the app, its command, pid and how long it has held the lock;
-none once the record is gone).
+A lock held for the whole wait of `brd update` (10 s), or in the app one that no record names a live holder of for
+10 s, MUST be an error with only the fetch and the check done, `locked` with the holder its record names
+(`details.holder`: `brd` or the app, its command, pid and how long it has held the lock; none once the record is gone).
 
 #### Scenario: Another process holds the lock for the whole wait
-- **GIVEN** another process holds the repository lock for the whole wait
+- **GIVEN** another process holds the repository lock for the whole bounded wait of `brd update`
 - **WHEN** the update runs
-- **THEN** it fails `locked`, with only the fetch and the check done
+- **THEN** it fails `locked` with the holder its record names, with only the fetch and the check done
   [@test] crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
   [@test] crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
 
@@ -1135,9 +1134,10 @@ repository, which runs when the window opens a repository synced before ([Onboar
 ### Requirement: Header: The header stays one line down to the minimum window width
 
 The header MUST stay one line down to the minimum window width, 960 px (`min_inner_size`), its controls never
-overlapping: the repository selector gives way first, the branch count shows from 1024 px while the filter bar is
-hidden, the time of the last sync from 768 px; Update, the landing indicator, Activity
-([Activity](../activity/spec.md), there with an empty log too), Sync and its settings never shrink.
+overlapping: the repository selector gives way first; the branch count shows while the filter bar is hidden, from
+448 px (`@md`) of the room of the repository; the time of the last sync from 768 px (`@3xl`) of the header; Update,
+the landing indicator, Activity ([Activity](../activity/spec.md), there with an empty log too), Sync and its settings
+never shrink.
 
 #### Scenario: The minimum window width
 - **GIVEN** the window is 960 px wide (`min_inner_size`)
@@ -1147,13 +1147,13 @@ hidden, the time of the last sync from 768 px; Update, the landing indicator, Ac
   [@test] tests/e2e/repository/header.spec.ts (`should keep its controls apart on one line at the minimum window width`)
 
 #### Scenario: The branch count
-- **GIVEN** the filter bar is hidden (from 8 branches on its "All 35" counts them)
-- **WHEN** the width is 1024 px or more
+- **GIVEN** the filter bar is hidden: below 8 branches, as from 8 branches on its "All 35" counts them
+- **WHEN** the room of the repository (the selector, the views and the count) is 448 px (`@md`) or more
 - **THEN** the header shows the branch count
 
 #### Scenario: The time of the last sync
-- **WHEN** the width is 768 px or more
-- **THEN** the header shows the time of the last sync
+- **WHEN** the header is 768 px (`@3xl`) wide or more
+- **THEN** it shows the time of the last sync
 
 ### Requirement: Header: The selector cuts its path only at a separator
 
@@ -1555,7 +1555,6 @@ when it is ahead of the time; else the time, `1 − e^(−t/usual)`: 63 % of the
 - **WHEN** the update's own sync run reports its synced commits
 - **THEN** the progress takes them, capped until that sync run ends
   [@test] src/lib/update-progress.test.ts (`takes the commits of its own sync, capped until the sync ends`)
-  [@test] crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
 
 #### Scenario: A step that reports nothing
 - **WHEN** a step reports nothing
@@ -1929,7 +1928,6 @@ although the branch itself didn't change.
 - **WHEN** an update fails or is stopped after its fetch
 - **THEN** the operation still ends with the request of a sync
   [@test] crates/operations/src/update_test.rs (`stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved`)
-  [@test] src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while brd holds the repository`)
 
 ### Requirement: Header: The sync of an applied update is the last step of its progress
 
@@ -1940,12 +1938,15 @@ date, refused or failed, the update SHALL end with its result, and its sync show
 #### Scenario: An applied update
 - **WHEN** an update applies
 - **THEN** the Update button stays busy until its sync run ends, and Sync shows its spinner
-- **AND** a ⌘R meanwhile asks for a follow-up that is Sync's only
+- **AND** a ⌘R meanwhile asks for a follow-up that is Sync's only: the request of the update resolves when its own run ends
+  [@test] src/stores/update-project.test.ts (`is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync`)
+  [@test] crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`)
 
 #### Scenario: Up to date, refused or failed
 - **WHEN** an update is up to date, refused or failed
 - **THEN** it ends with its result, and its sync shows on Sync alone
   [@test] tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
+  [@test] src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while brd holds the repository`)
 
 ### Requirement: Header: The toast and the dialog come with the result
 
@@ -1955,6 +1956,7 @@ rebuilds the rows.
 #### Scenario: The result of an update
 - **WHEN** an update has its result
 - **THEN** its toast or its dialog shows at once, without waiting for the sync
+  [@test] src/stores/update-project.test.ts (`is busy through the sync of an applied update, its own run of it; the toast doesn't wait for the sync`)
 
 ### Requirement: Header: The footer of the landing overview shows the same state
 
@@ -2106,7 +2108,6 @@ A block MUST list the paths the check reported (100), then "… and 20 more file
 #### Scenario: Many blocking paths
 - **WHEN** more paths block than the check reported
 - **THEN** the dialog lists the paths the check reported (100), then "… and 20 more files"
-  [@test] crates/update-core/src/update_project_test.rs (`many_blocking_paths_are_counted`)
 
 ### Requirement: Conflict and blocked dialog: No list leaves out only one
 
@@ -2117,6 +2118,11 @@ commits a side, 101 paths; `cutList`, and the check's `list_cut::kept`).
 - **WHEN** the conflict has 51 files
 - **THEN** the check reports every file with its commits (`list_cut::kept`)
   [@test] crates/update-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`)
+
+#### Scenario: One path more than the list
+- **WHEN** 101 paths block the update
+- **THEN** the check reports all 101 (`list_cut::kept`), never a count of one
+  [@test] crates/update-core/src/update_project_test.rs (`many_blocking_paths_are_counted`)
 
 #### Scenario: A list one longer than its limit
 - **WHEN** a list is one longer than its limit, 51 files, 6 commits a side or 101 paths
