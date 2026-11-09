@@ -3,7 +3,7 @@ import { globSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
-import { checkSpecTargets, checkTestLinks } from "./check-spec-links.mjs"
+import { checkOpenSpec, checkSpecAnchors, checkSpecTargets, checkTestLinks, headingAnchors, openspecValidate } from "./check-spec-links.mjs"
 
 /** A repository of `files` (path → text) in a temporary directory, removed after the test */
 function repositoryOf(t, files) {
@@ -62,7 +62,7 @@ test("every spec lists its targets once, each a ../../ path of a file that exist
     "spec/area/empty-targets.spec.md: its `targets:` list no file",
     "spec/area/no-front-matter.spec.md: no front matter (`---` … `---`)",
     "spec/area/no-targets.spec.md: its front matter lists no `targets:`",
-    "spec/area/odd-line.spec.md:4: not a target line, `  - ../../<path>`: # a comment",
+    "spec/area/odd-line.spec.md:4: not a target line, `  - <path>`: # a comment",
   ])
 })
 
@@ -80,10 +80,10 @@ test("a rule of domain-policy names its specs in its //! header, and each of the
     "spec/area/other.spec.md": specOf([`../../${rules}/lib.rs`]),
   })
   assert.deepEqual(checkSpecTargets(root), [
-    `${rules}/below.rs: its \`//!\` header names no spec (spec/<area>/<name>.spec.md) of the rule`,
+    `${rules}/below.rs: its \`//!\` header names no spec (openspec/specs/<area>/<name>/spec.md) of the rule`,
     `${rules}/missing.rs: its \`//!\` header names spec/area/gone.spec.md, which does not exist`,
     `spec/area/other.spec.md: no target ../../${rules}/unlisted.rs, whose \`//!\` header names the spec`,
-    `${rules}/unnamed.rs: its \`//!\` header names no spec (spec/<area>/<name>.spec.md) of the rule`,
+    `${rules}/unnamed.rs: its \`//!\` header names no spec (openspec/specs/<area>/<name>/spec.md) of the rule`,
   ])
 })
 
@@ -122,4 +122,111 @@ test("on Windows, where the glob answers paths with `\\`, every check answers th
   const links = ["spec/area/rules.spec.md:9: src/example.test.ts has no test `hides the row`"]
   assert.deepEqual(checkTestLinks(root), links)
   assert.deepEqual(checkTestLinks(root, windowsGlob), links)
+})
+
+/** A spec of OpenSpec whose front matter lists `targets` and whose requirements are `requirements` */
+function openSpecOf(targets, requirements) {
+  return [
+    "---",
+    "name: Example",
+    "targets:",
+    ...targets.map(target => `  - ${target}`),
+    "---",
+    "",
+    "# Example",
+    "",
+    "## Purpose",
+    "",
+    "What the example capability is for, in a sentence long enough for the strict validation.",
+    "",
+    "## Requirements",
+    "",
+    requirements,
+    "",
+  ].join("\n")
+}
+
+const REQUIREMENT = [
+  "### Requirement: Rows: The row shows its name",
+  "",
+  "The row MUST show the name of its branch.",
+  "",
+  "#### Scenario: A branch row",
+  "- **WHEN** the table lists a branch",
+  "- **THEN** its row shows its name",
+  "  [@test] src/example.test.ts (`shows the row`)",
+].join("\n")
+
+test("under openspec/ a [@test] path is from the root, a path from the file is a problem", t => {
+  const root = repositoryOf(t, {
+    "src/example.test.ts": 'test("shows the row", () => {})\n',
+    "openspec/specs/area/example/spec.md": openSpecOf(["src/example.test.ts"], `${REQUIREMENT}\n  [@test] ../../../../src/example.test.ts (\`shows the row\`)`),
+    "openspec/changes/add-row/specs/area/example/spec.md": "## ADDED Requirements\n\n  [@test] src/example.test.ts (`hides the row`)\n",
+    "openspec/changes/archive/2026-11-09-old/specs/area/example/spec.md": "  [@test] src/gone.test.ts (`shows the row`)\n",
+  })
+  assert.deepEqual(checkTestLinks(root), [
+    "openspec/changes/add-row/specs/area/example/spec.md:3: src/example.test.ts has no test `hides the row`",
+    "openspec/specs/area/example/spec.md:23: the path ../../../../src/example.test.ts is not from the root of the repository, as every path under openspec/",
+  ])
+})
+
+test("a spec of openspec/specs lists its targets from the root, and a rule names it by its path", t => {
+  const rules = "crates/domain-policy/src"
+  const root = repositoryOf(t, {
+    "src/example.ts": "",
+    [`${rules}/listed.rs`]: "//! The listed rule (openspec/specs/area/example/spec.md).\n",
+    [`${rules}/unlisted.rs`]: "//! A rule the spec doesn't list (openspec/specs/area/example/spec.md).\n",
+    "openspec/specs/area/example/spec.md": openSpecOf(["src/example.ts", `${rules}/listed.rs`, "../../../../src/example.ts"], REQUIREMENT),
+  })
+  assert.deepEqual(checkSpecTargets(root), [
+    "openspec/specs/area/example/spec.md:6: the target ../../../../src/example.ts is not from the root of the repository, as every path under openspec/",
+    `openspec/specs/area/example/spec.md: no target ${rules}/unlisted.rs, whose \`//!\` header names the spec`,
+  ])
+})
+
+test("the anchors of the headings are those GitHub gives them, a repeated one numbered, none of fenced code", () => {
+  const text = ["# Title", "### Requirement: `brd push`: Refuses ‹branch›, “quoted”", "## Repeated", "## Repeated", "```md", "## Not a heading", "```"].join("\n")
+  assert.deepEqual([...headingAnchors(text)], ["title", "requirement-brd-push-refuses-branch-quoted", "repeated", "repeated-1"])
+})
+
+test("a link into a spec of OpenSpec names one of its headings or a group of its requirements", t => {
+  const root = repositoryOf(t, {
+    "openspec/specs/area/example/spec.md": openSpecOf([], REQUIREMENT),
+    "openspec/specs/area/old/spec.md": "# Old\n\n## Requirements\n\n### Rows\n",
+    "openspec/specs/area/other/spec.md": openSpecOf(
+      [],
+      [REQUIREMENT.replaceAll("Rows: The row shows its name", "Other: One"), "See [rows](../example/spec.md#rows) and [gone](../example/spec.md#gone)."].join("\n"),
+    ),
+    "docs/design/example.md": [
+      "[purpose](/openspec/specs/area/example/spec.md#purpose), [requirement](../../openspec/specs/area/example/spec.md#requirement-rows-the-row-shows-its-name)",
+      "[old](../../openspec/specs/area/old/spec.md#anything), [missing](../../openspec/specs/area/missing/spec.md), [plain](../../openspec/specs/area/example/spec.md)",
+    ].join("\n"),
+    "openspec/changes/archive/2026-11-09-old/proposal.md": "[gone](../../../specs/area/example/spec.md#gone)\n",
+  })
+  assert.deepEqual(checkSpecAnchors(root), [
+    "docs/design/example.md:2: no file openspec/specs/area/missing/spec.md",
+    "openspec/specs/area/other/spec.md:22: openspec/specs/area/example/spec.md has no heading of the anchor #gone",
+  ])
+})
+
+test("openspec validate --strict runs over the specs of its format and the changes, a spec in the old format aside", t => {
+  const root = repositoryOf(t, {
+    "openspec/specs/area/example/spec.md": openSpecOf([], REQUIREMENT),
+    "openspec/specs/area/weak/spec.md": openSpecOf([], "### Requirement: Rows: Weak\n\nThe row shows.\n"),
+    "openspec/specs/area/old/spec.md": "# Old\n\n## Summary\n\nNot yet moved.\n",
+  })
+  assert.deepEqual(checkOpenSpec(root, globSync, openspecValidate), [
+    "openspec spec area/weak: ERROR requirements.0.scenarios: Requirement must have at least one scenario",
+    "openspec spec area/weak: WARNING requirements[0].scenarios: Requirement must have at least one scenario. Scenarios must use level-4 headers. Convert bullet lists into:",
+    'openspec spec area/weak: WARNING requirements[0]: Requirement "Rows: Weak" should contain SHALL or MUST (RFC 2119 best practice for English specs)',
+  ])
+  const asked = []
+  const validate = (_, args) => {
+    asked.push(args.join(" "))
+    return { items: [{ id: "add-row", type: "change", valid: false, issues: [] }] }
+  }
+  const changes = repositoryOf(t, { "openspec/changes/add-row/proposal.md": "## Why\n" })
+  assert.deepEqual(checkOpenSpec(changes, globSync, validate), ["openspec change add-row: invalid"])
+  assert.deepEqual(asked, ["--changes"])
+  assert.deepEqual(checkOpenSpec(repositoryOf(t, { "spec/area/example.spec.md": "" }), globSync, validate), [])
 })

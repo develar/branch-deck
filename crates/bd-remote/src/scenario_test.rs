@@ -1690,7 +1690,9 @@ fn heading_slug(heading: &str) -> String {
     .collect()
 }
 
-/// Where an anchor of `spec` goes wrong: no file, no heading of the slug, no row `| <row> |` of a `#the-table:<row>`
+/// Where an anchor of `spec` goes wrong: no file, no heading of the slug nor a group of requirements of it (`#the-table`
+/// names the requirements `### Requirement: The table: …`, as `pnpm lint:specs` reads a link), no row `| <row> |` of a
+/// `#the-table:<row>`
 fn broken_spec(spec: &str) -> Option<String> {
   let (path, anchor) = spec.split_once('#').map_or((spec, None), |(path, anchor)| (path, Some(anchor)));
   let Ok(text) = std::fs::read_to_string(format!("{ROOT}/{path}")) else {
@@ -1704,7 +1706,8 @@ fn broken_spec(spec: &str) -> Option<String> {
     .filter(|rest| rest.starts_with(' '))
     .map(heading_slug)
     .collect();
-  if !headings.iter().any(|heading| heading == slug) {
+  let group = format!("requirement-{slug}-");
+  if !headings.iter().any(|heading| *heading == slug || heading.starts_with(&group)) {
     return Some(format!("{spec}: {path} has no heading of the slug {slug:?}"));
   }
   match row {
