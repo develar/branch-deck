@@ -413,7 +413,11 @@ export function assemble(path, dir, rev = "HEAD") {
   if (parts.length === 0) {
     throw new Error(`no parts <nn>*.md in ${dir}`)
   }
-  const folded = new Set(extract(path, rev).groups.filter(group => group.section !== undefined).map(group => group.section))
+  const folded = new Set(
+    extract(path, rev)
+      .groups.filter(group => group.section !== undefined)
+      .map(group => group.section),
+  )
   const out = []
   let fence = false
   let skip = false
