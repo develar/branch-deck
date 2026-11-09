@@ -203,17 +203,26 @@ lock, and under it only the witness of HEAD, the move of the branch and the stag
   `update-index`, no refresh)
   [@test] crates/sync-core/src/repository_lock_test.rs (`an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write`)
 
-### Requirement: Refusals: A HEAD another process moved is refused before the lookup
+### Requirement: Refusals: A HEAD other than the request's is refused before the lookup
 
-A HEAD another process moved meanwhile (`brd update`, a `brd` rewrite of a commit below, a commit on top) MUST be
-refused (`head_moved`) before the amended commit is looked for on it, under the lock by one `rev-parse` before the
-history is read again.
+A HEAD other than the one the request was made for, which another process moved meanwhile (`brd update`, a `brd`
+rewrite of a commit below, a commit on top), MUST refuse the amend (`head_moved`) before the amended commit is looked
+for on it, and under the lock by one `rev-parse` before the history is read again.
 
-#### Scenario: Another process moved HEAD
-- **WHEN** another process moved HEAD meanwhile (`brd update`, a `brd` rewrite of a commit below, a commit on top)
-- **THEN** the amend is refused (`head_moved`) by one `rev-parse` under the lock, before the history is read again and
-  the amended commit is looked for on it
-  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`, `every_rewrite_refuses_another_head_that_has_none_of_its_commits`)
+#### Scenario: Another HEAD than the request's
+- **WHEN** HEAD is not the one the request was made for
+- **THEN** the amend is refused (`head_moved`), before the amended commit is looked for on it, with nothing changed
+  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+
+#### Scenario: A HEAD with none of the request's commits
+- **WHEN** another process rewrote the history meanwhile (`brd update`, a `brd` rewrite of a commit below), so that
+  HEAD has copies of the amended commit but not the commit
+- **THEN** the amend is refused (`head_moved`), not as a commit it cannot find
+  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_that_has_none_of_its_commits`)
+
+#### Scenario: HEAD moved before the lock was taken
+- **WHEN** another process moved HEAD after the amend computed it and before the amend took the lock
+- **THEN** under the lock one `rev-parse` refuses it (`head_moved`), before the history is read again
 
 ### Requirement: Refusals: The engine amends the copy of the commit on HEAD as it is now
 
@@ -236,7 +245,7 @@ wait as long as the holder lives, its inline form saying whom for, the step of i
 - **WHEN** another process holds the lock (an agent's `brd pick --follow`, `brd`) or the app's own push does
 - **THEN** the amend waits as long as the holder lives, then runs
 - **AND** its inline form says whom for, the step of its operation ("Waiting for `brd pick` (pid 4242, for 12 s)")
-  [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_waits_for_the_holder`, `a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`)
+  [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_waits_for_the_holder`, `a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `every_rewrite_fails_with_locked_while_another_holds_the_lock`)
   [@test] crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
 
 #### Scenario: Stop Waiting
@@ -254,16 +263,7 @@ another operation holds the lock.
 - **WHEN** a holder no record names holds the lock past 10 s
 - **THEN** the amend is refused with nothing changed
 - **AND** the error toast says that another operation holds the lock
-  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
-
-### Requirement: Refusals: A HEAD the request was not made for refuses the amend
-
-A HEAD the request was not made for MUST refuse the amend too.
-
-#### Scenario: Another HEAD than the request's
-- **WHEN** HEAD is not the one the request was made for
-- **THEN** the amend is refused
-  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_refuses_another_head_than_the_expected_one`)
+  [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
 
 ### Requirement: Refusals: An error keeps the form, a conflict opens the conflict viewer
 
