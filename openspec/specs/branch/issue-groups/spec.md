@@ -378,32 +378,34 @@ The ids of the undo token MUST be full (40 or 64 hex digits), and anything else 
 ### Requirement: Undo: The map commit of the token is a write on the previous one
 
 `G2` MUST be a write of the map on `G1`: its parent, or no parent when `G1` is zeros; else the token is
-`invalid_arguments`.
+`invalid_arguments` (exit 2: the core's `InvalidPlan`, which `ErrorCode::in_undo` makes a wrong argument).
 
 #### Scenario: A map commit that is no write on the previous one
 - **WHEN** the token's `G2` does not have `G1` as its parent, or has a parent while `G1` is zeros
-- **THEN** the token is `invalid_arguments` and nothing moves
+- **THEN** `brd undo` answers `invalid_arguments` (exit 2), the core `InvalidPlan`, and nothing moves
   [@test] crates/sync-core/src/issue_groups_test.rs (`an_undo_of_the_map_needs_the_written_commit_on_its_previous_one`)
   [@test] crates/bd-rewrite/src/rewrite_test.rs (`issue_groups_plan_and_undo`)
 
 ### Requirement: Undo: The undo is refused when HEAD or the map moved
 
-`brd undo` MUST refuse with `head_moved` when HEAD moved, and with `groups_moved` (exit 3, retryable) when the map
-moved, also when a ref moves between its checks and its transaction.
+`brd undo` MUST refuse with `undo_stale` (exit 4, not retryable: the same undo can never succeed) when HEAD or the map
+moved since the token, also when a ref moves between its checks and its transaction. The core answers `HeadMoved` or
+`GroupsMoved`, and `ErrorCode::in_undo` makes either `undo_stale`.
 
 #### Scenario: HEAD moved
 - **WHEN** HEAD moved since the token
-- **THEN** the undo refuses with `head_moved` and changes nothing
+- **THEN** the core refuses with `HeadMoved`, which `brd undo` answers as `undo_stale` (exit 4), and nothing changes
   [@test] crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
 #### Scenario: The map moved
 - **WHEN** the map moved since the token
-- **THEN** the undo refuses with `groups_moved` (exit 3, retryable) and changes nothing
+- **THEN** the core refuses with `GroupsMoved`, which `brd undo` answers as `undo_stale` (exit 4, not retryable), and nothing changes
   [@test] crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`, `a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
+  [@test] crates/bd-rewrite/src/rewrite_test.rs (`issue_groups_plan_and_undo`)
 
 #### Scenario: A ref moves between the checks and the transaction
 - **WHEN** HEAD or the map moves between the checks of the undo and its transaction
-- **THEN** the undo refuses with `head_moved` or `groups_moved` and changes nothing
+- **THEN** the undo refuses with `undo_stale` and changes nothing
 
 ### Requirement: `brd status` and `brd suggest`: `brd status` prints the issue groups
 
