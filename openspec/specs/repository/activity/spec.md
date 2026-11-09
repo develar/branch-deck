@@ -222,6 +222,8 @@ pushed.
 #### Scenario: A force push that replaced older versions
 - **WHEN** a force push replaced older versions of the commits
 - **THEN** the entry says "replaced the rebased copies", "replaced 1 amended commit" or "replaced the parent's older commits"
+  [@test] src/lib/push-summary.test.ts (`says what the push did from the status it was made against`)
+  [@test] src/lib/push-summary.test.ts (`says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
 
 #### Scenario: A remote that moved since its status
 - **WHEN** the remote moved since the status the push went over
@@ -423,14 +425,15 @@ entry.
 ### Requirement: Recording: A rewrite or a pick of `brd` is a rewrite entry
 
 A rewrite or a pick of `brd` (its journal entry, `tool: bd`), which no toast told, MUST be an entry of kind `rewrite`
-in the words of the rewrite (`presentRewrite`), an agent's marked as any other; an update of `brd` tells nothing of
-what it moved and MUST NOT be an entry.
+in the words of the rewrite (`presentRewrite`), an agent's marked as any other; the journal entry of a rewrite of the
+app MUST NOT be an entry (what it did is the entry the page records with its toast, above); an update of `brd` tells
+nothing of what it moved and MUST NOT be an entry.
 
 #### Scenario: A rewrite and a pick of `brd`
 - **WHEN** the journal has a rewrite or a pick of `brd`
 - **THEN** it is an entry of kind `rewrite` in the words of the rewrite ("Unstacked beta", "Picked commits")
 - **AND** an agent's is marked as any other
-- **AND** a rewrite of the app, which its toast told, is no second entry
+- **AND** the journal entry of a rewrite of the app is no entry
 - **AND** an update of `brd` is no entry
   [@test] src/presenters/activity.test.ts (`says a rewrite and a pick of bd, which no toast told, an agent's marked, and not the rewrites of the app nor an update of bd`)
 
@@ -460,11 +463,13 @@ a command has none.
 - **WHEN** an error was raised outside a command
 - **THEN** it names no operation
   [@test] src/lib/errors.test.ts (`returns the operation an ApiError names, and nothing for any other error`)
+  [@test] src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
 
 ### Requirement: Recording: Every command that can fail runs its body as an operation
 
 Every command that can fail MUST run its body as an operation, the `operation{operation_id=…}` span of
-`crates/app-api/src/operation.rs`, and its error MUST carry the id (`ApiError.operation_id`).
+`crates/app-api/src/operation.rs`, so that its lines in the app's log name the id, those of a step it hands to another
+thread too, and its error MUST carry the id (`ApiError.operation_id`).
 
 #### Scenario: The scan of the commands
 - **WHEN** the commands of app-api are scanned
@@ -486,6 +491,7 @@ Every command that can fail MUST run its body as an operation, the `operation{op
 - **WHEN** a command fails
 - **THEN** its error carries the id of its operation (`ApiError.operation_id`)
   [@test] crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
+  [@test] src-tauri/src/tracing_log_test.rs (`the_async_lines_of_a_command_and_its_blocking_step_name_one_operation`)
 
 ### Requirement: Recording: The app's log keeps the lines for days
 
@@ -593,15 +599,26 @@ before the rewrite ended read HEAD before it and changes nothing.
 - **WHEN** a rename runs after a move
 - **THEN** the Undo of the move goes from its toast and Activity, and the rename's own Undo works
   [@test] tests/e2e/move-commits/move-commits.spec.ts (`should take the Undo of a move back from its toast and Activity once a rename ran after it, whose own Undo works`)
+  [@test] crates/repository-model/src/table_test.rs (`the_undo_of_the_last_rewrite_is_offered_while_head_is_the_head_it_left`)
+  [@test] crates/operations/src/rewrite_test.rs (`the_session_offers_the_undo_of_the_last_rewrite_while_head_is_the_head_it_left`)
+
+#### Scenario: An amend that moved HEAD, an undo
+- **WHEN** a rewrite without an Undo moved HEAD (an amend), or an undo ran
+- **THEN** the session offers no Undo
+  [@test] crates/repository-model/src/table_test.rs (`the_undo_of_the_last_rewrite_is_offered_while_head_is_the_head_it_left`)
+  [@test] crates/operations/src/rewrite_test.rs (`the_session_offers_the_undo_of_the_last_rewrite_while_head_is_the_head_it_left`)
 
 #### Scenario: A commit made outside the app
 - **WHEN** a sync read a commit made outside the app after a move
 - **THEN** the Undo of the move goes from its toast and Activity
   [@test] tests/e2e/move-commits/move-commits.spec.ts (`should take the Undo of a move back from its toast and Activity once a sync read a commit made outside the app`)
+  [@test] crates/repository-model/src/table_test.rs (`the_undo_of_the_last_rewrite_is_offered_while_head_is_the_head_it_left`)
+  [@test] crates/operations/src/rewrite_test.rs (`the_session_offers_the_undo_of_the_last_rewrite_while_head_is_the_head_it_left`)
 
 #### Scenario: A sync that started before the rewrite ended
 - **WHEN** a sync that started before the rewrite ended answers
 - **THEN** it read HEAD before the rewrite and changes nothing of the Undo
+  [@test] crates/repository-model/src/table_test.rs (`the_undo_of_the_last_rewrite_is_offered_while_head_is_the_head_it_left`)
 
 ### Requirement: Undo: An Undo the session took back goes as after the window
 
@@ -713,6 +730,7 @@ after each operation and each write of its own.
 #### Scenario: A journal changes
 - **WHEN** a journal changes (`activity-changed`)
 - **THEN** each window that is open reads the log again
+  [@test] tests/e2e/activity/activity.spec.ts (`should hide the operations of agent leases behind the Agents chip`, `should mark an unavailable journal`)
 
 ### Requirement: Log: The log of a settings file of before is dropped
 
@@ -891,7 +909,12 @@ focus is in it (the search takes its own Escape first) and give the focus back w
 
 #### Scenario: Close
 - **WHEN** the user presses Close (`XIcon`, "Close Activity")
-- **THEN** the panel closes and the focus goes back as on Escape
+- **THEN** the panel closes
+  [@test] tests/e2e/activity/activity.spec.ts (`should toggle the side panel from the header button, show a branch from it, and remember it open`)
+
+#### Scenario: Close with the focus in the panel
+- **WHEN** the user presses Close while the focus is in the panel
+- **THEN** the focus goes back where it was before it came in, as on Escape
 
 ### Requirement: Side panel: What the panel does runs where it is
 
@@ -911,6 +934,7 @@ Dismiss as in the window. Open in Window MUST close the panel and open the windo
 #### Scenario: Open in Window
 - **WHEN** the user presses Open in Window
 - **THEN** the panel closes and the window opens at the chip of the open
+  [@test] tests/e2e/activity/activity.spec.ts (`should filter by the chips of the kinds and the search, an open starting over at its chip`)
 
 ### Requirement: Window: Open in Window and an entry point without room open the window
 
@@ -969,10 +993,12 @@ this session's rewrite (`canUndoActivity`); Dismiss and Clear Log. A refusal MUS
 #### Scenario: An Undo the main window refuses
 - **WHEN** the Undo is pressed past the window of its toast, or once the session took it back
 - **THEN** an error toast in the window says "Cannot undo …: its time ran out", or "…: the branch moved since"
+  [@test] src/stores/activity.test.ts (`offers the Undo of a rewrite for the window of its toast, once`, `withdraws the Undo of a rewrite the session no longer offers, as after its window, but not while its undo runs`)
 
 #### Scenario: A request of a repository the main window no longer shows
 - **WHEN** the window asks for a repository the main window no longer shows
-- **THEN** the main window refuses it with an error toast in the window
+- **THEN** the main window refuses it with an error toast in the window, "Cannot do it from Activity" / "the main window
+  shows another repository now"
 
 ### Requirement: Window: The chips of the kinds count what the search keeps
 
@@ -1004,6 +1030,7 @@ kept: "No match for “…”" (or "Nothing of this kind") with Clear Filter.
 #### Scenario: Nothing kept
 - **WHEN** the search or the chip keeps no entry
 - **THEN** the window says "No match for “…”" (or "Nothing of this kind") with Clear Filter
+  [@test] tests/e2e/activity/activity.spec.ts (`should filter by the chips of the kinds and the search, an open starting over at its chip`)
 
 ### Requirement: Window: The Agents chip shows the operations of the agents
 
@@ -1020,10 +1047,12 @@ and the search keep (what a press adds), and the other chips count the agents' o
 
 ### Requirement: Window: A log of only the agents' operations offers Show Agents
 
-A log of only the agents' operations MUST say "Only the operations of agents" with Show Agents, which turns the chip on.
+A log that shows no entry, with no chip chosen and no search, while the Agents chip is off and counts the agents'
+operations, MUST say "Only the operations of agents" with Show Agents, which turns the chip on; with a chip or a search
+it says what "Nothing kept" says.
 
 #### Scenario: Only the operations of agents
-- **WHEN** the log has only operations of agents and the Agents chip is off
+- **WHEN** the log has only operations of agents, the Agents chip is off, no chip is chosen and the search is empty
 - **THEN** the window says "Only the operations of agents" with Show Agents, which turns the chip on
 
 ### Requirement: Window: Copy Diagnostics of an entry of an operation
