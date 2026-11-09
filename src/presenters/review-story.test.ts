@@ -424,6 +424,18 @@ describe("the document of a review", () => {
       [["Cache", "Reader", "Store"], 2],
       [["Cache", "Reader", "Store", "Index", "Lock"], 0],
     ])
+    // the opening names nine whole; of a longer list its first eight, the rest kept for "and N more"; the contents none
+    const many = (count: number, form: "contents" | "opening") => {
+      const api = Array.from({ length: count }, (_, index) => added(`Codec${index}`))
+      const adding = { ...rule, newApi: api.map(it => it.key) }
+      const { places, more, rest } = presentStepFacts(adding, { ...plan([adding], []), api }, form).newApi
+      return [places.length, more, rest?.map(it => it.label) ?? null]
+    }
+    expect([many(9, "opening"), many(12, "opening"), many(12, "contents")]).toEqual([
+      [9, 0, null],
+      [8, 4, ["Codec8", "Codec9", "Codec10", "Codec11"]],
+      [3, 9, null],
+    ])
     // two new declarations of one name, each led by its type: a package leads none
     const field = (key: string): ReviewPlan["api"][number] => ({ ...added("rightEdge"), key })
     const twins = [field("t.Event.rightEdge"), field("t.Update.rightEdge"), field("t.rightEdge"), added("Cache")]

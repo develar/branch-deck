@@ -1,4 +1,4 @@
-import { Fragment } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { BreakableCode, CodeGlue } from "@/components/shared/CodeText"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { FactList, StepFacts } from "@/presenters/review-story"
@@ -8,7 +8,8 @@ import type { FactList, StepFacts } from "@/presenters/review-story"
  * change that reach its code ("Tested by ManagerTest.kt", each its tests and their ways in its hover), "New API: Cache
  * and Reader", "New module view.gui.media: 13 declarations" (their names in the hover), "Opens wider: mediaDuration" and "New link between modules: Reader.kt → Cache.kt", each name showing its
  * place in the diffs (a file of tests at its first test, a declaration, the first use of a link), its file selected, a
- * list the contents cut ending with the count of the rest ("Cache, Reader, Store and 16 more"); of a step none of whose
+ * list the contents cut ending with the count of the rest ("Cache, Reader, Store and 16 more"), a long list of the
+ * opening its first eight and "and N more", a button that shows the rest in place; of a step none of whose
  * code lands, the commit that took it out, which shows its step; its units the section of another step shows ("Removes
  * hooks, shown in step 2"), each name at its place and "step 2" showing that step; the steps its tests prove ("Proves
  * step 2"); nothing without a fact. The contents set them in one line, " · " apart; an opening (`lines`) each fact on a
@@ -78,22 +79,45 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
  * tests" with what it has no name for (`unnamed`); each name in the code font, breakable at its dots, its comma on its
  * line (`CodeGlue`)
  */
-function FactPlaces({ title, list: { places, more }, unnamed = null, testId, kind }: { title: string; list: FactList; unnamed?: string | null; testId: string; kind?: string }) {
+function FactPlaces({
+  title,
+  list: { places, more, rest = [] },
+  unnamed = null,
+  testId,
+  kind,
+}: {
+  title: string
+  list: FactList
+  unnamed?: string | null
+  testId: string
+  kind?: string
+}) {
   const navigator = useSelectReviewFile()
+  // "and N more" of the opening shows the rest in place, the focus on the first name it showed
+  const [open, setOpen] = useState(false)
+  const firstRest = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (open) {
+      firstRest.current?.focus()
+    }
+  }, [open])
+  const folded = !open && rest.length > 0
+  const shown = folded ? places : [...places, ...rest]
   // the words after the names: the count of the rest, else what has no name
-  const tail = more > 0 ? `${more} more` : unnamed
+  const tail = more > 0 && (folded || rest.length === 0) ? `${more} more` : unnamed
   return (
     <span data-kind={kind}>
       {title}
-      {places.map((fact, index) => {
-        const last = index === places.length - 1
+      {shown.map((fact, index) => {
+        const last = index === shown.length - 1
         // "a, b and c": a comma after each name but the last two; "a, b, c and 16 more": after each but the last
-        const comma = !last && !(tail === null && index === places.length - 2)
+        const comma = !last && !(tail === null && index === shown.length - 2)
         return (
           <Fragment key={fact.key}>
             {index > 0 && last && tail === null ? " and " : " "}
             <CodeGlue after={comma ? "," : ""}>
               <button
+                ref={index === places.length ? firstRest : undefined}
                 type="button"
                 // a declaration is code, as the story sets its names; a link between modules names its files
                 className="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline"
@@ -109,7 +133,21 @@ function FactPlaces({ title, list: { places, more }, unnamed = null, testId, kin
           </Fragment>
         )
       })}
-      {tail !== null && `${places.length > 0 ? " and " : " "}${tail}`}
+      {tail !== null && shown.length > 0 && " and "}
+      {tail !== null && shown.length === 0 && " "}
+      {tail !== null &&
+        (folded ? (
+          <button
+            type="button"
+            className="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:bd-focus"
+            data-testid="review-step-fact-more"
+            onClick={() => setOpen(true)}
+          >
+            {tail}
+          </button>
+        ) : (
+          tail
+        ))}
     </span>
   )
 }

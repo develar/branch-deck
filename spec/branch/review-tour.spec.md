@@ -457,8 +457,10 @@ it added a module.
   says so in the warning tone ("No test of the change reaches paint"); code accio did not walk every way of is never
   named there; a list of names in the facts
   names up to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`), the
-  new API and the new links between modules too ("New API: Cache, Reader, Store and 16 more", each name its place),
-  which the opening names whole; a name two new declarations share led by its type ("Event.rightEdge and
+  new API and the new links between modules too ("New API: Cache, Reader, Store and 16 more", each name its place);
+  the opening names up to nine, of a longer list the first eight and "and 4 more", a button that shows the rest in
+  place, the focus on the first name it shows (26 test files and 50 names no test reaches are no wall in front of the
+  code), and so do the facts of a range that lists no step; a name two new declarations share led by its type ("Event.rightEdge and
   Update.rightEdge"), as the code of a step is; every name of a fact in the code font; and each
   "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
@@ -482,7 +484,7 @@ it added a module.
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`, `should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`, `should quote no front matter and no line of metadata in What Changes, a table of a spec by its added row under its header, and no table of a doc`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`, `should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`, `should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`, `should name a long fact in the opening of a step by its first eight names, and the rest in place on a click of "and N more"`)
   [@test] ../../src/presenters/review-story.test.ts (`quotes What Changes in the opening of the step whose stops show its entry, each entry in one step`)
   [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `words the rows of a table under their header once, a changed header row heading them, a paragraph between two tables apart`, `passes paragraph forms and resolves substitution marks to their original words`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `does not give Other changes a number in the overview`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - A group of a large step ([Groups of a Step](#groups-of-a-step)) must open with a divider above the card of its first

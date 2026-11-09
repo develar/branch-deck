@@ -228,6 +228,11 @@ export interface FactList {
   readonly places: readonly FactPlace[]
   /** Its names left out of `places`; 0 for a list named whole */
   readonly more: number
+  /**
+   * In the opening of a step, the names left out of `places`, which "and N more" shows in place: the opening keeps one
+   * screen and still names every one on a click; absent in the contents, whose cut is final (the opening tells the rest)
+   */
+  readonly rest?: readonly FactPlace[]
 }
 
 /**
@@ -306,6 +311,19 @@ const names = joinNames
 
 /** The places of a list of facts the contents name before the count of the rest, as `joinNames` does */
 const NAMED_FACTS = 3
+/** The names of a fact the opening of a step names before "and N more": a list one longer is named whole */
+export const OPENING_FACTS = 8
+
+/** A list of the opening: up to `OPENING_FACTS` names and one more whole, of a longer one the first and the rest kept */
+function openingList(places: readonly FactPlace[]): FactList {
+  const { shown, more } = cutList(places, OPENING_FACTS)
+  return more === 0 ? { places: shown, more } : { places: shown, more, rest: places.slice(shown.length) }
+}
+
+/** Every name of a list, its rest too */
+function wholeList(list: FactList): readonly FactPlace[] {
+  return list.rest === undefined ? list.places : [...list.places, ...list.rest]
+}
 
 /** The name of a file of a path: its last part */
 function fileName(path: string): string {
@@ -348,7 +366,8 @@ function proofPlaces(proof: ReviewStep["tests"]["proof"]): FactPlace[] {
  * The facts of `step` (`StepFacts`): the files of the tests of the change that reach its code, the scenarios that prove
  * it, its code no test of the change reaches beside proven code, the steps its tests prove, the public declarations it
  * adds and the links it adds between modules, and that nothing of it lands. In the contents (`form`) the tests are the files of the change's, and a long
- * list its first names and the count of the rest (`cutList`); the opening names them all. The warning of a step no test
+ * list its first names and the count of the rest (`cutList`); the opening names up to `OPENING_FACTS` and one more, of a
+ * longer list the first and "and N more", which shows the rest in place (`FactList.rest`). The warning of a step no test
  * reaches names its code in both
  */
 export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "modules" | "steps" | "units" | "files">, form: FactsForm = "opening"): StepFacts {
@@ -388,9 +407,12 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   const contents = form === "contents"
   // the code no test reaches, beside code a test reaches or a scenario proves; alone it is the warning (`unproven`)
   const noneBeside = unreached.length > 0 && (contents ? reached === 0 && scenarios.length > 0 : reached > 0 || scenarios.length > 0)
-  // the contents name a long list as every list does: the opening names it whole
+  // the contents name a long list as every list does; the opening names its first names and the rest on a click
   const list = (places: readonly FactPlace[]): FactList => {
-    const { shown, more } = contents ? cutList(places, NAMED_FACTS) : { shown: places, more: 0 }
+    if (!contents) {
+      return openingList(places)
+    }
+    const { shown, more } = cutList(places, NAMED_FACTS)
     return { places: shown, more }
   }
   const shownElsewhere = shownElsewhereOf(step, plan, list)
@@ -908,7 +930,7 @@ function presentSubstitutions(plan: Pick<ReviewPlan, "brief" | "files">): Substi
   })
 }
 
-/** The facts of every step of `plan` as one: of a range whose contents list no step; null without a fact */
+/** The facts of every step of `plan` as one, each list cut as the opening cuts one: of a range whose contents list no step; null without a fact */
 function rangeFacts(plan: ReviewPlan): StepFacts | null {
   const all = plan.steps.steps.map(step => presentStepFacts(step, plan))
   const lines = all.flatMap(facts => (facts.line === null ? [] : [facts.line]))
@@ -916,10 +938,10 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
   const facts = {
     line: lines.length === 0 ? null : lines.join(" · "),
     tests: all.flatMap(it => it.tests),
-    newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
+    newApi: openingList(all.flatMap(it => wholeList(it.newApi))),
     newModules: all.flatMap(it => it.newModules),
-    opensWider: { places: all.flatMap(it => it.opensWider.places), more: 0 },
-    moduleEdges: { places: all.flatMap(it => it.moduleEdges.places), more: 0 },
+    opensWider: openingList(all.flatMap(it => wholeList(it.opensWider))),
+    moduleEdges: openingList(all.flatMap(it => wholeList(it.moduleEdges))),
     proves: [],
     takenOutBy: null,
     shownElsewhere: [],

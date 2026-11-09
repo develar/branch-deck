@@ -281,6 +281,37 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "format", path: "src/Format.kt" })
   })
 
+  test('should name a long fact in the opening of a step by its first eight names, and the rest in place on a click of "and N more"', async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    turnOnReviewPlan(repo)
+    // twelve new public functions in the first of two told commits: a fact of its step longer than the opening names whole
+    const codecs = Array.from({ length: 12 }, (_, index) => `fun codec${index}(value: Int): Int = value + ${index}\n`).join("\n")
+    await repo.commit("(plan) add the codecs\n\nThe player converts a value through a codec of its kind.", { "src/Codecs.kt": codecs }, 1704121200)
+    await repo.commit("(plan) name the codecs\n\nThe player names the codec it chose.", { "src/Names.kt": 'fun codecName(index: Int): String = "codec$index"\n' }, 1704121260)
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+
+    // the contents cut it as every list: three names and the count
+    await expect(window.getByTestId("review-overview").getByText("New API: codec0, codec1, codec2 and 9 more", { exact: true })).toBeVisible()
+    // the opening: its first eight names, then "4 more", which shows the other four in place, the focus on the first
+    const opening = window.getByTestId("review-opening").filter({ hasText: "add the codecs" })
+    const names = opening.getByTestId("review-step-new-api")
+    await expect(names).toHaveText(["codec0", "codec1", "codec2", "codec3", "codec4", "codec5", "codec6", "codec7"])
+    const more = opening
+      .getByTestId("review-step-fact")
+      .filter({ has: window.getByTestId("review-step-new-api") })
+      .getByTestId("review-step-fact-more")
+    await expect(more).toHaveText("4 more")
+    await more.click()
+    await expect(names).toHaveCount(12)
+    await expect(more).toHaveCount(0)
+    await expect(names.nth(8)).toBeFocused()
+    await expect(names.nth(11)).toHaveText("codec11")
+  })
+
   test("should show the place of a breakage link in the changes of a pull request: the declaration, a use outside over the changes", async ({
     page,
     setupRepo,
