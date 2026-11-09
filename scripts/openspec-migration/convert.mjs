@@ -10,7 +10,9 @@
 //     writes the converted spec from the old one at <rev> and the parts of <dir>: `## Summary` becomes `## Purpose`
 //     (`purpose.md` when it had none), `concepts.md` becomes `## Concepts` before Requirements, the parts `<nn>*.md`
 //     in the order of their names become the body of `## Requirements`, a section of requirements outside it
-//     (`## Code owners`) goes, and every other line stays as it is.
+//     (`## Code owners`) goes, and every other line stays as it is;
+//   node scripts/openspec-migration/convert.mjs compare <spec> [--old <rev>] [--map <map.json>]
+//     the old rules and the new requirements side by side, group by group, for the check of the meaning.
 // <spec> is `openspec/specs/<area>/<name>/spec.md`. Deleted once every spec is converted.
 import { execFileSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
@@ -456,6 +458,48 @@ export function assemble(path, dir, rev = "HEAD") {
   writeFileSync(join(root, path), out.join("\n"))
 }
 
+/** The old rules of `path` at `rev` and its new requirements, group by group, as text */
+export function compare(path, rev = "HEAD", mapPath = null) {
+  const old = extract(path, rev)
+  const map = mapPath === null ? null : JSON.parse(readFileSync(mapPath, "utf8"))
+  const idsOf = name =>
+    Object.entries(map?.ids ?? {})
+      .filter(([, names]) => names.includes(name))
+      .map(([id]) => id)
+  const now = parse(readFileSync(join(root, path), "utf8"))
+  const blocks = []
+  let fence = false
+  for (const line of now.sections.find(it => it.title.toLowerCase() === "requirements")?.lines ?? []) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fence = !fence
+    }
+    const name = fence ? null : /^### Requirement: (.+)$/.exec(line)?.[1].trim()
+    if (name !== undefined && name !== null) {
+      blocks.push({ name, lines: [line] })
+    } else if (blocks.length > 0) {
+      blocks.at(-1).lines.push(line)
+    }
+  }
+  const titles = old.groups.map(group => group.title)
+  const groupOf = name => titles.filter(title => title !== "" && name.startsWith(`${title}: `)).sort((a, b) => b.length - a.length)[0] ?? ""
+  const out = []
+  const concepts = now.sections.find(it => it.title === "Concepts")
+  if (concepts !== undefined) {
+    out.push("=== ## Concepts (new)", ...concepts.lines)
+  }
+  for (const group of old.groups) {
+    out.push(`=== ${group.id} ${group.title}`, "--- old")
+    for (const item of group.items) {
+      out.push(`[${item.id}]${map === null ? "" : ` → ${JSON.stringify(map.ids?.[item.id] ?? null)}`}`, ...item.lines)
+    }
+    out.push("--- new")
+    for (const block of blocks.filter(it => groupOf(it.name) === group.title)) {
+      out.push(...(map === null ? [] : [`(from ${idsOf(block.name).join(", ") || "no id"})`]), ...block.lines)
+    }
+  }
+  return out.join("\n")
+}
+
 if (import.meta.main) {
   const [command, path, ...rest] = process.argv.slice(2)
   const option = name => {
@@ -472,11 +516,13 @@ if (import.meta.main) {
       process.exit(1)
     }
     console.log(`${path}: converted, nothing lost`)
+  } else if (command === "compare") {
+    console.log(compare(path, option("--old") ?? "HEAD", option("--map")))
   } else if (command === "assemble") {
     assemble(path, option("--parts"), option("--rev") ?? "HEAD")
     console.log(`${path}: assembled`)
   } else {
-    console.error("usage: convert.mjs extract|verify|assemble <openspec/specs/<area>/<name>/spec.md> [--rev|--old <rev>] [--map <map.json>]")
+    console.error("usage: convert.mjs extract|verify|assemble|compare <openspec/specs/<area>/<name>/spec.md> [--rev|--old <rev>] [--map <map.json>]")
     process.exit(2)
   }
 }
