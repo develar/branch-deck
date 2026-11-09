@@ -2496,7 +2496,7 @@ active.
 ### Requirement: UI: Stack On and Unstack write the stack parents
 
 Stack On and Unstack MUST write the stack parents and rewrite only the commits whose prefix declares another parent
-([Stack Parents](../stack-parents/spec.md#restack-unstack-and-rename)), so an issue branch and an issue group are
+([Stack Parents](../stack-parents/spec.md#restack-unstack-stack-together-and-rename)), so an issue branch and an issue group are
 stacked too.
 
 #### Scenario: A restack of a branch with prefixes
