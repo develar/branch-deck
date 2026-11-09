@@ -129,7 +129,12 @@ sides: none for a side the file does not exist on, and the commit of a submodule
 #### Scenario: The output of git is read by its entries
 - **WHEN** git lists the line counts of the files in another order than their raw entries
 - **THEN** each file still gets its own status, paths, line counts and blob ids
-  [@test] crates/git-ops/src/commit_files_test.rs (`parses_numstat_entries_in_another_order_than_the_raw_entries`, `rejects_output_it_does_not_understand`)
+  [@test] crates/git-ops/src/commit_files_test.rs (`parses_numstat_entries_in_another_order_than_the_raw_entries`)
+
+#### Scenario: An output that is no list of files
+- **WHEN** the output holds an entry that is neither a raw entry nor the line counts of one
+- **THEN** the read fails, never a list of files with a part of that entry
+  [@test] crates/git-ops/src/commit_files_test.rs (`rejects_output_it_does_not_understand`)
 
 ### Requirement: Reading the files: The paths are the bytes git stores
 
@@ -407,7 +412,7 @@ The views SHALL show the typed diff of each file instead of the patch ([Reading 
 
 #### Scenario: A file of a commit in a view
 - **WHEN** a view shows a file of a commit
-- **THEN** it shows the typed diff of the file, not the patch
+- **THEN** it shows the typed diff of the file from `get_file_diffs`, not the patch: no command of the app reads a patch
 
 ### Requirement: File diffs: get_file_diffs gives the diff of each changed file
 
@@ -880,7 +885,9 @@ as a paragraph whose `*` is an emphasis, a fenced block by the language it names
 ### Requirement: Files section: Kotlin, Java, Rust, TypeScript and JavaScript are coloured from their tree
 
 Kotlin, Java, Rust, TypeScript and JavaScript MUST be coloured as the IntelliJ editor (and RustRover) colours them
-without resolving a name, from their syntax tree.
+without resolving a name, from their syntax tree: in the roles of the requirements below, and as IntelliJ colours an
+annotation (with its target, its arguments as code), a keyword the parser reads only in context (a name elsewhere) and
+the escapes of each kind of string (a Kotlin raw string has none).
 
 #### Scenario: The fixtures of each language
 - **WHEN** the fixture files of each language are highlighted
@@ -897,27 +904,39 @@ without resolving a name, from their syntax tree.
 - **WHEN** a review shows a Kotlin file
 - **THEN** a property is coloured as a field, and a declaration, an annotation and a keyword as IntelliJ colours them
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword`)
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_file_annotation_is_an_annotation_with_its_target_and_its_arguments_are_code`, `a_raw_string_has_no_escapes`, `a_parameter_of_a_function_type_binds_nothing`)
+
+#### Scenario: A file annotation and a raw string of Kotlin
+- **WHEN** a Kotlin file has a file annotation with arguments (`@file:OptIn(Api::class, "x")`) and a raw string with a template
+- **THEN** `@file:OptIn` is one annotation with its target, and its arguments are code (a keyword, a string)
+- **AND** the backslashes of the raw string are its text, no escapes; only the `$` of its template has a colour of its own
+  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_file_annotation_is_an_annotation_with_its_target_and_its_arguments_are_code`, `a_raw_string_has_no_escapes`)
 
 #### Scenario: The keywords and the strings of Java
-- **WHEN** a Java file has a keyword the parser reads in context, a character, a string and a text block
-- **THEN** they are coloured as IntelliJ colours them, from the syntax tree
-  [@test] crates/code-symbols/src/java/highlight_test.rs (`the_keywords_the_parser_reads_in_context_are_keywords_and_names_elsewhere`, `a_character_a_string_and_a_text_block_have_their_escapes`)
+- **WHEN** a Java file has the words the parser reads as keywords in context (`sealed`, `permits`, `non-sealed`, `var`, `record`, `when`, `yield`), a variable named `var`, a character, a string, a text block, and a `/*` inside a text block
+- **THEN** those words are keywords where the parser reads them so, and the variable `var` is a name
+- **AND** a character, a string and a text block have their escapes (an octal escape by the digits it takes, the line continuation of a text block), and a `/*` inside a text block is its text
+  [@test] crates/code-symbols/src/java/highlight_test.rs (`the_keywords_the_parser_reads_in_context_are_keywords_and_names_elsewhere`, `a_character_a_string_and_a_text_block_have_their_escapes`, `a_comment_inside_a_text_block_is_its_text`)
 
 ### Requirement: Files section: Fields, static members and constants have their colours
 
 A property, a field and an unqualified use of one as a field MUST be coloured as a field; a static member, a constant
-and an enum entry italic; a static method in the colour of a declaration and italic.
+and an enum entry italic; a static method in the colour of a declaration and italic. An unqualified name is a field
+only where the language sees that field: never where a nearer binding of the name hides it, after a receiver, or as
+the name of a method reference or of an argument.
 
 #### Scenario: The fields of Java
 - **WHEN** a Java file declares and uses fields, static members, constants and enum entries
 - **THEN** a field and an unqualified use of one are fields, the static ones italic, a static method a declaration and italic
+- **AND** a field of an anonymous class and of an enum constant is a field, and one through a qualified `this` the instance's; a field is static by its modifier, and in an interface
+- **AND** a pattern variable and a vararg hide the field of their name only where Java sees them, the arguments of an anonymous class see no member of it, and the name of a method reference or of an annotation's argument is no field (an element of an annotation type is a method declaration)
   [@test] crates/code-symbols/src/java/highlight_test.rs (`a_field_of_an_anonymous_class_and_of_an_enum_constant_is_a_field`, `a_pattern_variable_and_a_vararg_hide_the_field_of_their_name`, `a_qualified_this_is_a_keyword_and_the_fields_through_it_are_the_instance_s`, `a_field_is_static_by_its_modifier_and_in_an_interface_only`, `an_element_of_an_annotation_type_is_a_method_declaration_and_an_argument_name_no_field`, `the_name_of_a_method_reference_is_no_field`, `a_pattern_variable_hides_the_field_only_where_java_sees_it`, `the_arguments_of_an_anonymous_class_see_no_member_of_it`)
 
 #### Scenario: The properties of Kotlin
 - **WHEN** a Kotlin file declares and uses properties
-- **THEN** a property and an unqualified use of one are fields
-  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_name_after_a_receiver_is_no_field_of_the_scopes`, `an_operand_of_an_infix_call_is_read_by_the_scopes`, `a_script_has_its_top_level_properties_as_members`)
+- **THEN** a property and an unqualified use of one are fields, an operand of an infix call too (`0 until MAX`, a constant italic)
+- **AND** a name after a receiver (`Math.size(1)`, `B::size`), of the path of an import, or of a parameter of a function type is no property, while `::size` is
+- **AND** a property of a script is static, as a top-level property of a file, also where a function uses it
+  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`a_name_after_a_receiver_is_no_field_of_the_scopes`, `an_operand_of_an_infix_call_is_read_by_the_scopes`, `a_script_has_its_top_level_properties_as_members`, `a_parameter_of_a_function_type_binds_nothing`)
 
 ### Requirement: Files section: A Rust call has the colour of the function it calls
 
@@ -944,7 +963,7 @@ colours.
 #### Scenario: Doc comments
 - **WHEN** a file has a doc comment with its tags
 - **THEN** it is coloured as a doc comment with its tags
-  [@test] crates/code-symbols/src/java/highlight_test.rs (`a_markdown_doc_comment_is_a_doc_comment_from_the_slashes_of_each_line`, `a_comment_inside_a_text_block_is_its_text`)
+  [@test] crates/code-symbols/src/java/highlight_test.rs (`a_markdown_doc_comment_is_a_doc_comment_from_the_slashes_of_each_line`)
 
 #### Scenario: A named argument, a string template, a macro, a lifetime, `self` and `?`
 - **WHEN** a file has a named argument, a string template, a macro, a lifetime, Rust's `self` or `?`
@@ -957,6 +976,7 @@ A Kotlin `var` and a Rust `mut` binding MUST be underlined; Kotlin's `it`, backi
 #### Scenario: A mutable binding and an implicit name
 - **WHEN** a file has a Kotlin `var`, a Rust `mut` binding, Kotlin's `it`, a backing `field` or a lambda
 - **THEN** the `var` and the `mut` binding are underlined, and `it`, `field` and the lambda braces bold
+  [@test] crates/code-symbols/src/kotlin/highlight_test.rs (`an_operand_of_an_infix_call_is_read_by_the_scopes`)
 
 ### Requirement: Files section: A JavaScript name is coloured by its declaration in the file
 
@@ -1110,7 +1130,7 @@ call).
 #### Scenario: Contextual keywords
 - **WHEN** a C# file has a contextual keyword the parser reads as a keyword, `var` of a declaration, `nameof` of a call, and the same words as names elsewhere
 - **THEN** the words the parser reads as keywords are keywords, and names elsewhere
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`the_contextual_keywords_the_parser_reads_as_keywords_are_keywords_and_names_elsewhere`, `a_verbatim_identifier_binds_its_value_text`)
+  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`the_contextual_keywords_the_parser_reads_as_keywords_are_keywords_and_names_elsewhere`)
 
 #### Scenario: C# in a review
 - **WHEN** a review shows a C# file
@@ -1128,7 +1148,8 @@ never as the member of its name (`Color Color`).
 - **WHEN** a C# file declares fields, properties, events, static and `const` members, enum members and a record
 - **THEN** they are fields, the static and `const` ones and the enum members italic, a static method a declaration and italic
 - **AND** the positional parameters of the record are fields
-  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`members_are_fields_by_their_declarations_and_static_ones_are_italic`, `the_parameters_of_a_record_are_its_properties`)
+- **AND** a verbatim identifier is the name of its text without the `@`: `@count` is the field `count`
+  [@test] crates/code-symbols/src/csharp/highlight_test.rs (`members_are_fields_by_their_declarations_and_static_ones_are_italic`, `the_parameters_of_a_record_are_its_properties`, `a_verbatim_identifier_binds_its_value_text`)
 
 #### Scenario: A member after a value or a type name
 - **WHEN** a member follows a value (`item.Count`, `this.count`, `x?.Count`) or a type name
@@ -1248,7 +1269,7 @@ Unified and Inline colour a deleted line grey and an inserted line green.
 - **THEN** Split gives it the old and the new column, coloured by its type on both sides, the shorter side filled
 - **AND** Unified and Inline give it one column, a deleted line grey and an inserted line green
   [@test] src/lib/diff/row-cells.test.ts (`gives the old and the new column in Split, one column with the ranges of the line otherwise`)
-  [@test] src/lib/diff/rows.test.ts (`fills the shorter side of a block in the split view`, `shows a new file and a deleted file as one block of one side`)
+  [@test] src/lib/diff/rows.test.ts (`fills the shorter side of a block in the split view`)
 
 ### Requirement: Files section: The colour of a line fills its line number
 
@@ -1406,7 +1427,8 @@ a file in its one-sided viewer (`SimpleOnesideDiffViewer`, [Diff View](../../../
 
 #### Scenario: A file with one side in every layout
 - **WHEN** a file with one side is shown in Split, Unified or Inline
-- **THEN** that side shows alone, with its line numbers
+- **THEN** that side shows alone, with its line numbers, as one block of every line inserted or deleted
+  [@test] src/lib/diff/rows.test.ts (`shows a new file and a deleted file as one block of one side`)
   [@test] src/lib/diff/row-cells.test.ts (`shows a file with one side as that side alone in every layout, with its line numbers, as IntelliJ's one-sided viewer`)
 
 ### Requirement: Files section: A file with two sides keeps the view the toggle chose
