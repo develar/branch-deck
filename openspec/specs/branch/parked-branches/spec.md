@@ -295,7 +295,7 @@ The rewrites `park` and `unpark` MUST report the note before and after.
 
 The rewrites `park` and `unpark` MUST report the undo token of what they wrote: the store back to the commit it was
 written on (`parked:P1..P2`, compare-and-swap), so a later write of the store makes the Undo stale instead of losing
-that write.
+that write; only the drops of a sync after it are passed over (`undo_regroup_core`, as the undo of a rename does).
 
 #### Scenario: The Undo of a park moves the store back
 - **WHEN** a park is undone by its token
@@ -304,9 +304,12 @@ that write.
   [@test] crates/operations/src/rewrite_test.rs (`an_undo_during_a_rewrite_waits_behind_it_and_runs_after_it`)
 
 #### Scenario: A later write makes the Undo stale
-- **GIVEN** the store was written again after the park
-- **WHEN** the park is undone by its token
-- **THEN** the compare-and-swap fails, the Undo is stale, and the later write is kept
+- **GIVEN** the store was written again after the write a token moves back, by a park and not by the drops of a sync
+- **WHEN** the token is undone
+- **THEN** the compare-and-swap refuses it with `parked_moved`, which an undo answers as stale (`undo_stale`), never
+  retried, and the later write is kept
+  [@test] crates/sync-core/src/parked_test.rs (`an_undo_of_a_rename_passes_over_the_drops_of_a_sync`)
+  [@test] crates/domain-types/src/error_test.rs (`an_undo_that_a_moved_ref_refuses_is_stale_and_never_retried`)
 
 ### Requirement: Parked with a parent: A branch built on a parked branch is parked too
 
@@ -488,7 +491,8 @@ others, and refuse only when nothing else is left.
 #### Scenario: A push of a stack that holds a parked member
 - **GIVEN** a stack with a parked member
 - **WHEN** `brd push` reaches its stack branch
-- **THEN** the stack branch stays local
+- **THEN** the stack branch stays local: its parked member holds it (`StackParked`)
+  [@test] crates/domain-policy/src/holds_test.rs (`a_stack_branch_is_held_by_a_parked_member_then_landed_members_then_its_robot_then_no_build`)
 
 ### Requirement: `brd`: `brd safe-push` refuses what is parked before Patronus is asked
 
@@ -584,6 +588,13 @@ to push"; the whole stack: "Holds parked auth: land the stack in pieces").
   push" of a branch parked with its parent
   [@test] src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch and of one built on it`)
   [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
+  [@test] crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`)
+
+#### Scenario: A start the page did not check is refused in Rust
+- **GIVEN** a parked branch, or a branch parked with its parent
+- **WHEN** a Safe Push or a Dry Run of it is started
+- **THEN** the decision of the start refuses it with `parked` before its first effect, and nothing is pushed or started
+  [@test] crates/domain-policy/src/land_test.rs (`the_table_refuses_first_then_the_target_then_a_push_that_drops_remote_commits_unless_allowed`)
 
 #### Scenario: A whole stack that holds a parked branch
 - **WHEN** the Safe Push of a whole stack that holds a parked branch is shown
@@ -611,7 +622,13 @@ one MUST stay local.
 - **GIVEN** a branch to land with a parked child
 - **WHEN** the user pushes it with its children
 - **THEN** the parked child is left out
-- **AND** the stack branch of a stack that holds it stays local
+  [@test] crates/domain-policy/src/push_test.rs (`push_with_children_covers_the_branch_and_its_descendants`)
+
+#### Scenario: The stack branch of a stack that holds a parked child
+- **GIVEN** a root to land whose whole stack holds a parked branch
+- **WHEN** the user pushes the root with its children
+- **THEN** the stack branch of the stack does not go along: its parked member holds it (`StackParked`) and it stays local
+  [@test] crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
 
 ### Requirement: The app: Patronus is not asked for the readiness of a parked branch
 
@@ -624,13 +641,16 @@ Patronus MUST NOT be asked for the readiness of a parked branch.
 
 ### Requirement: The app: The app's push refuses a parked branch in Rust too
 
-The app's push MUST refuse it in Rust too, as `brd push` does (`repository_model::push_guard`, under the repository
-lock): a push of a parked branch, of a branch built on one, or of the stack branch of a stack that holds one pushes
-nothing, so a push the page did not check (a race, IPC) never sends it.
+The app's push MUST refuse it in Rust too, as `brd push` does: the run plans the push again over the table of its
+session, after the rewrites admitted before it and the sync (`operations::push::execute_push`), and what keeps the
+branch out of a push refuses it before the first effect, parked first. A push of a parked branch, of a branch built on
+one, or of the stack branch of a stack that holds one pushes nothing, so a push the page did not check (a race, IPC)
+never sends it.
 
 #### Scenario: A push of a parked branch or one built on it
 - **WHEN** the app pushes a parked branch, or a branch built on one, the page not checking it
-- **THEN** nothing is pushed: "Nothing was pushed: login is parked: IJPL-1; it stays local until the user unparks it"
+- **THEN** nothing is pushed: "Nothing was pushed: login is parked: IJPL-1", code `parked`
+  [@test] crates/domain-policy/src/push_test.rs (`a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built`)
 
 #### Scenario: A push of the stack branch of a stack that holds one
 - **WHEN** the app pushes the stack branch of a stack that holds a parked branch
@@ -693,13 +713,29 @@ The branch menu of a parked branch MUST offer "Edit Park Note…" and "Unpark Br
 
 ### Requirement: The app: "Park Branch…" is disabled while a robot lands the branch
 
-"Park Branch…" MUST be disabled while a robot lands the branch, and MUST say that an open pull request stays open.
+"Park Branch…" MUST be disabled while a robot lands the branch; a merged robot that landed it disables nothing.
 
 #### Scenario: A robot lands the branch
-- **GIVEN** a robot lands the branch
+- **GIVEN** a robot that runs lands the branch
 - **WHEN** the user opens its menu
-- **THEN** "Park Branch…" is disabled
-- **AND** it says that an open pull request stays open
+- **THEN** "Park Branch…" is disabled with the hold of the robot
+  [@test] crates/domain-policy/src/actions_test.rs (`a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
+
+#### Scenario: A merged robot landed the branch
+- **GIVEN** a merged robot landed the branch
+- **WHEN** the user opens its menu
+- **THEN** "Park Branch…" is enabled
+  [@test] crates/domain-policy/src/actions_test.rs (`a_park_waits_for_a_robot_that_lands_the_branch_and_a_parked_branch_unparks`)
+
+### Requirement: The app: "Park Branch…" says that an open pull request stays open
+
+"Park Branch…" of a branch with an open pull request MUST say that the pull request stays open: "Keeps it local; #7
+stays open, a merge on GitHub still lands it".
+
+#### Scenario: A branch with an open pull request
+- **GIVEN** a branch to land whose pull request #7 is open
+- **WHEN** the user opens its menu
+- **THEN** "Park Branch…" says "Keeps it local; #7 stays open, a merge on GitHub still lands it"
 
 ### Requirement: The app: A park is a write of the repository with a toast and its Undo
 
