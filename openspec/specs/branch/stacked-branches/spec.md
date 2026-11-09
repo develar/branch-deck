@@ -236,6 +236,7 @@ branches differ only in case (both); a syntax problem.
 #### Scenario: A syntax problem
 - **WHEN** a prefix has a syntax problem
 - **THEN** the branch of its last level has the `Error` status, naming the commits
+  [@test] crates/history-rewrite/src/commit_grouper_test.rs (`a_syntax_error_is_reported_on_the_last_level`)
 
 #### Scenario: A branch with a problem is not rebuilt
 - **WHEN** the sync meets a branch with a problem
@@ -364,9 +365,12 @@ archived a sync before.
   [@test] crates/sync-core/src/detection_recheck_test.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
 
 #### Scenario: A note without a usable baseline
-- **GIVEN** a note of the parent's branch without a usable baseline
+- **GIVEN** a note of the parent's branch without a usable baseline: a note of version 1, or one checked against a
+  baseline that was rewound since
 - **WHEN** the sync places the branches
-- **THEN** the branch is detected in full, an archived branch only within the retention period
+- **THEN** the branch is detected in full, as the archive step detects any archived branch
+- **AND** an archived branch only within the retention period: beyond it the note is reported as it is
+  [@test] crates/sync-core/src/detection_recheck_test.rs (`a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`)
 
 ### Requirement: Placement: The sync writes the note of the parent, brd only reads
 
@@ -398,13 +402,15 @@ those of any flat branch (or conflict like them).
 
 #### Scenario: An unapplied parent
 - **WHEN** the parent of a child is unapplied
-- **THEN** the child is built on the baseline with `prBaseChanged`, reported before the sync starts
+- **THEN** the child is built on its nearest active ancestor, or the baseline, with `prBaseChanged`, the parent
+  `Unapplied` before the sync starts
   [@test] crates/sync-core/src/stack_sync_test.rs (`an_unapplied_parent_is_reported_before_the_sync_starts`)
 
-#### Scenario: The parent without commits is itself on a blocked branch
-- **GIVEN** a declared parent without commits, stacked on a branch with a problem
-- **WHEN** the sync places the child
-- **THEN** the child passes the parent without commits, which stays its declared parent, and the branch below blocks it
+#### Scenario: The parent without commits is itself on a branch with a problem
+- **GIVEN** `C` declares `B`, which has no commits and is stacked on `A`, which has a stack problem
+- **WHEN** the sync places `C`
+- **THEN** `C` passes `B`, which stays its declared parent, and `A` blocks it
+- **AND** the whole stack of `C` follows `B`, its declared parent, not `A` ([Whole Stack](../whole-stack/spec.md))
   [@test] crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] crates/domain-policy/src/stack_test.rs (`the_whole_stack_of_a_blocked_branch_follows_its_declared_parent_not_what_blocks_it`)
 
@@ -423,7 +429,14 @@ commits blocked, its virtual branch left as it was.
 #### Scenario: A blocked parent
 - **GIVEN** a parent blocked by a branch below it
 - **WHEN** the sync places its child
-- **THEN** the child is blocked the same way
+- **THEN** the child is blocked the same way ("Blocked: parent login is blocked")
+  [@test] crates/sync-core/src/stack_sync_test.rs (`a_parent_conflict_blocks_its_descendants`)
+
+#### Scenario: The nearest active ancestor has a problem
+- **GIVEN** `C` declares `B`, which has no commits and is stacked on `A`, which has a stack problem
+- **WHEN** the sync places `C`
+- **THEN** `A` blocks `C`
+- **AND** `C` stays out of the whole stack of `A`, which blocks it
   [@test] crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
   [@test] crates/domain-policy/src/stack_test.rs (`the_whole_stack_of_a_blocked_branch_follows_its_declared_parent_not_what_blocks_it`)
 
@@ -477,10 +490,16 @@ An unchanged stack MUST reuse every commit.
 The unpushed commits of a child MUST exclude its parent's commits (`^<parent>` next to the baseline exclusion), after a
 sync and after a push of the child.
 
-#### Scenario: After a sync and after a push of the child
-- **WHEN** a sync builds a child, or the child is pushed
-- **THEN** its unpushed commits exclude its parent's commits, by `^<parent>` next to the baseline exclusion
+#### Scenario: After a sync
+- **GIVEN** a pushed child, and a new commit on it and on its parent
+- **WHEN** a sync builds the child on its parent's new head
+- **THEN** its unpushed commits exclude its parent's commits, by `^<parent>` next to the baseline exclusion: only its
+  own new commit is unpushed
   [@test] crates/sync-core/src/stack_sync_test.rs (`the_unpushed_commits_of_a_child_exclude_its_parent`)
+
+#### Scenario: After a push of the child
+- **WHEN** the child is pushed
+- **THEN** its unpushed commits exclude its parent's commits the same way
 
 ### Requirement: Remote status: In the sync the parent is the head the child was built on
 
@@ -495,7 +514,6 @@ its parent, whose ref is then absent (a new stack) or at its old head. After a p
 #### Scenario: After a push
 - **WHEN** the child is pushed
 - **THEN** its unpushed commits exclude the parent by the parent's ref, which is current
-  [@test] crates/sync-core/src/stack_sync_test.rs (`the_unpushed_commits_of_a_child_exclude_its_parent`)
 
 ### Requirement: Remote status: A remote status that can't be computed keeps the old one
 
@@ -623,7 +641,7 @@ when the baseline moves ([Integration Detection](../../../../docs/design/integra
 - **GIVEN** a `NotIntegrated` note
 - **WHEN** the baseline moves
 - **THEN** the note is checked again against the baseline commits since then, as the note of any other branch is
-  [@test] crates/sync-core/src/detection_recheck_test.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`, `a_fast_forwarded_branch_names_its_tip_as_the_integration_commit`)
+  [@test] crates/sync-core/src/detection_recheck_test.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `two_archived_names_with_one_tip_are_rechecked_once`, `a_fast_forwarded_branch_names_its_tip_as_the_integration_commit`)
 
 ### Requirement: Pull requests: Every pull request goes into the baseline
 
@@ -802,6 +820,7 @@ its push won't land.
 - **GIVEN** a running Safe Push holds an ancestor of the branch
 - **WHEN** the push of the stack is planned
 - **THEN** it starts above that ancestor
+  [@test] crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
 
 ### Requirement: Pull requests: The description of a stack push lists its pushes
 
@@ -1013,10 +1032,10 @@ A sync of the session that runs MUST be awaited first, and the branches decided 
 - **WHEN** a push of several branches starts
 - **THEN** it waits for the sync, then decides the branches and pushes them as the sync leaves them
 
-#### Scenario: The push sends the branches as it decided them
-- **GIVEN** a push decided its branches
-- **WHEN** a sync rebuilds one of them meanwhile
-- **THEN** the push sends the commit it decided on
+#### Scenario: A sync rebuilds a branch while the push sends it
+- **GIVEN** a push decided the commit it sends of a branch
+- **WHEN** a rewrite and a sync rebuild that branch while the push sends it
+- **THEN** the push sends the commit it decided on, not the new head, as a push of one branch does
   [@test] crates/operations/src/push_test.rs (`a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze`)
 
 ### Requirement: Pull requests: A remote branch that moved refuses the whole push
@@ -1323,9 +1342,9 @@ commits to push.", "Push with Children (session)").
 
 #### Scenario: The branches the whole stack landed
 - **GIVEN** a merged Safe Push of the whole stack landed its branches
-- **WHEN** the rows of those branches show until the update
-- **THEN** they offer no push of their own, each saying why
-  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
+- **WHEN** the user opens the menu of one of them before the update
+- **THEN** it offers no push of its own, saying why
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
 
 ### Requirement: Pull requests: Nothing is left once a branch and every branch on it landed
 
@@ -1337,6 +1356,12 @@ of air and its children is left to push" ([Patronus](../patronus/spec.md#merged)
 - **WHEN** Push with Children of `air` is asked
 - **THEN** it is refused: "Landed in master with deploy and side-test: nothing of air and its children is left to push"
   [@test] crates/bd-remote/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
+
+#### Scenario: The whole stack landed
+- **GIVEN** a merged Safe Push of the whole stack of `auth` landed every branch of it
+- **WHEN** the user opens the menu of `auth`
+- **THEN** Push with Children is disabled: "Merged by Patronus: nothing of auth and its children is left to push"
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
 
 ### Requirement: Pull requests: Push with Children of a forked root takes the whole stack branch along
 
@@ -1552,6 +1577,12 @@ no Safe Push, no Dry Run and no push, nor does the branch it ran on ("Merged").
 - **THEN** the rows of the ancestors it landed say "Landed with oauth" and offer no Safe Push, no Dry Run and no push
 - **AND** the row of `oauth` says "Merged" and offers none of them either
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+
+#### Scenario: The robot of the whole stack merged
+- **WHEN** the robot of the whole stack of `auth` merged, and the update has not archived its branches yet
+- **THEN** every branch of the stack says "Landed with the whole auth stack" and offers no Safe Push, as the ancestors a
+  robot of a stacked branch landed do
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`)
 
 ### Requirement: Pull requests: A branch built on a landed ancestor lands without it
 
@@ -1831,7 +1862,7 @@ A commit a sync rebuilt since (another copy) MUST have no plan: nothing is pushe
 
 The popover MUST say it in the words of Push Stack: "Pushes 3 branches, parents first:", a line per push, "bridge · 1
 of 2 commits · creates the remote branch"; its button "Push Up to Here" marks, while hovered, the nodes of the branches
-and the commits it sends. One toast says what was pushed, the part of the branch counted.
+and the commits it sends.
 
 #### Scenario: The popover of a push up to a commit
 - **WHEN** the popover of a push up to a commit opens
@@ -1839,6 +1870,10 @@ and the commits it sends. One toast says what was pushed, the part of the branch
   remote branch"
 - **AND** while its button "Push Up to Here" is hovered, the nodes of the branches and the commits it sends are marked
   [@test] tests/e2e/stacked-branches/push-up-to.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`)
+
+### Requirement: Push Up to Here: One toast says what was pushed
+
+One toast MUST say what was pushed, the part of the branch counted.
 
 #### Scenario: The toast
 - **WHEN** the push up to a commit succeeded
