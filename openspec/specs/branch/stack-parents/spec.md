@@ -159,8 +159,12 @@ parent for it. `parent_source` is `prefix` when a prefix declares the parent (th
 - **GIVEN** a line of the map for a prefix branch, an issue branch and an issue group, whose prefixes declare no parent
 - **WHEN** the branches are placed
 - **THEN** each takes the parent of its line, with `parent_source` `store`
-- **AND** an issue branch without a line is a root
   [@test] crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_stacks_a_prefix_branch_an_issue_branch_and_an_issue_group`)
+
+#### Scenario: An issue branch without a line
+- **GIVEN** an issue branch that the map names no parent for
+- **WHEN** the branches are placed
+- **THEN** it is a root
 
 #### Scenario: The prefix and the map agree
 - **GIVEN** a branch whose prefix declares the parent that its line of the map names too
@@ -220,6 +224,7 @@ lines that this chain reaches are placed; the others are idle.
 - **GIVEN** a line of the map whose child no branch on this HEAD reaches
 - **WHEN** the branches are placed
 - **THEN** it is not placed, and it is idle
+  [@test] crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_stacks_a_prefix_branch_an_issue_branch_and_an_issue_group`)
 
 ### Requirement: Placement: Every reader reads the same map
 
@@ -287,9 +292,12 @@ best effort (the next sync tries again).
 
 #### Scenario: A line goes
 - **WHEN** a sync drops a line
-- **THEN** it is one compare-and-swap write with its own message, which keeps every other line
-- **AND** when the write fails, the next sync tries again
+- **THEN** it is one write, which keeps every other line
   [@test] crates/sync-core/src/stack_parents_test.rs (`the_newest_archive_of_a_child_decides_whether_it_is_integrated`)
+
+#### Scenario: The write of a drop fails
+- **WHEN** the compare-and-swap write of a drop, with its own message, fails
+- **THEN** the sync goes on, and the next sync tries again
 
 ### Requirement: Writing the map: A plan path with a parent level writes its lines
 
@@ -406,7 +414,8 @@ A plan MUST move HEAD, the issue groups ref and the stack parents ref, each one 
 
 The undo token MUST join the parts of the changed refs with `+`, in this order: `H1..H2`, `groups:G1..G2` and
 `stacks:S1..S2`. The `stacks` part follows the rules of the `groups` part: full ids, `S2` a write on `S1`, zeros for a
-missing ref, and `stacks_moved` (exit 3) when the ref moved. A token of an older version stays valid.
+missing ref; an undo whose ref moved is the core's `stacks_moved`, which `brd undo` answers as `undo_stale` (exit 4).
+A token of an older version stays valid.
 
 #### Scenario: A mixed plan and its undo
 - **WHEN** a plan changes HEAD, the issue groups and the stack parents
@@ -419,6 +428,11 @@ missing ref, and `stacks_moved` (exit 3) when the ref moved. A token of an older
 - **THEN** its parts are valid only in the order `H1..H2`, `groups:G1..G2`, `stacks:S1..S2`, with full ids or zeros
 - **AND** the tokens of an older version stay valid
   [@test] crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
+
+#### Scenario: The undo of a token whose stack parents moved on
+- **WHEN** `brd undo` runs a token whose stack parents ref moved on since
+- **THEN** it is `undo_stale` (exit 4)
+  [@test] crates/bd-rewrite/src/rewrite_test.rs (`stack_parents_plan_and_undo`)
 
 ### Requirement: Writing the map: The undo passes over the drops of a sync
 
@@ -520,10 +534,10 @@ child, `<old>` is renamed also when it is only a level of the prefixes here, wit
 - **THEN** it is renamed in its own line and in the line of its child, in the transaction of the rename
   [@test] crates/sync-core/src/stack_operations_test.rs (`renaming_a_branch_renames_it_in_the_stored_parents`)
 
-#### Scenario: A child of another worktree
-- **GIVEN** a child of another worktree whose parent is `<old>`
-- **WHEN** `brd rename <old> <new>` runs here
-- **THEN** that child keeps its parent
+#### Scenario: Each worktree renames the parent of its own child
+- **GIVEN** a stacked child here, and a stacked child of another worktree
+- **WHEN** each worktree renames the parent of its own child
+- **THEN** each rename changes the line of its own child only
   [@test] crates/sync-core/src/stack_parents_test.rs (`a_write_on_one_worktree_keeps_the_parents_of_another`)
 
 #### Scenario: A level without commits
@@ -626,8 +640,9 @@ objects only: no ref, note or lock. A clean build is `builds` with the declared 
 
 ### Requirement: A stacked branch that builds alone: The edges by symbols name the uses
 
-With `branchdeck.symbols on` it MUST name in `uses` each name a commit of the branch uses that a commit of a declared
-ancestor adds (the edges by symbols), once per name, and say `symbols: true`, also when none is used.
+With `branchdeck.symbols on` (the default), a clean build MUST name in `uses` each name a commit of the branch uses
+that a commit of a declared ancestor adds (the edges by symbols), once per name, and say `symbols: true`, also when
+none is used; with `report` or `off` it reads no symbols and says `symbols: false`.
 
 #### Scenario: A branch that uses a name its parent adds
 - **GIVEN** `branchdeck.symbols on`
@@ -639,6 +654,12 @@ ancestor adds (the edges by symbols), once per name, and say `symbols: true`, al
 - **GIVEN** `branchdeck.symbols on`
 - **WHEN** the branch uses no name of its ancestors
 - **THEN** it still says `symbols: true`
+  [@test] crates/trial-check/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
+
+#### Scenario: Symbols in another mode
+- **GIVEN** `branchdeck.symbols` is `report` (or `off`)
+- **WHEN** the branch builds alone
+- **THEN** `uses` is empty, with `symbols: false`
   [@test] crates/trial-check/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
 
 ### Requirement: A stacked branch that builds alone: A conflict names the commits it needs
