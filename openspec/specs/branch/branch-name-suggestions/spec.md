@@ -52,7 +52,7 @@ is its 2.5 GB download.
 ### Requirement: Consent: The row asks before anything is sent
 
 Until the user answers, the suggestions row MUST ask: "Not now", "Enable AI" and "Sends the commit messages and
-changed file names to Claude (Haiku) through your Claude Code". No request MUST be made before Enable AI.
+changed file names to Claude (Haiku) through your Claude Code". The app MUST NOT make a request before Enable AI.
 
 #### Scenario: The prompt before an answer
 - **GIVEN** the user has not answered yet
@@ -111,14 +111,21 @@ switching it on is the consent, switching it off is "Not now".
 
 ### Requirement: Consent: The switch writes through the main window
 
-The window of Settings MUST write the switch through the main window, and a changed mode MUST clear the last failure
-in every window.
+The window of Settings MUST write the switch through the main window.
 
 #### Scenario: The switch changed in the Settings window
 - **WHEN** the user switches "Suggest branch names" in the Settings window
 - **THEN** the window writes it through the main window, which follows the write
-- **AND** the changed mode clears the last failure in every window
   [@test] tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
+
+### Requirement: Consent: A changed mode clears the last failure in every window
+
+A changed mode MUST clear the last failure in every window.
+
+#### Scenario: The mode changes after a failure
+- **GIVEN** a window shows the last failure of a request
+- **WHEN** the mode changes, in this window or another one
+- **THEN** the last failure is cleared in every window
 
 ### Requirement: Input: One git show gives the commit metadata
 
@@ -157,8 +164,22 @@ and keeps the user's login and settings.
 - **WHEN** a request for names runs
 - **THEN** `claude` runs with these flags in the temp directory, the input on stdin
 - **AND** `--safe-mode` loads no MCP servers, plugins, hooks, skills or CLAUDE.md and keeps the user's login and settings
-- **AND** neither `--bare` is passed, which would read no OAuth login and no `apiKeyHelper`, nor `--strict-mcp-config`, which makes Claude Code exit where a `managed-mcp.json` is installed
   [@test] crates/sync-core/src/branch_name_suggestion_test.rs (`passes_the_flags_and_the_commits_on_stdin`)
+
+### Requirement: Calling Claude Code: Neither --bare nor --strict-mcp-config is passed
+
+The app MUST NOT pass `--bare`, which would read no OAuth login and no `apiKeyHelper`, nor `--strict-mcp-config`,
+which makes Claude Code exit where a `managed-mcp.json` is installed.
+
+#### Scenario: No --bare
+- **WHEN** a request for names runs `claude`
+- **THEN** its arguments hold no `--bare`, so the user's OAuth login and `apiKeyHelper` are read
+  [@test] crates/sync-core/src/branch_name_suggestion_test.rs (`passes_the_flags_and_the_commits_on_stdin`)
+
+#### Scenario: No --strict-mcp-config
+- **GIVEN** a `managed-mcp.json` is installed
+- **WHEN** a request for names runs `claude`
+- **THEN** its arguments hold no `--strict-mcp-config`, so Claude Code does not exit for it
 
 ### Requirement: Calling Claude Code: The environment of claude
 
