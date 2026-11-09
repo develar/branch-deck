@@ -646,9 +646,9 @@ The row MUST NOT render the body.
 ### Requirement: Commit card: The card is a popover under the whole row
 
 The card MUST be a popover under the whole row of its mark, at the start of the row (above it when there is no room
-below), never over the meta line of the row (its hash, files and line counts), 36rem wide at most and 24rem high at
-most; its body scrolls under its header, which stays at the top of the card, and a 40px gradient of `popover` fades its
-bottom while more is below.
+below; beside the row in a sidebar of a review), never over the meta line of the row (its hash, files and line counts),
+36rem wide at most and 24rem high at most; its body scrolls under its header, which stays at the top of the card, and a
+40px gradient of `popover` fades its bottom while more is below.
 
 #### Scenario: The place and size of the card
 - **WHEN** the card of a row opens
@@ -656,6 +656,10 @@ bottom while more is below.
   below
 - **AND** it never covers the meta line of the row (its hash, files and line counts), and is 36rem wide at most and
   24rem high at most
+
+#### Scenario: The card of a row of a sidebar of a review
+- **WHEN** the card of a commit row of a sidebar of a review opens (`CommitRow`, the tree)
+- **THEN** it opens beside the row, so the rows around it stay in view
 
 #### Scenario: A body taller than the card
 - **WHEN** the body is taller than the card
@@ -1371,7 +1375,6 @@ long as the holder lives, the editor saying whom for (the step of its operation)
 - **THEN** the save waits as long as the holder lives, the editor saying whom for (the step of its operation)
 - **AND** it runs after the holder lets go
   [@test] crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
-  [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_waits_for_the_holder`)
   [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`)
 
 #### Scenario: Stop Waiting
@@ -1392,6 +1395,22 @@ toast "Cannot edit the commit message" saying that another operation holds the l
 - **THEN** it is refused with nothing changed, the toast "Cannot edit the commit message" saying that another operation
   holds the lock
   [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
+
+### Requirement: Message editing: `brd reword` waits for the lock 10 s at most
+
+`brd reword` MUST wait for the repository lock 10 s at most, not as long as its holder lives: it runs once the holder
+lets go within them, else it fails with `locked`, naming the holder its record names, with nothing changed.
+
+#### Scenario: A holder that lets go within the wait
+- **GIVEN** another process holds the repository lock and lets go after a while
+- **WHEN** `brd reword` runs
+- **THEN** it waits for the holder and runs after it
+  [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_waits_for_the_holder`)
+
+#### Scenario: A holder that keeps the lock
+- **GIVEN** another process holds the repository lock for the whole wait
+- **WHEN** `brd reword` runs
+- **THEN** it fails with `locked`, naming the holder by its record (its command and pid), with nothing changed
   [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`)
 
 ### Requirement: Message editing: A save behind another rewrite waits in the queue
@@ -2250,14 +2269,16 @@ rows selected MUST open the same confirmation below the lead row ([Drop Commits]
 - **THEN** the same confirmation opens below the lead row
   [@test] tests/e2e/drop-commits/drop-commits.spec.ts (`should drop the selected commit with the key, and say which branch it leaves without a commit`)
 
-### Requirement: Selection: The count shows alone while the Move to form is open
+### Requirement: Selection: The lead row shows the count alone while the Move to form is open
 
-While the inline "Move to…" form is open, the card header MUST show "N selected" alone, as the line above the commits
-of a branch does ([Move Commits](../../branch/move-commits/spec.md)).
+While the inline "Move to…" form is open, the lead row of the selection MUST show "N selected" alone, in a branch and in
+the unassigned card alike, and the form opens as a row right below it ([Move Commits](../../branch/move-commits/spec.md)).
 
 #### Scenario: The Move to form is open
+- **GIVEN** selected rows
 - **WHEN** the inline "Move to…" form is open
-- **THEN** "N selected" shows alone, as the line above the commits of a branch does
+- **THEN** the lead row shows "N selected" alone, without its buttons
+- **AND** the form is a row right below the lead row
   [@test] tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
 
 ### Requirement: Conflict view: A row with a merge conflict shows the viewer
@@ -2640,12 +2661,18 @@ repository, and read the merges and the diffs themselves.
 ### Requirement: Conflict view: The diffs of the missing commits are the engine's
 
 The diffs of the missing commits MUST be the diffs of the engine of their commit (one `get_file_diffs` per commit, its
-texts by blob id), so the unchanged lines between hunks expand.
+texts by blob id), so the unchanged lines between hunks expand and a file that shows no lines says why, as in the
+files of a commit.
 
 #### Scenario: The diff of a missing commit
 - **WHEN** the missing commits details show the files of a commit
 - **THEN** their diffs come from one `get_file_diffs` per commit, its texts by blob id
 - **AND** the unchanged lines between hunks expand
+
+#### Scenario: A file of a missing commit without lines
+- **WHEN** a file of a missing commit shows no lines
+- **THEN** it says why, as the diff of a commit does: binary, too large, a submodule, a blob git cannot read, a text that
+  cannot be read, no changed lines
   [@test] src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
 
 ### Requirement: Conflict view: The missing commits header has a persisted diff toggle
@@ -2823,8 +2850,8 @@ The meta line MUST use `text-xs text-muted-foreground`. The hashes MUST use the 
 ### Requirement: Collapsed row: The mark follows the subject
 
 The mark MUST follow the subject: a 24px box with a 12px muted `RectangleEllipsisIcon` that keeps the 20px line height
-of the subject, `text-foreground` and `bg-muted` on hover; in the tree of a review a 16px box with a 14px icon, as the
-mark of a file.
+of the subject, `text-foreground` and `bg-muted` on hover; in a sidebar of a review (the tree, the commit column, the
+commits of a pull request) a 16px box with a 14px icon, as the mark of a file.
 
 #### Scenario: The mark in a list
 - **WHEN** a row shows the mark of its card
@@ -2832,8 +2859,9 @@ mark of a file.
   height of the subject
 - **AND** it is `text-foreground` and `bg-muted` on hover
 
-#### Scenario: The mark in the tree of a review
-- **WHEN** a commit row of the tree of a review shows the mark
+#### Scenario: The mark in a sidebar of a review
+- **WHEN** a commit row of a sidebar of a review (the tree, the commit column, the commits of a pull request) shows the
+  mark
 - **THEN** it is a 16px box with a 14px icon, as the mark of a file
 
 ### Requirement: Collapsed row: Issue links are muted
