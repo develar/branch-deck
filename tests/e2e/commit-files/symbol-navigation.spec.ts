@@ -35,7 +35,9 @@ async function openNavigationReview(page: Page): Promise<Locator> {
 function writeOutsiderIndex(repositoryPath: string): void {
   writeFileSync(
     path.join(repositoryPath, ".git", "branch-deck-accio.json"),
-    JSON.stringify({ symbol: { outsider: [{ file: "src/Base.kt", line: 1, kind: "function", name: "outsider" }] } }),
+    // as accio answers a written name: its columns in UTF-16 units from 0 (`fun outsider(…)`: 4 to 12), which the review
+    // selects; a hit without a column goes to its line, nothing selected
+    JSON.stringify({ symbol: { outsider: [{ file: "src/Base.kt", line: 1, column: 4, end_column: 12, kind: "function", name: "outsider" }] } }),
   )
 }
 
