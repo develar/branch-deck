@@ -558,7 +558,7 @@ an approval ([Next Step](../next-step/spec.md)).
 The pull requests MUST be a fact of the session of the repository and branch prefix (`facts.pullRequests` of its view,
 `repository_model::pull_request_facts`), kept in memory: the session lists them by the rules of
 `domain_policy::refresh` (`remote_facts::scheduler`) while a window shows it, and the page only stores what its view
-says. Nothing MUST be persisted.
+says. The pull requests MUST NOT be persisted.
 
 #### Scenario: A window shows the session
 - **WHEN** a window shows the session of a repository and branch prefix
@@ -701,13 +701,14 @@ per token too.
 ### Requirement: Refreshing: The pull requests are listed by a sync, a focus, a push and the button
 
 After every committed table of a sync, the pull requests MUST be listed if the last listing started at least 60 s ago;
-on a focus of a window if they are older than 2 minutes (the time on the session's clock); a push of the app that
-pushed (the remote did not move) and the refresh button always. Nothing MUST poll GitHub.
+on a focus of a window if they are older than 2 minutes and the last listing started at least 60 s ago (the time on
+the session's clock); a push of the app that pushed (the remote did not move) and the refresh button always. The app
+MUST NOT poll GitHub.
 
 #### Scenario: A sync, a focus, a push and the refresh button
 - **WHEN** a sync commits its table, a window gets the focus, the app pushes, or the user presses the refresh button
 - **THEN** the pull requests are listed after a sync if the last listing started at least 60 s ago, on a focus if they
-  are older than 2 minutes, after a push of the app that pushed and on the refresh button always
+  are older than 2 minutes and the last listing started at least 60 s ago, after a push of the app that pushed and on the refresh button always
 - **AND** nothing polls GitHub
   [@test] crates/remote-facts/src/scheduler_test.rs (`the_pull_requests_are_listed_by_a_sync_a_focus_a_push_and_the_refresh_button`)
 
@@ -1290,7 +1291,8 @@ While Patronus answers the row MUST say "Asking Patronus for the code owners…"
 
 ⌘↵ (Ctrl+Enter) or the button MUST create it (the last effect of `CreatePullRequest`), in one request of the token
 chain: `GET /user` first (a rejected token is replaced before anything is written), `POST pulls`, then
-`POST issues/<n>/assignees` and `POST pulls/<n>/requested_reviewers`.
+`POST issues/<n>/assignees` and `POST pulls/<n>/requested_reviewers`. A title of several lines MUST be refused ("A
+pull request needs a title of one line") before GitHub is asked.
 
 #### Scenario: The creation with the assignee and the reviewers
 - **WHEN** the user presses ⌘↵ or the button
@@ -1308,9 +1310,14 @@ chain: `GET /user` first (a rejected token is replaced before anything is writte
 - **THEN** nothing is written with it
   [@test] crates/remote-facts/src/pull_request_create_test.rs (`a_rejected_token_writes_nothing`)
 
+#### Scenario: A title of several lines
+- **WHEN** a title of several lines reaches the creation
+- **THEN** it is refused with "A pull request needs a title of one line", and GitHub is not asked
+  [@test] crates/remote-facts/src/pull_request_create_test.rs (`a_title_of_several_lines_is_refused_before_github_is_asked`)
+
 ### Requirement: Creating a pull request: Nothing fails a creation after the pull request exists
 
-After the pull request exists nothing MUST fail the creation: an assignee GitHub leaves out and a reviewer it refuses
+After the pull request exists the creation MUST NOT fail: an assignee GitHub leaves out and a reviewer it refuses
 are warnings; a refused list of reviewers MUST be asked again one by one, to name whom it refuses.
 
 #### Scenario: GitHub refuses the list of reviewers
@@ -1340,11 +1347,12 @@ The creation and "Continue on GitHub" MUST be operations of the session of the r
 of the same joins the first, another text (or a push of the branch) waits for it and is decided again (GitHub then
 finds the pull request it opened).
 
-#### Scenario: The running operation of the row
-- **WHEN** the session runs a creation
-- **THEN** it is the running operation of its row
-- **AND** a second submit of the same joins it
-  [@test] src/lib/pull-request-run.test.ts (`is the running operation of its row while the session runs it`)
+#### Scenario: A second submit and another text
+- **GIVEN** a creation runs, holding the ref of its branch
+- **WHEN** the same creation is submitted again, or one with another text
+- **THEN** the same one joins the running creation
+- **AND** the one with another text waits for it
+  [@test] crates/operations/src/pull_request_test.rs (`a_review_request_waits_for_a_retarget_of_its_pull_request_only_when_its_push_retargets_it`)
 
 ### Requirement: Creating a pull request: A creation waits for the push or the sync in flight
 
@@ -1367,9 +1375,10 @@ the click on and while the operation runs, the review window for its own request
 "Request Review…" MUST be an operation of the session as well: its button shows the spinner, a second click joins it.
 
 #### Scenario: Request Review while it runs
-- **WHEN** the user clicks "Request Review…" again while it runs
-- **THEN** the second click joins it, its button showing the spinner
-  [@test] crates/operations/src/pull_request_test.rs (`a_review_request_waits_for_a_retarget_of_its_pull_request_only_when_its_push_retargets_it`)
+- **WHEN** the session runs a review request of a branch
+- **THEN** it is the running operation of its row, its button showing the spinner
+- **AND** a second click joins it
+  [@test] src/lib/pull-request-run.test.ts (`is the running operation of its row while the session runs it`)
 
 ### Requirement: Creating a pull request: A creation belongs to the repository it was asked in
 
@@ -1460,11 +1469,6 @@ the branch…".
 - **THEN** Create is disabled and its hover says "Enter a title", "The title must be one line", or "Reading the
   commits of the branch…"
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
-
-#### Scenario: A title of several lines
-- **WHEN** a title of several lines reaches the creation
-- **THEN** it is refused before GitHub is asked
-  [@test] crates/remote-facts/src/pull_request_create_test.rs (`a_title_of_several_lines_is_refused_before_github_is_asked`)
 
 ### Requirement: Creating a pull request: A failed creation keeps the dialog with the reason
 
