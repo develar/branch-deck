@@ -1,4 +1,4 @@
-// @spec spec/branch/declared-needs.spec.md
+// @spec openspec/specs/branch/declared-needs/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { RepositoryLink } from "@/lib/bindings"
 import { projectSections } from "@/presenters/repository-links"

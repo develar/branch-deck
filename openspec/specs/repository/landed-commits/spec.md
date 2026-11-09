@@ -1,0 +1,292 @@
+---
+name: Landed Commits
+description: Requirements for telling the user that their commits reached the baseline (a Safe Push robot, a merged pull request, a cherry-pick): before the update the header and the rows name what the fetched baseline already has, the update toast leads with what landed, and an island keeps the report until the user has seen it or dismissed it, also for an update made outside Branch Deck; Activity keeps it after.
+style: plain-1
+targets:
+  - crates/domain-types/src/landed.rs
+  - crates/domain-types/src/upstream_commit.rs
+  - crates/sync-core/src/landed.rs
+  - crates/domain-policy/src/landed.rs
+  - crates/git-ops/src/landed_pairing.rs
+  - crates/update-core/src/update_project.rs
+  - crates/sync-core/src/sync.rs
+  - crates/git-ops/src/update_branch.rs
+  - crates/bd-core/src/sync_command.rs
+  - crates/operations/src/update.rs
+  - src/lib/landed.ts
+  - src/lib/landing-toast.ts
+  - src/lib/event-toast.ts
+  - src/stores/landed.ts
+  - src/lib/landed-run.ts
+  - src/stores/update-project.ts
+  - src/stores/branch-sync.ts
+  - src/components/repository/LandedCard.tsx
+  - src/lib/review-window.ts
+  - src/components/repository/ActivityLog.tsx
+  - src/stores/settings/repositorySettings.ts
+  - src/components/repository/UpdateProjectButton.tsx
+  - src/components/branch/LandedChip.tsx
+  - src/hooks/useLandedIn.ts
+  - src/presenters/row-status.ts
+  - src/presenters/push-button.ts
+  - src/hooks/useBranchPushes.ts
+  - crates/domain-policy/src/push.rs
+  - src/components/shared/CopyButton.tsx
+  - src/components/branch/BranchRow.tsx
+  - src/components/branch/BranchCreator.tsx
+  - src/components/commit/CommitList.tsx
+  - src/model/intents.ts
+---
+
+# Landed Commits
+
+Status: Implemented
+Date: 2026-10-14
+
+## Summary
+
+A Safe Push robot rebases the commits of a virtual branch onto `master`; the next Update Project drops them locally.
+Branch Deck says so at three moments: before the update, the header and the branch rows name what the fetched baseline
+already has; the update toast leads with what landed; afterwards an island lists it, with the baseline commits and the
+robot or pull request, until the user has seen it or dismisses it, and Activity keeps the report. An update made elsewhere (the IDE, `git pull --rebase`) is reported
+by the next sync the same way.
+
+## Goals
+
+- Landing is the user's news: never hide it behind "rebased 116 commits" or a silent move into the archive.
+- Name the user's own branches and commits, with the baseline commit that carries each, and part of a branch too.
+- Know it whoever updated, and keep it until the user has seen it.
+
+## Non-goals
+
+- No count of the upstream's commits; only the user's own landed commits are named.
+- No notification of its own: the moment a robot merges is the Patronus toast (`openspec/specs/branch/patronus/spec.md`), and the
+  landing is the next state of that toast, never a second toast of the same landing.
+
+## Requirements
+
+### Detection
+
+- A local commit landed when the baseline since the merge base has a commit with the same author email, author time and
+  subject without the `(prefix)`; the landed commit names it with its author, committer and time.
+  [@test] crates/update-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
+  [@test] crates/update-core/src/landed_test.rs (`same_author_and_time_with_another_subject_is_not_landed`)
+- The commits are grouped by branch, unassigned ones apart, each branch with the commits that stay local.
+  [@test] crates/update-core/src/landed_test.rs (`part_of_a_branch_landed`)
+- A fixup whose target landed landed with it once the replay drops it; without a replay (a conflict) only key matches
+  count, so a fixup made after the push is never reported as landed.
+  [@test] crates/update-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
+  [@test] crates/update-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
+- Where the replay onto the upstream is known, a commit it drops landed even without a counterpart (squashed upstream,
+  no baseline commit).
+  [@test] crates/update-core/src/landed_test.rs (`branch_squashed_upstream_landed_without_an_upstream_commit`)
+- A conflicting update still reports the key matches.
+  [@test] crates/update-core/src/landed_test.rs (`landed_commits_are_reported_while_the_update_conflicts`)
+
+### The proof
+
+- A key match is a candidate, never a proof. Before the replay, the check pairs each local commit with the baseline
+  commit of its key (a twin) and proves the pair by a ladder: the same patch id with context (`patch_id`, as
+  `git rebase` compares); else a cherry-pick of the local commit onto the baseline commit's own parent that writes that
+  commit's tree (`replayed`: twins that landed in another order, whose context lines differ); else the same changed
+  lines without context, paths, statuses and modes, with the same new object of each binary file and gitlink
+  (`changed_lines`: a cherry-pick that conflicts on the line next to it). Then, before the replay too, it pairs the
+  local commits of the same patch id under another key by the same author (`patch_id`: a reworded one, one landed at
+  another author time, the squash of a pull request of one commit), among the baseline commits of that author with the
+  same set of changed paths, as git compares. When the replay conflicts, the check also pairs the local commits of the
+  same patch id by another author, once: that walk of the whole baseline costs seconds in a monorepo. What no rung
+  proves stays a candidate.
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`a_twin_of_the_same_patch_is_proven_by_its_patch_id_before_the_replay`, `the_same_patch_under_another_identity_of_its_author_is_proven_before_the_replay`, `the_same_patch_by_another_author_is_proven_only_after_a_conflict`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`the_pairing_of_the_twins_runs_no_process_without_a_twin`, `the_same_patch_of_the_author_is_looked_for_only_among_its_sets_of_paths`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`a_twin_with_other_context_is_proven_by_its_replay`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`twins_landed_in_the_other_order_are_both_proven_by_their_replay`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`a_twin_whose_cherry_pick_conflicts_is_proven_by_its_changed_lines`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`equal_changed_lines_beside_a_chmod_or_a_binary_edit_prove_nothing`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`the_same_lines_under_another_identity_pair_with_nothing`)
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`an_amend_after_the_push_is_a_candidate_with_its_fixups`)
+- The pairing is one to one: each baseline commit proves at most one local commit, the oldest first. A change made
+  twice locally (A, a revert of A, A again) with one copy upstream leaves only the first A out. Merge commits never
+  pair.
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`one_upstream_commit_proves_one_local_commit`)
+- A proven commit is left out of the replay and landed as its baseline commit, also when the baseline reworded it. A
+  local fixup of a proven commit is no candidate: it replays on its own.
+  [@test] crates/git-ops/src/landed_pairing_test.rs (`a_fixup_of_a_proven_twin_stays_out_of_the_pairing`)
+  [@test] crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
+- A candidate is landed only by a decision: `brd update --continue --landed` in its round drops it as its baseline
+  commit, at once when the baseline commit has every line it changes, else after the user's yes (`--user`). A drop by
+  `--drop-empty` lands only a candidate; any other is the user's drop and did not land.
+  [@test] crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
+- The check of a conflicting update pairs once: the session replays the plan of the check and pairs nothing again.
+  [@test] crates/update-core/src/process_budget_test.rs (`a_conflicting_update_pairs_its_commits_once`)
+- Detection costs three read-only `log` processes, one more for a proven commit of another author, and one
+  `diff-tree --name-only` of the local commits and the baseline commits of their authors; the check inside a sync
+  reuses them for an unchanged state, and a failure never fails the check or the update.
+
+### Update
+
+- The check replays without the commits proven before the replay ("The proof": the twins and the same patch of their
+  author under another key), as `git rebase` leaves out a commit of the same patch id and as a drop does (a run of
+  kept commits per replay): a clean merge of such a commit onto a baseline that changed the lines around it would add
+  its lines a second time.
+  [@test] crates/update-core/src/landed_test.rs (`a_twin_of_the_same_patch_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`, `a_twin_on_other_context_is_left_out_of_a_clean_replay_by_its_replay`, `the_same_patch_under_another_key_is_left_out_of_a_clean_replay_that_would_add_its_lines_again`)
+- When the replay conflicts, the check replays again without the commits of the same patch id by another author too.
+  If that conflicts too, it leaves out the candidates together with their fixups, then the candidates alone. Such a result counts only if it keeps the change of each candidate: the merge of the change
+  from the candidate's parent to its last local fixup into the result gives the result's tree. So a robot that folded
+  the fixups into their target no longer makes the update conflict, while a commit amended after the push, or a fixup
+  made after it, is never left out; the update then conflicts as before.
+  [@test] crates/update-core/src/landed_test.rs (`fixups_folded_upstream_landed_with_their_target`)
+  [@test] crates/update-core/src/landed_test.rs (`fixup_made_after_the_push_stays_local`)
+  [@test] crates/update-core/src/landed_test.rs (`commit_amended_after_the_push_is_never_left_out`)
+- The preview of every sync and the update make the same decision, so the header shows such an update as clean.
+
+### Report
+
+- An applied update adds what it landed to the report in `branch-deck/landed.json` of the worktree's git directory and
+  returns it; the next sync doesn't add it again.
+  [@test] crates/update-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
+- An update onto a local branch (the update of a lease onto its home after a conflict of `brd lease pick`) adds nothing,
+  at its apply or at the finish of its session: what the local branch has did not reach the baseline by it.
+  [@test] crates/update-core/src/update_project_test.rs (`an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back`)
+- Each sync remembers where the branch is; when the merge base moved since the previous sync, the commits that were local
+  then and match the upstream now are added, once.
+  [@test] crates/update-core/src/landed_test.rs (`update_made_elsewhere_is_reported_by_the_next_sync_once`)
+- Amend, reword, squash and drop between two syncs report nothing.
+  [@test] crates/update-core/src/landed_test.rs (`reword_squash_or_amend_between_syncs_is_not_landed`)
+- The sync sends the landing (`BaselineStatus.landing`) and the undismissed report (`BaselineStatus.landed`).
+  [@test] crates/update-core/src/landed_test.rs (`sync_sends_the_landing_and_the_report`)
+- Dismiss clears the report for every window and `brd`, an operation of the session (`Intent::DismissLanded`, under the
+  lock of the report); a report is kept at most 7 days. A new report for a known branch adds its new commits and takes
+  the new count of the ones that stay.
+  [@test] crates/operations/src/update_test.rs (`dismiss_landed_clears_the_report_of_what_an_update_landed`)
+  [@test] src/lib/landed.test.ts (`adds new commits to a known branch and takes its new count of local commits`)
+- `brd sync` prints the landing as `update.landing` and the report as `landed`, with short ids.
+  [@test] crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)
+
+### Wording
+
+- Every surface (the Update tooltip, the footer of the landing overview, the toast, the island, the chip) says it in
+  one grammar: each number has its verb, "3 commits of IJPL-257337 landed · 9 stay local", never a ratio like "3 of
+  12", which hides the number that landed. What stays is "1 stays local" / "9 stay local" ("9 local" on the chip).
+  [@test] src/lib/landed.test.ts (`gives each number its verb`)
+- A commit subject shows its issue links and its dimmed conventional-commit prefix, as in the commit rows: in the
+  island, in the popover of the chip.
+  [@test] tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`, `should lead the toast with what landed and keep the island until it is dismissed`)
+
+### Before the update
+
+- The tooltip of the Update button adds what the baseline brings in: "Rebases cleanly onto origin/master · brings in
+  your feature-auth and 1 commit of search"; a clean update shows the `info` package instead of the check, on the
+  button and in the footer line of the landing overview. The footer line says "your wsm landed", "40 of your commits
+  landed" (a part of a branch, or commits without one), "your 2 branches landed".
+  [@test] src/lib/landed.test.ts (`names the user's branches, a part as a count of the branch`)
+  [@test] src/lib/landed.test.ts (`says it in a few words for the footer`)
+  [@test] tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+- The branch row shows an `info` chip "Landed" (all its commits) or "1 landed · 1 local" in the third column of its
+  Status cell ([Branch Row](../../branch/branch-row/spec.md)). Its popover has the anatomy of the
+  pull request and Patronus details: the state line (the chip text), "Already in origin/master · the update removes the
+  local copies", then the rows "Commits" (each subject with its baseline commit) and "Stays local" ("1 commit"). A
+  landed commit shows "in origin/master" after its subject; its popover says "Already in origin/master · the update
+  removes the local copy" and has the row "Landed as".
+  [@test] src/lib/landed.test.ts (`says it in fewer words on the chip, "Landed" when the baseline has all of the branch`)
+  [@test] tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+- A branch the fetched baseline has all of has nothing left to push: the update archives it. Its status reads
+  "landed" after an `info` dot, its push button keeps its label (`Push Branch (1)`) but is neutral, and both
+  descriptions say "Already in origin/master. Update to archive the branch."; it is not outgoing, so a push of the
+  stack leaves it out ([Outgoing Commits](../outgoing/spec.md#what-is-outgoing), `domain_policy::push::push_plan`). A part
+  that landed changes nothing of this: the branch still has commits to push.
+  [@test] src/lib/landed.test.ts (`has nothing to push for a branch the fetched baseline has all of, before the update`)
+  [@test] src/presenters/row-status.test.ts (`says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters`)
+  [@test] src/presenters/push-button.test.ts (`is quiet for a branch the baseline has all of: the update archives it`)
+  [@test] crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
+  [@test] tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
+- Such a branch landed, the first answer of what landed it (`domain_policy::landed::landed_state`, the view's
+  `landedStates`, [Next Step](../../branch/next-step/spec.md#the-table), row 1): its Safe Push and Dry Run are disabled
+  with "Landed in origin/master", and `brd safe-push` refuses it as `landed` (a whole stack: every branch of it).
+  [@test] crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_whole_stack_landed_when_every_branch_of_it_did`)
+  [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
+
+### After the update
+
+- The toast leads with what landed, then how the branch was updated: "wsm landed in origin/master" / "Updated master:
+  rebased 116 commits"; "3 branches landed in origin/master" / "wsm, IJPL-257337 and IJAI-3828 · rebased 98 commits";
+  "40 commits of IJPL-257337 landed · 12 stay local" / "Updated master: rebased 113 commits"; "2 of your commits landed
+  in origin/master" for commits without a branch; ", squashed" when no commit of the branch has a counterpart. Without
+  anything landed it stays "Updated master: rebased 2 commits onto origin/master".
+  [@test] src/lib/landed.test.ts (`leads with what landed, then how the branch was updated`)
+  [@test] src/lib/landed.test.ts (`keeps the fast-forward wording`)
+- The toast of the update, and the "already up to date" toast, take the place of the open toasts of the merges of its
+  repository, whose Update Project it did ([One toast per event](../../../../docs/contributing/ux-writing.md#one-toast-per-event)):
+  in place of the newest, the others closed, one toast of the update whatever started it (the toast's Update Project,
+  the header, a key). "auth merged into master" / Update Project becomes "auth landed in origin/master, squashed" /
+  "Updated master: rebased 104 commits", with no action: the update is done, the island has the rest.
+  [@test] src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
+  [@test] tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in place, when the update starts from the header`)
+- A report a sync found after an update elsewhere (`brd update`, the IDE, `git pull`) has no toast of its own: the open
+  toast of a merge of its branches says it in place, "auth landed in origin/master" / "Found by a sync", in the words of
+  its Activity entry (`foundLandedNews`); with no toast of a merge open nothing shows but the island and Activity.
+  [@test] src/lib/landing-toast.test.ts (`says in place what a sync found landed after an update elsewhere (brd update, the IDE)`)
+  [@test] tests/e2e/update-project/landing-toast.spec.ts (`should say in the toast of a merge what a sync found landed after an update outside the app`)
+- The Landed island sits above the branches: "Landed in origin/master" and when, a row per branch with "1 landed",
+  "40 landed · 12 stay local" or "3 landed · squashed", the pull request and Patronus chips and the committer; a row
+  expands to the commits, each with the short baseline commit (copy), its committer and time, or "squashed upstream".
+  When every row has the same committer, the header names it once instead ("Landed in origin/master · by Space Team ·
+  just now"). Dismiss (`XIcon`) closes it and clears the report, the chips and the "New" marks of the archive.
+  [@test] src/lib/landed.test.ts (`names the committer once when every branch has the same one`)
+  [@test] tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
+- D on a branch row of the island and its Review Changes button must review what landed of it in the review window as
+  a list of commits named by the branch ([Review Window](../../review/review-window/spec.md#one-window), `kind:
+  "commits"`), each commit as the baseline has it, else as it was here (squashed upstream); D on a commit of an
+  expanded row and its button review the list at that commit (`openCommitIdsReview`: the commits read by `get_review`
+  of the target `commits`). Activity lists the same rows without it.
+  [@test] tests/e2e/update-project/landed.spec.ts (`should review what landed of a branch and of a commit of it from the island, with D and with their buttons`)
+- The island shows from the report until the first successful sync that completes while the window has focus, at least
+  10 s after the user saw the island (it showed while the window had focus): the sync that follows the update keeps it,
+  a later one hides what was seen. Hidden is remembered for the repository (`landedHiddenUntil` of its `repositoryState`, the newest
+  `landedAt` seen), so a restart doesn't show it again; what lands later shows again. The "N landed" chips and the "New" marks stay
+  until Dismiss, which the Activity entry of the report offers once the island is hidden, and the entry keeps the
+  report ([Activity](../activity/spec.md)).
+  [@test] tests/e2e/activity/activity.spec.ts (`should keep the landed report after a sync hid the island, in the window`, `should keep the landed report after a sync hid the island, in the panel`)
+- The copy button of a baseline commit (the full hash) shows while its commit row is hovered or the button has keyboard
+  focus, as the copy button of the commit that merged an archived branch.
+  [@test] tests/e2e/update-project/landed.spec.ts (`should show the copy button of a baseline commit on hover`)
+  [@test] tests/e2e/archived-branches/archived-branches.spec.ts (`should show the copy button of the merged-by commit on hover`)
+- A branch that stays active shows "1 landed · 1 local" until Dismiss; a fully landed branch moves to the archive,
+  marked "New".
+
+## User Experience
+
+- `info` (the hue of merged) everywhere, `PackageCheckIcon`; the island is a stock `Card` with a one-time
+  `animate-in fade-in-0 slide-in-from-top-2`, no celebration beyond it.
+- The chip and the marker are `StatusChip`s without a click action: hover or a click opens the details.
+
+## Testing / Local Run
+
+- `cargo nextest run --workspace`: `crates/update-core/src/landed_test.rs`, the `landed_upstream` template
+  in `update_project_test.rs`, `crates/bd-cli/src/sync_test.rs`.
+- `pnpm test:unit`: `src/lib/landed.test.ts`.
+- `pnpm e2e`: `tests/e2e/update-project/landed.spec.ts` with the template `landed_upstream`: a robot pushed `feature-auth`
+  and the first `search` commit, committer `Patronus`.
+
+## Open Questions / Risks
+
+- A fixup of a prefix branch is pushed without its marker (the virtual commit takes the subject without the `(prefix)`
+  and the marker before it), so a robot can't fold it: it lands as a commit of its own and matches by key. Only the
+  fixups of an issue or unassigned branch keep the marker and are folded.
+- Leaving the candidates out is tried only when the replay without the proven commits conflicts, and the no-loss
+  proof is strict: an upstream commit that changed the landed lines again after the robot makes it fail, and the
+  update conflicts.
+- A copy of the same patch by another author (a cherry-pick under another identity, a squash under another email) is
+  found only after a conflict, and a change the baseline has with no proof at all (a squash of several commits)
+  replays: a clean merge of either can still add its lines a second time. A walk of the patch ids of the whole
+  baseline before every replay, as `git rebase` does, costs 1.5–5 s over a day of the IntelliJ monorepo (1500
+  commits) and 10–17 s over three weeks (20,000), on every check of a sync; the paths of the local commits narrow it
+  to 0.6 s for one or two paths but leave 7.5 s for 50 (2026-10-29, load 30–50).
+- Two commits of one author in the same second with the same subject are one key.
+- The shared-element move of a row into the island (`ViewTransition`) is not done: the rows change on a later sync
+  event than the report, and zustand updates are not transitions.
+
+## References
+
+- [Integration Detection](../../../../docs/design/integration-detection.md): decision 11, "Landed commits".
+- [Update Project](../update-project/spec.md), [Patronus](../../branch/patronus/spec.md).
+- [Branch Row](../../branch/branch-row/spec.md): the Status cell and the anatomy of the chip details.

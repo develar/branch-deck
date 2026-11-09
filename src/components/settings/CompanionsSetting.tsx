@@ -7,7 +7,7 @@ import type { RepositoryConfig } from "@/lib/bindings"
 import { repositoryName } from "@/lib/repository-config"
 
 /**
- * "Companions" (spec/branch/declared-needs.spec.md#companion-repositories): the repositories whose branches a need of
+ * "Companions" (openspec/specs/branch/declared-needs/spec.md#companion-repositories): the repositories whose branches a need of
  * this one names as `companion:branch` (`brd need`), each with its path and why it can not be read; Add Companion… picks
  * one with the folder dialog, named by its directory, Remove takes it back, both sides of both repositories as
  * `brd companion` writes them. A companion lists its primary instead: companions are added there

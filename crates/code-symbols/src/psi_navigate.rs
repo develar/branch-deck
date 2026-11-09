@@ -1,5 +1,5 @@
 //! The half of Go to Declaration and Find Usages over a psi-syntax tree (Java's PSI, Roslyn's tree of C#) that knows
-//! no language (spec/commit/symbol-navigation.spec.md): the answers of `reference_at`, `usages_at` and `usages_of` from
+//! no language (openspec/specs/commit/symbol-navigation/spec.md): the answers of `reference_at`, `usages_at` and `usages_of` from
 //! a language's reading of its tree (`Navigation`: its names, their kinds, the walk of its scopes), and the scopes of
 //! such a walk (`Frame`, `declaration_in`). What a name is and which scopes a language has are the language's
 //! (`java::navigate`, `csharp::navigate`).

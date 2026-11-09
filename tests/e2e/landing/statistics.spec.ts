@@ -1,4 +1,4 @@
-// @spec spec/repository/main-views.spec.md
+// @spec openspec/specs/repository/main-views/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"

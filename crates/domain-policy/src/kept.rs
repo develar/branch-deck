@@ -1,5 +1,5 @@
 //! The actions of a branch kept outside HEAD, unapplied or archived, for every surface of the app and for `bd`
-//! (spec/branch/unapply.spec.md, "The Unapplied card"; spec/branch/branch-row.spec.md, the archived rows): its review,
+//! (openspec/specs/branch/unapply/spec.md, "The Unapplied card"; openspec/specs/branch/branch-row/spec.md, the archived rows): its review,
 //! and of an unapplied one its reapply, its push under its own name, a Safe Push refused (it lands nothing until it is
 //! reapplied), its delete.
 //!

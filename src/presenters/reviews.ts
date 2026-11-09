@@ -1,5 +1,5 @@
 /**
- * The words of Reviews (spec/repository/reviews.spec.md): the title of each section, the meta and the age of a pull
+ * The words of Reviews (openspec/specs/repository/reviews/spec.md): the title of each section, the meta and the age of a pull
  * request by how the user takes part in it, the GitHub search of each section, and who asks in the review window. Rust
  * decides the sections and their order (`domain_policy::reviews`); this module only words them.
  */
@@ -301,7 +301,7 @@ export interface ApprovalScopeGroup {
 
 /**
  * What an approval counts for, in the description of Approve and in the confirmation of Approve and Safe Push
- * (spec/repository/review-requests.spec.md, "Approve"): "Counts for Design · You opened 3 of its 5 files", the user's
+ * (openspec/specs/repository/review-requests/spec.md, "Approve"): "Counts for Design · You opened 3 of its 5 files", the user's
  * groups that still need an approval and how many of their files the window showed for this head; "Counts for no group
  * that still needs an approval" when the user is in none; null without groups, and while the sign-in names no login
  (nobody knows whose they are). Information only: it never blocks

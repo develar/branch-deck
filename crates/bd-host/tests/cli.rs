@@ -1,4 +1,4 @@
-//! The process tests of the command line of brd-host (spec/cli/host.spec.md): a real `brd-host serve` on a loopback port
+//! The process tests of the command line of brd-host (openspec/specs/cli/host/spec.md): a real `brd-host serve` on a loopback port
 //! with a temporary home, a `TestRepo` whose host slots the keeper fills in the pool of that home, and the client
 //! commands of the same binary in that home. The repository is the checkout of the client and the repository of the
 //! host at once, so the host has every commit and no pack travels

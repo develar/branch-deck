@@ -23,7 +23,7 @@ import { approveAndSafePush, markReviewRequestRead } from "@/stores/review-reque
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 
 /*
- * The one request of the review window to the main window (spec/review/review-window.spec.md#actions): an action that
+ * The one request of the review window to the main window (openspec/specs/review/review-window/spec.md#actions): an action that
  * opens a form under the row of its subject (`ROW_FORM_ACTIONS` of Rust: a rename, a move, the popover of a Safe Push, the
  * question of a push that drops remote commits, …) runs there. The window builds every action itself from its own
  * session and runs all the others itself; the main window shows the repository of the request (`showRepository`), finds

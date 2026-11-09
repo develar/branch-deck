@@ -6,7 +6,7 @@
 //! - **A `load` is an import per name it binds**, the label as written its `specifier`, as a TypeScript module string
 //!   is one: `trial_check` turns either into the files it may mean, by the same step.
 //! - **A label in a string is no reference** (`"//pkg:x"`, `":x"`): a reference here is a name the tree uses, and a
-//!   label needs a package model the summary does not have (spec/commit/symbol-dependencies.spec.md).
+//!   label needs a package model the summary does not have (openspec/specs/commit/symbol-dependencies/spec.md).
 //! - **One pass, no walk state but the `def` around a node**: Starlark has no nested containers, no supertypes and no
 //!   types, so `psi_walk`'s frames would hold nothing.
 

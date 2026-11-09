@@ -24,7 +24,7 @@ import type { BranchReviewGroup, KeptReview, WholeStackScope } from "@/types/sub
 
 /*
  * The actions of the review on screen, which the review window builds from its own session by the builders of the rows
- * (spec/review/review-window.spec.md#actions): it runs each itself, but one that opens a form under the row of its
+ * (openspec/specs/review/review-window/spec.md#actions): it runs each itself, but one that opens a form under the row of its
  * subject (`opensRowForm`: Rust's `ROW_FORM_ACTIONS`), which it asks the main window to run there (`review/run`).
  */
 

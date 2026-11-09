@@ -18,7 +18,7 @@ import { retryAuthStatus, useAuthReadError, useAuthStatus, useSignInPhase } from
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 
 /**
- * Settings → YouTrack (spec/repository/youtrack.spec.md): who is signed in to which YouTrack, else the URL to sign in
+ * Settings → YouTrack (openspec/specs/repository/youtrack/spec.md): who is signed in to which YouTrack, else the URL to sign in
  * to, offered from the issue links of `.idea/vcs.xml`. Sign In opens the Hub of the YouTrack in the browser; a token
  * created in YouTrack can be pasted instead: both are `sign_in` of YouTrack (`runSignIn`), one at a time. Until the
  * first answer the page says it reads the sign-in; a failed read says why, with Retry, above the last status.

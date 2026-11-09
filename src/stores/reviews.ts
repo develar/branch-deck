@@ -8,7 +8,7 @@ import { useSelectedProjectPath } from "@/stores/repository"
 import { reviewRequestsStore } from "@/stores/review-requests"
 
 /*
- * Reviews (spec/repository/reviews.spec.md): every open pull request of the selected repository the user takes part in
+ * Reviews (openspec/specs/repository/reviews/spec.md): every open pull request of the selected repository the user takes part in
  * beside the requests by name (Your Turn's rows lead the view). The session reads the rest of Reviews while the view
  * shows (`Demand::reviews`, held by the view) and derives its sections (`domain_policy::reviews`); the store keeps
  * them as the view has them (`applyReviewsView`). The links the user adds are Rust's (`link_pull_request`), kept for

@@ -1,5 +1,5 @@
 //! The sign-in of the `youtrack` CLI with a permanent token the app made from its own YouTrack sign-in
-//! (spec/repository/cli-tools.spec.md#the-youtrack-cli): `auth login --no-browser` reads the token from its stdin,
+//! (openspec/specs/repository/cli-tools/spec.md#the-youtrack-cli): `auth login --no-browser` reads the token from its stdin,
 //! checks it and keeps it in the CLI's own keychain item. The token never is an argument or a line of a log; the
 //! credential variables of the app's environment are not passed on; the instance the CLI had active stays active.
 

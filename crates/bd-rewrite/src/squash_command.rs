@@ -1,5 +1,5 @@
 //! `brd squash <into> <commit>…`: the commits the user asked to squash go into the oldest of them, as the app's Squash
-//! does (`history_rewrite::squash`, spec/commit/squash.spec.md), recorded in the operations registry as the same
+//! does (`history_rewrite::squash`, openspec/specs/commit/squash/spec.md), recorded in the operations registry as the same
 //! intent (`RewriteIntent::Squash`); its core takes the repository lock after it computed the squash, for the witness
 //! of HEAD and the move only. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are;
 //! `brd undo` takes it back. `--dry-run` builds the squash and drops it, so a conflict shows before the user approves

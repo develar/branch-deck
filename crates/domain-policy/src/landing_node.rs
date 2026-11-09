@@ -1,5 +1,5 @@
-//! Where a branch or a whole stack is on its way into master, the node of its row (spec/branch/branch-row.spec.md,
-//! "Tree"; spec/branch/next-step.spec.md, "The surfaces"; docs/design/landing.md), for the app and `bd` alike: the first
+//! Where a branch or a whole stack is on its way into master, the node of its row (openspec/specs/branch/branch-row/spec.md,
+//! "Tree"; openspec/specs/branch/next-step/spec.md, "The surfaces"; docs/design/landing.md), for the app and `bd` alike: the first
 //! state that matches over the facts of its next step (`next_step::StepFacts`) with what the step doesn't tell apart.
 //! A sync of the row passes, so the node keeps the state it started from; a parked branch, all of it in master, a
 //! failure, a block and its own robot running are the subject's own (`own_facts`, which the Status cell picks from too,

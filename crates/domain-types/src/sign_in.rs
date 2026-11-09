@@ -1,4 +1,4 @@
-//! The sign-ins of the app's accounts (spec/repository/github-sign-in.spec.md, youtrack.spec.md): what a window asks
+//! The sign-ins of the app's accounts (openspec/specs/repository/github-sign-in/spec.md, openspec/specs/repository/youtrack/spec.md): what a window asks
 //! (`SignIn`), what the sign-in tells it on the way (`SignInEvent`) and how it ended (`SignInDone`), and the status of
 //! both accounts (`AuthStatus`), which the sessions keep as their fact `auth` (`remote_facts::sign_in`). A sign-in has
 //! no repository as its subject: it is a command of the app, never an intent of a session.

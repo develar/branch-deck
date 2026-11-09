@@ -8,7 +8,7 @@ import { canonicalOwnerFilter, ownerChipKey, ownerEmptyText, ownerPaths, reviewF
 import type { ReviewFilter, ReviewFilterChip, ReviewOwners } from "@/lib/review-owners"
 
 /*
- * The owner chips of a review window, the branch window and the pull request window alike (spec/branch/branch-review.spec.md,
+ * The owner chips of a review window, the branch window and the pull request window alike (openspec/specs/branch/branch-review/spec.md,
  * "Code owners"): the header of its files; the files the chosen chip marks are `reviewOwnerMarks`.
  */
 

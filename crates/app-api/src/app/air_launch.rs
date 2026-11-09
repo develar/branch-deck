@@ -1,4 +1,4 @@
-//! Start in Air (spec/branch/start-in-air.spec.md): the agents of the IDE that has the repository open
+//! Start in Air (openspec/specs/branch/start-in-air/spec.md): the agents of the IDE that has the repository open
 //! (`air_launch_targets`), the launch of a session with the prompt of a robot (`air_launch`), and the watch of the
 //! session it started (`air_watch_session`), over the local launch socket of Air (`air_launch`, protocol v1). The
 //! directory of the instance files is the host's (`AppHost::air_instances`): the user's in the app, none in the e2e

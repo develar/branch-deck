@@ -26,7 +26,7 @@ export interface RequestReviewPopoverProps {
  * Request Review… of an open pull request: the code owners Patronus suggests for the groups whose approval is missing
  * (one per group nobody is asked for yet chosen), a search of the repository's users, and "Request Review"; then a toast
  * with Open Pull Request and a refresh of the pull requests, so the readiness reads the new request
- * (`spec/branch/pull-requests.spec.md#request-review`). The form loads on the first hover or open.
+ * (`openspec/specs/branch/pull-requests/spec.md#request-review`). The form loads on the first hover or open.
  */
 export function RequestReviewPopover({ branch, pullRequest, readiness, trigger, open, onOpenChange, align = "end" }: RequestReviewPopoverProps) {
   const [ownOpen, setOwnOpen] = useState(false)

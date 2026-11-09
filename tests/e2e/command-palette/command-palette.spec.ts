@@ -1,4 +1,4 @@
-// @spec spec/repository/command-palette.spec.md
+// @spec openspec/specs/repository/command-palette/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"

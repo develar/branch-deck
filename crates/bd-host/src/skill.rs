@@ -1,4 +1,4 @@
-//! The agent skill of brd-host (spec/cli/host.spec.md, "version, schema, skill"): `skill/SKILL.md`, the spec and the
+//! The agent skill of brd-host (openspec/specs/cli/host/spec.md, "version, schema, skill"): `skill/SKILL.md`, the spec and the
 //! design doc of this build, which `brd-host skill install` writes into `~/.claude/skills/brd-host/`. The binary carries
 //! the files, so the install works outside this repository.
 //!
@@ -19,7 +19,7 @@ use sync_utils::fs_retry;
 /// The files of the skill: the path in the skill directory and the text of this build
 const FILES: [(&str, &str); 3] = [
   ("SKILL.md", include_str!("../skill/SKILL.md")),
-  ("references/spec.md", include_str!("../../../spec/cli/host.spec.md")),
+  ("references/spec.md", include_str!("../../../openspec/specs/cli/host/spec.md")),
   ("references/design.md", include_str!("../../../docs/design/host-runs.md")),
 ];
 

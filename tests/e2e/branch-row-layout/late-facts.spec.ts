@@ -1,8 +1,8 @@
-// @spec spec/branch/next-step.spec.md
-// @spec spec/repository/review-requests.spec.md
-// @spec spec/branch/stack-island.spec.md
-// @spec spec/branch/branch-preview.spec.md
-// @spec spec/branch/stacked-branches.spec.md
+// @spec openspec/specs/branch/next-step/spec.md
+// @spec openspec/specs/repository/review-requests/spec.md
+// @spec openspec/specs/branch/stack-island/spec.md
+// @spec openspec/specs/branch/branch-preview/spec.md
+// @spec openspec/specs/branch/stacked-branches/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"

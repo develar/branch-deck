@@ -1,4 +1,4 @@
-//! The host slots (spec/cli/lease.spec.md, "Host slots"; "Host slots" in docs/design/git-operations.md): the slots of
+//! The host slots (openspec/specs/cli/lease/spec.md, "Host slots"; "Host slots" in docs/design/git-operations.md): the slots of
 //! the pool that the agent of `brd-host` on a host keeps for the runs of other machines, in process,
 //! each a plain `ready` lease of the holder `brd-host/<n>`
 //! in `leases.json`, and the lend table in `$GIT_COMMON_DIR/branch-deck/host-slots.json`, which lends a slot to one run

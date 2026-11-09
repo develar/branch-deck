@@ -3,7 +3,7 @@ import { refreshSessionFacts, sessionRepositoryPath } from "@/model/store"
 import { authStore, refreshAuthStatus } from "@/stores/auth"
 
 /*
- * The status of the sign-ins in a window of a repository (spec/repository/github-sign-in.spec.md, youtrack.spec.md):
+ * The status of the sign-ins in a window of a repository (openspec/specs/repository/github-sign-in/spec.md, openspec/specs/repository/youtrack/spec.md):
  * the fact `auth` of its session, which `src/model/store.ts` puts into the store of `src/stores/auth.ts` with every
  * view (`applyAuthFacts`). Its session reads it again when the window asks (a popover whose YouTrack refused the
  * sign-in, Retry), and the main window tells a failed read. The side of the session: the root of a window never

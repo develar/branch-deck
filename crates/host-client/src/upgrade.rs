@@ -1,5 +1,5 @@
 //! Sends a new binary to the agent of a host over the link, without ssh, so a background session can do it
-//! (spec/cli/host.spec.md, "upgrade"):
+//! (openspec/specs/cli/host/spec.md, "upgrade"):
 //!
 //! 1. The hello names the platform, the features and the build of the agent. A host that is not macOS, or an agent
 //!    without `feature::UPGRADE`, refuses with `agent_failed`.

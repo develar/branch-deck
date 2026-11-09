@@ -1,4 +1,4 @@
-// @spec spec/repository/disk-usage.spec.md
+// @spec openspec/specs/repository/disk-usage/spec.md
 import { appendFileSync, existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { expect, test } from "../fixtures/test-fixtures"

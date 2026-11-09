@@ -1,4 +1,4 @@
-//! The units of a review (spec/branch/review-units.spec.md): the changes of the pair a review shows (`pair`), each one a
+//! The units of a review (openspec/specs/branch/review-units/spec.md): the changes of the pair a review shows (`pair`), each one a
 //! reviewer reads once, in the order of the story.
 //!
 //! - **A block** of a file goes to one unit: the repeated edit of its file's group when it is that edit, else the

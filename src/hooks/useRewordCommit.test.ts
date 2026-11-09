@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-row.spec.md
+// @spec openspec/specs/commit/commit-row/spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { rewordCommit } from "@/hooks/useRewordCommit"
 import type { Outcome, RewordResult, UndoToken } from "@/lib/bindings"

@@ -85,7 +85,7 @@ export interface BodyPartsViewProps {
 }
 
 /**
- * A body by its parts (spec/commit/commit-row.spec.md, "Message body"): its lead (a step larger in a story), then its
+ * A body by its parts (openspec/specs/commit/commit-row/spec.md, "Message body"): its lead (a step larger in a story), then its
  * parts before the fold in place, a label the caption of its blocks and a Look closely of the author an info callout;
  * then one line that names the folded parts ("The cause · Tests · Evidence"), each its own disclosure, an open one
  * below the line, so a disclosure grows downward; the trailers last. Rust says which part folds (`CommitBody.parts`):
@@ -318,7 +318,7 @@ function PlacedBlockView({ placed, text }: { placed: PlacedBlock; text: BodyText
 }
 
 /**
- * What the reviewed body had and the body lacks now, where it stood (spec/branch/review-tour.spec.md, "In the Review
+ * What the reviewed body had and the body lacks now, where it stood (openspec/specs/branch/review-tour/spec.md, "In the Review
  * Window"): the runs of `removed` that stand before the block `before` (at the end of their part for `null`)
  */
 function removedAt(removed: readonly RemovedBlocks[] | undefined, before: number | null): ReactNode {

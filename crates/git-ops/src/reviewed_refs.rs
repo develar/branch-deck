@@ -1,4 +1,4 @@
-//! The reviewed tip of a local branch (spec/branch/review-plan.spec.md): `refs/branch-deck/reviewed/<sha256 of the
+//! The reviewed tip of a local branch (openspec/specs/branch/review-plan/spec.md): `refs/branch-deck/reviewed/<sha256 of the
 //! branch's full name>/{base,tip}`, the base and the tip the branch had when the user last marked it reviewed. The refs
 //! keep the reviewed commits from `git gc`, so the interdiff of a later review still reads them after a rewrite. One
 //! `for-each-ref` lists them with the local branches (`read_reviewed_refs`); a mark is one `update-ref --stdin`

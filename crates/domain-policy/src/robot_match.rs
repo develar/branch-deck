@@ -1,5 +1,5 @@
 //! Which robot belongs to a virtual branch, and which to the whole stack of a root (its stack branch
-//! `{prefix}/stack/<root>`): the one rule of `bd` and of the repository view (spec/branch/patronus.spec.md). A robot
+//! `{prefix}/stack/<root>`): the one rule of `bd` and of the repository view (openspec/specs/branch/patronus/spec.md). A robot
 //! started on the branch (`branch_name`), or a Safe Push of a temporary ref (the IDE, the CLI) on the local or the
 //! pushed tip of the branch; the robot of the whole stack (`stack_root`) is the stack's, never a branch's, not even by
 //! its revision. Of several, a running robot wins over a canceling one (a restart replaces it) over a finished one, then

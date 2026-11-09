@@ -19,7 +19,7 @@ import type {
   ReviewPlan,
   Usages,
 } from "@/lib/bindings"
-// The words of the review plan of a review window (spec/branch/review-plan.spec.md, Status: Experimental): the states
+// The words of the review plan of a review window (openspec/specs/branch/review-plan/spec.md, Status: Experimental): the states
 // of the commits since the user's review, the API the reviewed commits remove or change with the uses left outside
 // the change, the dependency changes, the repeated edits, the new API, and the badges of the files. Rust pairs the
 // commits, ranks the API and the files and decides each fact (`review_plan::review_plan_core`); the card and the tree

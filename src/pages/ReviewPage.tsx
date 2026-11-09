@@ -61,7 +61,7 @@ type ShownBranchReview = Extract<ShownReviewWindow, { kind: "branch" }>
 type ShownCommitsReview = Extract<ShownReviewWindow, { kind: "commits" }>
 
 /**
- * The review window (spec/review/review-window.spec.md#one-window), one for every subject: a branch with its stack, the
+ * The review window (openspec/specs/review/review-window/spec.md#one-window), one for every subject: a branch with its stack, the
  * whole stack of a root, a kept branch (`BranchReview` on the canvas of the window), or a list of commits (the commits
  * above the files, `RangeReview`). It gets every open and decides how it goes on from the review on screen
  * (`takeOpen`, the one rule `planReviewOpen`): an open of the review on screen keeps it (a move shows its commit); a new
@@ -557,7 +557,7 @@ function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview
   // the native title names the commit shown, the title bar the list and the commit
   const commit = data.commits[index]
   useWindowTitle(commit === undefined ? null : reviewWindowTitle({ ...data, index }))
-  // the plan of the commit (spec/branch/review-units.spec.md): its overview and the story of its diffs, unless the repository
+  // the plan of the commit (openspec/specs/branch/review-units/spec.md): its overview and the story of its diffs, unless the repository
   // turns the plan off
   const subject = { kind: "commit", id: selected } as const
   const plan = useSubjectPlan(data.repositoryPath, subject)

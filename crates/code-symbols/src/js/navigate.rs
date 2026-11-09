@@ -1,5 +1,5 @@
 //! Go to Declaration and Find Usages in a TypeScript, TSX or JavaScript file from oxc's tree
-//! (spec/commit/symbol-navigation.spec.md): the name at a place, its qualifier, the kind of the reference, its
+//! (openspec/specs/commit/symbol-navigation/spec.md): the name at a place, its qualifier, the kind of the reference, its
 //! declaration in the file by the scopes, and the usages of a name, answered by `navigate::{reference_answer,
 //! usage_answers}`. One walk of the tree (`Visit`) inside `js::with_program` finds the name at the place, a second one
 //! every name of its text with its kind and the declaration its scopes bind it to.

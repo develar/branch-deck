@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"

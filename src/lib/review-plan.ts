@@ -4,7 +4,7 @@ import { notifyError } from "@/lib/errors"
 import type { ReviewPlace } from "@/lib/review-place"
 
 /*
- * The review plan of a branch review window (spec/branch/review-plan.spec.md, Status: Experimental): the one module of
+ * The review plan of a branch review window (openspec/specs/branch/review-plan/spec.md, Status: Experimental): the one module of
  * the page that calls `mark_branch_reviewed` and `get_outside_place`. Rust names the branch, takes its base and tip and writes the reviewed
  * pair with compare-and-swap (`mark_reviewed_core`, as `bd mark-reviewed`); the page only says a refusal.
  */

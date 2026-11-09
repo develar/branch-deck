@@ -1,4 +1,4 @@
-//! The pair a review shows (spec/branch/review-units.spec.md, "Pair"): per file the reviewed commits change, its blocks
+//! The pair a review shows (openspec/specs/branch/review-units/spec.md, "Pair"): per file the reviewed commits change, its blocks
 //! from its blob before the first commit that changes it to its blob after the last one, under `Default`: the blocks
 //! the diffs of `base..head` show. The units of the review (`units`) cut these blocks, and a use on one of their lines
 //! at the head was written or rewritten by this change (`fan_in`, "inside"); a use on another line of a changed file

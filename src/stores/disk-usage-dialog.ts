@@ -8,7 +8,7 @@ interface DiskUsageDialogState {
   readonly generation: number
 }
 
-/** The Disk Usage dialog of the main window (spec/repository/disk-usage.spec.md): "Show Disk Usage…" of the palette */
+/** The Disk Usage dialog of the main window (openspec/specs/repository/disk-usage/spec.md): "Show Disk Usage…" of the palette */
 export const diskUsageDialogStore = createStore<DiskUsageDialogState>(() => ({ repositoryPath: null, generation: 0 }))
 
 export function useDiskUsageDialog(): DiskUsageDialogState {

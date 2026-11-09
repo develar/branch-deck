@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-review.spec.md
+// @spec openspec/specs/branch/branch-review/spec.md
 import type { Page } from "@playwright/test"
 import type { PatronusProfile } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"

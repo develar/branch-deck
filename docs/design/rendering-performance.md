@@ -201,7 +201,7 @@ flowchart LR
      confirm of a push) mounts while it is open. No IPC: a hover of a row reads nothing (`hoverIpc`). The
      intent replays once (a ref marks it): a view of the main window runs the effects of its rows again as it shows
      (React's `Activity`), and a replay there opened the popup of every trigger hovered before with the pointer
-     elsewhere and gave the focus back to a push button focused before ([Main Views](../../spec/repository/main-views.spec.md)).
+     elsewhere and gave the focus back to a push button focused before ([Main Views](../../openspec/specs/repository/main-views/spec.md)).
      A trigger that came under a still pointer (WebKit tells its enter at once) is mounted, but its replay is no move:
      the popup opens with the next move over it (`hoverOpensOnMove`, `src/lib/pointer-moves.ts`).
    - In the content of a popover the roots mount with their triggers (`EagerRootsContext`, set by `PopoverContent`):
@@ -542,7 +542,7 @@ it shows as they are, and Rust asks the readiness of those whose step waits for 
 where the page filtered them before), the menu of a row nothing and the popover of its
 robot one `set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a
 running robot while it is open), the hover of a row nothing. The review of a branch is read ahead as its window opens,
-beside the start of the window (`prefetch_review`, [Branch Review](../../spec/branch/branch-review.spec.md)),
+beside the start of the window (`prefetch_review`, [Branch Review](../../openspec/specs/branch/branch-review/spec.md)),
 not on a hover or a focus of its row as before 2026-10-29: a pointer that passes over the table costs no IPC and no git.
 An E2E test pins these numbers.
 [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
@@ -571,7 +571,7 @@ used to download and compile the main window's tree before its own page: 61 modu
   effects and its scroll events, never on an animation frame ([Diff View](diff-view.md)).
 - The main window is built hidden too and shows the same way (`show_when_settled`, `sub_window_ready`), on its first
   frame with content: the title row with the first rows of its sync, or with a state that has no rows (no repository,
-  Welcome, Ready to Sync, an error), said by `BranchCreator` ([Title Bar](../../spec/repository/title-bar.spec.md#main-window)).
+  Welcome, Ready to Sync, an error), said by `BranchCreator` ([Title Bar](../../openspec/specs/repository/title-bar/spec.md#main-window)).
   It used to show right after its build: a bare canvas for about 0.3 s, then the title row over an empty body for
   0.5 s, then the rows. Its budget is 1 s after the page committed its shell, the title row and the loading table
   (the rows of the IntelliJ monorepo came about 0.6 s after the load), then the shell shows; 3 s after the load when
@@ -592,7 +592,7 @@ used to download and compile the main window's tree before its own page: 61 modu
   ([Git Operations](git-operations.md#virtual-branch-sync)).
 - The main window starts warm: before it is built, Rust opens the session of the selected project seeded from the
   frame its last run saved and puts the seed into the init script (`window.__BD_MODEL__`, `src-tauri/src/warm_start.rs`,
-  [Onboarding](../../spec/repository/onboarding.spec.md#before-the-first-sync)), so the first frame with content is the
+  [Onboarding](../../openspec/specs/repository/onboarding/spec.md#before-the-first-sync)), so the first frame with content is the
   rows of that frame, not the loading table, and `BranchCreator` says the content settled on them. The load of the
   main page puts the seed into the store before the first render (`adoptCachedModel` in `src/router.ts`, beside the
   import of the page) and subscribes holding it: one `subscribe_view`, whose answer is the patch from the seed (or

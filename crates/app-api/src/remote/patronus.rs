@@ -1,7 +1,7 @@
 //! The robots of Patronus as the windows read them beside the facts of the session: the Safe Push statistics of the
-//! repository (spec/repository/safe-push-statistics.spec.md), why a robot failed for the prompt for an agent
-//! (spec/branch/safe-push-failure-prompt.spec.md) and which commits a running robot covers
-//! (spec/branch/patronus.spec.md), over the Patronus of the session (`ServiceHost`)
+//! repository (openspec/specs/repository/safe-push-statistics/spec.md), why a robot failed for the prompt for an agent
+//! (openspec/specs/branch/safe-push-failure-prompt/spec.md) and which commits a running robot covers
+//! (openspec/specs/branch/patronus/spec.md), over the Patronus of the session (`ServiceHost`)
 
 use crate::api_error::patronus_error;
 use crate::context::AppContext;

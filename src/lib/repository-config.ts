@@ -1,7 +1,7 @@
 import type { ConfigScope, ConfigSetting, DetectedGitHubRepository, LandingDefault, LandingSetting, RepositoryConfig, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
 
 /*
- * The pages of the git config, Settings → Branches, Landing and Agents (spec/repository/settings.spec.md#scope): the
+ * The pages of the git config, Settings → Branches, Landing and Agents (openspec/specs/repository/settings/spec.md#scope): the
  * `branchdeck.*` git config of every repository and of the selected one, read and written by the backend (`crates/sync-core/src/repository_config.rs`), which `brd` reads too.
  */
 
@@ -60,7 +60,7 @@ export function invalidPushSizeLimitReason(value: string): string {
   return `${value} is not a size such as ${DEFAULT_PUSH_SIZE_LIMIT} or 1G, nor 0 or off`
 }
 
-/** The modes of `branchdeck.symbols`, each with what it does (spec/commit/symbol-dependencies.spec.md) */
+/** The modes of `branchdeck.symbols`, each with what it does (openspec/specs/commit/symbol-dependencies/spec.md) */
 export const SYMBOL_MODES: ReadonlyArray<{ mode: SymbolMode; label: string; description: string }> = [
   { mode: "off", label: "Off", description: "Commits depend only on the lines they change" },
   { mode: "report", label: "Report Only", description: "Shown by brd commits, never used for the branches" },
@@ -73,7 +73,7 @@ export function symbolModeLabel(mode: SymbolMode): string {
 
 /**
  * The routes into master of `branchdeck.landing`, each with what it does (Settings → Landing,
- * spec/branch/landing-routes.spec.md): its label and the sentence of the route chosen
+ * openspec/specs/branch/landing-routes/spec.md): its label and the sentence of the route chosen
  */
 export const LANDING_ROUTES: ReadonlyArray<{ setting: LandingSetting; label: string; description: string }> = [
   { setting: "patronus", label: "Safe Push", description: "A robot of Patronus checks each piece and pushes it into master; every pull request goes into master" },
@@ -145,7 +145,7 @@ export function everyRepositoryValue<T>(setting: ConfigSetting<T>): { value: T; 
 }
 
 /**
- * The line under a row of a page of the git config (spec/repository/settings.spec.md#scope), at most one:
+ * The line under a row of a page of the git config (openspec/specs/repository/settings/spec.md#scope), at most one:
  * - `inherited`: the repository tab shows the default of a row only a repository has (the value of every repository has
  *   no line);
  * - `own`: the repository's `.git/config` sets it; `reset` is the tooltip of Reset, which removes it there;
@@ -219,7 +219,7 @@ export function detectedGitHubRepositoryText(detected: DetectedGitHubRepository 
 }
 
 /**
- * The branch prefix row as the prefix order has it (spec/repository/settings.spec.md#branch-prefix-order): the prefix
+ * The branch prefix row as the prefix order has it (openspec/specs/repository/settings/spec.md#branch-prefix-order): the prefix
  * of General wins over a global or system `branchdeck.branchPrefix`, so such a value is not shown as the effective one,
  * and General's prefix is what unsetting the repository's own gives. Unchanged without a prefix in General
  */

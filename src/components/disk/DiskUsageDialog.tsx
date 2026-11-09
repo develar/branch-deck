@@ -25,7 +25,7 @@ import {
 import { closeDiskUsageDialog, useDiskUsageDialog } from "@/stores/disk-usage-dialog"
 
 /**
- * Disk Usage (spec/repository/disk-usage.spec.md): what the lease pools of this Mac and of the hosts of `bd-host` hold,
+ * Disk Usage (openspec/specs/repository/disk-usage/spec.md): what the lease pools of this Mac and of the hosts of `bd-host` hold,
  * each slot with the bytes its builds wrote, the slots a trim deletes next marked, and Trim to Limit for this Mac.
  * Opened by "Show Disk Usage…" of the command palette; kept mounted while closed, as the frame needs.
  */

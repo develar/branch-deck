@@ -489,7 +489,7 @@ pub struct PendingBranch<'a> {
 }
 
 /// Detect `branches` now, as the archive step of the sync would: a stacked branch is labelled by whether its parent is
-/// integrated, before the parent is archived (spec/branch/stacked-branches.spec.md). Sends no events. `baseline` is a
+/// integrated, before the parent is archived (openspec/specs/branch/stacked-branches/spec.md). Sends no events. `baseline` is a
 /// commit id (`resolve_baseline`), recorded in a `NotIntegrated` note. With `cache`, the results are written as
 /// detection notes, so the archived branch is reported from its note; without, nothing is written. Returns the status
 /// per tip; a branch whose detection fails is left out.

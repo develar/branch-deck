@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-review.spec.md
+// @spec openspec/specs/branch/branch-review/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { showRepository } from "@/lib/show-repository"
 import { branchSyncStore } from "@/stores/branch-sync"

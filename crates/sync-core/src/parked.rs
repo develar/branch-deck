@@ -1,4 +1,4 @@
-//! Parked branches for the app and `bd` (spec/branch/parked-branches.spec.md): what a park or an unpark over the cores
+//! Parked branches for the app and `bd` (openspec/specs/branch/parked-branches/spec.md): what a park or an unpark over the cores
 //! of `history_rewrite::parked` did, as the rewrites `Park` and `Unpark` of the engine (`operations::rewrite`) answer it.
 //! Whether a branch is parked as a sync places it is the rule `domain_policy::parked`.
 

@@ -1,5 +1,5 @@
-//! `brd lease`: the worktrees of the lease pool, one agent session per slot (spec/cli/lease.spec.md), and `brd workspace`,
-//! which tells an agent whether to lease one (spec/cli/workspace.spec.md). The cores are `lease_pool::lease` and
+//! `brd lease`: the worktrees of the lease pool, one agent session per slot (openspec/specs/cli/lease/spec.md), and `brd workspace`,
+//! which tells an agent whether to lease one (openspec/specs/cli/workspace/spec.md). The cores are `lease_pool::lease` and
 //! `lease_pool::agent_workspace`; bd-cli parses the arguments and prints the outputs of `lease_command` and
 //! `workspace_command`. The tests run brd through the whole Cli, with the fixtures of bd-cli
 

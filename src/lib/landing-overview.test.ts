@@ -1,4 +1,4 @@
-// @spec spec/repository/landing-overview.spec.md
+// @spec openspec/specs/repository/landing-overview/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingNodeKind } from "@/lib/bindings"
 import type { LandingUnit } from "@/lib/landing-overview"

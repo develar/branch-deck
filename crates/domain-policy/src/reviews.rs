@@ -1,4 +1,4 @@
-//! Reviews (spec/repository/reviews.spec.md): every open pull request of the repository the user takes part in, beside
+//! Reviews (openspec/specs/repository/reviews/spec.md): every open pull request of the repository the user takes part in, beside
 //! the requests by name that lead it (Your Turn's rows), in sections (`sections`): added by link, requested from the
 //! user's teams, reviewed by the user, the user's own. A pull request shows once, in the first section that has it, the
 //! requests by name and the returned own pull requests of Your Turn before them all; the empty sections are left out.

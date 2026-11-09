@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { LandingRefusal, Plan, Reason } from "@/lib/bindings"

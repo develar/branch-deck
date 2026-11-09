@@ -1,5 +1,5 @@
 //! Stack parents: the branch -> parent map that stacks a branch without a history rewrite
-//! (spec/branch/stack-parents.spec.md). The store is the ref `refs/branch-deck/stack-parents`: a commit whose tree holds
+//! (openspec/specs/branch/stack-parents/spec.md). The store is the ref `refs/branch-deck/stack-parents`: a commit whose tree holds
 //! the one file `stack-parents`, sorted `child<TAB>parent` lines of branch names without `/` (`store_lines.rs`). A
 //! branch whose prefixes declare no parent takes its parent from here. A regroup writes it, under the repository lock,
 //! in the transaction that moves HEAD and the issue groups (`regroup.rs`); a sync only drops the lines of the branches

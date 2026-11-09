@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { SettingsPatch } from "@/lib/bindings"
 import { getRepositoryState, repositoryStateStore, updateRepositoryState } from "@/stores/settings/repositoryState"

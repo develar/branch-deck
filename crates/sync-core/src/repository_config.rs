@@ -1,8 +1,8 @@
 //! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
 //! GitHub repository and the branch prefix (Settings → Repository), the resolve by words (Diffs & Merge), the push size
-//! limit (Patronus), the route into master (`branchdeck.landing`, spec/branch/landing-routes.spec.md), how coding
+//! limit (Patronus), the route into master (`branchdeck.landing`, openspec/specs/branch/landing-routes/spec.md), how coding
 //! agents work and land (Settings → Agents, read by `brd workspace`), and the experiments of the review windows
-//! (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md). One `git config --get-regexp` reads them all with
+//! (`branchdeck.reviewExperimental`, openspec/specs/branch/review-plan/spec.md). One `git config --get-regexp` reads them all with
 //! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
 //! the request names it (`WriteScope`; never the route), and `bd` reads the same keys.
 
@@ -58,7 +58,7 @@ pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch
 /// (`brd push`) and opens the pull request brd prints, without asking; a git boolean, off when unset (`brd workspace`)
 pub const AGENT_PULL_REQUEST_CONFIG_KEY: &str = "branchdeck.agentPullRequest";
 
-/// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
+/// Whether the review windows show the review plan (openspec/specs/branch/review-plan/spec.md, Status: Experimental): Mark
 /// Reviewed and the local Since Your Review, the overview of the plan, the badges and the Mechanical group of the tree.
 /// A git boolean, off when unset (it is an experiment, turned on in Settings), and a value git refuses is off: an
 /// experiment never turns on from a broken value.
@@ -187,7 +187,7 @@ pub struct RepositoryConfig {
   pub seq: u32,
 }
 
-/// A companion repository of a primary (spec/branch/declared-needs.spec.md#companion-repositories): a need names its
+/// A companion repository of a primary (openspec/specs/branch/declared-needs/spec.md#companion-repositories): a need names its
 /// branches as `<name>:<branch>`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

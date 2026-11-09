@@ -1,4 +1,4 @@
-//! `brd companion`: the companion repositories of a primary (spec/branch/declared-needs.spec.md#companion-repositories),
+//! `brd companion`: the companion repositories of a primary (openspec/specs/branch/declared-needs/spec.md#companion-repositories),
 //! whose branches a need names as `<companion>:<branch>`. The same write as Settings → Landing
 //! (`sync_core::repository_config::write_companion`): `branchdeck.companion.<name>.path` in the local config of the
 //! primary, `branchdeck.primary` in the local config of the companion

@@ -1,4 +1,4 @@
-//! The API surface of a review (spec/branch/review-plan.spec.md, "API surface"): the public declarations the reviewed
+//! The API surface of a review (openspec/specs/branch/review-plan/spec.md, "API surface"): the public declarations the reviewed
 //! commits add, remove or change in form, as the syntax summaries tell (`code_symbols`, through
 //! `trial_check::symbol_dependencies::declaration_checks::changed_declarations`).
 //!

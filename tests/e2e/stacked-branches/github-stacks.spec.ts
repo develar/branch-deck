@@ -1,4 +1,4 @@
-// @spec spec/branch/stacked-branches.spec.md
+// @spec openspec/specs/branch/stacked-branches/spec.md
 import type { Page } from "@playwright/test"
 import type { PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"

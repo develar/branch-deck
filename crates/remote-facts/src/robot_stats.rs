@@ -1,4 +1,4 @@
-//! The reads of the Safe Push statistics (`spec/repository/safe-push-statistics.spec.md`), the one core of the app
+//! The reads of the Safe Push statistics (`openspec/specs/repository/safe-push-statistics/spec.md`), the one core of the app
 //! (`get_robot_stats`), `brd robot-stats` and the E2E server: everyone's robots into the target of a period
 //! (`StatsPeriod`), listed by UTC weeks, and the runs of the user's finished robots of the last 14 days, all kept in
 //! the object cache (`patronus_history`), then `robot_stats_aggregate`. No git and no other module of this crate.

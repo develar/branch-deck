@@ -1,4 +1,4 @@
-// The pull request of a branch as the stores have it now (spec/branch/pull-requests.spec.md), for what is built on
+// The pull request of a branch as the stores have it now (openspec/specs/branch/pull-requests/spec.md), for what is built on
 // demand: a menu on open, a toast, a store selector. It reads the open pull request of the view (`openPullRequests`,
 // `PullRequestView.base`), the pull requests GitHub listed, the actions Rust offers (`create-pull-request`) and the
 // repository Patronus mirrors the branches to; the presenters word what it read (`src/presenters/pull-request-url.ts`,

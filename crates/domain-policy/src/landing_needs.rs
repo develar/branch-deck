@@ -1,5 +1,5 @@
 //! What the Safe Push of a branch needs of a branch outside what it lands, as a row and a start say it
-//! (spec/branch/next-step.spec.md): the refusals of the landing gate (`trial_check::landing_gate::landing_needs`) and
+//! (openspec/specs/branch/next-step/spec.md): the refusals of the landing gate (`trial_check::landing_gate::landing_needs`) and
 //! the declared order of landing (`declared_needs`), with the running Safe Push that lands the branch the start needs,
 //! which the start of this one would fail beside.
 

@@ -183,7 +183,7 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   reads the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/`
   and `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`RemoteStatusMemo`). The session
   matches a Safe Push of the IDE or the CLI to the branch by it (`domain_policy::robot_match`, the robot of the
-  [Patronus](../../spec/branch/patronus.spec.md) chip).
+  [Patronus](../../openspec/specs/branch/patronus/spec.md) chip).
   The walks below use these commits, not the ref names, so a fetch or a sync meanwhile can't make the counts disagree
   with it.
 - **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
@@ -355,7 +355,7 @@ The hue of a push comes from its risk (`getPushHue` and `getPushColor` in `src/l
 only replaces the remote commits with their copies, and of an amended or restacked one, which replaces their older
 versions (landed and reworded ones too). Up to date, and a safe push of none of the user's commits, are neutral; a
 restacked branch with nothing of its own to push keeps `primary`, its remote branch is behind the user's work. The
-push button and the status text use it. See [Outgoing Commits](../../spec/repository/outgoing.spec.md).
+push button and the status text use it. See [Outgoing Commits](../../openspec/specs/repository/outgoing/spec.md).
 
 The `warning` hue is also the one push that asks first (a force push that `drops`): it drops someone else's work, so
 its click opens the description with the dropped commits and a destructive Force Push that pushes. A safe push, the force
@@ -371,8 +371,8 @@ remote tip and the counts, never with the local tip: the sync rebuilds an unchan
 a hash comparison made a false "the branch changed" after each sync. The branch changed since the review when that
 commit is not the remote tip, or the branch is not up to date. The remote tip at that commit with an up-to-date branch
 is the same commits on an older baseline: no warning, a quiet line in the details (`getReviewCommitState` in
-`src/lib/review-commit.ts`; [Patronus](../../spec/branch/patronus.spec.md),
-[Pull Requests](../../spec/branch/pull-requests.spec.md)).
+`src/lib/review-commit.ts`; [Patronus](../../openspec/specs/branch/patronus/spec.md),
+[Pull Requests](../../openspec/specs/branch/pull-requests/spec.md)).
 
 ## Alternatives Considered
 

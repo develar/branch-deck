@@ -1,5 +1,5 @@
 //! The start of a branch or of a whole stack in a repository that lands by a push of the copy into the target, for the
-//! app and `brd land` alike (spec/branch/landing-routes.spec.md, "Push to master"; docs/design/landing.md): the tail of
+//! app and `brd land` alike (openspec/specs/branch/landing-routes/spec.md, "Push to master"; docs/design/landing.md): the tail of
 //! `land::decide` for `LandingRoute::Push`. What lands is the copy the sync built on the baseline: the tip of the virtual
 //! branch of the piece (the branch with the branches it is built on), of a whole stack its stack branch; the push is a
 //! fast-forward of the target, which the server takes or refuses whole.
@@ -17,7 +17,7 @@
 //!   required status checks, a refusal of the server before);
 //! - effects: the push of the copy into the target (`PlannedEffect::PushBaseline`).
 //!
-//! The merge tail (`decide_merge`, spec/branch/landing-routes.spec.md, "Merge"), of `LandingRoute::PullRequest` where no
+//! The merge tail (`decide_merge`, openspec/specs/branch/landing-routes/spec.md, "Merge"), of `LandingRoute::PullRequest` where no
 //! robot of Patronus lands the repository: GitHub merges the open pull request of the subject into the target (of a
 //! branch its own, of a whole stack the one of its stack branch), by the first of rebase, a merge commit and squash the
 //! repository allows (rebase keeps author, time and message, so the update pairs the commits with their originals;

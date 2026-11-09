@@ -1,4 +1,4 @@
-// @spec spec/branch/unapply.spec.md
+// @spec openspec/specs/branch/unapply/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test as base, expect } from "../fixtures/test-fixtures"

@@ -1,4 +1,4 @@
-//! The registrations of a review (spec/branch/review-plan.spec.md, "Registrations"): how a change plugs into the
+//! The registrations of a review (openspec/specs/branch/review-plan/spec.md, "Registrations"): how a change plugs into the
 //! platform, the services, extension points, listeners, extensions, registry keys, actions and content modules its
 //! plugin descriptors add, remove or change.
 //!

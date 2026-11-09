@@ -1,4 +1,4 @@
-//! The groups of a large step (spec/branch/review-tour.spec.md, "Groups of a Step"): a reading order inside a step its
+//! The groups of a large step (openspec/specs/branch/review-tour/spec.md, "Groups of a Step"): a reading order inside a step its
 //! author told, never a task of its own. A commit of 125 files across four modules is one step; its stops in one list
 //! read as a list of files. Cut by the modules of the plan, the step reads as its parts.
 //!

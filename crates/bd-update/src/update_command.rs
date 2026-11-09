@@ -1,4 +1,4 @@
-//! `brd update` and `brd undo update:<id>..<id>`: the app's Update Project for agents (spec/cli/update.spec.md). The
+//! `brd update` and `brd undo update:<id>..<id>`: the app's Update Project for agents (openspec/specs/cli/update/spec.md). The
 //! fetch and the check (the replay, the resolution by words, the landed candidates) run first, without the repository
 //! lock; under it run only the witness that HEAD and the upstream did not move (else the check once more, under the
 //! lock), the local changes on the paths the update writes and the move, through the guarded working-tree update of

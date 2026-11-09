@@ -1,4 +1,4 @@
-//! The Safe Push statistics (`spec/repository/safe-push-statistics.spec.md`): the robots into the target of a period
+//! The Safe Push statistics (`openspec/specs/repository/safe-push-statistics/spec.md`): the robots into the target of a period
 //! (`StatsPeriod`) as the statistics keep them (`HistoryRobot`, `RobotRun`, kept in the object cache), what the rules count of
 //! them (`RobotStats`), and the command of the app. The page and `brd robot-stats` read the same `RobotStats`, so its
 //! fields are `snake_case` in both.

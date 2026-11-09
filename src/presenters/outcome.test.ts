@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ApiError, EffectRecord, LandResult, Outcome, PatronusRobot, Plan, UpdateCheck } from "@/lib/bindings"
 import { describeFollowingUpdate, presentLandOutcome, presentLandRefusal } from "@/presenters/outcome"

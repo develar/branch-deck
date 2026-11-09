@@ -27,7 +27,7 @@ function rowOfMark(mark: HTMLElement): Element | null {
 }
 
 /**
- * The mark of a commit row whose message has a body (spec/commit/commit-row.spec.md, "Commit card"): its hover opens
+ * The mark of a commit row whose message has a body (openspec/specs/commit/commit-row/spec.md, "Commit card"): its hover opens
  * the card of the commit (`CommitCard`), the header and the body folded as Rust says, under the whole row at its
  * start, and so does `I` on its row, the focus in the card; Escape gives the focus back to the row (`RowCard`). A click
  * opens the preview of the commit where its list has one. Not a tab stop: Space previews the row, `I` opens its card;

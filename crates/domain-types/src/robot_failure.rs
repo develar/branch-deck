@@ -1,5 +1,5 @@
 //! Why a Patronus robot failed, and which commits of the branch it checked: what the prompt for an agent says
-//! (`spec/branch/safe-push-failure-prompt.spec.md`). The app and `brd robot` build it with the same code.
+//! (`openspec/specs/branch/safe-push-failure-prompt/spec.md`). The app and `brd robot` build it with the same code.
 
 use crate::patronus::PatronusRobot;
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-// @spec spec/repository/landed-commits.spec.md
+// @spec openspec/specs/repository/landed-commits/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { AppliedUpdate, LandedBranch, LandedCommit, UpdateCheck } from "@/lib/bindings"
 import {

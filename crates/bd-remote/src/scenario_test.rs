@@ -1856,10 +1856,10 @@ fn the_discrepancy_cases_name_every_id_as_the_register_does() {
   assert_group("discrepancies");
 }
 
-/// The rows of the table of `spec/branch/next-step.spec.md` (`  | <row> | ` under "The table"; a removed row is none)
+/// The rows of the table of `openspec/specs/branch/next-step/spec.md` (`  | <row> | ` under "The table"; a removed row is none)
 fn next_step_rows() -> Vec<String> {
-  let text = std::fs::read_to_string(format!("{ROOT}/spec/branch/next-step.spec.md")).unwrap();
-  let table = &text[text.find("\n### The table\n").expect("next-step.spec.md has The table")..];
+  let text = std::fs::read_to_string(format!("{ROOT}/openspec/specs/branch/next-step/spec.md")).unwrap();
+  let table = &text[text.find("\n### The table\n").expect("openspec/specs/branch/next-step/spec.md has The table")..];
   table
     .lines()
     .filter_map(|line| line.strip_prefix("  | ")?.split_once(" | "))
@@ -1869,7 +1869,7 @@ fn next_step_rows() -> Vec<String> {
 }
 
 /// The ids are unique and of kebab case, each group has its test, and every row of the table of the next step is
-/// named by a case (`spec/branch/next-step.spec.md#the-table:<row>`)
+/// named by a case (`openspec/specs/branch/next-step/spec.md#the-table:<row>`)
 #[test_log::test]
 fn the_cases_are_well_formed_and_name_every_row_of_the_next_step_table() {
   let cases = cases();
@@ -1892,7 +1892,7 @@ fn the_cases_are_well_formed_and_name_every_row_of_the_next_step_table() {
   let named: BTreeSet<&str> = cases
     .iter()
     .flat_map(|case| &case.spec)
-    .filter_map(|spec| spec.strip_prefix("spec/branch/next-step.spec.md#the-table:"))
+    .filter_map(|spec| spec.strip_prefix("openspec/specs/branch/next-step/spec.md#the-table:"))
     .collect();
   let unnamed: Vec<&String> = rows.iter().filter(|row| !named.contains(row.as_str())).collect();
   assert_eq!(unnamed, Vec::<&String>::new(), "rows of the next step table no case names");

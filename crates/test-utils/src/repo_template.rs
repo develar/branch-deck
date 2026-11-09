@@ -461,7 +461,7 @@ pub mod templates {
       .commit_with_timestamp("(search) drop ijproxy, search with accio", &refs(&after), Some(1704119400))
   }
 
-  /// The prose of What Changes (spec/branch/review-tour.spec.md, "Brief"): the branch `prose` of two commits of the issue
+  /// The prose of What Changes (openspec/specs/branch/review-tour/spec.md, "Brief"): the branch `prose` of two commits of the issue
   /// `IJAI-5640`, the second subject starting with two keys. It rewrites a word of a long hard-wrapped paragraph of the
   /// Storage section, adds a linked paragraph and a fenced command block, and repeats `bd` → `brd` across five prose files;
   /// what is no prose beside it: a path added to the `targets:` of the front matter of the spec, a row added to the
@@ -546,7 +546,7 @@ pub mod templates {
       )
   }
 
-  /// A branch `layout` of five commits with bodies, the story of a review (spec/branch/review-tour.spec.md): a refactor
+  /// A branch `layout` of five commits with bodies, the story of a review (openspec/specs/branch/review-tour/spec.md): a refactor
   /// of the manager; a rule (`allowed`) the frame and the welcome use, with a test that calls it, beside a test of the
   /// welcome the branch does not touch; a change of the paint no test calls; the restart story, a rule of the spec with
   /// its test link, its body with a Look closely of its author, a label glued to its paragraph and its tests folded; and a round that renames the flags

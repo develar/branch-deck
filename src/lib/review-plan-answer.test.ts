@@ -1,4 +1,4 @@
-// @spec spec/branch/review-plan.spec.md
+// @spec openspec/specs/branch/review-plan/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ReviewPlan } from "@/lib/bindings"
 import type { Answer } from "@/lib/review-plan-answer"

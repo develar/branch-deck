@@ -1,4 +1,4 @@
-//! The package managers the app installs and updates the CLIs with (spec/repository/cli-tools.spec.md#install-and-update):
+//! The package managers the app installs and updates the CLIs with (openspec/specs/repository/cli-tools/spec.md#install-and-update):
 //! Homebrew on macOS and Linux; on Windows winget for a tool it has a package of, else scoop with the `jetbrains` bucket.
 //! Which one installed a binary is told by its path: a Homebrew `Cellar`, winget's `WinGet`, a `scoop` directory.
 

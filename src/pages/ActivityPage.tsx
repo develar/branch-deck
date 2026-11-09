@@ -17,7 +17,7 @@ import { markWindowContentReady } from "@/lib/sub-window"
 import { useActivityOf, useActivityRead, useUnavailableJournals, withUndo } from "@/stores/activity"
 
 /**
- * The Activity window (spec/repository/activity.spec.md): the log of the repository the main window shows, in one
+ * The Activity window (openspec/specs/repository/activity/spec.md): the log of the repository the main window shows, in one
  * island under a search and the chips of the kinds on the canvas, Clear Log in the footer. The window reads the log
  * itself (at each open, and when a journal changed); the main window tells it over the link of the window the shown
  * repository, its branches, the landed report and the Undo of its rewrites, and runs a branch name, Undo, Dismiss and

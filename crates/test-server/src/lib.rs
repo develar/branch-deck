@@ -749,7 +749,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
 /// repository (the first run of the welcome card, a `NO_REPO` path), as the developer's global config gives the app one.
 /// A repository's own identity (the templates set `user.name` and `user.email`) wins.
 /// The review plan, on when unset, is off here: the review windows of the other tests look as they did before it, and a
-/// test of the plan turns it on in the repository's `.git/config`, which wins (spec/branch/review-plan.spec.md)
+/// test of the plan turns it on in the repository's `.git/config`, which wins (openspec/specs/branch/review-plan/spec.md)
 const TEST_IDENTITY: &str = "[user]\n\tname = Test User\n\temail = test-user@example.com\n[branchdeck]\n\treviewExperimental = false\n";
 
 fn write_test_identity(global_config: &std::path::Path) -> Result<(), StatusCode> {

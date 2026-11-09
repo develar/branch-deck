@@ -1,4 +1,4 @@
-// @spec spec/branch/review-plan.spec.md
+// @spec openspec/specs/branch/review-plan/spec.md
 import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import path from "node:path"

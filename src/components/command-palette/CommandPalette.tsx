@@ -49,7 +49,7 @@ function goToBranch(name: string): void {
 }
 
 /**
- * The command palette of the main window (spec/repository/command-palette.spec.md): ⌘K (View → Command Palette…, the
+ * The command palette of the main window (openspec/specs/repository/command-palette/spec.md): ⌘K (View → Command Palette…, the
  * app command `open_command_palette`) opens a dialog with a search over the views, Activity, the commands of the app,
  * the actions of the branch whose row has the focus (its menu, as Rust decides the actions) and the branches of the
  * table. A command runs once the palette closed and gave the focus back where it was, so what

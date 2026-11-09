@@ -2,7 +2,7 @@ import type { ReviewPlan } from "@/lib/bindings"
 import type { ReviewFacts } from "@/presenters/review-plan"
 
 /*
- * What a review window holds of its reads of the plan (`useReviewPlan`, spec/branch/review-plan.spec.md): each event of
+ * What a review window holds of its reads of the plan (`useReviewPlan`, openspec/specs/branch/review-plan/spec.md): each event of
  * a read replaces the answer, except the plan without the usages of a read again of the same changes; the state the
  * window shows of it.
  */

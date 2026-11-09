@@ -1,4 +1,4 @@
-//! What a review shows (spec/review/review-window.spec.md): a target, whose commits and ranges the resolver reads
+//! What a review shows (openspec/specs/review/review-window/spec.md): a target, whose commits and ranges the resolver reads
 //! (`sync_core::review_target`), and what it answers. A pull request is no target: its range comes from its fetch
 //! (`sync_core::review_fetch`), in the same shape of a range.
 
@@ -13,7 +13,7 @@ pub enum ReviewTarget {
   /// A virtual branch with its stack ancestors: the branches from the root of the stack to the reviewed branch, without
   /// the `{prefix}/virtual/` namespace; one name for a branch outside a stack
   Branch { chain: Vec<String> },
-  /// The whole stack of `root`: its stack branch `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md), one part
+  /// The whole stack of `root`: its stack branch `{prefix}/stack/<root>` (openspec/specs/branch/whole-stack/spec.md), one part
   /// named by the root
   WholeStack { root: String },
   /// A branch kept outside HEAD by its full name, `{prefix}/unapplied/<name>` or `{prefix}/archived/<date>/<name>`: its

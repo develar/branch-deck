@@ -1,4 +1,4 @@
-// @spec spec/repository/setup-attention.spec.md
+// @spec openspec/specs/repository/setup-attention/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"

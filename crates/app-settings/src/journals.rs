@@ -1,4 +1,4 @@
-//! The journals Activity reads, by the recent projects (spec/repository/activity.spec.md, "Log"): `journalPaths` keeps the
+//! The journals Activity reads, by the recent projects (openspec/specs/repository/activity/spec.md, "Log"): `journalPaths` keeps the
 //! journal of the repository of each project by its path, written by Rust when a window opens the session of the
 //! project (`remember_journal`, the host resolves the repository's `$GIT_COMMON_DIR` then), so a read of Activity runs
 //! no git process (`activity_projects`). A `Fields` patch of one path changes no other, and no window writes the key.

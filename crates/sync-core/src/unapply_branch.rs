@@ -1,5 +1,5 @@
 //! Unapply a virtual branch: its original commits leave HEAD with their files (`git_ops::unapply`) and the virtual
-//! branch moves to the unapplied namespace in the transaction that moves HEAD (spec/branch/unapply.spec.md); and its
+//! branch moves to the unapplied namespace in the transaction that moves HEAD (openspec/specs/branch/unapply/spec.md); and its
 //! undo (`UnapplyUndoToken`), which moves both back. Each reads and checks before the repository lock, which holds only
 //! the witness and the move.
 

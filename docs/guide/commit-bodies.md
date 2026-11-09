@@ -6,9 +6,9 @@
 The body of a commit is the one place where the author of a change, a person or an agent, tells its story at the
 moment of writing it. A reviewer reads it before any diff: `git log` shows it, a pull request of Branch Deck is
 written from it, an IDE shows it beside the change, and the review of Branch Deck tells each step by it
-([Review Tour](../../spec/branch/review-tour.spec.md#the-story-of-a-commit)). This guide says how to write a body that
+([Review Tour](../../openspec/specs/branch/review-tour/spec.md#the-story-of-a-commit)). This guide says how to write a body that
 reads well in all of them. Nothing in it needs a tool: it is plain text with a few conventions of Markdown that read
-as text too. Branch Deck reads a body by one grammar ([Commit Row → Message body](../../spec/commit/commit-row.spec.md)),
+as text too. Branch Deck reads a body by one grammar ([Commit Row → Message body](../../openspec/specs/commit/commit-row/spec.md)),
 which `brd review-plan` prints with the story of each commit.
 
 ## In short

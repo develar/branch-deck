@@ -92,7 +92,7 @@ export function StoryBlock({ placed, ...props }: StoryPlaceProps & { placed: Pla
 }
 
 /**
- * The body of a commit as the review tells it (spec/branch/review-tour.spec.md, "In the Review Window"): the one view of
+ * The body of a commit as the review tells it (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): the one view of
  * a body (`BodyPartsView`) at the size of a story, its lead a step larger, no trailer; its code names links, each block
  * at its place (`StoryAnchor`), a part a mark of a section of the diffs showed opened
  */

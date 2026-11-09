@@ -1,5 +1,5 @@
-// @spec spec/branch/patronus.spec.md
-// @spec spec/branch/declared-needs.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
+// @spec openspec/specs/branch/declared-needs/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingRefusal, NeedState, StackCommit } from "@/lib/bindings"
 import { describeLandingRefusals, formatLandingFix, formatNeeded } from "@/presenters/landing"

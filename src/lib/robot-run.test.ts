@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, EffectRecord, Intent, Outcome, PatronusRobot, Plan, Reason } from "@/lib/bindings"
 import { cancelRobot, restartRobot } from "@/lib/robot-run"

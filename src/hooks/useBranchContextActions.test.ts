@@ -1,6 +1,6 @@
-// @spec spec/branch/branch-review.spec.md
-// @spec spec/branch/stacked-branches.spec.md
-// @spec spec/branch/branch-row.spec.md
+// @spec openspec/specs/branch/branch-review/spec.md
+// @spec openspec/specs/branch/stacked-branches/spec.md
+// @spec openspec/specs/branch/branch-row/spec.md
 // The branch menu presents the actions Rust decides (`RepositoryView.actions`, `domain_policy::actions`, its table test):
 // these tests set what Rust answers, the operations of the session laid over it, and check how the menu lays it out and
 // names it

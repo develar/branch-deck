@@ -7,7 +7,7 @@ import { commands } from "@/lib/bindings"
 import { REVIEW_WINDOW, isMainWindow, windowLabel } from "@/lib/window-label"
 
 /*
- * The sign-ins of the app's accounts (spec/repository/github-sign-in.spec.md, youtrack.spec.md): the one status of both
+ * The sign-ins of the app's accounts (openspec/specs/repository/github-sign-in/spec.md, openspec/specs/repository/youtrack/spec.md): the one status of both
  * accounts and where each sign-in of this window is. A window of a repository (the main window, the review window of a
  * branch) has the status as the fact `auth` of its session: the store of the session applies it with every view
  * (`applyAuthFacts`, called by `src/model/store.ts`; the session reads it when a window opens it, after a sign-in or a

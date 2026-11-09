@@ -1,4 +1,4 @@
-//! The shrink of the pools of this machine below the minimum free space (spec/cli/lease.spec.md, "Get"): a free slot
+//! The shrink of the pools of this machine below the minimum free space (openspec/specs/cli/lease/spec.md, "Get"): a free slot
 //! keeps the warm build output of its last lease (cargo keeps a unit while it is among the newest of its group,
 //! `lease_clean`), 50 to 59 GiB of `target/` in each free slot of branch-deck on 2026-11-03, and a get reuses the free
 //! slot returned last first (`lease::reserve`), so the warm output of the others is rarely used again. Once the trim

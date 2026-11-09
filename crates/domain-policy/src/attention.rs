@@ -1,5 +1,5 @@
-//! The robot that needs the user (spec/branch/patronus.spec.md, "Landing overview"; spec/branch/whole-stack.spec.md,
-//! "The whole stack in the app"; spec/repository/robots-indicator.spec.md, "Dock"): the robot of a subject (its row's,
+//! The robot that needs the user (openspec/specs/branch/patronus/spec.md, "Landing overview"; openspec/specs/branch/whole-stack/spec.md,
+//! "The whole stack in the app"; openspec/specs/repository/robots-indicator/spec.md, "Dock"): the robot of a subject (its row's,
 //! `robot_match`) that failed, for missing approvals too, on the subject as it is (`land::took_as_is`), while nothing
 //! else carries the subject. The landing overview lists it among the moves, Attention of the header lists it and the
 //! Dock badge counts it; the view says it of each subject (`RepositoryView::attention`,
@@ -27,7 +27,7 @@ pub struct RobotOnSubject<'a> {
 #[derive(Clone, Copy, Debug, Default)]
 #[expect(clippy::struct_excessive_bools, reason = "independent facts of the view, any of which holds the branch")]
 pub struct BranchCarriers {
-  /// Parked: it stays local, no move of the user (spec/branch/parked-branches.spec.md)
+  /// Parked: it stays local, no move of the user (openspec/specs/branch/parked-branches/spec.md)
   pub parked: bool,
   /// A running Safe Push of a branch built on it or of its whole stack holds its push, or a merged one landed it whole
   /// (the hold of the view whose robot still holds, `holds::branch_hold`)

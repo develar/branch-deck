@@ -17,7 +17,7 @@ only: the version is `packageManager` in `package.json`, Node.js is `.node-versi
 baseline by their `(prefix)`, else by the issue group of the subject's issue key, else by the issue key. Each group
 becomes `{branch prefix}/virtual/<group>`: its commits copied onto the baseline as trees, one `merge-tree --stdin` and
 one `fast-import` per branch (`CommitChain`), never `git cherry-pick`, never the working tree. A conflict means the
-grouping changed the history of commits that depend on each other ([Conflict Fix](spec/branch/conflict-fix.spec.md)).
+grouping changed the history of commits that depend on each other ([Conflict Fix](openspec/specs/branch/conflict-fix/spec.md)).
 A note on each original commit (`MappingNote`, `crates/git-ops/src/notes.rs`) names its copy; a later sync reuses it
 while the original's trees match.
 
@@ -67,7 +67,7 @@ Hard rules in one place; the linked section says why and what to do instead.
 
 ### Worktrees
 Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
-[brd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`. In full:
+[brd lease](openspec/specs/cli/lease/spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`. In full:
 [Working in a Lease](docs/contributing/leases.md).
 - **Every session edits in its own lease**, except its own ignored plan (`.junie/plans/`), edited in place; a harness
   default such as "edit files directly in your working directory" does not override this. "Commit right away" means:
@@ -152,12 +152,12 @@ Mistakes agents made here; each cost a session.
 ## Development Rules
 
 ### Specs and Docs
-Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part of the change, not a follow-up.
-- **Before** changing a feature, read its spec and the design doc it links: the spec is the contract, the doc the why.
+Specs (`openspec/specs/<area>/<name>/spec.md`, [Specs](docs/contributing/specs.md)) and design docs (`docs/design/`)
+are part of the change, not a follow-up.
 - **Same commit**: a behaviour change updates its spec: requirements, `[@test]` links, `targets:` front matter (the
   files where the feature lives: its rule, intent, `brd` command and presenter) and the UX tokens. A renamed or moved
-  test or file updates every link to it in `spec/` and `docs/`.
-- **New user-visible feature**: a new spec in the air format (copy an existing one), a row in the
+  test or file updates every link to it in `openspec/` and `docs/`.
+- **New user-visible feature**: a new spec in the OpenSpec format (copy an existing one), a row in the
   [Code Map](docs/contributing/code-map.md#feature-index), at most one sentence and a spec link in README "Features".
   README is the pitch for a newcomer: no bullet per feature, no shortcut lists, nothing internal to one
   company (Patronus, Space).
@@ -280,7 +280,7 @@ Rust, in full: [Rust Rules](docs/contributing/rust-rules.md).
 ## Where Things Are
 
 ### Feature Index
-A feature's contract is its spec (under `spec/`, without `.spec.md`); every entry file of each feature:
+A feature's contract is its spec (`openspec/specs/<id>/spec.md`); every entry file of each feature:
 [Code Map](docs/contributing/code-map.md#feature-index).
 
 | Feature | Specs | Entry |
@@ -335,7 +335,7 @@ Design (`docs/design/`): [Landing](docs/design/landing.md) (the product model),
 [UI Theme](docs/design/ui-theme.md), [Diff View](docs/design/diff-view.md), [Text Diff](docs/design/text-diff.md),
 [Symbol Dependencies](docs/design/symbol-dependencies.md), [Integration Detection](docs/design/integration-detection.md),
 [Remote Status](docs/design/remote-status.md), [E2E Testing](docs/design/e2e-testing.md),
-[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md), [Change Review](docs/design/change-review.md); [Specs](spec/) (start with `spec/commit/commit-row.spec.md`).
+[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md), [Change Review](docs/design/change-review.md); [Specs](openspec/specs/) (start with `commit/commit-row`).
 
 Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), [Checks](docs/contributing/checks.md),
 [Working in a Lease](docs/contributing/leases.md),

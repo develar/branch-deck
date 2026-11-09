@@ -1,4 +1,4 @@
-//! The connection to the agent of one host: the address choice, and the hello of each connection (spec/cli/host.spec.md,
+//! The connection to the agent of one host: the address choice, and the hello of each connection (openspec/specs/cli/host/spec.md,
 //! "The link", "hello").
 //!
 //! The client tries the cached addresses of the host file first, in their order, each with a connect deadline of 5 s.

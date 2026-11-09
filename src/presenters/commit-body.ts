@@ -1,7 +1,7 @@
 import type { CodeSpan, CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, LineCode, MessageChange, StoryRemoval } from "@/lib/bindings"
 
 /*
- * The parts of a commit body as a reader shows them (spec/commit/commit-row.spec.md, "Message body"): Rust cuts the body
+ * The parts of a commit body as a reader shows them (openspec/specs/commit/commit-row/spec.md, "Message body"): Rust cuts the body
  * into its parts, says what each is and which fold (`CommitBody.parts`), and of a story where each is told
  * (`StoryCommit.parts`); this only places them, for every view of a body (the card of a commit, its preview, the opening
  * of a step of a review).
@@ -153,7 +153,7 @@ export interface SummaryView {
 }
 
 /**
- * The description of a pull request as the lead of the document of its changes (spec/repository/review-requests.spec.md,
+ * The description of a pull request as the lead of the document of its changes (openspec/specs/repository/review-requests/spec.md,
  * "Review window"): the block Rust names its summary (`CommitBody.summary`: the lead, else the first paragraph of its
  * first plain section), its code as Rust found it; `more` when a block beside it is more than a heading or a label, or
  * the body ends with trailers

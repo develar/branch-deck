@@ -1,8 +1,8 @@
 //! `accio` (github.com/JetBrains/accio), an index of the declarations of a repository, for a declaration and the usages
-//! the files of a review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name>` and
+//! the files of a review lack (openspec/specs/commit/symbol-navigation/spec.md): `accio symbol <Name|Owner.name>` and
 //! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout. A review
-//! plan asks about declarations by their place (spec/branch/review-plan.spec.md, "Fan-in";
-//! spec/branch/review-tour.spec.md, "Tests That Reach It"): `accio references --at <path>:<line>[:<column>]` and
+//! plan asks about declarations by their place (openspec/specs/branch/review-plan/spec.md, "Fan-in";
+//! openspec/specs/branch/review-tour/spec.md, "Tests That Reach It"): `accio references --at <path>:<line>[:<column>]` and
 //! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel. It
 //! reads what a change registers in the platform ("Registrations") with accio's port of the platform's reader:
 //! `accio parse --descriptor --resolve --ref <revision>`, the changed plugin descriptors of one side in one process, the
@@ -27,7 +27,7 @@
 //!   and Homebrew's directories.
 //! - **Below the app ahead of a need**: the queries of a search the user waits for run at the priority of the app; those
 //!   of a plan read ahead of its window (`AccioSearch::in_background`, the prefetch after a rewrite of
-//!   spec/branch/review-plan.spec.md) at the lowest (`ChildPriority::Background`), so the index answers them with what
+//!   openspec/specs/branch/review-plan/spec.md) at the lowest (`ChildPriority::Background`), so the index answers them with what
 //!   the machine leaves over.
 
 use anyhow::{Context, Result, bail};

@@ -18,7 +18,7 @@ export type ShownReviewWindow = (BranchReviewWindowData | CommitsReviewWindowDat
 }
 
 /*
- * The one review window (spec/review/review-window.spec.md#one-window): what it shows, the one rule of how an open goes
+ * The one review window (openspec/specs/review/review-window/spec.md#one-window): what it shows, the one rule of how an open goes
  * on from it (`planReviewOpen`, which its page applies to every open it gets, `takeOpen`), the title of what it shows,
  * and its history (Back, ⌘[).
  */

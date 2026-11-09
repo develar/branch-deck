@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { SettingsTarget } from "../../../src/lib/settings-window"
 import { test, expect } from "../fixtures/test-fixtures"

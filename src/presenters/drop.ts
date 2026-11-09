@@ -1,4 +1,4 @@
-// The page's words of a drop of commits (`RewriteIntent::Drop`, spec/commit/drop.spec.md): what its toast adds to
+// The page's words of a drop of commits (`RewriteIntent::Drop`, openspec/specs/commit/drop/spec.md): what its toast adds to
 // "Dropped N commits". Rust decides what the drop did; these only word it.
 import type { DropCommitsResult } from "@/lib/bindings"
 

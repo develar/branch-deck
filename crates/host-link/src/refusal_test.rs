@@ -2,9 +2,9 @@ use super::{Code, Exit, Reached, Refusal};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeSet;
 
-/// The rows of the table "Refusal codes" of spec/cli/host.spec.md: the code, the exit and the words
+/// The rows of the table "Refusal codes" of openspec/specs/cli/host/spec.md: the code, the exit and the words
 fn spec_rows() -> Vec<(String, String, String)> {
-  let spec = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/cli/host.spec.md")).expect("the spec of brd-host");
+  let spec = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../openspec/specs/cli/host/spec.md")).expect("the spec of brd-host");
   let section = &spec[spec.find("### Refusal codes").expect("the section of the codes")..];
   section
     .lines()

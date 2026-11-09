@@ -1,4 +1,4 @@
-//! `brd operation forget <op>` (spec/cli/agent-cli.spec.md, "Operations of other processes"): a start whose answer was
+//! `brd operation forget <op>` (openspec/specs/cli/agent-cli/spec.md, "Operations of other processes"): a start whose answer was
 //! lost, which holds what it held in the operations registry of the repository until a read of Patronus tells whether
 //! its robot started (`operations::reconcile`), leaves the registry, so the subject can start again; Patronus may still
 //! run the robot it sent. The id is the one `busy` names (`error.holder.op`). The same core as Forget This Start of the

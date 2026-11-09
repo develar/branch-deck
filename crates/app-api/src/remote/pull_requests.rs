@@ -1,4 +1,4 @@
-//! The pull requests the user creates and the reviewers they ask (spec/branch/pull-requests.spec.md): the text a new
+//! The pull requests the user creates and the reviewers they ask (openspec/specs/branch/pull-requests/spec.md): the text a new
 //! pull request of a branch or of a whole stack starts with, and the users a review can be asked from, over the GitHub
 //! and the YouTrack of the session of the repository (`ServiceHost`)
 

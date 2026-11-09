@@ -98,7 +98,7 @@ macro_rules! for_each_command {
       /// file as the view of a declaration outside the review opens it, at the line, the name selected
       read json get_outside_place(params: file_diffs::model::OutsidePlaceParams) -> Option<file_diffs::model::DeclarationTarget> = $crate::reads::symbols::get_outside_place;
 
-      /// The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
+      /// The plan of a review (openspec/specs/branch/review-plan/spec.md, Status: Experimental): what changed in a branch since it was
       /// marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
       /// from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
       /// (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
@@ -210,7 +210,7 @@ macro_rules! for_each_command {
       /// The users of the repository a review can be asked from whose login or name matches the query
       read session(query = %params.query) search_github_users(params: remote_facts::pull_request_create::SearchGitHubUsersParams) -> Vec<domain_types::pull_request::GitHubUser> = $crate::remote::pull_requests::search_github_users;
 
-      /// The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
+      /// The Safe Push statistics of the repository (`openspec/specs/repository/safe-push-statistics/spec.md`): everyone's robots into
       /// the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
       /// before the runs are read
       read session(baseline_branch = %params.baseline_branch, period = ?params.period, refresh = params.refresh) get_robot_stats(params: domain_types::robot_stats::GetRobotStatsParams) [channel events: domain_types::robot_stats::RobotStatsEvent] -> domain_types::robot_stats::RobotStatsResult = $crate::remote::patronus::get_robot_stats;

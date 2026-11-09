@@ -1,5 +1,5 @@
 //! The next step of a subject in the words of `bd` (`domain_policy::next_step`, the step the app's row shows;
-//! spec/branch/next-step.spec.md, "The table"): the row of the table, the step, the fact it waits for, its pull request
+//! openspec/specs/branch/next-step/spec.md, "The table"): the row of the table, the step, the fact it waits for, its pull request
 //! and why a Safe Push or a Dry Run can't start now. `brd status` prints it of every branch and whole stack, `bd
 //! safe-push --dry-run` of the subject it checks.
 
@@ -13,7 +13,7 @@ use serde::Serialize;
 /// The next step of a branch or a whole stack, as the app's row shows it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct NextStepSummary {
-  /// The row of the table of the next step (spec/branch/next-step.spec.md): `0` waits for a fact, `1` has nothing to
+  /// The row of the table of the next step (openspec/specs/branch/next-step/spec.md): `0` waits for a fact, `1` has nothing to
   /// start, `1′` needs a branch outside what the Safe Push lands, `2`/`3` a restart, `5`/`5′` a pull request into
   /// another base, `6` a draft, `7` to `10` the approvals that count are missing, `8′`/`10′` the wait GitHub tells while
   /// Patronus can't judge them, `11` a Safe Push; `no slot` off Space

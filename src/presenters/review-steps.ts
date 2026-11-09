@@ -17,7 +17,7 @@ import type {
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
- * The words of the story of a review (spec/branch/review-tour.spec.md, "In the Review Window"): Rust tells the steps
+ * The words of the story of a review (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): Rust tells the steps
  * (a step per commit whose body tells it, of one commit a step per part of its message, else the concerns), what each
  * shows of the units in its order, the tests that name its code, and the brief; this words them for the tree, the
  * openings of the story and the bar above the diffs (the overview and the openings themselves: `review-story.ts`).
@@ -98,7 +98,7 @@ export interface Chapter {
 }
 
 /**
- * A group of a large step as the tree reads it (spec/branch/review-tour.spec.md, "Groups of a Step"): a section of its
+ * A group of a large step as the tree reads it (openspec/specs/branch/review-tour/spec.md, "Groups of a Step"): a section of its
  * step, which lists the files of its stops, each once, at the first of them, a file Rust classed mechanical in the
  * mechanical group
  */
@@ -326,7 +326,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
 }
 
 /**
- * The words of the divider of each group of a large step (spec/branch/review-tour.spec.md, "Groups of a Step"), by the
+ * The words of the divider of each group of a large step (openspec/specs/branch/review-tour/spec.md, "Groups of a Step"), by the
  * place of its first stop, and of the tests of a group by the place of the first: the contract, a module by its label
  * ("New module" when the change adds it, the small modules it holds), a folder; the mechanical group none, the kinds of
  * its sections head them
@@ -363,7 +363,7 @@ export function groupHeadings(step: ReviewStep, modules: readonly ModuleShape[])
 }
 
 /**
- * The marks of an owner chip on the steps (spec/branch/branch-review.spec.md, "Code owners"): for each chapter by its
+ * The marks of an owner chip on the steps (openspec/specs/branch/branch-review/spec.md, "Code owners"): for each chapter by its
  * id, the files it shows (its own rows and those "also in" it) and the ones the chip marks
  */
 export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlySet<string>): Map<string, { shown: number; total: number }> {
@@ -372,8 +372,8 @@ export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlyS
 
 /**
  * The files of `paths` each group of a step lists, of every step with groups (`ChapterGroup`): the files of an owner chip
- * (spec/branch/branch-review.spec.md, "Code owners"), the files the reader saw ("In the Review Window" of
- * spec/branch/review-tour.spec.md); each by its step and its place among the groups of it
+ * (openspec/specs/branch/branch-review/spec.md, "Code owners"), the files the reader saw ("In the Review Window" of
+ * openspec/specs/branch/review-tour/spec.md); each by its step and its place among the groups of it
  */
 export function presentGroupCounts(chapters: readonly Chapter[], paths: ReadonlySet<string>): { chapter: string; group: number; shown: number; total: number }[] {
   return chapters.flatMap(chapter =>
@@ -444,7 +444,7 @@ function sameCommit(a: string, b: string): boolean {
 }
 
 /**
- * The commits of the range in the steps of the story (spec/branch/review-tour.spec.md, "In the Review Window"): a step
+ * The commits of the range in the steps of the story (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): a step
  * of the commits is the commit that starts it (`heads`) and lists the others, those that follow it up and those of no
  * story; each by the title Rust gives it, its subject without the issue key the brief names; a step of the concerns lists its commits, the
  * most lines first. A commit several steps list (the concerns) is listed once, in the step that lists it first (its most

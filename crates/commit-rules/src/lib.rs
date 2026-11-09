@@ -1,4 +1,4 @@
-//! The commit rules of a repository (spec/cli/pick.spec.md, "The commit rules"): `[commit]` of `.branchdeck.toml` names
+//! The commit rules of a repository (openspec/specs/cli/pick/spec.md, "The commit rules"): `[commit]` of `.branchdeck.toml` names
 //! them, and a pick checks the message of each commit it lands by them, before anything lands. No git, no network.
 //!
 //! ```toml

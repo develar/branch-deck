@@ -1,4 +1,4 @@
-//! The texts of the UI a review changes (spec/branch/review-plan.spec.md, "UI Texts"): the keys the reviewed commits add
+//! The texts of the UI a review changes (openspec/specs/branch/review-plan/spec.md, "UI Texts"): the keys the reviewed commits add
 //! to, remove from or change in the message bundles, with their values before and after, which tell a reviewer what the
 //! user of the change reads.
 //!

@@ -40,7 +40,7 @@ import {
 import type { RunningCliToolAction } from "@/stores/cli-tools"
 
 /**
- * Settings → Tools (spec/repository/cli-tools.spec.md): `brd`, whose skill tells coding agents how to work here, then
+ * Settings → Tools (openspec/specs/repository/cli-tools/spec.md): `brd`, whose skill tells coding agents how to work here, then
  * the `teamcity` and `youtrack` CLIs, each with its binary,
  * version and sign-ins, and the one action Rust picks for it; read again on each open and focus, the last answer shown
  * meanwhile; a failed read says why, with Retry, above them. `server` is the TeamCity server an open names (the server
@@ -70,7 +70,7 @@ export function ToolsPage({ openCount, server }: { openCount: number; server: st
 }
 
 /**
- * `brd`, the agent CLI of Branch Deck (spec/repository/settings.spec.md#tools): whether its skill is installed
+ * `brd`, the agent CLI of Branch Deck (openspec/specs/repository/settings/spec.md#tools): whether its skill is installed
  * (`agent_cli_status`, asked on each open and focus) with the path of brd to copy, else Install Agent CLI, the install
  * of Help → Install Agent CLI…, whose toast has no action here. The rules agents follow are on Agents
  */

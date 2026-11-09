@@ -1,5 +1,5 @@
 //! `brd mark-reviewed`: keep the base and the tip a branch has now as its reviewed pair (`review_plan::mark_reviewed`,
-//! spec/branch/review-plan.spec.md), which a later review of the branch compares it with. Writes only
+//! openspec/specs/branch/review-plan/spec.md), which a later review of the branch compares it with. Writes only
 //! `refs/branch-deck/reviewed/`, with compare-and-swap; the baseline is that of the checked out branch
 
 use bd_core::context::RepoContext;

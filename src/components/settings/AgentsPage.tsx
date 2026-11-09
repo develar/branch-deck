@@ -32,7 +32,7 @@ function onOff(value: boolean): string {
 }
 
 /**
- * Settings → Agents (spec/repository/settings.spec.md#agents): how coding agents work, which `brd workspace` tells an
+ * Settings → Agents (openspec/specs/repository/settings/spec.md#agents): how coding agents work, which `brd workspace` tells an
  * agent before its first edit, one value for every repository in the global git config and the repository's own. The
  * pull request after a commit is off where the repository lands by a push, as Rust says (`agentPullRequestOff`). While
  * the skill is not installed no agent asks: one line with the install. The skill itself is on Tools, beside the others

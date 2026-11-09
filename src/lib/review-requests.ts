@@ -3,7 +3,7 @@ import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
 /*
- * The pull requests of others that wait for the user's review ("Your Turn", spec/repository/review-requests.spec.md):
+ * The pull requests of others that wait for the user's review ("Your Turn", openspec/specs/repository/review-requests/spec.md):
  * their ages, their words, the rows the card shows. The session lists them in their order, waiting the longest first,
  * and decides when GitHub is asked and which requests are new (`repository_model::review_request_facts`,
  * `remote_facts::scheduler`).

@@ -1,6 +1,6 @@
 //! The orders and verdicts of the pushes of branches, for the app and `bd` alike (docs/design/rust-domain-authority.md,
-//! R1 and D4; spec/branch/branch-row.spec.md, spec/branch/stacked-branches.spec.md, spec/repository/outgoing.spec.md,
-//! spec/branch/patronus.spec.md). What a push of one branch does by its remote status alone (create, push, force or up
+//! R1 and D4; openspec/specs/branch/branch-row/spec.md, openspec/specs/branch/stacked-branches/spec.md, openspec/specs/repository/outgoing/spec.md,
+//! openspec/specs/branch/patronus/spec.md). What a push of one branch does by its remote status alone (create, push, force or up
 //! to date; needs push; again over a moved remote) is no rule over the facts of the repository but the predicates of
 //! the status, `RemoteStatusUpdate::push_action`, `needs_push`, `drops_remote_commits` and `pushes_again` in
 //! `domain_types::remote_status`, which the sync sets without reaching the rules; the orders below read their answers

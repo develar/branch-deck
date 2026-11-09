@@ -13,7 +13,7 @@
 //!   what it cost (`OperationStats`: its git processes by subcommand, its HTTP requests and its time from its admission,
 //!   `sync_utils::operation_tally`), and whether its worktree is a slot of the lease pool (an agent's).
 //!
-//! The page has a journal of the same form in the app data directory (`PageEntry`, spec/repository/activity.spec.md):
+//! The page has a journal of the same form in the app data directory (`PageEntry`, openspec/specs/repository/activity/spec.md):
 //! what only the page knows (an error it told, an update, what landed, a rewrite, the news of a review request, an
 //! approval or a robot), recorded through `record_page` under `journal.lock` beside it, within the same bounds.
 //! Activity reads both (`read_activity`): the journals of the recent projects in parallel on the blocking pool, one

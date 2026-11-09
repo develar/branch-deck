@@ -1,5 +1,5 @@
-//! The open pull request of a subject, as a Safe Push of it reads it (spec/branch/pull-requests.spec.md,
-//! spec/branch/next-step.spec.md rows 5 and 5′): where it goes (`base_of`: the target, a virtual branch of the user that
+//! The open pull request of a subject, as a Safe Push of it reads it (openspec/specs/branch/pull-requests/spec.md,
+//! openspec/specs/branch/next-step/spec.md rows 5 and 5′): where it goes (`base_of`: the target, a virtual branch of the user that
 //! every such pull request leaves for the target, or another base that may be meant), the pull request a robot starts
 //! from (`start_pull_request`: one into the target or, of a branch, into a virtual branch it retargets first, D11), and what a push of new commits does to its approvals by the rules of its base
 //! (`dismisses_approvals`, a fact without an answer never read as "keeps them"). The app (the view of the session, the

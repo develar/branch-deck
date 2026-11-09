@@ -1,6 +1,6 @@
 //! Branch names for selected commits from the user's Claude Code: one `claude -p` with a cheap model, the commit
 //! messages and changed file names on stdin, two names back as structured output
-//! (`spec/branch/branch-name-suggestions.spec.md`). Like `gh`, `claude` is not git: every failure is an outcome.
+//! (`openspec/specs/branch/branch-name-suggestions/spec.md`). Like `gh`, `claude` is not git: every failure is an outcome.
 
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use git_executor::git_command_executor::GitCommandExecutor;

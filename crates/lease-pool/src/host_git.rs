@@ -1,4 +1,4 @@
-//! The git of a host that serves remote runs (spec/cli/lease.spec.md, "Host objects"): its floor, above `MIN_VERSION`
+//! The git of a host that serves remote runs (openspec/specs/cli/lease/spec.md, "Host objects"): its floor, above `MIN_VERSION`
 //! of brd itself, and the Homebrew install or upgrade that `host_slots::ensure_host_git` runs below it. The runs of other
 //! machines and the agent of the host use the git that their `PATH` finds first, with the `bin` directory of Homebrew
 //! before `/usr/bin`, so a host keeps one floor that moves only on purpose instead of a check of each feature they use.

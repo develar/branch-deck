@@ -22,7 +22,7 @@ interface Shown {
 }
 
 /**
- * One issue popover per window (spec/repository/youtrack.spec.md): a hover of half a second, or the keyboard focus, on
+ * One issue popover per window (openspec/specs/repository/youtrack/spec.md): a hover of half a second, or the keyboard focus, on
  * a link that carries an issue key of the YouTrack signed in to (`LinkedText`) shows the issue; the popover stays
  * while the pointer is over it. One delegated listener instead of a popover per link of every commit list. Signed out,
  * no link carries a key and nothing listens.

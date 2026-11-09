@@ -28,7 +28,7 @@ bundle carries it as a file (`BranchDeck.app/Contents/MacOS/brd-host`), and `brd
 `~/.local/bin/brd-host`. The release build gets it through its own Tauri config, `tauri.macos-bd-host.conf.json`, as
 the Windows build gets `brd.exe`: Tauri merges `tauri.macos.conf.json` into every macOS build, and a plain `cargo build`
 of the app would then need the binary first. The contract of the CLI, the refusal codes and the report of a run are in
-[brd-host](../../spec/cli/host.spec.md), the setup of a host for a person in
+[brd-host](../../openspec/specs/cli/host/spec.md), the setup of a host for a person in
 [Runs on Another Mac](../guide/host-runs.md).
 
 ## Design
@@ -77,7 +77,7 @@ slots per repository (`branchdeck.hostSlots`, 4 by default) as plain `ready` lea
 - The keeper fills, cleans and shrinks the slots. Nothing on the client keeps or returns a slot.
 
 The lend table, the give-back, the clean and the shrink are in "Host slots" of
-[Git Operations](git-operations.md#host-slots) and of [brd lease](../../spec/cli/lease.spec.md).
+[Git Operations](git-operations.md#host-slots) and of [brd lease](../../openspec/specs/cli/lease/spec.md).
 
 ### The process model
 

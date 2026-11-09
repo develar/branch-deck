@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-row.spec.md
+// @spec openspec/specs/commit/commit-row/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { codeBreakParts, glueAfter, glueBefore, splitCodeAtBreaks } from "@/lib/inline-code"
 
@@ -17,7 +17,7 @@ describe("splitCodeAtBreaks", () => {
 
   it("breaks before a dotted name but keeps a chain of short final extensions", () => {
     expect(splitCodeAtBreaks("Foo.generated.kt")).toEqual(["Foo", ".generated.kt"])
-    expect(splitCodeAtBreaks("spec/cli/host.spec.md")).toEqual(["spec/", "cli/", "host.spec.md"])
+    expect(splitCodeAtBreaks("spec/tools/host.spec.md")).toEqual(["spec/", "tools/", "host.spec.md"])
     expect(splitCodeAtBreaks("archive.tar.gz")).toEqual(["archive.tar.gz"])
   })
 

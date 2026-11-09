@@ -1,4 +1,4 @@
-// The auto-merge of a pull request of the user (spec/branch/landing-routes.spec.md#merge), one toast of it: its enable
+// The auto-merge of a pull request of the user (openspec/specs/branch/landing-routes/spec.md#merge), one toast of it: its enable
 // (the start's), Cancel Auto-Merge, and the news of an auto-merge GitHub completed (`NewsEvent::AutoMerged`), "Merged #7
 // into master" with Update Project, which no update ran by itself. It decides nothing.
 import type { News } from "@/lib/bindings"

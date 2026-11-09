@@ -1,4 +1,4 @@
-//! The `youtrack` CLI signed in with the app's YouTrack (spec/repository/youtrack.spec.md#the-youtrack-cli): the one-shot
+//! The `youtrack` CLI signed in with the app's YouTrack (openspec/specs/repository/youtrack/spec.md#the-youtrack-cli): the one-shot
 //! sign-in for it (`YouTrackSignInSession::start_for_cli`) gives an access token that may ask Hub, which makes a
 //! permanent token named `TOKEN_NAME` for the YouTrack alone; the CLI takes it on its stdin
 //! (`cli_tools::youtrack_login`). The app keeps the id of the token it made, never the token, and revokes that one when

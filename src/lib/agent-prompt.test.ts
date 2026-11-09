@@ -1,4 +1,4 @@
-// @spec spec/repository/update-project.spec.md
+// @spec openspec/specs/repository/update-project/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
 import type { UpdateCheck, UpdateCommit, UpdateState } from "@/lib/bindings"

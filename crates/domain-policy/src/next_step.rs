@@ -1,4 +1,4 @@
-//! The next step of a branch or of a whole stack, for the app and `bd` alike (spec/branch/next-step.spec.md, "The
+//! The next step of a branch or of a whole stack, for the app and `bd` alike (openspec/specs/branch/next-step/spec.md, "The
 //! table", "Facts without an answer", "The whole stack"; docs/design/rust-domain-authority.md, R6): `next_step` is the
 //! first row of the table that matches over `StepFacts`, the facts of the subject and of the remote as the session (or
 //! `bd`) holds them, each of which may have no answer yet.
@@ -22,12 +22,12 @@
 //! What runs on the row (an operation, a start, a push) the page lays over the step, which the facts alone decide.
 //!
 //! A repository that lands by a push of the copy into the target (`LandingRoute::Push`) takes the table of its route
-//! (spec/branch/next-step.spec.md, "A push into the target"; `push_step`): row 1 as above, row 0 while the gate of the
+//! (openspec/specs/branch/next-step/spec.md, "A push into the target"; `push_step`): row 1 as above, row 0 while the gate of the
 //! route or the pull requests have no answer, 1′ and 1″ as above, then the row `push`, "Push to master", disabled with
 //! the refusal of the gate; a Dry Run is a robot of Patronus, which no push runs.
 //!
 //! A repository that lands by a merge of the pull request on GitHub (`LandingRoute::PullRequest` where no robot of
-//! Patronus lands it, `land::merges_on_github`) takes the table of its route too (spec/branch/next-step.spec.md, "A merge
+//! Patronus lands it, `land::merges_on_github`) takes the table of its route too (openspec/specs/branch/next-step/spec.md, "A merge
 //! of the pull request"; `merge_step`): rows 1, 0, 1′ and 1″ as a push's (row 0 also while GitHub computes whether it
 //! can merge), then by `land_direct::merge_of`: `pr` Create Pull Request… (why: no open pull request, or the one GitHub
 //! merged into another branch than the target, `MergedIntoBranch`), 5 and 5′ a pull request into another base,

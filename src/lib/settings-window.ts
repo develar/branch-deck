@@ -3,7 +3,7 @@ import { currentSettingsPage, SETTINGS_PAGES } from "@/lib/settings-pages"
 import type { SettingsPageId } from "@/lib/settings-pages"
 
 /*
- * The Settings window (spec/repository/settings.spec.md): a sub-window of its own, opened by the main window only, which
+ * The Settings window (openspec/specs/repository/settings/spec.md): a sub-window of its own, opened by the main window only, which
  * has the current settings to start it from. Every entry point asks the main window (`openSettings`).
  */
 

@@ -1,6 +1,6 @@
 //! `brd lease disk`: what the pools of this machine hold on disk, the bytes the builds of each slot wrote (its clean rule
 //! directories and its Bazel output bases), the output bases of the main worktrees and the orphans
-//! (spec/cli/lease.spec.md, "Disk"). The core and the shape of the report are `pool_disk`; read only but for
+//! (openspec/specs/cli/lease/spec.md, "Disk"). The core and the shape of the report are `pool_disk`; read only but for
 //! `disk.json`, the bytes it keeps
 
 use crate::lease_command::{LeaseContext, lease_error};

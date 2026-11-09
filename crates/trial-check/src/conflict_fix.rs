@@ -1,5 +1,5 @@
 //! The fix of the conflicts of a sync: the regroup after which the conflicting branches apply cleanly, found by trial
-//! builds (`check.rs`) and never written (spec/branch/conflict-fix.spec.md). Branch Deck offers it; the user, or an agent
+//! builds (`check.rs`) and never written (openspec/specs/branch/conflict-fix/spec.md). Branch Deck offers it; the user, or an agent
 //! with `brd group`, applies it.
 //!
 //! - **What a commit needs.** The commits it depends on by their lines (`dependencies.rs`), with their fixups and what

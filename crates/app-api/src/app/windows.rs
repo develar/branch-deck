@@ -1,4 +1,4 @@
-//! The windows of the app (spec/repository/title-bar.spec.md, "The first frame"): every window is built hidden and shows
+//! The windows of the app (openspec/specs/repository/title-bar/spec.md, "The first frame"): every window is built hidden and shows
 //! once its page settled the content of its latest open, else once the deadline of the stage its page reached passed
 //! (`SubWindowState`, one per app); an open of a window whose page still loads is kept for the page. The commands:
 //! `open_sub_window` (the build or the reopen of a sub-window), the stages its page says (`sub_window_loaded`,

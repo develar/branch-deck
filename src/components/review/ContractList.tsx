@@ -11,7 +11,7 @@ import { fileTop } from "@/lib/review-place"
 import type { ContractFile, SubstitutionView } from "@/presenters/review-story"
 
 /**
- * What Changes (spec/branch/review-tour.spec.md, "Brief"): the repeated replacements once, then each file of prose the
+ * What Changes (openspec/specs/branch/review-tour/spec.md, "Brief"): the repeated replacements once, then each file of prose the
  * change touches, its kind and path once, each section its heading, its tests and its paragraphs and table rows behind
  * a muted quote line. In the overview of a review whose steps are not told, else in the opening of each step for the
  * entries that step changes (`OpeningView.contract`)

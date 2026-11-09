@@ -1,4 +1,4 @@
-// @spec spec/branch/conflict-fix.spec.md
+// @spec openspec/specs/branch/conflict-fix/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"

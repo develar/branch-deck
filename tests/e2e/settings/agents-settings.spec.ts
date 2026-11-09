@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import type { RepositoryConfig } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expectSettingsOpened, openSettingsWindow, recordWrites } from "../helpers/settings-helpers"

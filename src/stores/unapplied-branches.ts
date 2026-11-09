@@ -8,7 +8,7 @@ import { getSelectedProject } from "@/stores/repository"
 
 /**
  * A branch an unapply kept (`{prefix}/unapplied/<name>`), as the last sync listed it: its commits are not in HEAD, it
- * lands nothing until it is reapplied ([Unapply Branch](../../spec/branch/unapply.spec.md)). Not a row of the branch
+ * lands nothing until it is reapplied ([Unapply Branch](../../openspec/specs/branch/unapply/spec.md)). Not a row of the branch
  * table: no robot, no landing, no move of the user. Its commits load on the first expansion
  */
 export interface UnappliedBranch {

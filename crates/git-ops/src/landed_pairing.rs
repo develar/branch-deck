@@ -1,7 +1,7 @@
 //! The pairing of a local commit with the upstream commit that carries its change: by identity (`CommitKey`) and by
 //! patch id. The update check and its resolve session, the landed report (`sync_core::landed`), the remote status of a
 //! virtual branch (`sync_core::remote_status`), the robot commit map (`sync_core::robot_commits`) and `brd pick`
-//! (`pick`) read it (spec/repository/landed-commits.spec.md, docs/design/integration-detection.md, "Landed commits").
+//! (`pick`) read it (openspec/specs/repository/landed-commits/spec.md, docs/design/integration-detection.md, "Landed commits").
 //!
 //! - `CommitKey`: the identity of a commit across a rebase and an amend
 //! - the walks: one `rev-list` of the commits a caller matches by `CommitKey` (`walk_commits`), of some authors only
@@ -33,7 +33,7 @@ use tracing::debug;
 ///
 /// A rebase (Safe Push, `git rebase`, `cherry-pick`) and an amend keep the author and the author time, and a virtual
 /// branch commit carries the message of its local commit without the prefix. So a local commit, its copy on a virtual
-/// branch, the baseline commit that landed it (`landed`, spec/repository/landed-commits.spec.md) and an older version
+/// branch, the baseline commit that landed it (`landed`, openspec/specs/repository/landed-commits/spec.md) and an older version
 /// of it on the remote branch (`remote_status`: amended or restacked, docs/design/remote-status.md) share the key. Two
 /// different commits of one author with the same subject in the same second share it too; both uses accept that.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -379,7 +379,7 @@ fn same_value<V: PartialEq>(values: &HashMap<String, V>, one: &str, other: &str)
   values.get(one).is_some_and(|value| values.get(other) == Some(value))
 }
 
-/// How the upstream proves that it has the change of a local commit (spec/repository/landed-commits.spec.md, "The
+/// How the upstream proves that it has the change of a local commit (openspec/specs/repository/landed-commits/spec.md, "The
 /// proof"): only a proven commit is left out of a replay
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -501,7 +501,7 @@ impl LandedCandidate {
 }
 
 /// The local commits of an update paired with the upstream commits that carry their change
-/// (spec/repository/landed-commits.spec.md, "The proof"): one to one, each upstream commit pairs with at most one local
+/// (openspec/specs/repository/landed-commits/spec.md, "The proof"): one to one, each upstream commit pairs with at most one local
 /// commit, in the order of the local commits; merge commits never pair
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LandedPairing {

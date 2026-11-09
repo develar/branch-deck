@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-row.spec.md
+// @spec openspec/specs/commit/commit-row/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { activityEntry, openActivityWindow } from "../helpers/activity-helpers"

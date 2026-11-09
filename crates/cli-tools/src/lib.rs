@@ -1,5 +1,5 @@
 //! The command-line tools of the team that agents and the app use, `teamcity` and `youtrack`
-//! (spec/repository/cli-tools.spec.md): where they are, their version, the servers they are signed in to, the agent
+//! (openspec/specs/repository/cli-tools/spec.md): where they are, their version, the servers they are signed in to, the agent
 //! skill `teamcity` bundles, and the one action a row of Settings → Tools offers. No git and no remote service of the
 //! app's own: only the CLIs, run in a `ToolEnvironment`.
 //!

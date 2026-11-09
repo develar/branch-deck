@@ -1,4 +1,4 @@
-//! What a start whose answer was lost did (docs/design/git-operations.md, "Operations registry"; spec/branch/patronus.spec.md,
+//! What a start whose answer was lost did (docs/design/git-operations.md, "Operations registry"; openspec/specs/branch/patronus/spec.md,
 //! "A start whose answer was lost"): its record (`registry_file`, `RecordStatus::Unknown`, its `PendingStart`) holds what
 //! it held for every process until a read of Patronus or GitHub tells, and is never sent again by itself.
 //!

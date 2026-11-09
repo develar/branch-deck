@@ -1,4 +1,4 @@
-//! The review window (spec/review/review-window.spec.md): what it shows of its target, through the memo of the app
+//! The review window (openspec/specs/review/review-window/spec.md): what it shows of its target, through the memo of the app
 //! (`RemoteMemory::reviews`), and its read ahead while the window opens
 
 use crate::context::AppContext;

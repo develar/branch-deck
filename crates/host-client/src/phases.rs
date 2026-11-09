@@ -1,4 +1,4 @@
-//! The steps of a run and their durations (spec/cli/host.spec.md, "The report of a run"): `pack` and `upload` of the
+//! The steps of a run and their durations (openspec/specs/cli/host/spec.md, "The report of a run"): `pack` and `upload` of the
 //! client, the steps of the host from `Reply::Phases` (`git`, `slot`, `pack_wait`, `checkout`, `prepare`, `command`,
 //! `stage`), then `fetch` and `total` of the client. A run that ends early has only the steps up to its last one
 

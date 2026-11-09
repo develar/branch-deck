@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { availablePullRequests } from "../helpers/pull-request-helpers"

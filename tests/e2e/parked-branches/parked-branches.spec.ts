@@ -1,4 +1,4 @@
-// @spec spec/branch/parked-branches.spec.md
+// @spec openspec/specs/branch/parked-branches/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRows, getMoreButton, verifyBranchState } from "../helpers/branch-helpers"

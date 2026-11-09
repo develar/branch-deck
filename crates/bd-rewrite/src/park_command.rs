@@ -1,5 +1,5 @@
 //! `brd park` and `brd unpark`: keep a branch local (`refs/branch-deck/parked`), so that `brd push` and `brd safe-push` never
-//! send it and the app shows it apart from the branches to land (spec/branch/parked-branches.spec.md); recorded in the
+//! send it and the app shows it apart from the branches to land (openspec/specs/branch/parked-branches/spec.md); recorded in the
 //! operations registry of the repository before the lock, as every rewrite of `bd` (`bd_core::operation_record`), the
 //! lock taken by the core after it read the store
 

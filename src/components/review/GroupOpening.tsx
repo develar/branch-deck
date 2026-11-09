@@ -4,7 +4,7 @@ import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import type { GroupOpeningView } from "@/presenters/review-story"
 
 /**
- * The opening of a group of a large step above its first card (spec/branch/review-tour.spec.md, "In the Review Window"):
+ * The opening of a group of a large step above its first card (openspec/specs/branch/review-tour/spec.md, "In the Review Window"):
  * its name (a module in the code font, its root in the hover), "New module" or "Deleted module", the small modules it
  * holds; then its facts a line each as a step's opening has them (the tests of the change that reach its code, its code
  * none reaches in the warning tone, its new API, what it opens wider, its new uses between modules), what its module

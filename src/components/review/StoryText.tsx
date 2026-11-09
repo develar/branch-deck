@@ -10,7 +10,7 @@ import { isCodeChip } from "@/lib/inline-code"
 import type { StoryMention } from "@/presenters/review-story"
 
 /**
- * A line of a block of a story (spec/branch/review-tour.spec.md, "Anchors"), its spans of code as Rust found them, the
+ * A line of a block of a story (openspec/specs/branch/review-tour/spec.md, "Anchors"), its spans of code as Rust found them, the
  * same as a card sets (`CodeText`): a span that names what Rust resolved is a link in the code font, its dotted
  * underline the one mark of a link, a click showing it in the diffs, its file selected and its name; its hover a card
  * of what it names (`MentionCard`: the status, the file and line, another step), never its name again; inside another

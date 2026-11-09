@@ -3,7 +3,7 @@ import { openRobotUrl } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 
 /*
- * The review of a pull request in the review window (spec/repository/review-requests.spec.md#review-window): the list
+ * The review of a pull request in the review window (openspec/specs/repository/review-requests/spec.md#review-window): the list
  * it walks and the toasts of its writes.
  */
 

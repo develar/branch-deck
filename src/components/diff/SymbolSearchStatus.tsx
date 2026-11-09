@@ -4,7 +4,7 @@ import { Spinner } from "@/components/ui/spinner"
 import type { SymbolSearch } from "@/hooks/useSymbolNavigation"
 
 /**
- * A Go to Declaration or Find Usages the backend still answers, at the name (spec/commit/symbol-navigation.spec.md):
+ * A Go to Declaration or Find Usages the backend still answers, at the name (openspec/specs/commit/symbol-navigation/spec.md):
  * the index of the repository is waited for as long as it runs, so the search says so, and Escape or Cancel stops it.
  * It fades in late: an answer of the review or of a warm index comes before it shows
  */

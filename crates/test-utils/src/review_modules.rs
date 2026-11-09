@@ -1,5 +1,5 @@
 //! The history of the `review_modules` template (`repo_template::templates::review_modules`): a large step of modules
-//! (spec/branch/review-tour.spec.md, "Groups of a Step"), the branch `media` of a plugin `player` of the shape of an
+//! (openspec/specs/branch/review-tour/spec.md, "Groups of a Step"), the branch `media` of a plugin `player` of the shape of an
 //! IntelliJ plugin, in two commits with bodies after the baseline. The first gives an embed of the module `view.gui`
 //! the extension of its file; the second adds the module `view.gui.media`:
 //!

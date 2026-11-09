@@ -21,7 +21,7 @@
 //!
 //! The forms a commit's change of a file gives the declarations on its changed lines (`changed_declarations`), by the
 //! same keys and the same comparison as `Changed` (`changed_form`, `constructor_forms`), are what the API surface of a
-//! review is computed from (spec/branch/review-plan.spec.md, crate `review-plan`). Each form says once what a review
+//! review is computed from (openspec/specs/branch/review-plan/spec.md, crate `review-plan`). Each form says once what a review
 //! calls its declaration (`surface_of`, `Surface`): test code, an entry point, an override and what another module
 //! can't name are no API; a public declaration marked `unstable`, itself or by a declaration around it, is unstable
 //! API, whose change can break and whose addition is no new API; any other public one is API.

@@ -1,4 +1,4 @@
-//! The interdiff of a local branch since its review (spec/branch/review-plan.spec.md, "Since Your Review"): the commits
+//! The interdiff of a local branch since its review (openspec/specs/branch/review-plan/spec.md, "Since Your Review"): the commits
 //! of `reviewed base..reviewed tip` paired with those of `base..tip` now, each `unchanged`, `reworded`, `rewritten`,
 //! `added` or `dropped`, and the plain range of the commits added on top when nothing else changed.
 //!

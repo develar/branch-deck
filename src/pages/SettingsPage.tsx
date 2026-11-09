@@ -53,7 +53,7 @@ const PAGE_GROUPS: ReadonlyArray<{ label: string; pages: readonly SettingsPageId
 const FOCUS_WAIT_MS = 5000
 
 /**
- * The Settings window (spec/repository/settings.spec.md): the pages in a sidebar on the canvas, in two groups, the page
+ * The Settings window (openspec/specs/repository/settings/spec.md): the pages in a sidebar on the canvas, in two groups, the page
  * in one island; the pages of the git config under the scope tabs. ↑/↓ on the sidebar switch the page. An open shows
  * the page it names (`SettingsTarget`), else the page shown last (`appSettings.settingsPage`), at the scope it names,
  * else "All repositories", and focuses the field it names, else the tab of the page.

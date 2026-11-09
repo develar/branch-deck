@@ -1,4 +1,4 @@
-//! What landed a subject (docs/design/rust-domain-authority.md, D7, D13; spec/branch/next-step.spec.md, row 1): a push
+//! What landed a subject (docs/design/rust-domain-authority.md, D7, D13; openspec/specs/branch/next-step/spec.md, row 1): a push
 //! of this session put its copy into the target, the fetched baseline has all of it, merged Safe Pushes landed it, or
 //! GitHub merged its pull request into the target with the commits it has (`landed_state`, one answer for the view of
 //! the app and for `brd safe-push`), what a start says of it

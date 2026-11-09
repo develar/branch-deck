@@ -1,5 +1,5 @@
 //! `brd request-review`: ask GitHub users to review the open pull request of a virtual branch, as the app's Request
-//! Review… does (`spec/branch/pull-requests.spec.md#request-review`): the same intent of the engine
+//! Review… does (`openspec/specs/branch/pull-requests/spec.md#request-review`): the same intent of the engine
 //! (`Intent::RequestReview`, `operations::pull_request`), planned over the one-shot session of the command and run as
 //! the app runs it. Without `--reviewer` it asks the code owners Patronus suggests that the app's popover preselects
 //! (`domain_policy::review::candidates`, over the review readiness the session reads: the pre-check with the pull

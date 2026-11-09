@@ -1,7 +1,7 @@
 import type { Collapse, GeneratedName } from "@/lib/bindings"
 
 /*
- * The words of why a file of a diff starts collapsed (spec/commit/commit-review.spec.md): Rust decides it
+ * The words of why a file of a diff starts collapsed (openspec/specs/commit/commit-review/spec.md): Rust decides it
  * (`collapse_of`), this says it in the header of the file. A file without text says so in its notice, and a large one
  * shows its counts: their headers need no word.
  */

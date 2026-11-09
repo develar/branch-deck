@@ -1,7 +1,7 @@
 // The delete of a branch Branch Deck keeps beside the virtual ones (Delete Archived Branch…, Delete Unapplied Branch…):
 // the rewrite `deleteArchived` or `deleteUnapplied` of the engine (`operations::rewrite`). It holds only the ref it
 // drops, so it runs beside a rewrite and a sync, and a push of that branch waits for it; the session removes its row by
-// a patch, no sync follows (spec/branch/branch-row.spec.md, spec/branch/unapply.spec.md).
+// a patch, no sync follows (openspec/specs/branch/branch-row/spec.md, openspec/specs/branch/unapply/spec.md).
 import type { RewriteIntent } from "@/lib/bindings"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { showToast } from "@/lib/toast-message"

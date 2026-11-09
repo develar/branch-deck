@@ -1,7 +1,7 @@
 import type { CliTool, CliToolAction, CliToolServer, CliToolSkill, CliToolStatus } from "@/lib/bindings"
 
 /*
- * The words of Settings → Tools (spec/repository/cli-tools.spec.md). Which action a row offers is Rust's
+ * The words of Settings → Tools (openspec/specs/repository/cli-tools/spec.md). Which action a row offers is Rust's
  * (`CliToolStatus.action`); this only names it.
  */
 

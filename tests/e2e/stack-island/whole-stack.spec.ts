@@ -1,4 +1,4 @@
-// @spec spec/branch/whole-stack.spec.md
+// @spec openspec/specs/branch/whole-stack/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusRobot } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"

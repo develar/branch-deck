@@ -27,7 +27,7 @@ import { useSelectedProjectPath } from "@/stores/repository"
 import type { RobotStatsProgress } from "@/stores/robot-stats"
 
 /**
- * The Landing view of the main window (`spec/repository/main-views.spec.md`): how the Safe Pushes of the repository
+ * The Landing view of the main window (`openspec/specs/repository/main-views/spec.md`): how the Safe Pushes of the repository
  * went in the chosen period, from `get_robot_stats`. Read only while it shows; a new answer replaces the numbers whole,
  * nothing moves while it loads (the numbers of another period stay dimmed until those of the chosen one come), and a
  * read nobody asked for fails as a state of the view, not a toast.

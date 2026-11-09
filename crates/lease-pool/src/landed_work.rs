@@ -1,4 +1,4 @@
-//! Whether the work of a lease landed (spec/cli/lease.spec.md, "Return" and "Takeover"; "Lease" in
+//! Whether the work of a lease landed (openspec/specs/cli/lease/spec.md, "Return" and "Takeover"; "Lease" in
 //! docs/design/git-operations.md): one rule for the return of a lease, the takeover of an idle one by a get and
 //! `brd lease reclaim`. The commits it asks about are the candidates: for a return those no branch, tag or remote holds,
 //! for a takeover those the home branch lacks, as the lease's own branch holds them. Each candidate lands only by a

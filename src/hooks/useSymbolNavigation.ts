@@ -42,7 +42,7 @@ function focused(): HTMLElement | null {
 type SymbolAction = (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace | null) => void
 
 /**
- * Go to Declaration and Find Usages in a review (spec/commit/symbol-navigation.spec.md): the backend finds the
+ * Go to Declaration and Find Usages in a review (openspec/specs/commit/symbol-navigation/spec.md): the backend finds the
  * declarations or the usages of the name in the files of the review, then in the index of the repository. One
  * declaration is shown at once (a file outside the review in a view of its own), several are offered; the usages are
  * a list; none is said in a toast. One navigation is in flight per view (`NavigationGate`): a repeat of the name joins

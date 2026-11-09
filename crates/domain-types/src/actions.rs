@@ -1,5 +1,5 @@
 //! The actions of a subject and whether each can run now, as Rust decides them for every surface of the app
-//! (spec/branch/branch-row.spec.md, "Branch menu"; docs/design/rust-domain-authority.md, s8-policy): `domain_policy::actions`
+//! (openspec/specs/branch/branch-row/spec.md, "Branch menu"; docs/design/rust-domain-authority.md, s8-policy): `domain_policy::actions`
 //! answers an `ActionState` for each action a subject offers, by a stable id, with the operations of the session laid
 //! over it (`with_operations`: its own intent runs or waits, a rewrite queues behind the one that holds HEAD, a remote
 //! action waits for the operation that holds what it needs); the page presents each by its id (its label, key, icon and
@@ -85,7 +85,7 @@ pub enum ActionId {
   CancelRobot,
   CopyRobotPrompt,
   CopyRobotFullPrompt,
-  /// Opens the dialog that starts an agent session in Air with the prompt (spec/branch/start-in-air.spec.md)
+  /// Opens the dialog that starts an agent session in Air with the prompt (openspec/specs/branch/start-in-air/spec.md)
   StartRobotInAir,
   OpenRobot,
   OpenRobotPullRequest,
@@ -171,7 +171,7 @@ impl ActionId {
   /// typed delete of a kept branch, the confirmation of an ungroup and of the close of the pull request of a whole stack),
   /// the target picker of a move or a stack, the popover of a Safe Push and of its rarer starts, of Request Review and
   /// of Start in Air, the question of a push that would drop remote commits. A review window asks the main window to run
-  /// it there (`review/run`, spec/review/review-window.spec.md#actions); every other action runs where it is chosen.
+  /// it there (`review/run`, openspec/specs/review/review-window/spec.md#actions); every other action runs where it is chosen.
   #[must_use]
   pub const fn opens_row_form(self) -> bool {
     matches!(

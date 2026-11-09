@@ -1,4 +1,4 @@
-//! The plans of the reviews read ahead after a rewrite (spec/branch/review-plan.spec.md, "In the App";
+//! The plans of the reviews read ahead after a rewrite (openspec/specs/branch/review-plan/spec.md, "In the App";
 //! docs/design/change-review.md, "Prefetch after a rewrite"): a sync that commits the table of a repository
 //! (`SessionHost::table_committed`) reads again, in the background, the plans of the branches a review window asked
 //! since the app started whose head the sync moved, so that the window that opens their review again finds its plan in

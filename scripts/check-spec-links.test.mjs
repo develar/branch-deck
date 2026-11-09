@@ -3,7 +3,7 @@ import { globSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
-import { checkOpenSpec, checkSpecAnchors, checkSpecTargets, checkTestLinks, headingAnchors, openspecValidate } from "./check-spec-links.mjs"
+import { checkOldLayout, checkOpenSpec, checkSpecAnchors, checkSpecTargets, checkTestLinks, headingAnchors, openspecValidate } from "./check-spec-links.mjs"
 
 /** A repository of `files` (path → text) in a temporary directory, removed after the test */
 function repositoryOf(t, files) {
@@ -229,4 +229,24 @@ test("openspec validate --strict runs over the specs of its format and the chang
   assert.deepEqual(checkOpenSpec(changes, globSync, validate), ["openspec change add-row: invalid"])
   assert.deepEqual(asked, ["--changes"])
   assert.deepEqual(checkOpenSpec(repositoryOf(t, { "spec/area/example.spec.md": "" }), globSync, validate), [])
+})
+
+test("no spec lies under spec/ and no file names one by its old path, a fixture of another repository and the history aside", t => {
+  // built of its parts, as this file names no spec of the old layout itself
+  const old = ["spec", "branch", "unapply.spec.md"].join("/")
+  const files = {
+    [old]: "",
+    "crates/a/src/lib.rs": `//! Unapply (${old}).\n`,
+    "docs/design/a.md": `x\n[unapply](../../${old}#undo)\n`,
+    "src/fixture.test.ts": 'const path = "plugins/air/spec/frame/window.spec.md"\n',
+    "CHANGELOG.md": `${old}\n`,
+    "openspec/changes/archive/2026-11-09-a/proposal.md": `${old}\n`,
+    "openspec/specs/branch/unapply/spec.md": "",
+  }
+  const root = repositoryOf(t, files)
+  assert.deepEqual(checkOldLayout(root, Object.keys(files)), [
+    `${old}: a spec of the old layout, which moved to openspec/specs/<area>/<name>/spec.md (docs/contributing/specs.md)`,
+    `crates/a/src/lib.rs:1: names ${old}, a spec of the old layout: openspec/specs/<area>/<name>/spec.md`,
+    `docs/design/a.md:2: names ${old}, a spec of the old layout: openspec/specs/<area>/<name>/spec.md`,
+  ])
 })

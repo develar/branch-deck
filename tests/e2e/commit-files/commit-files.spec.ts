@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"

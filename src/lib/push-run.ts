@@ -2,7 +2,7 @@
 // push button of the row, of the preview and of the review window, P, the menus, the toast of a remote that moved) and
 // the pushes of a stack (the button that pushes the stack, Push Stack, Push with Children, Push Up to Here, the stack
 // branch of a whole stack alone), each the intent `Push` Rust plans and runs (`operations::push`;
-// spec/repository/outgoing.spec.md, "Push"; spec/branch/stacked-branches.spec.md). Its plan retargets each pull request
+// openspec/specs/repository/outgoing/spec.md, "Push"; openspec/specs/branch/stacked-branches/spec.md). Its plan retargets each pull request
 // out of a virtual branch first (D3a), cancels and restarts the Safe Push of the branch when the push restarts it, and
 // asks first for a push that drops remote commits the branch lacks (`ForcePushDrops`): the push button of the surface
 // opens its description with the dropped commits, whose Force Push pushes; of a push of a stack the push button of the

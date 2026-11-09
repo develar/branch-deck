@@ -1,4 +1,4 @@
-//! The warm start of the app (spec/repository/onboarding.spec.md, "Before the first sync";
+//! The warm start of the app (openspec/specs/repository/onboarding/spec.md, "Before the first sync";
 //! docs/design/rust-domain-authority.md, "s13-warm-start"): before the main window is built, the frame of the session
 //! of the selected project (`repository_model::warm_start`) is read without a git process, beside the key the window's
 //! subscription resolves (`AppContext::session_key_now`: the prefix the git config names now, one `git config`), the session of

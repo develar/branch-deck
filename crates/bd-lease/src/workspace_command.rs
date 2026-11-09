@@ -1,5 +1,5 @@
 //! `brd workspace`: where a coding agent works and how it writes a commit subject, asked before its first edit
-//! (spec/cli/workspace.spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
+//! (openspec/specs/cli/workspace/spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
 //! next commands of the agent
 
 use crate::lease_command::{IdleOutput, LeaseHomeOutput, lease_next, refusal_error};

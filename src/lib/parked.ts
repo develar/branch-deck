@@ -1,5 +1,5 @@
 /**
- * Parked branches ([Parked Branches](../../spec/branch/parked-branches.spec.md)): the branches the user keeps on the
+ * Parked branches ([Parked Branches](../../openspec/specs/branch/parked-branches/spec.md)): the branches the user keeps on the
  * local branch, never pushed or landed, until unparked. Which branch is parked, also with the branch it is built on, is
  * Rust's (`domain_policy::parked`); these say it.
  */

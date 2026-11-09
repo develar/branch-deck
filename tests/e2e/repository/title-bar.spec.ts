@@ -1,4 +1,4 @@
-// @spec spec/repository/title-bar.spec.md
+// @spec openspec/specs/repository/title-bar/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"

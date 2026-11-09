@@ -1,5 +1,5 @@
 //! `brd land`: the subject lands into master by the route of the repository (`branchdeck.landing`,
-//! `domain_policy::landing_route::route`; spec/cli/agent-cli.spec.md, "brd land"; spec/branch/landing-routes.spec.md).
+//! `domain_policy::landing_route::route`; openspec/specs/cli/agent-cli/spec.md, "brd land"; openspec/specs/branch/landing-routes/spec.md).
 //!
 //! - Patronus: the Safe Push `brd safe-push` starts, its plan and its output (`safe_push`).
 //! - A push into the target: the sync without the repository lock, then the plan of the app's start over the one-shot

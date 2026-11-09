@@ -1,4 +1,4 @@
-//! The usages of the API changes of a review (spec/branch/review-plan.spec.md, "Fan-in"): the usages of each removed or
+//! The usages of the API changes of a review (openspec/specs/branch/review-plan/spec.md, "Fan-in"): the usages of each removed or
 //! changed declaration at the head of the range, from `accio references --at` (`file_diffs::accio::SymbolIndex`), split
 //! into those the change updated, those left outside that can break, and those left outside that still bind.
 //!

@@ -1,4 +1,4 @@
-//! The local files of the runs of a checkout, in `branch-deck/host/runs/` of its git directory (spec/cli/host.spec.md,
+//! The local files of the runs of a checkout, in `branch-deck/host/runs/` of its git directory (openspec/specs/cli/host/spec.md,
 //! "The files"): `<run>.json`, the record of what the client asked of the run, and `<run>.patch`, the patch of its
 //! changes. The files older than `KEEP` go at the next run of the checkout.
 //!

@@ -4,7 +4,7 @@ import { repositoryName } from "@/lib/repository-config"
 import type { ActivityEntry, ActivityKind, UndoState } from "@/stores/activity"
 
 /*
- * The Activity window (spec/repository/activity.spec.md): the log of the selected repository in a window of its own,
+ * The Activity window (openspec/specs/repository/activity/spec.md): the log of the selected repository in a window of its own,
  * opened by the main window only. The window reads the log itself, as the main window does; the main window tells it
  * over the link of the window (`@/lib/activity-window-link`) what only it knows (the shown repository, its branches,
  * the landed report, the Undo of this session's rewrites) and runs what it asks for. Every entry point asks the main

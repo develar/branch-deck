@@ -1,4 +1,4 @@
-// @spec spec/branch/issue-groups.spec.md
+// @spec openspec/specs/branch/issue-groups/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { submitInlineForm } from "../helpers/inline-form-helpers"

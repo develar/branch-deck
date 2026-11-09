@@ -1,4 +1,4 @@
-// @spec spec/repository/update-project.spec.md
+// @spec openspec/specs/repository/update-project/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { TransferProgress, UpdateCheck } from "@/lib/bindings"
 import { advanceRun, startRun } from "@/lib/update-progress"

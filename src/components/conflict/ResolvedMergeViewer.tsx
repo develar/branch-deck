@@ -17,7 +17,7 @@ export interface ResolvedMergeViewerProps {
 
 /**
  * What the sync did with a conflict of git that its words resolve (`branchdeck.resolveByWords`): the merge of each file
- * in three columns, the middle the result the sync committed (spec/commit/commit-row.spec.md, "Resolved by words").
+ * in three columns, the middle the result the sync committed (openspec/specs/commit/commit-row/spec.md, "Resolved by words").
  * The files come with the sync that resolved them; a copy reused by its note has the counts only, and its files come
  * with the merges.
  */

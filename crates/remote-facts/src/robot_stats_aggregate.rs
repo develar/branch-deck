@@ -1,4 +1,4 @@
-//! What the Safe Push statistics count of the robots (`spec/repository/safe-push-statistics.spec.md`): pure functions
+//! What the Safe Push statistics count of the robots (`openspec/specs/repository/safe-push-statistics/spec.md`): pure functions
 //! over `RobotStatsInput`, no IO, so the app and `brd robot-stats` show the same numbers. It imports only
 //! `domain_types`: in stage s8 of the rework it moves to `domain-policy` as it is.
 //!

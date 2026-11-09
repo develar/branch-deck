@@ -1,5 +1,5 @@
 // The words of Merge #7 and Auto-Merge #7, the start of a repository that lands by a merge of its pull request on GitHub
-// (spec/branch/landing-routes.spec.md#merge): its label by the pull request, and what it does in the hover of every
+// (openspec/specs/branch/landing-routes/spec.md#merge): its label by the pull request, and what it does in the hover of every
 // surface that offers it (the slot, the menus, the preview, the review)
 import type { MergeMethod, PlannedEffect } from "@/lib/bindings"
 

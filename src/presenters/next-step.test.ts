@@ -1,4 +1,4 @@
-// @spec spec/branch/next-step.spec.md
+// @spec openspec/specs/branch/next-step/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingRefusal, Reason, StepBlocker } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"

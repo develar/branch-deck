@@ -1,5 +1,5 @@
 //! The open pull requests a landing without a robot closes (docs/design/landing.md, "Closing by content";
-//! spec/branch/landing-routes.spec.md, "Closing what landed"): a push of this session into the target, told as it
+//! openspec/specs/branch/landing-routes/spec.md, "Closing what landed"): a push of this session into the target, told as it
 //! ended, while the table still has the branches its update drops (`push_closes`); the fetched baseline that has every
 //! commit of branches of the table, and a pull request GitHub merged with the commits of its branch (`content_closes`,
 //! each judged once per tip and head). Which pull requests close is the rule `domain_policy::landed::

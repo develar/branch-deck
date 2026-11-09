@@ -1,6 +1,6 @@
-//! A write of Settings → Repository (spec/repository/settings.spec.md): one key of the `branchdeck.*` git config of a
+//! A write of Settings → Repository (openspec/specs/repository/settings/spec.md): one key of the `branchdeck.*` git config of a
 //! repository, local or global (`sync_core::repository_config::set_config`), or a companion repository of Settings →
-//! Landing (`set_companion`, spec/branch/declared-needs.spec.md), read again for the answer; the main window hears it
+//! Landing (`set_companion`, openspec/specs/branch/declared-needs/spec.md), read again for the answer; the main window hears it
 //! (`repository_config_changed`) and acts for the selected repository
 
 use crate::context::AppContext;

@@ -1,5 +1,5 @@
 //! The next step of a subject and the node of its row, as Rust decides them for the app and `bd`
-//! (spec/branch/next-step.spec.md, "The table"; spec/branch/branch-row.spec.md, "Tree"): `domain_policy::next_step`
+//! (openspec/specs/branch/next-step/spec.md, "The table"; openspec/specs/branch/branch-row/spec.md, "Tree"): `domain_policy::next_step`
 //! answers `NextStep`, the first row of the table that matches, `domain_policy::landing_node` the `LandingNode`. Both
 //! carry the facts their words need, never the words: the page words them (`src/presenters/`), `bd` in its own.
 
@@ -72,7 +72,7 @@ pub enum StepHelp {
   RefreshPatronus,
 }
 
-/// The row of the table that decided the step (spec/branch/next-step.spec.md, "The table"); `NoSlot` a repository that
+/// The row of the table that decided the step (openspec/specs/branch/next-step/spec.md, "The table"); `NoSlot` a repository that
 /// is not on Space, which has no slot
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -111,14 +111,14 @@ pub enum StepRow {
   TenPrime,
   #[serde(rename = "11")]
   Eleven,
-  /// The row of a repository that lands by a push into the target (spec/branch/next-step.spec.md, "A push into the
+  /// The row of a repository that lands by a push into the target (openspec/specs/branch/next-step/spec.md, "A push into the
   /// target"): "Push to master"
   #[serde(rename = "push")]
   Push,
   /// The row before it while the fetched baseline has commits the copy is not built on: "Update Project"
   #[serde(rename = "push′")]
   PushPrime,
-  /// The row of a repository that lands by a merge of the pull request on GitHub (spec/branch/next-step.spec.md, "A
+  /// The row of a repository that lands by a merge of the pull request on GitHub (openspec/specs/branch/next-step/spec.md, "A
   /// merge of the pull request") without an open pull request into the target: "Create Pull Request…"
   #[serde(rename = "pr")]
   PullRequest,
@@ -289,7 +289,7 @@ pub struct StepRetarget {
   pub target: String,
 }
 
-/// The next step of a subject (spec/branch/next-step.spec.md, "The table"), the first row that matches
+/// The next step of a subject (openspec/specs/branch/next-step/spec.md, "The table"), the first row that matches
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
@@ -470,7 +470,7 @@ pub struct LandingNode {
   pub ring: bool,
 }
 
-/// The Status cell of a branch row, what happens to it (spec/branch/branch-row.spec.md, "Status cell";
+/// The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";
 /// `domain_policy::row_status`): its first column says `main`, and the exceptional facts `main` covers stay beside it as a
 /// mark whose hover names them, so a running robot never hides a conflict, nor a conflict a running robot
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]

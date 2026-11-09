@@ -1,0 +1,745 @@
+---
+name: Commit Row
+description: Requirements for the commit row, the commit card, the commit preview with the message body and its editing.
+style: plain-1
+targets:
+  - crates/file-diffs/src/merge.rs
+  - crates/text-diff/src/merge_model.rs
+  - src/components/conflict/CollapsibleFileHeader.tsx
+  - src/components/files/FileHeaderParts.tsx
+  - src/components/commit/CommitList.tsx
+  - src/components/commit/CommitRow.tsx
+  - src/components/commit/CommitHeader.tsx
+  - src/components/commit/CommitSubject.tsx
+  - src/components/commit/CommitMetadata.tsx
+  - src/components/commit/CommitBodyView.tsx
+  - src/presenters/commit-body.ts
+  - src/components/commit/CommitCard.tsx
+  - src/components/commit/CommitRowMark.tsx
+  - src/components/review/ReviewPrologue.tsx
+  - src/hooks/useHeadingCard.ts
+  - src/components/shared/RowCard.tsx
+  - src/stores/commit-card.ts
+  - src/components/preview/CommitsPreviewBody.tsx
+  - crates/git-ops/src/commit_list.rs
+  - src/components/commit/CommitPreviewDialog.tsx
+  - src/components/shared/PreviewDialogFrame.tsx
+  - src/hooks/usePreviewHotkeys.ts
+  - src/lib/preview-keys.ts
+  - src/hooks/useRewordCommit.ts
+  - src/hooks/useStackActions.ts
+  - src/components/commit/PrefixChangeHint.tsx
+  - src/lib/stack.ts
+  - src/lib/rewrite-run.ts
+  - crates/operations/src/rewrite.rs
+  - crates/history-rewrite/src/reword.rs
+  - crates/history-rewrite/src/regroup.rs
+  - crates/history-rewrite/src/fixup_targets.rs
+  - crates/history-rewrite/src/repository_lock.rs
+  - crates/git-ops/src/reword_commits.rs
+  - src/components/commit/LinkedText.tsx
+  - src/lib/commit.ts
+  - src/hooks/useCommitBody.ts
+  - src/hooks/usePreviewGroup.ts
+  - src/hooks/useDebouncedRead.ts
+  - crates/app-api/src/session/view.rs
+  - crates/app-api/src/reads/grammar.rs
+  - crates/sync-utils/src/commit_body.rs
+  - crates/sync-utils/src/markdown_table.rs
+  - crates/sync-utils/src/markdown_inline.rs
+  - crates/sync-utils/src/markdown_comments.rs
+  - crates/sync-utils/src/commit_subject.rs
+  - crates/sync-utils/src/issue_pattern.rs
+  - crates/domain-types/src/commit_body.rs
+  - crates/history-rewrite/src/commit_grouper.rs
+  - src/lib/inline-code.ts
+- ../../crates/sync-utils/src/code_spans.rs
+- ../../src/components/shared/CodeText.tsx
+  - src/components/unassigned/UnassignedCommitListCard.tsx
+  - src/components/branch/ActiveBranchExpanded.tsx
+  - src/components/branch/StackLanes.tsx
+  - src/components/commit/MovableCommitList.tsx
+  - src/components/commit/PushUpToMark.tsx
+  - src/presenters/push.ts
+  - src/components/branch/ArchivedBranchExpanded.tsx
+  - src/components/conflict/ConflictCommitContext.tsx
+  - src/components/conflict/MergeConflictViewer.tsx
+  - src/components/conflict/ResolvedMergeViewer.tsx
+  - src/components/conflict/ConflictResolutionHint.tsx
+  - src/components/conflict/ConflictExplanation.tsx
+  - src/components/conflict/ConflictFixPanel.tsx
+  - src/components/conflict/MissingCommitsDetails.tsx
+  - src/hooks/useMissingCommitOwners.ts
+  - crates/trial-check/src/missing_commits.rs
+  - crates/sync-core/src/commit_owners.rs
+  - src/components/conflict/ConflictingFilesSection.tsx
+  - src/components/diff/DiffView.tsx
+  - src/stores/file-merges.ts
+  - src/lib/diff/file-merge-model.ts
+  - src/lib/diff/row-cells.ts
+  - src/components/conflict/SubjectFileDiffList.tsx
+  - src/components/conflict/ConflictWindowPage.tsx
+  - src/components/conflict/DiffLoadState.tsx
+  - src/components/shared/NestedPanel.tsx
+  - src/lib/merge-conflict.ts
+  - crates/sync-core/src/conflict_chain.rs
+  - src/presenters/rewrite.ts
+  - crates/git-ops/src/word_resolve.rs
+  - crates/git-ops/src/attributes.rs
+  - crates/git-ops/src/conflict_analysis.rs
+  - crates/git-ops/src/merge_conflict.rs
+  - crates/domain-types/src/conflict.rs
+---
+
+# Commit Row
+
+Status: Implemented
+Date: 2026-10-13
+
+## Summary
+
+A commit row shows one commit in a branch table, in the unassigned commits card or in a conflict view.
+The row has a subject line above a meta line.
+Space or a click on the mark of a row opens the full commit message in a centered preview, as Quick Look does.
+The preview also edits the message of a commit on the current branch.
+The hover of the mark, or I, opens the commit card: the one card of a commit, its header and its body, which every
+place that shows a commit shows the same way.
+
+## Goals
+
+- Show every commit with one row anatomy in every view.
+- Keep a collapsed row to two lines: the subject and the metadata.
+- Make a long commit message easy to read in a focused preview, from the keyboard or the mouse.
+- Keep the list layout still: reading a message must not push the other rows down.
+- Fix a commit message without leaving the app and without a rebase in a terminal.
+- Show exceptions as badges. Routine states stay quiet.
+- Give a hover tint and a selection tint only to rows that react to a click.
+
+## Non-goals
+
+- The row does not render Markdown. It recognizes git conventions and code tokens only.
+- The row does not show a diff or a file list. Its meta line counts the files, and the preview lists them:
+  see [Commit Files](../commit-files/spec.md).
+- This spec does not cover the branch status column or the branch actions: see [Branch Row](../../branch/branch-row/spec.md).
+
+## Requirements
+
+### Row anatomy
+
+- A commit row must show the subject line above the meta line.
+- The meta line must start with the short hash.
+- The meta line may then show the author, the time, the file count with the line counts
+  ([Commit Files](../commit-files/spec.md)) and extra items, in this order.
+- The meta line must separate its items with `·`.
+- A synced commit must show the hash of the user's commit, the one of their log, and name the hash of its copy in the
+  virtual branch on hover ("Rebuilt in the virtual branch as 6959c2bd"), which Patronus and the remote name; an
+  unexplained `29cf0a82 → 6959c2bd` in every row was the mechanism, not the commit.
+- The subject must wrap to two lines at most.
+- Issue keys in the subject must become links, as the issue navigation settings define. Signed in to YouTrack, a key
+  of its issues shows the issue on hover ([YouTrack](../../repository/youtrack/spec.md#the-issue-popover)).
+- In the commits of a branch, a subject that starts with the issue key of the branch must leave it out, with the
+  separator after it, as the title of the branch does: the branch row (its name, or its issue chip) or the issue row above
+  it shows the key, as a link. A subject that is the key alone keeps it; other lists (unassigned, landed, the previews)
+  show the subject as written. Rust splits the subject (`subjectParts` of a commit: its autosquash markers, its
+  `(prefix)`, the rest with its issue key, and what the row shows split at the key it starts with, `issue_lead`); the
+  page has no grammar of its own.
+  [@test] tests/e2e/branch-row-layout/description-title.spec.ts (`leaves out the issue key the row shows already, in the title and in the commits`)
+  [@test] crates/sync-utils/src/commit_subject.rs (`the_parts_of_a_subject_are_its_markers_its_prefix_its_rest_and_the_key_a_row_shows_it_led_by`)
+  [@test] crates/sync-utils/src/issue_pattern.rs (`a_title_led_by_an_issue_key_splits_at_it_and_its_separator`)
+- A synced commit must not show a "Created" status text.
+  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show expanded branch row with commits`)
+  [@test] tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in commit messages`, `should render issue links in unassigned commits`, `should show plain text for commits without issue references`)
+- The subject line must show only exception badges: Pending, Merge conflict, Error, Blocked and Amend target.
+- In the commits of a branch, a commit the remote lacks must show the push arrow after its subject (`PushUpToMark`):
+  a click opens Push Up to Here of it, not the selection of the row
+  ([Stacked Branches](../../branch/stacked-branches/spec.md#push-up-to-here)); a commit the remote has, or one a merged
+  Safe Push landed, has none (`offersPushUpTo`). While the button of an open Push Up to Here is hovered, the rows of
+  the commits it sends are tinted (`data-sent`).
+  [@test] tests/e2e/stacked-branches/push-up-to.spec.ts (`should push the stack up to a commit, the branches it is built on first, the rest left to push`, `should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
+- A commit with a merge conflict must show the "Merge conflict" badge.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`)
+- The Amend target badge must explain its meaning in a tooltip.
+- The first commit of a branch must show the Amend target badge while the amend form is open.
+  [@test] tests/e2e/amend-changes/amend-changes.spec.ts (`should mark the first commit as the amend target while the form is open`)
+
+### Subject prefix
+
+- A conventional-commit prefix (`feat:`, `feat(model):`, `fix!:`, `docs air:`) must stay in the subject.
+- A grouping prefix `(feature-auth)` must show as `feature-auth`, without the parentheses.
+- A subject without a prefix must show unchanged.
+  [@test] src/lib/commit.test.ts (`splits the conventional-commit prefix off %j`, `returns a grouping prefix without the parentheses`, `keeps %j without a prefix`)
+- The row must show the prefix dimmed, before the subject text.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should dim a conventional-commit prefix of the subject`)
+- A row must show the stripped subject when the backend supplies one.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
+
+### Commit card
+
+- A row must show the mark of its card only when its message has a body, as Rust tells it (`hasBody` of a commit: a
+  block after the subject other than the trailers); a body of trailers alone (`Co-Authored-By:` of an agent) has no
+  mark. The page reads no grammar of its own.
+  [@test] crates/sync-utils/src/commit_body_test.rs (`a_message_has_a_body_with_a_block_after_its_subject_that_is_no_trailers`)
+  [@test] crates/git-ops/src/commit_list_test.rs (`a_commit_has_a_body_unless_its_message_is_its_subject_and_its_trailers`)
+- The mark must be named "Show full commit message", and a click on it must open the preview of its commit.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+- The hover of the mark (300 ms, only after a move of the pointer) must open the commit card: the whole subject over
+  the meta line with its line counts, under the whole row so its meta line stays in view, then the body folded as the
+  opening of a review folds it (the parts Rust shows,
+  the author's "Look closely:" always, then one line that names the folded parts, verification among them, each its
+  own disclosure), its trailers last; the pointer leaving the mark closes it. The hover of the subject of the row opens
+  it too, after a longer rest (600 ms, only after a move), and the pointer that leaves the subject without reaching the
+  card closes it: the mark is the visible hint and the target of a click, not the only way in. While more of the card is below its
+  bottom edge, the bottom fades into the popover, so a body the height cuts never reads as the whole message.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`, `should fold a long body in the card as the review folds it, open each folded part, keep the Look closely, and fade the card while more is below`)
+- I on the row Space would preview must open its card with the focus in it. Escape must close the card alone and give
+  the focus back to the list, whose keys go on from that row; a card opened by I that goes otherwise gives it back too.
+  The Escape of a card the hover opened closes it alone too: the selection of the list stays. The window keeps one card
+  open: a card that opens in one list closes the card of another. The mark is no tab stop: Space previews the row, I
+  opens its card.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`)
+- A commit on a row of a sidebar of a review is one row (`CommitRow`, the `compact` header): the commit column and the
+  commits of a pull request clamp its subject to two lines; a commit row of the tree shows its whole title (the title
+  Rust gives it, as the tree and the openings name it, its subject without a plan), its subject and hash in its card,
+  or in the native hover of a commit without a body (never a native hover over a card), what it is since the review
+  ("New", "Rewritten", "Your review") and its branch, and the same mark and
+  card as the main window, which the hover of the mark or of the subject and `I` on the focused row open
+  ([Review Tour](../../branch/review-tour/spec.md#in-the-review-window)).
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit and its rounds rows of it, their titles whole at any width, and open the card of the commit by the hover of its mark or subject and by I`, `should mark the step of a commit on top since Mark Reviewed New, and the steps reviewed before nothing`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should show every step and commit title of the tree whole at the default width, its files one line each`)
+- A review of one commit lists it in no row (a range of one commit, a pull request of one commit; its tree lists its
+  tasks, or its files for a commit of one task, whose heading tells its whole body): the heading of the commit at the
+  top of its overview must then carry the same mark and card as its row anywhere else (`CommitRowMark`), after its
+  subject: the hover of the mark or of the subject opens the card under the subject and the meta line, I on the
+  focused heading (a tab stop) opens it with the focus in it, and Escape closes it and gives the focus back to the
+  heading. The card and the focus stay as the overview moves into the diffs while they load. A commit without a body
+  has no mark there and is no tab stop.
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should give the heading of a range of one commit the mark of its card, which the hover and I open, Escape giving the focus back`, `should tell the whole body of a range of one commit of one task in its heading, whose mark opens its card, name a removed declaration after the heading of its block, and give a commit without a body no mark and no tab stop`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should give the heading of the commit of a pull request of one commit the mark of its card, which the hover and I open, Escape giving the focus back`)
+- Every header of a commit with a meta line (`row` aside: the card, the heading of a commit shown alone, the title of
+  the preview) shows the "⋯" of the commit at the end of its meta line, the menu the right-click of its row opens: one
+  place, wherever the subject ends. Its items are built as it opens, of the selection then, as the right-click builds
+  them (a selected row acts on the whole selection); no row builds its menu as it renders.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`, `should act from the menu of the card on the selection as the right-click of its row does`)
+- The card is one for every place a commit is shown (`CommitCard`: `CommitHeader` and `CommitBodyView`): the card of a
+  row's mark, the commits of the preview of a branch and of a kept branch, the commit a review shows alone; the commit
+  preview shows the same header as its title and the same body, whole. There is one view of a body
+  (`BodyPartsView`): the card, the preview and the opening of a step in a review set the same parts, labels and
+  callouts, folded or whole ([Review Tour](../../branch/review-tour/spec.md#in-the-review-window)).
+- The row must not render the body.
+
+### Commit preview
+
+- The preview must show the whole subject, the meta line and the body, then the changed files
+  ([Commit Files](../commit-files/spec.md)).
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+- Space must open the preview of the commit row under the pointer.
+- ↑ and ↓ must show the previous and the next commit of the same list, and the preview must show the position as `2 / 3`.
+- The preview of a commit without a body must show its subject and "No description"; of a body of trailers alone,
+  "No description" above its trailers, which every place that shows the body lists last.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the hovered commit with Space and step through the list with the arrows`, `should say No description above the trailers of a body of trailers alone, which has no mark`)
+- Space and Escape must close the preview.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the hovered commit with Space and step through the list with the arrows`)
+- Without a row under the pointer, Space must open the preview of the last clicked row of the focused list.
+- The preview must not change the selection.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the last clicked unassigned row with Space and keep the selection`)
+- D over a row reviews its commit, as Space opens its preview: a commit of a branch in the review window of its
+  branch, at the commit, another one in the review window of the commit; the row's menu starts with "Review Changes"
+  (D) ([Commit Review](../commit-review/spec.md)).
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row in its window with D and with the item of its menu`)
+- Space must keep its own meaning in a text field, a menu and another dialog.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should keep Space in a text field`)
+- A focused button must keep Space unless the pointer moved after the button got the focus.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should leave Space to a button focused from the keyboard`, `should open the preview of the hovered commit with Space and step through the list with the arrows`)
+- Space over a row of a list nested in a conflict view must open one preview, for the nested row.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should open one preview for a missing commit nested in a conflict row`)
+- The preview must keep showing its commit after a sync.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should keep the preview on its commit across a sync`)
+- The preview must close when a sync removes its commit.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should close the preview when a sync removes its commit`)
+
+### Message editing
+
+- The preview of a commit in a branch table or in the unassigned commits card must offer the edit: E or the Edit button.
+  The menu of its row offers "Reword…" (one commit), which opens the preview with the message in edit, also while a sync
+  or another rewrite runs: the save goes to the session at once, named on the table the preview shows, and waits there
+  (C14). Escape ends that edit as any other, the preview stays.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should reword a commit from the menu of its row, in its preview`)
+- The preview of a commit that is not on the current branch (an archived or a missing commit) must not offer it.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should open one preview for a missing commit nested in a conflict row`)
+- The edit must show the raw message in a text field, the grouping prefix included, and focus the field.
+- Cmd/Ctrl+Enter or Save must save the message. The preview must then show the reworded commit at the same position.
+- After the save, the branch tables must show the new message.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should save the edited message and stay on the reworded commit`)
+- Escape must cancel the edit and keep the preview open. A click outside must keep the edit.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should cancel the edit with Escape and keep the preview open`)
+- A changed grouping must show a warning that names the new branch, or the unassigned commits. Rust groups the
+  message as it was and as typed (`preview_group`: the subject as git reads it, by `CommitGrouper`'s rule with the
+  stacked branches, issue groups and stack parents of the last grouping; the typed one once the typing pauses, again
+  after a sync): an explicit prefix, else the issue group of the subject's key, else the key. With
+  [stacked branches](../../branch/stacked-branches/spec.md) on, it also names the parent and warns about a restack and a
+  stack problem; a stack problem the save would introduce (parents that conflict, an empty level) is said to be
+  refused.
+  [@test] src/lib/stack.test.ts (`warns about a parent the other commits of the branch don't declare`, `warns about an empty level of the prefix, which a reword refuses`)
+- A save that moves the commit to another list must close the preview.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
+  [@test] crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_of_a_subject_is_its_prefix_else_the_issue_group_of_its_key_else_the_key`, `the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent`)
+- The edit and the save must stay enabled while a sync runs: the reword goes to the session at once, named on the
+  table the preview shows, and waits there (C14).
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit enabled while a sync runs: the save goes to the session at once`)
+- A failed save must keep the edit open with the draft and show the error in a toast.
+  [@test] tests/e2e/squash-fixups/squash-fixups.spec.ts (`should refuse a reword that strands a fixup, and keep the draft`)
+- A save of a commit that changed meanwhile (reworded in a terminal) must change nothing: the session brings its table
+  to HEAD to find the commit, finds it neither by its id nor by its key, and refuses the reword as a changed plan
+  ("Cannot edit the commit message" with the reason); the preview of the commit that is gone closes, as after any sync
+  that removes it.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should save nothing when the commit changed meanwhile, say so, and close the preview of the commit that is gone`)
+- E must work in any keyboard layout (the physical key).
+- The save hint must name the platform shortcut: `⌘↵` on macOS, `Ctrl+Enter` elsewhere.
+- The save must be the reword of `brd reword` ([Agent CLI](../../cli/agent-cli/spec.md), `brd reword`): one regroup of the
+  commits ahead of the baseline, with its checks. It must replace only the message: the commits after it are recreated
+  with the same trees, and the working tree and the index stay as they are.
+- The save must keep the author and the committer of every recreated commit: name, email, date and timezone.
+  [@test] crates/sync-core/src/reword_test.rs (`reword_preserves_committer`)
+- The message must be cleaned up as `git commit` does: LF line endings, no trailing whitespace, no blank lines around.
+- An unchanged message must keep the commit.
+- A message without a subject line must be refused.
+- The save must be refused while a rebase, merge, cherry-pick or revert is in progress, or on a detached HEAD.
+- The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal): "Commit
+  <short id> is no longer on the current branch, sync and try again".
+- The core of the save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made
+  in a terminal); the app's save then rewords the commit once more on that HEAD (below).
+  [@test] crates/sync-core/src/reword_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing`, `refuses_ids_and_texts_it_cannot_reword`, `refuses_to_reword_while_a_merge_is_in_progress`, `rewrite_refused_on_detached_head`, `refuses_a_commit_that_left_the_current_branch`, `rewords_several_commits_in_one_pass`)
+  [@test] crates/git-ops/src/ref_transaction_test.rs (`refuses_to_move_a_branch_that_moved_meanwhile`)
+- A new prefix of a commit must move its fixups with it.
+  [@test] crates/sync-core/src/reword_test.rs (`a_new_prefix_moves_the_commit_with_its_fixups`)
+- The save must be refused, with the edit and its draft kept, when a fixup would fold into another target or none
+  afterwards, when it adds or removes a `fixup!`, `squash!` or `amend!` marker, when it gives a new id to a target that a
+  fixup names by its id, or when an `amend!` of the commit waits; the reason says to squash the fixups into their target
+  first (Squash Fixups).
+  [@test] tests/e2e/squash-fixups/squash-fixups.spec.ts (`should refuse a reword that strands a fixup, and keep the draft`)
+  [@test] crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
+- The save must be refused when the new prefix introduces a stack problem (parents that conflict, a cycle, an empty
+  level).
+  [@test] crates/sync-core/src/reword_test.rs (`a_reword_that_breaks_a_stack_is_refused`)
+- After a save that changed the commit, a toast "Reworded <short id of the old commit>" with the new subject must offer
+  Undo for 10 s, and Activity must record the reword with the same Undo, which runs once. The Undo must move HEAD back
+  to what the save found (the old messages, and with them the old virtual commits), as the Undo of a move does
+  (the rewrite `undo` of the engine). A click on the toast must keep the preview open; the preview on the reworded commit must follow the
+  Undo back to the old commit. A preview stepped to another commit stays there, and one on a commit that the Undo
+  removes closes.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should undo a reword from its toast and follow the preview back`, `should undo a reword from Activity`)
+  [@test] src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`, `offers no Undo past the window of the toast`)
+  [@test] crates/sync-core/src/reword_test.rs (`undo_of_a_reword_brings_back_the_old_virtual_commits`)
+  [@test] crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_that_brings_the_old_head_back`)
+- The Undo must be refused, with nothing changed, once the branch moved after the save (another rewrite, a commit in a
+  terminal): "Cannot undo the reword" with the reason.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should refuse to undo a reword after the branch moved`)
+- A save that changed nothing (the same message after the cleanup) must show no toast, record nothing and run no sync.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should save an unchanged message without a toast`)
+  [@test] src/hooks/useRewordCommit.test.ts (`records nothing for an unchanged message`)
+- The save must be the rewrite `reword` of the engine, named on the table the window shows, and run under the
+  repository lock: while another process holds it (an agent's `brd pick --follow`, `brd`) or the app's own push, the save
+  waits as long as the holder lives, the editor saying whom for (the step of its operation) with Stop Waiting
+  (`cancel_operation`), which ends the wait with nothing changed; only a holder no record names refuses it after 10 s,
+  with nothing changed and the toast "Cannot edit the commit message" saying that another operation holds the lock. A
+  save while another rewrite runs (an Unstack from the main window, an issue reference of the same commit) waits
+  behind it in the queue of the session and rewords the commit as that one left it, its new id included. A HEAD
+  another process moved while the save waited for the lock (an agent's `brd update`, a commit) makes the core refuse
+  it, nothing written, and the save is resolved again on that HEAD and rewords the commit as that process left it, by
+  its author, author time and subject without the prefix; a commit gone is `plan_changed`. The reword computes before
+  the lock (the snapshot, the new commits on temporary refs) and holds it only for the witness of HEAD and the store
+  commits and the compare-and-swap transaction.
+  [@test] crates/operations/src/rewrite_test.rs (`a_reword_and_an_unstack_from_two_windows_at_once_are_both_applied_in_order`, `a_reword_queued_behind_the_issue_reference_of_its_commit_names_it_through_the_new_id`)
+  [@test] crates/operations/src/rewrite_test.rs (`an_unapply_and_a_reword_waiting_for_the_lock_of_another_process_run_on_the_head_it_left`, `a_rewrite_waiting_for_the_lock_of_another_process_runs_on_the_head_it_left`)
+  [@test] crates/operations/src/rewrite_test.rs (`a_rewrite_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
+  [@test] crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
+  [@test] crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
+  [@test] crates/history-rewrite/src/regroup_test.rs (`a_reword_locks_only_the_witness_and_the_write`)
+
+### Message body
+
+The body is read in Rust (`commit_body`, `sync_utils::commit_body`), the one grammar of a commit body: the commit
+preview renders it, the body of a pull request is written from it ([Pull Requests](../../branch/pull-requests/spec.md)),
+the description of a pull request to review is read by it ([Review Requests](../../repository/review-requests/spec.md)),
+and a review tells it ([Review Tour](../../branch/review-tour/spec.md)). The page asks once per message, keeps the answer
+for a message shown again, and only lays out what Rust read.
+
+- The body must start at the first line after the subject that is not blank.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+  [@test] crates/sync-utils/src/commit_body_test.rs (`the_body_of_a_message_is_after_its_subject_line`)
+- The body must join hard-wrapped lines into one paragraph; a blank line must start a new block. A line after a hard
+  break (two spaces or `\` at the end), a quote line and a line that starts with `|` but is no row of a table must stay
+  a line of their own. A Markdown heading (one to six `#` and a text) must be a heading of its level, a rule (`---`,
+  `***`, `___`) a rule, each a block of its own; a `#` without text stays prose.
+- Lines that start with `- `, `* `, `+ `, `• `, `1. ` or `1) ` must form a list without these markers (a rule is no
+  item). A change between bullets and numbers must start a new list. An ordered list must keep the number of its first
+  item. A continuation line, wrapped, indented or not, must stay in its list item until a heading, a quote, a line that
+  starts with `|`, a table, a rule or a label line right before an item.
+- A table of GitHub Markdown must be a table: a header row, then a delimiter row of as many cells, each dashes with a
+  colon at either end or none (`---`, `:--` left, `--:` right, `:-:` centred: the alignment of its column), then its
+  rows up to the first line that is no row (a blank line, a line without a pipe, a list item, a heading, a quote); the
+  pipes at the edges of a row are optional, `\|` is a pipe inside a cell, a short row is filled with empty cells and
+  the cells past the header are dropped. It ends the paragraph or the list before it. Lines of pipes without the
+  delimiter row under the first one stay lines of prose. The page renders it as a table (`role=table`), the header row
+  in the weight of a label, the rows apart by a line of the border, a table wider than its column scrolling in it, each
+  cell a line of prose with its code and issue links; a table folds as a list does, a row a line.
+  [@test] crates/sync-utils/src/commit_body_test.rs (`reads_a_table_its_header_its_alignment_and_its_rows_as_wide_as_the_header`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_pipe_line_of_no_table_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `each_cell_of_a_table_carries_its_spans_of_code_by_its_place_row_by_row`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should show the description of the pull request as its Markdown: its headings and its tables`)
+- An HTML comment (`<!-- … -->`, also over several lines: the hints of a template of a pull request) must be no text,
+  outside a fence, a line indented as code and a code span; an opening without a `-->` after it is a word. A line a
+  comment holds alone is blank, so the blocks around it stay apart.
+- The inline Markdown of a line of prose, a heading or a cell must read as its text: an image (`![alt](url)`, an
+  `<img alt="…">`) as its alt text, a link (`[text](url)`) as its text, strong emphasis (`**text**`, `__text__`)
+  without its marks, so `**Why:** the text` is a run-in label. A code span, an escaped mark (`\*`), `__name__` around
+  one identifier and marks around a path that starts or ends with `/` (`**/generated/**`) stay as written; a line that
+  then says nothing (an image without an alt text) is no line. The body of a pull request Branch Deck writes keeps them
+  as the author wrote them.
+  [@test] crates/sync-utils/src/commit_body_test.rs (`an_html_comment_is_no_text_outside_code`, `an_image_a_link_and_strong_emphasis_read_as_their_text`)
+- Lines indented by four spaces or a tab must stay verbatim, without the common indent.
+- A fenced block (```` ``` ```` or `~~~`) must stay verbatim, blank lines included, without the fences; one without a
+  closing fence must run to the end of the body.
+- A last block of git trailers (`Token: value` lines, an indented line continuing one, `(cherry picked from commit …)`)
+  must be the trailers of the body, apart from its blocks, when one of its lines is a token of words joined by `-` or
+  the cherry-pick note; a block of one-word tokens alone (`Note: …`) and a block that is not the last stay prose. A body
+  of trailers alone has no block.
+- The body must treat CRLF line endings as LF.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`, `should render a Markdown heading, a rule and a label glued to its list as sections of the body`)
+  [@test] crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_pipe_line_of_no_table_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
+- A paragraph that is only `Label:` (a capital letter of any script, at most 39 characters without a colon) must
+  become the label of the blocks after it when a paragraph, a list, a table or code follows it; a `Label:` line right
+  before a list item or a table must, also after prose or a list of its block; a `Label:` line that starts its block or follows a list
+  must, right before a line of prose or code ("Why not a setting:" over its paragraph with no blank line between),
+  never inside prose, where the author wrapped a sentence.
+- A paragraph that starts with a short `Label: ` (a capitalised word and up to two lowercase ones of any script, at
+  most 20 characters) must become a label above its remaining text, a label written at the start of its paragraph. A
+  run-in `Look closely: text` must head that paragraph alone, with the list or the code written right under it (no
+  blank line between: "the guards against a false merge." over its list of guards): the blocks after a blank line are
+  the story again, a part of no label up to the next label, so the callout holds the author's question and nothing
+  more.
+- A `Label:` paragraph without a following block of content (the last one, one before the trailers or a heading) must
+  stay a paragraph.
+- A label's kind must come from its words, a leading "The", the case and what follows a comma aside: Tests, Test,
+  Evidence, Gates, Verified, Verification, Results and Proof (also "Gates on the final tree") are a verification,
+  "Look closely" asks the reviewer to decide, "Left out" says what the change does not do or prove, any other label
+  is plain.
+- The trailers must show last, below the blocks, without a label.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+  [@test] crates/sync-utils/src/commit_body_test.rs (`a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_label_the_rest_of_its_paragraph`, `a_label_without_blocks_to_head_a_long_one_and_a_sentence_stay_prose`, `a_label_line_right_before_a_list_heads_it_after_prose_or_another_list`, `a_label_line_that_starts_its_block_heads_the_paragraph_or_the_code_right_after_it`, `a_run_in_look_closely_heads_its_paragraph_and_the_list_or_code_right_under_it`, `a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_aside`)
+- The lead of a body must be its first block when that is a paragraph, before any label or heading. The summary of a
+  body (`summary`, the block that sums it up in a line) must be its lead, else the first paragraph of a section a plain
+  label or a heading heads (a description that opens with `## Goal`); a verification, a Look closely or a Left out
+  section sums up nothing.
+- The parts of a body (`parts`: the lead alone, a labelled section, a run of the other blocks) must each say what it
+  is (`kind`: `lead`, `section`, `run`; `tone`: the kind of the label of a section), so a view places them without the
+  grammar, and whether a reader folds it, at a block, never at a fixed row count: the first part shows, a labelled section whole when the
+  body opens with one, then whole parts while they read in about 12 lines (a line of prose or an item by 100
+  characters, a line of code one), a labelled section (a label or a heading and its blocks up to the next one, a rule
+  among them) only whole, so a label never ends what shows, and every part after the first that does not fit folds. A
+  verification section folds, and a "Look closely:" or a "Left out:" section shows wherever it is; none of them costs
+  a line: the decision the author asks for and what the author says the change does not do or prove are never behind
+  a fold. A body of about 12 lines shows whole.
+  [@test] crates/sync-utils/src/commit_body_test.rs (`the_lead_is_a_paragraph_before_any_label_or_heading`, `the_summary_is_the_lead_else_the_first_paragraph_of_a_plain_section`, `each_part_says_whether_it_is_the_lead_a_section_with_the_kind_of_its_label_or_a_run`, `a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines`, `a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no_line`, `a_look_closely_section_shows_wherever_it_is_and_costs_no_line`, `a_left_out_section_shows_always_and_costs_no_line_of_the_fold`)
+- Issue keys in the body must become links.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
+
+### Code tokens
+
+- The code of a body is Rust's (`CommitBody.code`, `sync_utils::code_spans`): each line of its prose carries its spans
+  of code, which the card, the preview and the story of a review set alike (`CodeText`); the page finds no code of its
+  own. Text in backticks shows as code without the backticks, a chip (`InlineCode`: `bg-muted` and a halo of the same
+  colour that takes no width, so "(Frame.paint)" never reads "( Frame.paint )").
+- Rust finds paths, file names, dotted module and package names of three or more parts, an `Owner.member` of a
+  capitalised owner (`Frame.paint`, `SplashScreen.hide`), flags, calls, `CONSTANT_CASE`, `snake_case`, `camelCase` and
+  `PascalCase` of two humps or more: only the code font, a chip only when Rust joined several tokens into one span
+  (`CodeSpan.joined`). A dotted name of
+  two parts led lowercase (`example.com`, `e.g.`), `GenUI`, `AssertJ`, a word with a hyphen (`follow-up`) and the names
+  of products (`JavaScript`, `GitHub`, `macOS`, `TeamCity`, `PhpStorm`, `WordPress`) and of libraries (`Node.js`,
+  `Vue.js`: a capitalised word before `.js`) stay prose, and so does a token in double quotes.
+- Preformatted blocks and trailers must not detect code.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+  [@test] crates/sync-utils/src/code_spans_test.rs (`a_span_in_backticks_is_explicit_code_its_backticks_included`, `the_grammar_finds_paths_names_flags_and_calls`, `a_word_of_prose_stays_prose`)
+  [@test] crates/sync-utils/src/commit_body_test.rs (`each_line_of_prose_carries_its_spans_of_code`)
+- Code tokens that only single spaces separate must form one span, such as `bt.cmd --lane` or
+  `--module intellij.air.tests --filter com.intellij.air`. Punctuation around a token must stay prose, a possessive
+  (`SplashScreen's`) and the dash of a sentence (`Frame.paint—`) too. An issue key
+  inside a code token must stay part of the code. The offsets are UTF-16 code units, as the page counts.
+  [@test] crates/sync-utils/src/code_spans_test.rs (`the_punctuation_around_a_token_stays_prose_and_tokens_one_space_apart_are_one_span`, `the_offsets_are_utf16_code_units`)
+- A long path must break after each `/` (keeping the slash with its directory, and `//` together) or before a dotted
+  name, never before a chain of short final extensions, and never inside a word: a code name set apart (the title of a
+  step, a link of a story, a name of a fact) breaks there too
+  (`BreakableCode`); a title of a step or an entry of Possible Breakage breaks a part of 24 characters or more at its
+  camelCase humps too, so a name wider than its line breaks between words. The punctuation that touches code must stay on its line (`CodeGlue`): a line never starts with
+  the comma or the period after code, a link of code too, nor ends with the parenthesis before it.
+  [@test] src/lib/inline-code.test.ts (`breaks a path after each slash`, `keeps the path prefix and each directory slash with the directory`, `does not break before a short final extension`, `breaks before a dotted name but keeps a chain of short final extensions`, `keeps a leading ./ prefix together`, `does not break inside // or ...`, `keeps a CONSTANT_CASE name whole`, `keeps the closing marks and the end of a sentence after code on its line, never the words after them`, `keeps an opening mark before code on its line, never the words before it`, `breaks a part too long for a line at its humps, a shorter one only at its dots`)
+- The subject must not detect code.
+
+### Selection
+
+- A click on the mark of a row or in its card must not change the selection.
+- A click in the preview body must not change the selection.
+- A click on another part of the row must select the row; a press of the selection's actions on the row must not change
+  the selection.
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
+  [@test] tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
+- Cmd/Ctrl+click must add the row to the selection.
+- The lead row of the selection (the row clicked last) must show "N selected" and a "Move to…" button at the end of its
+  meta line while rows are selected, after its other items and before a "⋯"
+  ([Move Commits](../../branch/move-commits/spec.md)).
+  [@test] tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should verify commit selection states with ARIA snapshots`)
+- Enter must open the inline "Move to…" form when rows are selected.
+  [@test] tests/e2e/inline-branch-creator/inline-branch-creator.spec.ts (`should open with Enter key when commits are selected`)
+- The rows of the unassigned commits card and of an expanded branch must be selectable, one list at a time
+  (see [Move Commits](../../branch/move-commits/spec.md)).
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
+- Shift+click must select a range of rows.
+- Cmd/Ctrl+A must select all rows, and Escape must clear the selection.
+- The context menu of a selected row must act on all selected commits.
+- The context menu of a row that is not selected must act on that commit only.
+- The context menu must not change the selection.
+  [@test] tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should select a range of rows with Shift+click`, `should select all rows with Cmd/Ctrl+A and clear the selection with Escape`, `should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
+- The context menu of commits must offer "Drop Commit…" ("Drop N Commits…" for a selection), and Backspace or Delete
+  with rows selected must open the same confirmation below the lead row ([Drop Commits](../drop/spec.md)).
+  [@test] tests/e2e/drop-commits/drop-commits.spec.ts (`should drop a commit and its file from its menu and bring them back with the Undo of its toast`, `should drop the selected commit with the key, and say which branch it leaves without a commit`)
+- While the inline "Move to…" form is open, the card header must show "N selected" alone, as the line above the
+  commits of a branch does ([Move Commits](../../branch/move-commits/spec.md)).
+  [@test] tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
+
+### Conflict view
+
+- A row with a merge conflict must show the conflict viewer below its header.
+- The viewer must start with its title, the explanation and the fix of [Conflict Fix](../../branch/conflict-fix/spec.md);
+  a conflict with the amended commit has the collapsed "How to resolve" hint instead.
+- The badge must say "Merge conflict". The title must name the commit and what it is copied onto: "“<subject>” does
+  not apply cleanly onto <base>", where the base is the parent of a stacked branch or the baseline, and "the amended
+  commit" for an amend conflict. The subject leaves out the grouping prefix. The sub-windows and the branch preview say
+  the same.
+  [@test] src/lib/merge-conflict.test.ts (`names the subject without its grouping prefix and the branch it is copied onto`, `says "the baseline" before the first sync names it`)
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`)
+- The missing commits are the older commits that change a conflicting file and are neither in the branch nor in the
+  branches it is built on, each with the branch it is in (`MissingCommit.branch`, none for an unassigned commit). The copies of the branch's
+  own commits and of its stack ancestors are not missing.
+  [@test] crates/trial-check/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
+- The explanation must be one callout in the row and in the missing-commits window. Its title says where the missing
+  commits are: "18 commits of IJAI-4047 changed these files first", "42 commits of IJAI-4047 and 11 branches it is
+  built on …" when one branch is built on all the others, "… of 12 branches …" otherwise, ", as did 2 unassigned
+  commits" for the unassigned ones, and "No commit outside the branch changed these files first" for none. A sentence
+  says what the branch lacks: "<branch> is built on <base>, which doesn't have them." (not for an amend conflict).
+  [@test] src/lib/merge-conflict.test.ts (`groups the commits by branch, the most first, and finds the branch built on all the others`, `has no stack top when the branches are on two stacks`, `names a single branch`, `says that no commit outside the branch changed the files`, `says what the branch is built on`, `says nothing for a conflict with the amended commit`)
+- The explanation must show a chip per branch with its number of missing commits, the most first, at most 8 and then
+  "+N branches", all 9 of 9 (`cutList`: never "+1 branch"). In the main window a chip shows the branch with its missing commits (`requestReveal`); the window
+  only names them. The common ancestor and the divergence counts are not shown.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should show the branch of the missing commits from the explanation`)
+- The missing commits details must group the commits by branch, in the order of the chips, the unassigned ones last
+  under "Unassigned"; the header of a group names its branch and count, and in the main window shows the branch.
+- The conflicting files must follow, and then the missing commits details.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
+- The conflicting files are to come from `get_file_merges`, as IntelliJ's merge view shows them: git's `merge-tree`
+  decides which files conflict, and the engine merges the three stages of each file again. Each block has its kind,
+  the sides that changed it, its word ranges and its resolution. A conflict that its words resolve says so: "Git
+  stops here; the conflict resolves by words" (`conflicts > 0`, `unresolved == 0`, the `resolvedText` of each of its
+  blocks). A modify/delete shows the diff of the base to the side that kept the file.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`shows the merge in three columns, with the result the engine proposes and the base`)
+  [@test] crates/file-diffs/src/merge_test.rs (`each_conflict_type_has_its_merge`, `a_merge_costs_one_merge_tree_and_one_cat_file_then_nothing`, `the_stream_lists_the_files_then_the_file_in_view_first`, `the_model_is_json_with_a_kind`)
+  [@test] crates/text-diff/src/merge_model_test.rs (`a_conflict_of_other_words_resolves_by_its_words`, `a_conflict_of_the_same_words_stays_with_the_user`, `a_block_is_ignored_where_its_changed_sides_are_equal_ignoring_whitespace`, `blocks_partition_the_three_texts`)
+  [@test] crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
+- The conflicting files must be one list, a collapsible item per file, the first open, each with the number of its
+  conflicts ("1 conflict", "3 conflicts") or "modify/delete". The merge of a file shows in three columns, as
+  IntelliJ's merge viewer, read-only: left the branch the commit is copied onto (ours), right the commit (theirs),
+  named above them. The middle column shows "Result (proposed)" by default: each block as it resolves (the side that
+  changed it, or its resolve by words), and the base for a conflict that does not resolve. "Base" shows the base. A
+  block has the colour of its kind (inserted green, deleted grey, modified blue, conflict red) in the middle and on
+  each side that changed it; a side that did not change it stays plain. The tints follow the rule of a diff, with the
+  word ranges of each side: a block with inner ranges, also empty ones, is pale with its changed words in the full
+  colour, and an insertion or a deletion without them is in the full colour. A conflict that the result resolves has
+  a dashed bar there. Every block is a change that N and P stop at; a block the whitespace choice ignores is pale,
+  never drawn as unchanged lines, as in IntelliJ's merge viewer. The equal lines fold as in a diff. The merge takes
+  the one Whitespace choice of the diffs; IntelliJ's merge has no Ignore Whitespace and Blank Lines, so that choice
+  merges as Ignore Whitespace, and the conflict view has no menu of its own. A resolve action is not part of this
+  view.
+  [@test] src/lib/diff/rows.test.ts (`aligns the blocks of a merge in three columns, the middle the result, without the empty last line`, `counts the lines of a resolve by words in the middle, and moves the middle lines after it`, `folds the equal lines of a merge, labelled by the scopes of the left side under the result`, `draws a block the policy ignores pale, and keeps it a change that N and P stop at, as IntelliJ's merge viewer`, `tints the commit_whitespace merge by IntelliJ's rule under each policy`, `draws the lines of a merge block with inner ranges pale`)
+  [@test] src/lib/diff/row-cells.test.ts (`colours a block in the middle and on the sides that changed it, and marks a resolved conflict in the result`, `leaves a side that did not change a block plain`)
+  [@test] src/lib/diff/file-merge-model.test.ts (`takes the side that changed a block, the resolve by words, or the base of a conflict that does not resolve`, `composes the result text with the line indices of the middle column`)
+  [@test] crates/git-ops/src/merge_conflict_tests.rs (`the_conflicts_of_a_merged_file_are_counted_by_their_start_markers`)
+  [@test] tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`shows the merge in three columns, with the result the engine proposes and the base`)
+- A file that one side deleted and the other changed must show the change of the side that kept it, under a line
+  that says what happened: "<branch> does not have the file, the commit changes it: the change of the commit", or
+  "The commit deletes the file, <branch> changed it: that change". So the list is never empty under a non-zero file
+  count.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should list every conflicting file, the first open, and say that a file without conflict markers is a modify/delete`)
+- A sync must report a conflict without its contents: the commits, each conflicting file with its number of conflicts,
+  and the missing commits with the files they change. Its events stay a few kilobytes whatever the size of the files.
+  A view reads the merges of its conflicting files (`get_file_merges`) when it shows the conflict, one read per
+  conflict and whitespace choice, the open file first, and keeps the last 8; an open item shows "Loading the
+  conflict…" until its merge arrives. The merge works after `git gc` too, while the branch conflicts, also after a
+  sync without the object cache: the sync keeps the copies of the branch's commits before the conflict, which the
+  conflict merges onto, on a ref of its own.
+  [@test] crates/sync-core/src/conflict_report_test.rs (`a_sync_reports_a_conflict_without_the_contents_of_its_files`)
+  [@test] crates/sync-core/src/process_budget_test.rs (`the_target_of_a_conflict_survives_gc`)
+  [@test] crates/sync-core/src/conflict_chain_test.rs (`a_conflicting_branch_keeps_its_copies_while_it_conflicts`, `the_refs_move_with_compare_and_swap_and_a_move_by_another_process_counts`, `a_branch_and_a_branch_below_it_have_refs_of_their_own`)
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should read the merges of a conflict when its view shows it, once for all its files`)
+  [@test] src/stores/file-diffs.test.ts (`reads the merges of a conflict once per policy, the open file first, and the late scopes keep the lines it expanded`, `says why a read failed`)
+- A failed read must make each open item say "Cannot load the conflict: <reason>" under its header, which keeps the
+  file and its conflict count. A failed read is read again when the conflict is shown anew.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should say why the merges of a conflict did not load`)
+- The windows of the conflicting files and of the missing commits must get the conflict without its contents, and the
+  repository, and read the merges and the diffs themselves.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of the conflict in the windows of its files and missing commits`)
+- The diffs of the missing commits must be the diffs of the engine of their commit (one
+  `get_file_diffs` per commit, its texts by blob id), so the unchanged lines between hunks expand. The missing commits
+  header has the split/unified/inline toggle, persisted: a stored choice keeps winning over the Split default.
+  [@test] src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
+- A commit whose conflict of git the sync resolved by words (`branchdeck.resolveByWords`, on by default; see
+  [Agent CLI](../../cli/agent-cli/spec.md), "`brd sync`") must not show a conflict: its row says "Resolved 1 conflict by
+  words" ("Resolved 3 conflicts by words"), a button. A click shows "Resolved by Words" under the row: what git stopped
+  at, that the sync copied the commit with the result as IntelliJ resolves simple conflicts, and the merge of each
+  file in three columns, each file with "1 conflict resolved", the middle "Result (committed)", the blob that the sync
+  committed. A second click hides it. A copy that a later sync reused gives the counts of its mapping note, and its
+  files come with the merges.
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`copies the commit with the result, says so on its row and shows what it committed`)
+  [@test] crates/file-diffs/src/merge_test.rs (`a_resolved_copy_names_the_blob_of_each_file`)
+- A row with a generic error must show the error text in a destructive alert.
+- The conflict commit context of a sub-window must show the title over the meta line of the commit, with the branch
+  name as an extra meta item. An unknown branch must be left out, never shown as "Unknown".
+- The conflict pages in a separate window must show the explanation and the steps of the fix the main window found
+  when it opened them, under "Apply the fix in the main window" (the window shows a snapshot), or the "How to resolve"
+  hint without one. Their window titles must be "Conflicting files · <branch>" and "Missing commits · <branch>".
+
+## User Experience
+
+### Collapsed row
+
+- The subject uses `text-sm text-foreground` in regular weight: weight marks names and titles, so a long list does not
+  outweigh the branch names ([UI Theme](../../../../docs/design/ui-theme.md#rules-for-ui-changes), "Type hierarchy").
+- The prefix uses `font-mono text-xs text-muted-foreground`.
+- The meta line uses `text-xs text-muted-foreground`. The hashes use the monospace font.
+- The mark follows the subject: a 24px box with a 12px muted `RectangleEllipsisIcon` that keeps the 20px line height
+  of the subject, `text-foreground` and `bg-muted` on hover; in the tree of a review a 16px box with a 14px icon, as
+  the mark of a file.
+- Issue links are muted and become `text-foreground` on hover.
+- The push arrow follows the mark: a 16px button with a 12px `ArrowUpIcon` in `text-primary`,
+  `bg-primary/10` on hover. A row its Push Up to Here sends is `bg-primary/5`; the selection tint wins over it.
+- Badges follow the mark: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `primary` Amend target (the target of the user's amend).
+
+### Commit preview
+
+- The preview is a centered dialog on the blurred backdrop, at most 56rem wide and `min(80vh, 48rem)` high.
+- The header shows the whole subject in `text-base font-medium` (16/24px), the title of the dialog, without the
+  two-line clamp, above the meta line. A `border-border` rule separates it.
+- Only the body scrolls. The body has the focus, so PageUp and PageDown scroll it. ↑ and ↓ belong to the navigation.
+- A newly shown commit starts at the top of its body.
+- The footer shows the position on the left and the `Kbd` hints `↑ ↓ Previous/next` and `Space Close` on the right,
+  in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
+- The footer then shows the ghost `xs` buttons `D Review Changes`, which reviews the commit in its window and closes
+  the preview ([Commit Review](../commit-review/spec.md)), and `F Files`, which shows or hides the changed files.
+- An editable preview ends the footer with a ghost `xs` button `E Edit`, enabled during a sync too; "D Review Changes"
+  of a commit without files is disabled with "The commit changes no files". A preview of a list with a row menu has "⋯" in its header, before the close button: the menu of the row (Move to…, Squash into, Push Up to
+  Here, Drop Commit…, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
+  preview first, a copy keeps it (`toPreviewMenu`). One builder lists the menu of commits for the row, its preview and
+  the commit in the review window of its branch (`getCommitMenuGroups`), every item by a stable id
+  ([Branch Review](../../branch/branch-review/spec.md#title-bar-footer-and-actions)).
+  [@test] tests/e2e/commit-message/commit-message.spec.ts (`should offer the menu of the commit's row in its preview`)
+- While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
+  The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and
+  `Esc Cancel` and a primary `xs` button `Save ⌘↵` (`Save Ctrl+Enter` outside macOS) on the right. The button shows a spinner while saving.
+- The selection tint of a row never grows with the message: the row stays two lines.
+
+### Message body
+
+- The body is at most `max-w-prose` (65ch, about 80 characters) wide.
+- The body text is `text-foreground` with the `ss04` font feature, the 14/22px reading text (`text-md`).
+- A section label is a `font-semibold` heading above its blocks in the text colour, as the story of a review sets it; a
+  "Look closely:" section is an info callout, its label the title; a Markdown heading of any level is `font-semibold`
+  at the size of the text; a rule is a `border-border` line of its own.
+- Sections have a 16px gap. Blocks in a section have an 8px gap.
+- Lists have a 20px indent and muted markers.
+- Preformatted text uses `font-mono` one step below the body (`text-sm`) on `bg-muted` and scrolls horizontally.
+- Trailers use `text-xs text-muted-foreground` below a `border-border` rule.
+- Detected code uses the monospace font at the size of the text, without a background: JetBrains Mono has the x-height
+  and cap height of Inter, so a smaller size only shrinks it.
+- Code in backticks also gets a `bg-muted` chip.
+- The body shows the text cursor, and its text is selectable.
+
+### Hover and selection
+
+- A selectable row shows the pointer cursor and `bg-muted` on hover.
+- A selected row uses `bg-primary/15` (the IntelliJ light selection), and `bg-primary/20` on hover.
+- A selected row has no accent bar.
+- A row that is not selectable has no hover tint and keeps the default cursor.
+- The selection actions show `N selected` in muted text, then an outline "Move to…" button in the primary colour.
+
+### Conflict view
+
+- In the expanded row the viewer is three `NestedPanel`s (`rounded-lg border border-border bg-card`, no ring and no
+  shadow), 16px apart: the title with the explanation and the fix, the conflicting files, the missing commits. A sub-window
+  shows the same sections as `Card` islands in a `Container`, 8px apart.
+- The title is `text-sm font-medium` after a `destructive` `TriangleAlertIcon`.
+- The explanation is a `warning` `Callout` with `FileDiffIcon`; its chips are `secondary` `xs` buttons, the count muted
+  and tabular.
+- A conflicting file is a `rounded-lg border` item with the file header of a review (`FileHeaderParts`: `h-9`, the
+  chevron first, turned down when open, the name `FilePathLabel` `emphasis`, Copy Path on hover; a click anywhere on it
+  toggles) and an `outline` badge with its conflict count at its end; the unresolved file has no file header of its
+  own.
+- The file without conflict markers states it in a muted `text-xs` line above its diff.
+
+### Branch table
+
+- An expanded branch of the branch table shows its commits on its lane: a 5px dot (`--bd-lane-dot`) per
+  commit at the middle of its subject line, on the line of the lane, which runs on into the children of the branch or
+  ends at its last commit, beside the other lanes that run on ([Branch Row](../../branch/branch-row/spec.md#tree)). The
+  highlighted path to the root of a stack runs on beside them as well.
+- Without stacks the lane is the one lane of the node of each branch, and the commits are newest first.
+- The subjects start at the left edge of the branch name.
+- An archived branch uses the rail.
+
+### Commit card
+
+- The card is a popover under the whole row of its mark, at the start of the row (above it when there is no room
+  below), never over the meta line of the row (its hash, files and line counts), 36rem wide at most and 24rem high at
+  most; its body scrolls under its
+  header, which stays at the top of the card, and a 40px gradient of `popover` fades its bottom while more is below.
+- The header shows the whole subject in `text-sm font-medium` above the meta line, the line counts coloured
+  (`success`, `destructive`), as every header but a row's (`CommitHeader`: `compact` and `row`, `card`, `heading` in
+  `text-md`, `title` in `text-base`), the "⋯" of the commit at the end of the meta line.
+- The body is `text-sm` (`card`), its sections 12px apart, preformatted text `text-xs`; the trailers below a rule as in
+  the preview.
+
+### Dark theme
+
+- The row uses only shadcn semantic tokens and no `dark:` variants.
+- The body colour and the row tints follow the theme tokens in both themes.
+
+## Testing / Local Run
+
+- `cargo nextest run -p sync-utils -p history-rewrite` runs the tests of the body parser, the subject parts and the
+  grouping preview; `pnpm test:unit` those of the sections, the code detection and the subject prefix in `src/lib`.
+- `pnpm e2e` runs the E2E tests. The tests in `tests/e2e/commit-message` cover the commit preview and its body.
+
+## Open Questions / Risks
+
+- No test covers the Pending, Blocked and generic Error badges. No backend path in the mock server emits them.
+- No test covers the height limit of the commit card, its header staying as the body scrolls, or a commit without a
+  subject in it.
+- The preview shows the whole body; the card and the story of a review fold the parts Rust folds. A body whose shown
+  parts alone are taller than 24rem still scrolls in the card.
+- No test checks that the subject does not detect code.
+- Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
+  ↓ right after Space is lost.
+- No test covers the generic error alert, or the explanation and the steps of the fix in the conflict pages of a
+  separate window.
+- Code detection is heuristic. A false positive sets a prose word in the monospace font. Add such words to the stoplist.
+- Reflow can join lines that the author aligned by hand. An indent of four spaces keeps such lines verbatim.
+
+## References
+
+- [UI Theme: Islands Layering and the Radius Scale](../../../../docs/design/ui-theme.md)
+- [Virtual Branches](../../../../docs/design/virtual-branches.md)
+- GitHub, GitLab and Gerrit show a commit body as monospace `pre-wrap` text.
+- Branch Deck reflows the body into proportional prose, lists and code blocks.
+- A layout like the man page `.TP` macro put the section labels in a side gutter. That layout was tried and dropped.
+- The section labels now stack above their blocks.
+- The body was first expanded inline below the subject. It pushed the other rows down, and the selection tint of a
+  selected row covered the whole body. The preview replaced it.
+- The preview follows macOS Quick Look (Space opens and closes it, the arrows step through the items) and the peek
+  of Linear (Space acts on the hovered item).

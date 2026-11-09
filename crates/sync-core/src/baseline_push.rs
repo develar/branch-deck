@@ -1,5 +1,5 @@
 //! The push of a copy into the branch of the baseline on its remote, which lands it where the repository lands by a
-//! push (`branchdeck.landing=push`; spec/branch/landing-routes.spec.md, "Push to master"; docs/design/git-operations.md,
+//! push (`branchdeck.landing=push`; openspec/specs/branch/landing-routes/spec.md, "Push to master"; docs/design/git-operations.md,
 //! "Push into the baseline"): the commit the sync built of a piece (the tip of its virtual branch) or of a whole stack
 //! (its stack branch), pushed as it is, `git push --porcelain <push URL> <commit>:refs/heads/<target>`.
 //!

@@ -1,4 +1,4 @@
-//! Branch names for the selected commits (spec/branch/branch-name-suggestions.spec.md): the namer of the app
+//! Branch names for the selected commits (openspec/specs/branch/branch-name-suggestions/spec.md): the namer of the app
 //! (`AppHost::suggest_branch_names`, the user's Claude Code), one request at a time
 
 use crate::context::AppContext;

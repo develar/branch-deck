@@ -1,4 +1,4 @@
-//! The remote branches someone else pushed to, as a session finds them (spec/repository/outgoing.spec.md, "Remote
+//! The remote branches someone else pushed to, as a session finds them (openspec/specs/repository/outgoing/spec.md, "Remote
 //! commits of others"): a listing of the pull requests shows the head of each branch on GitHub, and a branch whose open
 //! pull request shows another head than the tip the session knows is fetched (`sync_core::moved_remote`), by the rule
 //! of `domain_policy::refresh::moved_remote_fetch_due`. `MovedFetches` keeps the last fetch of each branch, so one head

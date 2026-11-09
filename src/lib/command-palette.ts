@@ -7,7 +7,7 @@ import { findMenuItem, FROM_MENU } from "@/lib/menu"
 import type { MainViewEntry } from "@/stores/main-view"
 
 /*
- * The command palette of the main window (⌘K, spec/repository/command-palette.spec.md): a way to where the user wants
+ * The command palette of the main window (⌘K, openspec/specs/repository/command-palette/spec.md): a way to where the user wants
  * to be, to the commands of the app and to the actions of the branch at hand. Its sources, in their order: the views of
  * the window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the header and of the app's menu
  * (the items of `mainMenus`, so the palette offers them as the menu does), the actions of the branch whose row has the

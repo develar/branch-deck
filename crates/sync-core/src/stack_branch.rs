@@ -1,6 +1,6 @@
 //! The stack branch of a stack that forks (`{prefix}/stack/<root>`): every commit of its branches in the order of the
 //! checked out branch's history, on the base of the sync, as one more virtual branch, which a Safe Push of the whole
-//! stack lands in one robot (spec/branch/whole-stack.spec.md, docs/design/git-operations.md, "Stack branch").
+//! stack lands in one robot (openspec/specs/branch/whole-stack/spec.md, docs/design/git-operations.md, "Stack branch").
 //!
 //! - **Which stacks**: a stack is a root and the branches built on it, by `effective_base` (or the parent that blocks
 //!   them): every branch's virtual branch has its ancestors' commits, so the stack branch has every piece. One forks

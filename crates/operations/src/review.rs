@@ -1,5 +1,5 @@
 //! The review of a pull request of someone else and its Safe Push (`Intent::SubmitReview`,
-//! spec/repository/review-requests.spec.md, "Reviews" and "Safe Push of a reviewed pull request"): the review of the
+//! openspec/specs/repository/review-requests/spec.md, "Reviews" and "Safe Push of a reviewed pull request"): the review of the
 //! user on the commit the review shows (`PlannedEffect::SubmitReview`, one `POST pulls/<n>/reviews`), then for Approve
 //! and Safe Push the `/patronus merge` comment (`PlannedEffect::StartRobot` by `StartRoute::Comment`, without
 //! `--keep-source-branch`: the branch of someone else goes once merged), only while GitHub still shows the approved

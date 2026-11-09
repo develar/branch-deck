@@ -1,5 +1,5 @@
 //! The agent commands of brd-host that have no client part, as one clap subcommand that `brd-host` flattens into its own
-//! (spec/cli/host.spec.md, "serve", "upgrade"): `serve`, and the hidden `supervise`, `check`, `watchdog` and `dump-env`
+//! (openspec/specs/cli/host/spec.md, "serve", "upgrade"): `serve`, and the hidden `supervise`, `check`, `watchdog` and `dump-env`
 //! that the agent starts itself. `setup --agent` shares the `setup` command of the client, so brd-host parses it and
 //! calls `setup` of this crate
 

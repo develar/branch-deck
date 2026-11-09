@@ -4,7 +4,7 @@ import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
 /*
- * The notifications of the main window (spec/repository/review-requests.spec.md#settings): news is a toast while a
+ * The notifications of the main window (openspec/specs/repository/review-requests/spec.md#settings): news is a toast while a
  * Branch Deck window has the focus; in the background an OS notification says it at once, if its switch in Settings is
  * on, and the toast waits for the focus. An OS notification has no click action.
  */

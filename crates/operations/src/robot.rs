@@ -1,5 +1,5 @@
 //! The restart and the cancel of a robot of the user (`Intent::RestartRobot`, `Intent::CancelRobot`;
-//! spec/branch/patronus.spec.md, "Restart and cancel"), one family of the engine for every surface of the app: the
+//! openspec/specs/branch/patronus/spec.md, "Restart and cancel"), one family of the engine for every surface of the app: the
 //! robot menu, its details, the robots indicator, a toast, the hold of a push.
 //!
 //! - The plan of a restart is the restart the view offers (`PatronusView.restarts` by robot id, one rule:

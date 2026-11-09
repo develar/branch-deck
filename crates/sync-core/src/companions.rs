@@ -1,4 +1,4 @@
-//! Companion repositories (spec/branch/declared-needs.spec.md#companion-repositories): the repositories whose branches a
+//! Companion repositories (openspec/specs/branch/declared-needs/spec.md#companion-repositories): the repositories whose branches a
 //! need names as `<companion>:<branch>`. A primary lists its companions (`branchdeck.companion.<name>.path`), each
 //! companion names its primary (`branchdeck.primary`); a need of a companion names the primary by the name of its
 //! directory, and the other companions of that primary by their names. How a branch of a companion stands is read of

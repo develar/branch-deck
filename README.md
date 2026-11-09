@@ -37,7 +37,7 @@ The rules, checked on the first line of the message:
 
 1. A `(name)` prefix wins.
 2. Otherwise an issue key groups the commit, into a branch of the key or into the branch its
-   [issue group](spec/branch/issue-groups.spec.md) names. A leading `[subsystem]` tag is skipped.
+   [issue group](openspec/specs/branch/issue-groups/spec.md) names. A leading `[subsystem]` tag is skipped.
 3. `fixup!`, `squash!` and `amend!` commits go with the commit they fix.
 
 Nothing here writes to your files: syncs and history rewrites (reword, move, squash, amend) build commits with
@@ -61,7 +61,7 @@ Run the same command to upgrade. You need **Git 2.54 or newer** (`brew install g
 [git-core PPA](https://launchpad.net/~git-core/+archive/ubuntu/ppa); [Git for Windows](https://git-scm.com/downloads/win))
 and a Git identity (`user.name`, `user.email`). Optional: a GitHub token for pull requests, which the app takes from
 [`gh`](https://cli.github.com), `GH_TOKEN` or the HTTPS credentials git stores for github.com, or gets by its own
-[sign-in](spec/repository/github-sign-in.spec.md), and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
+[sign-in](openspec/specs/repository/github-sign-in/spec.md), and [Claude Code](https://code.claude.com/docs/en/setup) for branch name suggestions.
 
 <details>
 <summary>Why a script, the options, and installing by hand</summary>
@@ -108,47 +108,47 @@ publisher: choose More info → Run anyway.
 
 - **Grouping and moving**: drag commits or whole branches onto a branch, or choose Move to…; a preview says what the
   move changes, and one Undo takes it back. Moving whole issues writes an
-  [issue group](spec/branch/issue-groups.spec.md) instead of rewriting their subjects. Claude Code can suggest two
-  names for a new branch ([move](spec/branch/move-commits.spec.md), [names](spec/branch/branch-name-suggestions.spec.md)).
+  [issue group](openspec/specs/branch/issue-groups/spec.md) instead of rewriting their subjects. Claude Code can suggest two
+  names for a new branch ([move](openspec/specs/branch/move-commits/spec.md), [names](openspec/specs/branch/branch-name-suggestions/spec.md)).
   A branch that conflicts says which branches have what it needs and offers the regroup a trial build verified, with
-  Undo ([conflict fix](spec/branch/conflict-fix.spec.md)).
+  Undo ([conflict fix](openspec/specs/branch/conflict-fix/spec.md)).
 - **Stacked branches**: `(auth/login)` builds `login` on top of `auth`. The table
   draws a stack as one line, as Sapling and jj do, headed by its root ("22 branches", which collapses the stack), and
   hovering a branch lights the path down to it, what its push sends; a push sends the parents first, and each pull
   request goes into master with what it lands, the commits of the branches below it
-  ([spec](spec/branch/stacked-branches.spec.md)). Stack On, Unstack and Stack Together store the parent in
+  ([spec](openspec/specs/branch/stacked-branches/spec.md)). Stack On, Unstack and Stack Together store the parent in
   `refs/branch-deck/stack-parents`, not in the subjects, so stacking an issue branch on another one rewrites no commit
-  ([stack parents](spec/branch/stack-parents.spec.md)). A stack that forks is also one branch of all its commits,
+  ([stack parents](openspec/specs/branch/stack-parents/spec.md)). A stack that forks is also one branch of all its commits,
   with its own pull request into master, so the whole stack, side branches included, lands at once from its header
-  ([whole stack](spec/branch/whole-stack.spec.md)). Select two or more branches and Stack Together builds an oldest-first
-  chain ([spec](spec/branch/stacked-branches.spec.md)).
+  ([whole stack](openspec/specs/branch/whole-stack/spec.md)). Select two or more branches and Stack Together builds an oldest-first
+  chain ([spec](openspec/specs/branch/stacked-branches/spec.md)).
 - **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; a commit a
   colleague pushed to your pull request shows up before you push and comes into the branch with Pick Remote Commits
-  ([Outgoing Commits](spec/repository/outgoing.spec.md#remote-commits-of-others)); the pull
+  ([Outgoing Commits](openspec/specs/repository/outgoing/spec.md#remote-commits-of-others)); the pull
   request, its review state and checks from GitHub; Create Pull Request into master with the suggested code owners
   asked to review. Each row shows its next step, such as the review it waits for, and never offers a push that is
   known to fail; the header says which moves on the way to master are yours
-  ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md), [next step](spec/branch/next-step.spec.md), [landing overview](spec/repository/landing-overview.spec.md)).
+  ([outgoing](openspec/specs/repository/outgoing/spec.md), [pull requests](openspec/specs/branch/pull-requests/spec.md), [next step](openspec/specs/branch/next-step/spec.md), [landing overview](openspec/specs/repository/landing-overview/spec.md)).
   A repository can also land each piece by a fast-forward push of its copy into master, chosen in Settings → Landing
-  ([landing routes](spec/branch/landing-routes.spec.md)).
+  ([landing routes](openspec/specs/branch/landing-routes/spec.md)).
   The Landing view (⌘3) shows how your landings went: merges, how many tries each took, where the time went and why
-  it failed, against everyone else ([statistics](spec/repository/main-views.spec.md)).
+  it failed, against everyone else ([statistics](openspec/specs/repository/main-views/spec.md)).
   A branch you keep only locally, waiting for a proper fix, can be parked with a note: no push sends it and it is not
-  your move ([parked branches](spec/branch/parked-branches.spec.md)).
+  your move ([parked branches](openspec/specs/branch/parked-branches/spec.md)).
   When two branches must land in an order no build sees, also across repositories, `brd need` declares it, and no
-  start lands the second one first ([declared needs](spec/branch/declared-needs.spec.md)).
-  A failed Safe Push starts its fix as an agent session in the IDE with Air ([Start in Air](spec/branch/start-in-air.spec.md)).
+  start lands the second one first ([declared needs](openspec/specs/branch/declared-needs/spec.md)).
+  A failed Safe Push starts its fix as an agent session in the IDE with Air ([Start in Air](openspec/specs/branch/start-in-air/spec.md)).
 - **Staying up to date**: Update Project (⌘T / Ctrl+T) fetches the baseline and rebases your commits, and says
   beforehand whether that is clean. On a conflict nothing changes, and a coding agent can resolve it commit by commit
   outside the working tree. Branches that were merged, rebased or squashed upstream are detected and archived, and
-  the header says which of your commits landed ([update](spec/repository/update-project.spec.md),
-  [landed](spec/repository/landed-commits.spec.md), [detection](docs/design/integration-detection.md)).
+  the header says which of your commits landed ([update](openspec/specs/repository/update-project/spec.md),
+  [landed](openspec/specs/repository/landed-commits/spec.md), [detection](docs/design/integration-detection.md)).
 - **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit, a whole branch or one set aside in a window
   of its own, one scrolling view (`J`/`K` files, `N`/`P` changes), coloured as IntelliJ colours the code, a ⌘-click
   on a name going to its declaration, ⌥F7 listing its usages. Your Turn lists the pull requests that wait for your
   review and opens them in the same window to approve or request changes; the Reviews view (⌘2) shows every pull
-  request you take part in, and one added by its link ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md), [set aside](spec/review/review-window.spec.md),
-  [navigation](spec/commit/symbol-navigation.spec.md), [Your Turn](spec/repository/review-requests.spec.md), [Reviews](spec/repository/reviews.spec.md)).
+  request you take part in, and one added by its link ([commit](openspec/specs/commit/commit-review/spec.md), [branch](openspec/specs/branch/branch-review/spec.md), [set aside](openspec/specs/review/review-window/spec.md),
+  [navigation](openspec/specs/commit/symbol-navigation/spec.md), [Your Turn](openspec/specs/repository/review-requests/spec.md), [Reviews](openspec/specs/repository/reviews/spec.md)).
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
@@ -157,23 +157,23 @@ publisher: choose More info → Run anyway.
 - **History editing with Undo**: reword, amend uncommitted changes into a branch, squash commits even when others lie
   between them, fold fixup commits, drop a commit that must not land instead of reverting it, unapply a branch with
   its files and reapply it later. Activity lists what Branch Deck did, with Undo while it lasts
-  ([squash](spec/commit/squash.spec.md), [fixups](spec/commit/fixups.spec.md), [drop](spec/commit/drop.spec.md),
-  [unapply](spec/branch/unapply.spec.md), [activity](spec/repository/activity.spec.md)).
+  ([squash](openspec/specs/commit/squash/spec.md), [fixups](openspec/specs/commit/fixups/spec.md), [drop](openspec/specs/commit/drop/spec.md),
+  [unapply](openspec/specs/branch/unapply/spec.md), [activity](openspec/specs/repository/activity/spec.md)).
 - **At home next to IntelliJ**: the Islands colours and density, light and dark, the toolbar in the title bar, issue
   links from the IDE's issue navigation (`.idea/vcs.xml`), zoom from 67% to 150%, and a Settings window with a page
-  per subject ([settings](spec/repository/settings.spec.md)); ⌘K finds a branch, a view or a command
-  ([command palette](spec/repository/command-palette.spec.md)). Signed in to YouTrack, an issue key shows the issue on
-  hover and marks it fixed once its work landed ([YouTrack](spec/repository/youtrack.spec.md)). Settings → Tools
+  per subject ([settings](openspec/specs/repository/settings/spec.md)); ⌘K finds a branch, a view or a command
+  ([command palette](openspec/specs/repository/command-palette/spec.md)). Signed in to YouTrack, an issue key shows the issue on
+  hover and marks it fixed once its work landed ([YouTrack](openspec/specs/repository/youtrack/spec.md)). Settings → Tools
   shows the skill of `brd`, and installs and updates the `teamcity` and `youtrack` CLIs your agents use, with their
-  agent skills ([tools](spec/repository/cli-tools.spec.md)).
+  agent skills ([tools](openspec/specs/repository/cli-tools/spec.md)).
   Disk Usage shows what the worktrees of your agents take on this Mac and on your build hosts, and trims them to their
-  limit ([disk usage](spec/repository/disk-usage.spec.md)).
+  limit ([disk usage](openspec/specs/repository/disk-usage/spec.md)).
 
 ## Agent CLI
 
 `brd` gives a coding agent what the app sees, as JSON: the commits ahead of the baseline, their files, the
 dependencies between them, by lines and by the names they declare and use in Kotlin, Java, C#, Rust and TypeScript
-([symbol dependencies](spec/commit/symbol-dependencies.spec.md)), and the branches. It suggests a grouping checked by
+([symbol dependencies](openspec/specs/commit/symbol-dependencies/spec.md)), and the branches. It suggests a grouping checked by
 a trial sync, applies it as one rewrite of the commit messages that can be undone, pushes and updates:
 
 ```sh
@@ -191,7 +191,7 @@ Help → Install Agent CLI… (or `brd install`) puts `brd` on `PATH` and a skil
 `~/.agents/skills`, so agents know when to use it; `brd help agent` prints the workflow. Agents then work in a worktree
 of their own, land each commit on your branch and name its branch in the subject; once asked, they push the branch and
 open its pull request. Each rule is yours to switch in Settings → Agents, for every repository or for one
-([brd workspace](spec/cli/workspace.spec.md)). On macOS and Linux `brd` is
+([brd workspace](openspec/specs/cli/workspace/spec.md)). On macOS and Linux `brd` is
 the app binary (`branch-deck cli`), on Windows `brd.exe` next to it. See the [Agent CLI](docs/contributing/agent-cli.md).
 
 ## Compared To
@@ -211,7 +211,7 @@ the app binary (`branch-deck cli`), on Windows `brd.exe` next to it. See the [Ag
 - [Design docs](docs/design/): [Virtual Branches](docs/design/virtual-branches.md),
   [Git Operations](docs/design/git-operations.md), [Integration Detection](docs/design/integration-detection.md),
   [Remote Status](docs/design/remote-status.md) and more.
-- [Specs](spec/): the exact behaviour of every feature.
+- [Specs](openspec/specs/): the exact behaviour of every feature, in the [OpenSpec](https://github.com/Fission-AI/OpenSpec) format.
 - [Guides](docs/guide/): [Runs on Another Mac](docs/guide/host-runs.md), a command of your checkout on your other
   Mac with `brd-host`.
 - [DEVELOPMENT.md](DEVELOPMENT.md): building, testing and contributing.

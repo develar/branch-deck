@@ -1,4 +1,4 @@
-// @spec spec/commit/symbol-navigation.spec.md
+// @spec openspec/specs/commit/symbol-navigation/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { NavigationGate } from "@/lib/navigation-gate"
 

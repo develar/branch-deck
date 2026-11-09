@@ -168,7 +168,7 @@ jobs:
           APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
           APPLE_API_KEY_PATH: ${{ runner.os == 'macOS' && format('{0}/branch-deck-notarization.p8', runner.temp) || '' }}
-          # the Branch Deck OAuth app of the GitHub sign-in (spec/repository/github-sign-in.spec.md); public, the device
+          # the Branch Deck OAuth app of the GitHub sign-in (openspec/specs/repository/github-sign-in/spec.md); public, the device
           # flow has no client secret
           BRANCH_DECK_GITHUB_CLIENT_ID: Ov23liKt3gDvjXz8peJ6
         with:

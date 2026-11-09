@@ -24,7 +24,7 @@ export interface CommitCardProps {
 }
 
 /**
- * The one card of a commit (spec/commit/commit-row.spec.md, "Commit card"): its header (`CommitHeader`), the subject
+ * The one card of a commit (openspec/specs/commit/commit-row/spec.md, "Commit card"): its header (`CommitHeader`), the subject
  * whole over the meta line with its line counts coloured, then its body (`CommitBodyView`), its trailers last. The card
  * of a row's mark (`CommitRowMark`, in the lists of the main window and the tree of a review), the commits of the
  * preview of a branch and the commit a review shows alone; the commit preview shows the same header as its title and

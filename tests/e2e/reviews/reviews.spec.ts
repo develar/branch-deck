@@ -1,4 +1,4 @@
-// @spec spec/repository/reviews.spec.md
+// @spec openspec/specs/repository/reviews/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
 import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"

@@ -1,4 +1,4 @@
-// The words of the line at the end of a long card of a review and of its last card (spec/commit/commit-review.spec.md):
+// The words of the line at the end of a long card of a review and of its last card (openspec/specs/commit/commit-review/spec.md):
 // what J shows next, which the review decides (`stepSection` of CommitReview), or that nothing is left.
 
 /** The line at the end of a card: the section J shows next, or the end */

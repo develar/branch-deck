@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-preview.spec.md
+// @spec openspec/specs/branch/branch-preview/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"

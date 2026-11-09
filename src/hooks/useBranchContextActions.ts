@@ -122,7 +122,7 @@ function present(...items: (MenuItem | null)[]): MenuItem[] {
 }
 
 /**
- * Context menu of an active branch row, its actions by how often they are wanted (`spec/branch/branch-row.spec.md`, "Branch
+ * Context menu of an active branch row, its actions by how often they are wanted (`openspec/specs/branch/branch-row/spec.md`, "Branch
  * menu"), each offered and disabled as Rust decides it (`domain_policy::actions`, `presentAction`): the fix of a
  * conflict, then the landing (Safe Push first, the actions of the branch's robot, the rarer starts in "Patronus ›", the
  * push), the review (review the changes, open or create the pull request), the shape (rename, move, stack, ungroup), the
@@ -257,7 +257,7 @@ function getCopyMenuItem(branch: Branch, pullRequest: PullRequest | undefined): 
 
 /**
  * "Add Need…" (the form of what lands before the branch) and of a branch that declared needs "Remove Need: docs", a
- * submenu of them for two or more (spec/branch/declared-needs.spec.md): no rewrite, the lines of `refs/branch-deck/needs`
+ * submenu of them for two or more (openspec/specs/branch/declared-needs/spec.md): no rewrite, the lines of `refs/branch-deck/needs`
  */
 function getNeedMenuItems(branch: Branch): MenuItem[] {
   const name = branch.name

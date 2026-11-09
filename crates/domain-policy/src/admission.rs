@@ -1,6 +1,6 @@
 //! The admission of an operation of the remote, for the windows of the app, the processes of `bd` and every family of
 //! intents alike (docs/design/rust-domain-authority.md, "Конкурентность"; docs/design/operations.md;
-//! spec/branch/branch-row.spec.md, spec/branch/patronus.spec.md, spec/cli/agent-cli.spec.md): over the operations of
+//! openspec/specs/branch/branch-row/spec.md, openspec/specs/branch/patronus/spec.md, openspec/specs/cli/agent-cli/spec.md): over the operations of
 //! this process that run or wait (`RunningOperation`, in the order they were admitted), a new one
 //!
 //! - joins an operation of the same intent: it gets that outcome and runs nothing of its own (`Join`);

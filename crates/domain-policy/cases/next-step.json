@@ -3,7 +3,7 @@
     "id": "row-1-syncing",
     "group": "next-step-rows",
     "title": "the app's sync runs: nothing starts until it ends; bd runs its own sync first",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "sync": "running"
     },
@@ -21,7 +21,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "bd syncs under the repository lock before it plans (spec/cli/agent-cli.spec.md#brd-safe-push): a sync of the app is no state of bd"
+      "why": "bd syncs under the repository lock before it plans (openspec/specs/cli/agent-cli/spec.md#brd-safe-push): a sync of the app is no state of bd"
     },
     "bd": {
       "step": {
@@ -34,7 +34,7 @@
     "id": "row-1-sync-failed",
     "group": "next-step-rows",
     "title": "the branch failed to sync: its commit changes a file only an unassigned commit creates",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "conflicts": "auth"
     },
@@ -52,7 +52,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "push_refused"
@@ -62,7 +62,7 @@
     "id": "row-1-held-by-its-running-robot",
     "group": "next-step-rows",
     "title": "a Safe Push runs on the last commit of the branch: it holds its pushes and every start",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "running",
@@ -87,7 +87,7 @@
     "id": "row-1-parked",
     "group": "next-step-rows",
     "title": "the user parked the branch: it stays local",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/parked-branches.spec.md", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/branch/parked-branches/spec.md", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "parked": "self"
     },
@@ -105,7 +105,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "parked"
@@ -115,7 +115,7 @@
     "id": "row-1-landed-in-baseline",
     "group": "next-step-rows",
     "title": "a Safe Push landed every commit of the branch and the baseline with them was fetched: landed in origin/master until the update, nothing to start",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "landed": "inBaseline"
     },
@@ -136,7 +136,7 @@
     "id": "row-1-merged-robot",
     "group": "next-step-rows",
     "title": "the robot of the branch merged it on its last commit",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/patronus.spec.md#merged", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/branch/patronus/spec.md#merged", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "success",
@@ -161,7 +161,7 @@
     "id": "row-1-merged-pull-request",
     "group": "next-step-rows",
     "title": "GitHub merged the pull request #7 with the commits of the branch: it landed, both hold it (domain_policy::landed, D13)",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "pullRequest": {
         "state": "merged"
@@ -184,7 +184,11 @@
     "id": "row-1-running-robot-of-an-older-commit",
     "group": "next-step-rows",
     "title": "a Safe Push of an older commit runs: the app's start replaces it after the popover, bd asks for --cancel-running",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:1",
+      "openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "robot": {
         "state": "running",
@@ -208,7 +212,11 @@
     "id": "row-1-prime-landing-needs",
     "group": "next-step-rows",
     "title": "the branch uses a name only codec, outside what it lands, adds: the app says so and lets it start anyway, bd refuses without --allow-missing",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1′", "spec/branch/next-step.spec.md#what-the-safe-push-needs", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:1′",
+      "openspec/specs/branch/next-step/spec.md#what-the-safe-push-needs",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "landingNeeds": true
     },
@@ -227,7 +235,7 @@
     "id": "row-2-failed-robot",
     "group": "next-step-rows",
     "title": "the robot of the tip failed, not for approvals: Restart Safe Push",
-    "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:2", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "failure",
@@ -250,7 +258,7 @@
     "id": "row-2-canceled-robot",
     "group": "next-step-rows",
     "title": "the robot of the tip was canceled: Restart Safe Push",
-    "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:2", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "canceled",
@@ -273,7 +281,7 @@
     "id": "row-3-approved-since-the-failure",
     "group": "next-step-rows",
     "title": "the robot started from #7 failed for approvals, which arrived since: Restart Safe Push from the pull request",
-    "spec": ["spec/branch/next-step.spec.md#the-table:3", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:3", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "failure",
@@ -301,7 +309,7 @@
     "id": "row-3-unknown-keeps-the-pull-request",
     "group": "next-step-rows",
     "title": "the robot failed for approvals and Patronus can't judge them yet: the pull request step stays",
-    "spec": ["spec/branch/next-step.spec.md#the-table:3", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:3", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "failure",
@@ -330,7 +338,7 @@
     "id": "row-3-robot-of-the-tip-listed-before-a-canceled-older-one",
     "group": "next-step-rows",
     "title": "the robot of the tip failed for approvals Patronus can't judge yet, an older one started at the same time was canceled: the one listed first is the branch's robot, the pull request step stays",
-    "spec": ["spec/branch/next-step.spec.md#the-table:3", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:3", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": [
         {
@@ -365,7 +373,7 @@
     "id": "row-5-into-the-parent",
     "group": "next-step-rows",
     "title": "the pull request of login goes into the virtual branch of its parent auth: its start retargets it into master first and starts from it (D11)",
-    "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:5", "openspec/specs/branch/pull-requests/spec.md", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -391,7 +399,7 @@
     "id": "row-5-into-another-branch",
     "group": "next-step-rows",
     "title": "the pull request of auth goes into the virtual branch of session, another branch of the table: its start retargets it into master first and starts from it (D11)",
-    "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:5", "openspec/specs/branch/pull-requests/spec.md", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(session) Add session"],
       "branch": "auth",
@@ -415,7 +423,7 @@
     "id": "row-5-into-a-landed-branch",
     "group": "next-step-rows",
     "title": "the pull request of auth goes into the virtual branch of gone, which landed and was archived: its start retargets it into master first and starts from it (D11)",
-    "spec": ["spec/branch/next-step.spec.md#the-table:5", "spec/branch/pull-requests.spec.md", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:5", "openspec/specs/branch/pull-requests/spec.md", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "branch": "auth",
       "pullRequest": {
@@ -438,7 +446,11 @@
     "id": "row-5-prime-another-base",
     "group": "next-step-rows",
     "title": "the pull request #7 goes into release-252, which may be meant: its approvals count for no Safe Push into master, so both refuse a start that counts them (D3b, closed)",
-    "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:5′",
+      "openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "pullRequest": {
         "base": "release-252"
@@ -460,7 +472,11 @@
     "id": "row-5-prime-another-base-without-review",
     "group": "next-step-rows",
     "title": "the pull request #7 goes into release-252, and the profile of the last robot, which failed on an older commit, skips the review: the start counts no approval, so the base holds nothing back; both start through the API",
-    "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:5′",
+      "openspec/specs/branch/patronus/spec.md#safe-push-without-review",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "pullRequest": {
         "base": "release-252"
@@ -491,7 +507,7 @@
     "id": "row-6-draft",
     "group": "next-step-rows",
     "title": "the pull request #7 is a draft: Patronus merges it once it is ready for review",
-    "spec": ["spec/branch/next-step.spec.md#the-table:6", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:6", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "pullRequest": {
         "draft": true
@@ -513,7 +529,7 @@
     "id": "row-7-no-pull-request",
     "group": "next-step-rows",
     "title": "approvals missing and no pull request to count them in: Create Pull Request…",
-    "spec": ["spec/branch/next-step.spec.md#the-table:7", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:7", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing"
     },
@@ -533,7 +549,7 @@
     "id": "row-7-closed-pull-request",
     "group": "next-step-rows",
     "title": "approvals missing, the pull request #7 closed: Create Pull Request…",
-    "spec": ["spec/branch/next-step.spec.md#the-table:7", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:7", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing",
       "pullRequest": {
@@ -556,7 +572,7 @@
     "id": "row-8-changes-requested",
     "group": "next-step-rows",
     "title": "approvals missing, Ilya Korennoy of the missing group requested changes on #7",
-    "spec": ["spec/branch/next-step.spec.md#the-table:8", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:8", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing",
       "pullRequest": {
@@ -579,7 +595,7 @@
     "id": "row-9-request-review",
     "group": "next-step-rows",
     "title": "approvals missing, nobody of the missing group is requested on #7: Request Review…",
-    "spec": ["spec/branch/next-step.spec.md#the-table:9", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:9", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing",
       "pullRequest": {}
@@ -600,7 +616,7 @@
     "id": "row-10-awaiting",
     "group": "next-step-rows",
     "title": "approvals missing, Ilya Korennoy is requested on #7: the wait for him",
-    "spec": ["spec/branch/next-step.spec.md#the-table:10", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:10", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing",
       "pullRequest": {
@@ -623,7 +639,7 @@
     "id": "row-8-prime-changes-requested-unjudged",
     "group": "next-step-rows",
     "title": "Patronus can't judge the approvals, bob requested changes on #7: the step says it, the start stays",
-    "spec": ["spec/branch/next-step.spec.md#the-table:8′", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:8′", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unknown",
       "pullRequest": {
@@ -647,7 +663,7 @@
     "id": "row-10-prime-awaiting-unjudged",
     "group": "next-step-rows",
     "title": "Patronus can't judge the approvals, #7 waits for bob: the step says it, the start stays",
-    "spec": ["spec/branch/next-step.spec.md#the-table:10′", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:10′", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unknown",
       "pullRequest": {
@@ -671,7 +687,7 @@
     "id": "row-11-approved",
     "group": "next-step-rows",
     "title": "the code owners approved #7: Safe Push from the pull request",
-    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:11", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "approved",
       "pullRequest": {
@@ -693,7 +709,7 @@
     "id": "row-11-not-required",
     "group": "next-step-rows",
     "title": "no approval is needed: Safe Push",
-    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:11", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {},
     "expect": {
       "step": {
@@ -710,7 +726,7 @@
     "id": "row-11-unknown",
     "group": "next-step-rows",
     "title": "Patronus can't judge the approvals of #7 and GitHub tells no wait: Safe Push, the popover says the start checks them",
-    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:11", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unknown",
       "pullRequest": {
@@ -733,7 +749,7 @@
     "id": "row-11-unavailable",
     "group": "next-step-rows",
     "title": "Patronus can't answer for the review: the app confirms, bd refuses review_unknown unless --allow-unknown-review",
-    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:11", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unavailable"
     },
@@ -753,7 +769,7 @@
     "id": "row-11-not-asked-yet",
     "group": "next-step-rows",
     "title": "nobody asked Patronus for the review yet: the app's step waits for the answer (Checking…), bd always asks",
-    "spec": ["spec/branch/next-step.spec.md#the-table:0", "spec/branch/next-step.spec.md#the-table:11", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:0", "openspec/specs/branch/next-step/spec.md#the-table:11", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "notAsked"
     },
@@ -771,7 +787,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "bd asks Patronus for the review before it plans (spec/cli/agent-cli.spec.md#brd-safe-push): a readiness the app's scan hasn't answered yet is no state of bd"
+      "why": "bd asks Patronus for the review before it plans (openspec/specs/cli/agent-cli/spec.md#brd-safe-push): a readiness the app's scan hasn't answered yet is no state of bd"
     },
     "bd": {
       "step": {
@@ -788,7 +804,7 @@
     "id": "row-11-pull-requests-unlisted",
     "group": "next-step-rows",
     "title": "GitHub doesn't list the pull requests: rows 5 to 10 don't apply, the start confirms first",
-    "spec": ["spec/branch/next-step.spec.md#the-table:11", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:11", "openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unlisted"
     },
@@ -808,7 +824,7 @@
     "id": "not-on-space-hidden",
     "group": "next-step-rows",
     "title": "origin is not on Space: the app offers no start, bd refuses",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "notOnSpace": true
     },
@@ -825,7 +841,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "a repository Patronus can't push fails the command: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "a repository Patronus can't push fails the command: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "not_on_space"
@@ -835,7 +851,7 @@
     "id": "landed-by-content-work-left",
     "group": "next-step-rows",
     "title": "the baseline landed the commits of auth rebuilt, one commit added since: that commit is the work left",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth) Add login"],
       "landed": "byContent"
@@ -855,7 +871,7 @@
     "id": "stacked-own-pull-request-awaiting",
     "group": "stack-and-whole-stack",
     "title": "login built on auth takes the rows of its own pull request: it waits for Ilya Korennoy on #7",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/next-step.spec.md#the-table:10", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/branch/next-step/spec.md#the-table:10", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -882,7 +898,7 @@
     "id": "stacked-parent-failed",
     "group": "stack-and-whole-stack",
     "title": "auth fails to sync: login built on it is blocked",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -904,7 +920,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "push_refused"
@@ -914,7 +930,7 @@
     "id": "stacked-blocked-safe-push-runs",
     "group": "stack-and-whole-stack",
     "title": "auth fails to sync while the Safe Push of login built on it runs: login says its robot first, the block beside it",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/branch-row.spec.md#status-cell", "spec/cli/agent-cli.spec.md#brd-status"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/branch/branch-row/spec.md#status-cell", "openspec/specs/cli/agent-cli/spec.md#brd-status"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -934,7 +950,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "brd status reads the grouping without a sync, so it knows no failure of one, and brd safe-push refuses what its own sync left unbuilt before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-status, spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "brd status reads the grouping without a sync, so it knows no failure of one, and brd safe-push refuses what its own sync left unbuilt before Patronus or GitHub is asked: openspec/specs/cli/agent-cli/spec.md#brd-status, openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "push_refused",
@@ -945,7 +961,7 @@
     "id": "stacked-parent-conflict-landed-by-child",
     "group": "stack-and-whole-stack",
     "title": "auth fails to sync while the Safe Push of login built on it lands it: auth says its conflict, its fix",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/branch-row.spec.md#status-cell", "spec/cli/agent-cli.spec.md#brd-status"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/branch/branch-row/spec.md#status-cell", "openspec/specs/cli/agent-cli/spec.md#brd-status"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "auth",
@@ -963,7 +979,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "brd status reads the grouping without a sync, so it knows no failure of one, and brd safe-push refuses what its own sync left unbuilt before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-status, spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "brd status reads the grouping without a sync, so it knows no failure of one, and brd safe-push refuses what its own sync left unbuilt before Patronus or GitHub is asked: openspec/specs/cli/agent-cli/spec.md#brd-status, openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "push_refused",
@@ -974,7 +990,7 @@
     "id": "stacked-built-on-parked",
     "group": "stack-and-whole-stack",
     "title": "auth is parked: login built on it stays local too",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/parked-branches.spec.md", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/branch/parked-branches/spec.md", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -996,7 +1012,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "parked"
@@ -1006,7 +1022,7 @@
     "id": "stacked-robot-lands-an-ancestor",
     "group": "stack-and-whole-stack",
     "title": "a Safe Push of auth runs: login, which carries its commits, waits until it merges",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -1033,7 +1049,7 @@
     "id": "stacked-dry-run-beside-an-ancestor-robot",
     "group": "stack-and-whole-stack",
     "title": "a Safe Push of auth runs: a Dry Run of login may run",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -1061,7 +1077,7 @@
     "id": "row-2-waits-for-the-earlier-piece",
     "group": "stack-and-whole-stack",
     "title": "the robot of login failed while a Safe Push of auth runs, which lands a part of it: no restart, the start waits",
-    "spec": ["spec/branch/next-step.spec.md#the-table:2", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:2", "openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "branch": "login",
@@ -1094,7 +1110,7 @@
     "id": "landed-with-a-branch-built-on-it",
     "group": "stack-and-whole-stack",
     "title": "the merged Safe Push of login landed auth with it",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table:1", "openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "robot": {
@@ -1119,7 +1135,11 @@
     "id": "landed-with-the-whole-stack",
     "group": "stack-and-whole-stack",
     "title": "the merged Safe Push of the whole auth stack landed login",
-    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:1",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "branch": "login",
@@ -1145,7 +1165,11 @@
     "id": "row-7-piece-of-a-whole-stack-whose-pull-request-is-open",
     "group": "stack-and-whole-stack",
     "title": "login has no pull request of its own while #12 of the whole auth stack is open: In #12, its approvals count only for the whole stack",
-    "spec": ["spec/branch/next-step.spec.md#the-table:7", "spec/branch/next-step.spec.md#the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:7",
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "branch": "login",
@@ -1170,7 +1194,11 @@
     "id": "whole-stack-built",
     "group": "stack-and-whole-stack",
     "title": "the stack of auth forks, its stack branch is built: Safe Push of the whole stack lands every branch",
-    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "subject": "wholeStack"
@@ -1192,7 +1220,11 @@
     "id": "whole-stack-conflict",
     "group": "stack-and-whole-stack",
     "title": "session conflicts, and so does the stack branch: the stack lands in pieces",
-    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "subject": "wholeStack",
@@ -1217,7 +1249,11 @@
     "id": "whole-stack-not-built",
     "group": "stack-and-whole-stack",
     "title": "session has a stack problem: the stack branch is not built",
-    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "subject": "wholeStack",
@@ -1242,7 +1278,11 @@
     "id": "whole-stack-lands-the-rest",
     "group": "stack-and-whole-stack",
     "title": "the merged Safe Push of login landed auth and login: the whole stack lands session",
-    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "subject": "wholeStack",
@@ -1268,7 +1308,11 @@
     "id": "whole-stack-all-landed",
     "group": "stack-and-whole-stack",
     "title": "the merged Safe Pushes of login and session landed every branch: nothing is left",
-    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
       "subject": "wholeStack",
@@ -1302,7 +1346,11 @@
     "id": "whole-stack-straight-chain",
     "group": "stack-and-whole-stack",
     "title": "the stack of auth doesn't fork: its whole stack is the step of its last branch, login",
-    "spec": ["spec/branch/next-step.spec.md#the-whole-stack", "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-whole-stack",
+      "openspec/specs/branch/whole-stack/spec.md#the-safe-push-of-the-whole-stack",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login"],
       "subject": "wholeStack"

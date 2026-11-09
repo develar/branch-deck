@@ -1,4 +1,4 @@
-//! The reviewer groups of a pull request of someone else a review window shows (spec/branch/patronus.spec.md, "The
+//! The reviewer groups of a pull request of someone else a review window shows (openspec/specs/branch/patronus/spec.md, "The
 //! readiness of a request"; `reviewer_groups`): of the readiness of the request as Patronus answered it, the groups its
 //! changes need, each with whether it has its approvals and whether the user is a member whose approval can count, by
 //! the GitHub login of the app's sign-in. None while Patronus didn't answer, and when the changes need no approval.

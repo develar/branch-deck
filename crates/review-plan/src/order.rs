@@ -1,4 +1,4 @@
-//! The dependency order of the files of a review (spec/branch/review-plan.spec.md, "Dependency order"): a file that
+//! The dependency order of the files of a review (openspec/specs/branch/review-plan/spec.md, "Dependency order"): a file that
 //! declares what another file of the review uses comes before it, a test right after its subject.
 //!
 //! - **The files**: every path the reviewed commits change, once, at its last path (`files::changed_files`): a renamed

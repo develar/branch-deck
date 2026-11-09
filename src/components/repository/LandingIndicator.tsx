@@ -22,7 +22,7 @@ export interface LandingIndicatorProps {
 }
 
 /**
- * The header button of the work on its way into master ([Landing Overview](../../../spec/repository/landing-overview.spec.md)):
+ * The header button of the work on its way into master ([Landing Overview](../../../openspec/specs/repository/landing-overview/spec.md)):
  * the node of the most urgent move (in the ring of a running Safe Push), the moves that are the user's, a bar of the
  * work by where it is on its way. Hover or click opens the overview; hidden while nothing is on the way and nothing ran
  * in the last day. As wide whatever the answers say: the place of the count stays at 0 and the bar shows one kind too,

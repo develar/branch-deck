@@ -1,4 +1,4 @@
-// @spec spec/commit/symbol-navigation.spec.md
+// @spec openspec/specs/commit/symbol-navigation/spec.md
 import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"

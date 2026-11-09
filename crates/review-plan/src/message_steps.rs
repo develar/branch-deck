@@ -1,4 +1,4 @@
-//! The steps of the message of one commit (spec/branch/review-tour.spec.md, "Steps of the Message"): a body whose
+//! The steps of the message of one commit (openspec/specs/branch/review-tour/spec.md, "Steps of the Message"): a body whose
 //! parts name the code they tell is the author's story of the change, so its parts are the steps, in its order, each
 //! with the concerns its code names. No git process: the plan holds the units, the concerns and the joins that made
 //! them.

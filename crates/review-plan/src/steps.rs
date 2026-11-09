@@ -1,4 +1,4 @@
-//! The steps of a review (spec/branch/review-tour.spec.md): the story the review window tells first, each step a part
+//! The steps of a review (openspec/specs/branch/review-tour/spec.md): the story the review window tells first, each step a part
 //! of the change with the words of its author, the diffs that carry it and the tests that name its code. No git
 //! process: the plan read every commit of the range and its hunks already.
 //!
@@ -14,7 +14,7 @@
 //!   commits wrote are the step "Changes without a story". A unit of a file of no language is cut by its blocks.
 //! - **Steps of the concerns** when the commits tell no story: no body, or one commit, whose message is the brief. A
 //!   long branch is told by its commits too: measured on idea-1, its concerns were no shorter a list, and they lost
-//!   the words of the author (review-tour.spec.md, "Measurements").
+//!   the words of the author (openspec/specs/branch/review-tour/spec.md, "Measurements").
 //! - **A step whose lines a later commit rewrote whole** shows nothing of its own: it follows the step of that commit,
 //!   and names the later commit that took out the most of what it wrote (`taken_out_by`).
 //! - **The order** of a step is that of the story, but a declaration the step adds or changes the form of comes first

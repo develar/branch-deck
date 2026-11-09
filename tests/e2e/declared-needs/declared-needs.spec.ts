@@ -1,4 +1,4 @@
-// @spec spec/branch/declared-needs.spec.md
+// @spec openspec/specs/branch/declared-needs/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"

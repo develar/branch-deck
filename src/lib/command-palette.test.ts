@@ -1,4 +1,4 @@
-// @spec spec/repository/command-palette.spec.md
+// @spec openspec/specs/repository/command-palette/spec.md
 
 import { ListTreeIcon, ShieldCheckIcon } from "lucide-react"
 import { describe, expect, it, vi } from "vite-plus/test"

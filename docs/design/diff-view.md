@@ -13,7 +13,7 @@ rest describes the code as it runs.
 
 The app shows a diff in five places:
 - the review window (`review`: a branch with its stack, a whole stack, a kept branch, a commit of a list, a pull
-  request, [Review Window](../../spec/review/review-window.spec.md#one-window));
+  request, [Review Window](../../openspec/specs/review/review-window/spec.md#one-window));
 - the files of a commit in its preview, with the diff under a tree row;
 - the uncommitted changes of the amend card;
 - the missing commits and the modify/delete file of a conflict;
@@ -136,8 +136,8 @@ reason.
 The rows of an `ignored` block show as unchanged lines. Unified and Inline show its new lines and leave out its old
 lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plain, the shorter side filled.
 
-**Sections.** The review with its plan shows the story of its units (spec/branch/review-units.spec.md), in the order
-of its concerns (spec/branch/review-concerns.spec.md): a file may be several sections, a run of its units, its parts
+**Sections.** The review with its plan shows the story of its units (openspec/specs/branch/review-units/spec.md), in the order
+of its concerns (openspec/specs/branch/review-concerns/spec.md): a file may be several sections, a run of its units, its parts
 of each concern and its slices of groups, each a `DiffViewFile` with a `section` (`DiffSection`: its key, the headings
 of its changes, the blocks other sections show and the key of each, the group and the step the divider above its card
 names, "File cards" below). `buildFileRows` with the
@@ -249,7 +249,7 @@ and the opening of each step (below). Each item but those has a known height:
   of its section, each opening of a layer its own card a gap apart (`.dv-openings`, `.dv-step-opening`), the border
   and the padding inside the measured block; one that starts a
   group and no step a divider of 32 px there (`renderDivider`, `LayoutFile.divider`). The opening of a review is its
-  chapter (`ChapterOpening`, [Review Tour](../../spec/branch/review-tour.spec.md#in-the-review-window)): "Step 3"
+  chapter (`ChapterOpening`, [Review Tour](../../openspec/specs/branch/review-tour/spec.md#in-the-review-window)): "Step 3"
   muted above the full title in `text-base`, which a click shows as the bar of the step does, the body of its commit,
   the facts of the step, then the group, muted. A step of no card of its own (another step's card shows all it
   changes, or nothing of it lands) has its opening above the opening of the next step with a card, in the same layer
@@ -497,7 +497,7 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
   section under the pointer: its file as a list names it (its last folder shows while any of the directory does) and
   its step (`DiffSection.stepHeading`).
 - **Not a list of files.** The map is out of the tab order and `aria-hidden`, and it has no menu of a file, an
-  exception to one set of actions wherever a file shows ([Commit Files](../../spec/commit/commit-files.spec.md#the-actions-on-a-file)):
+  exception to one set of actions wherever a file shows ([Commit Files](../../openspec/specs/commit/commit-files/spec.md#the-actions-on-a-file)):
   the tree, the headers and J, K, N and P reach every file it shows.
 
 ### Syntax highlighting
@@ -671,7 +671,7 @@ rust-analyzer's tree takes 5.0 s for the 21 092 Rust files of the IntelliJ monor
 TypeScript and JavaScript from oxc's 0.93 s for 5 000 files against 9.41 s ([Symbol Dependencies](symbol-dependencies.md),
 decisions 26 and 27). The rules have golden files (`crates/code-symbols/testdata/highlight/*.highlight`).
 
-**Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). The painter finds the word
+**Go to Declaration** ([Symbol Navigation](../../openspec/specs/commit/symbol-navigation/spec.md)). The painter finds the word
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
 without the deleted parts of an Inline row) and selects a name once its row is painted with its text, by every paint
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
@@ -977,9 +977,9 @@ Small commits. Each one is green: lint, types, unit tests, and the e2e tests of 
 
 - [UI Theme](ui-theme.md) ("Diffs")
 - [Rendering Performance](rendering-performance.md)
-- [Commit Files](../../spec/commit/commit-files.spec.md)
-- [Commit Review](../../spec/commit/commit-review.spec.md)
-- [Commit Row](../../spec/commit/commit-row.spec.md) ("Conflict view")
+- [Commit Files](../../openspec/specs/commit/commit-files/spec.md)
+- [Commit Review](../../openspec/specs/commit/commit-review/spec.md)
+- [Commit Row](../../openspec/specs/commit/commit-row/spec.md) ("Conflict view")
 - `src/lib/diff/file-diff-model.ts`: the model of the backend
 - VS Code: the viewport tokenization of `TextMateTokenizationSupport`
 - IntelliJ: `SyncScrollSupport`, `FoldingModelSupport`, the soft wraps of the editor, `SimpleOnesideDiffViewer` and

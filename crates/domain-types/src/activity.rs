@@ -1,4 +1,4 @@
-//! Activity (spec/repository/activity.spec.md): the log of what Branch Deck did in a repository is read from journals.
+//! Activity (openspec/specs/repository/activity/spec.md): the log of what Branch Deck did in a repository is read from journals.
 //! The operations of the remote, of the app and of every `bd`, are the journal of their repository
 //! (`operation::JournalEntry`, `$GIT_COMMON_DIR/branch-deck/journal.jsonl`); what only the page knows (an error it told,
 //! an update, what landed, a rewrite, the news of a review request, an approval or a robot) is a `PageEntry` of the

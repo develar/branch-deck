@@ -1,4 +1,4 @@
-//! A child process that is responsible for itself, on macOS (the relay of spec/cli/host.spec.md, "The link").
+//! A child process that is responsible for itself, on macOS (the relay of openspec/specs/cli/host/spec.md, "The link").
 //!
 //! macOS asks the responsible process for the Local Network permission. A child inherits the responsible process of
 //! its parent, such as the terminal app or the IDE that started the client. The private

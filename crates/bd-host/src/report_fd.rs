@@ -1,4 +1,4 @@
-//! The descriptor of `brd-host run --report-fd <n>` (spec/cli/host.spec.md, "The report of a run"): the caller opens
+//! The descriptor of `brd-host run --report-fd <n>` (openspec/specs/cli/host/spec.md, "The report of a run"): the caller opens
 //! it, such as bt with `3>`, and `brd-host` writes one JSON object and a line end there, then closes it. The descriptor
 //! gets close-on-exec at once, so no git child of the client holds it open after the report
 

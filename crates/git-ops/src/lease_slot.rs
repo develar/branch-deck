@@ -1,4 +1,4 @@
-//! The git of a lease slot (`brd lease`, spec/cli/lease.spec.md): a linked worktree of the repository that a pool owns.
+//! The git of a lease slot (`brd lease`, openspec/specs/cli/lease/spec.md): a linked worktree of the repository that a pool owns.
 //! A slot is pool property, not the user's checkout, so its working tree is written here, and only here, by name:
 //! `reset --merge` moves a clean slot to the commit of a get or a run by the diff of the two commits, `checkout
 //! --force` writes every file of a new slot (or of a slot whose diff git refused), `clean -fd` clears the untracked

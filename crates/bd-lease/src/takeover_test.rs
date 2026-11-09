@@ -1,5 +1,5 @@
 //! The takeover of an idle lease by a get, `brd lease reclaim` and the refusal of a resumed session
-//! (spec/cli/lease.spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
+//! (openspec/specs/cli/lease/spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
 //! older than the quiet time
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states, trash_of_a_run};
 #[cfg(unix)]

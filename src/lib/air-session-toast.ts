@@ -4,7 +4,7 @@ import { getErrorDetails } from "@/lib/errors"
 import { TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 
 /**
- * The toast of a session that Start in Air started (spec/branch/start-in-air.spec.md): it follows the status of the
+ * The toast of a session that Start in Air started (openspec/specs/branch/start-in-air/spec.md): it follows the status of the
  * session through `watch` in place ("works", "waits for you", "is done") until the session is done, the session is
  * gone or the watch ends. A close of the toast stops the watch.
  */

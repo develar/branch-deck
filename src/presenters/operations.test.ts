@@ -1,5 +1,5 @@
-// @spec spec/branch/patronus.spec.md
-// @spec spec/branch/stacked-branches.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
+// @spec openspec/specs/branch/stacked-branches/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { Intent, RunningOperation, TableWitness } from "@/lib/bindings"
 import type { OperationNames } from "@/presenters/operations"

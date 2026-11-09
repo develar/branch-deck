@@ -24,7 +24,7 @@ import {
 const ROUTE_CHOICES = LANDING_ROUTES.map(({ setting, label }) => ({ value: setting, label }))
 
 /**
- * Settings → Landing (spec/repository/settings.spec.md#landing): how the work lands into master. A repository has its
+ * Settings → Landing (openspec/specs/repository/settings/spec.md#landing): how the work lands into master. A repository has its
  * route ("Land by", `branchdeck.landing`), the GitHub repository of its pull requests and its companions, which land in
  * an order with it; the push size limit is a value of every repository that one may override; the API of Patronus a
  * setting of the app, on "All repositories"

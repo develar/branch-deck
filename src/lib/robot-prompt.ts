@@ -189,7 +189,7 @@ function detailCommands(failure: RobotFailure, branchName: string, bd: string | 
  * The prompt for an external coding agent that fixes the branch whose robot failed (or fails while it runs): the robot,
  * its failed checks with the TeamCity builds, the problems, which commits it checked by their local hashes, and in the
  * full version the failed builds with their problems, failed tests and log tails. The agent fixes and verifies locally,
- * and leaves the push and the restart to the user (`spec/branch/safe-push-failure-prompt.spec.md`).
+ * and leaves the push and the restart to the user (`openspec/specs/branch/safe-push-failure-prompt/spec.md`).
  */
 export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch, report, bd }: RobotPromptInput): string {
   const { failure, commits, headBranch } = report

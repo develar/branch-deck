@@ -10,7 +10,7 @@ const NEW_BRANCH_TARGET = "\u0000new-branch"
 
 /**
  * The targets of a drag that change the shape of what is dragged, in one bar over the bottom of the window while a
- * drag goes on ([Move Commits](../../../spec/branch/move-commits.spec.md#drag-and-drop)): Move to New Branch, Park,
+ * drag goes on ([Move Commits](../../../openspec/specs/branch/move-commits/spec.md#drag-and-drop)): Move to New Branch, Park,
  * Unpark, Unstack, each while the drag is for it, and above them why the target under the pointer refuses the drag. Over
  * the content, out of its flow, so no row moves when a drag starts; the content gets room at its end meanwhile, so every
  * row scrolls out from under the bar. The toasts keep their column on the right.

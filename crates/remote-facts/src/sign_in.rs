@@ -1,5 +1,5 @@
 //! The sign-ins of the app's accounts as the app's commands run them (docs/design/rust-domain-authority.md, "Решение
-//! 2026-10-28"; spec/repository/github-sign-in.spec.md): `sign_in`, `cancel`, `sign_out` and `status` over the cores of
+//! 2026-10-28"; openspec/specs/repository/github-sign-in/spec.md): `sign_in`, `cancel`, `sign_out` and `status` over the cores of
 //! each account (`github::sign_in_session`, `youtrack::sign_in_session`, `youtrack_cli`). One sign-in of each provider
 //! runs at a time, in a task of its own: a second call of the same request joins it and hears its current event (the
 //! code of GitHub, the page of the Hub), then the rest of its events and its end; a cancel, another request of the same

@@ -2,7 +2,7 @@ import { CodeIcon, ListTreeIcon } from "lucide-react"
 import type { MenuItem } from "@/lib/menu"
 
 /*
- * The menu of the code of a diff (spec/commit/symbol-navigation.spec.md): one builder, which the context menu of the
+ * The menu of the code of a diff (openspec/specs/commit/symbol-navigation/spec.md): one builder, which the context menu of the
  * code renders; the keys work in the view whatever the menu (`DiffView`).
  */
 

@@ -9,7 +9,7 @@ interface OpenCommitCard {
 }
 
 /**
- * The one card of a commit row's mark open in the window (spec/commit/commit-row.spec.md, "Commit card"): the main
+ * The one card of a commit row's mark open in the window (openspec/specs/commit/commit-row/spec.md, "Commit card"): the main
  * window shows a list per branch, and a card that opens in any of them closes the one of another
  */
 const commitCardStore = createStore<{ readonly card: OpenCommitCard | null }>(() => ({ card: null }))

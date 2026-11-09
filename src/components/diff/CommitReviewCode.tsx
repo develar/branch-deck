@@ -375,7 +375,7 @@ function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap
 }
 
 /**
- * The divider above the card of a section that starts a group of the story and no step (spec/branch/review-tour.spec.md,
+ * The divider above the card of a section that starts a group of the story and no step (openspec/specs/branch/review-tour/spec.md,
  * "In the Review Window"): the group muted ("Same edit in 4 files"), its words at the bottom near the card they head
  */
 function ReviewDivider({ section }: { section: DiffSection }) {
@@ -394,7 +394,7 @@ function keyOf(file: DiffViewFile): string {
 }
 
 /**
- * The line at the end of a long card and of the last one (spec/commit/commit-review.spec.md): what J shows next, its
+ * The line at the end of a long card and of the last one (openspec/specs/commit/commit-review/spec.md): what J shows next, its
  * name and its directory as its header names them, which a click shows as J does, or the end (`presentCardEnd`);
  * `owner` before the last card, the chosen owner chip whose files J steps through. Not focusable: J does it from the keys
  */
@@ -515,7 +515,7 @@ function ReviewFileHeader({ file, section, notice, empty, folded, pending = fals
 }
 
 /**
- * The mark of a section a body names (spec/branch/review-tour.spec.md, "Anchors"), at the end of its header, which keeps
+ * The mark of a section a body names (openspec/specs/branch/review-tour/spec.md, "Anchors"), at the end of its header, which keeps
  * its height: its hover opens a card of the story that names the file, where it is told once ("Step 5 · title"), then
  * each line that names it, quoted as the story sets it, its code names links; a click shows the first of them in its
  * opening (or the overview), outlined

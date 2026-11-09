@@ -1,5 +1,5 @@
 //! `brd pick`: the commits of another worktree landed on the checked out branch, the source worktree following with
-//! `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. The check runs before the repository lock,
+//! `follow` (`git_ops::pick`, openspec/specs/cli/pick/spec.md), and the undo of both. The check runs before the repository lock,
 //! the witness and the moves under it. After the moves, one read of how the branch groups tells the group of each
 //! picked commit, the branches whose stack parent a `(parent/leaf)` prefix changes, and the picked commits whose branch
 //! is not built on the branches they need. With the commit rules of the repository (`MessageGate`), the check reads
@@ -50,7 +50,7 @@ pub enum PickFrom {
   Remote(RemotePick),
 }
 
-/// The virtual branch whose remote commits a pick takes in: someone else pushed to it (spec/cli/pick.spec.md, "Remote
+/// The virtual branch whose remote commits a pick takes in: someone else pushed to it (openspec/specs/cli/pick/spec.md, "Remote
 /// commits"). The pick fetches it, takes the commits a push would drop (`commits_behind`, all of them), and gives the
 /// copies of those that group elsewhere the `(group)` prefix, so they land in the branch
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +131,7 @@ pub struct BaselineParentCommit {
 }
 
 /// A picked commit stacks its branch on the baseline or on the checked out branch of the target, which is no virtual
-/// branch (spec/cli/pick.spec.md): nothing landed, a dry run too. A branch without a parent is built on the baseline
+/// branch (openspec/specs/cli/pick/spec.md): nothing landed, a dry run too. A branch without a parent is built on the baseline
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("the prefix of {} names the baseline or the checked out branch as a parent", .commits.iter().map(|commit| format!("{} ({})", short_id(&commit.commit), commit.subject)).collect::<Vec<_>>().join(", "))]
 pub struct BaselineParentRefused {
@@ -403,7 +403,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
   })
 }
 
-/// The app's Pick Remote Commits of a virtual branch (`pick_remote_commits`, spec/repository/outgoing.spec.md, "Remote
+/// The app's Pick Remote Commits of a virtual branch (`pick_remote_commits`, openspec/specs/repository/outgoing/spec.md, "Remote
 /// commits of others"): the branch as the row shows it, and the remote head the row's status was computed against
 #[derive(Debug, Clone, serde::Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

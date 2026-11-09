@@ -38,7 +38,7 @@ export interface ActivityPanelContentProps {
 }
 
 /**
- * Activity of a repository (spec/repository/activity.spec.md): the search, the chips of the kinds and the Agents chip,
+ * Activity of a repository (openspec/specs/repository/activity/spec.md): the search, the chips of the kinds and the Agents chip,
  * then the log, in the Activity window and in the side panel of the main window alike, under a mark of each journal of
  * the repository the read could not read. Only the props: each window reads the log itself.
  */

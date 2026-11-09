@@ -28,7 +28,7 @@ const UNAPPLIED_COLUMNS = ["Remote"] as const
 
 /**
  * The Unapplied card, after the branch table and the Parked card, before the archived branches: the branches an unapply
- * kept ([Unapply Branch](../../../spec/branch/unapply.spec.md)). Their commits are not in HEAD, so they land nothing:
+ * kept ([Unapply Branch](../../../openspec/specs/branch/unapply/spec.md)). Their commits are not in HEAD, so they land nothing:
  * no robot, no move of the user, no row of the branch table. A row pushes its branch under its own name, so the remote
  * keeps a copy, reapplies it onto HEAD, and deletes it; open by default
  */

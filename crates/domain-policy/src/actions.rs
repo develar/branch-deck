@@ -1,8 +1,8 @@
-//! The actions a subject offers and whether each can run now, for every surface of the app (spec/branch/branch-row.spec.md,
-//! "Branch menu"; spec/branch/whole-stack.spec.md; spec/branch/patronus.spec.md, "Restart and cancel";
+//! The actions a subject offers and whether each can run now, for every surface of the app (openspec/specs/branch/branch-row/spec.md,
+//! "Branch menu"; openspec/specs/branch/whole-stack/spec.md; openspec/specs/branch/patronus/spec.md, "Restart and cancel";
 //! docs/design/rust-domain-authority.md, s8-policy): `branch_actions`, `stack_actions` and `robot_actions` answer an
 //! `ActionState` by stable id for each action the facts offer, disabled with the reason, never hidden for it;
-//! `start_actions` those of a start whose answer was lost (spec/branch/patronus.spec.md, "A start whose answer was lost").
+//! `start_actions` those of a start whose answer was lost (openspec/specs/branch/patronus/spec.md, "A start whose answer was lost").
 //!
 //! - The starts take the reasons of the next step of the subject (`NextStep::safe_push`, `dry_run`, `without_review`):
 //!   one rule for the slot, the menu, S and the popover. A repository that lands by a push into the target offers its

@@ -6,7 +6,7 @@ import type { BreakageEntry } from "@/presenters/review-plan"
 import { presentBreakage } from "@/presenters/review-plan"
 
 /**
- * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change on one screen before any
+ * The map of a review (openspec/specs/branch/review-tour/spec.md, "The Map"): the shape of the change on one screen before any
  * of its words, which modules it adds, changes or deletes, how large each part is and what each newly uses
  * (`ReviewPlan.modules`, Rust's, in its order), the contract it changes in one line, the texts of the UI it adds,
  * removes or changes (`ReviewPlan.texts`), and the API it opens wider. Rust

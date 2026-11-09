@@ -8,14 +8,14 @@ import { fileTop } from "@/lib/review-place"
 import type { LinkEntry, RowFacts, RowFactsSection } from "@/presenters/review-plan"
 
 /*
- * The one mark of a row of the tree of a review with its plan (spec/branch/review-plan.spec.md, In the Review Window):
+ * The one mark of a row of the tree of a review with its plan (openspec/specs/branch/review-plan/spec.md, In the Review Window):
  * details on demand. The row shows at most one small mark: in the warning tone when its file breaks uses left outside
  * the change, always; a muted one only on the row under the pointer, the selected and the focused row. Its hover opens
  * the card of the facts: what it breaks, its links among the changed files, the same edit as other files, and the
  * dependency changes the row carries. The presenter words them (`presentRowFacts`); a click on
  * a file in the card selects it and closes the card. The card opens and closes as every card of a row does
  * (`RowCard`): `I` on the focused row opens it with the focus on its first file, Escape gives the focus back. The tests
- * that name its code are those of its step (spec/branch/review-tour.spec.md).
+ * that name its code are those of its step (openspec/specs/branch/review-tour/spec.md).
  */
 
 export interface FileRowMarkProps extends RowCardState {

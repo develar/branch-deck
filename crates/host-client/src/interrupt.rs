@@ -1,4 +1,4 @@
-//! Ctrl+C of the person at the terminal, for a run (spec/cli/host.spec.md, "run"). The handler only counts the
+//! Ctrl+C of the person at the terminal, for a run (openspec/specs/cli/host/spec.md, "run"). The handler only counts the
 //! presses; the client reads the count and acts on its own threads. The first press before the start stops each local
 //! step, and nothing runs on the host. The first press after the start sends `Cancel`, stops the pack, and follows the
 //! output to its end. The second press stops the follow at once, and the run refuses with `interrupted`

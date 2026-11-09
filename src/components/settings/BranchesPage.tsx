@@ -18,7 +18,7 @@ function onOff(value: boolean): string {
 }
 
 /**
- * Settings → Branches (spec/repository/settings.spec.md#branches): how the branches are named, how a sync groups and
+ * Settings → Branches (openspec/specs/repository/settings/spec.md#branches): how the branches are named, how a sync groups and
  * merges the commits, whether the review window shows its plan. On "All repositories" the prefix of the app (which
  * names the branches of every repository without its own, `brd` too) and the global git config; on the repository's
  * tab its own prefix and `.git/config`
@@ -68,7 +68,7 @@ export function BranchesPage() {
             />
           </SettingsSection>
           <SettingsSection title="Review">
-            {/* spec/branch/review-plan.spec.md, Status: Experimental */}
+            {/* openspec/specs/branch/review-plan/spec.md, Status: Experimental */}
             <ScopedConfigRow
               configKey="reviewExperimental"
               label="Review plan (experimental)"
@@ -91,7 +91,7 @@ export function BranchesPage() {
 
 /**
  * The repository's own prefix (`branchdeck.branchPrefix` of `.git/config`), which names its branches instead of the
- * prefix of every repository (spec/repository/settings.spec.md#branch-prefix-order): the prefix of the app wins over a
+ * prefix of every repository (openspec/specs/repository/settings/spec.md#branch-prefix-order): the prefix of the app wins over a
  * global or system git one, so the row shows and falls back to it
  */
 function RepositoryPrefixRow({ config, scoped }: { config: RepositoryConfig | null; scoped: ScopedConfig }) {

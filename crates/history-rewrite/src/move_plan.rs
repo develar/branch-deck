@@ -1,4 +1,4 @@
-//! The plan of a move, "these commits go to branch X", as the smallest regroup (spec/branch/move-commits.spec.md). A
+//! The plan of a move, "these commits go to branch X", as the smallest regroup (openspec/specs/branch/move-commits/spec.md). A
 //! whole issue, every commit of its key without a prefix, moves by the issue groups without a rewrite, so the next
 //! commit of the issue follows it, also into a stacked branch; a part of an issue and a commit without a key get the
 //! prefix `(X)`; a commit that lands in X without its prefix loses it. A path `P/X` stacks X on P in the stack parents

@@ -1,6 +1,6 @@
 //! The app on the desktop, beside its windows (`windows.rs`): the folder dialog that picks a repository
 //! (`browse_repository`), the native menu's Auto-sync on Focus (`set_auto_sync_menu_checked`), the restart that applies
-//! the system title bar (`restart_app`, spec/repository/title-bar.spec.md) and the updater (`check_for_updates`,
+//! the system title bar (`restart_app`, openspec/specs/repository/title-bar/spec.md) and the updater (`check_for_updates`,
 //! `get_update_status`, `install_update`). What the system does is the host's (`Desktop` of `transport.rs`).
 
 use crate::api_error::api_error;

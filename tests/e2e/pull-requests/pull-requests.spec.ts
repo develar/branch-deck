@@ -1,4 +1,4 @@
-// @spec spec/branch/pull-requests.spec.md
+// @spec openspec/specs/branch/pull-requests/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"

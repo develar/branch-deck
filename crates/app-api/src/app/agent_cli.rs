@@ -1,4 +1,4 @@
-//! The agent CLI of the app, `brd` (docs/contributing/agent-cli.md, spec/cli/agent-cli.spec.md): "Install Agent CLI…"
+//! The agent CLI of the app, `brd` (docs/contributing/agent-cli.md, openspec/specs/cli/agent-cli/spec.md): "Install Agent CLI…"
 //! (`install_agent_cli`, `brd install`), the `brd` command the copied prompts name (`agent_cli_command`) and the skills
 //! Settings → Agents shows (`agent_cli_status`). The install and the binary are the host's (`AgentCliHost`: the app's
 //! `bd_cli::install`, a fixed path in the e2e server); the rules of `brd workspace` where the install wrote none are the

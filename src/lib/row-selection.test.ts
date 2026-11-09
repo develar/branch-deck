@@ -1,4 +1,4 @@
-// @spec spec/branch/move-commits.spec.md
+// @spec openspec/specs/branch/move-commits/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { clickRow, leadOf, NO_SELECTION } from "@/lib/row-selection"
 import type { RowClick, SelectionState } from "@/lib/row-selection"

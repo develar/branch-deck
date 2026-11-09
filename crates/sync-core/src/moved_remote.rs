@@ -1,4 +1,4 @@
-//! The fetch of the remote branches someone else pushed to (spec/repository/outgoing.spec.md, "Remote commits of
+//! The fetch of the remote branches someone else pushed to (openspec/specs/repository/outgoing/spec.md, "Remote commits of
 //! others"; docs/design/remote-status.md, "Remote tip"): a remote status compares with the remote-tracking ref, which
 //! moves only by a fetch, and the virtual branches are fetched only by a push the remote refused. A pull request shows
 //! the head of its branch on GitHub, so the session asks this fetch for a branch whose open pull request shows a head

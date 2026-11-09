@@ -1,5 +1,5 @@
-//! Forget This Start (`Intent::ForgetStart`, spec/branch/patronus.spec.md, "A start whose answer was lost"; `bd
-//! operation forget <op>`, spec/cli/agent-cli.spec.md): the record of a start whose answer was lost leaves the operations
+//! Forget This Start (`Intent::ForgetStart`, openspec/specs/branch/patronus/spec.md, "A start whose answer was lost"; `bd
+//! operation forget <op>`, openspec/specs/cli/agent-cli/spec.md): the record of a start whose answer was lost leaves the operations
 //! registry of its repository (`ProcessRegistry::forget`, under its lock), so what it held is free and its subject can
 //! start again. Nothing is asked of Patronus: the robot it sent may still run, which the next list of the robots shows.
 //! It holds nothing (the start it forgets holds what it holds), and refuses a record whose process still runs it.

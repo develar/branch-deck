@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-// @spec spec/repository/onboarding.spec.md
+// @spec openspec/specs/repository/onboarding/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow, pushFromRowMenu } from "../helpers/branch-helpers"

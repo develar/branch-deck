@@ -1,5 +1,5 @@
 //! What holds a push, and what a restart of a robot does, for the app and `bd` alike (docs/design/rust-domain-authority.md,
-//! R2, R7; spec/branch/patronus.spec.md, "Pushing into a branch whose Safe Push runs", "Restart and cancel"):
+//! R2, R7; openspec/specs/branch/patronus/spec.md, "Pushing into a branch whose Safe Push runs", "Restart and cancel"):
 //!
 //! - `branch_hold`: a merged Safe Push landed all of the branch (`Landed`: nothing a push sends lands), else its own Safe
 //!   Push runs on it (`Own`: a push moves the branch the robot took its commit from and fails it at the end), else a

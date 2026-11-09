@@ -1,4 +1,4 @@
-//! `brd-host`: the binary of the remote runs, the client and the agent on a host (spec/cli/host.spec.md). Neither `brd`
+//! `brd-host`: the binary of the remote runs, the client and the agent on a host (openspec/specs/cli/host/spec.md). Neither `brd`
 //! nor the app links it; the app bundle carries it as a file on macOS (`BranchDeck.app/Contents/MacOS/brd-host`), and
 //! `brd install` links `~/.local/bin/brd-host` to it. Only on macOS and Linux: on Windows it says so and exits with 2.
 //!
@@ -28,7 +28,7 @@ fn main() -> ExitCode {
   ExitCode::from(cli::run(std::env::args_os()))
 }
 
-/// The client and the agent run on macOS and Linux only (spec/cli/host.spec.md, "Non-goals"): a usage error
+/// The client and the agent run on macOS and Linux only (openspec/specs/cli/host/spec.md, "Non-goals"): a usage error
 #[cfg(not(unix))]
 fn main() -> ExitCode {
   use std::io::Write as _;

@@ -1,4 +1,4 @@
-//! Parked branches for the app and `bd` alike (spec/branch/parked-branches.spec.md, R3): the branches kept on the local
+//! Parked branches for the app and `bd` alike (openspec/specs/branch/parked-branches/spec.md, R3): the branches kept on the local
 //! branch, never pushed or landed, until unparked.
 //!
 //! - `parked_state`: a branch is parked by its own line, else by the nearest branch it is built on (`stack::build_parent`,

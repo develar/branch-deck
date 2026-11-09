@@ -1,5 +1,5 @@
 //! The client of the local launch socket of Air, the local peer handshake v2 and the requests of protocol v1
-//! (spec/branch/start-in-air.spec.md, IJAI-5465): Branch Deck starts an agent session in the IDE that has the repository
+//! (openspec/specs/branch/start-in-air/spec.md, IJAI-5465): Branch Deck starts an agent session in the IDE that has the repository
 //! open. No git, no network and no runtime: one synchronous exchange over a Unix-domain socket, which a caller runs on a
 //! blocking thread.
 //!

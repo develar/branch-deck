@@ -1,4 +1,4 @@
-// @spec spec/repository/activity.spec.md
+// @spec openspec/specs/repository/activity/spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, EffectRecord, Intent, JournalEntry, OperationResult, PageEntry, PatronusRobot, PullRequest, RemoteStatusUpdate } from "@/lib/bindings"
 import { presentActivity } from "@/presenters/activity"

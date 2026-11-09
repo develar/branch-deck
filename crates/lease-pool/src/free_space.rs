@@ -1,4 +1,4 @@
-//! The free space of the volume of the lease pool: a get refuses below `branchdeck.leaseMinFree` (spec/cli/lease.spec.md),
+//! The free space of the volume of the lease pool: a get refuses below `branchdeck.leaseMinFree` (openspec/specs/cli/lease/spec.md),
 //! since the builds of a slot write tens of gigabytes (a Bazel output base, `out/`, `target/`).
 
 use std::path::Path;

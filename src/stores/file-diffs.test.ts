@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { DiffFileHeader, FileDiffEvent, FileMergeEvent, FileMergeHeader, GetFileDiffsParams, GetFileMergesParams, MergeContent } from "@/lib/bindings"
 import type { DiffContent } from "@/lib/diff/file-diff-model"

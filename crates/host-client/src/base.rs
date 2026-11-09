@@ -1,4 +1,4 @@
-//! The base sync of a run (spec/cli/host.spec.md, "run"). A host whose master is behind the local one gets large run
+//! The base sync of a run (openspec/specs/cli/host/spec.md, "run"). A host whose master is behind the local one gets large run
 //! packs. So while a run follows its command, a thread sends a thin pack of the local `origin/master`, or of `master`,
 //! to the base of the affinity on the host (`PackTarget::Base`). The agent keeps that ref, and the client records its
 //! commit in `bases/<alias>/<affinity>`. The next run of the checkout names that commit in its `Have`, so its pack holds

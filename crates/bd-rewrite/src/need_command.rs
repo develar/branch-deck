@@ -1,5 +1,5 @@
 //! `brd need`: declare that a branch lands only after the branches it names (`refs/branch-deck/needs`), so that a
-//! Safe Push, a dry run and a land of it refuse to start before them (spec/branch/declared-needs.spec.md); recorded in
+//! Safe Push, a dry run and a land of it refuse to start before them (openspec/specs/branch/declared-needs/spec.md); recorded in
 //! the operations registry of the repository before the lock, as every rewrite of `bd` (`bd_core::operation_record`),
 //! the lock taken by the core after it read the store
 

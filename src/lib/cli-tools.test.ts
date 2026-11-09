@@ -1,4 +1,4 @@
-// @spec spec/repository/cli-tools.spec.md
+// @spec openspec/specs/repository/cli-tools/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { CliToolStatus } from "@/lib/bindings"
 import { cliToolActionLabel, describeCliToolServer, describeCliToolSkill, describeCliToolVersion } from "@/lib/cli-tools"

@@ -1,4 +1,4 @@
-//! The machine answers of the client (spec/cli/host.spec.md, "The report of a run", "hello"): the report of a run that
+//! The machine answers of the client (openspec/specs/cli/host/spec.md, "The report of a run", "hello"): the report of a run that
 //! `brd-host run --report-fd <n>` writes to its descriptor, and the hello of `brd-host hello --json`. A caller such as bt
 //! acts on the codes and the exit codes of these objects, never on the words of a message. The golden JSON of each one
 //! is a fenced block of the spec, which the tests read

@@ -35,14 +35,14 @@ import { alsoOf, formatModuleState, formatStepNumber, groupOpeningKey, headOf, o
 import type { NarrativeSection } from "@/presenters/review-units"
 
 /*
- * The words of the review as one document (spec/branch/review-tour.spec.md, "In the Review Window"): the overview at
+ * The words of the review as one document (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): the overview at
  * its top (`presentPrologue`), then the opening of each step above the card of its first section (`presentOpenings`).
  * Rust tells the steps, the story of each commit by the grammar of its body, its code names, where the fold of a body
  * is, where each part is told and the sections each line of a story names; this only words and places them.
  */
 
 /**
- * A code name of a body (spec/branch/review-tour.spec.md, "Anchors"): its place in the diffs, which a click shows, and
+ * A code name of a body (openspec/specs/branch/review-tour/spec.md, "Anchors"): its place in the diffs, which a click shows, and
  * the words of its hover ("New · Manager.kt:6 · in step 2"); a name that resolves nothing has neither and stays code in
  * the text
  */
@@ -58,7 +58,7 @@ export interface StoryMention extends Mention {
 }
 
 /**
- * The card of the hover of a code name (spec/branch/review-tour.spec.md, "Anchors"): never the name again, which the
+ * The card of the hover of a code name (openspec/specs/branch/review-tour/spec.md, "Anchors"): never the name again, which the
  * link shows, but what it names: the status of a declaration ("New", "Removed", "Body changed"), its file and line,
  * and "in step 5" when the step that shows it is not the one the reader is in
  */
@@ -1072,7 +1072,7 @@ function withoutGroupFacts(facts: StepFacts): StepFacts {
 }
 
 /**
- * The opening of a group of a large step (spec/branch/review-tour.spec.md, "In the Review Window"): above the first card
+ * The opening of a group of a large step (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): above the first card
  * of the group, in place of its divider, what the group is and what its code does to the rest
  */
 export interface GroupOpeningView {
@@ -1169,7 +1169,7 @@ function contractSteps(plan: Pick<ReviewPlan, "steps" | "brief">): number[] {
 }
 
 /**
- * A mark of a section of the diffs that a body names (spec/branch/review-tour.spec.md, "Anchors"): the block of the
+ * A mark of a section of the diffs that a body names (openspec/specs/branch/review-tour/spec.md, "Anchors"): the block of the
  * story that names it, where that block is told (the opening of a step, else the overview) and its words
  */
 export interface StoryMark {

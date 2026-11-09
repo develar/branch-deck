@@ -1,4 +1,4 @@
-//! The protocol host-link: one hello and one request per connection, over TLS 1.3 (spec/cli/host.spec.md, "The link").
+//! The protocol host-link: one hello and one request per connection, over TLS 1.3 (openspec/specs/cli/host/spec.md, "The link").
 //!
 //! Each connection starts with `Request::Hello` and its `Reply::Hello`, so a client learns at once that the agent speaks
 //! another schema. Then the client sends one more request. The replies of each request are listed on it. Any request

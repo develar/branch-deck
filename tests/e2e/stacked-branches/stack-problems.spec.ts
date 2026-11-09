@@ -1,4 +1,4 @@
-// @spec spec/branch/stack-parents.spec.md
+// @spec openspec/specs/branch/stack-parents/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow } from "../helpers/branch-helpers"

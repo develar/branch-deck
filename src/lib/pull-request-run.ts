@@ -1,7 +1,7 @@
 // The creation of the pull request of a subject and a review request of its open one, from every surface that offers
 // them (the "Create pull request" dialog of the main window and of the review window, Request Review…): the intents
 // `CreatePullRequest` and `RequestReview` Rust plans and runs (`operations::pull_request`;
-// spec/branch/pull-requests.spec.md). Each pushes first what the remote lacks of the subject (the push of its push button,
+// openspec/specs/branch/pull-requests/spec.md). Each pushes first what the remote lacks of the subject (the push of its push button,
 // the stack branch of a whole stack), in the repository the user asked in, whichever the main window shows meanwhile;
 // the creation waits for a mirror that copies the pushed branch a moment later, "Continue on GitHub" until GitHub has the
 // branch, whose form the page opens then. The close of a pull request the user asks (`ClosePullRequest`). The page only

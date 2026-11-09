@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs"
 import path from "node:path"
-// @spec spec/branch/review-tour.spec.md
+// @spec openspec/specs/branch/review-tour/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"

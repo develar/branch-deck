@@ -8,7 +8,7 @@
 
 This Mac runs several agents at once; under that load a full `cargo nextest run --workspace` takes minutes longer
 and a full `pnpm e2e` fails on timeouts. The heavy checks run on the Mac Studio, the user's second Mac, through
-`brd-host` ([brd-host](../../spec/cli/host.spec.md), [Host Runs](../design/host-runs.md)): the client
+`brd-host` ([brd-host](../../openspec/specs/cli/host/spec.md), [Host Runs](../design/host-runs.md)): the client
 `~/.local/bin/brd-host` here, which `brd install` links to the app bundle, and `brd-host serve` there. A run ships the
 working tree as it is, committed or not, runs the command in a warm host slot that the Studio lends to that run,
 streams its output here and exits with the command's exit code. `brd-host skill install` writes the skill of the
@@ -29,7 +29,7 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when brd-host t
 ## Use
 
 - **Where**: in a lease (`brd lease get`), as every edit and build here. The Studio keeps four warm host slots of the
-  repository ("Host slots" of [brd lease](../../spec/cli/lease.spec.md)) and lends one to each run for that run only:
+  repository ("Host slots" of [brd lease](../../openspec/specs/cli/lease/spec.md)) and lends one to each run for that run only:
   the slot this checkout used last, else the one used longest ago; with all four lent, a run waits and says so once a
   minute. Nothing is kept or given back by hand. `brd-host slots studio` shows the lend table.
 - **What this repository asks of the host** is `[host]` of `.branchdeck.toml` in its root: the `outputs` that come back into the same paths here (`tests/results`,

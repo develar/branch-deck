@@ -1,4 +1,4 @@
-// @spec spec/repository/review-requests.spec.md
+// @spec openspec/specs/repository/review-requests/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { Intent, News, OperationEvent, PullRequestAvailability, ReviewRequest, RunningOperation } from "@/lib/bindings"
 import { resetEventToasts, toastKeys } from "@/lib/event-toast"

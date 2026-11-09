@@ -1,4 +1,4 @@
-// @spec spec/repository/review-requests.spec.md
+// @spec openspec/specs/repository/review-requests/spec.md
 import { appendFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"

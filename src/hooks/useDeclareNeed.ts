@@ -13,7 +13,7 @@ export interface NeedOptions {
 }
 
 /**
- * Declares that `needs` land before `branchName` (spec/branch/declared-needs.spec.md): the rewrite `need` of the engine,
+ * Declares that `needs` land before `branchName` (openspec/specs/branch/declared-needs/spec.md): the rewrite `need` of the engine,
  * no rewrite of a commit, one commit of `refs/branch-deck/needs` under the repository lock, then the sync that names
  * the need on the row, then the toast with Undo, which moves the store back to the commit it was written on. A refusal
  * of the core (an unknown branch, a need of itself) is a toast and false: the form keeps what was typed

@@ -10,7 +10,7 @@ A stacked branch's pull request goes into master and holds the commits of the br
 ([Landing](landing.md#every-pull-request-goes-into-master)). The reason is Patronus: it merges a pull request into its
 base and counts only the approvals of the pull request that started the robot, so a pull request into a parent's
 branch can never land. On a repository without Patronus (the `pull-request` and `push` routes,
-[Landing Routes](../../spec/branch/landing-routes.spec.md)) the same rule held for the same reason on plain GitHub: a
+[Landing Routes](../../openspec/specs/branch/landing-routes/spec.md)) the same rule held for the same reason on plain GitHub: a
 merge lands only into its base, branch protection counts the pull request merged into master, CI often filters on the
 base. The price is the review: the pull request of `oauth` shows the commits of `auth` and `login` too.
 
@@ -197,6 +197,6 @@ rebase that layer as GitHub does, and its stacks never close by themselves.
 ## References
 
 - [Landing Work into Master](landing.md)
-- [Stacked Branches](../../spec/branch/stacked-branches.spec.md)
-- [Pull Requests](../../spec/branch/pull-requests.spec.md)
-- [Landing Routes](../../spec/branch/landing-routes.spec.md)
+- [Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md)
+- [Pull Requests](../../openspec/specs/branch/pull-requests/spec.md)
+- [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md)

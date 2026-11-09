@@ -1,4 +1,4 @@
-//! The dependency changes of a review (spec/branch/review-plan.spec.md, "Dependency changes"): the entries the
+//! The dependency changes of a review (openspec/specs/branch/review-plan/spec.md, "Dependency changes"): the entries the
 //! reviewed commits add to, remove from or change in the build files, and the build files they add or delete.
 //!
 //! - **The manifests**, by name: an `*.iml` (its `orderEntry` of type `module`, `library`, or `module-library` with a

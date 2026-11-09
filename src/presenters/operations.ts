@@ -14,7 +14,7 @@ function subjectName(subject: Subject): string {
 
 /**
  * What a push sends to its remote branches, beside a push into the target: "branch auth", "the whole stack of auth"
- * (spec/repository/outgoing.spec.md, "Push")
+ * (openspec/specs/repository/outgoing/spec.md, "Push")
  */
 function pushedSubject(subject: Subject): string {
   return subject.kind === "branch" ? `branch ${subject.name}` : `the whole stack of ${subject.root}`

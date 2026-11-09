@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-row.spec.md
+// @spec openspec/specs/branch/branch-row/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot, RowFact, RowStatus } from "@/lib/bindings"
 import type { RowContext } from "@/presenters/row-status"

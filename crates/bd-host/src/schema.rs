@@ -1,4 +1,4 @@
-//! `brd-host schema` (spec/cli/host.spec.md, "version, schema, skill"): one JSON object with the protocol schema and
+//! `brd-host schema` (openspec/specs/cli/host/spec.md, "version, schema, skill"): one JSON object with the protocol schema and
 //! port, every refusal code with its exit code and its words, the exit codes, and the JSON schemas of the report of a
 //! run and of the hello. A caller such as bt reads it to act on the codes, never on the words of a message
 

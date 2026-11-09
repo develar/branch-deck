@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { inlineParts, lineParts } from "@/lib/diff/line-parts"
 import type { LinePart } from "@/lib/diff/line-parts"

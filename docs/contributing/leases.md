@@ -9,7 +9,7 @@
 How an agent works in this repository: the session in a worktree of the `brd lease` pool, what a lease shares with
 the others, how its commits reach `master`, and the git and shell mistakes that cost sessions here.
 [AGENTS.md](../../AGENTS.md) ("Session Workflow", "Worktrees", "Commits and History") keeps the short rules
-and links here; the commands are [brd lease](../../spec/cli/lease.spec.md).
+and links here; the commands are [brd lease](../../openspec/specs/cli/lease/spec.md).
 
 ## Session Workflow
 
@@ -31,7 +31,7 @@ and links here; the commands are [brd lease](../../spec/cli/lease.spec.md).
 ## Worktrees
 
 Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
-[brd lease](../../spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
+[brd lease](../../openspec/specs/cli/lease/spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
 - **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
   sessions work in this repository at the same time. A harness default such as "edit files directly in your working
   directory" does not override this rule. An agent may update its own git-ignored files (a plan, notes) at the original

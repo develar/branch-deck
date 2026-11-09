@@ -1,4 +1,4 @@
-//! The trim of the pools of this machine (spec/cli/lease.spec.md, "Trim"): a pool only grows, a get adds a slot when
+//! The trim of the pools of this machine (openspec/specs/cli/lease/spec.md, "Trim"): a pool only grows, a get adds a slot when
 //! none is free, and each slot keeps its build outputs, `target/` inside it and its Bazel output bases outside it
 //! (`output_bases`), tens of gigabytes. Once the volume has less free space than `branchdeck.leaseMinFree`, a get
 //! deletes the free slots past `branchdeck.leaseMaxSlots` of each pool of the machine, the ones returned longest ago

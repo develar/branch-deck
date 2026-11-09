@@ -1,4 +1,4 @@
-//! The Status cell of a branch row, what happens to it (spec/branch/branch-row.spec.md, "Status cell";
+//! The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";
 //! docs/design/landing.md, "Work in flight"): the first of its own facts (`own_facts`) in the order below is the main
 //! one, and the exceptional ones it covers stay beside it, so a running robot never hides a conflict or a block, nor
 //! they the robot. Work in flight comes first: its robot running (also a Dry Run, one that will fail or cancels); then

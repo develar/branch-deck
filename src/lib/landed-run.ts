@@ -1,4 +1,4 @@
-// The dismissal of the report of what landed (spec/repository/landed-commits.spec.md): the intent `dismissLanded` of the
+// The dismissal of the report of what landed (openspec/specs/repository/landed-commits/spec.md): the intent `dismissLanded` of the
 // session, which writes the report under its lock for every window and `bd`; this window hides it at once.
 import { Channel } from "@tauri-apps/api/core"
 import type { OperationEvent } from "@/lib/bindings"

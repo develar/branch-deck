@@ -1,4 +1,4 @@
-//! The app's own sign-in to YouTrack (spec/repository/youtrack.spec.md): one browser sign-in at a time through the Hub
+//! The app's own sign-in to YouTrack (openspec/specs/repository/youtrack/spec.md): one browser sign-in at a time through the Hub
 //! of the YouTrack (`sign_in.rs`), from the Hub page to the stored token; a pasted token; a cancel and a sign-out.
 //! The core of the YouTrack sign-ins of `remote_facts::sign_in`, which the app's commands and the E2E test server run
 //! (the test server against a fake YouTrack, `fake_youtrack.rs`).

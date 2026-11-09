@@ -14,7 +14,7 @@ import { presentActivity } from "@/presenters/activity"
 import { getDiffRepositoryPath } from "@/stores/repository"
 
 /*
- * Activity: what Branch Deck did in a repository, newest first, read from the journals (spec/repository/activity.spec.md).
+ * Activity: what Branch Deck did in a repository, newest first, read from the journals (openspec/specs/repository/activity/spec.md).
  * The operations of the remote, of the app and of `bd`, are the journal of their repository; what only the page knows
  * (an error it told, an update, what landed, a rewrite, a review request, an approval, the news of a robot) it records
  * in the journal of the app data directory (`record_activity`). The main window and the Activity window each read the

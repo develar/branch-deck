@@ -48,5 +48,5 @@ against the public key in `src-tauri/tauri.conf.json`.
 References: [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/),
 [GitHub Actions secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions).
 
-Contract: [Release signing](../../spec/repository/releases.spec.md). The credential preparation and cleanup checks
+Contract: [Release signing](../../openspec/specs/repository/releases/spec.md). The credential preparation and cleanup checks
 run on macOS pull request jobs; run them locally with `pnpm exec node --test scripts/release-signing.test.mjs`.

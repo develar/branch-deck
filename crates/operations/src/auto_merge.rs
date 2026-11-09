@@ -1,4 +1,4 @@
-//! Cancel Auto-Merge (`Intent::DisableAutoMerge`, spec/branch/landing-routes.spec.md, "Merge"): the auto-merge of an
+//! Cancel Auto-Merge (`Intent::DisableAutoMerge`, openspec/specs/branch/landing-routes/spec.md, "Merge"): the auto-merge of an
 //! open pull request of the session, which a start of the pull-request route enabled (`PlannedEffect::EnableAutoMerge`),
 //! is disabled on GitHub, so GitHub merges it no more by itself. It holds the auto-merge of the pull request
 //! (`PullRequestField::AutoMerge`), so a second cancel joins it and a retarget or a review request of the same pull

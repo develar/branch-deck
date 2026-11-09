@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-review.spec.md
+// @spec openspec/specs/commit/commit-review/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { presentCardEnd } from "@/presenters/review-card-end"
 

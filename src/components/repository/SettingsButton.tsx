@@ -12,7 +12,7 @@ import { useSetupEntries } from "@/stores/setup"
 
 /**
  * Settings in the header: a click opens it; while something of the setup waits for the user (the Setup dot,
- * spec/repository/setup-attention.spec.md) the button has a dot and a click lists it first, each with its action and
+ * openspec/specs/repository/setup-attention/spec.md) the button has a dot and a click lists it first, each with its action and
  * its skip, then Settings…
  */
 export function SettingsButton() {

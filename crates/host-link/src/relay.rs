@@ -1,4 +1,4 @@
-//! The relay of a connection through `/usr/bin/nc` on macOS (spec/cli/host.spec.md, "The link").
+//! The relay of a connection through `/usr/bin/nc` on macOS (openspec/specs/cli/host/spec.md, "The link").
 //!
 //! macOS refuses a connection to the local network with `EHOSTUNREACH` when the responsible process of the client has
 //! no Local Network permission. An app without a team ID, such as a local build of the IDE, gets no permission even

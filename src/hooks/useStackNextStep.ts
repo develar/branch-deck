@@ -25,7 +25,7 @@ import { getStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 
 /**
- * The next step of the whole stack of a root ([Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)): of its
+ * The next step of the whole stack of a root ([Next Step](../../openspec/specs/branch/next-step/spec.md#the-whole-stack)): of its
  * stack branch `{prefix}/stack/<root>` while the stack forks, whose one robot lands every branch of it, side branches
  * too; of its last branch for a straight chain, which has no stack branch: that branch's Safe Push lands the whole stack
  */

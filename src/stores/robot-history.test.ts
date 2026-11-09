@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { RobotHistoryEntry } from "@/stores/robot-history"

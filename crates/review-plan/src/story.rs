@@ -1,4 +1,4 @@
-//! The story of the commits of a review (spec/branch/review-tour.spec.md, "The Story of a Commit"): the body of each
+//! The story of the commits of a review (openspec/specs/branch/review-tour/spec.md, "The Story of a Commit"): the body of each
 //! commit once, read by the one grammar of a body (`sync_utils::commit_body`), with the code names it holds resolved to
 //! the units and the files of the range, and the facts of each step a body does not tell. No git process and no query
 //! of the index: the plan holds the units, the stops and the links already.

@@ -50,7 +50,7 @@ and YouTrack, Update Project, the Fetch of a merge toast and Dismiss Landed are 
 What has no repository as its subject is no operation of a session: the sign-in of an account (the token is one for
 the app, and Settings opens without a repository) is a command of the app, `sign_in` with its events on the channel of
 the call, `cancel_sign_in` and `sign_out` (`remote_facts::sign_in`: GitHub, YouTrack and the `youtrack` CLI;
-[GitHub Sign-In](../../spec/repository/github-sign-in.spec.md), [YouTrack](../../spec/repository/youtrack.spec.md)).
+[GitHub Sign-In](../../openspec/specs/repository/github-sign-in/spec.md), [YouTrack](../../openspec/specs/repository/youtrack/spec.md)).
 It joins as an operation does: one sign-in of each provider runs, a second call of the same request hears its current
 event and gets its end, another request of the provider (a pasted token, another YouTrack) ends it first; its status
 is the fact `auth` of every session, which the host has read again after a sign-in or a sign-out.
@@ -60,7 +60,7 @@ with its one writer and the reason no session admits it: the ticket of a sync an
 own), the cancel of a read, the page's journal, the writers of the settings (`set_setting`, `set_repository_config`,
 the links of Reviews, each serialized per file), the app itself (its menu, its CLI, its update, its restart), the CLIs
 of Settings → Tools, the accounts and the reviewed refs of Mark Reviewed (`refs/branch-deck/reviewed/`, one writer with
-CAS that no session reads, [Review Plan](../../spec/branch/review-plan.spec.md)). The class is part of the entry of each command in the registry of app-api
+CAS that no session reads, [Review Plan](../../openspec/specs/branch/review-plan/spec.md)). The class is part of the entry of each command in the registry of app-api
 (`crates/app-api/src/commands.rs`: `read`, `engine`, or `app(<reason>)` with an `AppReason` of `registry.rs`), so a
 new command is classified where it is declared; `registry_test.rs` pins the two of the engine, and
 `crates/test-server/src/command_registry_test.rs` lets no E2E test answer a write in the page.
@@ -352,7 +352,7 @@ row says why it can't start, and an admission it holds back settles it by a read
 start by itself: Forget This Start (`Intent::ForgetStart`) is the user's word that the subject may start again.
 
 An operation that ended, of any process, is an entry of the journal of its repository ([Git Operations](git-operations.md),
-"Journal"), which Activity shows ([Activity](../../spec/repository/activity.spec.md)): the page records no operation of
+"Journal"), which Activity shows ([Activity](../../openspec/specs/repository/activity/spec.md)): the page records no operation of
 the remote itself; the main window reads the log again after each `execute` it ran (`executeIntent` of
 `src/model/intents.ts`, the one module of the page that calls the engine), and it and the Activity window when the watch of the registry sees the journal change
 (`activity-changed`, an operation of the app or of an agent), and each words the entries as their toasts had them

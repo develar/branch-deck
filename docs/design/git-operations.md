@@ -718,7 +718,7 @@ app undoes a move, a rename, a restack and a reword with that token too (the rew
 messages back.
 
 **Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`
-([Issue Groups](../../spec/branch/issue-groups.spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.
+([Issue Groups](../../openspec/specs/branch/issue-groups/spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.
 - A write makes a commit with the one file `issue-groups` on the previous map commit (`StoreCommit::file` and
   `StoreUpdate` in `commit_writer.rs`). With a rewrite, it is one more commit of the reword's `fast-import` stream
   (`reword_commits_batch_at`), so a mixed plan costs one `git var` and one `fast-import`. Without a rewrite,
@@ -742,7 +742,7 @@ messages back.
   their key. git keeps no reflog outside `refs/heads`, so the parent chain of the map commits is its history.
 
 **Stack parents.** The map of branch to parent lives in `refs/branch-deck/stack-parents`
-([Stack Parents](../../spec/branch/stack-parents.spec.md)), a ref of its own: a store commit replaces its whole tree
+([Stack Parents](../../openspec/specs/branch/stack-parents/spec.md)), a ref of its own: a store commit replaces its whole tree
 (`deleteall`), so a file next to `issue-groups` would be lost by every write of a version that does not know it.
 - It is written, read and undone as the issue groups, by the same code: each map is a `LineStore` (`store_lines.rs`:
   its ref, its file, its commit message, the shape and the validation of a line; `ISSUE_GROUPS`, `STACK_PARENTS`).
@@ -769,7 +769,7 @@ messages back.
   undo's transaction.
 
 **Parked branches.** The branches the user keeps local live in `refs/branch-deck/parked`
-([Parked Branches](../../spec/branch/parked-branches.spec.md)), the third `LineStore` (`PARKED`, `parked.rs`): one file
+([Parked Branches](../../openspec/specs/branch/parked-branches/spec.md)), the third `LineStore` (`PARKED`, `parked.rs`): one file
 `parked` of sorted `branch<TAB>note` lines, the note one line, possibly empty. It decides no group: a sync builds a
 parked branch as any other, and only `brd push`, `brd safe-push` and the app's push surfaces leave it out, and a branch
 built on it, which carries its commits.
@@ -797,7 +797,7 @@ built on it, which carries its commits.
   parked again.
 
 **Declared needs.** The order of landing the user declares lives in `refs/branch-deck/needs`
-([Declared Needs](../../spec/branch/declared-needs.spec.md)), the fourth `LineStore` (`NEEDS`, `needs.rs`): one file
+([Declared Needs](../../openspec/specs/branch/declared-needs/spec.md)), the fourth `LineStore` (`NEEDS`, `needs.rs`): one file
 `needs` of sorted `branch<TAB>needed needed…` lines, each needed name a branch of this repository or
 `<companion>:<branch>` (`NeedKey`). It decides no group and moves no commit: the session derives a refusal of the start
 of the branch from it (`domain_policy::declared_needs`), the next step and every start of the app and of `brd` read it.
@@ -1010,7 +1010,7 @@ moves HEAD runs `check_drop` (`crates/git-ops/src/unapply.rs`): the plan, then t
 `DropKind` names the move in the reflog (`unapply`, `drop`), which the undo and the finish of an interrupted move look
 for.
 
-Unapply ([Unapply](../../spec/branch/unapply.spec.md)) takes the commits of a virtual branch out of HEAD with their
+Unapply ([Unapply](../../openspec/specs/branch/unapply/spec.md)) takes the commits of a virtual branch out of HEAD with their
 files and keeps the branch in the unapplied namespace, which no sync archives or deletes. Steps 1 to 4 read and
 compute before the repository lock, on the HEAD and the issue groups read once; under it only the witness and the
 move (step 5, `lock_prepared_move`):
@@ -1058,7 +1058,7 @@ ids and their mapping notes, so the next sync reuses the copies. The check runs 
 and the mark and the move under it (`lock_checked_undo`, as every undo of a move); an undo done before takes no lock,
 unless the mark says that its files have not followed yet.
 
-The drop of commits for good ([Drop Commits](../../spec/commit/drop.spec.md), `brd drop`, the rewrite `Drop` of the
+The drop of commits for good ([Drop Commits](../../openspec/specs/commit/drop/spec.md), `brd drop`, the rewrite `Drop` of the
 engine) is the same check and the same move without a branch to keep: the commits ahead of the baseline (one `log`)
 and the grouping inputs name the commits and their branches, `check_drop` with `DropKind::Drop` replays the kept runs,
 counts the new history and dry-runs the files, the carried mapping notes are written before the lock, and under it the
@@ -1557,7 +1557,7 @@ exists (one `show-ref`), because the next lease of the slot, the same worktree i
 
 #### Resolve session
 
-An update that conflicts starts a resolve session in `brd update` (spec: [brd update](../../spec/cli/update.spec.md)).
+An update that conflicts starts a resolve session in `brd update` (spec: [brd update](../../openspec/specs/cli/update/spec.md)).
 The app's Update Project starts none. The session replays the local commits outside the working tree, one round per
 conflicting commit. The agent resolves a round in copies of the files, and `brd update --continue` commits the round.
 Only the finish moves the branch, and the files follow through the guarded update of "Update project". Code:
@@ -1819,7 +1819,7 @@ agent".
 
 #### Reapply
 
-Reapply ([Unapply and Reapply](../../spec/branch/unapply.spec.md)) puts the commits of an unapplied branch back on top
+Reapply ([Unapply and Reapply](../../openspec/specs/branch/unapply/spec.md)) puts the commits of an unapplied branch back on top
 of the checked out branch, the inverse of "Drop and unapply". Steps 1 to 3 read and compute before the repository
 lock (a `--dry-run` takes none); under it only the witness (one `for-each-ref` of HEAD and its branch, the upstream
 the pick excludes, the issue groups, the unapplied branch at its tip and the mark of an interrupted move; a ref that
@@ -1939,7 +1939,7 @@ before takes no lock (`a_remote_pick_and_its_undo_lock_only_the_witness_and_the_
 move is no fork point (step 3), so the next pick picks them. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
 **Remote commits** (`brd pick --remote <branch>`, the app's Pick Remote Commits: `PickFrom::Remote`,
-`pick_remote_commits_core`; [brd pick](../../spec/cli/pick.spec.md#remote-commits)): someone else pushed to the remote
+`pick_remote_commits_core`; [brd pick](../../openspec/specs/cli/pick/spec.md#remote-commits)): someone else pushed to the remote
 branch of a virtual branch, and a push would drop the commits. Before the lock the branch alone is fetched
 (`fetch_remote_branches`; never under the lock), a fetched tip that is not `expected_remote` refuses the pick as it
 refuses a push (`RemoteMoved`), and the walks of its remote status list the commits a push would drop, all of them
@@ -2661,7 +2661,7 @@ code of its `ApiError` (`operation_in_progress`, `detached_head`, `managed_branc
 **What a sync reads once** (`RepoFacts`, `crates/sync-core/src/repo_facts.rs`), after the guards, for every step that
 needs it: `remote -v` (the remotes in the order of `git remote`, each with its first push URL, `pushInsteadOf`
 applied, in the one process `remote` cost: where `origin` and the remote of the baseline push, which the route into
-master is decided on, [Landing Routes](../../spec/branch/landing-routes.spec.md); a remote without a URL has no line);
+master is decided on, [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md); a remote without a URL has no line);
 one `for-each-ref` of the checked out branch (its upstream: `%(upstream)`,
 `%(upstream:remotename)`, `%(upstream:remoteref)`, `%(upstream:short)`), the baseline candidates (`<first
 remote>/master`, `/main`, or the local ones) and the branches under the prefix, local (`%(worktreepath)`) and on
@@ -2878,7 +2878,7 @@ In Update Project and `brd update`, with the same setting (`crates/git-ops/src/w
 A stack that forks (a branch of it has two children or more) also builds as one more virtual
 branch, `{prefix}/stack/<root>`: every commit of its branches, in the order of the checked out branch's history, on
 the base of the sync, as a flat virtual branch of those commits would be built. A Safe Push of the whole stack lands
-it in one robot ([Whole Stack](../../spec/branch/whole-stack.spec.md), [Landing](landing.md)); a straight chain has
+it in one robot ([Whole Stack](../../openspec/specs/branch/whole-stack/spec.md), [Landing](landing.md)); a straight chain has
 none, its leaf is the whole stack. `crates/sync-core/src/stack_branch.rs`.
 
 - **Which branches.** The tree of a stack follows `effective_base` (a branch built past a parent without commits is in
@@ -3028,7 +3028,7 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   `for-each-ref`, refuses a branch checked out in any worktree, as `git branch -D` would, naming the worktree, and
   deletes it in one transaction with a CAS on that tip (`branch-deck: delete <branch>`), not with `branch -D`
   (`crates/sync-core/src/delete_archived_branch.rs`).
-- **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../spec/branch/stacked-branches.spec.md)).
+- **Stacks.** A stacked branch is built on its parent's new head (see [Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md)).
   Each branch is a build task, which publishes its head once its commit writer has ended, and a finish task for the ref,
   the status and the remote status. A child is spawned only once its parent's head is known, so no task holds a slot
   of the process limit while it waits; ready branches start longest chain first. The tasks take their slots from one
@@ -3174,7 +3174,7 @@ under `Default` (`file_diffs::blocks`).
   robots as last listed and polled, when, and a rejected token or a backoff) keeps what `brd status` would ask Patronus
   on every call (`crates/bd-remote/src/robot_list.rs`): the reader decides how long it holds, a minute while a robot of it
   runs, five while none does, then a list of the robots started since and a poll of the running ones are merged into
-  it ("Load on Patronus" in [Patronus](../../spec/branch/patronus.spec.md#load-on-patronus)). `brd push`, `brd
+  it ("Load on Patronus" in [Patronus](../../openspec/specs/branch/patronus/spec.md#load-on-patronus)). `brd push`, `brd
   safe-push` and `brd robot` list fresh and write it; the app's sessions keep their robots in memory, a fact of
   each session ([Session facts](#session-facts)).
 - `build_result` ((key version, a hash of the command, `BD_BRANCH` and the sorted `(path, object id)` pairs of what the
@@ -3214,7 +3214,7 @@ Code: `crates/trial-check/src/symbol_scan.rs`, `crates/trial-check/src/module_ro
 #### Commit files
 
 The commit rows show "3 files · +42 −7", and the commit preview lists the files with their diffs
-([Commit Files](../../spec/commit/commit-files.spec.md)). Both are read-only:
+([Commit Files](../../openspec/specs/commit/commit-files/spec.md)). Both are read-only:
 - **One process per list.** `get_commits_files` reads the commits of an expanded branch (or the unassigned commits)
   with one `diff-tree --stdin --raw --numstat -z -r -M --root --diff-merges=first-parent`, the ids on stdin. The output
   is NUL-separated: each commit id, its `--raw` entries (status letter, paths verbatim, the blob ids of both sides), then
@@ -3300,7 +3300,7 @@ git plumbing does not depend on.
   the run. The blobs that a diff read stay in a memory cache (128 MiB), so the texts that a view asks for next
   (`blob_texts`) cost no process. A text of the working tree is read again by its path, and only when its bytes still
   have the id.
-- **Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). A declaration of the
+- **Go to Declaration** ([Symbol Navigation](../../openspec/specs/commit/symbol-navigation/spec.md)). A declaration of the
   review comes from the texts in memory and the summaries of the store: no process. A name the review does not declare
   asks the index of accio (`symbol --no-build --format json --limit 20 --project <root> --ref <the commit of the side> -- <name>`,
   a null stdin, waited for as long as it runs: no deadline, since a loaded machine stretches a query of 0.03–3 s past
@@ -3321,7 +3321,7 @@ Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `
 
 #### Review of a target
 
-What a review shows of its target (`sync_core::review_target`, [Review Window](../../spec/review/review-window.spec.md)),
+What a review shows of its target (`sync_core::review_target`, [Review Window](../../openspec/specs/review/review-window/spec.md)),
 read-only, under no lock: the page asks `get_review` as the window opens (`prefetch_review` beside its start), and
 again when a sync moved a tip it read.
 
@@ -3339,7 +3339,7 @@ of `crates/sync-core/src/process_budget_test.rs`.
 
 #### Review fetch
 
-The review of a pull request someone asked the user for ([Review Requests](../../spec/repository/review-requests.spec.md))
+The review of a pull request someone asked the user for ([Review Requests](../../openspec/specs/repository/review-requests/spec.md))
 needs its commits. The review window asks the intent `FetchReview { number }` of the session of its repository
 (`operations::review_fetch`: the head and the base as the review requests of the session have them, the review refs
 of the number held, so a second fetch of it joins); its core `fetch_review_head` gets them without the working tree,
@@ -3406,7 +3406,7 @@ Code: `crates/operations/src/review_fetch.rs`, `crates/sync-core/src/review_fetc
 
 #### Review plan
 
-The plan of a review ([Review Plan](../../spec/branch/review-plan.spec.md), experimental) is one core,
+The plan of a review ([Review Plan](../../openspec/specs/branch/review-plan/spec.md), experimental) is one core,
 `crates/review-plan`, for `brd` and the app. Its start is Mark Reviewed (`mark_reviewed_core`, `brd mark-reviewed
 <branch>`): the base and the tip a local branch has now become its reviewed pair, which the interdiff of its next
 review compares the branch with.
@@ -3481,9 +3481,9 @@ and the `rewritten` ones, each against its own parent:
 | 12. Generated files, hunk text | one `check-attr --source=<head> --stdin -z` of the changed paths that no name marks generated (`attribute_generated_paths` of `generated-files`) | a file generated by its name (a lock file, a minified file, a source map) or its attributes reads no text; of the others, the old and new blobs of the modified and renamed files (`hunk_blobs`) and the new blob of every other file still there and the blob a deletion removed (`header_blobs`), for the header a tool wrote: from the memory of `FileDiffs` when step 6 read them in this process, else from the second batch of step 7, which then runs for them alone in a repository with no manifest; the text makes the generated files by their header (`generated_of`), the mechanical kinds and the repeated edits, none of a generated file |
 | 13. Dependencies, UI texts | none | the `*.iml`, plugin descriptors, `Cargo.toml` and `package.json` before the first commit that changes each and after the last (`manifest_blobs`), from the memory of `FileDiffs` or the second batch of step 7, as the hunk text; their entries parsed (`quick-xml`, `toml`, `serde_json`), paired by kind, name and table: `added`, `removed`, `changed` for a new version or scope, `newModule` for a build file added or deleted; whether only the entries changed (`dependencies.rs`); the message bundles (a `*.properties` file in a `messages` directory or named `*Bundle` or `*Messages`) the same way, before and after (`bundle_blobs`): the keys they add, remove or change, read as Java reads them, are the texts of the UI (`texts.rs`) |
 | 14. Files | none | per changed file its link counts, its mechanical kind (generated with why, by name, a build file that changed only in its entries, or the text of every hunk), its repeated edit (a hunk key of 3 or more files), the summed `outside` usages of its removed or changed API (`breaks`), and `untested` when a source file changed with no test that names its stem (`files.rs`) |
-| 15. Pair and units | one `cat-file --batch` of the first and last blobs of the files that several commits change, for those the memory of the diffs and the `file_diff` store lack (`FileDiffs::blocks_of`); none when no file is changed twice | the blocks of each changed file from before the commits to after them, under `Default` (`pair.rs`: the hunks of a file one commit changes); cut into the units (`units.rs`, [Review Units](../../spec/branch/review-units.spec.md)) by the summaries of step 7 (`spanned_declarations`), the hunk text of step 12 and the kinds and groups of step 14: every block in one unit, in the order of step 10 |
-| 16. Concerns | none | the units of step 15 joined into the tasks of the range (`concerns.rs`, [Review Concerns](../../spec/branch/review-concerns.spec.md)) by the links of step 11, the hunk text of step 12 and the generated files of step 14: a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share, the rest to the concern of its file or subject |
-| 17. Steps and brief | none | the lines of each changed file carried through the hunks of every commit of step 1 (`steps.rs`, [Review Tour](../../spec/branch/review-tour.spec.md)): each unit of step 15 in the step of the commit of most of its lines, the rounds glued, the declarations of its code at the head; the story of each commit of step 1 with a body once (`story.rs`), its code names resolved to the units of step 15 and the changed files, and the new API of step 8 and the new links between modules of step 11 of each step; the brief from the messages of step 1 and the texts of the changed files of prose, each block below the front matter widened to whole paragraphs, a row of a table one paragraph under its header, a changed paragraph read by word, and no front matter, metadata or table of a doc quoted (`brief.rs`, `prose.rs`) |
+| 15. Pair and units | one `cat-file --batch` of the first and last blobs of the files that several commits change, for those the memory of the diffs and the `file_diff` store lack (`FileDiffs::blocks_of`); none when no file is changed twice | the blocks of each changed file from before the commits to after them, under `Default` (`pair.rs`: the hunks of a file one commit changes); cut into the units (`units.rs`, [Review Units](../../openspec/specs/branch/review-units/spec.md)) by the summaries of step 7 (`spanned_declarations`), the hunk text of step 12 and the kinds and groups of step 14: every block in one unit, in the order of step 10 |
+| 16. Concerns | none | the units of step 15 joined into the tasks of the range (`concerns.rs`, [Review Concerns](../../openspec/specs/branch/review-concerns/spec.md)) by the links of step 11, the hunk text of step 12 and the generated files of step 14: a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share, the rest to the concern of its file or subject |
+| 17. Steps and brief | none | the lines of each changed file carried through the hunks of every commit of step 1 (`steps.rs`, [Review Tour](../../openspec/specs/branch/review-tour/spec.md)): each unit of step 15 in the step of the commit of most of its lines, the rounds glued, the declarations of its code at the head; the story of each commit of step 1 with a body once (`story.rs`), its code names resolved to the units of step 15 and the changed files, and the new API of step 8 and the new links between modules of step 11 of each step; the brief from the messages of step 1 and the texts of the changed files of prose, each block below the front matter widened to whole paragraphs, a row of a table one paragraph under its header, a changed paragraph read by word, and no front matter, metadata or table of a doc quoted (`brief.rs`, `prose.rs`) |
 | 18. Tests | `accio tests --no-build --format json --limit 1000 --resolved --tests <file>… --ref <head> --at <place>…` of the code of every step with the test files of the range given, no git, at once with step 9; none when the range has no test | the given tests among the callers of each declaration at any depth by calls a type or an import ties (`add_tests`), each with its `class`; a test of the range by its unit (the test of step 15 whose lines hold the line accio gives), one of a given file the change did not touch none; a declaration none reaches is unreached only when the answer is `complete`; without an answer the steps know no test, and `index_note` says why |
 | 19. Registrations | one `accio parse --descriptor --resolve --no-build --ref <side> --files-from -` per side of the changed files that can be plugin descriptors by their path, the paths on its standard input, no git, at once with steps 9 and 18: the base (of Since Your Review the start of its scope) of those the commits do not add, the head of those they do not delete; none of Since Your Review whose carry conflicts | accio's port of the platform's reader, no parser here: each side's services, extension points, listeners, extensions, registry keys, actions and content modules, paired by what identifies each to the platform, `added`, `removed`, or `changed` with the fields that differ (`registrations.rs`), each class it names resolved in accio's index at that side; without an index the classes are unknown and `index_note` says why, without accio there are none |
 
@@ -3684,7 +3684,7 @@ Code: `crates/file-diffs/src/merge.rs`, `crates/text-diff/src/merge_model.rs`, `
 
 #### Conflict fix (check)
 
-The fix of a sync conflict (`conflict_fix.rs`, [Conflict Fix](../../spec/branch/conflict-fix.spec.md)) is a search over
+The fix of a sync conflict (`conflict_fix.rs`, [Conflict Fix](../../openspec/specs/branch/conflict-fix/spec.md)) is a search over
 trial builds of one `CheckSession`: it writes commit objects and the object cache, no ref, and takes no lock.
 1. One check of the current grouping finds the problems: the conflicts, then the proven dangling references, each in
    build order (`brd check --fix` reuses the check it just printed). The changes of every commit ahead of the baseline
@@ -3862,7 +3862,7 @@ starts once, pushing nothing more) and `brd operation forget`.
 Every operation of the remote that ended, of the app and of every `brd`, is one line of JSON in
 `$GIT_COMMON_DIR/branch-deck/journal.jsonl`, beside the registry (`operations::journal`, its one writer;
 `registry_scan_test.rs` fails on the name of the file anywhere else); the Activity of the app reads it
-(spec/repository/activity.spec.md):
+(openspec/specs/repository/activity/spec.md):
 
 - **An entry** (`domain_types::operation::JournalEntry`): the id of the operation (the id of its record, of its outcome,
   of the root span of its log lines, the `operation_id` of the JSON of `brd`), `tool` and pid, the worktree and the
@@ -3982,7 +3982,7 @@ restarted) names the event of the pushes of the branch (`NewsKey::Push`), whose 
 test server's `remote_git_fixtures_test.rs`, `github_host_test.rs` and `remote_fixtures_test.rs` pin it.
 
 The pushes of a stack in the app are the same intent, the order and the verdict of each branch
-`domain_policy::push::push_plan` over the same holds ([Stacked Branches](../../spec/branch/stacked-branches.spec.md)):
+`domain_policy::push::push_plan` over the same holds ([Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md)):
 `WithAncestors` is the push button that pushes the stack and the push an action needs (the ancestors with work above
 the nearest one whose push drops remote commits, `action_push`: that one asks first in its own row), forced it is Push
 Stack (every ancestor with work up to the nearest one a running Safe Push holds, whose robot lands it and what it is
@@ -4270,7 +4270,7 @@ Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebas
 
 #### Push into the baseline
 
-Where the repository lands by a push (`branchdeck.landing=push`, [Landing Routes](../../spec/branch/landing-routes.spec.md#push-to-master)),
+Where the repository lands by a push (`branchdeck.landing=push`, [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md#push-to-master)),
 a start (`Intent::Land`, the app's and `brd land`'s) pushes the copy the sync built of its subject into the branch of
 the baseline on its remote: the tip of the virtual branch of a piece (the branch with what it is built on), of a whole
 stack its stack branch, only one the sync `Built`. The plan is the app's start (`domain_policy::land_direct`, the tail of
@@ -4428,7 +4428,7 @@ Read-only, without the repository lock and without a sync: `brd robot` reads the
    Safe Push CLI) is matched by (`domain_policy::robot_match::RobotIndex`).
 2. The Space repository comes from the push URL of `origin` (`RepoContext::origin_url`, of the remotes the grouping
    listed with: one `remote -v`).
-3. For a failed or failing robot, the [robot commit map](../../spec/branch/safe-push-failure-prompt.spec.md#the-commit-map) and one `symbolic-ref --quiet HEAD`
+3. For a failed or failing robot, the [robot commit map](../../openspec/specs/branch/safe-push-failure-prompt/spec.md#the-commit-map) and one `symbolic-ref --quiet HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 
 Code: `crates/bd-remote/src/robot_command.rs`.
@@ -4463,7 +4463,7 @@ over HTTP (`GitHubService`, `crates/github/src/service.rs`); the only `gh` proce
 
 The app's own sign-in is the command `sign_in` of the app with its events on the channel of the call, `cancel_sign_in`
 and `sign_out` (`remote_facts::sign_in::SignIns` over `github::sign_in_session`: the device flow, one sign-in at a time,
-a second call joins it; [GitHub Sign-In](../../spec/repository/github-sign-in.spec.md)), never git: the token it keeps
+a second call joins it; [GitHub Sign-In](../../openspec/specs/repository/github-sign-in/spec.md)), never git: the token it keeps
 or removes makes the chain forget what it knew (`TokenChain::forget`), so the next request takes the first source
 again, and the sessions read their fact `auth` again ([Session facts](#session-facts)).
 
@@ -4484,7 +4484,7 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 Three pages of Settings show and write the `branchdeck.*` keys of the git config
 (`crates/sync-core/src/repository_config.rs`): Settings → Branches the symbols, the repository's own prefix,
 `branchdeck.resolveByWords` and `branchdeck.reviewExperimental`; Settings → Landing the route into master
-(`branchdeck.landing`: `patronus`, `push` or `pull-request`, [Landing Routes](../../spec/branch/landing-routes.spec.md)),
+(`branchdeck.landing`: `patronus`, `push` or `pull-request`, [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md)),
 the GitHub repository, the companions and `branchdeck.pushSizeLimit` (a size, `50M` when unset, `0` or `off` for none:
 see [Push size](#push-size)); Settings → Agents the three rules of coding agents. Their scope tabs decide the config a
 write goes to: "All repositories" the global config (the prefix there is the app's own, of `settings.json`), the tab of
@@ -4500,9 +4500,9 @@ the pick and the `gh pr create` it prints, without asking, off under the Push ro
 (`LandingSetting::agent_pull_request_off`); `lease_config` reads it and `branchdeck.landing` with their scopes too, for
 the `next` of `brd lease get`), and the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, on when unset
 and for a value git refuses: Mark Reviewed, the local Since Your Review, the overview of the plan and the marks of the
-files, [Review Plan](../../spec/branch/review-plan.spec.md); `brd review-plan` and `brd mark-reviewed` work without
+files, [Review Plan](../../openspec/specs/branch/review-plan/spec.md); `brd review-plan` and `brd mark-reviewed` work without
 it). `brd` reads the same keys, so the app keeps nothing of them in its own settings; the
-three agent keys only `brd workspace` and `brd lease get` read ([brd workspace](../../spec/cli/workspace.spec.md)), and their global values
+three agent keys only `brd workspace` and `brd lease get` read ([brd workspace](../../openspec/specs/cli/workspace/spec.md)), and their global values
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `brd install` and the app's Install Agent CLI: no sync,
 no operation.
 
@@ -4604,7 +4604,7 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   a push replaces them only once the user saw them (a Force Push, `brd push --force`).
 - The push names the tip it read (`<tip>:refs/heads/<branch>`), so it pushes exactly that commit even if the branch
   moves meanwhile.
-- Push Up to Here (`PushScope::UpTo`, `PushedRef::up_to`, [Stacked Branches](../../spec/branch/stacked-branches.spec.md#push-up-to-here))
+- Push Up to Here (`PushScope::UpTo`, `PushedRef::up_to`, [Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md#push-up-to-here))
   pushes a prefix of the branch: the refspec names the chosen commit instead of the tip, with the same lease, and the
   commits after it stay unpushed. Its plan takes only a commit the remote status says the remote lacks, of the tip the
   witness holds, on a branch whose remote is an older state of it (its remote status a fast-forward; no git process):
@@ -4707,7 +4707,7 @@ The repository view asks only for a robot whose hashes don't tell, once per stat
 #### Robot span
 
 Read-only. What a running robot lands of the branches as they are now, so that a push is held only for the commits
-the robot's commit has ([Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
+the robot's commit has ([Patronus](../../openspec/specs/branch/patronus/spec.md#pushing-into-a-branch-whose-safe-push-runs)):
 `robot_spans_of_grouped` (`crates/sync-core/src/robot_landing.rs`), asked by the repository view (below). The same
 requests and phases 1 to 3 as the robot landing. Phase 4 reduces otherwise: a branch is in the span while one of its
 commits is `tested`, `rebased` or `changed` (the robot has an earlier version: an amend below its commit), with those
@@ -5005,7 +5005,7 @@ The facts of the remote services are facts of the session too (`facts.rs`, the w
 each is a `Fact<T> { value, state, seq, observedAt }` in the part `facts` of the view (`FactsView`) and reaches the
 windows in its patches (`FactsChanges`: a part keyed by branch, subject or robot carries only the keys that changed and
 those removed, so the page keeps every other record as the same object). One rule of the state holds for every family
-([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)): `Loading` from the open of the
+([Facts without an answer](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer)): `Loading` from the open of the
 session and a change of what the fact is of until the first answer; `Fresh` with the answer of the newest observation;
 `Unavailable` with why when a read failed before any answer (a failed listing is never an empty one); `Stale` over an
 earlier answer, with why when the newest read failed, without a reason while what the fact is of changed and it is read
@@ -5091,7 +5091,7 @@ GitHub) answers the version of the view after the patch of its read, which the p
 #### The families
 
 The robots of Patronus (`FactStore::robots`, `RobotsFact`): a list after the first committed table of a watched session,
-then by the rules of [Load on Patronus](../../spec/branch/patronus.spec.md#load-on-patronus), and a poll of the running
+then by the rules of [Load on Patronus](../../openspec/specs/branch/patronus/spec.md#load-on-patronus), and a poll of the running
 robots the session matches to the tips of its table and of the watched robots of the demand (`facts::robots_digest`);
 each robot keeps the number of the read or the write that wrote it, and a failed answer keeps the robots `Stale`. After
 each answer the scheduler asks which running robots of the poll a failed required check dooms and the problems of the
@@ -5110,7 +5110,7 @@ no list, poll, problems or details of its own.
 
 The GitHub pull requests (`facts.pullRequests` by branch and by the root of a whole stack,
 `repository_model::pull_request_facts`): one GraphQL search per listing (`list_pull_requests`, in the GitHub
-repository the host resolves), by the rules of [Refreshing](../../spec/branch/pull-requests.spec.md#refreshing): a
+repository the host resolves), by the rules of [Refreshing](../../openspec/specs/branch/pull-requests/spec.md#refreshing): a
 committed table at most once a minute, a focus after two minutes, a push of the app that pushed
 (`SessionEventKind::PushEnded`, and once more five seconds later while GitHub shows an old head), a write of the app that
 the next step reads and the refresh button. A listing that started before a write keeps what the write wrote; a created
@@ -5143,7 +5143,7 @@ after two minutes, the refresh button, a poll five minutes after each answer and
 without a token GitHub accepts); a failure keeps the last list `Stale` (no token and a repository off GitHub drop it),
 and the requests a listing adds are news (`NewsEvent::ReviewRequested`, `domain_policy::news::review_requested`), none in the first answer after a window began
 to watch the session (`watched_anew`). While a subject waits for approvals, each
-poll lists the pull requests too. While a window shows the Reviews view (`Demand::reviews`, [Reviews](../../spec/repository/reviews.spec.md)) every
+poll lists the pull requests too. While a window shows the Reviews view (`Demand::reviews`, [Reviews](../../openspec/specs/repository/reviews/spec.md)) every
 list reads the rest of Reviews in the same GraphQL request (the teams' requests, the reviewed, the own, the pull
 requests the user added by link, which the host keeps in `linkedPullRequests` of `repository-state.json`); the view
 that shows asks at once when that rest is older than two minutes (`reviews_shown_due`). The fact keeps the rest through a
@@ -5174,7 +5174,7 @@ The Patronus section (`patronus_view.rs`): what the robots land and landed, the 
 is written into the same view by `derive::decide_landing` (`landing` of each branch and whole stack: the hold,
 `domain_policy::holds`; why a Safe Push or a Dry Run waits, `domain_policy::land`; the robot a start replaces; the push
 an action can't make; `restarts` by robot id: what a restart does and why it waits), the rule in
-[Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs). The reasons are codes with
+[Patronus](../../openspec/specs/branch/patronus/spec.md#pushing-into-a-branch-whose-safe-push-runs). The reasons are codes with
 their facts (`domain_types::reason::Reason`), worded by the page (`src/presenters/reasons.ts`) and by `brd`. Its inputs
 besides the table
 are the robots, the robot of each branch and whole stack (`match_robots`, by the rule of `domain_policy::robot_match`)
@@ -5230,7 +5230,7 @@ rules, one file each: [Rule Index](../contributing/code-map.md#rule-index)). Eve
 `domain_policy::facts::Repository`, borrowed where it lives (`derive::repository` over the table state, `derive::
 grouped_rows` over the grouping of `brd`), and the facts as `Fact<T>` with their state: a fact without a fresh answer is
 a wait (`Pending`) or a confirmation, never a "no" ([Facts without an
-answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)). None of it runs git: the content walks are the
+answer](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer)). None of it runs git: the content walks are the
 Patronus view's, the landing needs the host's.
 
 - **The structure** of each branch (`BranchView.structure`): its declared parent (the `(parent/child)` prefix or the
@@ -5585,12 +5585,12 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/sync-core/src/process_budget_test.rs`, `crates/update-core/src/process_budget_test.rs`,
   `crates/trial-check/src/process_budget_test.rs`, `crates/remote-facts/src/process_budget_test.rs` and
   `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
-- Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
-  [Move Commits](../../spec/branch/move-commits.spec.md),
-  [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
-  [Squash Fixups](../../spec/commit/fixups.spec.md),
-  [Unapply](../../spec/branch/unapply.spec.md), [Update Project](../../spec/repository/update-project.spec.md),
-  [Agent CLI](../../spec/cli/agent-cli.spec.md), [brd update](../../spec/cli/update.spec.md)
+- Specs: [Commit Row](../../openspec/specs/commit/commit-row/spec.md), [Commit Files](../../openspec/specs/commit/commit-files/spec.md),
+  [Move Commits](../../openspec/specs/branch/move-commits/spec.md),
+  [Amend](../../openspec/specs/commit/amend/spec.md), [Squash](../../openspec/specs/commit/squash/spec.md),
+  [Squash Fixups](../../openspec/specs/commit/fixups/spec.md),
+  [Unapply](../../openspec/specs/branch/unapply/spec.md), [Update Project](../../openspec/specs/repository/update-project/spec.md),
+  [Agent CLI](../../openspec/specs/cli/agent-cli/spec.md), [brd update](../../openspec/specs/cli/update/spec.md)
 - Related docs: [Virtual Branches](virtual-branches.md), [Integration Detection](integration-detection.md),
   [Async Patterns](async-patterns.md)
 - Git manuals: `git help replay`, `git help fast-import`, `git help merge-tree`, `git help read-tree` (two-way merge,

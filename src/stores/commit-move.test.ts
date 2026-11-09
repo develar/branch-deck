@@ -1,4 +1,4 @@
-// @spec spec/branch/move-commits.spec.md
+// @spec openspec/specs/branch/move-commits/spec.md
 import { beforeEach, describe, expect, it } from "vite-plus/test"
 import type { Commit } from "@/lib/bindings"
 import {

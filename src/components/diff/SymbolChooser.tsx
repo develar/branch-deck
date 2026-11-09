@@ -7,7 +7,7 @@ import type { DeclarationTarget, UsageTarget } from "@/lib/bindings"
 const LEAD = 40
 
 /**
- * What a name leads to, at the name (spec/commit/symbol-navigation.spec.md): its declarations, as IntelliJ's "Choose
+ * What a name leads to, at the name (openspec/specs/commit/symbol-navigation/spec.md): its declarations, as IntelliJ's "Choose
  * Declaration", the most likely first, each with the declaration it is a member of and its file and line; or its
  * usages, as IntelliJ's "Show Usages", those of the review, then those outside it, each with how it uses the name, its
  * line and its file. ↑ and ↓ move, a click or Enter shows one

@@ -196,7 +196,7 @@ sequenceDiagram
   robot commands read `patronusNewApi` from the writer the same way. The main window shows the prefix of the view of its
   session (`TableHeader.prefix`) and subscribes again once the writer has another app prefix, Settings shows what
   `resolve_branch_prefix` answers and asks again then (`onWriterChange` of `persistent-store.ts`: the change of another
-  window, its own once answered), never on the change of its store alone, which is before the writer has it ([Settings](../../spec/repository/settings.spec.md#branch-prefix-order)).
+  window, its own once answered), never on the change of its store alone, which is before the writer has it ([Settings](../../openspec/specs/repository/settings/spec.md#branch-prefix-order)).
 - Page: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`; one
   `settings_changed` listener per page, started as the module loads (`listeningToSettings`), and the catch-up of a load
   through the version gate (`acceptSettingsChanges`, which `src/lib/sub-window.ts` calls with the answer of
@@ -251,5 +251,5 @@ Optimizations:
   (the resolved prefix), `src/lib/sub-window.ts` (the catch-up of a load)
 - E2E: `crates/test-server/src/state.rs` (`TestRepository::store`, `AppState::branch_prefixes`),
   `crates/test-server/src/host.rs` (`TestEvents`), `tests/e2e/setup/tauri-mocks.ts`
-- Spec: [Settings](../../spec/repository/settings.spec.md) ("Writes through the backend")
+- Spec: [Settings](../../openspec/specs/repository/settings/spec.md) ("Writes through the backend")
 - Plan: [Rust как источник предметных правил](rust-domain-authority.md), stage `s5-settings`

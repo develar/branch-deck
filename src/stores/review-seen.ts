@@ -2,7 +2,7 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 
 /**
- * The files the review window showed its reader, by the head they were shown at (spec/branch/review-tour.spec.md, "In
+ * The files the review window showed its reader, by the head they were shown at (openspec/specs/branch/review-tour/spec.md, "In
  * the Review Window": the files of a step the reader saw): a file shown on purpose (its row, J and K at its card, N and
  * P, a place) or whose card passed entirely through the viewport of the diffs. The state of the window, never
  * persisted: another scope of the same head keeps them, a new head counts from zero, as Approve counts the files it

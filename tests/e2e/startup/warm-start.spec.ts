@@ -1,4 +1,4 @@
-// @spec spec/repository/onboarding.spec.md
+// @spec openspec/specs/repository/onboarding/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { branchTree, findBranchRow, releaseTheSyncOfTheUnstack, unstackOauthFromMenuWaiting } from "../helpers/branch-helpers"

@@ -3,7 +3,7 @@ use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::convert::Infallible;
 
-/// The example of spec/cli/host.spec.md, with one more step and one more output, and a table of another area
+/// The example of openspec/specs/cli/host/spec.md, with one more step and one more output, and a table of another area
 const EXAMPLE: &str = r#"
 [lease]
 clean = ["target/debug"]

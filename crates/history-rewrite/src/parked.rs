@@ -1,5 +1,5 @@
 //! Parked branches: the branches whose commits stay on the local branch and are never pushed or landed, until they are
-//! unparked (spec/branch/parked-branches.spec.md). The store is the ref `refs/branch-deck/parked`: a commit whose tree
+//! unparked (openspec/specs/branch/parked-branches/spec.md). The store is the ref `refs/branch-deck/parked`: a commit whose tree
 //! holds the one file `parked`, sorted `branch<TAB>note` lines (`store_lines.rs`), the note may be empty. The key is the
 //! branch as the grouping names it (the leaf), so a change of the branch prefix keeps it. Park
 //! and unpark compute it before the repository lock and move it under the lock with compare-and-swap; a rename carries the line in the transaction of

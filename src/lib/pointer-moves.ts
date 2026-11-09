@@ -1,5 +1,5 @@
 /*
- * Whether the pointer moved over an element (spec/branch/branch-row.spec.md, Hover and click). Content that moves under
+ * Whether the pointer moved over an element (openspec/specs/branch/branch-row/spec.md, Hover and click). Content that moves under
  * a still pointer (a row expanded or collapsed above, a new branch on top, a sync that reorders, a scroll) brings
  * another element under it: WebKit tells it at once with the over and the enter of the pointer, Chromium with the next
  * move, and WebKit moves the pointer where it is after a scroll; the events are trusted, at the position the pointer

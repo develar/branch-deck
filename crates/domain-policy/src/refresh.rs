@@ -1,6 +1,6 @@
 //! When a fact of the remote is asked again (docs/design/rust-domain-authority.md, "Факты" and "Demand";
-//! spec/branch/patronus.spec.md, spec/branch/pull-requests.spec.md, spec/repository/review-requests.spec.md,
-//! spec/repository/github-sign-in.spec.md): the cadence of the robots of Patronus, of the merge profiles, of the pull
+//! openspec/specs/branch/patronus/spec.md, openspec/specs/branch/pull-requests/spec.md, openspec/specs/repository/review-requests/spec.md,
+//! openspec/specs/repository/github-sign-in/spec.md): the cadence of the robots of Patronus, of the merge profiles, of the pull
 //! requests and branch rules of GitHub, of the review readiness, of the review requests and of the sign-ins of the
 //! app's accounts, as pure functions of the time on the clock of the session (`now`), the timing of the fact's requests
 //! and the reason that asks. A request in flight takes no second one of its family; a reason that `*_follows_up` names

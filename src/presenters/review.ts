@@ -1,4 +1,4 @@
-// The words and the menu item of Request Review… (spec/branch/pull-requests.spec.md, "Request Review"): whom it offers,
+// The words and the menu item of Request Review… (openspec/specs/branch/pull-requests/spec.md, "Request Review"): whom it offers,
 // what it says of the code owners while Patronus can't name them, and the toast of whom GitHub asked; the request is
 // the intent of the engine (`requestReview` of `pull-request-run.ts`), the candidates Rust's (`review::candidates`).
 import type { ActionState, PullRequest, PullRequestView, RequestedReviewers, ReviewCandidate, ReviewReadiness } from "@/lib/bindings"

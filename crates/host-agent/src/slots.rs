@@ -1,5 +1,5 @@
 //! The host slots that a run borrows from the pool of Branch Deck, in process (`lease_pool::host_slots`;
-//! spec/cli/lease.spec.md, "Host slots"). A remote slot holds no state of its own: the commit comes from the client, and
+//! openspec/specs/cli/lease/spec.md, "Host slots"). A remote slot holds no state of its own: the commit comes from the client, and
 //! the stage carries the outputs back. So a slot is lent to one run for that run only, and the host keeps a fixed set of
 //! warm slots (`branchdeck.hostSlots`, 4 by default) that runs share.
 //!

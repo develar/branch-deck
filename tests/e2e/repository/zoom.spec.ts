@@ -1,4 +1,4 @@
-// @spec spec/repository/zoom.spec.md
+// @spec openspec/specs/repository/zoom/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { boxOf, expectHeaderControlsOnOneLine, HEADER_CONTROLS, MIN_WINDOW, zoomPage } from "../helpers/header-helpers"

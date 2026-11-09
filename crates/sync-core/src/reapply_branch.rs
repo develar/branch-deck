@@ -1,6 +1,6 @@
 //! Reapply an unapplied branch (`{prefix}/unapplied/<name>`): its commits back on top of HEAD with their grouping
 //! prefix, the files following, the unapplied branch deleted in the transaction that moves HEAD (`git_ops::reapply`,
-//! spec/branch/unapply.spec.md); and its undo (`ReapplyUndoToken`). Each reads and checks before the repository lock,
+//! openspec/specs/branch/unapply/spec.md); and its undo (`ReapplyUndoToken`). Each reads and checks before the repository lock,
 //! which holds only the witness and the move.
 
 use crate::baseline::baseline_tracking_ref;

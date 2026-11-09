@@ -24,7 +24,7 @@ function fits(width: number): boolean {
 }
 
 /**
- * The Activity side panel of the main window (spec/repository/activity.spec.md): "Activity" of every window (the header
+ * The Activity side panel of the main window (openspec/specs/repository/activity/spec.md): "Activity" of every window (the header
  * button, the menus, the app command `open_activity`) toggles it; "Show in Activity" opens it at its chip. Where the
  * area under the header (`area`) has no room for it beside the islands, the open goes to the Activity window instead.
  * The focus goes into the panel only when the keyboard opened it; the native menu, which the page doesn't see, never

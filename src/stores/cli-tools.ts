@@ -8,7 +8,7 @@ import { cancelSignIn, invokeSignIn, openSignInPage, signedInTitle } from "@/lib
 import { showToast } from "@/lib/toast-message"
 
 /*
- * The `teamcity` and `youtrack` CLIs of Settings → Tools (spec/repository/cli-tools.spec.md): the last status Rust
+ * The `teamcity` and `youtrack` CLIs of Settings → Tools (openspec/specs/repository/cli-tools/spec.md): the last status Rust
  * read, and the action running for each tool with the last line of its output.
  */
 

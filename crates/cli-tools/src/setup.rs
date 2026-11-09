@@ -1,4 +1,4 @@
-//! The rule of the Setup dot (spec/repository/setup-attention.spec.md): what in the setup of the machine waits for the
+//! The rule of the Setup dot (openspec/specs/repository/setup-attention/spec.md): what in the setup of the machine waits for the
 //! user, from facts the caller brings. Only what has a direct action and the app relies on: an update that is ready, a
 //! failed app update check when none is downloaded, a newer CLI or skill, a sign-in of a CLI that expires within a week
 //! or expired, the app's YouTrack sign-in that stopped. A tool that is not installed is never an item: the user may not want it.

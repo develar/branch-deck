@@ -1,4 +1,4 @@
-//! Makes a host ready for runs over ssh, while the person is at the terminal (spec/cli/host.spec.md, "setup"):
+//! Makes a host ready for runs over ssh, while the person is at the terminal (openspec/specs/cli/host/spec.md, "setup"):
 //!
 //! 1. Copies the binary, `--binary` or this executable, to `~/.local/bin/brd-host` on the host when the host has another
 //!    build there (the SHA-256 differs).

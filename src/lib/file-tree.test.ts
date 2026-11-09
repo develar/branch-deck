@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile, Concern, ConcernName, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewCommit, ReviewUnit, StepCommit } from "@/lib/bindings"
 import { fileMenuItems } from "@/lib/file-actions"

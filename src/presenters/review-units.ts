@@ -7,10 +7,10 @@ import { formatStepNumber } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
 
 /*
- * The story of a review (spec/branch/review-units.spec.md, "In the Review Window"): the sections of the diffs in the
+ * The story of a review (openspec/specs/branch/review-units/spec.md, "In the Review Window"): the sections of the diffs in the
  * order Rust gave the units, each run of units of one file one section with the heading of each change, each group (a
  * kind of mechanical change, a repeated edit, the files deleted from one directory) a section per file of it. With the
- * concerns of the plan (spec/branch/review-concerns.spec.md), the parts of each concern together, in their order, under
+ * concerns of the plan (openspec/specs/branch/review-concerns/spec.md), the parts of each concern together, in their order, under
  * its heading. Rust decides what each unit is, the concerns and the order; this words them and lays them out over the
  * files the review shows.
  */

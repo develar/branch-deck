@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"

@@ -1,4 +1,4 @@
-//! The lease pool of a repository (`brd lease`, spec/cli/lease.spec.md, "Lease" in docs/design/git-operations.md): linked
+//! The lease pool of a repository (`brd lease`, openspec/specs/cli/lease/spec.md, "Lease" in docs/design/git-operations.md): linked
 //! worktrees that agent sessions lease, one session per slot. The state in `$GIT_COMMON_DIR/branch-deck/leases.json` is
 //! the authority: a free slot is pool property, and a get replaces its content, so no ancestry proves anything. The
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that

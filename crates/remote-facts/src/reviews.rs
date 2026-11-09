@@ -1,4 +1,4 @@
-//! The rest of Reviews beside the requests by name (spec/repository/reviews.spec.md), read in the request of the review
+//! The rest of Reviews beside the requests by name (openspec/specs/repository/reviews/spec.md), read in the request of the review
 //! requests while the Reviews view shows (`reviews_query`): the pull requests that ask the user's teams, that the user
 //! reviewed, that the user opened, and the ones the user added by their links (aliases `p<number>` of `repository`).
 //! A link is read alone when the user adds it (`read_linked_pull_request`), after `parse_pull_request_link` named its

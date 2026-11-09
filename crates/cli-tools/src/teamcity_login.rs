@@ -1,4 +1,4 @@
-//! The browser sign-in of the `teamcity` CLI, started by the app (spec/repository/cli-tools.spec.md#sign-in):
+//! The browser sign-in of the `teamcity` CLI, started by the app (openspec/specs/repository/cli-tools/spec.md#sign-in):
 //! `teamcity auth login --server <url> --web --json --no-input` (1.6.2+, `status::TEAMCITY_WEB_SIGN_IN`) opens the
 //! browser for the PKCE flow of the CLI and keeps the token in the keychain item of the CLI; the app never sees the
 //! token. It needs no terminal, on every OS: stdout has one JSON line per event (`authorize` with the page it opened,

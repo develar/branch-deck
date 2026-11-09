@@ -4,7 +4,7 @@ import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { FactList, StepFacts } from "@/presenters/review-story"
 
 /**
- * The facts of a step, muted (spec/branch/review-tour.spec.md, "In the Review Window"): the files of the tests of the
+ * The facts of a step, muted (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): the files of the tests of the
  * change that reach its code ("Tested by ManagerTest.kt", each its tests and their ways in its hover), "New API: Cache
  * and Reader", "New module view.gui.media: 13 declarations" (their names in the hover), "Opens wider: mediaDuration" and "New link between modules: Reader.kt → Cache.kt", each name showing its
  * place in the diffs (a file of tests at its first test, a declaration, the first use of a link), its file selected, a

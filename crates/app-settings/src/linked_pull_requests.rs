@@ -1,4 +1,4 @@
-//! The pull requests the user added to Reviews by their links (spec/repository/reviews.spec.md), kept by GitHub
+//! The pull requests the user added to Reviews by their links (openspec/specs/repository/reviews/spec.md), kept by GitHub
 //! repository in `linkedPullRequests` of `repository-state.json`, so every worktree of a repository has them: Rust reads
 //! them when the session lists Reviews and writes them when the user adds or removes one, or GitHub answers one merged,
 //! closed or missing. The newest link first, at most `MAX_LINKS` per repository.

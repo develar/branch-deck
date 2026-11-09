@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { BackendSyntax } from "@/lib/diff/highlight/backend-syntax"
 import type { BlobSyntaxParams } from "@/lib/diff/highlight/backend-syntax"

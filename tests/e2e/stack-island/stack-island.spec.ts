@@ -1,4 +1,4 @@
-// @spec spec/branch/stack-island.spec.md
+// @spec openspec/specs/branch/stack-island/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"

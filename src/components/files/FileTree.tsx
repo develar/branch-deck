@@ -60,7 +60,7 @@ interface FileTreeBaseProps {
   /** What the commit rows of the story of a range review do (`FileTreeCommit`); a tree without them has none */
   commitRows?: FileTreeCommitRows | null
   /**
-   * The files the reader saw of each large step and of each of its groups, by the key of its row (spec/branch/review-tour.spec.md,
+   * The files the reader saw of each large step and of each of its groups, by the key of its row (openspec/specs/branch/review-tour/spec.md,
    * "In the Review Window"); a row shows them from the first one
    */
   progress?: ReadonlyMap<string, FileTreeProgress> | null
@@ -72,7 +72,7 @@ export interface FileTreeProgress {
   readonly total: number
 }
 
-/** What a commit row does (spec/branch/review-tour.spec.md, "In the Review Window") */
+/** What a commit row does (openspec/specs/branch/review-tour/spec.md, "In the Review Window") */
 export interface FileTreeCommitRows {
   /** A click, or the focus: the step of the commit at the top of the diffs; must keep its identity, the rows are memoized */
   readonly onSelect: (node: FileTreeCommit) => void
@@ -82,7 +82,7 @@ export interface FileTreeCommitRows {
   readonly menu: (node: FileTreeCommit) => MenuItemGroups
 }
 
-/** What an owner chip marks in a tree (spec/branch/branch-review.spec.md, "Code owners") */
+/** What an owner chip marks in a tree (openspec/specs/branch/branch-review/spec.md, "Code owners") */
 export interface FileTreeMarks {
   /** The name of the chip, for the step's accessible description */
   readonly label: string

@@ -580,7 +580,7 @@ fn the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix() {
 }
 
 /// `brd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
-/// master, which is `brd land` (spec/cli/agent-cli.spec.md, `brd push`)
+/// master, which is `brd land` (openspec/specs/cli/agent-cli/spec.md, `brd push`)
 #[test]
 fn the_help_of_brd_push_says_it_pushes_the_virtual_branches_never_into_master() {
   assert!(AGENT_HELP.contains("4. Push the branches, never into master (`brd land`)."));

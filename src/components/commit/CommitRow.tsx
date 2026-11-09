@@ -56,7 +56,7 @@ export interface CommitRowProps {
 }
 
 /**
- * A commit on a row of a sidebar (spec/commit/commit-row.spec.md, "Commit card"): the commit column of a review, the
+ * A commit on a row of a sidebar (openspec/specs/commit/commit-row/spec.md, "Commit card"): the commit column of a review, the
  * commits of a pull request, a commit row of the tree of a review; the compact header (`CommitHeader`), its subject
  * clamped to two lines except in the tree, with its hash in its native hover where it has no card, the facts of a review, the mark of its card, which its hover, the
  * hover of the subject and `I` on the row open. The row around it holds its focus, its selection and its click

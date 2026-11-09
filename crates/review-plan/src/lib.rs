@@ -1,4 +1,4 @@
-//! The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what the reviewer of a branch or a
+//! The plan of a review (openspec/specs/branch/review-plan/spec.md, Status: Experimental): what the reviewer of a branch or a
 //! range needs first, computed in one place for `bd` and the app (docs/design/git-operations.md, "Review plan").
 //! - `mark_reviewed`: `mark_reviewed_core`, the base and the tip a local branch has now kept as its reviewed pair
 //!   (`git_ops::reviewed_refs`), which a later review compares the branch with
@@ -8,7 +8,7 @@
 //!   outside
 //! - `pair`: the blocks of each changed file from before the commits to after them, as the diffs show the range, and
 //!   the lines at the head they change, which tell a use updated from one left outside
-//! - `units`: those blocks cut into the changes a reviewer reads once (spec/branch/review-units.spec.md), in the order
+//! - `units`: those blocks cut into the changes a reviewer reads once (openspec/specs/branch/review-units/spec.md), in the order
 //!   of the story
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
@@ -19,7 +19,7 @@
 //!   extensions, registry keys, actions and content modules their plugin descriptors add, remove or change, from accio
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
 //!   removes or changes and whether its tests changed with it
-//! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, of one commit the
+//! - `steps`: the story of the review (openspec/specs/branch/review-tour/spec.md): the steps the commits tell, of one commit the
 //!   parts of its message that name its code (`message_steps`), else the concerns, each with the parts of the units it
 //!   shows and the tests that name its code
 //! - `brief`: the issue the commits name and the prose of the specs and the docs the change adds or changes, whole

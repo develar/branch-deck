@@ -425,7 +425,7 @@ Mock implementation:
   test
 - **Review requests**: the session of a repository reads `NotGitHub` (`TestFactSources::review_requests`,
   `review_requests_of`) until a test posts a fixture to `/repositories/{id}/review-requests` (a `ReviewRequestsFixture`
-  plus an optional `fetchError`, and for [Reviews](../../spec/repository/reviews.spec.md) `others` (the searches the
+  plus an optional `fetchError`, and for [Reviews](../../openspec/specs/repository/reviews/spec.md) `others` (the searches the
   Reviews view reads), `answered` and `linkable`, the pull requests a link can name, `closed` for a merged one; `GET`
   returns the counts of the session's lists, of those that read the rest of Reviews (`reviewsCalls`) and of the
   fetches, and the `keep` of every prune); it lists them after a sync, on a focus and five minutes after its last answer
@@ -581,7 +581,7 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   no closed Base UI popup is still mounted in a portal, and no finite animation is running. Base UI keeps closing popups and
   outgoing tab panels mounted until their exit transition ends, so it waits for those of a tab switch too. It also
   waits until no commit list (`table`, the `ol` of the branch preview) is `aria-busy`: a list is busy while the file
-  counts of its meta lines are read ([Commit Files](../../spec/commit/commit-files.spec.md)).
+  counts of its meta lines are read ([Commit Files](../../openspec/specs/commit/commit-files/spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
 
 ### The routes of the server
@@ -792,7 +792,7 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the answer, so the assertion is never vacuous, then releases and asserts the page after it. Set before the sync whose
   answers it holds (a reload keeps it: the next start of the page), or before the page opens by the setup option
   `remoteAnswers` (the reads of the session's open meet it, its sign-ins among them); the deletion of the repository releases what is
-  still held, so no command outlives its test ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer)).
+  still held, so no command outlives its test ([Facts without an answer](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer)).
 - **YouTrack**: the host holds `FakeYouTrack` (`crates/youtrack/src/fake_youtrack.rs`), a YouTrack with its Hub
   built in at `/hub`, on its own port (`youTrackUrlOf(repo)`, `http://127.0.0.1:<port>`: a test links the issue keys
   there, `linkIssuesToYouTrack(page, url)`), and the app's `YouTrackService` on the token file of the host's app data
@@ -980,7 +980,7 @@ branch at the commit it was pushed up to.
   the focus back to the "⋯" (`focusBackFromMenu` took any open menu for its own), whose tooltip opened and took the
   next Escape. The slower the frames, the likelier the right-click lands in that exit: under load, or traced. A
   closing menu gives the focus back only from its own popups now (the `data-rootownerid` of Base UI;
-  `spec/branch/branch-row.spec.md`), and the test, unchanged, passed 40 of 40 traced runs, and 20 of 20 on the Studio
+  `openspec/specs/branch/branch-row/spec.md`), and the test, unchanged, passed 40 of 40 traced runs, and 20 of 20 on the Studio
   beside 40 `yes` workers (load 4-62: 17.8 s on average, 19.8 s at most, no stalled action; the time is the setup, four
   syncs and the push of the terminal, none of them waiting on another). Its test in `branch-row-layout.spec.ts` arranges
   both states the race needs instead of hoping for a timing: the menu of "⋯" holds the focus before Escape (a menu

@@ -1,4 +1,4 @@
-// @spec spec/branch/declared-needs.spec.md
+// @spec openspec/specs/branch/declared-needs/spec.md
 import { realpath, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { expect, test } from "../fixtures/test-fixtures"

@@ -193,7 +193,7 @@ function ParagraphWords({ paragraph, from, to, deleted }: { paragraph: ContractP
 }
 
 /**
- * A paragraph of What Changes (spec/branch/review-tour.spec.md, "In the Review Window"), whole: a paragraph the change
+ * A paragraph of What Changes (openspec/specs/branch/review-tour/spec.md, "In the Review Window"), whole: a paragraph the change
  * adds with the bar of an addition in the gutter, one it removes muted and struck through beside the bar of a removal,
  * one it changes in places with what it wrote tinted and what it removed struck through where it stood; its code set
  * as code, its links showing a changed file or opening a page. Of a paragraph of several sentences changed in a few of
@@ -348,7 +348,7 @@ function TableRow({ row, cells, change, header = false }: { row: ContractParagra
 }
 
 /**
- * The rows of one table of What Changes (spec/branch/review-tour.spec.md, "In the Review Window") under their header
+ * The rows of one table of What Changes (openspec/specs/branch/review-tour/spec.md, "In the Review Window") under their header
  * once, muted: the header row with its marks when the change touched it, else the cells of the header of its first
  * row; then each row the change adds, removes or changes, marked as a paragraph is
  */

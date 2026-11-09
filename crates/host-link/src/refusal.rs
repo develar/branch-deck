@@ -1,4 +1,4 @@
-//! The refusal codes of brd-host (spec/cli/host.spec.md, "Refusal codes"): one variant per code, its name, its exit
+//! The refusal codes of brd-host (openspec/specs/cli/host/spec.md, "Refusal codes"): one variant per code, its name, its exit
 //! code and its words in one table (`Code::row`), so a code cannot have two exits. A caller acts on the code and the
 //! exit code, never on the message. Exit 75 means that the host did not run the command, so the caller can run it
 //! locally

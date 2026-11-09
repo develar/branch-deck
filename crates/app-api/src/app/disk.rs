@@ -1,4 +1,4 @@
-//! The Disk window (spec/repository/disk-usage.spec.md): what the lease pools of this Mac and of the hosts of
+//! The Disk window (openspec/specs/repository/disk-usage/spec.md): what the lease pools of this Mac and of the hosts of
 //! `bd-host` hold on disk, and the trim of this Mac's pools. This Mac is `pool_disk` in process, with the home of the
 //! host (`AppHost::tool_environment`, a fake one in the e2e server); the hosts are what `AppHost::host_disks` answers
 //! (the app runs the `bd-host` it bundles). The view is words-ready numbers: sizes in MiB as `u32` (up to 4 PiB; the

@@ -5,7 +5,7 @@ import type { MessageChange } from "@/lib/bindings"
 
 /**
  * How the message of a commit changed since the review, as Rust compared it (`MessageChange`,
- * spec/branch/review-plan.spec.md, "In the Review Window"): the subject it had, then each change of its body in the order
+ * openspec/specs/branch/review-plan/spec.md, "In the Review Window"): the subject it had, then each change of its body in the order
  * of the body, the removed blocks struck through before the blocks added in their place. Where no opening tells the
  * commit (Since Your Review as one diff), the overview shows it under the line of the commit
  */

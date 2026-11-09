@@ -4,7 +4,7 @@ import type { ActivityFilter } from "@/lib/activity-window"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
 /**
- * The open of the Activity side panel of the main window (spec/repository/activity.spec.md): whether it is open is a
+ * The open of the Activity side panel of the main window (openspec/specs/repository/activity/spec.md): whether it is open is a
  * setting (`appSettings.activityPanel`, kept across starts), the rest is the session's: each open starts over at its
  * chip with an empty search, and takes the focus only when the keyboard opened it.
  */

@@ -1,4 +1,4 @@
-//! The command line of `brd-host` (spec/cli/host.spec.md). A run leaves by the exit code of its command. A refusal says
+//! The command line of `brd-host` (openspec/specs/cli/host/spec.md). A run leaves by the exit code of its command. A refusal says
 //! `brd-host: <code>: <message>` on the stderr and leaves by its exit: 75 when the host did not run the command, so the
 //! caller can run it locally, 130 after Ctrl+C before the command, 2 for a usage error, and 255 for any other refusal.
 //! A command line that clap refuses leaves by 2. stdout carries only the stdout of a command and the answers of the

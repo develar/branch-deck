@@ -1,4 +1,4 @@
-// @spec spec/repository/youtrack.spec.md
+// @spec openspec/specs/repository/youtrack/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { pendingCommands } from "../helpers/wait-helpers"

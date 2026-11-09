@@ -1,5 +1,5 @@
 //! The identity of one end: a self-signed certificate and its key, and the fingerprint that the other end pins
-//! (spec/cli/host.spec.md, "The link" and "The files"). The files are `identity.key` (PKCS#8 DER) and `identity.crt`
+//! (openspec/specs/cli/host/spec.md, "The link" and "The files"). The files are `identity.key` (PKCS#8 DER) and `identity.crt`
 //! (DER) in the identity directory
 
 use crate::digest::Sha256;

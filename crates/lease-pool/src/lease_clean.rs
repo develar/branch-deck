@@ -1,4 +1,4 @@
-//! The clean rules of a slot (`brd lease return`, `brd lease clean`, spec/cli/lease.spec.md): the `[lease]` table of
+//! The clean rules of a slot (`brd lease return`, `brd lease clean`, openspec/specs/cli/lease/spec.md): the `[lease]` table of
 //! `.branchdeck.toml`, committed with the build layout it cleans. Two kinds only, and no command: a return must not run
 //! arbitrary code. A get leaves out of a new slot what the `delete` rules delete, when it clones one (`clone_dir`).
 //!

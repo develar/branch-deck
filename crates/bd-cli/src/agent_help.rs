@@ -133,7 +133,7 @@ Other tasks
 "
 );
 
-/// `brd help update`: the update and its resolve session (spec/cli/update.spec.md); `agent_help_test.rs` checks it with
+/// `brd help update`: the update and its resolve session (openspec/specs/cli/update/spec.md); `agent_help_test.rs` checks it with
 /// `AGENT_HELP` against the commands and options
 pub const UPDATE_HELP: &str = "\
 brd update: bring the checked out branch onto its baseline (e.g. origin/master, `upstream` in the output), as the app's
@@ -229,7 +229,7 @@ new session into an empty directory outside every worktree, for a sandbox that k
 ";
 
 /// `brd help worktrees`: how agent sessions that share a checkout work beside each other, each in a worktree of its own
-/// (spec/cli/pick.spec.md); `agent_help_test.rs` checks it with `AGENT_HELP` against the commands and options
+/// (openspec/specs/cli/pick/spec.md); `agent_help_test.rs` checks it with `AGENT_HELP` against the commands and options
 pub const WORKTREES_HELP: &str = "\
 brd help worktrees: several sessions on one branch. Each session commits in a worktree of its own (a lease: a linked
 worktree, often a detached HEAD, sharing the git dir); its work counts once it is on the shared branch of the shared
@@ -491,7 +491,7 @@ descriptions stay, and the virtual branches change with the next sync.
 ";
 
 /// `brd push --help`: what it pushes, its refusals and the stack branches
-/// The outputs and refusals of `brd pick` beyond `brd help worktrees` (spec/cli/pick.spec.md, "Remote commits")
+/// The outputs and refusals of `brd pick` beyond `brd help worktrees` (openspec/specs/cli/pick/spec.md, "Remote commits")
 pub const PICK_HELP: &str = "\
 Outputs and refusals: `brd help worktrees` for the pick of a worktree or of revisions, and for `brd pick --remote <branch>`:
 - --remote <branch>: someone else pushed to the remote branch of a virtual branch (`remote.others_behind` of its

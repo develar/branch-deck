@@ -1,4 +1,4 @@
-//! Activity (spec/repository/activity.spec.md): the page reads the log from the journals (`read_activity`: the journals
+//! Activity (openspec/specs/repository/activity/spec.md): the page reads the log from the journals (`read_activity`: the journals
 //! of the repositories of the recent projects, which `subscribe_view` remembered, and the journal of the page in the app
 //! data directory), records what only it knows in the journal of the page (`record_activity`) and forgets the log of a
 //! repository (`clear_activity`). A write tells every window `activity-changed`, as the watch of a repository does when

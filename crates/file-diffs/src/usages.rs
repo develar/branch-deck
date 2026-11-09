@@ -1,4 +1,4 @@
-//! Find Usages of a name in a diff of a review (spec/commit/symbol-navigation.spec.md): its names in the trees of the
+//! Find Usages of a name in a diff of a review (openspec/specs/commit/symbol-navigation/spec.md): its names in the trees of the
 //! sides (`code_symbols::navigate`), then those outside the review that the index of the repository knows.
 //!
 //! - **A local** (a parameter, a local of a function) is used only in its file: the names its scopes bind to it.

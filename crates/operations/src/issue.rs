@@ -1,4 +1,4 @@
-//! The state of a YouTrack issue (`Intent::SetIssueState`, spec/repository/youtrack.spec.md, "Mark Fixed"): Mark
+//! The state of a YouTrack issue (`Intent::SetIssueState`, openspec/specs/repository/youtrack/spec.md, "Mark Fixed"): Mark
 //! Fixed sets the state field of an open issue to Fixed, and its undo is the same intent, back to the value the field
 //! had, only while the issue is still in the state the change set (`expected`). One command of YouTrack after a read of
 //! the issue (`YouTrackService::set_state`), with the YouTrack of the app; the operation holds the issue

@@ -9,7 +9,7 @@ import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { OpeningView } from "@/presenters/review-story"
 
 /**
- * The opening of a step, a card of prose above the card of its first section (spec/branch/review-tour.spec.md, "In the
+ * The opening of a step, a card of prose above the card of its first section (openspec/specs/branch/review-tour/spec.md, "In the
  * Review Window"): "Step 2" and the full title, which wraps, a click on them showing the step at the top (a title that
  * is the first sentence of the paragraph the step tells only for a screen reader: the paragraph, a step larger, shows
  * it); the story of the step, the body of the commit that starts it (of a concern of one commit and of a part of its

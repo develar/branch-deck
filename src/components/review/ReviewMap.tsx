@@ -14,7 +14,7 @@ import { MAP_TEXTS } from "@/presenters/review-map"
 import type { MapApi, MapRegistration, MapRow, MapText, MapTexts, MapView } from "@/presenters/review-map"
 
 /**
- * The map of a review (spec/branch/review-tour.spec.md, "The Map"): the shape of the change before its words, a row per
+ * The map of a review (openspec/specs/branch/review-tour/spec.md, "The Map"): the shape of the change before its words, a row per
  * module (its badge when the change adds or deletes it, its label, a bar of its share of the changed lines, its counts),
  * under it what it uses or its folders and what it adds beside its code; then the contract in one line, the texts of
  * the UI the change adds, removes or changes (the first quoted, all of them under the line), and the API:

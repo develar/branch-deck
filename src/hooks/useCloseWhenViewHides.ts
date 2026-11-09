@@ -20,7 +20,7 @@ export interface ClosingWithView<Details> {
 }
 
 /**
- * Closes a popup of a view of the main window when the view hides (spec/repository/main-views.spec.md): a hidden view
+ * Closes a popup of a view of the main window when the view hides (openspec/specs/repository/main-views/spec.md): a hidden view
  * keeps its state but runs no effect, so the hover, the dismiss and the focus of an open popup stop listening; it would
  * come back open with the pointer elsewhere, a tooltip or a hover card whose trigger never got its pointer leave, until
  * a click elsewhere. The hide runs the cleanups of the effects of a parent before those of its children, so the root

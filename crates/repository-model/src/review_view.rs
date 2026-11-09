@@ -1,5 +1,5 @@
-//! What the view derives of the pull requests to review (spec/repository/reviews.spec.md,
-//! spec/repository/review-requests.spec.md): `reviews_view` the sections of Reviews (`domain_policy::reviews::sections`)
+//! What the view derives of the pull requests to review (openspec/specs/repository/reviews/spec.md,
+//! openspec/specs/repository/review-requests/spec.md): `reviews_view` the sections of Reviews (`domain_policy::reviews::sections`)
 //! over the review requests of the session and its table, `review_actions_of` the actions of each pull request to
 //! review by `pull:<number>` (`domain_policy::actions::review_actions`): every request by name, every pull request of
 //! the sections, and the ones the review windows show that no listing has any more; `review_groups_of` the reviewer

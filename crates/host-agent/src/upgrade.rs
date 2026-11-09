@@ -1,4 +1,4 @@
-//! The upgrade of the agent binary without ssh: `Request::Upgrade` of a client (spec/cli/host.spec.md, "upgrade").
+//! The upgrade of the agent binary without ssh: `Request::Upgrade` of a client (openspec/specs/cli/host/spec.md, "upgrade").
 //! `serve` stages the binary of the byte stream, installs it with [`Install::run`], answers, waits for its other
 //! requests, and exits. launchd then starts the new binary, because the `LaunchAgent` has `KeepAlive`.
 //!

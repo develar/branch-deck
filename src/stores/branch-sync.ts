@@ -169,7 +169,7 @@ export function structureIn(state: BranchSyncState, name: string): BranchStructu
 /**
  * The stack branch of a stack that forks (`{prefix}/stack/<root>`, `getFullStackBranchName`): all its commits in one more
  * virtual branch, which a Safe Push of the whole stack lands in one robot, as the last sync reported it. Only a `Built`
- * one has the stack's commits as they are; no push may send another (spec/branch/whole-stack.spec.md).
+ * one has the stack's commits as they are; no push may send another (openspec/specs/branch/whole-stack/spec.md).
  */
 export interface StackBranch {
   readonly root: string
@@ -261,7 +261,7 @@ export interface BranchSyncState {
   /** The run of the session (`nextRunNumber`) whose grouping `branches` holds: their counts tell how far it is; 0 before one */
   groupedRun: number
   /**
-   * The review windows show the review plan (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md), as the
+   * The review windows show the review plan (`branchdeck.reviewExperimental`, openspec/specs/branch/review-plan/spec.md), as the
    * last grouping read it
    */
   reviewExperimental: boolean

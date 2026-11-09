@@ -13,7 +13,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import { loadIssue, useIssueEntry } from "@/stores/youtrack-issues"
 
 /**
- * The issue of the popover (spec/repository/youtrack.spec.md): its key and summary, its state, its single-value fields
+ * The issue of the popover (openspec/specs/repository/youtrack/spec.md): its key and summary, its state, its single-value fields
  * by the names YouTrack gives them, and its actions. Asked when it shows.
  */
 export function IssueDetails({ issueKey }: { issueKey: string }) {

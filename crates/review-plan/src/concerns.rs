@@ -1,4 +1,4 @@
-//! The concerns of a review (spec/branch/review-concerns.spec.md): the tasks a range does, each a set of parts of its
+//! The concerns of a review (openspec/specs/branch/review-concerns/spec.md): the tasks a range does, each a set of parts of its
 //! units, joined only by evidence the plan read already, so that the tree of the review lists them and the story
 //! follows them. No git process, no accio: the pending plan and the plan with the usages group alike.
 //!

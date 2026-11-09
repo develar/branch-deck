@@ -1,4 +1,4 @@
-// @spec spec/repository/setup-attention.spec.md
+// @spec openspec/specs/repository/setup-attention/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { SetupEntry } from "@/lib/bindings"
 import { describeSetupItem, settingsButtonLabel, setupSkipUntil } from "@/lib/setup"

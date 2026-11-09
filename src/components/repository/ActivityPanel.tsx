@@ -48,7 +48,7 @@ function getShownState(): ActivityWindowState | null {
 }
 
 /**
- * The Activity side panel of the main window (spec/repository/activity.spec.md): one island beside the branch tables,
+ * The Activity side panel of the main window (openspec/specs/repository/activity/spec.md): one island beside the branch tables,
  * its 40px header with "Activity", Open in Window and Close, then the search, the chips and the log of the selected
  * repository, as this window read it, with what only this window knows. A keyboard open puts the focus into the log;
  * Escape there, or Close, closes the panel and gives the focus back where it was before it came in.

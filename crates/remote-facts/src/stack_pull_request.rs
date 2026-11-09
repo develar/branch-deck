@@ -1,6 +1,6 @@
 //! The text of the pull request of the whole stack: the pull request of the stack branch `{prefix}/stack/<root>` into
 //! the target, whose approvals count for the one robot that lands the whole stack (docs/design/landing.md,
-//! spec/branch/whole-stack.spec.md). It is written from what the sync read: the description of the stack branch when it
+//! openspec/specs/branch/whole-stack/spec.md). It is written from what the sync read: the description of the stack branch when it
 //! has one, else the descriptions of its members (`brd describe`, `ConfigSnapshot::descriptions`), else the subjects of
 //! their commits; no git process. GitHub refuses a body over 65,536 characters and a title over 256: both are cut.
 

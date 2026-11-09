@@ -86,7 +86,7 @@ flowchart TD
    **Rationale**: A row stays where it is while the user works on its commits. A rewrite keeps every commit it keeps in
    its place but gives each commit above the oldest one it rewrites a new committer time; an order by the newest commit
    time moved every row after a squash of one fixup, under the pointer that pressed Squash. A branch of new commits still
-   comes first ([Stacked Branches](../../spec/branch/stacked-branches.spec.md#ui))
+   comes first ([Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md#ui))
 
 ### Grouping Rules
 
@@ -116,7 +116,7 @@ an issue moves by the issue groups below, without a rewrite, so the next commit 
 stacked branch. Only a part of an issue and a commit without a key get the prefix, in one message rewrite; a prefix
 that the key makes redundant goes. The UI uses it to move commits and whole branches, split an issue, combine issues, rename a
 branch and ungroup one; an undo moves HEAD and the issue groups back in one transaction (`undo_regroup_core`, the rewrite `Undo`). See
-[Move Commits](../../spec/branch/move-commits.spec.md). The issue groups and the stack parents are the grouping state
+[Move Commits](../../openspec/specs/branch/move-commits/spec.md). The issue groups and the stack parents are the grouping state
 outside the messages.
 
 ### Issue Groups
@@ -139,7 +139,7 @@ compare-and-swap on both refs (see [Git Operations](git-operations.md)). A sync 
 every branch and worktree, so a write changes only the keys it names. A key that groups no commit on this HEAD is
 `idle` in `brd status`, because it may group the commits of another branch; only `ungroup_issues` removes it. An issue
 group can be a stack parent, and it is stacked by the stack parents below, without a rewrite. See
-[Issue Groups](../../spec/branch/issue-groups.spec.md).
+[Issue Groups](../../openspec/specs/branch/issue-groups/spec.md).
 
 ### Stack Parents
 
@@ -152,7 +152,7 @@ different parents". `StackDeclarations::into_forest` walks the chain of lines up
 stored parent without commits is passed like a declared one; the lines that no chain reaches are idle, they may stack
 a branch of another worktree. A plan path `auth/login`, Stack On, Unstack, Stack Together, `brd restack`, `brd unstack`
 and `brd stack-together` write the map and rewrite only the commits whose prefix declares another parent; a sync drops the line of a branch once its archived
-branch is integrated. See [Stack Parents](../../spec/branch/stack-parents.spec.md).
+branch is integrated. See [Stack Parents](../../openspec/specs/branch/stack-parents/spec.md).
 
 ### Stacked Branches
 
@@ -174,7 +174,7 @@ by the detection note of its branch. When that branch is still its virtual branc
 no note that holds for the current baseline, `empty_parent_states` detects it first (`detect_pending_branches`) and
 writes the note, so the first sync after the parent's merge labels it landed and the archiving reports the parent
 from the note. The sync sends the result as `GroupedBranchInfo.stack` and schedules the branches by dependency. A
-repository whose older branches had a `/` in a flat name is not migrated. See [Stacked Branches](../../spec/branch/stacked-branches.spec.md).
+repository whose older branches had a `/` in a flat name is not migrated. See [Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md).
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
 issue families come from the stack roots. The commit editor and Move to… ask `preview_group` (`group_of`: `stack_path`
@@ -196,7 +196,7 @@ hash of the base and the original commit ids (`StackBuilds`, the object cache), 
 process. With signing enabled, an unsigned cached build is rejected and rebuilt once; a signed unchanged build is reused.
 A stack branch whose stack no longer forks is deleted unless it is on the remote; one not rebuilt keeps its
 tip and is never pushed. See "Stack branch" in [Git Operations](git-operations.md) and
-[Whole Stack](../../spec/branch/whole-stack.spec.md).
+[Whole Stack](../../openspec/specs/branch/whole-stack/spec.md).
 
 ### Line Dependencies
 

@@ -1,5 +1,5 @@
 //! What refuses the start of a Safe Push or a Dry Run before anything is pushed, one rule for `brd safe-push` and the
-//! app (spec/cli/agent-cli.spec.md, spec/branch/patronus.spec.md). One trial check of what the robot lands, in one
+//! app (openspec/specs/cli/agent-cli/spec.md, openspec/specs/branch/patronus/spec.md). One trial check of what the robot lands, in one
 //! `CheckSession`:
 //! - a dangling reference a commit proves (`dangling_references`): the build of the tree it lands fails;
 //! - a missing declaration (`missing_declarations`, `branchdeck.symbols on`): a commit of what lands uses a name that a
@@ -13,7 +13,7 @@
 //! `landing_needs` asks the same of every branch before any start, in one trial check of all of them: what the Safe
 //! Push of each branch would be refused for, by the same rule (`refuses`). The session of the repository computes it as
 //! a fact after a sync (`landing_needs_of`, through its host), the row says "Needs util" with the fix
-//! (spec/branch/next-step.spec.md), and `brd status` lists it; the start of a branch in the app reuses it, the start of
+//! (openspec/specs/branch/next-step/spec.md), and `brd status` lists it; the start of a branch in the app reuses it, the start of
 //! a whole stack in the app checks it in a session of the current grouping (`operations::land_session`).
 
 use crate::check::{CheckReport, CheckSession};

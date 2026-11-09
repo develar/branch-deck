@@ -385,7 +385,7 @@ export function RobotActionButton({ action, variant = "outline", className }: { 
     </>
   )
   // one root whether there is a reason to say or not: the button keeps its node, its focus and its hover as its reason
-  // comes and goes (spec/branch/branch-row.spec.md, Hover and click)
+  // comes and goes (openspec/specs/branch/branch-row/spec.md, Hover and click)
   return (
     <Tooltip disabled={action.description === undefined}>
       <TooltipTrigger

@@ -43,7 +43,7 @@ import { openRequestOnGitHub, openReviewRequest, useReviewRequests, useReviewReq
 import { linkPullRequest, onLinkFieldFocus, refreshReviews, reviewRows, useIsRefreshingReviews, useReviews } from "@/stores/reviews"
 
 /**
- * The Reviews view of the main window (spec/repository/reviews.spec.md): every open pull request of the repository the
+ * The Reviews view of the main window (openspec/specs/repository/reviews/spec.md): every open pull request of the repository the
  * user takes part in on GitHub. Your Turn's rows lead it ("Waiting for You"), then the sections Rust derives (added by
  * link, requested from the user's teams, reviewed by the user, the user's own), each pull request once. The field
  * filters every section by the words typed, and adds a pull request by its link, as when the author forgot to ask the

@@ -1,4 +1,4 @@
-// @spec spec/branch/declared-needs.spec.md
+// @spec openspec/specs/branch/declared-needs/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"

@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { copyFile, copyText } from "@/lib/diff/copy-text"
 import type { CopyFile } from "@/lib/diff/copy-text"

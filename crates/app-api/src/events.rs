@@ -18,19 +18,19 @@ pub const SETTINGS_CHANGED_EVENT: &str = "settings_changed";
 pub const SETTINGS_SAVE_FAILED_EVENT: &str = "settings_save_failed";
 
 /// A journal Activity reads changed, to every window: a write of the page, an operation that ended (the watch of the
-/// operations registry), a read that answered late (spec/repository/activity.spec.md)
+/// operations registry), a read that answered late (openspec/specs/repository/activity/spec.md)
 pub const ACTIVITY_CHANGED_EVENT: &str = "activity-changed";
 
 /// A sign-in or a sign-out changed an account, to every window: a window without a session reads the status again
-/// (`get_auth_status`); the sessions read their fact `auth` themselves (spec/repository/github-sign-in.spec.md)
+/// (`get_auth_status`); the sessions read their fact `auth` themselves (openspec/specs/repository/github-sign-in/spec.md)
 pub const AUTH_CHANGED_EVENT: &str = "auth-changed";
 
 /// A write of Settings → Repository, to the main window: it syncs, or reloads the branch prefix
-/// (spec/repository/settings.spec.md)
+/// (openspec/specs/repository/settings/spec.md)
 pub const REPOSITORY_CONFIG_CHANGED_EVENT: &str = "repository_config_changed";
 
 /// The statuses of the tools changed, to every window: each reads the items of the Setup dot again
-/// (spec/repository/setup-attention.spec.md)
+/// (openspec/specs/repository/setup-attention/spec.md)
 pub const SETUP_CHANGED_EVENT: &str = "setup-changed";
 
 /// The payload of `repository_config_changed`

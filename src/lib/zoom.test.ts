@@ -1,4 +1,4 @@
-// @spec spec/repository/zoom.spec.md
+// @spec openspec/specs/repository/zoom/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { minSubWindowSize, minWindowWidth, nextZoom } from "@/lib/zoom"
 

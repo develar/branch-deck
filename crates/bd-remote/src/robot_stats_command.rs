@@ -1,4 +1,4 @@
-//! `brd robot-stats`: the Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`), the
+//! `brd robot-stats`: the Safe Push statistics of the repository (`openspec/specs/repository/safe-push-statistics/spec.md`), the
 //! numbers of the app's Landing view from the same core (`remote_facts::robot_stats`): the user's robots into the target
 //! of a period against everyone else's, where the time went, why they failed and the hours they ran fastest.
 //! Read only: no lock, no sync; what Patronus answered is kept in the object cache (none with --no-cache).

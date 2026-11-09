@@ -1,4 +1,4 @@
-//! The thin pack of a run or of a base (spec/cli/host.spec.md, "run"). git builds it into a private file first
+//! The thin pack of a run or of a base (openspec/specs/cli/host/spec.md, "run"). git builds it into a private file first
 //! (`git::Checkout::pack`), so a slow link never stalls git and a stuck git never holds a connection. The client opens
 //! the connection of the pack before the build, and sends an empty chunk every `HEARTBEAT_SECONDS` of the protocol
 //! while git works: the supervisor of the run then knows that its client is alive. Then the client sends the file on

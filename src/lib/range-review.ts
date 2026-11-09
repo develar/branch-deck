@@ -57,7 +57,7 @@ export function pullRequestItems(commits: readonly ReviewCommit[], reviewedCommi
 }
 
 /**
- * The commits the tree of the scope `scopeKey` lists in its steps (spec/branch/review-tour.spec.md, "In the Review
+ * The commits the tree of the scope `scopeKey` lists in its steps (openspec/specs/branch/review-tour/spec.md, "In the Review
  * Window"): only those the scope diffs (`commits` of a scope that is not all of them), each with its branch, which
  * the column says by the heading of a branch (`group`) and the tree, which orders them by step, on each row
  */
@@ -92,7 +92,7 @@ export function shownKey(items: readonly RangeReviewItem[], selected: string): s
 }
 
 /**
- * What changed in a local branch since the user marked it reviewed (spec/branch/review-plan.spec.md), as the column
+ * What changed in a local branch since the user marked it reviewed (openspec/specs/branch/review-plan/spec.md), as the column
  * shows it: the commits added or rewritten, by id, newest first, and their plain range when they are the commits on top
  */
 export interface LocalSinceReview {

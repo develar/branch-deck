@@ -243,7 +243,7 @@ export interface DiffViewProps {
    */
   onCardsPassed?: (paths: readonly string[]) => void
   /**
-   * Go to Declaration (spec/commit/symbol-navigation.spec.md): a ⌘-click (Ctrl-click off macOS) on a name, ⌘B on the
+   * Go to Declaration (openspec/specs/commit/symbol-navigation/spec.md): a ⌘-click (Ctrl-click off macOS) on a name, ⌘B on the
    * selection, the item of the menu of the code; `at` is where to show a choice of declarations
    */
   onGoToDeclaration?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void

@@ -1,4 +1,4 @@
-// @spec spec/repository/review-requests.spec.md
+// @spec openspec/specs/repository/review-requests/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { announce, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { appSettingsStore } from "@/stores/settings/appSettings"

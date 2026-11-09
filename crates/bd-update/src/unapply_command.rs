@@ -1,5 +1,5 @@
 //! `brd unapply`, `brd reapply` and their `brd undo`: the commits of a virtual branch and their files out of the branch
-//! checked out here, the branch kept as `{prefix}/unapplied/<name>`, and back on top (spec/branch/unapply.spec.md). The core
+//! checked out here, the branch kept as `{prefix}/unapplied/<name>`, and back on top (openspec/specs/branch/unapply/spec.md). The core
 //! (`sync_core::unapply_branch`) checks that the virtual branch is the copies of its commits and computes the move before
 //! the repository lock, then takes the lock for the witness and the move through the guarded working-tree update; local
 //! changes on the paths it writes change nothing. Each is recorded in the operations registry of the repository before

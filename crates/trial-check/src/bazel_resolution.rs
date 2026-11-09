@@ -7,7 +7,7 @@
 //!   from its own root, which the diff does not know.
 //! - **Another repository** (`@repo//pkg:defs.bzl`) is out of the range by definition: it is no file of this diff.
 //! - **A target is no code**: only a `def` and a name a top-level `=` assigns are loaded, and `DeclKind::Target` is
-//!   never a declaration a use can mean (spec/commit/symbol-dependencies.spec.md).
+//!   never a declaration a use can mean (openspec/specs/commit/symbol-dependencies/spec.md).
 
 use super::{Evidence, Site, UseSite, binds};
 use code_symbols::summary::{ImportTarget, Reference};

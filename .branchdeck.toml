@@ -1,5 +1,5 @@
 # The clean rules of a slot of the bd lease pool: `bd lease return` applies them before it frees the slot, and
-# `bd lease clean` applies them on demand (spec/cli/lease.spec.md). Cargo never deletes a unit whose hash went out of
+# `bd lease clean` applies them on demand (openspec/specs/cli/lease/spec.md). Cargo never deletes a unit whose hash went out of
 # use, so a reused slot piles up dozens of copies of every workspace crate within hours.
 [lease]
 clean = [
@@ -11,7 +11,7 @@ clean = [
 ]
 
 # A run of this repository on another machine of the user: `bd-host run studio -- <command>`
-# (docs/contributing/studio-runs.md, spec/cli/host.spec.md "The environment of a run and `[host]`"). A bd built before
+# (docs/contributing/studio-runs.md, openspec/specs/cli/host/spec.md "The environment of a run and `[host]`"). A bd built before
 # this table was allowed refuses the whole file and then applies no clean rule.
 [host]
 # What a run makes and brings back into the same paths here
@@ -28,7 +28,7 @@ inputs = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
 creates = ["node_modules"]
 
 # The commit rules of this repository: `brd pick` and `brd lease pick` refuse a message whose subject, after the
-# `(branch)` prefix, is not a conventional commit (`message_format`, spec/cli/pick.spec.md "The commit rules").
+# `(branch)` prefix, is not a conventional commit (`message_format`, openspec/specs/cli/pick/spec.md "The commit rules").
 # release-please reads these subjects.
 [commit]
 check = ['(feat|fix|docs|refactor|perf|test|chore|style|build|ci|revert)(\([^)]+\))?!?: .+', 'Revert ".+']

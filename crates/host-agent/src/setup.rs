@@ -1,4 +1,4 @@
-//! `brd-host setup --agent` (spec/cli/host.spec.md, "setup"): the client runs it over ssh while the user is at the host.
+//! `brd-host setup --agent` (openspec/specs/cli/host/spec.md, "setup"): the client runs it over ssh while the user is at the host.
 //! It creates the identity of the agent, adds the client to the allow list, writes the `LaunchAgent`, and starts or
 //! restarts `serve` under launchd. On a host without launchd it does not start the agent.
 

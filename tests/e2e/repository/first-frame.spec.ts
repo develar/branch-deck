@@ -1,4 +1,4 @@
-// @spec spec/repository/title-bar.spec.md
+// @spec openspec/specs/repository/title-bar/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getSubWindowReadyOpen, getWindowReadyRows, getWindowShell, observeWindowStages } from "../helpers/sub-window-helpers"

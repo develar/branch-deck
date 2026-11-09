@@ -1,5 +1,5 @@
 //! `brd-host supervise <run dir> --lock-fd <descriptor>`: one run, from the lend of its host slot to `exit.json`
-//! (spec/cli/host.spec.md, "serve"). `serve` starts it in a session of its own, so a restart or an upgrade of `serve`
+//! (openspec/specs/cli/host/spec.md, "serve"). `serve` starts it in a session of its own, so a restart or an upgrade of `serve`
 //! does not end the run. It keeps the host awake for its whole life (`awake`), also when its client is gone. `serve`
 //! takes the flock of the run before the run is visible and hands its descriptor over. The supervisor holds it for its
 //! whole life, so a run is alive exactly while its supervisor is.

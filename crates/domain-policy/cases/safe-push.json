@@ -3,7 +3,7 @@
     "id": "safe-push-via-api",
     "group": "modes-and-routes",
     "title": "a Safe Push of a lone branch without a pull request starts through the API",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {},
     "expect": {
       "step": {
@@ -20,7 +20,7 @@
     "id": "dry-run-via-api",
     "group": "modes-and-routes",
     "title": "a Dry Run of a lone branch starts through the API, the review not checked",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "mode": "dryRun"
     },
@@ -36,7 +36,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --dry-run waits for it: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --dry-run waits for it: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "step": {
@@ -50,7 +50,7 @@
     "id": "dry-run-skips-missing-approvals",
     "group": "modes-and-routes",
     "title": "a Dry Run starts although the approvals are missing",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "mode": "dryRun",
       "readiness": "missing"
@@ -68,7 +68,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --dry-run waits for it: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --dry-run waits for it: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "step": {
@@ -82,7 +82,7 @@
     "id": "dry-run-from-draft-pull-request",
     "group": "modes-and-routes",
     "title": "a Dry Run of a branch whose pull request is a draft starts from it",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "mode": "dryRun",
       "pullRequest": {
@@ -105,7 +105,7 @@
     "id": "dry-run-beside-pull-request-into-other-base",
     "group": "modes-and-routes",
     "title": "a Dry Run of a branch whose pull request merges into a release branch starts through the API",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "mode": "dryRun",
       "pullRequest": {
@@ -128,7 +128,7 @@
     "id": "safe-push-from-pull-request-comment",
     "group": "modes-and-routes",
     "title": "a Safe Push of a branch with an open pull request into master starts from a /patronus comment with the default checks",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "pullRequest": {}
     },
@@ -147,7 +147,7 @@
     "id": "pull-request-comment-takes-no-profile",
     "group": "modes-and-routes",
     "title": "a profile chosen for a start from a pull request comment",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "pullRequest": {},
       "profile": {
@@ -166,7 +166,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "a /patronus comment can't choose a profile: the app's popover offers none for it and starts the default checks, brd refuses --profile (agent-cli.spec.md, brd safe-push)"
+      "why": "a /patronus comment can't choose a profile: the app's popover offers none for it and starts the default checks, brd refuses --profile (openspec/specs/cli/agent-cli/spec.md, brd safe-push)"
     },
     "bd": {
       "error": "invalid_arguments"
@@ -176,7 +176,7 @@
     "id": "unprotected-target",
     "group": "modes-and-routes",
     "title": "a target Patronus does not protect",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "target": "unprotected"
     },
@@ -192,7 +192,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "a target Patronus doesn't protect fails the command before anything is read of it: spec/cli/agent-cli.spec.md#brd-safe-push"
+      "why": "a target Patronus doesn't protect fails the command before anything is read of it: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
     },
     "bd": {
       "error": "patronus_refused"
@@ -202,7 +202,7 @@
     "id": "default-checks",
     "group": "profiles",
     "title": "no robot of the branch yet: the default checks, no profile",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {},
     "expect": {
       "step": {
@@ -219,7 +219,7 @@
     "id": "last-robot-profile",
     "group": "profiles",
     "title": "the profile of the last robot, which failed on an older commit, is the default; the branch unpushed since, its slot starts anew",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "failure",
@@ -245,7 +245,7 @@
     "id": "last-robot-profile-from-the-list",
     "group": "profiles",
     "title": "with the new API the robot list names the profile of the last robot, the default",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "failure",
@@ -273,7 +273,7 @@
     "id": "chosen-profile",
     "group": "profiles",
     "title": "a profile chosen for the start",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "profile": {
         "chosen": "lsc"
@@ -295,7 +295,7 @@
     "id": "none-drops-the-last-robot-profile",
     "group": "profiles",
     "title": "none chosen over the profile of the last robot: the default checks",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "robot": {
         "state": "failure",
@@ -321,7 +321,7 @@
     "id": "emergency-profile-refused",
     "group": "profiles",
     "title": "an emergency profile chosen for a Safe Push with review",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "profile": {
         "chosen": "emergency"
@@ -339,7 +339,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "the app offers an emergency profile only to a Safe Push without review, after its warning, so the usual start takes the default checks; bd never starts one (agent-cli.spec.md: --profile emergency is invalid_arguments)"
+      "why": "the app offers an emergency profile only to a Safe Push without review, after its warning, so the usual start takes the default checks; bd never starts one (openspec/specs/cli/agent-cli/spec.md: --profile emergency is invalid_arguments)"
     },
     "bd": {
       "error": "invalid_arguments"
@@ -349,7 +349,7 @@
     "id": "approvals-missing-without-pull-request",
     "group": "review",
     "title": "the approvals are missing and no pull request collects them",
-    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#brd-safe-push", "spec/branch/next-step.spec.md"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#code-owner-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push", "openspec/specs/branch/next-step/spec.md"],
     "given": {
       "readiness": "missing"
     },
@@ -369,7 +369,7 @@
     "id": "approvals-missing-in-pull-request",
     "group": "review",
     "title": "the approvals are missing in the open pull request, nobody asked",
-    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#brd-safe-push", "spec/branch/next-step.spec.md"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#code-owner-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push", "openspec/specs/branch/next-step/spec.md"],
     "given": {
       "readiness": "missing",
       "pullRequest": {}
@@ -390,7 +390,7 @@
     "id": "without-approvals",
     "group": "review",
     "title": "a Safe Push without review, no profile chosen",
-    "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#safe-push-without-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing",
       "flags": ["withoutApprovals"]
@@ -412,7 +412,7 @@
     "id": "without-approvals-with-profile",
     "group": "review",
     "title": "a Safe Push without review with a profile chosen",
-    "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#safe-push-without-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "missing",
       "flags": ["withoutApprovals"],
@@ -437,7 +437,11 @@
     "id": "skips-review-profile",
     "group": "review",
     "title": "the profile of the last robot, which failed on an older commit, skips the review; the approvals missing",
-    "spec": ["spec/branch/patronus.spec.md#safe-push-without-review", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/patronus/spec.md#safe-push-without-review",
+      "openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "readiness": "missing",
       "robot": {
@@ -466,7 +470,7 @@
     "id": "readiness-unknown",
     "group": "review",
     "title": "Patronus doesn't evaluate the pull request someone approved",
-    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#code-owner-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unknown",
       "pullRequest": {
@@ -489,7 +493,7 @@
     "id": "readiness-unavailable",
     "group": "review",
     "title": "the pre-check of the review fails: the app confirms the review line, bd refuses review_unknown unless --allow-unknown-review",
-    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#code-owner-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unavailable"
     },
@@ -509,7 +513,7 @@
     "id": "readiness-space-required",
     "group": "review",
     "title": "a repository only on Space whose merge request needs approvals",
-    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#code-owner-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "space"
     },
@@ -528,7 +532,7 @@
     "id": "pull-requests-unlisted",
     "group": "review",
     "title": "GitHub doesn't list the pull requests",
-    "spec": ["spec/branch/patronus.spec.md#code-owner-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#code-owner-review", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "unlisted"
     },
@@ -548,7 +552,11 @@
     "id": "approved-pull-request-into-another-base-pushes",
     "group": "review",
     "title": "a push of a new commit into the approved #7, which goes into a release branch, while the rules dismiss stale reviews: both refuse by the base (row 5′, D3b), no dismiss fact without a start from the pull request; bd also names the approvals Patronus finds missing without one",
-    "spec": ["spec/branch/next-step.spec.md#the-table:5′", "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": [
+      "openspec/specs/branch/next-step/spec.md#the-table:5′",
+      "openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run",
+      "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    ],
     "given": {
       "readiness": "approved",
       "remote": "unpushed",
@@ -574,7 +582,7 @@
     "id": "rules-dismiss-not-counted",
     "group": "review",
     "title": "a push of a new commit into #7, which someone approved, while the rules dismiss stale reviews and the changes need no approval: the approvals Patronus doesn't count are gone with the push; the app confirms it, bd says it in rules",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "notRequired",
       "remote": "unpushed",
@@ -599,7 +607,7 @@
     "id": "rules-unknown-allowed",
     "group": "review",
     "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read, and the start is told to start anyway: the popover's confirmation, --allow-unknown-rules",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+    "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
     "given": {
       "readiness": "approved",
       "pullRequest": {

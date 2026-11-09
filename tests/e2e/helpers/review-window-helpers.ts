@@ -6,7 +6,7 @@ import { getOpenedSubWindows } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 
 /*
- * The one review window (spec/review/review-window.spec.md): a branch with its stack, a whole stack, a kept branch, a
+ * The one review window (openspec/specs/review/review-window/spec.md): a branch with its stack, a whole stack, a kept branch, a
  * list of commits, each an open of the window `review` on `/review`
  */
 

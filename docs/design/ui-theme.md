@@ -53,14 +53,14 @@ flowchart TD
 - **Window canvas.** `body` is `bg-canvas` (base layer of `src/index.css`), the IntelliJ `MainWindow.background`.
 - **Toolbar.** The one block on the canvas that is not an island: `ConfigurationHeader`, 40px high, is the title bar
   of the main window, as the IntelliJ main toolbar lies on the main window background
-  ([Title Bar](../../spec/repository/title-bar.spec.md)). The islands scroll under it in their own container.
+  ([Title Bar](../../openspec/specs/repository/title-bar/spec.md)). The islands scroll under it in their own container.
 - **Islands.** Every other top-level block on the canvas is a `Card` (`bg-card`, `ring-foreground/5`, no shadow).
   Examples are the tables, the collapsible sections, alerts and the sub-window context cards.
 - **Dark mode.** The same tokens give islands (`#191A1C`) darker than the canvas (`#26282C`), which is what Islands Dark
   does. Popovers (`#26282C`) are lighter than the island under them. There are no `dark:` overrides. The dark values
   apply under `:root[data-theme="dark"]` of `src/index.css`, the attribute `useTheme` sets in every window by
   Settings → Appearance → Theme (System follows `prefers-color-scheme`, Light and Dark fix it), and the `dark` variant
-  matches the same attribute ([Settings](../../spec/repository/settings.spec.md)).
+  matches the same attribute ([Settings](../../openspec/specs/repository/settings/spec.md)).
 - **White fields.** `--background` stays white (the island colour in dark), so outline buttons and bordered fields
   (`bg-background border-input`) read as fields on an island and on the canvas.
 
@@ -198,7 +198,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - for a collapsible section, use `CollapsibleCard`;
   - never put a `bg-muted` or `bg-background` div directly on the canvas, because it vanishes into or clashes with the
     window.
-- **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../spec/repository/title-bar.spec.md)),
+- **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../openspec/specs/repository/title-bar/spec.md)),
   on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
   the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`).
   An option set of the row (the scopes of the stack bar) is a `ToggleGroup`, as the shadcn rule for 2 to 7 choices
@@ -496,17 +496,17 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     `BranchCreator` and `WindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main
     window), `px-2 pb-2` under the row of a sub-window;
   - islands take the full window width, as IntelliJ tool windows do; the one block beside them is a side panel.
-- **A side panel** (Activity, [Activity](../../spec/repository/activity.spec.md#side-panel)) is an island of its own
+- **A side panel** (Activity, [Activity](../../openspec/specs/repository/activity/spec.md#side-panel)) is an island of its own
   to the right of the islands, under the toolbar, which stays the full width: a `Card` with a 40px header (the title,
   its actions, Close), 8px from the islands, the window edge and the bottom. The 8px gap is its divider
   (`ResizableHandle`, transparent), dragged to a width that is kept (`useDefaultLayout`, as the sidebar of a review).
   It opens only where the islands keep their minimum beside it (`MIN_ISLANDS_WIDTH`, 768 CSS px, plus the panel's own
   320 px); without the room, what would open it opens its window instead, never a squeezed table.
 
-- **The views of the main window** ([Main Views](../../spec/repository/main-views.spec.md)): the switcher after the
+- **The views of the main window** ([Main Views](../../openspec/specs/repository/main-views/spec.md)): the switcher after the
   repository in the toolbar, the stock `ToggleGroup`, the shown view pressed; each view its own scroller of islands
   under the toolbar, both kept mounted.
-- **Charts** (Landing, [Main Views](../../spec/repository/main-views.spec.md#user-experience)): shadcn Charts on
+- **Charts** (Landing, [Main Views](../../openspec/specs/repository/main-views/spec.md#user-experience)): shadcn Charts on
   Recharts (`src/components/ui/chart.tsx`, lazy), the series in the chart palette `--chart-1…4` (dataviz reference
   slots and a neutral for an end without an outcome, validated for colour-blind separation on both cards; never the
   status tokens for a series), one colour per entity across the charts (the user in the ink of the text, never in the
@@ -534,11 +534,11 @@ shows.
 - **Empty is free**: a track that no row of any card fills is 0 wide, and so is its gutter (`--bd-gap-<kind>`, 8px
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
-  the steps fit (`next-step.spec.md`); the cap is a backstop. A step with actions beside its slot (`data-beside-slot`:
+  the steps fit (`openspec/specs/branch/next-step/spec.md`); the cap is a backstop. A step with actions beside its slot (`data-beside-slot`:
   Open in Patronus and Forget This Start of a start whose answer was lost, Stop Waiting of a wait for the lock) is as
   wide as they are, as buttons don't truncate: capped, they lay over the "⋯" of the row, which took their clicks.
 - **Late facts move no column**: the answers of the remote come after the first rows (the pull request chips, the
-  steps, the robots), so until they are in ([Facts without an answer](../../spec/branch/next-step.spec.md#facts-without-an-answer))
+  steps, the robots), so until they are in ([Facts without an answer](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer))
   each track is at least as wide as once they were in the last time (the floors of `ColumnRegistry.setLayout`, the
   `tracks` of `settledLayout` in the repository state, `useSettledLayout`): a start or a switch back stands where the settled view
   of the last time stood, and the answers fill the places they had. The widths are kept as laid out, fractions too: a
@@ -549,10 +549,10 @@ shows.
   its content (a track that has less to show than the last time narrows then, once) and keeps its widths for the next
   start. A repository's first start has no floors; within a window a repository settles once, so a late fact after it
   (a new branch waiting for its readiness) moves only what it changes. Your Turn above the table holds its height the
-  same way ([Review Requests](../../spec/repository/review-requests.spec.md#card)), the second header line of a stack
-  island its line (`stackLines` of `settledLayout`, [Stack Island](../../spec/branch/stack-island.spec.md)), the
+  same way ([Review Requests](../../openspec/specs/repository/review-requests/spec.md#card)), the second header line of a stack
+  island its line (`stackLines` of `settledLayout`, [Stack Island](../../openspec/specs/branch/stack-island/spec.md)), the
   sections of the branch preview a muted line (`PendingSection`) and its footer push, like the push of the review
-  window's title bar, its place, disabled with why ([Branch Preview](../../spec/branch/branch-preview.spec.md)), and the
+  window's title bar, its place, disabled with why ([Branch Preview](../../openspec/specs/branch/branch-preview/spec.md)), and the
   unassigned commits card renders with the rows (no lazy chunk: one came seconds later under load and moved the table).
 - **A running sync moves no column**: while a sync runs a track only widens (`held` of `ColumnRegistry.setLayout`,
   from `isSyncing`), as the texts of a run ("syncing 3/7…" to "created") change the widths of the items, and each

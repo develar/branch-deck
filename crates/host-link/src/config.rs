@@ -1,5 +1,5 @@
 //! `[host]` of `.branchdeck.toml` in the root of the shipped commit: what a repository asks of the host for each run
-//! (spec/cli/host.spec.md, "The environment of a run and `[host]`"). The agent and the client parse it with this one
+//! (openspec/specs/cli/host/spec.md, "The environment of a run and `[host]`"). The agent and the client parse it with this one
 //! parser: the agent for the prepare steps, the environment and the outputs that it stages, the client for the outputs
 //! that it takes back. Each end reads the file from the commit of the run, so a file beside the commit never counts. A
 //! commit whose `.branchdeck.toml` has no `[host]` table has no prepare steps, no environment of its own and no

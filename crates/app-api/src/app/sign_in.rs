@@ -1,4 +1,4 @@
-//! The sign-ins of the app's accounts (spec/repository/github-sign-in.spec.md, spec/repository/youtrack.spec.md):
+//! The sign-ins of the app's accounts (openspec/specs/repository/github-sign-in/spec.md, openspec/specs/repository/youtrack/spec.md):
 //! commands of the app, not intents of a session, since an account has no repository (docs/design/rust-domain-authority.md,
 //! "Решение 2026-10-28"). They run on the sign-ins of the host (`AppHost::sign_ins`, `remote_facts::sign_in`): one
 //! sign-in of each provider at a time, a second call joins it, its events on the channel of each call. A sign-in or a

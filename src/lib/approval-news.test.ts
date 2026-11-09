@@ -1,4 +1,4 @@
-// @spec spec/repository/review-requests.spec.md
+// @spec openspec/specs/repository/review-requests/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { approvalNewsOf, describeApprovalNews } from "@/lib/approval-news"

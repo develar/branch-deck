@@ -1,4 +1,4 @@
-//! The modules of a review (spec/branch/review-plan.spec.md, "Modules"): the shape of a change before any of its words,
+//! The modules of a review (openspec/specs/branch/review-plan/spec.md, "Modules"): the shape of a change before any of its words,
 //! which modules it adds, changes or deletes, how large each part is, and what each newly uses.
 //!
 //! - **The module of a file** is the nearest directory above it with a build file at the head reviewed

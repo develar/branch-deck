@@ -54,7 +54,7 @@ only, so other builds don't need the file). The macOS release build carries `brd
 (`scripts/build-bd-host.mjs`, `src-tauri/tauri.macos-bd-host.conf.json`), and `brd install` links
 `~/.local/bin/brd-host` to it. The code is in `crates/bd-cli` (the `Cli`, the dispatch, `brd schema`, the help texts) and the crates it
 builds on: `bd-core`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`, and the library `commit-clustering`; the requirements are in the
-[Agent CLI spec](../../spec/cli/agent-cli.spec.md).
+[Agent CLI spec](../../openspec/specs/cli/agent-cli/spec.md).
 
 ## Rename from `bd` to `brd`
 
@@ -101,7 +101,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 ### Flag names
 
 An agent carries a flag from one command to another, so one sense has one word in every command
-(`crates/bd-cli/src/flag_names.rs`, [the spec](../../spec/cli/agent-cli.spec.md#flag-names)). Name a new flag by
+(`crates/bd-cli/src/flag_names.rs`, [the spec](../../openspec/specs/cli/agent-cli/spec.md#flag-names)). Name a new flag by
 these rules:
 
 - **A preview is `--dry-run`**: it writes at most git objects, after the sync its command runs first. Never `--check`
@@ -281,7 +281,7 @@ what they listed.
 
 - Branches are listed newest first by where each begins in the history, the same order as the UI: the branch whose
   oldest commit is the newest first, so no rewrite of the commits of a branch and no commit added to it moves it
-  ([Stacked Branches](../../spec/branch/stacked-branches.spec.md#ui)). The commits of a branch are newest first, and
+  ([Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md#ui)). The commits of a branch are newest first, and
   their subjects have the `(prefix)` stripped, as the virtual branch commits do (a prefix that is an issue key stays as
   the key). `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
   note) marks a commit whose virtual copy resolved a conflict of git by words (see `brd sync`).
@@ -293,7 +293,7 @@ what they listed.
   The map is shared by every branch and worktree, so an idle key may group the commits of another one: leave it,
   unless you know that no branch needs it (then `ungroup_issues`).
 - `parent_source` says where `parent` comes from: `prefix` (a parent level of a prefix) or
-  `store` (the stack parents, `refs/branch-deck/stack-parents`, see [Stack Parents](../../spec/branch/stack-parents.spec.md)).
+  `store` (the stack parents, `refs/branch-deck/stack-parents`, see [Stack Parents](../../openspec/specs/branch/stack-parents/spec.md)).
   `idle_stack_parents` lists the children of the stack parents that stack no branch ahead of the baseline here, and
   `stack_parent_problems` the lines of that store that are not used. An idle child may stack a branch of another
   worktree; a sync drops its line once its branch is integrated, `brd group` with `unstack` drops it at once.
@@ -588,7 +588,7 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
 - `issue_groups` maps an issue group name (a branch name without `/`) to issue keys: the commits without a prefix that
   carry one of the keys go into that branch, and no subject changes. `ungroup_issues` removes the issue group of a
   key, so its commits go back to the issue branch of the key. The map lives in `refs/branch-deck/issue-groups`; see
-  [Issue Groups](../../spec/branch/issue-groups.spec.md). A plan of issue groups only rewrites nothing
+  [Issue Groups](../../openspec/specs/branch/issue-groups/spec.md). A plan of issue groups only rewrites nothing
   (`rewritten` 0) and moves only that ref, still with `--expect-head` and a check that HEAD did not move.
 - Before anything is written, the plan is applied in memory to every subject ahead of the baseline and validated,
   with the issue groups as they are after the plan:
@@ -662,7 +662,7 @@ Plans that `brd` computes, validated and written like `brd group`, with the same
 
 ### `brd park <branch> [--note <why>]`, `brd unpark <branch>`
 
-Keep a branch local, or let it be pushed again ([Parked Branches](../../spec/branch/parked-branches.spec.md)): only when
+Keep a branch local, or let it be pushed again ([Parked Branches](../../openspec/specs/branch/parked-branches/spec.md)): only when
 the user asks. No rewrite: one line `branch<TAB>note` in `refs/branch-deck/parked`, shared by every worktree, under
 the repository lock with compare-and-swap (`parked_moved`, exit 3, when another writer moved it). `park` needs a branch
 that groups commits here (`unknown_branch`); a second park changes the note (one line, at most 500 characters,
@@ -676,7 +676,7 @@ that groups commits here (`unknown_branch`); a second park changes the note (one
 
 ### `brd mark-reviewed <branch> [--base <parent>]`
 
-Keeps the base and the tip a branch has now as reviewed, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)):
+Keeps the base and the tip a branch has now as reviewed, experimental ([Review Plan](../../openspec/specs/branch/review-plan/spec.md)):
 only when the user says they reviewed the branch. The branch is a virtual branch by its name, else a local branch by
 its name, or `refs/heads/<name>` (`unknown_branch`, exit 2, for none); the base is its merge base with the baseline of
 the checked out branch, or with `--base` (a branch named the same way, else any commit): for a branch stacked on
@@ -698,7 +698,7 @@ lock ("Review plan" in [Git Operations](../design/git-operations.md#review-plan)
 
 ### `brd review-plan <branch | base..head> [--base <parent>] [--since-reviewed]`
 
-The plan of a review, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)); moves no ref. The branch is
+The plan of a review, experimental ([Review Plan](../../openspec/specs/branch/review-plan/spec.md)); moves no ref. The branch is
 named as for `brd mark-reviewed`, on the same base (`--base <parent>` for a stacked branch); `base..head` is a range.
 For a branch marked reviewed, `interdiff` pairs each commit of `base..head` with a reviewed one: `unchanged` (the same
 commit, or a copy with the same identity, the same changed lines and the same message), `reworded` (the same changed
@@ -725,7 +725,7 @@ and line before the commit that removed it. `files` gives per changed file (a de
 `whitespace`, `renamed`, `generated`, or `null` for real work, a deletion too), `generated` (why, for a `generated` file:
 `{"kind":"name","name":"lockFile"}` for a lock file, a minified file or a source map, `{"kind":"attribute"}` for
 `linguist-generated` or `-diff` at the head, `{"kind":"header","line":"Generated by …"}` for the leading comment a
-tool wrote; [Review Plan](../../spec/branch/review-plan.spec.md#mechanical-changes)), `uses` and `used_by` (the links among the changed files
+tool wrote; [Review Plan](../../openspec/specs/branch/review-plan/spec.md#mechanical-changes)), `uses` and `used_by` (the links among the changed files
 after the commits), `new_links`, `breaks` (the usages left outside of the API it removes or changes), `breaks_complete` (false makes
 `breaks` a lower bound: a usage count of that API is `null` or not `complete`), `untested` (a source file
 changed while none of its tests did), `repeated_edit` and `repeated_edit_only` (every hunk of it is that edit), the most
@@ -751,17 +751,17 @@ of 3 or more files that get the same edit. The reviewed commits are those of `ba
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
 tree order inside a cycle and between files with no edge (`"schema": 28` since the `tested` of each group of a large step, 27 since the `folder` of each file, 26 since the `texts` of the UI, 25 since the `registrations`, 24 since the `groups` of a large step in place of the `concern` of a stop, 23 since the `modules` of the changed files and the `moduleEdges` of a step, 22 since a block of a body may be a `table` (its `header`, `align` and `rows`) and a body has its `summary`, 21 since a paragraph of the brief can be a `row` of a table under the cells of its header, a changed one of several sentences has its `excerpt`, and no paragraph is front matter or metadata, 20 since a widening is an `added` entry with `widened` and its form `before`, the forms write the reach as the language does, and the plan has its `verdict`, 19 the tests of a step are the given tests of the change, each with its `way`, without `callers`, `within` and `unfollowed`, 18 the `proof`, `callers`, `reached` count, `unreached` without `within` and `unfollowed` of the tests of a step and its `proves`, 17 the `path` and `line` of the `reached` and `unreached` declarations of a step, 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, and its `blocks`, 15 the `parts` of a story where they are told, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded` and the `message_change` of a commit, the `change` of a story and the `removals` of its parts, 14 the story of each commit once, `steps.commits` with its body by blocks and its code names resolved to the units (`target: null` for a name in backticks that resolves nothing), and the `newApi` and `moduleLinks` of a step, 13 the `reached` and `unreached` tests of a step from accio, 12 `still_bound`, `by_name` and `unbroken` in place of `updated` of the usages, 11 the `api` and `test` of a unit in place of its `public`, 10 the `steps` of the story and
-the `brief` ([Review Tour](../../spec/branch/review-tour.spec.md)), 9 the name `file` of a concern, 8 the
+the `brief` ([Review Tour](../../openspec/specs/branch/review-tour/spec.md)), 9 the name `file` of a concern, 8 the
 main row of a file of several concerns, 7 the concerns, 6 a deletion as real
 work, 5 the generated files). `units` (since `"schema": 4`) cuts the diff of the review
-into the changes a reviewer reads once, in that order ([Review Units](../../spec/branch/review-units.spec.md)): a
+into the changes a reviewer reads once, in that order ([Review Units](../../openspec/specs/branch/review-units/spec.md)): a
 change of the form of a declaration (`shape` with `changes`), of its body alone (`behaviour`), a new or removed
 declaration (`added`, `removed`), a new or a deleted file (`newFile`, `deletedFile`; `deletedFiles` with its
 `directory` for 3 or more deleted from one directory), one unit per kind of mechanical change and per repeated edit
 over all of their files (`mechanical`, `repeatedEdit`, last, the generated files last of all), and a change of no declaration (`other` with its
 `reason`); each with its `slices`: the file, its `blocks` by `index` with their `old` and `new` lines from 1, and a
 `fingerprint` of the change that a rebase or an amend keeps. `concerns` (since `"schema": 7`) joins the units into the
-tasks of the range by evidence ([Review Concerns](../../spec/branch/review-concerns.spec.md)): each with its `name` by
+tasks of the range by evidence ([Review Concerns](../../openspec/specs/branch/review-concerns/spec.md)): each with its `name` by
 its `source` (`token`, `replacement`, `declaration`, `file`, `directory`), its `parts` (`unit`, `path`, `blocks`), its
 `paths`, its `elsewhere` (since `"schema": 8`: its files whose main row is in another concern, the one whose parts
 change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `rest`), what no evidence joined last
@@ -803,7 +803,7 @@ change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `r
 
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as
 `{prefix}/unapplied/<name>`, which no sync archives or deletes (`sync_core::unapply_branch`, "Drop and unapply" in
-[Git Operations](../design/git-operations.md), the contract [Unapply and Reapply](../../spec/branch/unapply.spec.md)): only
+[Git Operations](../design/git-operations.md), the contract [Unapply and Reapply](../../openspec/specs/branch/unapply/spec.md)): only
 when the user asks. Computed before the repository lock, which holds only its witness and the move; the files follow
 through the guarded update of Update Project, so a local change on a path it writes is `uncommitted_overlap` (exit 4,
 `paths`) and changes nothing. `--dry-run` prints the same object with `dry_run: true` and without `undo_token`, the
@@ -832,7 +832,7 @@ refusals included, and writes nothing but git objects: show the user what leaves
 ### `brd drop <commit>… [--expect-head <id>] [--dry-run]`
 
 Takes commits ahead of the baseline and their files out of the checked out branch for good, as the app's Drop Commit
-does (`history_rewrite::drop_commits`, the contract [Drop Commits](../../spec/commit/drop.spec.md)): an agent's own
+does (`history_rewrite::drop_commits`, the contract [Drop Commits](../../openspec/specs/commit/drop/spec.md)): an agent's own
 commit that must not land, never a `git revert`, which lands both into master; a commit and its revert together. The
 same check and guarded move as `brd unapply`: computed before the repository lock, which holds only its witness and the
 move.
@@ -975,7 +975,7 @@ beside another fetch of the baseline (the app's, another agent's) it waits for t
 
 ### The resolve session of `brd update`
 
-`brd help update` prints this workflow for an agent; the contract is [brd update](../../spec/cli/update.spec.md), the
+`brd help update` prints this workflow for an agent; the contract is [brd update](../../openspec/specs/cli/update/spec.md), the
 design "Resolve session" in [Git Operations](../design/git-operations.md). The session replays the local commits
 outside the working tree (`update_core::resolve_session`, `git_ops::update_resolve`) and opens one round per
 conflicting commit. It belongs to the worktree and the branch, keeps the baseline it started with, and lives in the
@@ -1021,7 +1021,7 @@ the contract is the spec. The mechanics behind it:
 
 Lands the commits of another worktree on the branch checked out at `-C`, without `git cherry-pick`
 (`update_core::pick::pick_core`, "Pick" in [Git Operations](../design/git-operations.md), the contract
-[brd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
+[brd pick](../../openspec/specs/cli/pick/spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
 `brd lease` worktree, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
 with `git replay`, and under the repository lock, which every worktree shares, the branch moves and the files follow
 through the guarded update. `--follow` moves the source worktree onto the new tip the same way. Inside a lease of the
@@ -1092,7 +1092,7 @@ pool, `brd lease pick` is this pick, run in the checkout the lease was cut from 
 ### `brd lease get [--holder <label>] [-b <branch>] [--min-free <size>]`, `pick`, `return`, `status`, `adopt`
 
 The pool of worktrees that agent sessions work in, one session per slot (`lease_pool::lease`, "Lease" in
-[Git Operations](../design/git-operations.md), the contract [brd lease](../../spec/cli/lease.spec.md)). A lease needs no
+[Git Operations](../design/git-operations.md), the contract [brd lease](../../openspec/specs/cli/lease/spec.md)). A lease needs no
 branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the pool lock `leases.lock`.
 
 ```json
@@ -1413,7 +1413,7 @@ repository lock.
   restacked first, in one trial, on the branch (or the chain of branches) that holds what it needs; the dangling
   references come after the conflicts. The search prints a line per trial on stderr (`trial 3/12: restack
   control-runtime-peer-cancel on cloud-spawner-exit … verified (41 s)`). See
-  [Conflict Fix](../../spec/branch/conflict-fix.spec.md).
+  [Conflict Fix](../../openspec/specs/branch/conflict-fix/spec.md).
 
 ```json
 {"schema":2,…,"ok":false,"branches":[…],
@@ -1703,7 +1703,7 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`. A named root of a stack that forks also takes its stack branch along
-  (`{prefix}/stack/<root>`, [Whole Stack](../../spec/branch/whole-stack.spec.md)), as the app's Push with Children
+  (`{prefix}/stack/<root>`, [Whole Stack](../../openspec/specs/branch/whole-stack/spec.md)), as the app's Push with Children
   does: once it is on the remote or the pull request of the whole stack is open (brd asks GitHub once for a stack branch
   the remote lacks), leased on the remote head its remote status compared with, when this sync built it and the
   remote lacks it: `stacks` lists it as `branches` lists a branch, `name` the root, its `pull_request` the one of the
@@ -1758,7 +1758,7 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
 
 ### `brd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
 
-Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
+Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../openspec/specs/branch/patronus/spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
 pass) or, with `--patronus-dry-run`, a Patronus Dry Run (the checks only; it pushes and starts a robot as a Safe Push
 does, so it needs the user's approval too; `--dry-run` is the preview that starts nothing). The repository must be on Space (`origin` on
@@ -1788,7 +1788,7 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
 ```
 
 - `--whole-stack` lands the whole stack of the branch (any branch of it) in one robot, its side branches included
-  ([Landing](../design/landing.md), [Whole Stack](../../spec/branch/whole-stack.spec.md)): the robot starts from the
+  ([Landing](../design/landing.md), [Whole Stack](../../openspec/specs/branch/whole-stack/spec.md)): the robot starts from the
   stack branch of its top-level root, `{prefix}/stack/<root>`, which the sync builds of every commit of the stack, and
   only that branch is pushed, leased (its branches stay as they are on the remote). `whole_stack` names the `root`,
   the `source` the robot starts from and the `state` of the stack branch (`built` starts); `lands` names every branch
@@ -1899,7 +1899,7 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   freeze run under the repository lock, the sync and the checks before it, the start after it. A start is never
   repeated.
 - brd closes no pull request after the merge. The app closes the open pull requests of the ancestors a merged robot
-  landed, with a comment, when it sees the robot merge ([Patronus](../../spec/branch/patronus.spec.md#merged)); a
+  landed, with a comment, when it sees the robot merge ([Patronus](../../openspec/specs/branch/patronus/spec.md#merged)); a
   robot brd started is seen too while the app runs. Otherwise they stay open: the agent tells the user.
 - A start through the API (`started_via: api`) starts the robot on `refs/heads/<prefix>/virtual/<branch>`, kept
   after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
@@ -1962,7 +1962,7 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
 ### `brd land <branch> [--whole-stack] [--dry-run] [--allow-checks-not-passed] [--bypass-rules] [--allow-dangling] [--allow-missing]`
 
 Lands the branch into master by the route of the repository (`branchdeck.landing`,
-[Landing Routes](../../spec/branch/landing-routes.spec.md)), `route` in the output:
+[Landing Routes](../../openspec/specs/branch/landing-routes/spec.md)), `route` in the output:
 
 - `patronus`: the Safe Push of `brd safe-push`, its whole output in `safe_push`.
 - `push`: the sync without the repository lock, then the plan of the app's start over the one-shot session of the
@@ -1993,7 +1993,7 @@ whose head the push put into master GitHub merges by itself). Name them to the u
 ### `brd request-review <branch> [--reviewer LOGIN]… [--push] [--dry-run]`
 
 Asks GitHub users to review the open pull request of the virtual branch, as the app's Request Review… does
-([Pull Requests](../../spec/branch/pull-requests.spec.md#request-review)): the same intent of the engine
+([Pull Requests](../../openspec/specs/branch/pull-requests/spec.md#request-review)): the same intent of the engine
 (`RequestReview`, `operations::pull_request`), planned over the one-shot session of the command. Patronus counts the
 approvals of the code owners in that pull request, so one that asks no member of a missing group waits for nobody.
 
@@ -2029,7 +2029,7 @@ approvals of the code owners in that pull request, so one that asks no member of
 
 Prints the Patronus robot of the virtual branch, as `brd safe-push` finds it: a running one first, else the newest of
 the user's robots of the last 7 days, started on the branch or on a temporary ref at its local or pushed tip; with
-`--robot`, that robot ([Safe Push Failure Prompt](../../spec/branch/safe-push-failure-prompt.spec.md)). It is how an
+`--robot`, that robot ([Safe Push Failure Prompt](../../openspec/specs/branch/safe-push-failure-prompt/spec.md)). It is how an
 agent watches a robot the user started or restarted (`running`: run it again later), and, after a failed Safe Push,
 learns why and which local commits it tested. Read only: no repository lock, no sync, no ref written. The Space
 token and the repository on Space are needed as for `brd safe-push` (`not_logged_in`, `not_on_space`).
@@ -2123,7 +2123,7 @@ by the test `schema_lists_every_output`. `COMMAND_OUTPUTS` in `schema.rs` is the
 ### `brd workspace`
 
 Run by an agent before its first edit or commit (the skill says so; the contract
-[brd workspace](../../spec/cli/workspace.spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
+[brd workspace](../../openspec/specs/cli/workspace/spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
 `git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config, in the main worktree or a
 lease one `status` of the shared checkout, and in a lease one more `rev-parse` of the branch the shared checkout has
 checked out now. Three rules of the git config, each `{on, source, invalid, reason}`:

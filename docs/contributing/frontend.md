@@ -20,7 +20,7 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
 - **Window and cards** (Islands layering, see [UI Theme](../design/ui-theme.md)):
   - the page canvas is `bg-canvas`; `bg-muted` is a translucent tint (hover, chips, code), not a surface;
   - top-level blocks (tables, collapsible sections, alerts) are `Card` islands, or `CollapsibleCard`; the toolbar
-    (`ConfigurationHeader`) lies on the canvas as the title bar ([Title Bar](../../spec/repository/title-bar.spec.md));
+    (`ConfigurationHeader`) lies on the canvas as the title bar ([Title Bar](../../openspec/specs/repository/title-bar/spec.md));
   - never put `bg-muted`/`bg-background` divs on the canvas, and never recolour a top-level `Card` with `bg-muted`;
   - nested panels inside a card use `rounded-lg` (`rounded-xl` at most).
 - **Radii** come only from `--radius` (`0.25rem`) in `src/index.css`. Never add radius classes to `src/components/ui/*`

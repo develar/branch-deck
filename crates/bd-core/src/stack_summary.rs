@@ -1,5 +1,5 @@
 //! The stack branches in the output of `brd status` and `brd sync` (`stacks`): of each stack that forks, the branch of
-//! all its commits, `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md); and the whole stack of a branch, which
+//! all its commits, `{prefix}/stack/<root>` (openspec/specs/branch/whole-stack/spec.md); and the whole stack of a branch, which
 //! `brd safe-push --whole-stack` lands and `brd robot --whole-stack` watches, by the rule of the app
 //! (`domain_policy::stack::whole_stack_of`)
 

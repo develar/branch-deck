@@ -1,5 +1,5 @@
 //! `brd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
-//! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), recorded in the operations registry; its core takes the
+//! (`history_rewrite::autosquash`, openspec/specs/commit/fixups/spec.md), recorded in the operations registry; its core takes the
 //! repository lock after it computed the squash, for the witness of HEAD and the move only, and folds the fixups of HEAD
 //! as it finds it there unless `--expect-head` names one. One rewrite that keeps HEAD's tree, so the index and the
 //! working tree stay as they are; `brd undo` takes it back

@@ -3,7 +3,7 @@ import type { BranchReviewGroup } from "@/types/sub-window"
 
 /**
  * What the chips of a review mark: a chip filters nothing, it marks the files of its owner in the whole story, mutes the
- * others, and J/K and N/P move through its files only (spec/branch/branch-review.spec.md, "Code owners")
+ * others, and J/K and N/P move through its files only (openspec/specs/branch/branch-review/spec.md, "Code owners")
  */
 export type ReviewFilter =
   | { readonly kind: "all" }
@@ -140,7 +140,7 @@ export function reviewFilterChips(
 }
 
 /**
- * The chip a review window opens on (spec/repository/review-requests.spec.md, "Owner chips"): the remembered one when it
+ * The chip a review window opens on (openspec/specs/repository/review-requests/spec.md, "Owner chips"): the remembered one when it
  * marks a file here, by its name also where the owner is a group of the check and the other way round; else, with
  * `preferYours`, the first group of the user that still needs an approval and has files here; else All. A chip whose
  * files Patronus doesn't tell marks none.

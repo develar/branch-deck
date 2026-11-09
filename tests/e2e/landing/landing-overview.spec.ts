@@ -1,4 +1,4 @@
-// @spec spec/repository/landing-overview.spec.md
+// @spec openspec/specs/repository/landing-overview/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"

@@ -10,6 +10,7 @@
 // - every presenter of the page (`src/presenters/*.ts`) is a target of a spec;
 // - a link into a spec of the OpenSpec format names one of its headings by the anchor GitHub gives it, or a group of
 //   its requirements (`#refusals` for the requirements `### Requirement: Refusals: …`);
+// - no file lies under `spec/`, and none names a spec by its old path `spec/<area>/<name>.spec.md`;
 // - `openspec validate --strict` passes for every spec of the OpenSpec format and every change;
 // - AGENTS.md keeps within its budget, which every session of every agent reads whole (Codex reads no more than 32 KiB).
 // A renamed, moved or deleted test or file fails here, not in a reader. Every path is one from the root with `/` on
@@ -86,7 +87,7 @@ export function checkTestLinks(root, glob = globSync) {
         problems.push(`${at}: not a link of its own line, \`[@test] <path> (\`name\`, …)\`: ${line.trim().slice(0, 120)}`)
         return
       }
-      if (underOpenSpec(doc) && link[1].startsWith(".")) {
+      if (underOpenSpec(doc) && /^\.\.?\//.test(link[1])) {
         problems.push(`${at}: the path ${link[1]} is not from the root of the repository, as every path under openspec/`)
         return
       }
@@ -148,7 +149,7 @@ function moduleHeader(source) {
 /** The problem of the path of a target of `spec`, or none: from the root under openspec/, `../../` under spec/ */
 function targetPathProblem(spec, path) {
   if (underOpenSpec(spec)) {
-    return path.startsWith(".") ? `the target ${path} is not from the root of the repository, as every path under openspec/` : null
+    return /^\.\.?\//.test(path) ? `the target ${path} is not from the root of the repository, as every path under openspec/` : null
   }
   return path.startsWith("../../") ? null : `the target ${path} is no \`../../\` path from the root of the repository`
 }
@@ -284,7 +285,7 @@ export function checkSpecAnchors(root, glob = globSync) {
       .split(/\r?\n/)
       .forEach((line, index) => {
         for (const [, path, anchor] of line.matchAll(SPEC_LINK)) {
-          const file = path.startsWith("/") ? path.slice(1) : linkedFile(doc, path.startsWith(".") ? path : `./${path}`)
+          const file = path.startsWith("/") ? path.slice(1) : linkedFile(doc, /^\.\.?\//.test(path) ? path : `./${path}`)
           if (!file.startsWith("openspec/specs/")) {
             continue
           }
@@ -303,6 +304,46 @@ export function checkSpecAnchors(root, glob = globSync) {
           }
         }
       })
+  }
+  return problems
+}
+
+/** A path of a spec of the old layout: from the root or after `../`; `plugins/air/spec/x/y.spec.md` is of another repository */
+const OLD_LAYOUT = /(?<![\w-]|[\w-]\/)spec\/(?:branch|cli|commit|repository|review)\/[a-z0-9-]+\.spec\.md\b/
+
+/** The tracked files of the repository at `root`, by their paths from it */
+function trackedFiles(root) {
+  return execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 })
+    .split("\0")
+    .filter(path => path !== "")
+}
+
+/**
+ * The problems of the old layout of the specs, which moved to `openspec/specs/<area>/<name>/spec.md`: a file under
+ * `spec/`, a file that names a spec by its old path (CHANGELOG.md and the archived changes are history). A lease that
+ * picks a commit made before the move lands it without a conflict; this fails it. `files` are the files of `root`
+ */
+export function checkOldLayout(root, files = trackedFiles(root)) {
+  const problems = []
+  for (const file of files) {
+    if (file.startsWith("spec/")) {
+      problems.push(`${file}: a spec of the old layout, which moved to openspec/specs/<area>/<name>/spec.md (docs/contributing/specs.md)`)
+      continue
+    }
+    if (file === "CHANGELOG.md" || file.startsWith(ARCHIVE) || /\.(?:png|jpe?g|gif|webp|ico|icns|woff2?|ttf|otf|zip|gz|pdf|car)$/i.test(file)) {
+      continue
+    }
+    let text
+    try {
+      text = readFileSync(join(root, file), "utf8")
+    } catch {
+      continue
+    }
+    const at = text.search(OLD_LAYOUT)
+    if (at >= 0) {
+      const line = text.slice(0, at).split("\n").length
+      problems.push(`${file}:${line}: names ${OLD_LAYOUT.exec(text.slice(at))[0]}, a spec of the old layout: openspec/specs/<area>/<name>/spec.md`)
+    }
   }
   return problems
 }
@@ -377,11 +418,11 @@ export function checkOpenSpec(root, glob = globSync, validate = openspecValidate
 
 if (import.meta.main) {
   const root = join(import.meta.dirname, "..")
-  const problems = [...checkTestLinks(root), ...checkSpecTargets(root), ...checkSpecAnchors(root), ...checkOpenSpec(root), ...checkAgentsBudget(root)]
+  const problems = [...checkTestLinks(root), ...checkSpecTargets(root), ...checkSpecAnchors(root), ...checkOldLayout(root), ...checkOpenSpec(root), ...checkAgentsBudget(root)]
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} broken link(s) of the specs: a [@test] link names a test that exists, a target a file, a rule its spec, a presenter is a target, a link into a spec its heading, openspec validate --strict passes, AGENTS.md within its budget (scripts/check-spec-links.mjs)`,
+      `${problems.length} broken link(s) of the specs: a [@test] link names a test that exists, a target a file, a rule its spec, a presenter is a target, a link into a spec its heading, no path of the old layout, openspec validate --strict passes, AGENTS.md within its budget (scripts/check-spec-links.mjs)`,
     )
     process.exit(1)
   }

@@ -1,4 +1,4 @@
-// @spec spec/repository/github-sign-in.spec.md
+// @spec openspec/specs/repository/github-sign-in/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, unavailablePullRequests, VIEWER_LOGIN } from "../helpers/pull-request-helpers"

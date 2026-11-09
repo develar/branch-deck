@@ -61,7 +61,7 @@ const DiskUsageDialog = lazy(() => import("@/components/disk/DiskUsageDialog").t
 const ACTIVITY_PANEL_WIDTH = "24rem"
 
 /**
- * The views keep what the user left (`spec/repository/main-views.spec.md`): both stay mounted (React's `Activity`, here
+ * The views keep what the user left (`openspec/specs/repository/main-views/spec.md`): both stay mounted (React's `Activity`, here
  * `KeepMounted`), so the rows, their forms and their selection live on; the scroll position and the focused element of
  * the branches are kept at the switch and given back on the return, as `display: none` drops the focus. The focus moves
  * into a view only when it was inside the one that hid, so a click on the switcher keeps it on the switcher. WebKit

@@ -1,4 +1,4 @@
-//! The environment and the limits of the prepare steps and the command of a run (spec/cli/host.spec.md, "The
+//! The environment and the limits of the prepare steps and the command of a run (openspec/specs/cli/host/spec.md, "The
 //! environment of a run and `[host]`").
 //!
 //! The environment is the one of the agent, then the login environment of the user on top, then the directory of the

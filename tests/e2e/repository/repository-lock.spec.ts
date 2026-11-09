@@ -1,4 +1,4 @@
-// @spec spec/branch/move-commits.spec.md
+// @spec openspec/specs/branch/move-commits/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import {

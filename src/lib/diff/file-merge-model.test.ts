@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-row.spec.md
+// @spec openspec/specs/commit/commit-row/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { composeResult, middleLineCount, resolvedLines, resultSourceOf, resultTextId } from "@/lib/diff/file-merge-model"
 import { buildLineTable } from "@/lib/diff/line-table"

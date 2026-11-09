@@ -1,4 +1,4 @@
-// @spec spec/review/review-window.spec.md
+// @spec openspec/specs/review/review-window/spec.md
 import type { Page } from "@playwright/test"
 import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"

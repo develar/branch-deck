@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { Intent } from "../../../src/lib/bindings"
 import { expect, test } from "../fixtures/test-fixtures"

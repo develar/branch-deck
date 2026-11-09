@@ -30,7 +30,7 @@ type SlotBranch = Pick<Branch, "name" | "remoteStatus">
 /**
  * The next step of a branch row, after the push button, in the step track of the Actions column, so the steps, the push
  * buttons and "⋯" line up down the table and its islands: the step of the first row of the
- * [Next Step](../../../spec/branch/next-step.spec.md) table that matches (`getBranchNextStep`), the same that disables
+ * [Next Step](../../../openspec/specs/branch/next-step/spec.md) table that matches (`getBranchNextStep`), the same that disables
  * "Safe Push" everywhere else:
  * - "Safe Push" ("Safe Push · 3" for a stacked branch, which lands what it is built on with it), which starts at once
  *   when it has nothing to say, else opens its popover at the slot (`SafePushPopover`, the anchor of every surface's
@@ -223,7 +223,7 @@ export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone:
   const button = stepButton(action, tone, () => action.onSelect(FROM_MENU))
   const keys = isDisabled || !showKeys ? [] : (action.kbds ?? [])
   // one root whether there is something to say or not: the button keeps its node, its focus and its hover as its
-  // reason comes and goes (spec/branch/branch-row.spec.md, Hover and click)
+  // reason comes and goes (openspec/specs/branch/branch-row/spec.md, Hover and click)
   return (
     <Tooltip lazy disabled={action.description === undefined && keys.length === 0}>
       <TooltipTrigger render={button} />

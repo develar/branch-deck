@@ -28,7 +28,7 @@ export interface ConflictFixPanelProps {
 }
 
 /**
- * The fix of a sync conflict (spec/branch/conflict-fix.spec.md), a callout below the explanation: looked for when the
+ * The fix of a sync conflict (openspec/specs/branch/conflict-fix/spec.md), a callout below the explanation: looked for when the
  * conflict is shown, by trial builds; the steps in the words of the Move action, what they fix and empty, and Apply Fix
  * with Undo. Without a fix, the prompt that hands the conflict to a coding agent.
  */

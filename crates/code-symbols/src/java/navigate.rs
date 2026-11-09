@@ -1,4 +1,4 @@
-//! Go to Declaration and Find Usages in a Java file from its PSI (spec/commit/symbol-navigation.spec.md): the name at
+//! Go to Declaration and Find Usages in a Java file from its PSI (openspec/specs/commit/symbol-navigation/spec.md): the name at
 //! a place (`Tree::leaf_index`), its qualifier, the kind of the reference, its declaration in the file by the scopes,
 //! and the usages of a name, answered by `navigate::{reference_answer, usage_answers}`.
 //!

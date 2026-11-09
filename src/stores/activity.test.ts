@@ -1,4 +1,4 @@
-// @spec spec/repository/activity.spec.md
+// @spec openspec/specs/repository/activity/spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { JournalEntry, LandedBranch, PatronusRobot, UpdateProjectResult } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"

@@ -1,4 +1,4 @@
-// @spec spec/repository/title-bar.spec.md
+// @spec openspec/specs/repository/title-bar/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { checkForUpdatesFromMenu } from "@/hooks/useAutoUpdate"
 import type { UpdateInfo } from "@/lib/bindings"

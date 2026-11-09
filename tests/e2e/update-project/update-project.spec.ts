@@ -1,4 +1,4 @@
-// @spec spec/repository/update-project.spec.md
+// @spec openspec/specs/repository/update-project/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"

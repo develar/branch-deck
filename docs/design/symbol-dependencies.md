@@ -742,7 +742,7 @@ flowchart TD
     same before and after. On one thread the checkout's Rust files take 7.3 to 7.7 s against tree-sitter's 8.0 s,
     rust-analyzer's validation included.
 
-    The navigation of the diffs (`rust/navigate.rs`, [Symbol Navigation](../../spec/commit/symbol-navigation.spec.md))
+    The navigation of the diffs (`rust/navigate.rs`, [Symbol Navigation](../../openspec/specs/commit/symbol-navigation/spec.md))
     reads the same tree by the scopes of the tree-sitter one (a block, a function, a closure, an `impl`, a trait, a
     module, a match arm, a `for`): a binding of any pattern is a declaration (tree-sitter's read only a `let`'s and a
     typed parameter's), a capitalized name alone in a pattern is a value (tree-sitter's took `Some` of `let Some(x)` for
@@ -1247,11 +1247,11 @@ A refusal at the press came too late on 2026-10-22: the robot of `stills-codec` 
 `stills-codec`. So the gate has a second consumer: the landing needs, a fact the session of the repository computes
 through its host after a sync ([Git Operations](git-operations.md#session-facts)), run the same rule for every
 branch, from one trial check and one symbol graph of the check session, and the row says "Needs stills-codec" with the restack
-before any press ([Next Step](../../spec/branch/next-step.spec.md#what-the-safe-push-needs)); `brd status` lists them
+before any press ([Next Step](../../openspec/specs/branch/next-step/spec.md#what-the-safe-push-needs)); `brd status` lists them
 (`landing_needs`). The edges are the same, so the precision is: a false alarm shows on the row too, and the popover
 starts anyway.
 
 ## References
 
 - [Git Operations](git-operations.md): "Symbol summaries", "Dangling references (check)"
-- [Symbol Dependencies spec](../../spec/commit/symbol-dependencies.spec.md)
+- [Symbol Dependencies spec](../../openspec/specs/commit/symbol-dependencies/spec.md)

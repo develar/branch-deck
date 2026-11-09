@@ -1,4 +1,4 @@
-// @spec spec/branch/parked-branches.spec.md
+// @spec openspec/specs/branch/parked-branches/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { StepBlocker } from "@/lib/bindings"
 import { formatParkedBlocker, formatParkedLabel } from "@/lib/parked"

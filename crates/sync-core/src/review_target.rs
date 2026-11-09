@@ -1,4 +1,4 @@
-//! What a review shows of a target (`ReviewTarget`, spec/review/review-window.spec.md), read-only:
+//! What a review shows of a target (`ReviewTarget`, openspec/specs/review/review-window/spec.md), read-only:
 //!
 //! - a branch: a stack from its root to the branch, each part with its base, its head and its commits, from the virtual
 //!   branches. One `for-each-ref` for the tips, one `git log` of the baseline to the last tip, split at the tips. A

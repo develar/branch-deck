@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react"
 
 /**
- * The block of a story a mark of a section of the diffs showed last (spec/branch/review-tour.spec.md, "Anchors"): the
+ * The block of a story a mark of a section of the diffs showed last (openspec/specs/branch/review-tour/spec.md, "Anchors"): the
  * story that tells it opens it when a fold holds it and outlines it for a moment; `serial` tells a click again from
  * the one before
  */

@@ -1,4 +1,4 @@
-//! The app's own sign-in to GitHub (spec/repository/github-sign-in.spec.md): who the stored token (`token_store.rs`)
+//! The app's own sign-in to GitHub (openspec/specs/repository/github-sign-in/spec.md): who the stored token (`token_store.rs`)
 //! belongs to and which source the token chain would take first; and the device flow (`device_flow.rs`) of one
 //! sign-in at a time, from the code to the stored token, a cancel and a sign-out. The core of the GitHub sign-in of
 //! `remote_facts::sign_in`, which the app's commands and the E2E test server (behind a fake GitHub) run.

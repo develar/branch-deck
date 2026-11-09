@@ -3,7 +3,11 @@
     "id": "push-to-master-of-a-piece",
     "group": "modes-and-routes",
     "title": "a repository that lands by a push: a lone branch is pushed into master as its copy, what CI did not check accepted",
-    "spec": ["spec/branch/landing-routes.spec.md#push-to-master", "spec/branch/next-step.spec.md#the-table:push", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": [
+      "openspec/specs/branch/landing-routes/spec.md#push-to-master",
+      "openspec/specs/branch/next-step/spec.md#the-table:push",
+      "openspec/specs/cli/agent-cli/spec.md#brd-land"
+    ],
     "given": {
       "route": "push",
       "flags": ["withoutChecks"]
@@ -25,7 +29,11 @@
     "id": "push-to-master-of-a-stacked-piece-asks-for-the-checks",
     "group": "modes-and-routes",
     "title": "a repository that lands by a push: a stacked branch lands what it is built on, and the push waits for the user to accept what CI did not check",
-    "spec": ["spec/branch/landing-routes.spec.md#push-to-master", "spec/branch/next-step.spec.md#a-push-into-the-target", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": [
+      "openspec/specs/branch/landing-routes/spec.md#push-to-master",
+      "openspec/specs/branch/next-step/spec.md#a-push-into-the-target",
+      "openspec/specs/cli/agent-cli/spec.md#brd-land"
+    ],
     "given": {
       "route": "push",
       "branch": "login",
@@ -48,7 +56,11 @@
     "id": "push-to-master-of-the-whole-stack",
     "group": "modes-and-routes",
     "title": "a repository that lands by a push: the whole stack of a stack that forks is pushed into master as its stack branch",
-    "spec": ["spec/branch/landing-routes.spec.md#push-to-master", "spec/branch/next-step.spec.md#a-push-into-the-target", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": [
+      "openspec/specs/branch/landing-routes/spec.md#push-to-master",
+      "openspec/specs/branch/next-step/spec.md#a-push-into-the-target",
+      "openspec/specs/cli/agent-cli/spec.md#brd-land"
+    ],
     "given": {
       "route": "push",
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
@@ -72,7 +84,7 @@
     "id": "push-to-master-refused-below-write-access",
     "group": "modes-and-routes",
     "title": "a repository that lands by a push into a GitHub repository the token may only read: the gate of the route refuses the push",
-    "spec": ["spec/branch/landing-routes.spec.md#gates", "spec/branch/landing-routes.spec.md#push-to-master", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#gates", "openspec/specs/branch/landing-routes/spec.md#push-to-master", "openspec/specs/cli/agent-cli/spec.md#brd-land"],
     "given": {
       "route": "push",
       "permission": "read",
@@ -97,7 +109,7 @@
     "id": "push-to-master-asks-for-the-required-status-checks",
     "group": "modes-and-routes",
     "title": "a repository that lands by a push into a GitHub repository whose master requires status checks: the gate asks for them beside what CI did not check, and brd pushes nothing without --bypass-rules",
-    "spec": ["spec/branch/landing-routes.spec.md#gates", "spec/branch/landing-routes.spec.md#push-to-master", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#gates", "openspec/specs/branch/landing-routes/spec.md#push-to-master", "openspec/specs/cli/agent-cli/spec.md#brd-land"],
     "given": {
       "route": "push",
       "permission": "write",
@@ -121,7 +133,7 @@
     "id": "push-to-master-after-a-fetch-updates-first",
     "group": "modes-and-routes",
     "title": "a repository that lands by a push whose fetched master has a commit the branch is not built on: the step is Update Project, and the push, which would be no fast-forward, is refused before it is sent",
-    "spec": ["spec/branch/landing-routes.spec.md#gates", "spec/branch/next-step.spec.md#the-table:push′", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#gates", "openspec/specs/branch/next-step/spec.md#the-table:push′", "openspec/specs/cli/agent-cli/spec.md#brd-land"],
     "given": {
       "route": "push",
       "baselineAhead": true,
@@ -146,7 +158,7 @@
     "id": "merge-of-a-clean-pull-request",
     "group": "modes-and-routes",
     "title": "a repository that lands by a merge of the pull request: GitHub can merge it, so it merges by rebase on the commit the copy is",
-    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/branch/next-step.spec.md#the-table:merge", "spec/cli/agent-cli.spec.md#brd-land"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#merge", "openspec/specs/branch/next-step/spec.md#the-table:merge", "openspec/specs/cli/agent-cli/spec.md#brd-land"],
     "given": {
       "route": "pullRequest",
       "notOnSpace": true,
@@ -171,7 +183,7 @@
     "id": "auto-merge-while-the-required-checks-run",
     "group": "modes-and-routes",
     "title": "a repository that lands by a merge of the pull request: its required checks still run, so GitHub merges it once they pass",
-    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#brd-land", "spec/branch/next-step.spec.md#the-table:merge"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#merge", "openspec/specs/cli/agent-cli/spec.md#brd-land", "openspec/specs/branch/next-step/spec.md#the-table:merge"],
     "given": {
       "route": "pullRequest",
       "notOnSpace": true,
@@ -197,7 +209,7 @@
     "id": "auto-merge-enabled",
     "group": "modes-and-routes",
     "title": "a repository that lands by a merge of the pull request: its auto-merge is enabled, GitHub merges it by itself, nothing starts",
-    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#brd-land", "spec/branch/next-step.spec.md#the-table:merge′"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#merge", "openspec/specs/cli/agent-cli/spec.md#brd-land", "openspec/specs/branch/next-step/spec.md#the-table:merge′"],
     "given": {
       "route": "pullRequest",
       "notOnSpace": true,
@@ -224,7 +236,7 @@
     "id": "merge-held-for-approvals",
     "group": "modes-and-routes",
     "title": "a repository that lands by a merge of the pull request: its base requires approvals it lacks, so the merge waits for them",
-    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#brd-land", "spec/branch/next-step.spec.md#the-table:merge″"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#merge", "openspec/specs/cli/agent-cli/spec.md#brd-land", "openspec/specs/branch/next-step/spec.md#the-table:merge″"],
     "given": {
       "route": "pullRequest",
       "notOnSpace": true,
@@ -251,7 +263,7 @@
     "id": "merge-without-a-pull-request",
     "group": "modes-and-routes",
     "title": "a repository that lands by a merge of the pull request: the branch has none, so Create Pull Request comes first",
-    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#brd-land", "spec/branch/next-step.spec.md#the-table:pr"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#merge", "openspec/specs/cli/agent-cli/spec.md#brd-land", "openspec/specs/branch/next-step/spec.md#the-table:pr"],
     "given": {
       "route": "pullRequest",
       "notOnSpace": true,
@@ -274,7 +286,7 @@
     "id": "merge-after-a-merge-into-a-parent-branch",
     "group": "modes-and-routes",
     "title": "a repository that lands by a merge of the pull request: GitHub merged the branch's pull request into its parent's virtual branch, which master lacks (#163): nothing landed, Create Pull Request comes first, saying why",
-    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#brd-land", "spec/branch/next-step.spec.md#the-table:pr"],
+    "spec": ["openspec/specs/branch/landing-routes/spec.md#merge", "openspec/specs/cli/agent-cli/spec.md#brd-land", "openspec/specs/branch/next-step/spec.md#the-table:pr"],
     "given": {
       "route": "pullRequest",
       "notOnSpace": true,

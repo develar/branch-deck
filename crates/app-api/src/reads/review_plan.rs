@@ -1,4 +1,4 @@
-//! The plan of a review in its window (spec/branch/review-plan.spec.md, Status: Experimental): what changed since the
+//! The plan of a review in its window (openspec/specs/branch/review-plan/spec.md, Status: Experimental): what changed since the
 //! review of the branch, the units of its diff, the API it changes with the usages of each declaration (updated in the
 //! change or left outside), the facts of each file, the links between the files, the dependency changes of the build
 //! files and the dependency order of the files (`review_plan::review_plan_core`, the one entry of `brd review-plan`

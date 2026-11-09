@@ -1,5 +1,5 @@
 //! The drop of commits ahead of the baseline from the checked out branch, for good, the files following (Drop Commit,
-//! `brd drop`; spec/commit/drop.spec.md): the plan and the dry run of the files (`git_ops::unapply::check_drop`) before
+//! `brd drop`; openspec/specs/commit/drop/spec.md): the plan and the dry run of the files (`git_ops::unapply::check_drop`) before
 //! the repository lock, under it only the witness of HEAD and the guarded move (`RewriteOptions::lock_prepared_move`),
 //! as the unapply does; and its undo, the move back with the files (`lock_checked_undo`).
 

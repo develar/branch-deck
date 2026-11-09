@@ -1,4 +1,4 @@
-//! The names of the flags of `bd` as an agent types them (spec/cli/agent-cli.spec.md "Flag names"): one word for one
+//! The names of the flags of `bd` as an agent types them (openspec/specs/cli/agent-cli/spec.md "Flag names"): one word for one
 //! sense in every command. A preview is `--dry-run`; a flag that accepts a refusal is `--allow-<what refused>`, given
 //! only once the user agreed; an act is its own verb (`--force`, `--cancel-running`). A flag renamed to this vocabulary
 //! keeps its old name as an alias, and its use prints one line on stderr (`renamed_in`). A flag that a command lacks is

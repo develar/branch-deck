@@ -1,4 +1,4 @@
-// @spec spec/repository/cli-tools.spec.md
+// @spec openspec/specs/repository/cli-tools/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { teamcityBehindOnHomebrew, teamcitySignedIn } from "../helpers/cli-tools-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"

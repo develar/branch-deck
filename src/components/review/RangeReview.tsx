@@ -62,7 +62,7 @@ export interface RangeReviewProps {
  * review, as the commit picker of a code review on GitHub or in IntelliJ. A scope ("All Changes") diffs the range, a
  * commit only itself, with its subject, meta line and whole message at the top of its document. ⌥↑/⌥↓ step through the commits from
  * anywhere in the review, ↑/↓ inside their list. A range of one commit shows that commit without the list. With the
- * plan, a scope lists its commits in the steps of its tree (spec/branch/review-tour.spec.md, "In the Review Window"),
+ * plan, a scope lists its commits in the steps of its tree (openspec/specs/branch/review-tour/spec.md, "In the Review Window"),
  * and the column only the scopes: a commit row shows its step, Enter and Show Commit Alone the commit alone. The tree
  * lists the commits of the scope only; while it lists none (no tree, a search that keeps no step) the column has them.
  */

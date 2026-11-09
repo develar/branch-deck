@@ -1,4 +1,4 @@
-//! A place outside the review that the review plan names (spec/branch/review-plan.spec.md, "Possible Breakage"): a use
+//! A place outside the review that the review plan names (openspec/specs/branch/review-plan/spec.md, "Possible Breakage"): a use
 //! of a changed API that the change left outside, by its path and line at the head of the range, as the view of its
 //! file opens it over the review, the name selected. One `cat-file --batch-check` names the blob, one `cat-file --batch`
 //! reads its text, none when the memory of the diffs has it.

@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ActionState, PatronusRobot, RunningOperation } from "@/lib/bindings"

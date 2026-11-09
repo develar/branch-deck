@@ -1,6 +1,6 @@
 //! Settings → Tools: the `teamcity` and `youtrack` CLIs, their status and the action of each row
-//! (spec/repository/cli-tools.spec.md), and the Setup dot of what waits for the user
-//! (spec/repository/setup-attention.spec.md). The cores are `cli_tools` and `remote_facts::cli_tool_releases`; where the
+//! (openspec/specs/repository/cli-tools/spec.md), and the Setup dot of what waits for the user
+//! (openspec/specs/repository/setup-attention/spec.md). The cores are `cli_tools` and `remote_facts::cli_tool_releases`; where the
 //! tools run and what they take from outside is the host's (`AppHost::tool_environment`, `tool_releases`,
 //! `youtrack_status`: the user's tools in the app, the fakes of a test repository in the e2e server).
 

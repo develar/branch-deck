@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use super::*;
 
-const SPEC: &str = include_str!("../../../spec/cli/host.spec.md");
+const SPEC: &str = include_str!("../../../openspec/specs/cli/host/spec.md");
 
 /// The golden JSON of the fenced block `json golden=<name>` of the spec
 fn golden(name: &str) -> Value {

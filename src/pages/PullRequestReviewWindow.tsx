@@ -24,7 +24,7 @@ import { reviewRowsOf, reviewsStore } from "@/stores/reviews"
 import type { ReviewRows } from "@/stores/reviews"
 
 /*
- * The review of a pull request in the review window (spec/repository/review-requests.spec.md#review-window), a chunk of
+ * The review of a pull request in the review window (openspec/specs/repository/review-requests/spec.md#review-window), a chunk of
  * its own: the page loads it for a pull request only, so the first frame of the review of a branch or a commit keeps
  * its size. It reads the requests, Reviews, the actions Rust decides and the writes that run from the window's own
  * session, approves and requests changes itself; the Safe Push and the read mark of Your Turn are the main window's

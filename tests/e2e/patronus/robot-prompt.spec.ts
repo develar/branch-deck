@@ -1,4 +1,4 @@
-// @spec spec/branch/safe-push-failure-prompt.spec.md
+// @spec openspec/specs/branch/safe-push-failure-prompt/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"

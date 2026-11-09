@@ -1,6 +1,6 @@
 //! The facts of the subject itself, its own robot, its sync, its parent, what landed it and whether it stays local,
 //! collected once from the facts of its node (`landing_node::NodeFacts`) for the two rules that pick from them, each by
-//! its own order (spec/branch/branch-row.spec.md, "Status cell"; docs/design/landing.md, "Work in flight"): the node says
+//! its own order (openspec/specs/branch/branch-row/spec.md, "Status cell"; docs/design/landing.md, "Work in flight"): the node says
 //! whose move it is (`landing_node`), the Status cell what happens to it (`row_status`). A sync of the row passes: the
 //! facts are those it started from.
 

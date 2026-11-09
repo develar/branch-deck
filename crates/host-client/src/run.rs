@@ -1,4 +1,4 @@
-//! A run on a host, and the requests of one reply (spec/cli/host.spec.md, "run" and "follow, cancel, fetch, forget,
+//! A run on a host, and the requests of one reply (openspec/specs/cli/host/spec.md, "run" and "follow, cancel, fetch, forget,
 //! runs").
 //!
 //! A run:

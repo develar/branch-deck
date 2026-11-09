@@ -106,7 +106,7 @@ pub struct AnsweredRequest {
   pub replied_at: u32,
 }
 
-/// What Reviews asks GitHub beside the requests by name (spec/repository/reviews.spec.md): the pull requests the user
+/// What Reviews asks GitHub beside the requests by name (openspec/specs/repository/reviews/spec.md): the pull requests the user
 /// added by their links
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReviewsAsk {

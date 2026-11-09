@@ -45,7 +45,7 @@ export const ProjectMetadataSchema = z.object({
   airLaunch: AirLaunchChoiceSchema.optional().catch(undefined),
   /**
    * The owner chip last chosen in a review window of the repository: the next one opens on it where it marks files
-   * (spec/branch/branch-review.spec.md, "Code owners"); a malformed value is dropped
+   * (openspec/specs/branch/branch-review/spec.md, "Code owners"); a malformed value is dropped
    */
   reviewOwnerChip: ReviewOwnerChipSchema.optional().catch(undefined),
 })

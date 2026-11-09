@@ -2,8 +2,8 @@
 //! branch only rebased onto a newer baseline has nothing to push), for the app and `bd` alike: derived fields of the
 //! status, not a rule over the facts of a repository, so the sync that computes the status sets its action
 //! (`sync_core::remote_status`) without reaching the rules, and the push orders of `domain_policy::push` read the same
-//! answers (docs/design/rust-domain-authority.md, R1, D4 and s16-1; spec/branch/branch-row.spec.md,
-//! spec/repository/outgoing.spec.md):
+//! answers (docs/design/rust-domain-authority.md, R1, D4 and s16-1; openspec/specs/branch/branch-row/spec.md,
+//! openspec/specs/repository/outgoing/spec.md):
 //!
 //! - `push_action`: create, push (a fast-forward), force (rebased, older versions replaced, remote commits dropped) or
 //!   up to date; the sync stores it on the status (`RemoteStatusUpdate::action`), so the page and `bd` read this one

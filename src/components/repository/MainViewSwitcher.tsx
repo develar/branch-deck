@@ -6,7 +6,7 @@ import type { MainView } from "@/stores/main-view"
 import { MAIN_VIEWS, showMainView, useMainView } from "@/stores/main-view"
 
 /**
- * Branches · Landing in the title bar, after the repository: where the user is (`spec/repository/main-views.spec.md`).
+ * Branches · Landing in the title bar, after the repository: where the user is (`openspec/specs/repository/main-views/spec.md`).
  * One option set, the stock `ToggleGroup`, the shown view pressed; the arrow keys move the focus between the views and
  * Enter or Space shows the focused one. The names give way to the icons where the room of the repository in the title
  * row (the container of `ConfigurationHeader`) is narrower than `@md`.

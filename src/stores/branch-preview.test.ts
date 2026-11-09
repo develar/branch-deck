@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-preview.spec.md
+// @spec openspec/specs/branch/branch-preview/spec.md
 import { afterEach, describe, expect, it } from "vite-plus/test"
 import { branchPreviewStore, closeBranchPreview, openBranchPreview } from "@/stores/branch-preview"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"

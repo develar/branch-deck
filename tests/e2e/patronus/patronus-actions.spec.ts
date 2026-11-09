@@ -1,4 +1,4 @@
-// @spec spec/branch/patronus.spec.md
+// @spec openspec/specs/branch/patronus/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"

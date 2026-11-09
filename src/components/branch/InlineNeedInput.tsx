@@ -10,7 +10,7 @@ import { closeInline, inlineSurface, withRowProgress } from "@/stores/inline-row
 const MAX_NEED_CHIPS = 6
 
 /**
- * Add Need… (spec/branch/declared-needs.spec.md): what lands before the branch, typed or picked from the other branches
+ * Add Need… (openspec/specs/branch/declared-needs/spec.md): what lands before the branch, typed or picked from the other branches
  * of the table; a branch of a companion as `companion:branch`. Add Need writes it, the row names it; a refusal of the
  * core (an unknown branch, a need of itself) keeps the form with the typing
  */

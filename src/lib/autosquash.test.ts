@@ -1,4 +1,4 @@
-// @spec spec/commit/fixups.spec.md
+// @spec openspec/specs/commit/fixups/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { describeDroppedTargets, describeFixupTarget, describeSquashFixups, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"

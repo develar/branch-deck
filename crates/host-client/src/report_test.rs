@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 /// The text of the spec of brd-host, whose fenced blocks hold the golden JSON
-const SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/cli/host.spec.md"));
+const SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../openspec/specs/cli/host/spec.md"));
 
 /// The JSON of the fenced block ```` ```json golden=<name> ```` of the spec
 fn golden(name: &str) -> Value {

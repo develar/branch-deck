@@ -1,5 +1,5 @@
 // The page's words of the next step of a subject as Rust decides it (`NextStep` of the view's `nextSteps`,
-// `domain_policy::next_step`; spec/branch/next-step.spec.md): the label, the icon, the tone and the `MenuItem` of the
+// `domain_policy::next_step`; openspec/specs/branch/next-step/spec.md): the label, the icon, the tone and the `MenuItem` of the
 // slot, the reason every surface disables "Safe Push" with, the notice of S. It decides nothing: the row and its facts
 // are Rust's, the items run what the caller gives (today's orchestrators: the start, the retarget, the pull request),
 // and what runs on the row (an operation, its own start: `NextStepBusy`) is laid over the step here.
@@ -32,7 +32,7 @@ import { describeLandingRefusals, formatLandingFix, formatNeeded } from "@/prese
 import { formatLandedWhole, formatReason } from "@/presenters/reasons"
 
 /**
- * The step as the slot shows it (`data-step`), a row of [the table](../../spec/branch/next-step.spec.md#the-table) by
+ * The step as the slot shows it (`data-step`), a row of [the table](../../openspec/specs/branch/next-step/spec.md#the-table) by
  * the page's name: `none` row 1 (the Status cell says why), `pending` row 0 (a fact without an answer, or a read that
  * failed), `hidden` no slot (not on Space)
  */

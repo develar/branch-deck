@@ -1,4 +1,4 @@
-//! The facts of each file of a review (spec/branch/review-plan.spec.md, "Files", "Mechanical changes", "Repeated
+//! The facts of each file of a review (openspec/specs/branch/review-plan/spec.md, "Files", "Mechanical changes", "Repeated
 //! edits"): its links to the other changed files, whether its change is mechanical, the repeated edit it shares, the
 //! usages of the API it removes or changes, and whether it changed without its tests.
 //!

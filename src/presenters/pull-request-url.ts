@@ -1,4 +1,4 @@
-// The pull request of a branch as the page offers it in words and links (spec/branch/pull-requests.spec.md): the base
+// The pull request of a branch as the page offers it in words and links (openspec/specs/branch/pull-requests/spec.md): the base
 // every pull request of a virtual branch goes into, the opener of GitHub's form of a new one ("Continue on GitHub"), and
 // the `gh` command that retargets one into a virtual branch. Rust decides where a pull request goes
 // (`domain_policy::pull_request`, `PullRequestView.base`) and whether a new one is offered (`create-pull-request` of the

@@ -96,7 +96,7 @@ export interface PullRequestReviewProps {
 }
 
 /**
- * The review of a pull request that waits for the user (spec/repository/review-requests.spec.md), in the review window.
+ * The review of a pull request that waits for the user (openspec/specs/repository/review-requests/spec.md), in the review window.
  * The title bar: ↑ ↓ of Your Turn, then Open on GitHub, "⋯" and the decisions, Request Changes… (R), Approve and Safe
  * Push… (M) where Patronus merges, Approve (A), the primary, last. The header island: who asks and how long, the title
  * and the chips, then Overview / Changes (D), and while the changes show the sidebar and the diff view at the end of
@@ -202,7 +202,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           ? { kind: "range", base: request.reviewedCommit!, head: range.head }
           : { kind: "commit", id: selectedKey }
   const reviewing = tab === "changes" && subject !== null
-  // the plan of what the review shows (spec/branch/review-units.spec.md): its overview and the story of its diffs, unless the
+  // the plan of what the review shows (openspec/specs/branch/review-units/spec.md): its overview and the story of its diffs, unless the
   // repository turns the plan off; the overview tab tells the plan of all changes as the same document
   const plan = useSubjectPlan(repositoryPath, reviewing ? subject : range === null ? null : { kind: "range", base: range.base, head: range.head })
   const settled = plan.disabled || plan.error !== null || (plan.plan !== null ? plan.current : !plan.loading)
@@ -229,7 +229,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
 
   const reviewedCommit = getReviewedCommit(request, fetch)
 
-  // the owner chips (spec/repository/review-requests.spec.md, "Owner chips"): the groups of the request, the owners by
+  // the owner chips (openspec/specs/repository/review-requests/spec.md, "Owner chips"): the groups of the request, the owners by
   // the OWNERSHIP files of the baseline (of the base of the pull request until a sync of the window names it), of the files
   // of the shown scope; the window opens on the remembered chip, else the user's group that still needs an approval
   const subjectFiles = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
@@ -439,7 +439,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   )
   // the commits of the rail named as the changes name them, by the plan of all changes the overview tells
   const railTitles = withCommitTitles(NO_TITLES, plan.plan?.steps.steps ?? [])
-  // the shape of all changes in the rail once their plan is read, the rows of the map (spec/branch/review-tour.spec.md,
+  // the shape of all changes in the rail once their plan is read, the rows of the map (openspec/specs/branch/review-tour/spec.md,
   // "The Map"); a row shows its first file in the changes of all of the pull request, as the same row there does
   const map = !reviewing && plan.current && plan.plan !== null ? presentMap(plan.plan) : null
   const overviewNavigator = linkNavigator(showLink)
@@ -513,7 +513,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           rangeNoun="pull request"
           filesHeader={count => <ReviewOwnerChips of={owners} filter={ownerFilter} onFilterChange={setOwnerFilter} count={count} />}
           // the overview says the plan is being read, and why it failed: only a repository that turns the plan off, or a
-          // read that found none, tells none (spec/branch/review-plan.spec.md, "Reading the review plan…")
+          // read that found none, tells none (openspec/specs/branch/review-plan/spec.md, "Reading the review plan…")
           plan={plan.disabled || (plan.plan === null && !plan.loading && plan.error === null) ? null : plan}
           reviewFacts={planFacts(plan)}
           planHeadline={false}

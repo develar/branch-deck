@@ -1,4 +1,4 @@
-// @spec spec/repository/activity.spec.md
+// @spec openspec/specs/repository/activity/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { activityDiagnostics, activityFilterOf, countActivityFilters, filterActivity } from "@/lib/activity-window"
 import type { ActivityFilter } from "@/lib/activity-window"

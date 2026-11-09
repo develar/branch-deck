@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-row.spec.md
+// @spec openspec/specs/branch/branch-row/spec.md
 import type { Locator } from "@playwright/test"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchCells, getMoreButton, verifyBranchState } from "../helpers/branch-helpers"

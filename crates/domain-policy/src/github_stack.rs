@@ -1,4 +1,4 @@
-//! The stacks of GitHub of a table (docs/design/github-stacks.md; spec/branch/stacked-branches.spec.md, "Stacks of
+//! The stacks of GitHub of a table (docs/design/github-stacks.md; openspec/specs/branch/stacked-branches/spec.md, "Stacks of
 //! GitHub"): on a route without Patronus a stack that does not fork is a stack of GitHub, the pull request of each branch
 //! into its parent's branch, the root's into the target, judged by the rules of the target and merged with every layer
 //! below it.

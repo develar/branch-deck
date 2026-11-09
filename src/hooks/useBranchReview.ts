@@ -29,7 +29,7 @@ import { useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 import type { BranchReviewGroup, KeptReview } from "@/types/sub-window"
 
 /*
- * The review of a branch (spec/branch/branch-review.spec.md), in the dialog of the branch preview and in its window: its
+ * The review of a branch (openspec/specs/branch/branch-review/spec.md), in the dialog of the branch preview and in its window: its
  * stack from the baseline (a click picks the part, Shift+click extends it), the commits of the part beside the diffs
  * (`RangeReview`), the files of a reviewer group of the code-owner check or of an owner by the `OWNERSHIP` files marked.
  * A sync that moves a tip of the stack reads it again, keeping the part, the commit and the file, and the review on
@@ -53,7 +53,7 @@ export interface BranchReviewSource {
   /** The kept branch the chain names by the branch it was (`ReviewTarget::Kept`): one part of its own commits */
   readonly kept?: KeptReview
   /**
-   * The review plan is on for the repository (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md): Mark
+   * The review plan is on for the repository (`branchdeck.reviewExperimental`, openspec/specs/branch/review-plan/spec.md): Mark
    * Reviewed, "Since Your Review", the overview of the plan, the badges of the files and their Mechanical group; off, the
    * review is as it is without them
    */
@@ -218,7 +218,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   }
   const asRange = wholeStack || keptName !== null
 
-  // the review plan of the part (spec/branch/review-plan.spec.md): a branch on the base of its part, the whole stack as
+  // the review plan of the part (openspec/specs/branch/review-plan/spec.md): a branch on the base of its part, the whole stack as
   // its range; "Since Your Review" only of one branch, whose base is the one Mark Reviewed keeps
   const experimental = source.reviewExperimental === true
   const [planGeneration, setPlanGeneration] = useState(0)

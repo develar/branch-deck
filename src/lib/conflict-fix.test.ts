@@ -1,4 +1,4 @@
-// @spec spec/branch/conflict-fix.spec.md
+// @spec openspec/specs/branch/conflict-fix/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { FixComponent, FixStep } from "@/lib/bindings"
 import { componentFixing, describeFixGrouping, describeFixResult, describeFixStep, fixTitle } from "@/lib/conflict-fix"

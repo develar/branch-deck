@@ -3,7 +3,7 @@
 // what it replaces and drops, the other pushes its description offers, and why it can't push. Rust decides whether it
 // can (the `push` and `push-with-children` actions of the row, `domain_policy::actions`), what each push sends
 // (`RepositoryView.pushes`, `domain_policy::push`) and what a press does (`prepare` of the intent `Push`,
-// `operations::push`); the page words the remote status of the row and those answers (spec/repository/outgoing.spec.md,
+// `operations::push`); the page words the remote status of the row and those answers (openspec/specs/repository/outgoing/spec.md,
 // "Push").
 import type { ActionBlocker, ActionState, DroppedCommit } from "@/lib/bindings"
 import { landedBranchDescription } from "@/lib/landed"
@@ -141,7 +141,7 @@ export interface PushButtonContext {
 
 /**
  * The push of the branch to its own remote branch, named for what it pushes beside Push to master, which pushes the copy
- * into the target (spec/repository/outgoing.spec.md, "Push")
+ * into the target (openspec/specs/repository/outgoing/spec.md, "Push")
  */
 export const PUSH_BRANCH = ACTION_LOOKS.push.label
 /** The push of the branch that replaces commits of its remote branch */

@@ -1,5 +1,5 @@
 //! The user's robots of a repository, kept in the object cache (`patronus_robots`) so that `brd status` (`landed_by`)
-//! asks Patronus as the app does ("Load on Patronus" in `spec/branch/patronus.spec.md`), not on every call:
+//! asks Patronus as the app does ("Load on Patronus" in `openspec/specs/branch/patronus/spec.md`), not on every call:
 //!
 //! - A kept list holds for a minute while a robot of it runs (the app polls a running robot once a minute) and for five
 //!   minutes while none does (a sync of the app lists at most every five minutes): only a running robot can merge.

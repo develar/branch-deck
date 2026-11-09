@@ -1,4 +1,4 @@
-// @spec spec/repository/review-requests.spec.md
+// @spec openspec/specs/repository/review-requests/spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { ActionBlocker, ActionId, ActionState } from "@/lib/bindings"
 import type { ReviewRequestActionContext } from "@/lib/review-request-actions"

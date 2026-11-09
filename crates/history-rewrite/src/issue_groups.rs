@@ -1,5 +1,5 @@
 //! Issue groups: the issue key -> branch name map that puts the commits of several issues into one branch without a
-//! history rewrite (spec/branch/issue-groups.spec.md). The store is the ref `refs/branch-deck/issue-groups`: a commit
+//! history rewrite (openspec/specs/branch/issue-groups/spec.md). The store is the ref `refs/branch-deck/issue-groups`: a commit
 //! whose tree holds the one file `issue-groups`, sorted `KEY<TAB>name` lines (`store_lines.rs`). Every write is a new
 //! commit on the previous one, so its history shows each change (git keeps no reflog outside `refs/heads`). Only a regroup writes it,
 //! under the repository lock, in the transaction that moves HEAD (`regroup.rs`); a sync only reads it. The ref is shared

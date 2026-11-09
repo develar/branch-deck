@@ -1,4 +1,4 @@
-// @spec spec/branch/stacked-branches.spec.md
+// @spec openspec/specs/branch/stacked-branches/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRows, getBranchDetailsRow, getPushButton } from "../helpers/branch-helpers"
 import { mergeRunningRobot, robot, setupRunningRobot } from "../helpers/patronus-helpers"

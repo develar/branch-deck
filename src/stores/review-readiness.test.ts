@@ -1,4 +1,4 @@
-// @spec spec/branch/next-step.spec.md
+// @spec openspec/specs/branch/next-step/spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { internalError } from "@/lib/api-error"
 import type { ApiError, Fact, FactsChanges, FactsView, FactState, PullRequest, ReviewReadiness, ReviewReadinessBranch, SubjectReadiness } from "@/lib/bindings"

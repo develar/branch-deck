@@ -1,4 +1,4 @@
-// @spec spec/repository/safe-push-statistics.spec.md
+// @spec openspec/specs/repository/safe-push-statistics/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GetRobotStatsParams, RobotStats, RobotStatsEvent, StatsPeriod } from "@/lib/bindings"
 import { readRobotStats, robotStatsStore } from "@/stores/robot-stats"

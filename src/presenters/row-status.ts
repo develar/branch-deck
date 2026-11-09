@@ -1,5 +1,5 @@
 // The page's words of the Status cell of a branch row as Rust decides it (`RowStatus` of the view's `nextSteps`,
-// `domain_policy::row_status`; spec/branch/branch-row.spec.md, "Status cell"): what it says first, and the exceptional
+// `domain_policy::row_status`; openspec/specs/branch/branch-row/spec.md, "Status cell"): what it says first, and the exceptional
 // facts that stay beside it as a mark whose hover names them, so a running robot never hides a block or a conflict, nor
 // they the robot. It decides nothing: a sync running lays over the cell as it passes, and a cell without a fact says
 // the push state of the branch or what its sync did.

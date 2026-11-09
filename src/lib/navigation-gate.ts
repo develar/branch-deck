@@ -1,5 +1,5 @@
 /**
- * One Go to Declaration or Find Usages in flight per view (spec/commit/symbol-navigation.spec.md): a repeat of the
+ * One Go to Declaration or Find Usages in flight per view (openspec/specs/commit/symbol-navigation/spec.md): a repeat of the
  * same name joins the one in flight (⌘B pressed twice opens one file view), another name replaces it, a cancel drops
  * it (Escape, Cancel), and an answer acts only while the view shows the subject it was asked for (⌥↓ to another commit
  * drops it)

@@ -1,6 +1,6 @@
 //! The permanent tokens of Hub, made and revoked with an access token that may ask Hub itself
 //! (`SignInPurpose::PermanentToken`): the token the app hands to the `youtrack` CLI
-//! (spec/repository/youtrack.spec.md#the-youtrack-cli). Only the token the app made is ever revoked.
+//! (openspec/specs/repository/youtrack/spec.md#the-youtrack-cli). Only the token the app made is ever revoked.
 
 use crate::client::{YouTrackClient, YouTrackError};
 use crate::url::url_of;

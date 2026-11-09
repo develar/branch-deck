@@ -19,7 +19,7 @@ import { getUnappliedBranch } from "@/stores/unapplied-branches"
 import type { BranchReviewGroup, BranchReviewWindowData, CommitsReviewWindowData, KeptReview, ReviewedBranch, ReviewWindowData } from "@/types/sub-window"
 
 /*
- * The openers of the one review window (spec/review/review-window.spec.md#one-window): a branch, a whole stack, a kept
+ * The openers of the one review window (openspec/specs/review/review-window/spec.md#one-window): a branch, a whole stack, a kept
  * branch, a commit of a list, a pull request to review. Each says what to show and opens
  * the window on it, from any window (the review window opens the next review itself: a branch of its stack, the whole
  * stack, the branch a reapplied kept branch is again). The page of the window decides how the open goes on from the
@@ -215,7 +215,7 @@ export async function openCommitReviewWindow(commits: readonly ReviewCommit[], l
 /**
  * Reviews `request` of a list of the main window (`source`: Your Turn, Reviews) in the review window, at its place in
  * that list (`index`, which ↑/↓ walk from), with the write the row's menu asked for (`intent`, "review" for D on the
- * row): the window fetches the pull request itself (spec/repository/review-requests.spec.md#review-window). Main window
+ * row): the window fetches the pull request itself (openspec/specs/repository/review-requests/spec.md#review-window). Main window
  * only: it marks the request read.
  */
 export async function openPullRequestReview(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource): Promise<boolean> {

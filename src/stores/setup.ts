@@ -8,7 +8,7 @@ import { logError } from "@/lib/errors"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 
 /*
- * The Setup dot (spec/repository/setup-attention.spec.md): what of the app and the CLIs waits for the user, as Rust
+ * The Setup dot (openspec/specs/repository/setup-attention/spec.md): what of the app and the CLIs waits for the user, as Rust
  * derives it (`get_setup_items`) from the downloaded update, the last statuses of the CLIs and the YouTrack sign-in,
  * without what the user skipped (`appSettings.setupSkips`).
  */

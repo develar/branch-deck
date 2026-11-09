@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import type { Page } from "@playwright/test"
 import type { RepositoryConfig, SettingsChange } from "../../../src/lib/bindings"
 import { test, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
@@ -117,7 +117,7 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
 /** The pages of the sidebar, in its order */
 const PAGES = ["General", "Appearance", "Diffs", "Notifications", "Accounts", "Tools", "Branches", "Landing", "Agents"]
 
-/** The pages that may scroll in their tallest state at 880 × 640 (spec/repository/settings.spec.md#the-window) */
+/** The pages that may scroll in their tallest state at 880 × 640 (openspec/specs/repository/settings/spec.md#the-window) */
 const SCROLLING_PAGES = new Set(["Tools", "Landing"])
 
 /** The pages of the git config, each shown on both scope tabs */

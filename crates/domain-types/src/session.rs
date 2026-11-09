@@ -579,7 +579,7 @@ pub struct ReviewRequestsView {
   pub checked_at: u32,
 }
 
-/// Reviews (spec/repository/reviews.spec.md) as the session derives it: how the rest of Reviews beside the requests by
+/// Reviews (openspec/specs/repository/reviews/spec.md) as the session derives it: how the rest of Reviews beside the requests by
 /// name stands (`head`: `Unknown` while no window shows the view and nothing was read, `Loading` until its first answer,
 /// then as the review requests), its sections in their order, the empty ones left out, each pull request in the first
 /// section that has it, and when GitHub gave them
@@ -921,7 +921,7 @@ pub struct BranchStructure {
   pub section: BranchSection,
 }
 
-/// The whole stack of a root (spec/branch/whole-stack.spec.md): the stack branch of a stack that forks, or the last
+/// The whole stack of a root (openspec/specs/branch/whole-stack/spec.md): the stack branch of a stack that forks, or the last
 /// branch of a straight chain, which carries every commit of it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -938,7 +938,7 @@ pub enum WholeStackView {
   Chain { leaf: String },
 }
 
-/// Why a branch is parked (spec/branch/parked-branches.spec.md)
+/// Why a branch is parked (openspec/specs/branch/parked-branches/spec.md)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

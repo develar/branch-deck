@@ -1,4 +1,4 @@
-//! Go to Declaration and Find Usages of a Rust file (spec/commit/symbol-navigation.spec.md) from rust-analyzer's tree
+//! Go to Declaration and Find Usages of a Rust file (openspec/specs/commit/symbol-navigation/spec.md) from rust-analyzer's tree
 //! (`rust_syntax`), with the answers of `navigate` (`reference_answer`, `usage_answers`).
 //!
 //! - **Names**: the identifiers of the code, a declaration's (`NAME`), a use's (`NAME_REF`) and the tokens of a

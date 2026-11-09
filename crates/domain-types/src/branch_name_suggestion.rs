@@ -1,4 +1,4 @@
-//! Branch name suggestions from the user's Claude Code (`spec/branch/branch-name-suggestions.spec.md`)
+//! Branch name suggestions from the user's Claude Code (`openspec/specs/branch/branch-name-suggestions/spec.md`)
 
 use crate::commit::CommitInfo;
 use serde::{Deserialize, Serialize};

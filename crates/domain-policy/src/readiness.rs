@@ -1,6 +1,6 @@
-//! Whether a subject waits for the approvals of the review readiness (spec/branch/patronus.spec.md, "Code-owner review";
+//! Whether a subject waits for the approvals of the review readiness (openspec/specs/branch/patronus/spec.md, "Code-owner review";
 //! `awaits_approval`), the news they make when they arrive being `news::approval_news`, and which of the subjects a
-//! window shows the session asks it for (`wanted`: those whose next step waits for it, spec/branch/next-step.spec.md,
+//! window shows the session asks it for (`wanted`: those whose next step waits for it, openspec/specs/branch/next-step/spec.md,
 //! "The readiness store"). What it is asked with is `pull_request::start_pull_request`.
 
 use domain_types::next_step::NextStep;

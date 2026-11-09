@@ -1,4 +1,4 @@
-// @spec spec/commit/fixups.spec.md
+// @spec openspec/specs/commit/fixups/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { branchTree, expandBranch, findBranchRow, getBranchCommitRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
@@ -117,7 +117,7 @@ test.describe("Squash fixups", () => {
     await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
     await verifyCommitCount(findBranchRow(page, "auth"), 2)
   })
-  // spec/branch/stacked-branches.spec.md: a rewrite of the commits of a branch moves no row
+  // openspec/specs/branch/stacked-branches/spec.md: a rewrite of the commits of a branch moves no row
   test("should keep every row in its place when the fixup of the branch that began first is squashed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("fixup_order")
     await syncAndWaitForBranches()
@@ -144,7 +144,7 @@ test.describe("Squash fixups", () => {
     expect(await branchTree(page)).toEqual(rows)
     expect(await offset()).toBe(before)
   })
-  // spec/commit/commit-row.spec.md: the reword in the app checks the fixups as `bd reword` does
+  // openspec/specs/commit/commit-row/spec.md: the reword in the app checks the fixups as `bd reword` does
   test("should refuse a reword that strands a fixup, and keep the draft", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("fixups")
     await syncAndWaitForBranches()

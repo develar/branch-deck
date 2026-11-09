@@ -1,5 +1,5 @@
 //! `brd lease get`, `return`, `status` and `adopt`: the worktrees of the lease pool, one agent session per slot
-//! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
+//! (openspec/specs/cli/lease/spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
 use bd_core::bd_command::{CLI_NAME, shell_word};

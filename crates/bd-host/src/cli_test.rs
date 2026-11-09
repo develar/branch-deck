@@ -2,7 +2,7 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 
-const SPEC: &str = include_str!("../../../spec/cli/host.spec.md");
+const SPEC: &str = include_str!("../../../openspec/specs/cli/host/spec.md");
 
 /// The options of a run of the command line `argv`
 fn options_of(argv: &[&str]) -> RunOptions {

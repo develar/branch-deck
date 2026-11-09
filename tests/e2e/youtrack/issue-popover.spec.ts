@@ -1,4 +1,4 @@
-// @spec spec/repository/youtrack.spec.md
+// @spec openspec/specs/repository/youtrack/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { bringUnderStillPointer, findBranchRow } from "../helpers/branch-helpers"

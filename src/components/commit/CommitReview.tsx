@@ -87,7 +87,7 @@ export interface FilesCount {
 }
 
 /**
- * The files of the chosen owner chip (spec/branch/branch-review.spec.md, "Code owners"): they filter the tree and diffs;
+ * The files of the chosen owner chip (openspec/specs/branch/branch-review/spec.md, "Code owners"): they filter the tree and diffs;
  * empty (the owner has no files here) does not filter
  */
 export interface OwnerMarks {
@@ -97,7 +97,7 @@ export interface OwnerMarks {
 }
 
 /**
- * The commits of a range shown whole with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): the tree
+ * The commits of a range shown whole with its plan (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): the tree
  * lists them in the steps they tell or follow up, above the files
  */
 export interface CommitRows {
@@ -729,7 +729,7 @@ function ReviewLayout({
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const reviewFacts = loaded?.reviewFacts ?? null
-  // the steps of the story of the plan as the tree, each with its files (spec/branch/review-tour.spec.md), what no evidence
+  // the steps of the story of the plan as the tree, each with its files (openspec/specs/branch/review-tour/spec.md), what no evidence
   // joined under Other changes, the mechanical ones in one group at the end, as Rust told, classed and ordered them
   const mechanical = useMemo(() => (reviewFacts === null ? NO_MECHANICAL : mechanicalKindsOf(reviewFacts)), [reviewFacts])
   const chapters = useMemo(() => (reviewFacts === null ? [] : presentChapters(reviewFacts)), [reviewFacts])
@@ -792,7 +792,7 @@ function ReviewLayout({
   // window shows once the rows of the first screen are painted (`onFirstScreen`)
   const diffs = loaded?.diffs ?? null
   const diffsComplete = loaded?.diffsComplete ?? false
-  // with the plan, the story of its units (spec/branch/review-units.spec.md) in the order of its steps: each run of
+  // with the plan, the story of its units (openspec/specs/branch/review-units/spec.md) in the order of its steps: each run of
   // changes of a file one section, each group a section per file, the mechanical ones collapsed, the uses a change left
   // outside after it
   const narrative = useMemo(() => {
@@ -810,7 +810,7 @@ function ReviewLayout({
   const rows = useMemo(() => (narrative === null ? NO_ROWS : sectionRows(narrative, nodes)), [narrative, nodes])
   // the file at the head of each use left outside, read once per review
   const revision = loaded?.revisions.new ?? null
-  // the files the reader saw at this head, for the progress of the groups of large steps (spec/branch/review-tour.spec.md,
+  // the files the reader saw at this head, for the progress of the groups of large steps (openspec/specs/branch/review-tour/spec.md,
   // "In the Review Window"): a file shown on purpose, a card scrolled entirely through the diffs; a review of no large
   // step counts nothing
   const seenHead = chapters.some(chapter => chapter.groups.length > 0) ? (revision ?? loadedKey) : null
@@ -1424,7 +1424,7 @@ function PlainPrologue({ prologue }: { prologue: ReactNode }) {
 }
 
 /**
- * The bar above the diffs of a review with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): one line,
+ * The bar above the diffs of a review with its plan (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): one line,
  * the step of the section at the top, its place in the story and its title, whole in its hover, which a click shows at
  * its opening; "Overview · 4 steps" while the overview is at the top, a click the first step. It follows the diffs as
  * they scroll. It lies on the canvas of the diffs, so the column of the review is one canvas of cards

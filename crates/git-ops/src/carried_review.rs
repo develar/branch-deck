@@ -1,4 +1,4 @@
-//! The reviewed change of a branch carried onto its base now (spec/branch/review-plan.spec.md, "Since Your Review"): the
+//! The reviewed change of a branch carried onto its base now (openspec/specs/branch/review-plan/spec.md, "Since Your Review"): the
 //! diff from the reviewed base to the reviewed tip merged onto the base, as a commit on no ref whose parent is the base.
 //! The diff from it to the tip is what changed since the review, whatever the branch went through: a rebase, an amend,
 //! a squash, a split, a reorder, a dropped commit. One `merge-tree --stdin` and one `fast-import` (`CommitChain`), none

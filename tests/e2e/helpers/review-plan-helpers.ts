@@ -7,7 +7,7 @@ import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 
 /*
- * The review window of a branch with the review plan on (spec/branch/review-plan.spec.md, spec/branch/review-tour.spec.md):
+ * The review window of a branch with the review plan on (openspec/specs/branch/review-plan/spec.md, openspec/specs/branch/review-tour/spec.md):
  * the flag turned on, the window opened from the menu of the row, and the files its diffs show
  */
 

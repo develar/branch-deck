@@ -1,4 +1,4 @@
-//! The lend table of the host slots for `brd-host slots` (spec/cli/host.spec.md, "slots"): the table of a reply of the
+//! The lend table of the host slots for `brd-host slots` (openspec/specs/cli/host/spec.md, "slots"): the table of a reply of the
 //! agent or of a repository of this machine, its lines for a person, and `--shrink` and `--sizes` in process. No
 //! `serve` needs to run, and nothing here writes the table but the shrink
 

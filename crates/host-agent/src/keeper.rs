@@ -1,4 +1,4 @@
-//! The keeper of the host slots (spec/cli/host.spec.md, "serve"): a thread of `serve` that wakes once a minute, and at
+//! The keeper of the host slots (openspec/specs/cli/host/spec.md, "serve"): a thread of `serve` that wakes once a minute, and at
 //! each start of a run of a repository. Per repository, one at a time, it keeps the git of the host at its floor
 //! (`run_git::ensure`: the call blocks while the pool waits for the lends and while Homebrew runs), takes up what no
 //! process acts on and deletes the refs that no run uses (`lease_pool::host_runs::reclaim_all`), then leases the missing

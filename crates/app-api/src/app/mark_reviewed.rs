@@ -1,4 +1,4 @@
-//! Mark Reviewed of the review window of a branch (spec/branch/review-plan.spec.md, Status: Experimental): the base and
+//! Mark Reviewed of the review window of a branch (openspec/specs/branch/review-plan/spec.md, Status: Experimental): the base and
 //! the tip the branch has now become its reviewed pair, `refs/branch-deck/reviewed/<sha256>/{base,tip}`, through their
 //! one writer (`review_plan::mark_reviewed::mark_reviewed_core`, `brd mark-reviewed` too): one transaction with CAS that
 //! also deletes the pairs of the branches that are gone. No repository lock and no session: no sync reads these refs,

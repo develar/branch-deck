@@ -1,7 +1,7 @@
 import type { MachineDisk, PoolDisk, SlotDisk, TrimSummary } from "@/lib/bindings"
 
 /*
- * The words of the Disk Usage dialog (spec/repository/disk-usage.spec.md): what Rust measured and decided (`disk_usage`,
+ * The words of the Disk Usage dialog (openspec/specs/repository/disk-usage/spec.md): what Rust measured and decided (`disk_usage`,
  * which slots a trim deletes next), worded. Sizes come in MiB and are worded binary, as `brd lease disk` and the minimum
  * of the git config (`200G`) count them.
  */

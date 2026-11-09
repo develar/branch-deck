@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { beforeAll, describe, expect, it } from "vite-plus/test"
 import { CUSTOM_EXTENSIONS, languageOfPath } from "@/lib/diff/file-languages"
 import type { GrammarSource } from "@/lib/diff/highlight/engine"

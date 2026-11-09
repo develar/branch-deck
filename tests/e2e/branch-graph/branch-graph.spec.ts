@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-row.spec.md
+// @spec openspec/specs/branch/branch-row/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"

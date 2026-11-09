@@ -1,4 +1,4 @@
-// @spec spec/commit/squash.spec.md
+// @spec openspec/specs/commit/squash/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { SubjectParts } from "@/lib/bindings"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"

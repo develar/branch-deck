@@ -7,7 +7,7 @@ import type { Answer, ReviewPlanState } from "@/lib/review-plan-answer"
 import { NO_PLAN, planStateOf, receivePlanEvent, settlePlanAnswer } from "@/lib/review-plan-answer"
 
 /*
- * The review plan of a review window (spec/branch/review-plan.spec.md, Status: Experimental): `get_review_plan` of the
+ * The review plan of a review window (openspec/specs/branch/review-plan/spec.md, Status: Experimental): `get_review_plan` of the
  * shown part, read again when the part, its head or "Since Your Review" change, and after Mark Reviewed. Rust sends the
  * plan without the usages while it asks the index, then with them, or `disabled`: each event replaces what the hook
  * holds. One plan of the window is in flight: Rust supersedes the older one, which answers `canceled` and is dropped

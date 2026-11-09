@@ -1,6 +1,6 @@
 /**
  * What a drag of whole branches does where it is dropped, beside the move of their commits onto another branch
- * ([Move Commits](../../spec/branch/move-commits.spec.md#drag-and-drop)): the Parked card and the park zone of the drag
+ * ([Move Commits](../../openspec/specs/branch/move-commits/spec.md#drag-and-drop)): the Parked card and the park zone of the drag
  * bar park them, the unpark zone unparks them, the "Stack on" chip of a row stacks the branch there, the unstack zone
  * makes it a root. Each answer takes the branches or refuses them with the reason the target shows, the reason the menu
  * gives for the same action (Rust's, with the operations of the session laid over it). A drop during a sync or while a

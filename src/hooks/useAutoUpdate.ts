@@ -23,7 +23,7 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
     const result = await commands.checkForUpdates()
     if (result.status === "ok") {
       if (result.data.is_update_available) {
-        // asked: a toast; at startup the Setup dot keeps it, as nobody asked (spec/repository/setup-attention.spec.md)
+        // asked: a toast; at startup the Setup dot keeps it, as nobody asked (openspec/specs/repository/setup-attention/spec.md)
         if (showNoUpdateToast) {
           showUpdateAvailableToast(result.data)
         }

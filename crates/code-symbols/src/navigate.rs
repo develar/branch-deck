@@ -1,5 +1,5 @@
 //! The name at a place of a file and what its syntax tells of it, for going to its declaration
-//! (spec/commit/symbol-navigation.spec.md): the name, its qualifier (`Foo` of `Foo.bar`), whether it is called, a type
+//! (openspec/specs/commit/symbol-navigation/spec.md): the name, its qualifier (`Foo` of `Foo.bar`), whether it is called, a type
 //! or a member, and its declaration in the same file when the scopes show one (a parameter, a local, a member of an
 //! enclosing class, a declaration of the file). The rest is the caller's: the other files of a review, an index.
 //!

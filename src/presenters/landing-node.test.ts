@@ -1,5 +1,5 @@
-// @spec spec/branch/branch-row.spec.md
-// @spec spec/repository/landing-overview.spec.md
+// @spec openspec/specs/branch/branch-row/spec.md
+// @spec openspec/specs/repository/landing-overview/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LandingNode as NodeView, NodeLabel } from "@/lib/bindings"
 import { presentLandingNode, presentNodeKind } from "@/presenters/landing-node"

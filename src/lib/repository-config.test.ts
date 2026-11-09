@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ConfigSetting, RepositoryConfig } from "@/lib/bindings"
 import {

@@ -1,4 +1,4 @@
-//! The trim of the pools of a host as JSON (spec/cli/host.spec.md, "trim"): the reply of the agent of `bd-host` to
+//! The trim of the pools of a host as JSON (openspec/specs/cli/host/spec.md, "trim"): the reply of the agent of `bd-host` to
 //! `Request::Trim`, which `bd-host trim` prints and reads with this type. `brd lease trim` prints the same trim of this
 //! machine with the processes that keep a slot (`lease_trim` of `brd schema`). `TrimReport::of` writes it from the core
 //! (`lease_pool::trim::Trimmed`)

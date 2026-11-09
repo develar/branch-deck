@@ -1,4 +1,4 @@
-//! The links between the files of a review (spec/branch/review-plan.spec.md, "Links"): which changed file uses which,
+//! The links between the files of a review (openspec/specs/branch/review-plan/spec.md, "Links"): which changed file uses which,
 //! before and after the commits, from the syntax summaries the API already read (`SymbolInput`), no git.
 //!
 //! - **After**: the uses of the dependency order (`order::review_order`), each file as the last reviewed commit leaves

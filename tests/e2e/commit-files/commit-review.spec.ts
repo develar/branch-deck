@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-review.spec.md
+// @spec openspec/specs/commit/commit-review/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { SettingsChange } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData, CommitsReviewWindowData } from "../../../src/types/sub-window"

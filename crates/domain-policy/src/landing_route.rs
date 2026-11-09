@@ -1,4 +1,4 @@
-//! The route of a repository into master, for the app and `bd` alike (spec/branch/landing-routes.spec.md): a robot of
+//! The route of a repository into master, for the app and `bd` alike (openspec/specs/branch/landing-routes/spec.md): a robot of
 //! Patronus, a push of the copy into the target, or a merge of the pull request on GitHub, each with its gate.
 //!
 //! - `route`: the setting names the route (`branchdeck.landing`); unset, it is Patronus on Space and the pull request

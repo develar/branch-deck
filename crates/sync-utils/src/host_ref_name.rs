@@ -1,4 +1,4 @@
-//! The id of a remote run and the name of a base of a host (spec/cli/host.spec.md, "The link"; spec/cli/lease.spec.md,
+//! The id of a remote run and the name of a base of a host (openspec/specs/cli/host/spec.md, "The link"; openspec/specs/cli/lease/spec.md,
 //! "Host objects"). Each one names one ref component under `refs/branch-deck/host/` and one directory, so the client,
 //! the protocol and the agent check it with this one rule
 

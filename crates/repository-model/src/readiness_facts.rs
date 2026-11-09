@@ -1,4 +1,4 @@
-//! The review readiness of a session (docs/design/rust-domain-authority.md, "Факты"; spec/branch/patronus.spec.md,
+//! The review readiness of a session (docs/design/rust-domain-authority.md, "Факты"; openspec/specs/branch/patronus/spec.md,
 //! "Code-owner review", "The readiness of a request"): the part `facts.readiness` of the view by subject (a branch by
 //! name, the whole stack of a root as `stack:<root>`, a pull request of someone else a review window shows as
 //! `request:<number>`), which the scheduler of the facts asks Patronus for (`remote_facts::scheduler`) by what the

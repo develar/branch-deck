@@ -1,5 +1,5 @@
-//! The news of a session (docs/design/rust-domain-authority.md, s8-policy, "Новость"; spec/branch/patronus.spec.md,
-//! spec/repository/review-requests.spec.md, spec/branch/landing-routes.spec.md): what changed between two answers of a
+//! The news of a session (docs/design/rust-domain-authority.md, s8-policy, "Новость"; openspec/specs/branch/patronus/spec.md,
+//! openspec/specs/repository/review-requests/spec.md, openspec/specs/branch/landing-routes/spec.md): what changed between two answers of a
 //! fact that a window tells once. A robot known running or canceling that an answer shows finished
 //! (`robot_finished`: merged when it pushed, failed); the approvals of a subject that waited for them
 //! (`approval_news`, between two answers of the review readiness of the same commits); the review requests of others a

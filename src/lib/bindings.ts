@@ -95,7 +95,7 @@ export const commands = {
 	 */
 	getOutsidePlace: (params: OutsidePlaceParams) => typedError<DeclarationTarget | null, ApiError>(__TAURI_INVOKE("get_outside_place", { params })),
 	/**
-	 *  The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
+	 *  The plan of a review (openspec/specs/branch/review-plan/spec.md, Status: Experimental): what changed in a branch since it was
 	 *  marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
 	 *  from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
 	 *  (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
@@ -220,7 +220,7 @@ export const commands = {
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], ApiError>(__TAURI_INVOKE("search_github_users", { params })),
 	/**
-	 *  The Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`): everyone's robots into
+	 *  The Safe Push statistics of the repository (`openspec/specs/repository/safe-push-statistics/spec.md`): everyone's robots into
 	 *  the target of the period, kept in the object cache, the progress and the numbers of the lists through `events`
 	 *  before the runs are read
 	 */
@@ -510,7 +510,7 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  no longer matches the stack (a landing took the root, or the stack no longer forks)
  */
 "close-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | 
-/**  Opens the dialog that starts an agent session in Air with the prompt (spec/branch/start-in-air.spec.md) */
+/**  Opens the dialog that starts an agent session in Air with the prompt (openspec/specs/branch/start-in-air/spec.md) */
 "start-robot-in-air" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
 /**  Approve and Safe Push, or the Safe Push alone after an approval of the head */
 "safe-push-pull-request" | "request-changes" | 
@@ -1786,7 +1786,7 @@ export type CommitSync = {
 export type CommitSyncStatus = "Pending" | "Created" | "Unchanged" | "Error" | "Blocked";
 
 /**
- *  A companion repository of a primary (spec/branch/declared-needs.spec.md#companion-repositories): a need names its
+ *  A companion repository of a primary (openspec/specs/branch/declared-needs/spec.md#companion-repositories): a need names its
  *  branches as `<name>:<branch>`
  */
 export type CompanionSetting = {
@@ -4875,7 +4875,7 @@ export type NewsKey =
 /**  A YouTrack issue */
 { kind: "issue"; key: string };
 
-/**  The next step of a subject (spec/branch/next-step.spec.md, "The table"), the first row that matches */
+/**  The next step of a subject (openspec/specs/branch/next-step/spec.md, "The table"), the first row that matches */
 export type NextStep = {
 	row: StepRow,
 	kind: StepKind,
@@ -5313,7 +5313,7 @@ export type ParkResult = {
 	changed: boolean,
 };
 
-/**  Why a branch is parked (spec/branch/parked-branches.spec.md) */
+/**  Why a branch is parked (openspec/specs/branch/parked-branches/spec.md) */
 export type Parked = {
 	/**  The note of its line, or of the line of `with`; empty without one */
 	note: string,
@@ -7415,7 +7415,7 @@ export type ReviewTarget =
  */
 { kind: "branch"; chain: string[] } | 
 /**
- *  The whole stack of `root`: its stack branch `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md), one part
+ *  The whole stack of `root`: its stack branch `{prefix}/stack/<root>` (openspec/specs/branch/whole-stack/spec.md), one part
  *  named by the root
  */
 { kind: "wholeStack"; root: string } | 
@@ -7530,7 +7530,7 @@ export type ReviewerState = "approved" | "changesRequested" | "commented" |
 "requested";
 
 /**
- *  Reviews (spec/repository/reviews.spec.md) as the session derives it: how the rest of Reviews beside the requests by
+ *  Reviews (openspec/specs/repository/reviews/spec.md) as the session derives it: how the rest of Reviews beside the requests by
  *  name stands (`head`: `Unknown` while no window shows the view and nothing was read, `Loading` until its first answer,
  *  then as the review requests), its sections in their order, the empty ones left out, each pull request in the first
  *  section that has it, and when GitHub gave them
@@ -7913,7 +7913,7 @@ export type RowFact =
 { kind: "parked" };
 
 /**
- *  The Status cell of a branch row, what happens to it (spec/branch/branch-row.spec.md, "Status cell";
+ *  The Status cell of a branch row, what happens to it (openspec/specs/branch/branch-row/spec.md, "Status cell";
  *  `domain_policy::row_status`): its first column says `main`, and the exceptional facts `main` covers stay beside it as a
  *  mark whose hover names them, so a running robot never hides a conflict, nor a conflict a running robot
  */
@@ -8718,19 +8718,19 @@ export type StepRetarget = {
 };
 
 /**
- *  The row of the table that decided the step (spec/branch/next-step.spec.md, "The table"); `NoSlot` a repository that
+ *  The row of the table that decided the step (openspec/specs/branch/next-step/spec.md, "The table"); `NoSlot` a repository that
  *  is not on Space, which has no slot
  */
 export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" | "5′" | "6" | "7" | "8" | "9" | "10" | "8′" | "10′" | "11" | 
 /**
- *  The row of a repository that lands by a push into the target (spec/branch/next-step.spec.md, "A push into the
+ *  The row of a repository that lands by a push into the target (openspec/specs/branch/next-step/spec.md, "A push into the
  *  target"): "Push to master"
  */
 "push" | 
 /**  The row before it while the fetched baseline has commits the copy is not built on: "Update Project" */
 "push′" | 
 /**
- *  The row of a repository that lands by a merge of the pull request on GitHub (spec/branch/next-step.spec.md, "A
+ *  The row of a repository that lands by a merge of the pull request on GitHub (openspec/specs/branch/next-step/spec.md, "A
  *  merge of the pull request") without an open pull request into the target: "Create Pull Request…"
  */
 "pr" | 
@@ -9822,7 +9822,7 @@ export type WholeStackRest = {
 };
 
 /**
- *  The whole stack of a root (spec/branch/whole-stack.spec.md): the stack branch of a stack that forks, or the last
+ *  The whole stack of a root (openspec/specs/branch/whole-stack/spec.md): the stack branch of a stack that forks, or the last
  *  branch of a straight chain, which carries every commit of it
  */
 export type WholeStackView = 

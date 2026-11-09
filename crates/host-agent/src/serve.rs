@@ -1,4 +1,4 @@
-//! `brd-host serve`: the listener of the agent (spec/cli/host.spec.md, "serve"). A thread per connection. Each
+//! `brd-host serve`: the listener of the agent (openspec/specs/cli/host/spec.md, "serve"). A thread per connection. Each
 //! connection: the TLS handshake within a total deadline, then `Request::Hello`, then one request. At most
 //! [`MAX_HANDSHAKES`] handshakes go on at a time, and at most [`MAX_HANDSHAKES_PER_PEER`] of one address, so one host of
 //! the network cannot hold all of them. A socket over a cap is closed at once. The sockets over a cap and the failed

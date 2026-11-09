@@ -1,4 +1,4 @@
-// The sign-ins of the app's accounts from the page (spec/repository/github-sign-in.spec.md, youtrack.spec.md):
+// The sign-ins of the app's accounts from the page (openspec/specs/repository/github-sign-in/spec.md, openspec/specs/repository/youtrack/spec.md):
 // `sign_in` runs one in Rust (`remote_facts::sign_in`), or joins the one of its provider that runs, and tells its events
 // on the channel of the call; the page shows where it is (`SignInPhase` of `src/stores/auth.ts`), opens the page of the
 // Hub in the browser when the sign-in waits for it, and words how it ended. The status that follows a sign-in or a

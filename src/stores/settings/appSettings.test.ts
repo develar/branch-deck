@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { APP_SETTINGS_DEFAULTS } from "@/lib/bindings"
 import { appSettingsStore } from "@/stores/settings/appSettings"

@@ -172,7 +172,7 @@ fn branch_issue_key(branch_name: &str, origin: BranchOrigin, commits: &[Commit])
 /// oldest commit is the newest comes first (`grouped_commits` is in the order of the oldest commit of each branch,
 /// oldest first). Not by a time: a rewrite keeps every commit it keeps in its place (a squash keeps the oldest commit, a
 /// fixup folds into an older target), but gives each commit above the oldest one it rewrites a new committer time,
-/// which would move the rows of the whole table (spec/branch/stacked-branches.spec.md, UI). `stacks` places the
+/// which would move the rows of the whole table (openspec/specs/branch/stacked-branches/spec.md, UI). `stacks` places the
 /// branches, `description_titles` (branch -> title) are the titles of their descriptions
 pub(crate) fn prepare_branches_for_ui(
   grouped_commits: &IndexMap<String, Vec<Commit>>,

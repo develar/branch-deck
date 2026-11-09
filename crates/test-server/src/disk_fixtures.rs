@@ -1,4 +1,4 @@
-//! The disk of the lease pools of a test repository (the Disk window, spec/repository/disk-usage.spec.md): its pool
+//! The disk of the lease pools of a test repository (the Disk window, openspec/specs/repository/disk-usage/spec.md): its pool
 //! lives in the fake home of the repository (`AppHost::tool_environment` of `TestHost`), where a test adds free slots
 //! by real gets and returns (`POST /repositories/{id}/lease-slots`), so `disk_usage` and `trim_pools` run their real
 //! cores; the hosts of `bd-host` are the fixture of the test (`POST /repositories/{id}/host-disks`,

@@ -15,7 +15,7 @@ import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 
-/** The search of the fix of the conflicts of the last sync (spec/branch/conflict-fix.spec.md) */
+/** The search of the fix of the conflicts of the last sync (openspec/specs/branch/conflict-fix/spec.md) */
 export interface ConflictFixState {
   /** The sync result the search is for (`fixKey`); null before the first */
   key: string | null

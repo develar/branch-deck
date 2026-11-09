@@ -15,7 +15,7 @@ import { getShownBranchTableOrder } from "@/stores/stack-collapse"
 
 /*
  * The facts of the remote come after the first rows: Patronus, the pull requests, the readiness of each row, the review
- * requests ([Next Step](../../spec/branch/next-step.spec.md#facts-without-an-answer)). Until they are in, the branch view
+ * requests ([Next Step](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer)). Until they are in, the branch view
  * reserves the layout it had once they were in the last time (`repositoryState.settledLayout`): the widths of the
  * branch columns, the height of Your Turn and the second header line of a stack island, so an answer that fills them
  * as before moves nothing under the pointer.

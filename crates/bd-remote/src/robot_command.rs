@@ -1,6 +1,6 @@
 //! `brd robot`: the status of the Patronus robot of a virtual branch, as `brd safe-push` finds it, for an agent that
 //! watches a robot the user started or restarted, and, when it failed or fails while it runs, why and which commits of
-//! the checked-out branch it tested (`spec/branch/safe-push-failure-prompt.spec.md`): the same failure and commit map
+//! the checked-out branch it tested (`openspec/specs/branch/safe-push-failure-prompt/spec.md`): the same failure and commit map
 //! as the app's Copy Prompt for Agent. Read only: no repository lock and no sync; the commit map compares the virtual
 //! branch as the last sync built it. Its facts come through a one-shot session of the grouping (`SessionFacts`), each
 //! read once: the robots to find the one of the branch, and for a merged Safe Push the pull requests (the robots beside

@@ -1,4 +1,4 @@
-// @spec spec/repository/activity.spec.md
+// @spec openspec/specs/repository/activity/spec.md
 import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityButton, activityEntry, activityPanel, expectActivityOpened, openActivityWindow, openWindowFromPanel } from "../helpers/activity-helpers"

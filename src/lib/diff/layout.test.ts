@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { DiffLayout, endsWithFooter, EPILOGUE_KEY, FOOTER_MIN_ROWS, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutFile } from "@/lib/diff/layout"

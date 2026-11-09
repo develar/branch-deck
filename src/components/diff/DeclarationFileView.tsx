@@ -50,7 +50,7 @@ export interface DeclarationFileViewProps {
 }
 
 /**
- * A file outside the review that holds a declaration (spec/commit/symbol-navigation.spec.md): the whole file at the
+ * A file outside the review that holds a declaration (openspec/specs/commit/symbol-navigation/spec.md): the whole file at the
  * revision of its side, coloured and navigable as the diffs, over the review, which keeps its place under it
  */
 export function DeclarationFileView({ target, onBack, onGoToDeclaration, onFindUsages }: DeclarationFileViewProps) {

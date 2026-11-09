@@ -1,5 +1,5 @@
-//! The input of the rules (docs/design/rust-domain-authority.md, s8-policy; spec/branch/stacked-branches.spec.md,
-//! spec/branch/parked-branches.spec.md): the branch table as the rules read it, borrowed from where it lives, never
+//! The input of the rules (docs/design/rust-domain-authority.md, s8-policy; openspec/specs/branch/stacked-branches/spec.md,
+//! openspec/specs/branch/parked-branches/spec.md): the branch table as the rules read it, borrowed from where it lives, never
 //! copied. Its one shape is `Repository`, read from the view of a session (`of_view`, what `repository_model::derive`
 //! builds the view's structure with), or from a table a sync or a grouping left as its grouped branches (`of_grouping`:
 //! `repository_model::branch_table::BranchTable` and `brd status`, until they read the view of a session too). The rules

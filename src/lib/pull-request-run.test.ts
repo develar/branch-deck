@@ -1,4 +1,4 @@
-// @spec spec/branch/pull-requests.spec.md
+// @spec openspec/specs/branch/pull-requests/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, EffectRecord, Intent, Outcome, Plan, PullRequest, RunningOperation } from "@/lib/bindings"
 import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"

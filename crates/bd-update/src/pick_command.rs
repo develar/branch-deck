@@ -1,5 +1,5 @@
 //! `brd pick` and `brd undo pick:…`: the commits of another worktree landed on the branch checked out here, without
-//! `git cherry-pick` (spec/cli/pick.spec.md). The core (`update_core::pick`) takes the repository lock, which every
+//! `git cherry-pick` (openspec/specs/cli/pick/spec.md). The core (`update_core::pick`) takes the repository lock, which every
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing. A pick that writes is
 //! recorded in the operations registry of the repository first (`Intent::Pick`, of `--remote` the rewrite `PickRemote`,
@@ -378,7 +378,7 @@ pub fn tree_check(git: &GitCommandExecutor, dir: &str) -> Result<TreeCheck, CliE
   check_tree(git, dir).map_err(CliError::from)
 }
 
-/// The gate of `pick_requires_check` (spec/cli/pick.spec.md): a pick from a worktree lands only a tree that a green
+/// The gate of `pick_requires_check` (openspec/specs/cli/pick/spec.md): a pick from a worktree lands only a tree that a green
 /// build or test recorded, unless `--allow-unchecked` says why; a pick of revisions names no worktree whose records bd
 /// could read, so it needs the reason too. `--remote` passes: the commits someone else pushed, which the user saw
 fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&HomePick>) -> Result<Gate, CliError> {

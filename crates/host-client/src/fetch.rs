@@ -1,4 +1,4 @@
-//! The files of a run (spec/cli/host.spec.md, "The fetch, the outputs and the changes"): `Fetch` copies them into the
+//! The files of a run (openspec/specs/cli/host/spec.md, "The fetch, the outputs and the changes"): `Fetch` copies them into the
 //! local checkout, and `Forget` removes the run on the agent.
 //!
 //! Each file goes to `<name>.bd-host-part` first, and only a file of the size that the agent named takes its name. So a

@@ -20,7 +20,7 @@ interface Held {
 }
 
 /**
- * The owner chip of a review window (spec/branch/branch-review.spec.md, "Code owners"), per `scope` (an open of the
+ * The owner chip of a review window (openspec/specs/branch/branch-review/spec.md, "Code owners"), per `scope` (an open of the
  * window on a request): until the user chooses one, the chip it opens on (`initialOwnerFilter`) of the remembered chip
  * as the scope began, so a choice in another review does not move it. While that is All, or the user's group while the
  * remembered chip may still come (`awaitsRememberedChip`), the chips that come later (the groups of the readiness of the

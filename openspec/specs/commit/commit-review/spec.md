@@ -1,0 +1,405 @@
+---
+name: Commit Review
+description: Requirements for the review of a commit in its window, and of the range of a pull request or a branch: a sidebar (the commits of a range, the header of the files, their directory tree) beside the diffs of all of them in one virtualized view, with keys for the files, the changes and the commits.
+style: plain-1
+targets:
+  - src/components/commit/CommitReview.tsx
+  - src/components/commit/CommitPreviewDialog.tsx
+  - src/components/diff/CommitReviewCode.tsx
+  - src/components/diff/DiffView.tsx
+  - src/components/diff/DiffFindBar.tsx
+  - src/components/diff/DiffFileMap.tsx
+  - src/components/diff/diff-painter.ts
+  - src/components/diff/use-measured-heights.ts
+  - src/components/diff/diff-view.css
+  - src/components/files/FilePathLabel.tsx
+  - src/lib/sub-window.ts
+  - src/lib/open-timing.ts
+  - src/lib/review-window-reads.ts
+  - crates/app-api/src/reads/diffs.rs
+  - crates/app-api/src/app/windows.rs
+  - src/components/files/FileTree.tsx
+  - src/components/files/FileContextMenu.tsx
+  - src/components/shared/WindowPage.tsx
+  - src/pages/ReviewPage.tsx
+  - src/lib/diff/rows.ts
+  - src/lib/diff/find.ts
+  - src/lib/diff/find-text.ts
+  - src/lib/diff/layout.ts
+  - src/lib/diff/file-map.ts
+  - src/lib/diff/view-files.ts
+  - crates/file-diffs/src/collapse.rs
+  - crates/generated-files/src/names.rs
+  - src/presenters/collapse.ts
+  - src/presenters/review-card-end.ts
+  - src/lib/file-tree.ts
+  - src/lib/preview-keys.ts
+  - src/stores/file-diffs.ts
+  - src/stores/blob-texts.ts
+  - src/stores/commit-files.ts
+  - src/lib/commit-files.ts
+  - src/lib/review-window.ts
+  - src/components/commit/CommitList.tsx
+  - src/hooks/useCommitReviewActions.ts
+  - src/components/preview/CommitsPreviewBody.tsx
+  - src/hooks/usePreviewHotkeys.ts
+  - src/components/review/RangeReview.tsx
+  - src/components/review/ChapterOpening.tsx
+  - src/components/commit/CommitBodyView.tsx
+  - src/components/shared/Disclosure.tsx
+  - src/components/review/ReviewKeyHints.tsx
+  - src/components/shared/DiffViewToggle.tsx
+  - src/lib/review-position.ts
+  - src/router.ts
+  - src-tauri/capabilities/sub-windows.json
+  - src/components/shared/SearchField.tsx
+  - src/hooks/useSlashFocus.ts
+  - src/lib/file-filter.ts
+  - src/lib/text-search.ts
+  - src/components/files/FileHeaderParts.tsx
+  - crates/sync-core/src/uncommitted_changes.rs
+---
+
+# Commit Review
+
+Status: Implemented
+Date: 2026-10-15
+
+## Summary
+
+The commit preview shows a commit, as Quick Look shows a file; the review reads it, in a window of its own, as ⌘O
+opens a file: D on a row, the item of its menu or D in the preview opens the review. A commit lands in master with its
+branch ([Landing](../../../../docs/design/landing.md)), so a commit of a branch is reviewed in the review window of its
+branch, at the commit, with the stack, the actions and the other commits of the branch beside it
+([Branch Review](../../branch/branch-review/spec.md)), a commit of an unapplied or archived branch in the review of that
+branch ([Review Window](../../review/review-window/spec.md#kept-branches)); a commit no branch review shows (unassigned, of
+a branch not built on its parents, of a conflict) opens in the same window as a list of commits
+([Review Window](../../review/review-window/spec.md#one-window)). A sidebar with
+the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
+header per file, as a code review in Space, GitHub or IntelliJ shows a change. The tree follows the diffs as they
+scroll, a file chosen in the tree scrolls the diffs to it, J and K step through the files and N and P through the
+changes. A review is a task of minutes beside the branch table: a window stays beside it, on another monitor too,
+where a dialog would cover it.
+
+## Goals
+
+- Read a whole commit, file after file, without opening each file.
+- Never lose the place: the tree says which file is on screen, and the keys go to the next file or change.
+- Stay fast on a large commit: one git process for the patch, the diffs virtualized, large and generated files
+  collapsed.
+- Open at once: the window shows the review complete in its first frame, the first diffs highlighted, when the patch
+  is read already; a slow read shows the files first.
+
+## Non-goals
+
+- No comments, no "viewed" marks: the review reads, it does not record.
+- No review of uncommitted changes; the amend card shows them ([Amend Changes](../amend/spec.md)).
+- The search of the sidebar finds files by their path, not text in them; the find in the review searches story text and diff rows.
+
+## Requirements
+
+### Opening and closing
+
+- The review of a commit is in the review window ([Review Window](../../review/review-window/spec.md#one-window)): the
+  review of its branch, at the commit, or the review of the list it is in (titled "Review a1b2c3d <subject>" and
+  retitled as it steps; [Title Bar](../../repository/title-bar/spec.md) for how it opens). There is no review dialog, no
+  W and no "Open in Window": one action, "Review Changes" (D).
+- A commit of a branch must open the review window of the branch at the commit (`reviewBranchCommit`: the copy of the
+  commit in the virtual branch, `focus.commitId`, and the file, `focus.path`), titled "Review login · a1b2c3d", from
+  every surface below; a commit of no branch, of a branch the branch review can't show (blocked, failed, in conflict:
+  `reviewBlockerOf`, the Review Changes Rust offers) or one its virtual branch doesn't have yet (no copy, a conflicting or blocked commit) opens
+  the review of its list (`openCommitReviewWindow`). Only the main window decides: a list in a sub-window opens the
+  review of the list.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should review an unassigned commit in the review window of the commit`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a branch in conflict and of a blocked one in the review window of the commit`)
+- D on a commit row (the focused row while the pointer hasn't moved, else the row under it, `usePreviewHotkeys`) and
+  "Review Changes" (D), the first item of the row's menu, must open the window at the first file; no preview opens. A
+  commit without files gets its preview, which says so; the menu item is disabled with "The commit changes no files".
+  D and the item on a row of a selection of several review them together: inside a branch the review of the branch at
+  the first of them in the order of the list (the focus of a review is one commit, and its column lists the others),
+  in a list no branch owns (unassigned) a review of the selection as a list of its own. An open menu keeps D and Space
+  (they act on no row under it); a closing one does not, so D right after Escape reviews.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row in its window with D and with the item of its menu`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should review a selection of several unassigned commits together, as a list of its own`, `should review a selection of commits of a branch in the review of the branch, at the first of them`)
+- In the preview, D and the `D Review Changes` button of its footer must open the window at the first file, Enter on
+  a file of the Files tree at that file; the preview closes once the window opened, and stays (the error told) when
+  it could not.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should open the review at a file with Enter in the tree, and with the footer button`, `should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The close of the preview (also by D) must focus its list, and the keys of a row (Space, D) then act on the commit it
+  showed last, also after ↑/↓, while the pointer is on no row; a click of a row makes it the anchor again.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should give the focus to the list after the preview, its keys going on from the commit it showed last`)
+- A list in a sub-window (the missing commits of a conflict) opens the same window, with the repository of that
+  window (`repositoryPath` of its data).
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should review a missing commit in the review window from the missing commits window`)
+- The window gets the list as it was (its commits don't change), its name and the commit, and reads nothing else of
+  it. How an open of a list goes on from the review on screen (another commit of the list on screen moves there,
+  another list or an open at a file starts it over) is the one rule of the window
+  ([Review Window](../../review/review-window/spec.md#one-window)).
+- The window shows the commits of the list above its files (the commits of a range review, without a scope), the
+  commit at the top of the document of its diffs as the branch preview heads one (`CommitCard` with its `heading` header: the subject
+  `text-md font-medium`, the meta line with the committer time on hover and the coloured line counts, the reading body
+  whole), so it scrolls away with the overview of the plan below it; the footer "Commit 2 / 3 · File 1 / 1" and
+  `Esc Close`. Its title bar names the list and the commit ("Unassigned › 11346cdf", `listLabel` of the window data: the
+  branch, or "Unassigned") and ends with the Split/Unified/Inline toggle; it has no action and no "⋯". Nothing is
+  edited there.
+- ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
+
+- The review has a subject: a commit, or the range `base..head` of a pull request that waits for the user's review
+  ([Review Requests](../../repository/review-requests/spec.md#review-window)) or of a branch in its review window
+  ([Branch Review](../../branch/branch-review/spec.md)). The same view shows both: the loading line,
+  the error ("Cannot read the changes of the commit", "… of the pull request") and the empty state are one. A range is
+  keyed `<base>..<head>` in the stores of the files and the diffs and dropped when its review closes.
+  [@test] src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
+  [@test] src/stores/file-diffs.test.ts (`keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
+
+### The sidebar and the diffs
+
+- The left pane must be a sidebar: the commits of a range on top (a range of several commits,
+  [Branch Review](../../branch/branch-review/spec.md), [Review Requests](../../repository/review-requests/spec.md#review-window)), at most 40% of its height and scrolling inside; then the header of the files ("5
+  files", or what the surface puts there: the owner chips of a branch review); then the tree of the Files section, in
+  the order of the tree, a file row selecting the file. The selection follows the focus.
+- The sidebar must be resizable (24rem at first, what the names of a tree need, not a share of the window: a title of
+  a step, task or commit in the tree wraps as many lines as needed; a file row stays one line; never narrower than 16rem,
+  at most 50%) and keep its width (`review-sidebar`, one width for every review). F and the
+  sidebar button of the title bar must hide and show it, so the diffs take the whole window; the footer names F, and
+  the choice is kept for every review and never changes by itself.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept`)
+- In Split, the divider between the two sides must drag, as IntelliJ's DiffSplitter, between 15% and 85% of the
+  row; a double click makes the sides equal. The share is one setting of every diff view (`splitRatio`), kept, and no
+  view changes it by itself. While the press holds the divider, the diffs must say they are dragged: the cursor stays
+  the resize one over the whole view, where the pointer left the hit area of the line long ago, and the run over the
+  rows selects no code.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click`)
+- The split must be there in every state of the review: while another commit or filter loads, has no files or cannot be
+  read, the diffs pane says so, and the commits and the header of the files stay where they are, with their focus.
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each file a card
+  as in IntelliJ's combined diff: 10 px apart on the canvas, so a card stands out from it as an island does, a 1-px
+  border, rounded corners, a collapsed file its header alone. Its header is the top of the card, a band of its own
+  colour between the card and the canvas, so it never reads as one more row of code; it sticks while its rows scroll,
+  until the end of the card pushes it up, and once a row of them has gone under it, it casts a shadow on them. The
+  header shows the status letter, the name semibold, where a rename came from and its directory muted, Expand All with
+  its tooltip, its owner, its line counts, a copy button and the menu of the file
+  ([Commit Files](../commit-files/spec.md#the-actions-on-a-file)); the name of every file stands at one x, and the
+  directory gives way, from its start, before the name. The commit a range shows is above them. With the review plan,
+  a section that starts a step has its opening on the canvas between the gap above its card and the card, as tall as
+  its words, and one that starts a group and no step a divider there (the step, the group:
+  [Review Tour](../../branch/review-tour/spec.md#in-the-review-window)), never words in the header; they scroll with the
+  card, and a scroll to the section shows its opening. What comes before the first section (the overview of a review)
+  lies above it, a gap of 10 px between them.
+  [@test] src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`, `puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`, `puts the prologue before the first section, a gap below it, keeps a top in it from the top of the document and one in the gap at the first section`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- A new height of an opening (its words wrap at a new width, a font loads, a part of it opens, a title arrives) must
+  keep the reader's place: an opening grows and shrinks below the top of the view, the cards below it move, and a top
+  in a card keeps its line. A change N and P show, a hit of the find and a declaration shown land in their card, the
+  opening of its step above the view, so their place on screen never depends on the height of the opening.
+  [@test] src/lib/diff/layout.test.ts (`keeps a top in an opening from the start of the opening, so an opening that grows grows below it and one that shrinks gives the top to its card`, `shows a change, a hit of the find and a declaration in a card below the opening of its step: the top of the card is their least top`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
+  top must become the selected file, its directories opened; scrolled to their end, the last file, in view entire
+  while its header can never reach the top, is the selected one, the position and the map following it. A scroll the
+  review made (a choice, J, K, N, P) changes the selection only through the key or the row that made it, also for a
+  last file that cannot reach the top.
+  [@test] src/lib/diff/layout.test.ts (`shows the last file at the end of the document, whose header can never reach the top, else the file at the top`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
+- The top of the diffs must keep the gap of 10 px that the first card has above it: a file at the top and a header
+  stuck while its rows scroll under it sit 10 px below the header of the commit, never against its line, and no row
+  shows in the gap.
+  [@test] src/lib/diff/layout.test.ts (`sticks a header below the space above the first card, so a file at the top keeps that space over its card`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- J and K must select the next and the previous file; with the review plan of a branch, whose diffs are the story of
+  its units, the next and the previous stop of the document (the overview, the opening of a step, a card), the tree and
+  the bar of the step above the diffs following
+  ([Review Units](../../branch/review-units/spec.md#in-the-review-window),
+  [Review Tour](../../branch/review-tour/spec.md#in-the-review-window)). N and P must show the next and the previous
+  block of changed lines, into the next or the previous file at the end of one; collapsed files are skipped.
+  [@test] tests/e2e/branch-review/review-plan.spec.ts (`should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
+  [@test] src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `N and P skip a block the whitespace policy ignores`)
+- A card of more than 30 rows, whose end is far from its header, and the last card must end with a line that names
+  what J shows next, by its rows alone, never by the viewport: "Next: SKILL.md .claude/skills/setup-local-rd-flow J",
+  the file as the header of its card names it, the name and then the directory, which gives way from its start, so
+  its last folder shows (ten files named SKILL.md in a row differ by it); "Next: SKILL.md, continued" for the next
+  section of the same file, under an owner chip the next of its files; at the last card above the opening of a step of no card
+  after it, the words of that step ("Next: Step 2 · Close moves to b"). With nothing left it says "End of the review", and under
+  an owner chip before the last card "No more files of Design". A click shows what it names as J does: its header at
+  the top, the tree and the footer following, the focus left in the diffs, so J goes on from there. It never says
+  "End of <file>" (a section of the story may be a part of its file), it is out of the tab order (J does it from the
+  keys) and never in a copy of the code.
+  [@test] src/lib/diff/layout.test.ts (`ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count`)
+  [@test] src/presenters/review-card-end.test.ts (`names the next file as its header does, its name and its directory, and the next part of the same file as continued`, `names after the last card the opening of a step of no card below it by the words of the step`, `ends the review at the last card, and the files of an owner chip before it`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should navigate the long card to the next visible file of the chosen owner chip`)
+- The diffs must have a map of the files in place of their scrollbar: a column at their right, beside the diffs and
+  not above them, the whole review scaled to its height (never shorter than the view, so a short review keeps its
+  files where its cards are). It has a tick at the start of each section, one across it at the start of a step of the
+  plan; where the pixels are too few for every section, the ticks of several are one. The section at the top is
+  filled, and the window of the view is its thumb, the strongest mark of the map and never thinner than a mark to grab,
+  even for a review of 500 files. An owner chip filters the map to its files with the diffs. A drag of the thumb
+  and the wheel over the map scroll the diffs, the tree and the footer following the file at the top; a click shows the
+  section under the pointer as a row of the tree does, the diffs taking the focus, so J goes on from there; the hover
+  names its file, the directory after the name, and its step. What comes before the first section is a band of the map
+  without a tick, "Overview" in its hover, which a click shows. Neutral at any count of files: no colour of a status.
+  It is out of the tab order, hidden from a screen reader and without the menu of a file: the tree, the headers and
+  the keys reach every file.
+  [@test] src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `leaves the prologue above the first section a band without a tick, which the hover and a click tell from the sections and the map fills at the top`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should filter tree, diffs and navigation to the files of an owner chip`)
+- The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
+  "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file
+  reads its texts by blob id as it comes into view, and its rows show plain text until the tokens of their page
+  arrive. The window shows once the rows of the first screen are painted with their texts, and their tokens are there
+  or 80 ms late ([Title Bar](../../repository/title-bar/spec.md)). Once the diffs are all read (the stream of the shown
+  subject ended, not at its first headers), the diffs of the commits before and after it in the list are read too, so
+  ⌥↑/⌥↓ show them at once; their streams never compete with the shown one for the workers of the backend.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the files while the patch is read, settle with the diffs, and step to a commit read beside it`)
+  [@test] src/stores/file-diffs.test.ts (`tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it`)
+- The diffs must have the focus when the review shows its subject, so the arrows, PageUp, PageDown and Space scroll them;
+  Shift+Tab goes to the tree. While another commit loads, or one without files or that cannot be read is shown, the
+  review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work. What the user works in beside the diffs (the commits,
+  the owner chips) keeps the focus when the diffs of the next subject mount; J, K, N and P work from there too.
+- A binary file, a file without changed lines and a file the patch left out must show only their header, which says
+  so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified files, source maps and snapshot files, files with more
+  than 1,000 changed lines and the files the review plan folds
+  ([Review Plan](../../branch/review-plan/spec.md#in-the-review-window)) must start collapsed; the chevron of the header
+  expands them. Rust decides it for every view of a diff (`collapse_of`, the `collapse` of each file's content), by
+  the names of `generated-files`; the header of a generated file says what its name makes it ("Lock file",
+  "Minified", "Source map", "Snapshot"), the header of a folded file why the plan folds it.
+  [@test] crates/file-diffs/src/collapse_test.rs (`a_generated_name_no_text_and_many_changed_lines_start_a_file_collapsed`)
+  [@test] crates/generated-files/src/names_test.rs (`a_lock_file_a_minified_file_a_source_map_and_a_snapshot_are_generated_by_their_name`)
+  [@test] src/presenters/collapse.test.ts (`names the generated file by its name, and leaves a file without text and a large file to their notice and counts`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should start a lock file and a minified file collapsed, their header saying why, and open one with its chevron`)
+- The unchanged lines between hunks must expand as in the Files section ([Commit Files](../commit-files/spec.md)).
+- A copy of a selection in the diffs must give the lines its rows show, from the texts, also of rows no longer on
+  screen: without the line numbers, the folds and the deleted parts of an Inline row, the old and the new line of a
+  changed pair in Unified, and one side in Split (a press on a side keeps the selection there). ⌘A (Ctrl+A off macOS)
+  selects the side of the file at the top, and a copy then gives all its shown lines.
+  [@test] src/lib/diff/copy-text.test.ts (`copies the lines the rows show from the model, cut at both ends, in the order of the diffs`, `copies one side in Split, and the new line of an Inline row without its deleted parts`, `copies across files and leaves out a fold and a text not read yet`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers`)
+- ⌘F (Ctrl+F off macOS) in the review must open a find bar labelled and placeholder "Find in the review". It searches
+  the prologue, every opening (including steps told before their section), the epilogue and the diff rows as one
+  document, in order: prologue, opening of file *i*, diff rows of file *i*, then epilogue. Story text is matched
+  ignoring case, one block at a time (never across paragraphs or list items); `.sr-only`, `[aria-hidden=true]` and
+  `[data-find-skip]` are excluded. Closed story-body parts and `Disclosure`s are searched always and open when the
+  find goes to a hit; "In folded lines" applies to diff rows only. The diff search remains model-based: both sides of a
+  change in Split, the new side of an unchanged line, and with the checkbox folded diff lines too. The count combines
+  text and diff hits ("12 results", "3 of 12"); Enter and ⌘G go to the next one, Shift with them to the previous one.
+  The current hit stays the same hit when a fold opens or story text arrives. The painter marks diff hits; the CSS
+  Custom Highlight API marks text hits in the same colours, with scrolling still working when that API is unavailable.
+  ⌘F (Ctrl+F off macOS) works anywhere in the review window, including the sidebar; ⌘G and Shift+⌘G step while the
+  bar is open, including with focus in the sidebar. Escape closes the bar, clears the marks and gives the scroller the
+  focus.
+  [@test] src/lib/diff/find.test.ts (`finds the query in the lines the rows show, ignoring case, in the order of the rows`, `searches both sides of a change in Split and the new side of an unchanged line, and the folds on request`, `groups the hits by file and line for the painter, the current one marked`, `matches ignoring case and finds several hits in one segment`, `does not match across segments and returns no hits for an empty query`, `puts text before diff hits for each file and keeps each list's order`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should open find from the file tree and step results there with ⌘F and ⌘G @webkit`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should find overview and opening text before the matching diff rows, and open a folded follow-up`, `should search story text in the epilogue and scroll to the hit`, `should open a hit in a closed story body and keep it current`)
+- The diffs come from `get_file_diffs` and their texts from `get_blob_texts`
+  ([Commit Files](../commit-files/spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`.
+- The Split/Unified/Inline toggle must switch the layout; it is the setting of the Files section, Split by default. It is in
+  the header of the block whose diffs it switches: the title bar of a review window, the end of the tabs of a pull
+  request review, beside Changes. It is one option set, the stock `ToggleGroup` (`outline`, `sm`, `spacing={0}`), the
+  shown layout in its pressed state, no colour of its own (`DiffLayoutButtons`).
+  Soft wraps follow the setting of Settings → Diffs ([Commit Files](../commit-files/spec.md#soft-wraps)).
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- A review may show the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree
+  row keeps its width for the name. An owner chip of a branch review ([Branch Review](../../branch/branch-review/spec.md#code-owners))
+  filters the tree and diffs to its files, and J, K, N and P move through that same shown set; none left in that
+  direction, nothing moves. A step with only some of its files shows the owner count out of the step total, and the
+  footer names the selected owner without repeating its count. A link to a file hidden by the chip clears the chip;
+  an owner with no files in this range does not filter.
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`, `should filter tree, diffs and navigation to the files of an owner chip`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should show only the steps and files of an owner chip, and navigate within its story`)
+
+### The search of the files
+
+- From 8 files on (`FILE_FILTER_MIN_FILES`, the count of the branch filter), or while it has a text, the sidebar must
+  have a search of the files above their header, the search of the branch table (`SearchField`). A review of fewer
+  files has none.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The tree and the diffs must show the files with every word of the text in their path or the old path of a rename,
+  ignoring case, as it is typed; the header says "Files 3 of 9". The directories of what it found are open, the
+  selected file stays while the search keeps it, else the first one is selected, and the diffs show it at the top.
+  The search intersects an owner chip of a branch review, and both narrow the same tree and diffs; the text filter holds
+  for the next commit (⌥↑/⌥↓) until the window closes.
+  [@test] src/lib/file-filter.test.ts (`keeps the files with every word in their path, ignoring case`, `finds a renamed file by its old path`)
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter`)
+- `/` must focus the search from anywhere in the window and select its text, except in another input, a menu or a
+  dialog. The letters typed into it are text, never J, K, N, P or an action of the window (S, O). Escape must clear
+  the text, and in an empty search give the diffs the focus (the next Escape closes the window); ↓ must move the
+  focus to the tree. A search that keeps nothing says "No files match “parser”" with Clear Filter.
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter`)
+
+## User Experience
+
+- The island of the review fills the window below its title bar; the panes scroll on their own. A 1px `bg-border`
+  divider separates them.
+- The sidebar has the commits of a range above a `border-b` (with the plan only its scopes while the tree lists the
+  commits in its steps), then the search of the files (`SearchField` `w-full`: the
+  `SearchIcon`, the placeholder "Filter files", `Kbd` `/` while empty, the X "Clear the filter text" once typed), then
+  the header of the files ("Files 5", "Files 3 of 9" while narrowed by search or owner chip, a muted `text-xs font-medium`
+  `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
+  chevron, its name keeps the indent.
+- A file header is 48 px, the band `--diff-file-header` (`color-mix` of `--card` and 60% `--canvas`) in the
+  `--diff-card-border` ring of its card (`--foreground` 8% into `--canvas`), a line of the ring under it; stuck with
+  rows under it, the shadow `0 6px 6px -6px var(--diff-header-shadow)` (`--foreground` 12% in the light theme, black
+  at 55% in the dark). In it: a ghost `icon-xs` chevron (disabled
+  without lines to show), the file as every list of changed files names it (`FilePathLabel` with `emphasis`: the
+  status letter in `font-mono text-xs` in the status colour, the name `text-sm font-semibold` in the status colour,
+  struck through when deleted, the directory `text-muted-foreground` of the same size after it, its last folder in
+  `text-foreground`), the copy button on
+  hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
+- The divider of a step or a group is 32 px on the canvas at the inset of the cards, after the gap of 10 px, its words
+  at its bottom, 6 px above the card they head, not selectable: the step in `text-sm`, "Step 3" `font-medium
+  text-muted-foreground`, then "· <title>" `font-semibold` in the text colour, a button underlined on hover, then the
+  group in `text-xs text-muted-foreground` ("Same edit in 4 files"); after the words of a step a 1-px rule in
+  `--diff-card-border` fills the rest of the width at their middle, `gap-2`; a group alone has none.
+- The line at the end of a card is one row high below its rows, in the band of the header (`--diff-file-header`),
+  a line of the ring above it unless its last row is a fold, which draws its own, not selectable; its words at the
+  right in `text-xs text-muted-foreground`: one button out of the tab order, `rounded-sm px-1.5`, `bg-accent` on hover,
+  "Next:", the file as its header names it (`FilePathLabel` with `emphasis`: the name `font-semibold` in the text
+  colour, the directory muted, its last folder not), then `Kbd` `J`.
+- The map of the files is 10 px wide on the canvas at the right of the diffs, which hide their own scrollbar, its
+  track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-map-tick` (`--foreground` 26% into
+  the canvas), 2 px from its sides; an owner chip filters the map to the shown files. A step a tick of 2 px in `--diff-map-step`
+  (`--foreground` 55% into the canvas) across it; the section at the top `--primary` at 20%; the thumb `--foreground` at
+  30% with an inset 1-px edge at 50%, 38% under the pointer, 45% dragged, `--radius-sm`, at least 16 px, a thicker one
+  centred on the window of the view and kept inside the track. Its hover is a popover at its left, its middle at the height of the pointer: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
+- The review window ([Title Bar](../../repository/title-bar/spec.md)) names the list and the commit in its title bar
+  ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
+- The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits; with the
+  plan "Overview" while its overview is at the top (the tree then selects no row: no file is shown, none is the file a
+  review read again starts at) and the step of
+  the story at the top before the file ("All Changes · Step 2 · File 3 / 12"), one hook for every window of a review
+  (`useReviewPosition`) (the windows
+  of a branch and of a pull request add the chosen owner chip's name, "· Design", [Branch
+  Review](../../branch/branch-review/spec.md#code-owners); the window of a commit has no chips), and on the
+  right the hints `J K Files`, `N P Changes`, `F Sidebar`, `I Details` while a row of the tree has the focus
+  ([Review Plan](../../branch/review-plan/spec.md)), `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
+  `Esc Close`.
+  [@test] src/lib/review-position.test.ts (`says Overview while the overview is at the top, and the step of the story before the file`, `shows the file of the position, none while the overview is at the top`)
+- The preview's footer keeps `D Review Changes` (the window opens), `F Files`, `E Edit` and `Space Close`.
+
+## Testing / Local Run
+
+- `pnpm test:unit`: `src/lib/diff/rows.test.ts`, `layout.test.ts`, `file-map.test.ts`, `copy-text.test.ts`, `find.test.ts`, and the tests of [Commit Files](../commit-files/spec.md) for
+  the tree and the patch.
+- `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree` (`RowMapper.kt` expanded is a long
+  card), `commit_many_files` (nine files, the search) and `issue_links` templates. A
+  virtualized view renders what is on screen: assert on the text of files the review scrolled to.
+
+## Open Questions / Risks
+
+- The patch of a commit is parsed whole when the review opens; a commit of thousands of files may take a moment.
+- A diff without the file contents cannot know whether lines follow its last hunk, so its last separator offers
+  "More unchanged context may be available".
+
+## References
+
+- [Commit Files](../commit-files/spec.md)
+- [Diff View](../../../../docs/design/diff-view.md) ("Review")
+- [Commit Row](../commit-row/spec.md) (the preview)
+- Space and GitHub code review: a file tree beside one scrolling list of file diffs with sticky headers.

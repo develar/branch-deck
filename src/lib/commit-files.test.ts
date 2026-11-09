@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile, CommitFiles } from "@/lib/bindings"
 import { formatCommitFilePath, formatFileStatus, getChangedPaths, getCommitFileStats } from "@/lib/commit-files"

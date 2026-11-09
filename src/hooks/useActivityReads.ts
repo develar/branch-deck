@@ -8,7 +8,7 @@ const ACTIVITY_CHANGED = "activity-changed"
 
 /**
  * The reads of the log of a window that shows Activity, the main window and the Activity window alike
- * (spec/repository/activity.spec.md): the log is read when the component mounts (each open of the window mounts it
+ * (openspec/specs/repository/activity/spec.md): the log is read when the component mounts (each open of the window mounts it
  * anew) and again whenever a journal changed; the pull requests of the entries link in `gitHubRepository`, the GitHub
  * repository of the shown repository
  */

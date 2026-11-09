@@ -15,7 +15,7 @@ import { commands } from "@/lib/bindings"
 import { commandFailure } from "@/lib/errors"
 
 /*
- * Start in Air (spec/branch/start-in-air.spec.md): the state of the dialog over the agents of the IDE (`targets`), the
+ * Start in Air (openspec/specs/branch/start-in-air/spec.md): the state of the dialog over the agents of the IDE (`targets`), the
  * request of a launch, the choice the dialog remembers per repository, the words of a refusal of the IDE, and the
  * words of the status of the session a launch started (`watch`). The IDE decides what it accepts; the dialog only
  * offers what the targets list and names what the IDE answered.

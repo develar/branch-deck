@@ -9,7 +9,7 @@ import { sessionRepositoryPath } from "@/model/store"
 import { FIXED_STATE, loadIssue } from "@/stores/youtrack-issues"
 
 /**
- * The actions of a YouTrack issue (spec/repository/youtrack.spec.md), for every surface that renders them: the popover
+ * The actions of a YouTrack issue (openspec/specs/repository/youtrack/spec.md), for every surface that renders them: the popover
  * of its key, the menu of its branch. Mark Fixed only for an open issue with a state field; disabled with the reason
  * when the field has no Fixed state. `operations` are those of the session of the window (`RepositoryView.operations`):
  * a change of the issue that runs there shows on its item.

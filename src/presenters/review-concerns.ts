@@ -1,7 +1,7 @@
 import type { ConcernEvidence, ConcernName, EvidenceKind } from "@/lib/bindings"
 
 /*
- * The words of the concerns of a review (spec/branch/review-concerns.spec.md, "In the Review Window"): Rust joins the
+ * The words of the concerns of a review (openspec/specs/branch/review-concerns/spec.md, "In the Review Window"): Rust joins the
  * units into the tasks of the range, names each by its evidence and says which concern holds the main row of a file
  * of several (`Concern.elsewhere`); this words them for the tree and the headings of the story.
  */

@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { MergeBlock } from "@/lib/diff/file-merge-model"
 import { buildLineTable, lineText } from "@/lib/diff/line-table"

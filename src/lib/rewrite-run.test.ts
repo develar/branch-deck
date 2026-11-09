@@ -1,4 +1,4 @@
-// @spec spec/branch/move-commits.spec.md
+// @spec openspec/specs/branch/move-commits/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ApiError, OperationEvent, Outcome, RewriteIntent, Version } from "@/lib/bindings"
 import type { RunningOperation } from "@/lib/bindings"

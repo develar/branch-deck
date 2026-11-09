@@ -1,5 +1,5 @@
 //! `brd drop` and its `brd undo`: commits ahead of the baseline and their files out of the branch checked out here, for
-//! good, as the app's Drop Commit does (spec/commit/drop.spec.md). The core (`history_rewrite::drop_commits`) computes the
+//! good, as the app's Drop Commit does (openspec/specs/commit/drop/spec.md). The core (`history_rewrite::drop_commits`) computes the
 //! drop and the dry run of its files before the repository lock, then takes the lock for the witness and the move
 //! through the guarded working-tree update; local changes on the paths it writes change nothing. Recorded in the
 //! operations registry of the repository before the lock (`bd_core::operation_record`), unless a dry run

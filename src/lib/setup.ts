@@ -2,7 +2,7 @@ import type { SetupEntry } from "@/lib/bindings"
 import { hostOf } from "@/lib/cli-tools"
 
 /*
- * The words of the Setup dot (spec/repository/setup-attention.spec.md). Which items there are is Rust's
+ * The words of the Setup dot (openspec/specs/repository/setup-attention/spec.md). Which items there are is Rust's
  * (`get_setup_items`); this names each and its action.
  */
 

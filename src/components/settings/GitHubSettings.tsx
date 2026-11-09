@@ -12,7 +12,7 @@ import { cancelSignIn, copyCodeAndOpenGitHub, runSignIn, signOut } from "@/lib/s
 import { retryAuthStatus, useAuthReadError, useAuthStatus, useSignInPhase } from "@/stores/auth"
 
 /**
- * Settings → GitHub: where the token comes from, and the app's own sign-in (spec/repository/github-sign-in.spec.md).
+ * Settings → GitHub: where the token comes from, and the app's own sign-in (openspec/specs/repository/github-sign-in/spec.md).
  * Signing in shows the code to enter on GitHub until GitHub answers. Until the first answer the page says it reads the
  * sign-in; a failed read says why, with Retry, above the last status.
  */

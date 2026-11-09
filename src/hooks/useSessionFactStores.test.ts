@@ -1,4 +1,4 @@
-// @spec spec/review/review-window.spec.md
+// @spec openspec/specs/review/review-window/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { applySessionFactStores } from "@/hooks/useSessionFactStores"
 import { tellReviewRequestNews, reviewRequestsStore } from "@/stores/review-requests"

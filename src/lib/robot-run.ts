@@ -1,6 +1,6 @@
 // The restart and the cancel of a robot from every surface that offers them (the robot menu, its details, the robots
 // indicator, a toast, the hold of a push): the intents `RestartRobot` and `CancelRobot` Rust plans and runs
-// (`operations::robot`; spec/branch/patronus.spec.md, "Restart and cancel"). A restart pushes first while the branch has
+// (`operations::robot`; openspec/specs/branch/patronus/spec.md, "Restart and cancel"). A restart pushes first while the branch has
 // work its remote lacks, the running robot canceled before the push; a cancel of a robot that finished meanwhile is
 // answered as it ended. The page only words how it went: the next state of the toast of the robot ("Safe Push
 // restarted", "Safe Push is canceling"), the remote that moved with the push that restarts it, or why not.

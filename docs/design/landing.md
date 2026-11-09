@@ -9,7 +9,7 @@
 The user works on one local branch, the master of a large repository, with many commits of several features at
 once. The work is done when it is in master. In the IntelliJ monorepo it gets there through Patronus Safe Push: a
 robot rebases a source branch onto master, runs the checks and pushes it into master. Approvals count only in the
-pull request whose `/patronus merge` comment started the robot ([Patronus Approval](../../spec/branch/patronus.spec.md#code-owner-review)).
+pull request whose `/patronus merge` comment started the robot ([Patronus Approval](../../openspec/specs/branch/patronus/spec.md#code-owner-review)).
 
 Branch Deck cuts that work into virtual branches, optionally stacked, so it can land in pieces. The first model of
 stacks came from stacked pull requests: the pull request of a child went into its parent's branch, and the Safe Push
@@ -47,10 +47,10 @@ Two words are used for what lands, never for anything else:
   branch that lags, the commits of a live pull request, a force push the landing refuses to make.
 
 The specs are the contract of each part:
-[Stacked Branches](../../spec/branch/stacked-branches.spec.md), [Patronus](../../spec/branch/patronus.spec.md),
-[Next Step](../../spec/branch/next-step.spec.md), [Stack Island](../../spec/branch/stack-island.spec.md),
-[Pull Requests](../../spec/branch/pull-requests.spec.md), [Whole Stack](../../spec/branch/whole-stack.spec.md) and
-[Landing Routes](../../spec/branch/landing-routes.spec.md).
+[Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md), [Patronus](../../openspec/specs/branch/patronus/spec.md),
+[Next Step](../../openspec/specs/branch/next-step/spec.md), [Stack Island](../../openspec/specs/branch/stack-island/spec.md),
+[Pull Requests](../../openspec/specs/branch/pull-requests/spec.md), [Whole Stack](../../openspec/specs/branch/whole-stack/spec.md) and
+[Landing Routes](../../openspec/specs/branch/landing-routes/spec.md).
 
 ## Design
 
@@ -92,7 +92,7 @@ The specs are the contract of each part:
   repository than the one the remote pushes to counts for nothing, and the server answers.
 - **Push to master.** On the push route the start of a piece or of a whole stack is one push of its copy into the
   target, a fast-forward (`domain_policy::land_direct`, [Push into the baseline](git-operations.md#push-into-the-baseline)):
-  the next step of a ready subject is "Push to master" (the row `push` of [Next Step](../../spec/branch/next-step.spec.md#a-push-into-the-target)),
+  the next step of a ready subject is "Push to master" (the row `push` of [Next Step](../../openspec/specs/branch/next-step/spec.md#a-push-into-the-target)),
   its node ready, its action `push-to-baseline`; a Dry Run, a robot of Patronus, is refused. A push runs no CI, so
   what CI did not pass on the tip (no open pull request, one that shows another commit, failing or running checks) and
   the changes requested on it are confirmations, and so is what the gate asks. After a successful fast-forward, the push
@@ -111,7 +111,7 @@ The specs are the contract of each part:
 - **Merge #7.** On the pull-request route, where no robot of Patronus lands the repository and a merge on GitHub lands
   into the target, the start of a piece or of a whole stack is a merge of its open pull request on GitHub
   (`land_direct::decide_merge`, the rows `pr`, `merge`, `merge′`, `merge″` of
-  [Next Step](../../spec/branch/next-step.spec.md#a-merge-of-the-pull-request)): "Merge #7" while GitHub can merge it,
+  [Next Step](../../openspec/specs/branch/next-step/spec.md#a-merge-of-the-pull-request)): "Merge #7" while GitHub can merge it,
   "Auto-Merge #7" while its required checks still run, or after the push of a branch its pull request shows an older
   commit of (the push restarts the checks, a merge now would merge the old head); what holds the merge back is said as
   its reason, a fix, the user's step or a wait. What GitHub can merge (`mergeStateStatus`) rides on the listing of the
@@ -125,13 +125,13 @@ The specs are the contract of each part:
   - After a merge by the click Update Project follows as after a push; an auto-merge GitHub completes later runs no
     update by itself: the session tells it as news, the page offers Update Project.
 
-The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
+The contract is [Landing Routes](../../openspec/specs/branch/landing-routes/spec.md).
 
 ### A piece: a branch and what it is built on
 
 - **The left edge.** The node of every branch row says where the branch is on its way into master, not its push:
   ready to land, the user's step first, a fix, landing now, a wait, in master (`domain_policy::landing_node`, over the
-  facts of the next step, a part of the view the row words, [Branch Row](../../spec/branch/branch-row.spec.md#tree)). Filled is the user's move on this row, hollow a
+  facts of the next step, a part of the view the row words, [Branch Row](../../openspec/specs/branch/branch-row/spec.md#tree)). Filled is the user's move on this row, hollow a
   wait or done; the push keeps the dot of the status text. A table without stacks keeps the column, a lane for the
   node alone.
 - **Work in flight.** A row has two slots for the same facts, each with its own question: the node says whose move it
@@ -149,7 +149,7 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   outranks a conflict of what is left: the update archives it. One table over every combination pins it
   (`row_status_test.rs`), and `brd status` says the same cell (`next_step.status`).
 - **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
-  Landing, Waiting, In Master ([Branch Filter](../../spec/branch/branch-filter.spec.md)). They replaced To Push,
+  Landing, Waiting, In Master ([Branch Filter](../../openspec/specs/branch/branch-filter/spec.md)). They replaced To Push,
   Running and Attention: a push is no state, a running robot is Landing (a Dry Run waits), and what needed attention is
   a fix among the user's moves, which F2 visits first. The move is made when the user makes it: a branch is Landing
   from the start or the restart of its Safe Push (its target check, its push), not from the moment Patronus lists the
@@ -158,11 +158,11 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   ([Running Operations](operations.md#moves)). The chip of a collapsed stack and the states of an island
   header count the rows of the stack by their nodes alike ("· 1 to fix", "4 landing", "2 waiting").
 - **The header.** One button says where the work is on its way into master: the node of the most urgent move, the
-  number of the user's moves, a bar of the way ([Landing Overview](../../spec/repository/landing-overview.spec.md)). A
+  number of the user's moves, a bar of the way ([Landing Overview](../../openspec/specs/repository/landing-overview/spec.md)). A
   stack is one move, as it lands in one robot; its overview runs the next step of a move at its row, lists the robots
   that land, what waits, what is in master until the update. It replaced the count of the commits to push and the
   robots indicator: a push is a step of a move, never a move of its own.
-- **Next step.** A stacked branch has no row of its own in the [Next Step](../../spec/branch/next-step.spec.md) table
+- **Next step.** A stacked branch has no row of its own in the [Next Step](../../openspec/specs/branch/next-step/spec.md) table
   (row 4, "Safe Push ‹root›…", is removed). It takes the rows of its own pull request into master: its approvals, its
   draft, its wait. The reasons of its ancestors come through the rows that already hold them: a parent that doesn't
   build blocks it, a Safe Push that lands the branch holds it, and a robot that lands an ancestor is the reason of
@@ -185,7 +185,7 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
 - **An order no build sees.** Two pieces can need to land in an order that no trial build proves: a test that downloads
   its data before the CI step that prepared it goes away. The user declares it (`brd need`), and the piece is refused
   like one whose build needs a branch outside it: row 1′, its popover, `unlanded_need` of `brd`, Start Anyway or
-  `--allow-unlanded` on the user's word ([Declared Needs](../../spec/branch/declared-needs.spec.md)). A branch built on
+  `--allow-unlanded` on the user's word ([Declared Needs](../../openspec/specs/branch/declared-needs/spec.md)). A branch built on
   the declaring one inherits the need, since one robot lands both; the fix is its unstack, so that the needed piece
   lands between them. The need is met when integration detection proves the needed branch landed into master.
 - **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
@@ -200,7 +200,7 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   the cancel of the Safe Push it replaces, the push, the start), the same witness of the refs before the first effect;
   only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--dry-run`; only
   `--dry-run` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
-  the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
+  the dangling references, so a start runs no trial ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#bd-safe-push)).
   The app's start and `brd safe-push` of one piece never run side by side: the operations registry of the repository
   makes the second one `busy`, naming the first ([Running Operations](operations.md)), and a start whose answer was
   lost holds the piece for both until Patronus settles it or the user forgets it.
@@ -234,11 +234,11 @@ to the baseline (`PATCH pulls/<n>`, `operations::pull_request::retarget`):
   of a Safe Push start (`PlannedEffect::Retarget` of `domain_policy::land::decide`, run by the engine,
   `operations::land_execute`, before the cancel, the push and the robot, as `brd safe-push` runs it), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
   current parent's included (`domain_policy::pull_request::base_of`, the intent `Retarget` of the engine,
-  [Next Step](../../spec/branch/next-step.spec.md));
+  [Next Step](../../openspec/specs/branch/next-step/spec.md));
 - `brd push`, after the push and the lock, for the pushed branches; `brd safe-push` before its push, for the branch and
   the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus
   would merge it into the old base. `--create-pull-request` takes the open pull request of the branch whatever its base
-  ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-push)).
+  ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#bd-push)).
 
 Any other base (a release branch) may be meant: the push leaves it, the next step only opens the pull request (row
 5′), and the menu keeps "Retarget #7 to master". A Safe Push that counts approvals refuses it: they don't count in a
@@ -254,7 +254,7 @@ auth"), and `brd` lists them as `retargeted` with `approved_by`, for the agent t
 ### The stack branch
 
 The whole stack of a stack that forks is one more virtual branch, `{prefix}/stack/<root>`, which every sync builds
-beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stack branch" in
+beside the branches ([Whole Stack](../../openspec/specs/branch/whole-stack/spec.md), "Stack branch" in
 [Git Operations](git-operations.md)):
 
 - **What it holds.** The original commits of every branch of the stack, in the order of the checked out branch's
@@ -270,10 +270,10 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   by its last branch that is not parked (`domain_policy::stack::whole_stack_of`, the `wholeStack` of the root's
   structure in the view; `brd safe-push --whole-stack` and `brd robot --whole-stack` read the same). Before, the page
   took the effective base first and `brd` the parent of the block, so the two named different stacks for one branch.
-- **A parked member.** A branch the user parked ([Parked Branches](../../spec/branch/parked-branches.spec.md)) lands
+- **A parked member.** A branch the user parked ([Parked Branches](../../openspec/specs/branch/parked-branches/spec.md)) lands
   nothing until it is unparked, and neither does a branch built on it, which carries its commits. The stack branch
   holds every member, so a stack with a parked one lands in pieces: its build stays, nothing pushes it.
-- **An unapplied branch.** A branch the user unapplied ([Unapply and Reapply](../../spec/branch/unapply.spec.md)) is out
+- **An unapplied branch.** A branch the user unapplied ([Unapply and Reapply](../../openspec/specs/branch/unapply/spec.md)) is out
   of HEAD: it is in no stack and lands nothing; a push keeps a copy on the remote under its own name.
 - **When it is landable.** Only a `Built` stack branch has the stack's commits as they are. A member that is blocked,
   conflicts or failed, a commit that conflicts in the stack branch itself, or a ref another process moved leave the
@@ -284,7 +284,7 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   request may be open, and the user decides on it.
 - **Its Safe Push.** One robot from the stack branch lands the whole stack; only the stack branch is pushed, leased,
   and the branches of the stack stay as they are on the remote. `brd safe-push <branch> --whole-stack` does it for any
-  branch of the stack ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)); a straight chain starts from its
+  branch of the stack ([Agent CLI](../../openspec/specs/cli/agent-cli/spec.md#bd-safe-push)); a straight chain starts from its
   leaf. A stack branch that is not `Built` refuses it (`conflict` when its own commit conflicts, `stack_not_built`
   otherwise): the stack then lands in pieces. Push with Children of the root (the app's and `brd push <root>
   --with-children`) takes the stack branch along once it is on the remote or its pull request is open, and only when
@@ -304,7 +304,7 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
 ### The whole stack in the app
 
 The whole stack is an object of its own in the app, beside its branches, named "the whole air stack" as `brd` names it
-([Whole Stack](../../spec/branch/whole-stack.spec.md#the-whole-stack-in-the-app)):
+([Whole Stack](../../openspec/specs/branch/whole-stack/spec.md#the-whole-stack-in-the-app)):
 
 - **Its robot** (`RobotSubject` of `src/lib/patronus.ts`: a branch, or the stack of a root) is no branch's. It is
   polled, told and listed by the whole stack ("Whole air stack merged into master"), it holds every branch of the
@@ -322,7 +322,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - **Its Safe Push** is one more subject of the decision of a start (`domain_policy::land::decide`), its subject the key
   `stack:<root>`: the stack branch, the robot of the whole stack, its pull request, its readiness
   (`ReviewReadinessBranch::source`). The header of its island shows its next step ("Safe Push · 7", the same table as a
-  branch's, [Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)); its slot, its "⋯" and S on the header
+  branch's, [Next Step](../../openspec/specs/branch/next-step/spec.md#the-whole-stack)); its slot, its "⋯" and S on the header
   open its popover at the header, "Whole Stack ›" of the root's menu at the root's row for a small stack, and so does
   "Land the whole stack: Safe Push Whole Stack" in the popover of a piece (the root, any branch of a stack that forks):
   the piece and the whole stack are the two ways, side by side. Its readiness is asked while the header or the root's
@@ -437,8 +437,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
 
 - [Virtual Branches](virtual-branches.md)
 - [Git Operations](git-operations.md)
-- [Stacked Branches](../../spec/branch/stacked-branches.spec.md)
-- [Pull Requests](../../spec/branch/pull-requests.spec.md)
-- [Patronus](../../spec/branch/patronus.spec.md)
-- [Whole Stack](../../spec/branch/whole-stack.spec.md)
-- [Agent CLI](../../spec/cli/agent-cli.spec.md)
+- [Stacked Branches](../../openspec/specs/branch/stacked-branches/spec.md)
+- [Pull Requests](../../openspec/specs/branch/pull-requests/spec.md)
+- [Patronus](../../openspec/specs/branch/patronus/spec.md)
+- [Whole Stack](../../openspec/specs/branch/whole-stack/spec.md)
+- [Agent CLI](../../openspec/specs/cli/agent-cli/spec.md)

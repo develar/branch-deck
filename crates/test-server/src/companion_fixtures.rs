@@ -1,4 +1,4 @@
-//! The companion repositories of a test repository (spec/branch/declared-needs.spec.md#companion-repositories): a test
+//! The companion repositories of a test repository (openspec/specs/branch/declared-needs/spec.md#companion-repositories): a test
 //! asks for one (`POST /repositories/{id}/companion`) and gets the path of a new repository of one commit beside the
 //! test repository, `<id>.companions/<name>` under the root of the server, deleted with the test repository. The folder
 //! dialog of Add Companion… then picks it (`POST /repositories/{id}/dialog-pick`)

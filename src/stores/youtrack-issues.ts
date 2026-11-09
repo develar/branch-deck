@@ -9,7 +9,7 @@ import { authStore } from "@/stores/auth"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
 
 /*
- * The issues of the popovers of a window (spec/repository/youtrack.spec.md), from the YouTrack the sign-in of the app
+ * The issues of the popovers of a window (openspec/specs/repository/youtrack/spec.md), from the YouTrack the sign-in of the app
  * is for (the status of `src/stores/auth.ts`): an issue is asked when a popover shows it, its answer kept until the next
  * one, all of them forgotten once the YouTrack sign-in changed.
  */

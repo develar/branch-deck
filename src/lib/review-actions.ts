@@ -22,7 +22,7 @@ import { getUnappliedBranch } from "@/stores/unapplied-branches"
 import type { KeptReview, WholeStackScope } from "@/types/sub-window"
 
 /*
- * The actions of what a review shows, from the builders of the rows (spec/review/review-window.spec.md#actions): of a
+ * The actions of what a review shows, from the builders of the rows (openspec/specs/review/review-window/spec.md#actions): of a
  * branch its title bar (`getBranchReviewItems`) and its menu, of a whole stack the actions of its island, of a kept
  * branch its menu, of a commit of a branch the menu of its row. The review window builds them from its own session
  * (`useReviewActions`); the main window runs those that open a form under their row by the same builders

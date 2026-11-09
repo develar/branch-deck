@@ -1,4 +1,4 @@
-//! The pull requests of others that wait for the user's review ("Your Turn", spec/repository/review-requests.spec.md)
+//! The pull requests of others that wait for the user's review ("Your Turn", openspec/specs/repository/review-requests/spec.md)
 //! as a fact of the session (`ReviewRequestsFact`, the part `facts.reviewRequests` of the view): each listing replaces
 //! the requests, waiting the longest first; a failure of GitHub keeps them (`Stale`), no token, a token GitHub rejects
 //! and a repository not on GitHub drop them. A listing tells the requests new since the listing before (`News`,
@@ -7,12 +7,12 @@
 //! listing after a window watches the session anew (the start of the app, a repository selected again) is silent.
 //!
 //! While a window shows the Reviews view (`Demand::reviews`) a listing brings the rest of Reviews too
-//! (spec/repository/reviews.spec.md), which the fact keeps through a listing without it; the requests the user answered
+//! (openspec/specs/repository/reviews/spec.md), which the fact keeps through a listing without it; the requests the user answered
 //! with a comment, the reviews the user submitted from the app (`submitted`, until a listing says GitHub has them) and
 //! the last pull request of every number a listing named, for the review windows that show one no listing has any more.
 //!
 //! The head each review fetch of a window brought (`fetched`, by number, while a window shows it) makes the ask of the
-//! readiness of its pull request (`readiness_asks`, spec/branch/patronus.spec.md, "The readiness of a request"): the
+//! readiness of its pull request (`readiness_asks`, openspec/specs/branch/patronus/spec.md, "The readiness of a request"): the
 //! head the listing names once it is fetched, with its head branch, its reviewers and its author; only a pull request
 //! into the default branch is asked.
 

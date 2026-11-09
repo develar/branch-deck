@@ -1,4 +1,4 @@
-// @spec spec/repository/landed-commits.spec.md
+// @spec openspec/specs/repository/landed-commits/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { availableRobots, mergeRunningRobot, robot } from "../helpers/patronus-helpers"

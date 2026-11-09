@@ -1,5 +1,5 @@
 //! What in the setup of the machine waits for the user: the dot on Settings and its menu
-//! (spec/repository/setup-attention.spec.md). The rule is `cli_tools::setup`; the page names the items.
+//! (openspec/specs/repository/setup-attention/spec.md). The rule is `cli_tools::setup`; the page names the items.
 
 use crate::cli_tools::CliTool;
 use serde::{Deserialize, Serialize};

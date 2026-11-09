@@ -1,4 +1,4 @@
-//! Keeps the host awake while a client talks to it and while a run goes on (spec/cli/host.spec.md, "serve"). A Mac that
+//! Keeps the host awake while a client talks to it and while a run goes on (openspec/specs/cli/host/spec.md, "serve"). A Mac that
 //! a connection woke (a wake for network access) sleeps again when it is idle, and a running build does not count as
 //! activity. `caffeinate` of macOS (`/usr/bin/caffeinate`) holds the power assertions `PreventUserIdleSystemSleep`
 //! (`-i`) and `PreventSystemSleep` (`-s`, on AC power) while it lives, and `-w <pid>` ends it with the process it

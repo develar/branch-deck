@@ -1,5 +1,5 @@
 // The words of Push to master, the start of a repository that lands by a push of the copy of a branch into the branch
-// of the baseline on its remote (spec/branch/landing-routes.spec.md#push-to-master): its label by the branches it
+// of the baseline on its remote (openspec/specs/branch/landing-routes/spec.md#push-to-master): its label by the branches it
 // lands, and what it does in the hover of every surface that offers it (the slot, the menus, the preview, the review)
 import type { MenuItem } from "@/lib/menu"
 

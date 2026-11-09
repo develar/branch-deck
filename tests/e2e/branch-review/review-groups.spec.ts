@@ -1,4 +1,4 @@
-// @spec spec/branch/review-tour.spec.md
+// @spec openspec/specs/branch/review-tour/spec.md
 import { writeFileSync } from "node:fs"
 import path from "node:path"
 import { test, expect } from "../fixtures/test-fixtures"

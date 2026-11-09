@@ -27,7 +27,7 @@ export interface RepositoryPullRequests {
   readonly pullRequests: Readonly<Record<string, PullRequest>>
   /**
    * The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; never
-   * a branch's (spec/branch/whole-stack.spec.md)
+   * a branch's (openspec/specs/branch/whole-stack/spec.md)
    */
   readonly stackPullRequests: Readonly<Record<string, PullRequest>>
   /** `Date.now()` of the last answer, 0 = never */

@@ -1,4 +1,4 @@
-//! The GitHub pull requests of a session (docs/design/rust-domain-authority.md, "Факты"; spec/branch/pull-requests.spec.md,
+//! The GitHub pull requests of a session (docs/design/rust-domain-authority.md, "Факты"; openspec/specs/branch/pull-requests/spec.md,
 //! "Refreshing" and "Reading pull requests"): the part `facts.pullRequests` of the view, keyed by branch and by the root
 //! of a whole stack, as the listings of the scheduler (`remote_facts::scheduler`) and the writes of the app leave them.
 //!

@@ -97,7 +97,7 @@ export function MenuItemButton({
   // the busy state is the label: no reason to hover for; an icon left alone is named by its hover
   const description = item.description ?? (narrow === "label" ? item.label : undefined)
   // one root whether there is a reason to say or not: the button keeps its node, its focus and its hover as its action
-  // is enabled, disabled or runs (spec/branch/branch-row.spec.md, Hover and click), the focus a form gives back to it too
+  // is enabled, disabled or runs (openspec/specs/branch/branch-row/spec.md, Hover and click), the focus a form gives back to it too
   const described = (
     <Tooltip disabled={description === undefined || busy !== null}>
       {/* a span: a disabled button gets no pointer events */}

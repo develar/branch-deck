@@ -10,7 +10,7 @@ import type { RepositoryConfigKey, ScopedRowWords } from "@/lib/repository-confi
 import { CONFIG_KEYS, describeScopedSource, everyRepositoryValue, overriddenReason } from "@/lib/repository-config"
 
 /**
- * One `branchdeck.*` key on a page of the git config (spec/repository/settings.spec.md#scope): what it does on the left,
+ * One `branchdeck.*` key on a page of the git config (openspec/specs/repository/settings/spec.md#scope): what it does on the left,
  * its control on the right with the value of the tab shown (`useSettingsScope`): the value of every repository, or the
  * one that holds in the repository. Under it at most one line of where the value comes from (`describeScopedSource`):
  * the repository's own value with Reset and a bar beside the row, the value it overrides with Open <repository>, why the

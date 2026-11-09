@@ -7,7 +7,7 @@ const TAB_CLASS =
   "inline-flex h-6 min-w-0 items-center rounded-xl px-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground focus-visible:bd-focus data-active:bg-background data-active:text-foreground data-active:shadow-xs dark:data-active:bg-input/50"
 
 /**
- * The scope tabs of a page of the git config (spec/repository/settings.spec.md#scope): "All repositories", the value
+ * The scope tabs of a page of the git config (openspec/specs/repository/settings/spec.md#scope): "All repositories", the value
  * every repository uses, in the app and brd, and the selected repository, whose own value a change writes to its
  * `.git/config`; the line under them says where a change goes. Without a repository only the value of every
  * repository is shown, without tabs. A switch of the repository in the main window shows its name with a flash, and

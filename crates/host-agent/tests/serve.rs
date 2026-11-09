@@ -1,4 +1,4 @@
-//! The process tests of the agent (spec/cli/host.spec.md, "serve"): a real `serve` of `host-agent-test` on a loopback
+//! The process tests of the agent (openspec/specs/cli/host/spec.md, "serve"): a real `serve` of `host-agent-test` on a loopback
 //! port with a temporary home, a `TestRepo` whose host slots the keeper fills in the pool of that home, and commands of
 //! `/bin/sh`. The client is the `Channel` of host-link. No fake `brd` exists: the lend table, the refs and the git of the
 //! host run in process

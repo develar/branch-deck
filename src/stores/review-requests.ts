@@ -21,7 +21,7 @@ import { getSelectedProject, repositoryStore, useSelectedProjectPath } from "@/s
 
 /*
  * "Your Turn": the pull requests of others that wait for the user's review in the selected repository
- * (spec/repository/review-requests.spec.md). The session of the repository lists them (after a sync, on a focus, every
+ * (openspec/specs/repository/review-requests/spec.md). The session of the repository lists them (after a sync, on a focus, every
  * five minutes focused or not, by the refresh button: `remote_facts::scheduler`) and tells which are new (its news,
  * `reviewRequested`); the store keeps them as its view has them (`applyReviewRequestsFacts`), with what is the page's:
  * which are unread, the reviews the user submitted from the app, the toasts of the news.

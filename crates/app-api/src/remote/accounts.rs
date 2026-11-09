@@ -1,6 +1,6 @@
 //! The accounts of the app, which no repository owns (`AppHost`): the sign-ins as a window without a session reads them
-//! (spec/repository/github-sign-in.spec.md), and the issue of a popover from the YouTrack of the app
-//! (spec/repository/youtrack.spec.md)
+//! (openspec/specs/repository/github-sign-in/spec.md), and the issue of a popover from the YouTrack of the app
+//! (openspec/specs/repository/youtrack/spec.md)
 
 use crate::context::AppContext;
 use crate::operation::operation;

@@ -5,7 +5,7 @@ import { useCommitBody } from "@/hooks/useCommitBody"
 import { presentSummary } from "@/presenters/commit-body"
 
 /**
- * The description of a pull request as the lead of the document of its changes (spec/repository/review-requests.spec.md,
+ * The description of a pull request as the lead of the document of its changes (openspec/specs/repository/review-requests/spec.md,
  * "Review window"): its summary alone (`CommitBody.summary`, `presentSummary`), as the body view sets it, then
  * "Description", which shows the overview, where it stands whole; a description of its summary alone has no link, one
  * of no summary the link alone. `message` is the title and the body, read as a commit message

@@ -1,5 +1,5 @@
 //! The commit map of a Patronus robot: which commits of a branch the robot checked, by the hashes of the checked-out
-//! branch (`spec/branch/safe-push-failure-prompt.spec.md`, docs/design/git-operations.md, "Robot commit map").
+//! branch (`openspec/specs/branch/safe-push-failure-prompt/spec.md`, docs/design/git-operations.md, "Robot commit map").
 //!
 //! The robot ran on `source_revision`, the tip of the virtual branch when it started. Since then the branch may have
 //! been amended, extended, rebuilt on a newer baseline, or a commit of it may have landed in the baseline. The virtual

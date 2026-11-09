@@ -1,5 +1,5 @@
 //! `brd review-plan`: the plan of a review of a branch or a range (`review_plan::review_plan_core`,
-//! spec/branch/review-plan.spec.md), as JSON for an agent or an offline evaluation: for a branch marked reviewed
+//! openspec/specs/branch/review-plan/spec.md), as JSON for an agent or an offline evaluation: for a branch marked reviewed
 //! (`brd mark-reviewed`), its commits paired with the reviewed ones and the plain range of the ones added on top; the
 //! public declarations the reviewed commits add, remove or change, ranked by their usages at the head left outside the
 //! change, from accio (`AccioCli::discover`, never canceled, never an index build); the facts of each changed file,
@@ -13,7 +13,7 @@
 //! made a deletion real work: no `mechanical: "deleted"`, a unit `deletedFile` per deleted file and `deletedFiles`
 //! with its `directory` for 3 or more deleted from one directory, version 7 the `concerns`, version 8 the `elsewhere`
 //! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern, version 10
-//! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`, version 11 the `api`
+//! the `steps` of the story (openspec/specs/branch/review-tour/spec.md), their `coverage`, and the `brief`, version 11 the `api`
 //! and `test` of a unit in place of its `public`, version 12 the `still_bound` and `by_name` usages, and `unbroken` in
 //! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
 //! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code

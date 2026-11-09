@@ -1,4 +1,4 @@
-// @spec spec/branch/move-commits.spec.md
+// @spec openspec/specs/branch/move-commits/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ActionId, StackProblemView } from "@/lib/bindings"
 import type { BranchDropFacts } from "@/lib/branch-drop"

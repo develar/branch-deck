@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { beforeAll, describe, expect, it } from "vite-plus/test"
 import { HighlightEngine } from "@/lib/diff/highlight/engine"
 import type { GrammarSource } from "@/lib/diff/highlight/engine"

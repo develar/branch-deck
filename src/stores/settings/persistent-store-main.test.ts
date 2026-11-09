@@ -1,4 +1,4 @@
-// @spec spec/repository/settings.spec.md
+// @spec openspec/specs/repository/settings/spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
 import { z } from "zod"
 import type { SettingsChange, SettingsPatch } from "@/lib/bindings"

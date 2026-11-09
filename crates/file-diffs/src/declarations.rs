@@ -1,4 +1,4 @@
-//! Go to the declaration of a name in a diff of a review (spec/commit/symbol-navigation.spec.md): what its syntax tells
+//! Go to the declaration of a name in a diff of a review (openspec/specs/commit/symbol-navigation/spec.md): what its syntax tells
 //! (`code_symbols::navigate`), its declaration in the same file by the scopes, else the declarations of that name in
 //! the sides of the review's files, ranked by what the name says of its owner.
 //!

@@ -1,6 +1,6 @@
 /**
  * Which links are of the YouTrack the user signed in to, and which YouTrack to offer for a sign-in
- * (spec/repository/youtrack.spec.md). Nothing names a YouTrack: the candidates come from the issue links of
+ * (openspec/specs/repository/youtrack/spec.md). Nothing names a YouTrack: the candidates come from the issue links of
  * `.idea/vcs.xml`, the key from the link.
  */
 import type { IssueNavigationConfig } from "@/lib/bindings"

@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-row.spec.md
+// @spec openspec/specs/commit/commit-row/spec.md
 import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import type { ConflictingFilesWindowData, MissingCommitsWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithConflicts, expect } from "../fixtures/test-fixtures"

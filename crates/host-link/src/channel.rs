@@ -1,5 +1,5 @@
 //! The channel: TLS 1.3 over one TCP connection, each end pinned by its fingerprint, and the frames on it
-//! (spec/cli/host.spec.md, "The link").
+//! (openspec/specs/cli/host/spec.md, "The link").
 //!
 //! A frame is a kind byte, a big-endian u32 length and the payload:
 //!

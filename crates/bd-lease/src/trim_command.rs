@@ -1,5 +1,5 @@
 //! `brd lease trim`: the delete of the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine, with
-//! their Bazel output bases, and of the output bases of gone workspaces (spec/cli/lease.spec.md, "Trim"). A get does
+//! their Bazel output bases, and of the output bases of gone workspaces (openspec/specs/cli/lease/spec.md, "Trim"). A get does
 //! the same once the free space is below `branchdeck.leaseMinFree`; the core is `lease_pool::trim`
 
 use crate::lease_command::{CleanedOutput, LeaseContext, cleaned_output, lease_error, processes_output};

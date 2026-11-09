@@ -1,5 +1,5 @@
 //! Landed commits: the local commits whose change reached the baseline, for example through a Safe Push robot that
-//! rebased them onto `master` (spec/repository/landed-commits.spec.md, docs/design/integration-detection.md, "Landed
+//! rebased them onto `master` (openspec/specs/repository/landed-commits/spec.md, docs/design/integration-detection.md, "Landed
 //! commits").
 //!
 //! A rebase upstream (Safe Push, `git rebase`, `cherry-pick`) keeps the author, the author time and the message, and the

@@ -625,7 +625,7 @@ impl TestRepo {
     (upstream, clone)
   }
 
-  /// `upstream_and_clone` with local commits that landed upstream in another order (spec/repository/landed-commits.spec.md,
+  /// `upstream_and_clone` with local commits that landed upstream in another order (openspec/specs/repository/landed-commits/spec.md,
   /// "The proof"): `f.txt` after an upstream change of a line of its context, so its cherry-pick writes the upstream
   /// commit's tree; with `fixup`, a local fixup of it; `g.txt` after an upstream change of the line next to it, so its
   /// cherry-pick conflicts and only the changed lines are the same; then a real conflict of `other.txt`. The ids of the

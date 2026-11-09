@@ -1,5 +1,5 @@
 //! Where a coding agent works and how it writes a commit subject, asked before its first edit (`brd workspace`,
-//! spec/cli/workspace.spec.md): `branchdeck.agentLease` (on by default) says to work in a lease of the pool and land each
+//! openspec/specs/cli/workspace/spec.md): `branchdeck.agentLease` (on by default) says to work in a lease of the pool and land each
 //! commit with `brd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`,
 //! `branchdeck.agentPullRequest` (off by default) to push the branch after the pick and open its pull request, which the
 //! Push route of the repository turns off (`LandingSetting::agent_pull_request_off`).

@@ -1,4 +1,4 @@
-// @spec spec/repository/robots-indicator.spec.md
+// @spec openspec/specs/repository/robots-indicator/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { getDockCalls } from "../helpers/header-helpers"

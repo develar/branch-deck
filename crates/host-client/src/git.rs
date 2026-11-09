@@ -1,4 +1,4 @@
-//! The git of the checkout of a run, in process (spec/cli/host.spec.md, "run"): the snapshot of HEAD or of the working
+//! The git of the checkout of a run, in process (openspec/specs/cli/host/spec.md, "run"): the snapshot of HEAD or of the working
 //! tree with the candidates that the host may have (`git_ops::host_client::snapshot`), `[host]` of the shipped commit
 //! (`git_ops::host_objects::show_commit`), the thin pack into a private file (`pack_commit_until`), and the apply of the
 //! changes of a command to the working tree (`apply_patch`). A git that fails refuses with `git_failed` and its words,

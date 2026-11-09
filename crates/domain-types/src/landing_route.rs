@@ -1,4 +1,4 @@
-//! How the work of a repository lands into master (spec/branch/landing-routes.spec.md): by a robot of Patronus, by a
+//! How the work of a repository lands into master (openspec/specs/branch/landing-routes/spec.md): by a robot of Patronus, by a
 //! push of the copy into the branch of the baseline, or by a merge of its pull request on GitHub. The setting of the
 //! repository that names it (`branchdeck.landing`, `LandingSetting`), what the sync reads of git for it
 //! (`LandingRemote`), and the route `domain_policy::landing_route::route` decides with the facts of GitHub

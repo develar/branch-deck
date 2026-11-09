@@ -1,4 +1,4 @@
-//! The link of the remote runs (spec/cli/host.spec.md, "The link"; docs/design/host-runs.md): what the client and the
+//! The link of the remote runs (openspec/specs/cli/host/spec.md, "The link"; docs/design/host-runs.md): what the client and the
 //! agent of `brd-host` share. No git and no runtime: the lease pool and git stay with the agent and the client.
 //!
 //! - `identity`: the self-signed certificate of one end and its fingerprint

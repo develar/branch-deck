@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-review.spec.md
+// @spec openspec/specs/commit/commit-review/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { fileMapBand, fileMapScale, fileMapSectionAt, fileMapThumb, fileMapTicks, PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import { DiffLayout } from "@/lib/diff/layout"

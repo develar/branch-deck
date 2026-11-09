@@ -1,4 +1,4 @@
-//! The prose a change rewrites, as a reader of the brief reads it (spec/branch/review-tour.spec.md, "Brief"): whole
+//! The prose a change rewrites, as a reader of the brief reads it (openspec/specs/branch/review-tour/spec.md, "Brief"): whole
 //! paragraphs, never the changed lines of a hard-wrapped one; a paragraph changed in a few words once, with what the
 //! commits wrote and removed in it by word (`text_diff::by_word`); a link of Markdown as its text with its target; of a
 //! paragraph of several sentences the sentences that hold its changes; a row of a table one paragraph under the cells

@@ -1,4 +1,4 @@
-//! The git of a client of a remote run (`brd-host run`, spec/cli/host.spec.md, "run"; spec/cli/lease.spec.md, "Host
+//! The git of a client of a remote run (`brd-host run`, openspec/specs/cli/host/spec.md, "run"; openspec/specs/cli/lease/spec.md, "Host
 //! runs"): the commit a run ships (HEAD, or a commit of the working tree built in
 //! a copy of the index), the commits the host may have, the base of its later packs, the thin pack of the commit into a
 //! private file, and the patch of the changes of the command applied to the working tree. The apply is the one write of

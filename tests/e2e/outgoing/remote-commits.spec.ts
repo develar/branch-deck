@@ -1,4 +1,4 @@
-// @spec spec/repository/outgoing.spec.md
+// @spec openspec/specs/repository/outgoing/spec.md
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, getPushButton } from "../helpers/branch-helpers"

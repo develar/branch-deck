@@ -39,8 +39,8 @@ export interface PrologueCommit {
 }
 
 /**
- * The overview, the first block of the document of a review (spec/branch/review-tour.spec.md, "In the Review Window";
- * spec/branch/review-plan.spec.md): the headline (the title of the issue the commits name once YouTrack told it, else
+ * The overview, the first block of the document of a review (openspec/specs/branch/review-tour/spec.md, "In the Review Window";
+ * openspec/specs/branch/review-plan/spec.md): the headline (the title of the issue the commits name once YouTrack told it, else
  * the name Rust gives the review, the branch as the title bar names it; the issue key a chip beside it; none under the
  * title of a pull request, `headline` false; a commit shown alone its whole heading and body), the body of a pull
  * request as its lead (`lead`: the overview of the pull request and its changes are one document), the read of the plan, What Changes one header per file, the

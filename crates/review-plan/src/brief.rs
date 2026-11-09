@@ -1,4 +1,4 @@
-//! The brief of a review (spec/branch/review-tour.spec.md, "Brief"): what the change does for its user in the words of
+//! The brief of a review (openspec/specs/branch/review-tour/spec.md, "Brief"): what the change does for its user in the words of
 //! its author, before any diff. The issue its commits name, and the prose it adds or changes, by rank: the rules of the
 //! specs (with the tests their `[@test]` lines name), the records of decisions, the guides of agents, the docs. No git
 //! process: the texts of these files are in the memory of the plan.

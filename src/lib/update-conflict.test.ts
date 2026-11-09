@@ -1,4 +1,4 @@
-// @spec spec/repository/update-project.spec.md
+// @spec openspec/specs/repository/update-project/spec.md
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { UpdateCommit } from "@/lib/bindings"
 import { describeUpstreamCommit, groupConflictFiles } from "@/lib/update-conflict"

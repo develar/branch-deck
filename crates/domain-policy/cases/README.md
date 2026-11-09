@@ -41,10 +41,10 @@ The fixed test names, by group:
 
 `the_cases_are_well_formed_and_name_every_row_of_the_next_step_table` checks that the ids are unique and of kebab
 case, that every group has its test (a new group gets its test in the same commit), and that every row of the table of
-[Next Step](../../../spec/branch/next-step.spec.md#the-table) is named by a case.
+[Next Step](../../../openspec/specs/branch/next-step/spec.md#the-table) is named by a case.
 
 `safe-push.json` holds the first three groups, `next-step.json` the next two: one case per row of the table of
-[Next Step](../../../spec/branch/next-step.spec.md#the-table) and per bullet of its stacked branch and its whole stack.
+[Next Step](../../../openspec/specs/branch/next-step/spec.md#the-table) and per bullet of its stacked branch and its whole stack.
 `landing.json` holds the rest of the Safe Push matrix: robots around the branch (on the remote branch rebuilt since,
 of a branch built on it, of an older commit with and without a push, `--cancel-running`), the parked member of a whole
 stack, a remote branch behind, the retarget of an ancestor's pull request, missing declarations and dangling references
@@ -61,7 +61,7 @@ command without it, which must land, `landed: true`, when nothing refuses it and
   "id": "last-robot-profile",
   "group": "profiles",
   "title": "the profile of the last robot, which failed on an older commit, is the default; the branch unpushed since, its slot starts anew",
-  "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
+  "spec": ["openspec/specs/branch/patronus/spec.md#starting-a-safe-push-or-a-dry-run", "openspec/specs/cli/agent-cli/spec.md#brd-safe-push"],
   "given": { "robot": { "state": "failure", "on": "older" }, "profile": { "lastRobot": "lsc" } },
   "expect": {
     "step": { "row": "11", "kind": "safePush" },
@@ -72,7 +72,7 @@ command without it, which must land, `landed: true`, when nothing refuses it and
 
 - `id`: unique over all files, kebab-case; `title`: the situation in words; `spec`: the requirements it pins, each
   anchor a heading of its file (GitHub's slug). A row of the Next Step table is
-  `spec/branch/next-step.spec.md#the-table:<row>` (`1`, `1′`, `2`, `3`, `5`, `5′`, `6`, `7`, `8`, `9`, `10`, `8′`, `10′`,
+  `openspec/specs/branch/next-step/spec.md#the-table:<row>` (`1`, `1′`, `2`, `3`, `5`, `5′`, `6`, `7`, `8`, `9`, `10`, `8′`, `10′`,
   `11`).
 - `expect.step`: a subset of the next step of the subject (`domain_types::next_step::NextStep`): `row` and `kind` (the
   tag of `StepKind`) always, `safePush` and `dryRun` the blocker of each start (the code of `StepBlocker`, of a `rule`

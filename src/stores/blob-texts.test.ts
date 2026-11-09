@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { BlobRequest, BlobText } from "@/lib/bindings"
 import { BLOB_TEXT_BATCH, blobTextsStore, MAX_BLOB_TEXT_LENGTH, requestBlobTexts } from "@/stores/blob-texts"

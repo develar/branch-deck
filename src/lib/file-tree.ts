@@ -234,7 +234,7 @@ export function alsoRowKey(concern: string, path: string): string {
 }
 
 /**
- * The tree of a review with its plan (spec/branch/review-tour.spec.md, spec/branch/review-concerns.spec.md, "In the Review
+ * The tree of a review with its plan (openspec/specs/branch/review-tour/spec.md, openspec/specs/branch/review-concerns/spec.md, "In the Review
  * Window"): the chapters of its story (`chapters`: the steps Rust told, each a commit or a concern), each a group of the
  * files whose main row it holds, named by their path, a row "also in" for each file of it whose main row is another
  * chapter's (`Chapter.elsewhere`), then the mechanical ones of it (the generated files that follow their source, the

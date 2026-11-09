@@ -1,4 +1,4 @@
-// @spec spec/review/review-window.spec.md
+// @spec openspec/specs/review/review-window/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { planReviewOpen, pushReviewHistory, REVIEW_HISTORY_LIMIT, restoredReview, reviewSubjectName, reviewWindowTitle, takeOpen } from "@/lib/review-reuse"

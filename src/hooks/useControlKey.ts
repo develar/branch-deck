@@ -6,7 +6,7 @@ import { registerControl } from "@/lib/pointer-moves"
 export const ControlKeyContext = createContext<string | null>(null)
 
 /**
- * The key of the control of a root (spec/branch/branch-row.spec.md, Hover and click): the one its owner names
+ * The key of the control of a root (openspec/specs/branch/branch-row/spec.md, Hover and click): the one its owner names
  * (`controlKey`, the action and its subject, for a control that renders its root anew), else its own, so a trigger
  * that renders as another element in the same root stays the same control for the hover (`registerControl`)
  */

@@ -1,4 +1,4 @@
-// @spec spec/repository/onboarding.spec.md
+// @spec openspec/specs/repository/onboarding/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 

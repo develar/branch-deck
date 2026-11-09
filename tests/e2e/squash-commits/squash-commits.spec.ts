@@ -1,4 +1,4 @@
-// @spec spec/commit/squash.spec.md
+// @spec openspec/specs/commit/squash/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithUnassigned } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"

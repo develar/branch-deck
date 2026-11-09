@@ -1,4 +1,4 @@
-// @spec spec/branch/branch-review.spec.md
+// @spec openspec/specs/branch/branch-review/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ReviewSegment, Interdiff, ReviewCommit } from "@/lib/bindings"
 import {

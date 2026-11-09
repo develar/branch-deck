@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-row.spec.md
+// @spec openspec/specs/commit/commit-row/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { MissingCommit } from "@/lib/bindings"
 import { formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners } from "@/lib/merge-conflict"

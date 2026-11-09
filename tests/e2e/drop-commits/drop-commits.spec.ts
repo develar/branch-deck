@@ -1,4 +1,4 @@
-// @spec spec/commit/drop.spec.md
+// @spec openspec/specs/commit/drop/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"

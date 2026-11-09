@@ -1,4 +1,4 @@
-//! The files of the agent under the home directory (spec/cli/host.spec.md, "The files")
+//! The files of the agent under the home directory (openspec/specs/cli/host/spec.md, "The files")
 
 use host_link::proto::{HOST_NAME, LAUNCHD_LABEL};
 #[cfg(target_os = "macos")]

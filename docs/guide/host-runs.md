@@ -9,7 +9,7 @@ command there in a warm copy of the repository, streams the output back and exit
 Your index, files and branches stay as they are.
 
 This guide sets up a host and walks through the first runs. The exact contract of every command is in the
-[brd-host spec](../../spec/cli/host.spec.md), the why in [Host Runs](../design/host-runs.md).
+[brd-host spec](../../openspec/specs/cli/host/spec.md), the why in [Host Runs](../design/host-runs.md).
 
 ## How it works
 

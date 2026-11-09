@@ -1,4 +1,4 @@
-// @spec spec/commit/commit-files.spec.md
+// @spec openspec/specs/commit/commit-files/spec.md
 import { bundledLanguagesInfo } from "shiki"
 import { describe, expect, it } from "vite-plus/test"
 import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList } from "@/lib/diff/bundled-languages"

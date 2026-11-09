@@ -1,4 +1,4 @@
-// @spec spec/branch/landing-routes.spec.md
+// @spec openspec/specs/branch/landing-routes/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ChecksSummary, PullRequest } from "../../../src/lib/bindings"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"

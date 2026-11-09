@@ -8,7 +8,7 @@
 
 One vocabulary for the whole app. A toast says what happened, to what, in sentence case; its description is the detail;
 an error says what could not be done and why; a toast about an object opens it. Buttons, menu items and toast actions
-are Title Case; everything that reads as a sentence is sentence case. [Activity](../../spec/repository/activity.spec.md)
+are Title Case; everything that reads as a sentence is sentence case. [Activity](../../openspec/specs/repository/activity/spec.md)
 records the toasts in their words, so a toast and its entry take their text from one function. A toast is one per
 event of an object: its later states replace it in place, and its actions are those of the state now. An object's
 actions are one list, under one name each, wherever the object is.
@@ -192,7 +192,7 @@ indicator could cancel a robot but not restart it.
   list the pull requests"); every other surface of the action is disabled with the same words, and S says them. Never
   the action the facts would decide without the answer: a "Safe Push" that turned into "Awaiting Review" three
   seconds later had let a click start a robot whose approvals didn't count
-  ([Next Step](../../spec/branch/next-step.spec.md#facts-without-an-answer)). A failed answer is said as such, never as
+  ([Next Step](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer)). A failed answer is said as such, never as
   "none".
 - **A step is not a button beside its action**: a surface that offers the action doesn't offer its step too. The row,
   the preview and the review window of a branch the remote lacks show Create Pull Request… and Safe Push, which push
@@ -201,7 +201,7 @@ indicator could cancel a robot but not restart it.
 - **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
   object. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
-  ([Next Step](../../spec/branch/next-step.spec.md)). One model of an object decides its next step
+  ([Next Step](../../openspec/specs/branch/next-step/spec.md)). One model of an object decides its next step
   (`domain_policy::next_step`, worded by `presentNextStep`), every surface renders it.
 - **A state as a label**: the one exception to "a button is a verb". A quiet step names the state it waits in ("Awaiting
   Ilya Korennoy", "Changes Requested", "Draft"), muted (`text-muted-foreground`, `destructive` for changes requested), in
@@ -257,6 +257,6 @@ indicator could cancel a robot but not restart it.
 ## References
 
 - [UI Theme](../design/ui-theme.md): colours, states, the copy button.
-- [Activity](../../spec/repository/activity.spec.md): the log in the words of the toasts.
-- [Branch row](../../spec/branch/branch-row.spec.md), [Patronus](../../spec/branch/patronus.spec.md): the branch menu, the
+- [Activity](../../openspec/specs/repository/activity/spec.md): the log in the words of the toasts.
+- [Branch row](../../openspec/specs/branch/branch-row/spec.md), [Patronus](../../openspec/specs/branch/patronus/spec.md): the branch menu, the
   row keys and the robot actions built this way.

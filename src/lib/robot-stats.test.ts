@@ -1,4 +1,4 @@
-// @spec spec/repository/main-views.spec.md
+// @spec openspec/specs/repository/main-views/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { STATS_PERIODS, countTicks, formatStatsPeriod, minuteTicks } from "@/lib/robot-stats"
 

@@ -1,4 +1,4 @@
-//! The files of the client in its directory, `~/.config/brd-host/` by default (spec/cli/host.spec.md, "The files"): the
+//! The files of the client in its directory, `~/.config/brd-host/` by default (openspec/specs/cli/host/spec.md, "The files"): the
 //! identity of the client, one host file per alias in `hosts/<alias>.json`, and the last base of each affinity in
 //! `bases/<alias>/<affinity>`. Each directory has the mode 0700 and each file 0600, written whole through a rename
 //! (`sync_utils::private_file`), so a reader never sees a part

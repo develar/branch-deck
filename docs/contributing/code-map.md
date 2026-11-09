@@ -12,7 +12,7 @@ of each crate's `lib.rs` and of each rule file says the rest.
 
 ## Feature Index
 
-Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); read it before changing the feature.
+Each feature's contract is its spec (`openspec/specs/<id>/spec.md` by the id below); read it before changing the feature.
 
 | Feature | Specs | Entry code |
 |---|---|---|
@@ -181,7 +181,7 @@ crates/
 ├── bd-remote/       # The brd commands of the remote: status, push, safe-push, land, request-review, robot, robot-stats, operation, the landed branches
 ├── bd-rewrite/      # The brd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest
 ├── bd-update/       # `brd update`, `brd pick`, `brd unapply`, `brd reapply` and `brd undo`; its tests run brd through the fixtures of bd-cli
-├── brd-host/         # `brd-host`, the binary of the remote runs (spec/cli/host.spec.md): the client and the agent; neither brd nor the app links it
+├── brd-host/         # `brd-host`, the binary of the remote runs (openspec/specs/cli/host/spec.md): the client and the agent; neither brd nor the app links it
 ├── host-link/       # The link of the remote runs: identity, TLS 1.3 with pinned certificates on the provider of the app, frames, protocol host-link; no git
 ├── host-client/     # The client of a remote run: the commit of the working tree, the pack, the follow, the fetch; git through git-ops
 ├── host-agent/      # The agent on a host: serve, the supervisors, the keeper, the upgrade; the host slots through lease-pool in process
@@ -224,7 +224,7 @@ tests/
 - [Symbol Dependencies](../design/symbol-dependencies.md) - the syntax summaries of the changed files, `Order` edges by evidence, the subtraction in the dangling-reference check
 - [UI Theme](../design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
 - [Virtual Branches](../design/virtual-branches.md) - How commits are grouped and copied into virtual branches
-- [Specs](../../spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, test links); start with spec/commit/commit-row.spec.md
+- [Specs](../../openspec/specs/) - The requirement specs of OpenSpec (openspec/specs/<area>/<name>/spec.md, test links; [their format](specs.md)); start with openspec/specs/commit/commit-row/spec.md
 
 ### Guides
 
@@ -232,6 +232,7 @@ tests/
 
 ### Contributing
 
+- [Specs](specs.md) - The format of a spec: requirements, scenarios, test links, targets; `openspec validate --strict`
 - [Adding a Git Operation](adding-git-operation.md) - The layers of an operation and the helpers to reuse
 - [Agent CLI](agent-cli.md) - The `brd` commands, their JSON, error codes and exit codes
 - [Platform Checks](platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands

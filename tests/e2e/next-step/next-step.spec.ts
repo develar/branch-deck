@@ -1,4 +1,4 @@
-// @spec spec/branch/next-step.spec.md
+// @spec openspec/specs/branch/next-step/spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusProfile, PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
