@@ -269,6 +269,11 @@ Without a token nothing MUST be sent, and the status MUST be "not logged in".
 - **THEN** nothing is sent and the status is "not logged in"
   [@test] crates/patronus/src/service_test.rs (`sends_nothing_without_a_token`)
 
+#### Scenario: An action without a token
+- **WHEN** an action (a cancel) or the check of a push asks Patronus without a token
+- **THEN** nothing is sent: the action tells how to log in, and the check sees no robots
+  [@test] crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
+
 ### Requirement: Reading robots: A robot belongs to the virtual branch of its source branch
 
 The robots MUST be read with `GET /app/rest/v1/robots?owner=me&repository=<name>&start=<time>`, newest first. A robot
@@ -466,11 +471,16 @@ the last request). A push MUST list nothing: whether the branch changed since a 
 The refresh button and the list after a `/patronus` comment MUST always ask, and once more after a list in flight
 (which may have started before the robot); a sync or a focus during a list MUST join it.
 
+#### Scenario: The list after a start
+- **WHEN** a start needs its robot (the list after a `/patronus` comment)
+- **THEN** the robots are listed at once, those started since 2 minutes before the last list
+  [@test] crates/remote-facts/src/scheduler_test.rs (`lists_the_robot_a_start_needs_at_once_since_shortly_before_the_last_list`)
+
 #### Scenario: A list is in flight
 - **WHEN** the refresh button is pressed, or a start needs its robot, while a list is in flight
-- **THEN** the list is asked once more after it, for the robots started since shortly before the last list
+- **THEN** the list is asked once more after it
 - **AND** a sync or a focus during a list joins it
-  [@test] crates/remote-facts/src/scheduler_test.rs (`the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it`, `lists_the_robot_a_start_needs_at_once_since_shortly_before_the_last_list`)
+  [@test] crates/remote-facts/src/scheduler_test.rs (`the_refresh_button_and_a_start_during_a_list_ask_once_more_after_it`)
 
 ### Requirement: Load on Patronus: A repository not on Space is asked again only by the refresh button
 
@@ -848,7 +858,6 @@ decides it, `domain_policy::row_status`, the slot of the robot `next_step::slot`
 - **WHEN** the row shows
 - **THEN** the cell shows its state in its hue, "Failed", "Needs review", "Merged", "Dry run passed", "Canceled"
   [@test] tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
-  [@test] crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`)
 
 ### Requirement: Robot of a row: As it is means the piece its Safe Push lands
 
@@ -894,8 +903,8 @@ block, and stays beside them when it failed.
   [@test] crates/domain-policy/src/row_status_test.rs (`no_fact_of_a_row_drops_and_the_node_and_the_cell_tell_one_story`)
 
 #### Scenario: The whole stack parked or landed
-- **WHEN** a whole stack is parked or landed
-- **THEN** it takes the rows of its stack branch, what landed it or parked before its robot
+- **WHEN** a whole stack has a parked member, or merged Safe Pushes landed it
+- **THEN** it takes the rows of its stack branch: its step says the parked member, or what landed it
   [@test] crates/domain-policy/src/next_step_test.rs (`the_whole_stack_takes_the_rows_of_its_stack_branch`)
 
 ### Requirement: Robot of a row: The Safe Push slot follows the push button in a column of its own
@@ -932,6 +941,7 @@ matches (`domain_policy::next_step`), from the robot, the pull request and the r
 - **THEN** the slot is "Restart Safe Push" only once Patronus says they count in the pull request it was started from
 - **AND** else "Open Pull Request" (or "Create Pull Request…") while nobody can tell yet, or the wait for the approvals
   [@test] src/presenters/next-step.test.ts (`rows 2 and 3: restarts the robot, or the pull request that collects the approvals, or a Safe Push where it can't restart`)
+  [@test] crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`)
 
 #### Scenario: The wait for the approvals that count
 - **WHEN** the branch waits for the approvals that count
@@ -2061,7 +2071,7 @@ highlight the path it lands while it is open.
 
 The profile MUST be "Default checks" or one of the merge profiles of the target branch that allow the mode (the
 emergency ones apart, `emergencyProfiles`), by default the profile of the last robot of the branch (never an emergency
-one), with its description from Patronus below. Nothing MUST be remembered by Branch Deck: the profile is the branch's
+one), with its description from Patronus below. Branch Deck MUST NOT remember a profile: the profile is the branch's
 by its robots.
 
 #### Scenario: The default is the profile of the last robot
@@ -2389,6 +2399,7 @@ of what refused it (a name the user knows is a false alarm), planned again.
 - **AND** its actions are "Stack lane-run on stills-codec" and "Start Anyway" below it
   [@test] tests/e2e/next-step/landing-needs.spec.ts (`should refuse the Safe Push of a whole stack whose build needs a branch outside it, with the restack and Start Anyway`)
   [@test] src/presenters/outcome.test.ts (`offers the fix and Start Anyway of the landing gate, Update Project of a conflict with the target, the start again of a changed plan`)
+  [@test] src/presenters/landing.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`)
 
 ### Requirement: Starting a Safe Push or a Dry Run: An unassigned commit or a cycle offers only Start Anyway
 
@@ -2398,6 +2409,7 @@ Anyway" MUST be the only action.
 #### Scenario: The fix is the move of a commit
 - **WHEN** the fix would be a commit unassigned or a restack that would close a cycle
 - **THEN** the text names the move of the commit, and "Start Anyway" is the only action
+  [@test] src/presenters/landing.test.ts (`counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`)
 
 ### Requirement: Starting a Safe Push or a Dry Run: A gate of a whole stack that can't run holds nothing back
 
@@ -2418,7 +2430,7 @@ Step](../next-step/spec.md#what-the-safe-push-needs)), and the slot MUST say "Ne
 - **THEN** the session derives the landing needs of every branch, and the slot of a branch they refuse says "Needs
   ABC-123"
   [@test] crates/repository-model/src/session_test.rs (`the_session_derives_the_patronus_view_and_its_landing_needs_once_patronus_answered`)
-  [@test] src/presenters/landing.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
+  [@test] src/presenters/landing.test.ts (`starts when nothing refuses it`)
 
 ### Requirement: Starting a Safe Push or a Dry Run: The popover shows the reason of the gate with its fix
 
@@ -2549,7 +2561,6 @@ A Safe Push of the branch still running on an older commit MUST be canceled befo
 - **WHEN** a Safe Push of the branch runs on an older commit
 - **THEN** it is canceled before the push, not restarted
   [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`)
-  [@test] crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)
 
 ### Requirement: Starting a Safe Push or a Dry Run: `POST /robots` starts the robot on the pushed branch
 
@@ -3561,20 +3572,25 @@ problems the session doesn't read (a watched robot, one of no branch of the tabl
 ### Requirement: Failed: A failure is an error toast with the next action
 
 The failure MUST be an `error` toast "Safe Push of auth failed" / "Fast Tests · auth → master" (the checks that failed
-from its details, else what it tested), with "Copy Prompt for Agent" first, or "Restart Safe Push" (the action of the
-robot, `getRobotActionItems`, where a restart is possible) when its builds never started, and "Open in Patronus" below
-the text ([Safe Push Failure Prompt](../safe-push-failure-prompt/spec.md#the-failed-toast)).
+from its details, else what it tested), with "Start in Air" first and "Copy Prompt for Agent" second, in the place of
+"Open in Patronus", or "Restart Safe Push" (the action of the robot, `getRobotActionItems`, where a restart is
+possible) when its builds never started
+([Safe Push Failure Prompt](../safe-push-failure-prompt/spec.md#the-failed-toast)).
 
 #### Scenario: A running Safe Push failed
 - **WHEN** a running Safe Push failed
-- **THEN** the `error` toast tells it once with the failed checks, and its action starts a session in the IDE, with "Copy Prompt for Agent" beside it
+- **THEN** the `error` toast tells it once with the failed checks, and its first action, "Start in Air", starts a session in the IDE, with "Copy Prompt for Agent" as the second option
   [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
   [@test] src/stores/patronus.test.ts (`tells once that a robot failed, with Start in Air and Copy Prompt for Agent beside it, and the failed checks, once its problems are read`)
 
 #### Scenario: Its builds never started
 - **WHEN** a Safe Push failed whose builds never started
-- **THEN** the toast offers "Restart Safe Push", which restarts it
+- **THEN** the toast offers "Restart Safe Push", which restarts it, and "Open in Patronus" below the text
   [@test] tests/e2e/patronus/patronus.spec.ts (`should restart from the toast a Safe Push whose builds never started`)
+
+#### Scenario: Start in Air is not offered
+- **WHEN** a Safe Push failed and the robot offers no "Start in Air"
+- **THEN** the toast offers "Copy Prompt for Agent" first, and "Open in Patronus" below the text
 
 ### Requirement: Failed: A failure for missing approvals is a warning that it needs review
 
@@ -3655,7 +3671,7 @@ shown now. The pull request step opens what the branch has at the click.
 
 #### Scenario: The robot was canceled elsewhere
 - **WHEN** the robot finished or was canceled
-- **THEN** Cancel Safe Push leaves the toast in place, and the toast keeps the robot page
+- **THEN** Cancel Safe Push is dropped from the toast, in place, and the toast keeps the robot page
   [@test] src/stores/patronus.test.ts (`drops Cancel Safe Push once the robot was canceled elsewhere, in place: the toast keeps the robot page`)
 
 #### Scenario: A step that runs or is disabled
@@ -3955,11 +3971,12 @@ Space is read once there, whatever reason the answer gives: the merge request Pa
 - **THEN** the review says where they count, and a repository only on Space is read once
   [@test] crates/domain-policy/src/review_test.rs (`the_review_says_where_the_missing_approvals_count_and_reads_a_repository_only_on_space_once`)
 
-### Requirement: Code-owner review: A repository only on Space confirms a start whose approvals are required
+### Requirement: Code-owner review: A repository only on Space refuses in its popover a start whose approvals are missing
 
-A repository only on Space (no GitHub repository of the branches) keeps the merge request path: its start MUST NOT be
-held back (merge requests are deprecated and the robot decides, [Next Step](../next-step/spec.md#the-table)), but one
-whose approvals are required MUST confirm first. No button creates anything.
+A repository only on Space (no GitHub repository of the branches) keeps the merge request path: its slot MUST NOT be
+held back (merge requests are deprecated and the robot decides, [Next Step](../next-step/spec.md#the-table)), but the
+click on the start of one whose approvals are required MUST open its popover, which names them and refuses the start a
+robot would fail (D14, as `brd`'s `approvals_missing`). No button creates anything.
 
 #### Scenario: A merge request Patronus found open
 - **GIVEN** the approvals of a branch of a repository only on Space are required and Patronus found its merge request IJ-CR-7 open
@@ -3968,6 +3985,7 @@ whose approvals are required MUST confirm first. No button creates anything.
   without these approvals, which count in IJ-CR-7.", a line per group with the available reviewers Patronus suggests
   and its files ("Air Plugin Release Team (suggested: Alice) · 2 files", "· all files" for a branch-wide group), and
   "Open IJ-CR-7"
+- **AND** its start is refused while the approvals are missing, and starts with the merge request once Patronus finds them
   [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`)
 
 #### Scenario: No merge request
@@ -3977,7 +3995,7 @@ whose approvals are required MUST confirm first. No button creates anything.
   repository is unknown." with
   "Set GitHub Repository…", which opens Settings → Landing on the tab of the repository at the field of
   `branchdeck.githubRepository` ([Settings](../../repository/settings/spec.md#landing)); "Review Changes" beside it
-  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`, `should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
+  [@test] tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
 
 ### Requirement: Code-owner review: Each reviewer group names the files it has to review
 
@@ -4459,7 +4477,8 @@ newer baseline.
 
 What a restart does MUST be one rule of Rust (`domain_policy::holds::restart_action`, the view's `restarts` by robot
 id): a plain restart while the remote has the branch, a push first while the branch has work the remote lacks ("Push
-and Restart", also of a running robot, which the push cancels first); the page only presents it.
+and Restart", `PushAndRestart`, also of a running robot, which the push cancels first; on every surface it is named
+"Restart Safe Push" too); the page only presents it.
 
 #### Scenario: The remote has the branch, or lacks its work
 - **WHEN** a restart is offered
@@ -4672,9 +4691,10 @@ menu, the details (the chip popover, the preview section), the robots indicator,
 
 ### Requirement: Restart and cancel: The actions of a robot are in one order, each naming the mode
 
-The actions MUST be in this order: "Restart Safe Push" or "Restart Safe Push" (below), "Cancel Safe Push", "Open in
-Patronus", and "Open Pull Request #12" for a robot started from a pull request (the branch menu leaves it out when it
-is the branch's own pull request, which its "Open Pull Request" opens). Each MUST name the mode of the robot ("Restart
+The actions MUST be in this order: "Restart Safe Push" (also the one that pushes first, [below](#restart-and-cancel)),
+"Cancel Safe Push", the prompts of a failed or failing robot, "Open in Patronus", and "Open Pull Request #12" for a
+robot started from a pull request (the branch menu leaves it out when it is the branch's own pull request, which its
+"Open Pull Request" opens). Each MUST name the mode of the robot ("Restart
 Dry Run"); a bare "Cancel" in a popover reads like closing it.
 
 #### Scenario: The actions of a running robot of a pull request
@@ -4686,6 +4706,10 @@ Dry Run"); a bare "Cancel" in a popover reads like closing it.
 - **WHEN** a restart is offered
 - **THEN** it is named by the mode of the robot ("Restart Dry Run" of a dry run)
   [@test] src/presenters/robot-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`)
+
+#### Scenario: The prompts of a failed robot
+- **WHEN** the actions of a failed robot, or of a failing one, show
+- **THEN** "Start in Air…", "Copy Prompt for Agent" and "Copy Prompt with CI Details" come after the restart and the cancel, before "Open in Patronus"
 
 ### Requirement: Restart and cancel: A branch that can't change keeps Cancel and Open in Patronus
 
@@ -4730,12 +4754,14 @@ changed after the push MUST say why in an info toast under the same title.
 
 Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks (by content,
 or commits reworded since its push: the remote has them with the old messages, which Patronus would land), every
-surface MUST offer "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,
-also for a running robot, which it cancels first ([below](#pushing-into-a-branch-whose-safe-push-runs)).
+surface MUST offer the restart that pushes first instead of the plain one, named "Restart Safe Push" too:
+the push of the row, then the restart on the pushed commit, also for a running robot, which it cancels first
+([below](#pushing-into-a-branch-whose-safe-push-runs)).
 
 #### Scenario: The branch changed since the push
 - **WHEN** the branch has work the remote lacks
 - **THEN** every surface names the change and the restart that tests the branch as it is: it cancels a running robot, then pushes
+- **AND** the restart is still named "Restart Safe Push", its hover "Pushes auth and starts it again on the pushed commit"
   [@test] src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is`)
   [@test] crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
   [@test] src/presenters/robot-actions.test.ts (`presents the restart Rust offers, named by the mode, disabled with the words of its reason, the step's for missing approvals`, `names what a restart of a robot of a branch changed since does: it cancels a running one, then pushes`)
@@ -5249,8 +5275,8 @@ of both hosts, `operations::push::execute_push`).
 ### Requirement: Pushing into a branch whose Safe Push runs: The push reads the user's robots first as it starts
 
 The push MUST read the user's robots first: one full list asked as it starts, while it waits for the rewrites before it
-and the running sync, never one kept for the page, a background request; none off Space, without a token, while
-Patronus fails or its requests back off, as `brd push` reads its holds. No network request MUST run under the
+and the running sync, asked anew as a background request, never answered by a list kept for the page; none off Space,
+without a token, while Patronus fails or its requests back off, as `brd push` reads its holds. No network request MUST run under the
 repository lock.
 
 #### Scenario: One full list asked as the push starts
@@ -5859,7 +5885,7 @@ counts it as a move, the overview shows it once, as the move of its row with the
 A branch changed since (a fix) MUST need no attention, nor one that something else holds: a running Safe Push of a
 branch built on it or of the whole stack holds it, a merged one landed it whole (the hold of the view), the baseline has
 all of it, a running Safe Push of a branch it is built on lands a part of it, or it is parked; nor the whole stack while
-one of a branch of it does.
+a running Safe Push of a branch of it lands a part of it.
 
 #### Scenario: Something else holds the branch
 - **GIVEN** the robot of a branch failed
@@ -5876,8 +5902,9 @@ one of a branch of it does.
 
 #### Scenario: The failed robot of a whole stack
 - **GIVEN** the robot of a whole stack failed
-- **WHEN** a robot of a branch of the stack needs the user too
+- **WHEN** a running Safe Push of a branch of the stack lands a part of it
 - **THEN** the whole stack needs no attention while it does
+- **AND** it needs the user only on a stack branch the sync built
   [@test] crates/domain-policy/src/attention_test.rs (`the_failed_robot_of_a_whole_stack_needs_the_user_only_on_a_built_stack_branch_no_robot_of_a_branch_lands`)
 
 ### Requirement: Landing overview: The failure is judged by content again once the holding robot ended
