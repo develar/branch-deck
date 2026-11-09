@@ -1403,6 +1403,11 @@ A click on a row of the shape MUST show its first file in the story.
 - **THEN** its first file shows in the story
   [@test] tests/e2e/review-requests/review-requests.spec.ts (`should list the shape of the plan in the rail of the overview, a module showing its first file in the changes`)
 
+#### Scenario: The first file of a row is the one the story shows first
+- **WHEN** the shape names the first file of a row
+- **THEN** it is the file of the row's first step, or a file of no step after them
+  [@test] src/presenters/review-map.test.ts (`shows the first file of a row as the story shows it: of its first step, a file of no step after them`)
+
 ### Requirement: The Map: Under a row, what its descriptors register by simple names
 
 Under a row, what its descriptors register, change or remove ([Review Plan → Registrations](../review-plan/spec.md#registrations))

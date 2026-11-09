@@ -785,6 +785,7 @@ not run or its end is unknown; a command that a signal ended answers 128 plus th
 - **WHEN** a run refuses before the client knows all of its run, commit and head
 - **THEN** `refusal` is `{"code", "message"}` with a code of the table
 - **AND** each of `run`, `commit` and `head` that the client did not know is `null`
+  [@test] crates/host-client/src/report_test.rs (`a_refusal_reports_its_code_its_exit_and_what_the_client_knew`)
 
 ### Requirement: The report of a run: The phases, the fetched files and the applied files
 

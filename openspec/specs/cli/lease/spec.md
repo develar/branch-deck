@@ -119,8 +119,8 @@ commits, and what a commit holds.
 The files of a run: on the host the scans of the slot before and after its command, on the client (`brd-host run`,
 `git_ops::host_client`) the commit the run ships, its pack and the apply of its changes. A commit of the files of a
 worktree (`worktree_commit`) is what `git add --all` stages, on HEAD, as the requirements of Host runs below say. Its
-author and committer stayed `bd-host <bd-host@bd-host.invalid>` through the rename to brd-host, never
-`brd-host <brd-host@brd-host.invalid>`, so the same tree on the same HEAD stays the same commit.
+author and committer stayed `bd-host <bd-host@bd-host.invalid>` through the rename to brd-host, so the same tree on the
+same HEAD stays the same commit.
 
 ### Measurements
 
