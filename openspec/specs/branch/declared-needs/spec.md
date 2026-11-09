@@ -192,16 +192,17 @@ commit it read, the one ref it writes; a need MUST rewrite no commit.
 
 ### Requirement: Declare and take back: A need that names no valid case is refused
 
-An unknown branch, a need of the branch on itself, a name that is no branch name (`a:b:c`) and the removal of a name
-never declared MUST be refused.
+An unknown branch that would need, a need of the branch on itself, a name that is no branch name (`a:b:c`) and the
+removal of a name never declared MUST be refused; a needed branch that is nowhere yet is no refusal.
 
 #### Scenario: An unknown branch, a self need and a removal never declared
-- **WHEN** `brd need` names an unknown branch, a need of the branch on itself, or the removal of a name never declared
+- **WHEN** `brd need` names an unknown branch as the one that needs, a need of the branch on itself, or the removal of a name never declared
 - **THEN** it is refused
+- **AND** a need of a branch that is nowhere yet is declared: the order can be declared before the branch is synced
   [@test] crates/bd-rewrite/src/need_test.rs (`a_need_of_an_unknown_branch_a_self_need_and_a_need_that_was_never_declared_are_refused`)
 
 #### Scenario: The core refuses a name that is no branch name too
-- **WHEN** a need names an unknown branch, the branch itself, a name that is no branch name (`a:b:c`), or removes a name never declared
+- **WHEN** a need names an unknown branch as the one that needs, the branch itself, a name that is no branch name (`a:b:c`), or removes a name never declared
 - **THEN** it is refused and no store commit is written
   [@test] crates/sync-core/src/needs_test.rs (`a_need_of_an_unknown_branch_of_itself_or_of_a_name_that_is_no_branch_is_refused`)
 
@@ -480,9 +481,9 @@ of the pull request) and before Patronus or GitHub answer.
 - **THEN** the refusals of the declared needs are known, with the state of each branch they name
   [@test] crates/bd-remote/src/status_test.rs (`a_declared_need_is_in_the_status_off_space_with_the_state_of_the_branch_it_names`)
 
-#### Scenario: Every route into master
-- **WHEN** the landing cases run on each route into master (Patronus, a push, a merge of the pull request)
-- **THEN** a declared need refuses alike in the app and `brd`, before Patronus or GitHub answer
+#### Scenario: Patronus and a push
+- **WHEN** the landing cases of a declared need run on Patronus and on a repository that lands by a push
+- **THEN** the declared need refuses the start alike in the app and `brd`
   [@test] crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 
 ### Requirement: Every route: The session derives the refusals beside the found needs
@@ -746,6 +747,11 @@ has no labels.
 - **THEN** it appears only once, in its group, apart from the remaining "Recent" projects
   [@test] src/presenters/repository-links.test.ts (`puts linked repositories after Recent and removes their duplicate recent entries`)
 
+#### Scenario: Two links of one path
+- **WHEN** two links name the same path, written differently, and one of them is unreadable
+- **THEN** the path appears once, in the linked group, with its problem
+  [@test] src/presenters/repository-links.test.ts (`deduplicates equivalent paths and keeps unreadable links in the linked section`)
+
 #### Scenario: No links
 - **WHEN** the selected repository has no links
 - **THEN** the existing list has no labels
@@ -766,8 +772,13 @@ Opening the pop-up SHALL start no Git process; a sync SHALL carry the linked pat
 
 #### Scenario: The pop-up opens
 - **WHEN** the user opens the pop-up of the project selector
-- **THEN** no Git process starts
-- **AND** that sync carried the linked paths and why one is unreadable
+- **THEN** no Git process starts: it shows the links the last sync carried
+
+#### Scenario: A sync reads the links
+- **GIVEN** a linked path that is gone and one that is no Git repository
+- **WHEN** a sync reads the links of the repository
+- **THEN** it carries each linked path with why it is unreadable (`… is gone`, `… is no git repository`)
+- **AND** it reads them in one `config` process
   [@test] crates/sync-core/src/companions_test.rs (`repository_links_report_missing_and_non_repository_paths`)
 
 ### Requirement: Companion repositories: A linked project outside Recent can be selected
