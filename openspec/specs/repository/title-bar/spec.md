@@ -241,7 +241,8 @@ its content (`sub_window_ready`, [Main window](#main-window)).
 
 #### Scenario: The window state restores no visibility
 - **WHEN** the window-state plugin restores a window
-- **THEN** it restores neither its decorations nor its visibility, only its size, position and maximized state
+- **THEN** it restores neither its decorations nor its visibility, and the rest of its state, as its size, position and
+  maximized state
   [@test] src-tauri/src/title_bar_test.rs (`the_window_state_restores_neither_the_decorations_nor_the_visibility`)
 
 ### Requirement: Linux: The window buttons are those of GTK's decoration layout
@@ -351,6 +352,7 @@ tooltip.
 - **WHEN** the user tabs through the row of a custom title bar
 - **THEN** the focus skips the window buttons
 - **AND** each button has an `aria-label` and a tooltip
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should put the window buttons where the desktop's layout does, in its look`)
 
 ### Requirement: Windows and Linux: Maximize is Restore while maximized or fullscreen
 
@@ -402,7 +404,7 @@ IntelliJ's `MainMenuWithButton`. Sub-windows MUST have none.
 #### Scenario: ☰ in the main window
 - **WHEN** the main window shows with a custom title bar
 - **THEN** ☰ is the first control of its row, after the start buttons, its tooltip naming Alt+\
-  [@test] tests/e2e/repository/title-bar.spec.ts (`should expand the menu bar in place of ☰, go through the menus, and collapse on Escape`)
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should split the buttons of a split layout, the start ones before the main menu`)
 
 #### Scenario: A sub-window
 - **WHEN** a sub-window shows with a custom title bar
@@ -649,13 +651,13 @@ the double click, the window buttons, the title, the minimum size); a test check
 
 ### Requirement: Every platform: The window state restores no decorations and no visibility
 
-The window-state plugin MUST restore sizes and positions, never the decorations (a saved `decorated` would bring the
-native caption back on Windows) nor the visibility (a window shows once its title bar is set and its page settled its
+The window-state plugin MUST restore every state it saves, as the size, the position and maximized, but never the
+decorations (a saved `decorated` would bring the native caption back on Windows) nor the visibility (a window shows once its title bar is set and its page settled its
 content, `show_when_settled`).
 
 #### Scenario: A window restored by the window-state plugin
 - **WHEN** the window-state plugin restores a window
-- **THEN** it restores its size and position, not its decorations nor its visibility
+- **THEN** it restores its size, its position and the rest of its state, not its decorations nor its visibility
   [@test] src-tauri/src/title_bar_test.rs (`the_window_state_restores_neither_the_decorations_nor_the_visibility`)
 
 ### Requirement: Every platform: The toolbar keeps its size at any page zoom
@@ -806,7 +808,8 @@ A page that loaded MUST NOT be shown by the deadline of its load; a broken page 
 
 #### Scenario: The page loaded before the deadline of its load
 - **WHEN** the page loaded, and the deadline of its load passes
-- **THEN** that deadline does not show the window; the deadlines of its shell and its content do
+- **THEN** that deadline does not show the window, nor that of its shell once the shell came; the budget of its
+  content after the shell does
   [@test] crates/app-api/src/windows_test.rs (`a_page_that_loaded_is_never_shown_by_the_fallback_of_its_load`)
 
 ### Requirement: Main window: The loading table stands where the rows come
