@@ -348,10 +348,12 @@ mod platform {
   use super::{Changes, Mark};
   use std::path::Path;
 
+  #[expect(clippy::missing_const_for_fn, reason = "the same signature as the FSEvents reader of macOS, which is no const fn")]
   pub(super) fn mark(_path: &Path) -> Option<Mark> {
     None
   }
 
+  #[expect(clippy::missing_const_for_fn, reason = "the same signature as the FSEvents reader of macOS, which is no const fn")]
   pub(super) fn changed_since(_roots: &[&Path], _mark: &Mark) -> Changes {
     Changes::All
   }
