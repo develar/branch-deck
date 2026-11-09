@@ -571,7 +571,7 @@ Every stop MUST be in one group, once.
 ### Requirement: Groups of a Step: Each group knows the tests that reach its code
 
 Each group MUST know the tests of the change that reach the code of its files and its code none reaches (`tested`, in
-the form of the tests of a step, `"schema": 28`), from the same answer of accio as its step; a declaration MUST be of
+the form of the tests of a step, `"schema": 29`), from the same answer of accio as its step; a declaration MUST be of
 the group of the first stop of its file outside the mechanical group.
 
 #### Scenario: A test of one group that reaches the code of another
@@ -584,6 +584,19 @@ the group of the first stop of its file outside the mechanical group.
 #### Scenario: The contract and the wiring
 - **WHEN** the step's tests are answered
 - **THEN** the contract and the wiring have none, answered when the step is
+
+### Requirement: Groups of a Step: The group of a new module reads from its entry points
+
+The group of a module the commits add MUST read from its entry points once accio answers them (`entries`): the stops
+of their files first, in the order of the entry points, the rest of its code in the order it had, its tests still
+last. The files of the step (`paths`) MUST follow its stops.
+
+#### Scenario: A new module whose entry points accio answers
+- **WHEN** a group is of a module the commits add and accio answers its entry points (`entries`)
+- **THEN** the stops of their files come first, in the order of the entry points
+- **AND** the rest of its code keeps the order it had, its tests still last
+- **AND** the files of the step (`paths`) follow its stops
+  [@test] crates/review-plan/src/groups_test.rs (`a_new_module_names_what_enters_it_and_its_group_starts_with_their_files`)
 
 ### Requirement: Tests That Reach It: The code of a step is its changed declarations outside tests
 
@@ -1304,7 +1317,7 @@ Each quoted paragraph MUST carry its spans of code (`code`, of a row those of ea
 
 ### Requirement: In `brd`: `brd review-plan` prints the steps and the brief with no git process
 
-`brd review-plan` MUST print `steps` and `brief` (`"schema": 28`), the ids of the commits of the steps and of the
+`brd review-plan` MUST print `steps` and `brief` (`"schema": 29`), the ids of the commits of the steps and of the
 story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
 nothing), and run no git process for them.
 
@@ -2300,12 +2313,33 @@ MUST keep their divider.
 - **THEN** a lighter card of prose opens it, in place of its divider: its label in the code font, its root in its
   hover, "New module" or "Deleted module", the small modules it holds
 - **AND** the contract and the wiring keep their divider
-  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
+  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, what enters a new module, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
   [@test] tests/e2e/branch-review/review-groups.spec.ts (`should open each group of a module above its first card, what it is, its new API, its new uses between modules, what it registers and its texts of the UI, and leave them out of the opening of the step`)
+
+### Requirement: In the Review Window: The opening of a new module's group names what enters it
+
+The opening of the group of a new module MUST first name, a line each in the facts' tone, what enters it, each at its
+declaration, its qualified name and the files that use it in the hover; of a complete answer of none "Nothing outside
+the module uses it", of a partial one "accio stopped before it asked every declaration", nothing without an answer.
+
+#### Scenario: What enters a new module
+- **WHEN** accio answers what enters a module the commits add
+- **THEN** the opening of its group first names each ("Entered by TranscriptEmbedPlayersImpl (applicationService of
+  TranscriptEmbedPlayers)", "Flags (used in Embed0.kt)"), at its declaration
+- **AND** its qualified name and the files that use it are in the hover
+  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, what enters a new module, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
+  [@test] tests/e2e/branch-review/review-groups.spec.ts (`should name what enters a new module in the opening of its group, read the group from the file of its entry point, and show its declaration on a click`)
+
+#### Scenario: A new module nothing enters, or accio stopped
+- **WHEN** accio answers completely that nothing outside the module uses it, or stops before it asked every
+  declaration, or gives no answer
+- **THEN** the opening says "Nothing outside the module uses it", or "accio stopped before it asked every
+  declaration", or nothing
 
 ### Requirement: In the Review Window: The opening of a group says what its code does to the rest
 
-The opening of a group MUST say, a line each in the facts' tone, what its code does to the rest: the tests of the
+The opening of a group MUST say, a line each in the facts' tone, after what enters a new module, what its code does to
+the rest: the tests of the
 change that reach its code and its code none reaches (`tested`, in the warning tone when none is reached), its new
 API by name (of a new module too: the group is that module), what it opens wider, its new uses between modules by
 their direction, each name showing its place, every list cut as the opening of a step cuts one.
@@ -2314,7 +2348,7 @@ their direction, each name showing its place, every list cut as the opening of a
 - **WHEN** a group of a module opens
 - **THEN** it names its tests and its code none reaches, its new API by name, what it opens wider
 - **AND** its new uses between modules by their direction ("Now uses view.gui (32 links) and shared/code", "Now used by view.gui.media (6 links)")
-  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
+  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, what enters a new module, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
   [@test] tests/e2e/branch-review/review-groups.spec.ts (`should open each group of a module above its first card, what it is, its new API, its new uses between modules, what it registers and its texts of the UI, and leave them out of the opening of the step`)
 
 ### Requirement: In the Review Window: The opening of a group names its registrations and texts
@@ -2326,7 +2360,7 @@ click showing the class) and its texts of the UI (as the map's line, in the fact
 - **WHEN** the module of a group registers in the platform and adds texts of the UI
 - **THEN** its opening names each registration a line, as the row of the map, a click showing the class
 - **AND** its texts of the UI as the map's line, in the facts' tone
-  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
+  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, what enters a new module, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
   [@test] tests/e2e/branch-review/review-groups.spec.ts (`should open each group of a module above its first card, what it is, its new API, its new uses between modules, what it registers and its texts of the UI, and leave them out of the opening of the step`)
 
 ### Requirement: In the Review Window: The opening of a step whose groups open keeps only the whole step
@@ -2340,7 +2374,7 @@ its own: its groups say them where their code is.
 - **THEN** the opening of the step keeps its story, its rounds, its contract, Proven by, Proves, shown in another step
   and taken out
 - **AND** it says no tests, new API, widening or uses between modules of its own
-  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
+  [@test] src/presenters/review-story.test.ts (`opens each group of a module of a large step above its first card: its name, its state, what enters a new module, its tests, its new API by name, its uses between modules by their direction, what its module registers and its texts; the opening of the step keeps none of them`)
   [@test] tests/e2e/branch-review/review-groups.spec.ts (`should open each group of a module above its first card, what it is, its new API, its new uses between modules, what it registers and its texts of the UI, and leave them out of the opening of the step`)
 
 ### Requirement: In the Review Window: The window counts the files of a step the reader saw
