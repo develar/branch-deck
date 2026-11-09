@@ -609,11 +609,10 @@ the robot details and the [landing overview](../../repository/landing-overview/s
 "Start in Air" SHALL be the primary way to fix the failure (it opens a session in the IDE that has the repository
 open); the prompts are for a user who copies them into an agent elsewhere.
 
-#### Scenario: Start in Air comes first
+#### Scenario: Start in Air comes before the prompts
 - **GIVEN** a failed robot
 - **WHEN** its actions are offered
-- **THEN** "Start in Air" comes first, and opens a session in the IDE that has the repository open
-- **AND** the prompts follow it, for a user who copies them into an agent elsewhere
+- **THEN** "Start in Air…" comes before both prompts
   [@test] crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
 
 ### Requirement: Copying: The robot details show Start in Air as the primary button
@@ -663,7 +662,9 @@ A failure MUST be "Cannot copy the prompt for auth" with the reason.
 
 The toast "Safe Push of auth failed" MUST offer "Start in Air" first (it opens a session in the IDE to fix the
 failure), with "Copy Prompt for Agent" as the second option (for a user who copies the prompt into an agent
-elsewhere); it turns in place into "Started Codex in Air" / "Paste it into your coding agent".
+elsewhere). "Start in Air" opens the dialog of [Start in Air](../start-in-air/spec.md), whose start shows a toast of
+its own ("Started Codex in Air"); the copy turns the toast in place into "Copied the prompt for auth" / "Paste it into
+your coding agent".
 
 #### Scenario: The toast of a failed robot
 - **WHEN** the Safe Push of `auth` fails
@@ -671,13 +672,14 @@ elsewhere); it turns in place into "Started Codex in Air" / "Paste it into your 
   [@test] src/stores/patronus.test.ts (`tells once that a robot failed, with Start in Air and Copy Prompt for Agent beside it, and the failed checks, once its problems are read`)
   [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
 
-#### Scenario: The toast turns in place after Start in Air
+#### Scenario: Start in Air from the toast
 - **WHEN** the user chooses "Start in Air" in the toast
-- **THEN** it turns in place into "Started Codex in Air"
+- **THEN** the dialog of Start in Air opens
+- **AND** a start in it shows a toast of its own, "Started Codex in Air"
 
 #### Scenario: The toast turns in place after the copy
-- **WHEN** the user chooses "Copy Prompt for Agent" in the toast
-- **THEN** it turns in place into "Paste it into your coding agent"
+- **WHEN** the user chooses "Copy Prompt for Agent" in the toast of `auth`
+- **THEN** it turns in place into "Copied the prompt for auth" / "Paste it into your coding agent"
   [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
 
 ### Requirement: The failed toast: Builds that never started offer the restart first
@@ -720,3 +722,4 @@ menu ([Patronus](../patronus/spec.md#failing)).
 - **WHEN** its toast shows
 - **THEN** "Cancel Safe Push" comes first
 - **AND** its prompt is in the menu
+  [@test] src/stores/patronus.test.ts (`tells once that a running robot will fail, with Cancel Safe Push and the failed checks`)
