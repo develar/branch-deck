@@ -9,6 +9,7 @@ import { mapPointOf } from "../helpers/file-map-helpers"
 import { THEME_ITEM, commitTwoTasks, cutTreeTitles, expectHeadingCard, openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 /** The card right below the opening of the step of `heading`: the space between them and the file of the card */
 function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null }> {
@@ -64,6 +65,17 @@ function currentReviewFindMarker(window: Page): Promise<ReviewFindMarker | null>
     const hit = document.querySelector<HTMLElement>(".dv-hit-current")
     return hit === null ? null : { kind: "diff", layer: hit.closest<HTMLElement>("[data-testid=diff-view-file]")?.dataset.path ?? null, text: hit.textContent ?? "" }
   })
+}
+
+/**
+ * The review window of the branch `layout` of the `review_tour` template (below), the plan on: the repository, the window
+ * and its sidebar
+ */
+async function openLayoutPlan(page: Page, setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
+  const repo = await setupRepo("review_tour")
+  turnOnReviewPlan(repo)
+  const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+  return { repo, window, ...reviewSidebar(window) }
 }
 
 // the `review_tour` template: the branch `layout` of five commits with bodies, a refactor of the manager, the rule
@@ -772,18 +784,12 @@ test.describe("Review tour", () => {
     }
   })
 
-  test("should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New", async ({
+  test("should make the row of a step its commit and its rounds rows of it, their titles whole at any width, and open the card of the commit by the hover of its mark or subject and by I", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRepo("review_tour")
-    turnOnReviewPlan(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
-    const { tree, commitRow, column } = reviewSidebar(window)
-    const header = window.getByTestId("range-review-commit-header")
-    const bar = window.getByTestId("review-step-bar")
-    const paint = commitRow("3 · the view paints with the first frame")
+    const { window, tree, commitRow, column } = await openLayoutPlan(page, setupRepo, syncAndWaitForBranches)
 
     // the column keeps the scopes; the commits are in the steps of the tree: the row of a step is the commit that starts
     // it, its round a row of it without the issue key, which says so
@@ -865,6 +871,17 @@ test.describe("Review tour", () => {
     await window.keyboard.press("Escape")
     await expect(card).toHaveCount(0)
     await expect(commitRow("2 · the open keeps a stored layout")).toBeFocused()
+  })
+
+  test("should show the step on a click, fold it by its chevron, Space, Left and Right, copy the hash of its commit, and show the commit alone on Enter, Show Commit Alone and Option+Down", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { window, commitRow, column } = await openLayoutPlan(page, setupRepo, syncAndWaitForBranches)
+    const header = window.getByTestId("range-review-commit-header")
+    const bar = window.getByTestId("review-step-bar")
+    const paint = commitRow("3 · the view paints with the first frame")
 
     // a click selects the step and puts its opening at the top; the commit stays in the story
     await expect(bar.getByTestId("review-step-position")).toHaveText("Overview")
@@ -921,11 +938,15 @@ test.describe("Review tour", () => {
     await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
     await window.keyboard.press("Alt+ArrowDown")
     await expect(header).toContainText("the rule names its flag again")
+  })
+
+  test("should mark the step of a commit on top since Mark Reviewed New, and the steps reviewed before nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const { repo, window, tree, commitRow, column } = await openLayoutPlan(page, setupRepo, syncAndWaitForBranches)
+    const paint = commitRow("3 · the view paints with the first frame")
 
     // after Mark Reviewed a commit on top with a story: the row of its step says it is new since the review, the steps
     // reviewed before say nothing
-    await column.filter({ hasText: "All Changes" }).click()
-    await expect(header).toHaveCount(0)
+    await expect(column).toHaveText([/^All Changes5 commits$/])
     await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
     await expect(window.getByText("Marked layout reviewed")).toBeVisible()
     await repo.commit(
@@ -937,6 +958,7 @@ test.describe("Review tour", () => {
     const splash = tree.getByRole("treeitem", { name: /^\d · the splash shows before the frame$/ })
     await expect(splash.getByTestId("review-commit-since")).toHaveText("New")
     await expect(splash).toHaveAttribute("aria-description", /, New, commit [0-9a-f]{7,}$/)
+    await expect(paint).toBeVisible()
     await expect(paint.getByTestId("review-commit-since")).toHaveCount(0)
   })
 

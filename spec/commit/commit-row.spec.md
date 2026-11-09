@@ -204,7 +204,7 @@ place that shows a commit shows the same way.
   ("New", "Rewritten", "Your review") and its branch, and the same mark and
   card as the main window, which the hover of the mark or of the subject and `I` on the focused row open
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit and its rounds rows of it, their titles whole at any width, and open the card of the commit by the hover of its mark or subject and by I`, `should mark the step of a commit on top since Mark Reviewed New, and the steps reviewed before nothing`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should show every step and commit title of the tree whole at the default width, its files one line each`)
 - A review of one commit lists it in no row (a range of one commit, a pull request of one commit; its tree lists its
   tasks, or its files for a commit of one task, whose heading tells its whole body): the heading of the commit at the

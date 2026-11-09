@@ -649,7 +649,7 @@ it added a module.
   no file (no position, no count, no owner mark of its own: it is muted with its step). The column above the tree
   then lists only the scopes; without the plan, for a range of one commit and for a commit shown alone the column
   lists every commit as before.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit and its rounds rows of it, their titles whole at any width, and open the card of the commit by the hover of its mark or subject and by I`, `should mark the step of a commit on top since Mark Reviewed New, and the steps reviewed before nothing`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should show every step and commit title of the tree whole at the default width, its files one line each`)
   [@test] ../../src/lib/file-tree.test.ts (`names the step of the own row of a file shown in another step after its name`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`, `should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
@@ -673,7 +673,7 @@ it added a module.
   must show the commit alone (its heading, its own plan), and "All Changes" of the column goes back. Its right-click
   menu is Show Commit Alone, then the menu of the commit of the column; ⌘C copies its hash. The heading of a commit of
   the whole stack shown alone keeps "Review <branch>".
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should show the step on a click, fold it by its chevron, Space, Left and Right, copy the hash of its commit, and show the commit alone on Enter, Show Commit Alone and Option+Down`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its overview and the story of its diffs @webkit`, `should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
 - A declaration without a block of its own (of one side, its lines in a block another unit holds) must be no stop of
