@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.5.0](https://github.com/develar/branch-deck/compare/v1.4.0...v1.5.0) (2026-11-09)
+
+
+### Features
+
+* **bd:** brd workspace says whether an agent opens the pull request after the pick ([41175d0](https://github.com/develar/branch-deck/commit/41175d0ce1112a7f92359738559bc0e0d335b682))
+* **bd:** the agent rule of the pull request follows the route into master ([22a7244](https://github.com/develar/branch-deck/commit/22a72442de3ae13f4a62758fa4f7e566cb6c5271))
+* **code-symbols:** Go to Declaration and Find Usages of Rust on rust-analyzer's tree ([dbc7b4b](https://github.com/develar/branch-deck/commit/dbc7b4b21f36a21ced99a38ec70e706b2cf5eb32))
+* **code-symbols:** Go to Declaration and Find Usages of TypeScript and JavaScript on js-syntax ([fa97733](https://github.com/develar/branch-deck/commit/fa977337a03e012e9024231df11437c8395e05f1))
+* **code-symbols:** the highlighting of Rust on rust-analyzer's tokens, tree-sitter-rust gone ([b1b9991](https://github.com/develar/branch-deck/commit/b1b9991b74434a032abc795ff3149c116a436e30))
+* **code-symbols:** the highlighting of TypeScript and JavaScript on js-syntax, tree-sitter gone ([1e24d0a](https://github.com/develar/branch-deck/commit/1e24d0acb536deaa5fc6e92884f9c1759041950e))
+* **code-symbols:** the summary of Rust on rust-analyzer's parser ([76ba2c2](https://github.com/develar/branch-deck/commit/76ba2c2a52b70580676bb899c68d91cee6b41214))
+* **code-symbols:** TypeScript and JavaScript summaries on js-syntax, in the dialect of the extension ([b485a3d](https://github.com/develar/branch-deck/commit/b485a3db465344f2b7f6cd9063b46301ef30f185))
+* **review:** a large step reads as its contract, its modules and its wiring ([ca955a6](https://github.com/develar/branch-deck/commit/ca955a67aa13d134ff3af04785c9867f3345634d))
+* **review:** a widening is no break, the forms show their reach ([90ddd00](https://github.com/develar/branch-deck/commit/90ddd001339d9e89e07243ee647ab82beb495bf8))
+* **review:** the bar above the diffs says the group of the reader and its part seen ([671fbf1](https://github.com/develar/branch-deck/commit/671fbf12ed1fe59be65a18bde616bc80c4e0826c))
+* **review:** the contract of a large step folds under the line of its sections ([b831206](https://github.com/develar/branch-deck/commit/b831206983371e160f7907db5d02f3da6c2c4b37))
+* **review:** the description of a pull request is its Markdown, tables included ([05cd3f5](https://github.com/develar/branch-deck/commit/05cd3f55146a3fee9de4ba11306e8812111104dc))
+* **review:** the map names what each module registers in the platform ([a4a4e4d](https://github.com/develar/branch-deck/commit/a4a4e4d074e215ac10770fe538d54728220febe5))
+* **review:** the map quotes the texts of the UI a change adds, changes or removes ([6b9438b](https://github.com/develar/branch-deck/commit/6b9438be68dcb10ebe971f41bf6464e7a0ab8bc3))
+* **review:** the map says the verdict on the API once, a new module counts its declarations ([64f0da9](https://github.com/develar/branch-deck/commit/64f0da9f6743c6ee51baf6f09d7e91868648334b))
+* **review:** the overview of a pull request is its description and its shape ([f7c03c3](https://github.com/develar/branch-deck/commit/f7c03c31f89c52c92417420a76405218b868e975))
+* **review:** the overview opens on the map of the change ([0d2222a](https://github.com/develar/branch-deck/commit/0d2222a902d1a5c46401ed272608653148bb7ec3))
+* **review:** the plan names the modules of a change and what each newly uses ([1249aae](https://github.com/develar/branch-deck/commit/1249aae44bade4b3bcca5bb9e6ebd9c15646eb45))
+* **review:** the plan names the texts of the UI a change adds ([a6f5851](https://github.com/develar/branch-deck/commit/a6f5851c4f5f9f779121b30b5deb24df1b433500))
+* **review:** the plan names what a change registers in the platform ([9400c87](https://github.com/develar/branch-deck/commit/9400c87f419dbf1a03251dc77468a8889520d302))
+* **review:** the tree reads a large step by its groups ([5e5480d](https://github.com/develar/branch-deck/commit/5e5480d918126cbf2e0adef2962e63a7a699cb89))
+* **review:** why accio did not answer is one line above the map ([fe46ee3](https://github.com/develar/branch-deck/commit/fe46ee3cf10ea0a7191efc18cd3bfd8d26dcacd8))
+* **settings:** one scope model for the git config, pages by subject, a larger window ([2ecb126](https://github.com/develar/branch-deck/commit/2ecb12629b2adf61b539585c76576ce05a5c6c92))
+
+
+### Bug Fixes
+
+* **review:** a JSON list of the module names a change adds is its wiring ([e170609](https://github.com/develar/branch-deck/commit/e170609ac30504aed014ac9d5afe031dacf4023f))
+* **review:** the code and the tests of a module share its folders, its resources apart ([674ec37](https://github.com/develar/branch-deck/commit/674ec3723c425991695bf6037b1e98aa315a3fcb))
+* **review:** the contents leave the uses of modules to the map, a new file counts its last lines ([c929a88](https://github.com/develar/branch-deck/commit/c929a88f4fadfc4413a702c0b69db7a6e16b3083))
+* **review:** the folders of a module are below the packages of each of its source directories ([bfb4959](https://github.com/develar/branch-deck/commit/bfb4959589c5444ef67b98f61f92829eafd2db02))
+* **review:** the folders of a module start below the packages its files share ([4f68ae1](https://github.com/develar/branch-deck/commit/4f68ae1f2ac9a56c2f46a88dff41743cc96f69a1))
+* **review:** the line of the selected step starts under its row, never across its chevron ([aa756a9](https://github.com/develar/branch-deck/commit/aa756a9dfd9fc727c0df9adb3b03bd510fa783db))
+* **review:** the modules of a review plan are those of the head it reviews ([bb996b1](https://github.com/develar/branch-deck/commit/bb996b13ae2dd931e49c40da195da4f46b07d817))
+* **review:** What Changes quotes the changed sentences, never front matter, tables as rows ([57baeef](https://github.com/develar/branch-deck/commit/57baeef5e7d3616168d0169ba48673e771ef7ae2))
+* **settings:** the window closes again after its close request ([a8942a7](https://github.com/develar/branch-deck/commit/a8942a77189984331075e69086907681b218b29b))
+
 ## [1.4.0](https://github.com/develar/branch-deck/compare/v1.3.0...v1.4.0) (2026-11-08)
 
 
