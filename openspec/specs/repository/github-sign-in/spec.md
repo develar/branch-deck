@@ -200,6 +200,12 @@ own, never joining the canceled one.
   [@test] crates/app-api/src/api_error_test.rs (`api_error_of_each_contract_case_is_its_json_in_the_fixture`)
   [@test] tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 
+#### Scenario: A cancel between two polls
+- **GIVEN** a sign-in that waits for its next poll of the token
+- **WHEN** it is canceled
+- **THEN** the wait ends with `canceled`, and GitHub is not asked again
+  [@test] crates/github/src/device_flow_test.rs (`a_denied_or_expired_code_and_a_cancel_end_the_wait`)
+
 #### Scenario: A sign-out while a sign-in runs
 - **GIVEN** a sign-in whose code GitHub waits for
 - **WHEN** the user signs out
@@ -438,7 +444,8 @@ open of the window and on every sign-in or sign-out of any window (`get_auth_sta
 ### Requirement: Settings: Signed in, the section names the login
 
 Signed in, the section MUST say "Signed in as @octocat", with Sign Out and Manage on GitHub; while `gh` or `GH_TOKEN`
-comes first, it MUST add "; the token of gh comes first while GitHub accepts it".
+comes first, it MUST add "; the token of gh comes first while GitHub accepts it" ("of GH_TOKEN" while `GH_TOKEN`
+does).
 
 #### Scenario: Signed in
 - **GIVEN** the app signed in as `octocat`
@@ -447,14 +454,19 @@ comes first, it MUST add "; the token of gh comes first while GitHub accepts it"
   [@test] tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`)
 
 #### Scenario: Signed in while gh comes first
-- **GIVEN** the app signed in, and `gh` or `GH_TOKEN` comes first
+- **GIVEN** the app signed in, and `gh` comes first
 - **WHEN** the section opens
 - **THEN** it adds "; the token of gh comes first while GitHub accepts it"
+
+#### Scenario: Signed in while GH_TOKEN comes first
+- **GIVEN** the app signed in, and `GH_TOKEN` comes first
+- **WHEN** the section opens
+- **THEN** it adds "; the token of GH_TOKEN comes first while GitHub accepts it"
 
 ### Requirement: Settings: Not signed in, the section names the source taken first
 
 Else the section MUST name the source the app takes first, without git (whose credentials are per repository):
-"Uses the token of gh".
+"Uses the token of gh", or "Uses the token of GH_TOKEN".
 
 #### Scenario: The token of gh
 - **GIVEN** no sign-in, and a token of `gh`
