@@ -83,10 +83,6 @@ not what it has to push ([Landing Overview](../landing-overview/spec.md)).
 The sync rebuilds a virtual branch on the latest baseline, so its hashes change while its work stays the same. What
 is outgoing compares content, not hashes: the question is whether the remote has the user's work as it is now.
 
-### The pushes of a stack
-
-The pushes of a stack follow in s9-13.
-
 ### Why a moved remote branch is fetched
 
 Someone else may push to the branch of the user's pull request: a fix on top of it, or a commit of a review. The remote
@@ -170,11 +166,12 @@ yet: a side stack that holds one is not quiet.
 
 ### Requirement: What is outgoing: A push of several branches leaves out the ones it cannot push
 
-A push of several branches MUST leave out each branch the last sync did not build, one a running Safe Push holds and
-one nothing of which is left to land (`domain_policy::push::push_plan`); its row says why.
+A push of several branches MUST leave out each branch the last sync did not build, one a running Safe Push holds, one
+nothing of which is left to land and one that stays local (parked, or built on a parked branch;
+`domain_policy::push::push_plan`); its row says why.
 
 #### Scenario: A stack push with a branch not built, held or landed
-- **GIVEN** a stack whose branches include one the last sync did not build, one a running Safe Push holds and one nothing of which is left to land
+- **GIVEN** a stack whose branches include one the last sync did not build, one a running Safe Push holds, one nothing of which is left to land and a parked one
 - **WHEN** a push of several branches of it is planned
 - **THEN** the plan leaves out each of those branches, and its row says why
 - **AND** the push of a stack covers the ancestors up to the nearest held one
@@ -299,13 +296,14 @@ or not.
 - **WHEN** the remote status of the child is computed
 - **THEN** those commits are landed: a pull request from that remote branch shows the landed changes again, so the branch is not up to date
 - **AND** its push replaces them without `--force`, whether the trees differ or not
-  [@test] crates/sync-core/src/detection_remote_status_test.rs (`a_child_rebuilt_on_the_baseline_after_its_parent_landed_replaces_the_parents_old_copies`, `a_child_of_a_reworded_parent_is_restacked`)
+  [@test] crates/sync-core/src/detection_remote_status_test.rs (`a_child_rebuilt_on_the_baseline_after_its_parent_landed_replaces_the_parents_old_copies`)
   [@test] crates/bd-remote/src/push_test.rs (`a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`)
 
 #### Scenario: A branch only rebuilt on a newer baseline
 - **GIVEN** a branch only rebuilt on a newer baseline, its ancestors too
 - **WHEN** its remote status is computed
-- **THEN** it stays up to date
+- **THEN** it stays up to date: the remote's copies of the parent's commits have their content in the parent, none landed
+  [@test] crates/sync-core/src/detection_remote_status_test.rs (`a_child_of_a_reworded_parent_is_restacked`)
 
 #### Scenario: No walk more for the landed copies
 - **WHEN** the remote status tells such landed copies
@@ -330,13 +328,14 @@ push sends them to the parent's remote branch), and they come from the same walk
 #### Scenario: A newer version of a remote commit
 - **GIVEN** a stacked branch whose parent's commit was amended
 - **WHEN** the remote status of the child is computed
-- **THEN** the newer version of the remote commit counts as restacked only, not as a commit the remote lacks
+- **THEN** the newer version of the remote commit counts as restacked only, not in `ancestorCommitsAhead` too
   [@test] crates/sync-core/src/detection_remote_status_test.rs (`a_child_of_an_amended_parent_is_restacked`)
 
 #### Scenario: The words of a restacked branch
 - **WHEN** the remote branch of a child lacks a new commit of its parent
 - **THEN** the status text says "restacked", its hover "Rebuilt on the new auth: the remote lacks 1 of its commits, which a Safe Push of the branch lands with it."
 - **AND** the toast of the push says "1 new commit of the parent"
+  [@test] src/lib/remote-status.test.ts (`says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`)
   [@test] src/lib/push-summary.test.ts (`says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
 
 ### Requirement: What is outgoing: A commit reworded here is reworded
@@ -538,7 +537,7 @@ the remote branch is behind the user's work.
 ### Requirement: Push colours: The status text of a push state is never a badge
 
 The status text of a push state MUST be muted text with a dot of the push colour, never a badge: a force push after a
-sync is routine. Only an error or a conflict MUST be a badge.
+sync is routine. Only an error or a conflict is a badge.
 
 #### Scenario: A force push after a sync
 - **WHEN** the status text of a branch row shows a push state, a force push after a sync among them
@@ -564,18 +563,22 @@ push of a part of a branch, up to one of its commits, is Push Up to Here
 - **WHEN** the user pushes a branch up to one of its commits
 - **THEN** it is Push Up to Here
 
-### Requirement: Push: The push of a branch alone is the intent `Push` that Rust plans and runs
+### Requirement: Push: Every push is the intent `Push` that Rust plans and runs
 
-The push of a branch alone (its push button in the row, the preview and the review window, P, the menu, the action of
-the remote-moved toast) and of an unapplied branch MUST be the intent `Push` that Rust plans and runs
-(`operations::push`, [Rust as the Domain Authority](../../../../docs/design/rust-domain-authority.md#s9-engine-remote)):
-`prepare` answers its plan, what it asks first and what refuses it; `execute` runs that plan in the session of the
-repository.
+Every push MUST be the intent `Push` that Rust plans and runs (`operations::push`,
+[Rust as the Domain Authority](../../../../docs/design/rust-domain-authority.md#s9-engine-remote)), its scope what it
+covers: a branch alone, a stack, the stack branch of a whole stack, an unapplied branch. `prepare` answers its plan,
+what it asks first and what refuses it; `execute` runs that plan in the session of the repository.
 
 #### Scenario: The plan of a push
-- **WHEN** a push of a branch alone or of an unapplied branch is asked, from any of its surfaces
+- **WHEN** a push of a branch alone (its push button in the row, the preview and the review window, P, the menu, the action of the remote-moved toast) or of an unapplied branch is asked
 - **THEN** `prepare` answers its plan (the retarget of its pull request out of a virtual branch first, the cancel of the Safe Push it restarts, the push, the restart), what it asks first and what refuses it
 - **AND** `execute` runs that plan in the session of the repository
+
+#### Scenario: The pushes of a stack
+- **WHEN** the push button pushes the stack (an ancestor has work), or the user chooses Push Stack, Push with Children, Push Up to Here or the push of the stack branch of a whole stack
+- **THEN** it is the same intent `Push`, of the scope `withAncestors`, `withChildren`, `upTo` or of the whole stack alone, one plan and one atomic push of the branches `domain_policy::push::push_plan` covers
+  [@test] crates/operations/src/push_test.rs (`a_push_of_a_stack_is_one_push_of_the_branches_it_covers`)
 
 ### Requirement: Push: The page decides nothing of a push
 
@@ -619,8 +622,8 @@ branches auth and login", "Cannot push branch auth", "Pushing branch auth…" (o
   [@test] src/lib/push-summary.test.ts (`names the remote branch a push sends to, beside a push into the target`)
 
 #### Scenario: The busy state of a push
-- **WHEN** a push of the branch runs, also in another process
-- **THEN** its row words it as "Pushing branch auth…"
+- **WHEN** a push of the branch runs, in this window or in another process
+- **THEN** its row words it as "Pushing branch auth…", of another process with its tool ("bd: Pushing branch auth")
   [@test] src/presenters/operations.test.ts (`words an operation of another process as its row says it and as the hover names its pid`)
 
 ### Requirement: Push: `brd push` says that it never pushes into master
@@ -632,6 +635,7 @@ into master, and point to `brd land`.
 - **WHEN** an agent reads the help of `brd push`
 - **THEN** it says that it pushes each virtual branch to its own remote branch, never into master
 - **AND** it points to `brd land`
+  [@test] crates/bd-cli/src/agent_help_test.rs (`the_help_of_brd_push_says_it_pushes_the_virtual_branches_never_into_master`)
 
 ### Requirement: Push: A push label counts the commits the push sends
 
@@ -1068,12 +1072,12 @@ A limit that is neither a size nor off MUST refuse the push.
 ### Requirement: Push: A switch of the repository before the push is asked stops it
 
 A push MUST belong to the repository it started in. A switch of the repository before the push of a branch alone is
-asked (while it waits for a rewrite of the page) MUST stop it: the branch of the same name there is another branch, so
+asked (the action of its toast after a switch) MUST stop it: the branch of the same name there is another branch, so
 nothing of it is pushed, and "Cannot push branch auth" says "idea-1 is no longer the open repository" (a push of an
 action returns that reason to its action).
 
 #### Scenario: The main window shows another repository now
-- **GIVEN** a push of a branch alone waiting for a rewrite of the page
+- **GIVEN** a push of a branch alone of a repository the main window showed before
 - **WHEN** the user switches to another repository before the push is asked
 - **THEN** nothing of the branch of the same name there is pushed, and the error says why
   [@test] src/lib/push-run.test.ts (`pushes nothing of the branch of the same name in another repository the main window shows now, and says why`)
@@ -1081,12 +1085,13 @@ action returns that reason to its action).
 ### Requirement: Push: Once asked, a push runs to its end in the session of its repository
 
 Once asked, a push MUST be an operation of the session of its repository, which runs it to its end there, its sync,
-its holds and its retarget too; a stack push of the page MUST stop at a switch while it waits.
+its holds and its retarget too, and its waits for the rewrites before it: a switch of the repository meanwhile stops
+nothing of it.
 
 #### Scenario: The operation of the session
 - **WHEN** a push of a branch or a stack push of a row is asked
 - **THEN** it is an operation of the session of its repository, which runs it to its end there
-- **AND** a stack push of the page that waits sends none of its branches after a switch of the repository
+- **AND** the branches it sends show it running in that repository only, also after a switch of the repository
   [@test] src/stores/branch-sync.test.ts (`is an operation of the session: the stack push of a row, the branches it sends, none after a switch of the repository`)
 
 ### Requirement: Push: A push already sent ends in its repository
@@ -1110,14 +1115,16 @@ starts at "Pushing…".
 - **WHEN** the next push of the branch starts, in either repository
 - **THEN** the progress the push left is gone, and it starts at "Pushing…"
 
-### Requirement: Push: A stack push retargets its pull requests only while its repository is shown
+### Requirement: Push: A stack push retargets only the pull requests of its repository
 
-A stack push MUST retarget its pull requests one after another, each only while its repository is shown: a switch
-during the retarget of login retargets no pull request of the other repository's ui.
+A stack push MUST retarget the pull requests of its repository only, as steps of its plan in the session that runs it:
+a switch during the retarget of login retargets no pull request of the other repository's ui, and the retargets go on
+in the repository of the push.
 
 #### Scenario: A switch during the retarget
 - **WHEN** the user switches the repository during the retarget of login
 - **THEN** no pull request of the other repository's ui is retargeted
+- **AND** the push goes on with its retargets in its own repository
 
 ### Requirement: Push: A push that ends after a switch offers no pull request
 
