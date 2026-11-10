@@ -376,36 +376,42 @@ test.describe("Settings window", () => {
     await expect(permission).toHaveAttribute("data-status", "notAsked")
   })
 
-  test("should fit every page at 880 × 640 without scrolling", async ({ page }) => {
-    const window = await openTallestSettings(page, repo)
-    // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, PAGES)
-  })
+  // the window in its tallest state, opened once for its sizes and once for its snapshots: one test of both took 30 s
+  // under load
+  test.describe("in its tallest state", () => {
+    let window: Page
+    test.beforeEach(async ({ page }) => {
+      window = await openTallestSettings(page, repo)
+    })
 
-  // the snapshots of the tallest states apart from their sizes: one test of both took 30 s under load
-  test("should show every page of the window in its tallest state", async ({ page }) => {
-    const window = await openTallestSettings(page, repo)
-    // the statuses of the tools come after the window: the dot of Tools, a step to do, is in every snapshot
-    await expect(settingsTab(window, "Tools").getByTestId("setup-dot")).toBeVisible()
-    for (const name of ["General", "Appearance", "Diffs", "Notifications", "Tools"]) {
-      await settingsTab(window, name).click()
-      await expectTallestState(window, name, "all")
-      await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}`)
-    }
-    // Accounts without the GitHub sign-in, whose code counts down
-    await settingsTab(window, "Accounts").click()
-    await captureHtmlSnapshot(window.locator('[data-settings-focus="account-youtrack"]'), "settings-accounts-youtrack")
-    for (const name of ["Branches", "Landing", "Agents"]) {
-      await settingsTab(window, name).click()
-      // each scope tab reached from the other, as the user switches them
-      await window.getByTestId("settings-scope-repository").click()
-      for (const scope of ["all", "repository"]) {
-        await window.getByTestId(`settings-scope-${scope}`).click()
-        await expect(window.getByTestId(`settings-scope-${scope}`)).toHaveAttribute("aria-selected", "true")
-        await expectTallestState(window, name, scope)
-        await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}-${scope}`)
+    test("should fit every page at 880 × 640 without scrolling", async () => {
+      // Windows: the title bar on Appearance, no Dock badge
+      await expectEveryPageFits(window, PAGES)
+    })
+
+    test("should show every page of the window in its tallest state", async () => {
+      // the statuses of the tools come after the window: the dot of Tools, a step to do, is in every snapshot
+      await expect(settingsTab(window, "Tools").getByTestId("setup-dot")).toBeVisible()
+      for (const name of ["General", "Appearance", "Diffs", "Notifications", "Tools"]) {
+        await settingsTab(window, name).click()
+        await expectTallestState(window, name, "all")
+        await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}`)
       }
-    }
+      // Accounts without the GitHub sign-in, whose code counts down
+      await settingsTab(window, "Accounts").click()
+      await captureHtmlSnapshot(window.locator('[data-settings-focus="account-youtrack"]'), "settings-accounts-youtrack")
+      for (const name of ["Branches", "Landing", "Agents"]) {
+        await settingsTab(window, name).click()
+        // each scope tab reached from the other, as the user switches them
+        await window.getByTestId("settings-scope-repository").click()
+        for (const scope of ["all", "repository"]) {
+          await window.getByTestId(`settings-scope-${scope}`).click()
+          await expect(window.getByTestId(`settings-scope-${scope}`)).toHaveAttribute("aria-selected", "true")
+          await expectTallestState(window, name, scope)
+          await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}-${scope}`)
+        }
+      }
+    })
   })
 
   test("should keep every page within the island at the smallest window", async ({ page }) => {
