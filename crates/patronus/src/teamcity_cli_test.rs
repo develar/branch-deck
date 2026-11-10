@@ -38,7 +38,7 @@ fn fake_cli(dir: &Path, auth_status: &str) -> PathBuf {
       r#"case "$1 $2" in
   "auth status") cat '{shown}/auth.json' ;;
   "run log")
-    if [ "$3" = 999 ]; then sleep 120; fi
+    if [ "$3" = 999 ]; then exec sleep 120; fi
     echo "$TEAMCITY_URL $*"
     printf '\033[31mCompilation failed\033[0m\n' ;;
   "run tests") cat '{shown}/tests.json' ;;

@@ -2,6 +2,7 @@ use crate::review_fetch::{GitHubCredentials, NoCommonHistory, fetch_review_head,
 use domain_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use git_executor::git_command_executor::{ProgressStop, StoppedCommand};
 use pretty_assertions::assert_eq;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use test_log::test;
 use test_utils::fake_executable::{fake_executable, shell_path};
@@ -289,16 +290,37 @@ fn refused_github_credentials_are_told_how_to_fix() {
 /// The file the ssh of `hanging_fixture` writes in its directory once the fetch started it
 const SSH_STARTED: &str = "ssh-started";
 
+/// The file with the pid of the ssh of `hanging_fixture`
+const SSH_PID: &str = "ssh-pid";
+
+/// The directory of the ssh of `hanging_fixture`, which ends that ssh with the test: the kill of a fetch ends its git,
+/// and a real ssh ends then too, as its input closes, where the fake would sleep on for two minutes
+struct HangingSsh(tempfile::TempDir);
+
+impl HangingSsh {
+  fn path(&self) -> &Path {
+    self.0.path()
+  }
+}
+
+impl Drop for HangingSsh {
+  fn drop(&mut self) {
+    if let Some(pid) = std::fs::read_to_string(self.path().join(SSH_PID)).ok().and_then(|pid| pid.trim().parse().ok()) {
+      let _ = sync_utils::process_scan::terminate(pid);
+    }
+  }
+}
+
 /// A fixture whose origin is an ssh remote that never answers, once it wrote `SSH_STARTED`: it ends by itself only
 /// after two minutes
-fn hanging_fixture() -> (Fixture, tempfile::TempDir) {
+fn hanging_fixture() -> (Fixture, HangingSsh) {
   let fixture = fixture();
   let dir = tempfile::tempdir().unwrap();
-  let started = shell_path(&dir.path().join(SSH_STARTED));
-  let ssh = fake_executable(dir.path(), "ssh", &format!(": > '{started}'\nexec sleep 120"));
+  let (started, pid) = (shell_path(&dir.path().join(SSH_STARTED)), shell_path(&dir.path().join(SSH_PID)));
+  let ssh = fake_executable(dir.path(), "ssh", &format!("echo $$ > '{pid}'\n: > '{started}'\nexec sleep 120"));
   fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
-  (fixture, dir)
+  (fixture, HangingSsh(dir))
 }
 
 #[test]
