@@ -78,6 +78,20 @@
    * one that will fail (`bd-robot-failing`)
    */
   --bd-robot-line: var(--color-primary);
+  /*
+   * The widths of the lines: a plain lane, and a highlighted line (the path to the root, the line and the span of a
+   * robot). The rail and the graph draw a straight line as a box (`bd-lane-x`), which snaps to whole device pixels, and
+   * a fork as a stroke, which does not: a highlighted line is 1.5px where that is whole device pixels, 2px below, where
+   * a box of 1.5px snaps to 2 and the curve of a fork keeps the width of the line it leaves.
+   */
+  --bd-lane-line-width: 1px;
+  --bd-lane-span-width: 2px;
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --bd-lane-span-width: 1.5px;
+  }
 }
 
 @utility bd-robot-failing {
@@ -85,8 +99,17 @@
 }
 
 /*
- * The lines of a branch row stop at the edge of its node (`--bd-node-lane`), or of the ring of its robot, `--bd-node-cut`
- * from its centre: a mask in the units of the page, as the SVG of the lines stretches over the row
+ * The x of a straight line of the graph, a box --bd-bar-width wide on lane --bd-bar-lane of the lanes of a row: the same
+ * x as the line of the rail below (`bd-lane-rail`), so the two snap to the same device pixels. The SVG of a fork starts
+ * there too.
+ */
+@utility bd-lane-x {
+  left: calc((var(--bd-bar-lane) + 0.5) * var(--bd-lane-width) - var(--bd-bar-width) / 2);
+}
+
+/*
+ * The fork curve of a branch row stops at the edge of its node (`--bd-node-lane`), or of the ring of its robot,
+ * `--bd-node-cut` from its centre: a mask in the units of the page, as its SVG stretches over the row
  */
 @utility bd-node-cut {
   mask-image: radial-gradient(circle at calc((var(--bd-node-lane) + 0.5) * var(--bd-lane-width)) 50%, transparent var(--bd-node-cut), #000 calc(var(--bd-node-cut) + 0.5px));
@@ -161,8 +184,8 @@
     position: absolute;
     top: -100000px;
     bottom: calc(100% - 1rem);
-    left: calc(var(--bd-rail-dot-x) - 0.5px);
-    width: 1px;
+    left: calc(var(--bd-rail-dot-x) - var(--bd-lane-line-width) / 2);
+    width: var(--bd-lane-line-width);
     background: var(--bd-lane-line);
   }
 
@@ -177,8 +200,8 @@
     z-index: 1;
     top: 1rem;
     bottom: calc(100% - 1rem);
-    left: calc(var(--bd-rail-dot-x) - 0.75px);
-    width: 1.5px;
+    left: calc(var(--bd-rail-dot-x) - var(--bd-lane-span-width) / 2);
+    width: var(--bd-lane-span-width);
     background: var(--bd-robot-line);
   }
 

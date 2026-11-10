@@ -14,8 +14,9 @@ import { useRobotLineIntoRail } from "@/stores/robot-coverage"
 import { useIsPushedOnPath, useStackPathSegments } from "@/stores/stack-view"
 
 /**
- * A lane and a branch row in the units of the SVG: 16px and 36px at 100% zoom (`--bd-lane-width`, the row around the
- * folder button). The SVG stretches over the actual row; its strokes keep 1px (`vector-effect: non-scaling-stroke`).
+ * A lane and a branch row in the units of the SVG of a fork curve: 16px and 36px at 100% zoom (`--bd-lane-width`, the
+ * row around the folder button). The SVG stretches over the actual row; its stroke keeps its width (`vector-effect:
+ * non-scaling-stroke`).
  */
 const LANE = 16
 const ROW = 36
@@ -23,18 +24,76 @@ const ROW = 36
 const NODE_RADIUS = 4
 
 /**
- * Where the lines into the node stop, from its centre (`--bd-node-cut`, the mask of `bd-node-cut`): at its edge, so a
- * hollow node stays empty, or at the outer edge of the ring of a running robot around it. In rem as the node and the
- * ring, not in the units of the SVG, which stretches over the row.
+ * Where the lines into the node stop, from its centre (`--bd-node-cut`): at its edge, so a hollow node stays empty, or
+ * at the outer edge of the ring of a running robot around it. In rem as the node and the ring.
  */
 const NODE_CUT_REM = NODE_RADIUS / 16
 
-function laneX(lane: number): number {
-  return lane * LANE + LANE / 2
-}
-
 function cssVars(vars: Record<`--${string}`, number>): CSSProperties {
   return vars as CSSProperties
+}
+
+/** The height of a straight line: over the row, or from its top or to its bottom up to the edge of the node or its ring */
+const BAR_SPAN = {
+  row: "inset-y-0",
+  up: "top-0 bottom-[calc(50%+var(--bd-node-cut))]",
+  down: "top-[calc(50%+var(--bd-node-cut))] bottom-0",
+} as const
+
+/**
+ * A straight part of a lane: a box as the rail draws its line (`bd-lane-x` in index.css), so the line of a branch row
+ * and the line below it snap to the same device pixels; in the colour (`currentColor`) and width (`--bd-bar-width`)
+ * of its tone
+ */
+function LaneBar({ lane, span }: { lane: number; span: keyof typeof BAR_SPAN }) {
+  return <span className={cn("absolute bd-lane-x w-(--bd-bar-width) bg-current", BAR_SPAN[span])} style={cssVars({ "--bd-bar-lane": lane })} />
+}
+
+/**
+ * The curve of a side child from its parent's lane at the top of the row into the left edge of its node, masked at the
+ * node or its ring (`bd-node-cut`), in the colour and width of its tone. Its SVG starts where a box of the parent's lane
+ * does (`bd-lane-x`), its stroke half the width further in: the SVG snaps to the device pixels as that box does, so the
+ * curve leaves the line above it in the same pixels.
+ */
+function ForkCurve({ lane, forkFrom }: { lane: number; forkFrom: number }) {
+  const lanes = lane - forkFrom
+  const middle = ROW / 2
+  return (
+    <span className="absolute inset-0 bd-node-cut">
+      <svg
+        className="absolute inset-y-0 bd-lane-x h-full w-[calc(var(--bd-fork-lanes)*var(--bd-lane-width))] overflow-visible"
+        style={cssVars({ "--bd-bar-lane": forkFrom, "--bd-fork-lanes": lanes })}
+        viewBox={`0 0 ${lanes * LANE} ${ROW}`}
+        preserveAspectRatio="none"
+      >
+        <path
+          d={`M0 0Q0 ${middle} ${lanes * LANE - NODE_RADIUS} ${middle}`}
+          className="fill-none stroke-current stroke-(length:--bd-bar-width)"
+          style={{ transform: "translateX(calc(var(--bd-bar-width) / 2))" }}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    </span>
+  )
+}
+
+function hasSegments(segments: LaneSegments, forkFrom: number | null): boolean {
+  return segments.up || segments.down || (segments.fork && forkFrom !== null) || segments.through.length > 0
+}
+
+/** The segments of one tone in a branch row: the lanes passing it, the line up, the line down, the fork curve */
+function RowSegments({ segments, lanes }: { segments: LaneSegments; lanes: StackLanes }) {
+  const { lane, forkFrom } = lanes
+  return (
+    <>
+      {segments.through.map(it => (
+        <LaneBar key={it} lane={it} span="row" />
+      ))}
+      {segments.up && <LaneBar lane={lane} span="up" />}
+      {segments.down && <LaneBar lane={lane} span="down" />}
+      {segments.fork && forkFrom !== null && <ForkCurve lane={lane} forkFrom={forkFrom} />}
+    </>
+  )
 }
 
 /** The text colour of a node, which its border and fill take (`currentColor`) */
@@ -70,33 +129,6 @@ export interface LaneCellProps {
 }
 
 /**
- * The SVG path of the highlighted segments of a row whose node is on `lane`: the lanes passing it, the line up, the line
- * down, the fork curve. The lines run into the centre of the node; the mask of the SVG (`bd-node-cut`) ends them at
- * its edge or at its ring.
- */
-function segmentPath(segments: LaneSegments, lane: number, forkFrom: number | null): string {
-  const x = laneX(lane)
-  const middle = ROW / 2
-  const parts = segments.through.map(it => `M${laneX(it)} 0V${ROW}`)
-  if (segments.up) {
-    parts.push(`M${x} 0V${middle}`)
-  }
-  if (segments.down) {
-    parts.push(`M${x} ${middle}V${ROW}`)
-  }
-  if (segments.fork && forkFrom !== null) {
-    // down from the parent's lane, then into the node from the left
-    parts.push(`M${laneX(forkFrom)} 0Q${laneX(forkFrom)} ${middle} ${x - NODE_RADIUS} ${middle}`)
-  }
-  return parts.join("")
-}
-
-/** The SVG path of lanes running over a whole row below a branch row, in the units of `LaneLines` */
-function verticalPath(lanes: readonly number[]): string {
-  return lanes.map(it => `M${laneX(it)} 0V1`).join("")
-}
-
-/**
  * The start of the name cell of a branch row in a table with stacks: a spacer as wide as the lane column of the table
  * (so every name starts at the same x), and over the whole row height (the cell is `relative`) the lines of the lanes
  * and the node of the branch: the highlighted path to the root of the stack (`useStackPathSegments`) over them, the
@@ -105,7 +137,7 @@ function verticalPath(lanes: readonly number[]): string {
 export function LaneCell({ lanes, name, familyIndent, lineDown, collapsedBelow = false, ring = false, highlight = null, commitsBelow = false }: LaneCellProps) {
   const { lane, forkFrom, up, through } = lanes
   const path = useStackPathSegments(name)
-  const lines = segmentPath({ up, down: lineDown, fork: forkFrom !== null, through }, lane, forkFrom)
+  const lines: LaneSegments = { up, down: lineDown, fork: forkFrom !== null, through }
   const drawn = Math.max(lane, ...through) + 1
   const cut = ring ? RING_AROUND_EDGE_REM : NODE_CUT_REM
   return (
@@ -114,28 +146,28 @@ export function LaneCell({ lanes, name, familyIndent, lineDown, collapsedBelow =
       {familyIndent === 1 && <FamilyGuide />}
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)"
+        className="pointer-events-none absolute inset-y-0 left-(--bd-lane-start) [--bd-bar-width:var(--bd-lane-line-width)]"
         style={{ ...cssVars({ "--bd-lanes-drawn": drawn, "--bd-node-lane": lane }), "--bd-node-cut": `${cut}rem` } as CSSProperties}
       >
-        {lines !== "" && (
-          <svg
-            className="h-full w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] bd-node-cut text-(--bd-lane-line)"
-            viewBox={`0 0 ${drawn * LANE} ${ROW}`}
-            preserveAspectRatio="none"
-            data-testid="lane-lines"
-          >
-            <path d={lines} fill="none" stroke="currentColor" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-            {path !== null && <HighlightPath d={segmentPath(path, lane, forkFrom)} tone="path" />}
+        {hasSegments(lines, forkFrom) && (
+          <span className="absolute inset-y-0 left-0 w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] text-(--bd-lane-line)" data-testid="lane-lines">
+            <RowSegments segments={lines} lanes={lanes} />
+            {path !== null && hasSegments(path, forkFrom) && (
+              <Highlight tone="path">
+                <RowSegments segments={path} lanes={lanes} />
+              </Highlight>
+            )}
             {commitsBelow && highlight?.down !== true ? (
               <RobotLanesIntoRail name={name} lanes={lanes} highlight={highlight} />
             ) : (
-              highlight !== null && <HighlightPath d={segmentPath(highlight, lane, forkFrom)} tone="robot" failing={highlight.failing === true} />
+              highlight !== null && <RobotSegments segments={highlight} lanes={lanes} failing={highlight.failing === true} />
             )}
-          </svg>
+          </span>
         )}
         {collapsedBelow && (
           <span
-            className="absolute top-[calc(50%+var(--bd-node-cut)+0.125rem)] left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] h-2.5 w-px -translate-x-1/2 bg-linear-to-b from-(--bd-lane-line) to-transparent"
+            className="absolute top-[calc(50%+var(--bd-node-cut)+0.125rem)] bd-lane-x h-2.5 w-(--bd-bar-width) bg-linear-to-b from-(--bd-lane-line) to-transparent"
+            style={cssVars({ "--bd-bar-lane": lane })}
             data-testid="lane-collapsed"
           />
         )}
@@ -157,15 +189,20 @@ const NO_SEGMENTS: LaneSegments = { up: false, fork: false, down: false, through
 function RobotLanesIntoRail({ name, lanes, highlight }: { name: string; lanes: StackLanes; highlight: LaneSegments | null }) {
   const tone = useRobotLineIntoRail(name, lanes.alone === true)
   if (tone === null) {
-    return highlight === null ? null : <HighlightPath d={segmentPath(highlight, lanes.lane, lanes.forkFrom)} tone="robot" failing={highlight.failing === true} />
+    return highlight === null ? null : <RobotSegments segments={highlight} lanes={lanes} failing={highlight.failing === true} />
   }
-  const segments = highlight ?? NO_SEGMENTS
+  return <RobotSegments segments={{ ...(highlight ?? NO_SEGMENTS), down: true }} lanes={lanes} failing={highlight === null ? tone === "failing" : highlight.failing === true} />
+}
+
+/** The landing span of a robot in a branch row (`landing-lanes`); nothing without a segment */
+function RobotSegments({ segments, lanes, failing }: { segments: LaneSegments; lanes: StackLanes; failing: boolean }) {
+  if (!hasSegments(segments, lanes.forkFrom)) {
+    return null
+  }
   return (
-    <HighlightPath
-      d={segmentPath({ ...segments, down: true }, lanes.lane, lanes.forkFrom)}
-      tone="robot"
-      failing={highlight === null ? tone === "failing" : highlight.failing === true}
-    />
+    <Highlight tone="robot" failing={failing}>
+      <RowSegments segments={segments} lanes={lanes} />
+    </Highlight>
   )
 }
 
@@ -238,27 +275,21 @@ function LaneRobotRing({ branchName }: { branchName: string }) {
 }
 
 /**
- * The highlighted segments of a stack graph: `path` the path to the root of the hovered or focused branch
- * (`--bd-lane-path`, fading in), `robot` the landing span of a running robot (`--bd-robot-line`: primary, destructive
- * for one that will fail, as its ring), drawn over it
+ * The highlighted segments of a stack graph, `--bd-lane-span-width` wide in the colour their lines take
+ * (`currentColor`): `path` the path to the root of the hovered or focused branch (`--bd-lane-path`, fading in), `robot`
+ * the landing span of a running robot (`--bd-robot-line`: primary, destructive for one that will fail, as its ring),
+ * drawn over it
  */
-function HighlightPath({ d, tone, failing = false }: { d: string; tone: "path" | "robot"; failing?: boolean }) {
-  if (d === "") {
-    return null
-  }
+function Highlight({ tone, failing = false, children }: { tone: "path" | "robot"; failing?: boolean; children: ReactNode }) {
+  const span = "absolute inset-0 [--bd-bar-width:var(--bd-lane-span-width)]"
   return tone === "path" ? (
-    <path d={d} fill="none" stroke="var(--bd-lane-path)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" className="bd-path-in" data-testid="stack-path-lanes" />
+    <span className={cn(span, "text-(--bd-lane-path) bd-path-in")} data-testid="stack-path-lanes">
+      {children}
+    </span>
   ) : (
-    <path
-      d={d}
-      fill="none"
-      stroke="var(--bd-robot-line)"
-      strokeWidth={1.5}
-      vectorEffect="non-scaling-stroke"
-      className={cn(failing && "bd-robot-failing")}
-      data-testid="landing-lanes"
-      data-failing={failing || undefined}
-    />
+    <span className={cn(span, "text-(--bd-robot-line)", failing && "bd-robot-failing")} data-testid="landing-lanes" data-failing={failing || undefined}>
+      {children}
+    </span>
   )
 }
 
@@ -282,20 +313,22 @@ export function LaneLines({
   if (all.length === 0) {
     return null
   }
-  const drawn = Math.max(...all) + 1
+  const bars = (of: readonly number[]) => of.map(it => <LaneBar key={it} lane={it} span="row" />)
   return (
-    <svg
+    <span
       aria-hidden
-      className="pointer-events-none absolute inset-y-0 left-(--bd-lane-start) h-full w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] text-(--bd-lane-line)"
-      style={cssVars({ "--bd-lanes-drawn": drawn })}
-      viewBox={`0 0 ${drawn * LANE} 1`}
-      preserveAspectRatio="none"
+      className="pointer-events-none absolute inset-y-0 left-(--bd-lane-start) w-[calc(var(--bd-lanes-drawn)*var(--bd-lane-width))] text-(--bd-lane-line) [--bd-bar-width:var(--bd-lane-line-width)]"
+      style={cssVars({ "--bd-lanes-drawn": Math.max(...all) + 1 })}
       data-testid="lane-lines"
     >
-      <path d={verticalPath(lanes)} fill="none" stroke="currentColor" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-      <HighlightPath d={verticalPath(path)} tone="path" />
-      <HighlightPath d={verticalPath(highlighted)} tone="robot" failing={failing} />
-    </svg>
+      {bars(lanes)}
+      {path.length > 0 && <Highlight tone="path">{bars(path)}</Highlight>}
+      {highlighted.length > 0 && (
+        <Highlight tone="robot" failing={failing}>
+          {bars(highlighted)}
+        </Highlight>
+      )}
+    </span>
   )
 }
 

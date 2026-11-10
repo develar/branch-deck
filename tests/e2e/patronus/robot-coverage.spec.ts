@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { expectOneLineAcross } from "../helpers/lane-pixels"
 import { availableRobots, robot, setupRobots, setupRobotsWith, willFail } from "../helpers/patronus-helpers"
 import { hoverStatusChip } from "../helpers/review-status-helpers"
 
@@ -18,7 +19,8 @@ async function robotColors(page: Page, branch: string, commit: Locator): Promise
     .getByTestId("lane-ring")
     .getByTestId("robot-ring")
     .evaluate(it => getComputedStyle(it).color)
-  const node = await row.getByTestId("landing-lanes").evaluate(it => getComputedStyle(it).stroke)
+  // the colour its lines and its curve take (`currentColor`)
+  const node = await row.getByTestId("landing-lanes").evaluate(it => getComputedStyle(it).color)
   const [dot, rail] = await commit.locator("> td").evaluate(it => [getComputedStyle(it, "::before").backgroundColor, getComputedStyle(it, "::after").backgroundColor])
   return { ring, node, dot: dot!, rail: rail! }
 }
@@ -80,6 +82,9 @@ test.describe("Commits a running Safe Push covers", () => {
     await expect(lines).not.toHaveAttribute("data-failing")
     const colors = await robotColors(page, "JIRA-456", newest!)
     expect(colors).toEqual({ ring: colors.ring, node: colors.ring, dot: colors.ring, rail: colors.ring })
+    // and in one width: the line of the branch row and the line of the rail are the same pixels at the border
+    const row = findBranchRow(page, "JIRA-456")
+    await expectOneLineAcross(page, row, "bottom", row.getByTestId("lane-node"))
   })
 
   test("should draw the line and the dots of a robot that will fail in the colour of its ring", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -114,6 +119,9 @@ test.describe("Commits a running Safe Push covers", () => {
     await expect(row.getByTestId("landing-lanes")).toHaveCount(1)
     const colors = await robotColors(page, "session", commit)
     expect(colors).toEqual({ ring: colors.ring, node: colors.ring, dot: colors.ring, rail: colors.ring })
+    // the curve leaves the line of auth above in its pixels, and the line from the node goes on into the rail in them
+    await expectOneLineAcross(page, row, "top", findBranchRow(page, "auth").getByTestId("lane-node"))
+    await expectOneLineAcross(page, row, "bottom", row.getByTestId("lane-node"))
     // auth, which the robot lands with session: its line down to the fork, and its commit on the line of the robot
     await expect(findBranchRow(page, "auth").getByTestId("landing-lanes")).toHaveCount(1)
     await expect(findBranchRow(page, "login").getByTestId("landing-lanes")).toHaveCount(0)
@@ -130,8 +138,9 @@ test.describe("Commits a running Safe Push covers", () => {
     await expandBranch(page, row)
     const commit = getBranchCommitRow(page, "bazel", "Build the deploy jar, part 1")
     await expect(commit).toHaveAttribute("data-robot-line", "both")
-    // its commits are on the line of the robot, which starts at the node
+    // its commits are on the line of the robot, which starts at the node, one line across the border of the row
     await expect(row.getByTestId("landing-lanes")).toHaveCount(1)
+    await expectOneLineAcross(page, row, "bottom", row.getByTestId("lane-node"))
     await expect(findBranchRow(page, "air").getByTestId("landing-lanes")).toHaveCount(0)
   })
 })

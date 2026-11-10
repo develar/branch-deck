@@ -19,6 +19,7 @@ import {
 } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
+import { expectOneLineAcross } from "../helpers/lane-pixels"
 import {
   AWAITING_CODE_OWNER,
   availableRobots,
@@ -186,6 +187,12 @@ test.describe("Stacked branches", () => {
     for (const dotX of await commitDotXs(page, "oauth")) {
       expect(Math.abs(dotX - authX)).toBeLessThanOrEqual(1)
     }
+    // a lane is one line across the rows: from the node of auth into its rail, out of the rail into the fork of
+    // session, from the node of oauth into the end of its lane
+    const auth = findBranchRow(page, "auth").getByTestId("lane-node")
+    await expectOneLineAcross(page, findBranchRow(page, "auth"), "bottom", auth)
+    await expectOneLineAcross(page, findBranchRow(page, "session"), "top", auth)
+    await expectOneLineAcross(page, findBranchRow(page, "oauth"), "bottom", findBranchRow(page, "oauth").getByTestId("lane-node"))
     // the commit subjects start at the branch name
     const name = await boxOf(findBranchRow(page, "oauth").getByText("oauth", { exact: true }))
     const subject = await boxOf(getBranchCommitRow(page, "oauth", "Add OAuth provider").getByText("Add OAuth provider", { exact: true }))

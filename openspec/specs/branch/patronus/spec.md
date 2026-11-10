@@ -1197,10 +1197,10 @@ rail.
 
 ### Requirement: Commits a running robot covers: The line of the robot runs over the commits it covers
 
-On the rail of the branch, the line of the robot MUST run over the commits it covers: a 1.5px stroke in
-`--bd-robot-line`, the colour of its ring and landing span, from the node of the branch while it covers the first
-row, else from the newest covered commit, down to the last covered one. The dots of the covered commits MUST be in
-that colour; a robot that will fail draws them `destructive`.
+On the rail of the branch, the line of the robot MUST run over the commits it covers: a line of
+`--bd-lane-span-width` in `--bd-robot-line`, the width and the colour of its landing span, the colour of its ring,
+from the node of the branch while it covers the first row, else from the newest covered commit, down to the last
+covered one. The dots of the covered commits MUST be in that colour; a robot that will fail draws them `destructive`.
 
 #### Scenario: Commits added since the robot started
 - **WHEN** commits were added or changed since the robot started
@@ -1220,8 +1220,8 @@ that colour; a robot that will fail draws them `destructive`.
 #### Scenario: The line starts at the node
 - **WHEN** the robot covers the first expanded commit of the branch: its own, one a robot below lands (a side branch
   through the fork curve), or a branch of the whole stack
-- **THEN** the line of the branch row from the node down is the robot's, one line from the ring into the rail, the ring,
-  the line and the dots in one colour
+- **THEN** the line of the branch row from the node down is the robot's, one line from the ring into the rail, in the
+  same device pixels on both sides of the border of the row, the ring, the line and the dots in one colour
   [@test] tests/e2e/patronus/robot-coverage.spec.ts (`should start the line of the robot at the ring of its node, in the colour of the ring`)
   [@test] tests/e2e/patronus/robot-coverage.spec.ts (`should run the line of the robot of a side branch from the fork through its node into its commits`)
   [@test] tests/e2e/patronus/robot-coverage.spec.ts (`should start the line of the robot of the whole stack at the node of each expanded branch`)
