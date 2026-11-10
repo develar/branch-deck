@@ -124,4 +124,82 @@ test.describe("Parts of a file", () => {
       await expect(window.getByTestId("review-step-bar")).toHaveText("Other changes")
     },
   )
+
+  test("should move the focus of the tree with the selection J and K move, so one row is marked", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_parts")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+    const { tree } = reviewSidebar(window)
+    const selected = tree.getByRole("treeitem", { selected: true })
+    const first = tree.getByRole("treeitem", { name: LOADER, exact: true })
+    await first.click()
+    await expect(first).toBeFocused()
+    await expect(selected).toHaveCount(1)
+
+    // J from the row: the opening of Other changes selects the row of Loader.kt there, which takes the focus
+    await window.keyboard.press("j")
+    const other = tree.getByRole("treeitem", { name: "Loader.kt, also in Other changes", exact: true })
+    await expect(other).toHaveAttribute("aria-selected", "true")
+    await expect(other).toBeFocused()
+    await expect(first).not.toBeFocused()
+    await expect(selected).toHaveCount(1)
+
+    // K back to the first part: the focus with it
+    await window.keyboard.press("k")
+    await expect(first).toHaveAttribute("aria-selected", "true")
+    await expect(first).toBeFocused()
+    await expect(selected).toHaveCount(1)
+  })
+
+  test("should name one section in the bar, the footer and the tree at the end of the document: the one J showed until the reader scrolls, then the last one", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_parts")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+    // a view taller than the end of the document below the first part: the second part cannot reach its top
+    await window.setViewportSize({ width: 1280, height: 1100 })
+    const { tree } = reviewSidebar(window)
+    const bar = window.getByTestId("review-step-bar")
+    const position = window.getByTestId("review-position")
+    const selected = tree.getByRole("treeitem", { selected: true })
+    const cards = window.locator(`[data-testid=diff-view-file][data-path="${LOADER}"]`)
+    await tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
+    await expect(bar).toHaveText("Step 1 / 1·probe")
+
+    // J to the second part: the end of the document leaves the first part at the top, the one J showed is named
+    await window.keyboard.press("j")
+    await window.keyboard.press("j")
+    await expect(position).toHaveText("File 2 / 2 · part 2 of 3")
+    await expect(bar).toHaveText("Other changes")
+    await expect(selected).toHaveAccessibleName("Loader.kt, also in Other changes")
+    await expect(cards.first()).toBeInViewport()
+
+    // the reader scrolls to the end: the last section, the imports, in all three
+    await window.getByTestId("diff-view").hover()
+    await window.mouse.wheel(0, -40)
+    await window.mouse.wheel(0, 100_000)
+    await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
+    await expect(bar).toHaveText("Imports only")
+    await expect(selected).toHaveAccessibleName(LOADER)
+  })
+
+  test(
+    "should show the opening of the first step on the first J of a review just opened on its overview",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_parts")
+      turnOnReviewPlan(repo)
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+      const bar = window.getByTestId("review-step-bar")
+      await expect(bar).toHaveText("Overview·1 step")
+      // nothing scrolled the diffs nor chose a section: J goes on from the overview at their top
+      await window.getByRole("region", { name: "Changes of the commit" }).focus()
+      await window.keyboard.press("j")
+      await expect(bar).toHaveText("Step 1 / 1·probe")
+      await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "1 · probe", exact: true })).toHaveAttribute("aria-selected", "true")
+    },
+  )
 })

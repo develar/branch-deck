@@ -518,14 +518,16 @@ test.describe("The review plan in the branch review", () => {
       await expect(reader).toBeFocused()
       await expect(footer).toContainText("Details")
 
-      // Enter on the link selects Cache and closes the card, the focus back on the row it was opened from
+      // Enter on the link selects Cache and closes the card, the focus on the row of Cache as a click gives it, so one row
+      // is marked
       await window.keyboard.press("i")
       await expect(link).toBeFocused()
       await expect(cache).toHaveAttribute("aria-selected", "false")
       await window.keyboard.press("Enter")
       await expect(cache).toHaveAttribute("aria-selected", "true")
       await expectClosed(card)
-      await expect(reader).toBeFocused()
+      await expect(cache).toBeFocused()
+      await expect(reader).not.toBeFocused()
       await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
     },
   )

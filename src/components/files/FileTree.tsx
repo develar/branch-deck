@@ -163,6 +163,13 @@ export function FileTree(props: FileTreeProps) {
   // the indent of each row: its depth less the headings above it, whose rows keep their indent
   const indents = headingIndents(rows)
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
+  // a selection moved from outside the tree (J, K, N, P, the diffs scrolled) takes the tab stop from the row focused
+  // before, so the keys and the selection mark one row
+  const [selectionSeen, setSelectionSeen] = useState(selectedKey)
+  if (selectionSeen !== selectedKey) {
+    setSelectionSeen(selectedKey)
+    setFocusedKey(null)
+  }
   // the row in the tab order: the focused one while it shows, then the selected one, otherwise the first
   const tabKey = [focusedKey, selectedKey].find(key => key !== null && rows.some(row => row.key === key)) ?? rows[0]?.key ?? null
   const rowElements = useRef(new Map<string, HTMLElement>())
@@ -174,10 +181,22 @@ export function FileTree(props: FileTreeProps) {
     setCard(current => (open ? (current?.key === key ? current : { key, byKey: false }) : current?.key === key ? null : current))
   }
 
-  // a file selected elsewhere (the diffs scrolled, J and K) scrolls into view
+  // a file selected elsewhere (the diffs scrolled, J and K) scrolls into view; while the focus is on another row of the
+  // tree it moves to the selected one (roving focus), so the outline and the selection never mark two rows
   useEffect(() => {
     if (selectedKey !== null) {
-      rowElements.current.get(selectedKey)?.scrollIntoView({ block: "nearest" })
+      const row = rowElements.current.get(selectedKey)
+      row?.scrollIntoView({ block: "nearest" })
+      const active = document.activeElement
+      if (
+        row !== undefined &&
+        active !== row &&
+        active instanceof HTMLElement &&
+        active.dataset.treeKey !== undefined &&
+        rowElements.current.get(active.dataset.treeKey) === active
+      ) {
+        row.focus({ preventScroll: true })
+      }
     }
   }, [selectedKey])
 

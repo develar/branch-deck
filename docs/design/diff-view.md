@@ -295,7 +295,9 @@ and the opening of each step (below). Each item but those has a known height:
   the find and of a declaration shown, so their place on screen never depends on the height of an opening; a scroll to
   a section (the tree, J, the map) keeps `fileTop`. `partAt` says whether a y is in the prologue, in an opening or in
   a card; the view tells the section at the top as it changes (`onVisibleSectionChange`, with its part then) and
-  its part at the top as it is asked (`visibleStop`).
+  its part at the top as it is asked (`visibleStop`): the stop it showed last, else, before a scroll or a choice
+  reported one, the one at the top of the view as it stands, the prologue where a review opens, so the first J goes on
+  from there.
 
 **Measured: the prologue and the openings.** Every height is arithmetic but two kinds of blocks of words of a
 review: the prologue before the first section (`prologue` of `DiffView`) and the opening of each step (of a step of no

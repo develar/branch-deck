@@ -525,8 +525,10 @@ export function DiffView({
   const scroller = useRef<HTMLDivElement>(null)
   const fileMap = useRef<DiffFileMapHandle>(null)
   const visiblePath = useRef<string | undefined>(initialPath ?? (files[0] === undefined ? undefined : pathOf(files[0])))
-  // the section at the top: of a file its path, of a section of a review its key; and its part at the top
-  const visibleKey = useRef<string | undefined>(files[0] === undefined ? undefined : keyOf(files[0]))
+  // the section at the top: of a file its path, of a section of a review its key; and its part at the top. Undefined
+  // until a scroll or a choice reports one: the view says then what is at its top (`visibleNow`), the prologue where a
+  // review opens
+  const visibleKey = useRef<string | undefined>(undefined)
   const visiblePart = useRef<LayoutPart>("card")
   // at the opening of a section, the step whose opening is at the top: of the steps told before it, or its own
   const visibleStep = useRef<string | undefined>(undefined)
@@ -1015,6 +1017,25 @@ export function DiffView({
     return found
   }
 
+  /**
+   * The stop the view shows: the one it showed last, else, while nothing scrolled it nor chose a section, the one at its
+   * top, so the first J of a review that opens on its overview goes on from the overview
+   */
+  const visibleNow = (): { key: string; part: LayoutPart; step?: string } | undefined => {
+    if (visibleKey.current !== undefined) {
+      return { key: visibleKey.current, part: visiblePart.current, ...(visiblePart.current === "opening" && visibleStep.current !== undefined && { step: visibleStep.current }) }
+    }
+    const element = scroller.current
+    const index = element === null ? -1 : layout.fileShownAt(element.scrollTop, element.clientHeight)
+    const file = prepared[index]
+    if (element === null || file === undefined) {
+      return undefined
+    }
+    const part = layout.partShownAt(element.scrollTop, element.clientHeight)
+    const step = part === "opening" ? openingStepAt(index, element.scrollTop + layout.stickyTop + headerHeight / 2) : undefined
+    return { key: file.key, part, ...(step !== undefined && { step }) }
+  }
+
   /** Shows the prologue at the top, the section of `file` (the first) the one it is above */
   const showPrologue = (file: PreparedFile) => {
     changeCursor.current = null
@@ -1429,10 +1450,7 @@ export function DiffView({
         showPrologue(file)
       }
     },
-    visibleStop: () =>
-      visibleKey.current === undefined
-        ? undefined
-        : { key: visibleKey.current, part: visiblePart.current, ...(visiblePart.current === "opening" && visibleStep.current !== undefined && { step: visibleStep.current }) },
+    visibleStop: visibleNow,
     focus: () => scroller.current?.focus(),
     openFind,
     stepFind,
@@ -1899,11 +1917,6 @@ function readsOf(file: PreparedFile): readonly BlobRequest[] {
 /** The path of a file of the props */
 function pathOf(entry: DiffViewFile | MergeViewFile): string {
   return "merge" in entry ? entry.path : entry.file.path
-}
-
-/** The key of the section of a file of the props (`PreparedFile.key`) */
-function keyOf(entry: DiffViewFile | MergeViewFile): string {
-  return "merge" in entry ? entry.path : (entry.section?.key ?? entry.file.path)
 }
 
 const NOTICE_SEPARATOR = "\u0001"
