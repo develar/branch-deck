@@ -46,9 +46,13 @@ async function pushAndWait(page: Page): Promise<void> {
   await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
 }
 
-/** The toast of a push into master, by its title */
+/**
+ * The open toast of a push into master, by its title. A toast that timed out while the landing ran on closes
+ * (`data-ending-style`, its exit ends only as the page paints, which a loaded machine may not do for seconds), and the
+ * later state of its event shows a new one: that is the toast the user reads
+ */
 function pushToast(page: Page, title: string): Locator {
-  return page.locator("[data-slot=toast]", { hasText: title })
+  return page.locator("[data-slot=toast]:not([data-ending-style])", { hasText: title })
 }
 
 /**
@@ -110,15 +114,16 @@ test.describe("Push to master", () => {
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
     await page.keyboard.press("Enter")
     await heldPush.release()
-    await Promise.all([firstAnswer, bothAnswers])
 
-    const firstToast = pushToast(page, `Pushed ${firstBranch} into master`)
-    const secondToast = pushToast(page, `Pushed ${secondBranch} into master`)
-    await expect(firstToast).toContainText(`${firstBranch} landed in origin/master`)
-    await expect(secondToast).toContainText(`${secondBranch} landed in origin/master`)
+    // each landing as its answer comes: the toast of the first times out while the second runs, which takes seconds
+    // under load (it waits for the update and the sync of the first, then pushes and updates itself)
+    await firstAnswer
+    await expect(pushToast(page, `Pushed ${firstBranch} into master`)).toContainText(`${firstBranch} landed in origin/master`)
     await expect(findBranchRow(page, firstBranch)).toHaveCount(0)
+    await bothAnswers
+    await expect(pushToast(page, `Pushed ${secondBranch} into master`)).toContainText(`${secondBranch} landed in origin/master`)
     await expect(findBranchRow(page, secondBranch)).toHaveCount(0)
-    await expect.poll(async () => (await repo.getRemoteBranches()).master).not.toBe(masterBefore)
+    expect((await repo.getRemoteBranches()).master).not.toBe(masterBefore)
     await expect(page.locator("[data-slot=toast]").filter({ hasText: /Cannot push|Nothing was pushed/ })).toHaveCount(0)
   })
 
@@ -175,7 +180,7 @@ test.describe("Push to master", () => {
     await expect(popoverStart(page)).toBeFocused()
     await pushAndWait(page)
     expect((await repo.getRemoteBranches())["master"]).toBe(copy)
-    await expect(page.locator("[data-slot=toast]", { hasText: "Pushed the whole air stack into master · 14 commits" })).toBeVisible()
+    await expect(pushToast(page, "Pushed the whole air stack into master · 14 commits")).toBeVisible()
     // the update dropped the originals: the island and its branches are gone
     await expect(findBranchRow(page, "air")).toHaveCount(0)
     await expect(findBranchRow(page, "docs")).toBeVisible()
@@ -246,7 +251,7 @@ test.describe("Push to master", () => {
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
     await expect(popoverStart(page)).toBeFocused()
     await pushAndWait(page)
-    const notice = page.locator("[data-slot=toast]", { hasText: `master moved: ${BRANCH} is rebuilt on the new commits` })
+    const notice = pushToast(page, `master moved: ${BRANCH} is rebuilt on the new commits`)
     // the update that follows builds the copy anew on their commit: the step offers its push again
     await expect(notice).toContainText("Updated master")
     await expect(notice).toContainText("Push to master again")

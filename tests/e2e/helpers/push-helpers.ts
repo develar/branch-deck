@@ -104,12 +104,13 @@ export async function pushedBefore(
 /**
  * Holds the pushes at the remote of `repo` from now on (the held answer `push`): a push reaches the remote, which has
  * its pack, and moves no ref until the release, so a test sees the push running. `arrived` waits until one reached
- * the remote and waits there; `release` lets it and the later ones through
+ * the remote and waits there, however long the test lets the way there take (the plan, the build, the pack: seconds
+ * under load), never the 5 s of an assertion; `release` lets it and the later ones through
  */
 export async function holdRemotePushes(repo: TestRepositoryBuilder): Promise<{ arrived: () => Promise<void>; release: () => Promise<void> }> {
   await repo.holdRemoteAnswers({ hold: ["push"] })
   return {
-    arrived: () => expect.poll(() => repo.getArrivedAnswers()).toContain("push"),
+    arrived: () => expect.poll(() => repo.getArrivedAnswers(), { timeout: 0 }).toContain("push"),
     release: () => repo.holdRemoteAnswers({ release: ["push"] }),
   }
 }
