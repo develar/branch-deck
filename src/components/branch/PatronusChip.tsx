@@ -31,7 +31,7 @@ import { formatTimestamp } from "@/lib/time"
 import type { RobotAction } from "@/presenters/actions"
 import { isRestart } from "@/presenters/actions"
 import { formatPendingFact } from "@/presenters/next-step"
-import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
+import { useBranch, useBranchRemoteStatus, useBranchTip, useStackBranch } from "@/stores/branch-sync"
 import { patronusStore, useBranchRobot, usePatronusAvailable, usePatronusPending, useRobotFailing, useRobotNeedsReview, useRobotRestart } from "@/stores/patronus"
 
 /**
@@ -77,6 +77,8 @@ export interface RobotStatusChipProps {
    * hover (`controlKey`), as the robot ends under the pointer
    */
   stackPath?: boolean
+  /** The robot of the whole stack of this root (`PatronusRobotDetailsProps.stackRoot`) */
+  stackRoot?: string
   /** The icon, the text and the dots */
   children: ReactNode
 }
@@ -85,7 +87,7 @@ export interface RobotStatusChipProps {
  * The `StatusChip` of a robot: hover opens its details (its actions, `getGatedRobotActions`), asked for while open; a
  * click opens the robot in Patronus. `patronus-chip` with its kind, colour and the outdated mark for the E2E tests.
  */
-export function RobotStatusChip({ branchName, robot, chip, label, className, stackPath = false, children }: RobotStatusChipProps) {
+export function RobotStatusChip({ branchName, robot, chip, label, className, stackPath = false, stackRoot, children }: RobotStatusChipProps) {
   const [open, setOpen] = useState(false)
   return (
     <StatusChip
@@ -98,7 +100,7 @@ export function RobotStatusChip({ branchName, robot, chip, label, className, sta
         "data-outdated": chip.outdated || undefined,
         "data-stack-path": stackPath ? "landing" : undefined,
       }}
-      details={<PatronusRobotDetails branchName={branchName} robot={robot} loadDetails={open} />}
+      details={<PatronusRobotDetails branchName={branchName} robot={robot} loadDetails={open} {...(stackRoot !== undefined && { stackRoot })} />}
       detailsTestId="patronus-popover"
       onActivate={() => openRobot(robot)}
       onOpenChange={setOpen}
@@ -115,6 +117,11 @@ export interface PatronusRobotDetailsProps {
   robot: PatronusRobot
   /** Asks Patronus for the profile, the checks and the problems (the popover is open) */
   loadDetails: boolean
+  /**
+   * The robot of the whole stack of this root, on its stack branch `{prefix}/stack/<root>`: its commit is the stack
+   * branch's, and no Safe Push of a branch takes its place
+   */
+  stackRoot?: string
 }
 
 /**
@@ -123,12 +130,15 @@ export interface PatronusRobotDetailsProps {
  * when it was only rebuilt on a newer baseline), then the actions of the robot as the branch menu names them
  * (`RobotActionRows`). The chip popover and the branch preview show it.
  */
-export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
+export function PatronusRobotDetails({ branchName, robot, loadDetails, stackRoot }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
   const failing = useRobotFailing(robot.id)
   // a restart or a cancel that runs shows in its button
-  const localTip = useBranchTip(branchName)
-  const remote = useBranchRemoteStatus(branchName)
+  const branchTip = useBranchTip(branchName)
+  const branchRemote = useBranchRemoteStatus(branchName)
+  const stack = useStackBranch(stackRoot ?? "")
+  const localTip = stackRoot === undefined ? branchTip : (stack?.tip ?? undefined)
+  const remote = stackRoot === undefined ? branchRemote : (stack?.remoteStatus ?? null)
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
   const Icon = patronusChipIcons[chip.kind]
   const details = useRobotDetails(robot.id, loadDetails)
@@ -262,7 +272,11 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
       <RobotActionRows
         actions={actions}
         // the form is below the row: an open branch preview closes first (`SafePushButton`)
-        leading={needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined ? <SafePushButton branch={branch} variant="outline" /> : null}
+        leading={
+          needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && stackRoot === undefined ? (
+            <SafePushButton branch={branch} variant="outline" />
+          ) : null
+        }
       />
     </div>
   )

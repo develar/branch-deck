@@ -189,7 +189,8 @@ test.describe("Pull request chip", () => {
 
   test("should open the pull request from the branch context menu", async ({ page }) => {
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Open Pull Request" }).click()
+    // the number says which one it opens
+    await page.getByRole("menuitem", { name: "Open Pull Request #760" }).click()
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
 
     await findBranchRow(page, "feature-auth").click({ button: "right" })
@@ -203,7 +204,7 @@ test.describe("Pull request chip", () => {
   test("should open the pull request with O on the focused row, and copy its link from the branch menu and the popover", async ({ page }) => {
     // the key the menu item shows works on the focused row
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await expect(page.getByRole("menuitem", { name: "Open Pull Request" }).locator("[data-slot=kbd]")).toHaveText("O")
+    await expect(page.getByRole("menuitem", { name: "Open Pull Request #760" }).locator("[data-slot=kbd]")).toHaveText("O")
     await openSubmenu(page, "Copy")
     await page.getByRole("menuitem", { name: "Copy Pull Request Link" }).click()
     expect(await readClipboard(page)).toBe(APPROVED.url)
@@ -430,7 +431,7 @@ test.describe("Pull request chip", () => {
 
     // it has one: nothing to create
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
-    await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Open Pull Request #760" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
   })
 
@@ -445,6 +446,11 @@ test.describe("Pull request chip", () => {
 
     await page.keyboard.press("o")
     expect(await getOpenedUrls(page)).toEqual([CHANGES_REQUESTED.url])
+    // the button of the footer, the item of the menu
+    await preview.getByRole("button", { name: "Open Pull Request #761" }).click()
+    expect(await getOpenedUrls(page)).toEqual([CHANGES_REQUESTED.url, CHANGES_REQUESTED.url])
+    // the keys of the preview from its body again: Space would press the focused button
+    await preview.getByTestId("branch-preview-body").focus()
 
     // a branch without a pull request has no section
     await switchBranchPreview(page, preview, "feature-auth")

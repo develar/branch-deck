@@ -1775,7 +1775,7 @@ from a button, a checkbox or a field of an inline form in the row. The keys that
 
 ### Requirement: Keyboard: O opens the pull request of the focused row
 
-O MUST open the pull request of the focused row, as "Open Pull Request" of its menu; nothing for a branch without one.
+O MUST open the pull request of the focused row, as "Open Pull Request #7" of its menu; nothing for a branch without one.
 
 #### Scenario: O on a row with a pull request
 - **WHEN** the user presses O on the focused row of a branch with a pull request
@@ -1909,7 +1909,7 @@ The groups MUST come in the order of how often their actions are wanted, Safe Pu
   while it pushes the stack ([Stacked Branches](../stacked-branches/spec.md#pull-requests)), on a branch with branches
   stacked on it "Push with Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond
   the branch: [Stacked Branches](../stacked-branches/spec.md#pull-requests)), and "Mark IJAI-1 Fixed" for a YouTrack issue
-- **AND** the review ("Review Changes", "Open Pull Request" or "Create Pull Request…", "Request Review…", "Retarget #7 to
+- **AND** the review ("Review Changes", "Open Pull Request #7" or "Create Pull Request…", "Request Review…", "Retarget #7 to
   master", "Link GitHub Stack" of a layer whose stack of GitHub is out of line:
   [Stacks of GitHub](../stacked-branches/spec.md#stacks-of-github))
 - **AND** the shape ("Rename…" or "Name This Branch…", "Move to…", "Stack On… ›", "Unstack from …", "Ungroup")

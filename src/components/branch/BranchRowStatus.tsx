@@ -127,32 +127,59 @@ function formatRobotLabel(robot: PatronusRobot, chip: PatronusChipState): string
   return `${formatPushMode(robot.pushMode)}: ${chip.label}`
 }
 
+export interface RunningRowRobotProps {
+  /** The branch the robot ran on; the root for the robot of the whole stack (`stackRoot`) */
+  branchName: string
+  robot: PatronusRobot
+  chip: PatronusChipState
+  /** The robot of a branch row, whose hover draws its path in the stack graph (`RobotStatusChipProps.stackPath`) */
+  stackPath?: boolean
+  /** The robot of the whole stack of this root (`RobotStatusChipProps.stackRoot`) */
+  stackRoot?: string
+  /**
+   * In the title bar of a window, inside a `@container` of the room the stack bar leaves: the time while it fits, how
+   * long it runs from 5rem, how long it still takes from 10rem, so a narrow window keeps the ring and the line, its
+   * accessible name the time; `shared` with words after it in the same room ("lands with oauth"), which show first: the
+   * time left from 20rem
+   */
+  titleBar?: "alone" | "shared"
+}
+
 /**
  * A running robot: the ring, how long it runs and how long it still takes ("18m · ~22m", past its usual time
  * "55m · usually ~40m"), and under it the line of the share of its usual time, indeterminate without history, past it
  * and while it cancels; one that will fail says so instead of the time left ("18m · Failing"), no use waiting for it.
- * Its own component, as its time ticks.
+ * Its own component, as its time ticks: the Status cell of a branch row and the title bar of the review window show it.
  */
-function RunningRowRobot({ branchName, robot, chip }: { branchName: string; robot: PatronusRobot; chip: PatronusChipState }) {
+export function RunningRowRobot({ branchName, robot, chip, stackPath = true, stackRoot, titleBar }: RunningRowRobotProps) {
   const timing = useRobotTiming(robot, true)
   const canceling = robot.status === "canceling"
   const failing = isFailingChip(chip)
   const progress = formatRobotProgress(timing)
   // "Safe Push: Failing": the time left is no use for a robot that will fail
   const label = canceling || failing ? formatRobotLabel(robot, chip) : `${formatRobotLabel(robot, chip)}, ${formatSpokenRobotProgress(timing)}`
+  const rest = failing ? ` · ${chip.label}` : progress.eta === null ? null : ` · ${progress.eta}`
   return (
     // as wide as "59m · ~1h 59m" while it runs, so its time ticks without moving the columns; a robot past its usual
     // time ("55m · usually ~40m") widens its column once
-    <div className="relative flex min-w-[13ch]">
-      <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={label} className={ROW_ROBOT} stackPath>
+    <div className={cn("relative flex", titleBar === undefined ? "min-w-[13ch]" : "min-w-0")}>
+      <RobotStatusChip
+        branchName={branchName}
+        robot={robot}
+        chip={chip}
+        label={label}
+        className={cn(ROW_ROBOT, titleBar !== undefined && "min-w-0 shrink")}
+        stackPath={stackPath}
+        {...(stackRoot !== undefined && { stackRoot })}
+      >
         <RobotRing className={cn("size-3.5 shrink-0", robotRingColor(failing))} />
-        <span className="truncate" data-testid="robot-time">
+        <span className={cn("truncate", titleBar !== undefined && "hidden @min-[5rem]:inline")} data-testid="robot-time">
           {canceling ? (
             chip.label
           ) : (
             <>
               <span className={failing ? undefined : "text-foreground"}>{progress.elapsed}</span>
-              {failing ? ` · ${chip.label}` : progress.eta !== null && ` · ${progress.eta}`}
+              {titleBar === undefined || rest === null ? rest : <span className={titleBar === "alone" ? "hidden @min-[10rem]:inline" : "hidden @min-[20rem]:inline"}>{rest}</span>}
             </>
           )}
         </span>

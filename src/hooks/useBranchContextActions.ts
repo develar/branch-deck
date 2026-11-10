@@ -494,14 +494,15 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
 }
 
 /**
- * "Open Pull Request" with the key of the focused row and of the branch preview; a closed one says so, beside the
- * Create Pull Request… a branch with only a closed one gets
+ * "Open Pull Request #1593" with the key of the focused row and of the branch preview, one item for every surface (the
+ * menu of the row, the footer of the preview, the title bar of the review): the number says which one it opens; a
+ * closed one says so, beside the Create Pull Request… a branch with only a closed one gets
  */
 export function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
   const look = ACTION_LOOKS["open-pull-request"]
   return {
     id: "open-pull-request",
-    label: look.label,
+    label: `${look.label} #${pullRequest.number}`,
     icon: look.icon,
     kbds: [...look.kbds],
     ...(pullRequest.state === "closed" && { description: `#${pullRequest.number} is closed` }),

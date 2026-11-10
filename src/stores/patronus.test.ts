@@ -1154,7 +1154,7 @@ describe("failed robots", () => {
     notices.pullRequests = { auth: { number: 12, state: "open", headRefOid: "tip" } }
     const stop = watchFailures()
     await failRunningRobot()
-    expect(toasts()).toEqual([["Safe Push of auth needs review", "The code owners did not approve the changes", "Open Pull Request", "Open in Patronus"]])
+    expect(toasts()).toEqual([["Safe Push of auth needs review", "The code owners did not approve the changes", "Open Pull Request #12", "Open in Patronus"]])
     stop()
   })
 

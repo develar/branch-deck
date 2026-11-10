@@ -925,13 +925,15 @@ A click on the chip MUST open the pull request in the browser, leave its details
 
 ### Requirement: Chip: The branch menu opens the pull request and copies its link
 
-The branch context menu MUST have "Open Pull Request" in its history group when the branch has a pull request, also
-when the branch can't be modified, and "Copy Pull Request Link" in its copy group. "Open Pull Request" shows `O`, which
+The branch context menu MUST have "Open Pull Request #7" in its history group when the branch has a pull request, the
+number saying which one it opens, also when the branch can't be modified, and "Copy Pull Request Link" in its copy
+group: one item for every surface, the menu, the footer of the preview and the title bar of the review. "Open Pull
+Request #7" shows `O`, which
 opens the pull request on the focused row as in the branch preview
 ([Branch Row](../branch-row/spec.md#keyboard)).
 
 #### Scenario: Open Pull Request from the branch menu
-- **WHEN** the user chooses "Open Pull Request" in the branch context menu
+- **WHEN** the user chooses "Open Pull Request #7" in the branch context menu
 - **THEN** the pull request opens
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
 
@@ -1532,7 +1534,7 @@ one Patronus knows the branches are mirrored to (the Space settings, no token ne
 
 The history group of the branch menu (the right-click and "⋯") MUST have "Create Pull Request…" when the branch has no
 open or merged pull request and the GitHub repository is known, on the remote or not (the dialog pushes it); a branch
-with one MUST NOT. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request" (its hover
+with one MUST NOT. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request #7" (its hover
 "#7 is closed") still opens the closed one, beside it in the menu, the preview and the review window alike.
 
 #### Scenario: A branch without a pull request
@@ -1543,7 +1545,7 @@ with one MUST NOT. A closed pull request doesn't count: the branch gets a new on
 #### Scenario: A branch with only a closed pull request
 - **WHEN** the branch has only a closed pull request
 - **THEN** "Create Pull Request…" is offered
-- **AND** "Open Pull Request", its hover "#7 is closed", opens the closed one beside it
+- **AND** "Open Pull Request #7", its hover "#7 is closed", opens the closed one beside it
   [@test] src/lib/push-run.test.ts (`offers a new pull request when the branch has only a closed one`)
 
 ### Requirement: Creating a pull request: A landed branch keeps Create disabled with the reason
@@ -1981,13 +1983,13 @@ others; work the remote lacks refuses it (`needs_push`) until `--push` pushes it
 ### Requirement: Branch preview: The preview shows the pull request and opens it with O
 
 The meta line of the [branch preview](../branch-preview/spec.md) MUST end with the chip; the body MUST start with a
-pull request section (the details of the chip popover) above the commits; `O` and the footer button "Open Pull Request"
-open it. A branch without a pull request has neither.
+pull request section (the details of the chip popover) above the commits; `O` and the footer button "Open Pull Request #7"
+(the item of the menu) open it. A branch without a pull request has neither.
 
 #### Scenario: The preview of a branch with a pull request
 - **WHEN** the preview of a branch with a pull request opens
 - **THEN** its meta line ends with the chip and its body starts with the pull request section above the commits
-- **AND** `O` and the footer button "Open Pull Request" open the pull request
+- **AND** `O` and the footer button "Open Pull Request #7" open the pull request
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`)
 
 #### Scenario: The preview of a branch without a pull request

@@ -9,7 +9,7 @@ import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
-import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
+import { getCreatePullRequestItem, openPullRequestItemOf } from "@/hooks/useBranchContextActions"
 import { useLandingPushes, useUnpushedChildren } from "@/hooks/useBranchPushes"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import { useUnclaimedOperation } from "@/hooks/useRowOperation"
@@ -17,7 +17,6 @@ import { useLandsByPush } from "@/hooks/useSafePush"
 import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
-import { openPullRequest } from "@/lib/pull-request"
 import { cancelIntent } from "@/model/intents"
 import { useRowPart } from "@/model/store"
 import { presentStopWaiting, waitingOf } from "@/presenters/lock-wait"
@@ -29,7 +28,7 @@ import { usePatronusAvailable, usePatronusOffered, usePatronusPending, usePushHo
 import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
 
 /**
- * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request, Create Pull
+ * The actions on a branch in the footer of its preview, as its menu offers them: O Open Pull Request #7, Create Pull
  * Request… of a branch on GitHub without a live one (also beside a closed one; disabled with the reason once it landed),
  * S Safe Push where Patronus is, Push to master where the repository lands by a push
  * (disabled with the reason of the next step), P Push for a branch with work, disabled with why while its first push
@@ -40,6 +39,8 @@ import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
  */
 export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
+  // the menu's item, "Open Pull Request #7"
+  const openItem = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
   // until Patronus answers, its Safe Push waits there, disabled with why
   const patronusOffered = usePatronusOffered()
   // or Push to master, where the repository lands by a push of the copy into the target
@@ -62,10 +63,10 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const waits = firstPushWait(branch, { landingPushes, patronus: usePatronusAvailable(), held, pending: firstPushPending(usePatronusPending(), usePullRequestsLoading()) })
   return (
     <>
-      {pullRequest !== undefined && (
-        <Button variant="ghost" size="xs" onClick={() => openPullRequest(pullRequest)}>
+      {openItem !== null && (
+        <Button variant="ghost" size="xs" onClick={() => openItem.onSelect(FROM_MENU)}>
           <Kbd>O</Kbd>
-          Open Pull Request
+          {openItem.label}
         </Button>
       )}
       {createItem !== null && (

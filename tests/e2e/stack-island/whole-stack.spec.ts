@@ -8,10 +8,12 @@ import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from ".
 import {
   AWAITING_CODE_OWNER,
   NOT_EVALUATED,
+  ROBOTS_NOW,
   availableRobots,
   expectPatronusStarts,
   mergeRunningRobot,
   mergeRunningRobots,
+  minutes,
   robot,
   setupRunningRobot,
   wholeStackStartRequest,
@@ -31,6 +33,7 @@ import {
 } from "../helpers/pull-request-helpers"
 import { expectPushedToRemote, holdRemotePushes, pushedBefore, pushedBranches, STACKED_BRANCHES, stackBranchOf } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
+import { openReviewWindow } from "../helpers/review-window-helpers"
 import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -761,6 +764,34 @@ test.describe("Whole stack", () => {
     const popover = await openWholeStackPopoverWithPullRequest(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED)
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check alice's approval.")
     await expect(popover.getByTestId("safe-push-whole-stack-approvals")).toHaveText("Approvals count in #12, the pull request of the whole stack.")
+  })
+
+  test("should show the running Safe Push of the whole stack after the stack bar of its review, and of each branch of it, which it lands", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // on its stack branch, for 18 minutes; two Safe Pushes of 40 minutes a day ago
+    const whole = robot("air", "whole", { name: "Safe Push of the whole air stack", branchName: null, stackRoot: "air", startTime: ROBOTS_NOW - minutes(18) })
+    const history = ["a", "b"].map(id =>
+      robot(`old-${id}`, `old-${id}`, { status: "success", startTime: ROBOTS_NOW - minutes(24 * 60), finishTime: ROBOTS_NOW - minutes(24 * 60 - 40) }),
+    )
+    await setupRepo("stack_island", { patronus: availableRobots(whole, ...history) })
+    await syncAndWaitForBranches()
+    await expect(island(page, "air").getByTestId("stack-island-landing")).toHaveText("Safe Push of the whole stack lands 7 branches · ~22m left")
+    const window = await openWholeStackReview(page)
+    const status = window.getByTestId("review-robot")
+    await expect(status.getByTestId("robot-time")).toHaveText("18m · ~22m")
+    await expect(status.getByTestId("review-robot-lands-with")).toHaveCount(0)
+    await status.getByTestId("patronus-chip").hover()
+    await expect(window.getByTestId("patronus-popover").getByTestId("patronus-name")).toHaveText("Safe Push of the whole air stack")
+    await window.keyboard.press("Escape")
+
+    // the review of a branch of it: the robot of the whole stack lands it, said so
+    const branchWindow = await openLinkedSubWindow(page, await openReviewWindow(page, "bazel"))
+    const landing = branchWindow.getByTestId("review-robot")
+    await expect(landing.getByTestId("review-robot-lands-with")).toHaveText("lands with the whole air stack")
+    await expect(landing.getByTestId("robot-time")).toHaveText("18m · ~22m")
   })
 
   test("should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it", async ({

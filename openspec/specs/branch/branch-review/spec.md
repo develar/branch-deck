@@ -9,6 +9,7 @@ targets:
   - src/components/branch/BranchPreviewActions.tsx
   - src/stores/branch-preview.ts
   - src/components/review/BranchReviewStackBar.tsx
+  - src/components/review/ReviewRobotStatus.tsx
   - src/components/ui/toggle-group.tsx
   - src/components/shared/FilterChips.tsx
   - src/components/shared/ActionButton.tsx
@@ -79,8 +80,8 @@ each of its commits names its branch, and the segments of the chain it came from
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips mark them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner: the story keeps every file, the others are
 muted, and the keys move through the chosen owner's files. The Safe Push popover names the files each
-group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
-actions on the branch: Open Pull Request, Safe Push (Push to master or Merge #7 in its place, by the route of the
+group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the robot that lands the
+branch while it runs, the diff view and the actions on the branch: Open Pull Request #42, Safe Push (Push to master or Merge #7 in its place, by the route of the
 repository, [Landing Routes](../landing-routes/spec.md)) and Push Branch, built and run by the window from its own
 session, a form of a row by the main window at that row; the footer holds the keys.
 
@@ -833,14 +834,53 @@ again.
 
 ### Requirement: Title bar, footer and actions: The title bar shows the stack bar, the diff view and the actions
 
-The title bar of the window ([Title Bar](../../repository/title-bar/spec.md)) MUST show the stack bar, then at its other
-end the Split/Unified/Inline toggle and the actions on the target branch.
+The title bar of the window ([Title Bar](../../repository/title-bar/spec.md)) MUST show the stack bar and after it the
+robot that lands the target branch while it runs, then at its other end the Split/Unified/Inline toggle and the
+actions on the target branch.
 
 #### Scenario: The title bar of the review window
 - **WHEN** the review window of a branch shows
 - **THEN** its title bar shows the stack bar, then at its other end the Split/Unified/Inline toggle and the actions on the target branch
+- **AND** after the stack bar the robot that lands the target branch while it runs
   [@test] tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`)
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`)
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should show the running Safe Push of the branch after its stack bar as its row does, its details with Open in Patronus on hover, a click opening it`)
+
+### Requirement: Title bar, footer and actions: The title bar shows the robot that lands the branch
+
+The title bar MUST show after the stack bar the robot that lands what the review shows while it runs, as the Status
+cell of its row does: the ring, the time, the line under it; its hover the popover of its details with "Open in
+Patronus", a click opening it. Of a branch it is its own robot, else the running Safe Push that lands it with more
+("lands with session"); of the whole stack its robot. Nothing shows while none runs, nor for a kept branch, a list of
+commits or a pull request.
+
+#### Scenario: The running Safe Push of the branch
+- **WHEN** the review window shows a branch whose Safe Push runs
+- **THEN** its title bar shows after the stack bar the ring, "18m · ~22m" and the line, as the row of the branch
+- **AND** its hover is the popover of its details, whose "Open in Patronus" opens it, as a click on it does
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should show the running Safe Push of the branch after its stack bar as its row does, its details with Open in Patronus on hover, a click opening it`)
+
+#### Scenario: A robot that will fail
+- **WHEN** a required check of the running robot failed
+- **THEN** its ring and its line are `destructive`, its time "18m · Failing"
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should show the robot that will fail in the colour of a failure, Failing in place of the time left`)
+
+#### Scenario: The Safe Push of a branch built on it lands it
+- **WHEN** the review shows a branch that the running Safe Push of a branch built on it lands
+- **THEN** the title bar shows that robot, "lands with session" after it, its details on hover
+- **AND** a branch that no running robot lands shows none
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should show the running Safe Push of a branch built on the branch that lands it, and nothing on a branch it doesn't land`)
+
+#### Scenario: The robot of the whole stack
+- **WHEN** the robot of the whole stack runs
+- **THEN** the review of the whole stack shows it, and the review of a branch of it with "lands with the whole air stack"
+  [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should show the running Safe Push of the whole stack after the stack bar of its review, and of each branch of it, which it lands`)
+
+#### Scenario: The narrowest window
+- **WHEN** the stack bar and the actions leave the robot little room
+- **THEN** the branches keep their names: the robot shows how long it runs first, "lands with session" before the time
+  left, and with no room the ring and the line alone, the name of the robot saying its time
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should show the running Safe Push of the branch after its stack bar as its row does, its details with Open in Patronus on hover, a click opening it`)
 
 ### Requirement: Title bar, footer and actions: The footer shows the position and the keys
 
@@ -867,11 +907,12 @@ The actions MUST be the items of the branch's menu (`getBranchReviewItems`), the
 
 ### Requirement: Title bar, footer and actions: Open Pull Request is an action of a branch with one
 
-`O Open Pull Request` MUST be an action of the title bar when the branch has a pull request.
+`O Open Pull Request #42` MUST be an action of the title bar when the branch has a pull request: the item of its
+menu, the number saying which one it opens.
 
 #### Scenario: A branch with a pull request
 - **WHEN** the target branch has a pull request
-- **THEN** the title bar offers `O Open Pull Request`
+- **THEN** the title bar offers `O Open Pull Request #42`
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`)
 
 ### Requirement: Title bar, footer and actions: Create Pull Request is an action of a branch without one
@@ -1575,6 +1616,11 @@ without files.
   `GitPullRequestCreateIcon`, `ShieldCheckIcon`, `UploadIcon`), the label and the key; in a title bar narrower than
   48rem only the icon, the label in the hover. A disabled action is dimmed (`opacity-50`) and stays focusable for its
   tooltip.
+- The robot after the stack bar (`ReviewRobotStatus`) is the `RunningRowRobot` of the Status cell of a row: `text-sm`,
+  the ring `size-3.5`, the line `h-0.5` under it, its colour `destructive` for one that will fail. It fills the room the
+  stack bar leaves, a `@container`: how long it runs from 5rem, the time left from 10rem, or from 20rem beside "lands
+  with session", which shows from 11rem in `text-muted-foreground`, cut at its end; its hover is the popover of the
+  chip of a robot (`patronus-popover`).
 - A segment is an outline `xs` button, the selected ones `border-primary/50 bg-primary/10 text-primary`. A chip is a
   `FilterChip` of `FilterChips`, as the state chips of the branch filter: the stock `ToggleGroup`, the chosen one in
   its pressed state (`aria-pressed`), the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,

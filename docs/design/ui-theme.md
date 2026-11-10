@@ -199,8 +199,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - never put a `bg-muted` or `bg-background` div directly on the canvas, because it vanishes into or clashes with the
     window.
 - **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../openspec/specs/repository/title-bar/spec.md)),
-  on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
-  the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`).
+  on the canvas, never an island: on the left where the user is (the repository, the stack and the robot that lands
+  it while it runs, the list and the commit, the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`).
   An option set of the row (the scopes of the stack bar) is a `ToggleGroup`, as the shadcn rule for 2 to 7 choices
   asks, so it reads as a control. A
   sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog

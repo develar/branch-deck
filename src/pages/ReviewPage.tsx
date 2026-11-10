@@ -7,6 +7,7 @@ import type { BranchReviewMoves } from "@/components/review/BranchReview"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewBackButton } from "@/components/review/ReviewBackButton"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { ReviewRobotStatus } from "@/components/review/ReviewRobotStatus"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
@@ -388,6 +389,8 @@ function BranchReviewWindow({ data, back, onPlace, dialogOpen }: { data: ShownBr
         <>
           {back}
           <BranchReviewBar model={model} moves={moves} />
+          {/* the robot that lands what the review shows, while it runs */}
+          {loaded !== null && data.kept === undefined && <ReviewRobotStatus target={loaded.target} wholeStack={wholeStack} />}
         </>
       }
       titleEnd={

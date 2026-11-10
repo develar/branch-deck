@@ -7,7 +7,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, restOnBranchRow } from "../helpers/branch-helpers"
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { settledInvokes } from "../helpers/ipc-helpers"
-import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, codeOwner, evaluatedGroup } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, ROBOTS_NOW, availableRobots, codeOwner, evaluatedGroup, minutes, robot, robotUrl, willFail } from "../helpers/patronus-helpers"
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
@@ -742,7 +742,7 @@ test.describe("Branch review window", () => {
     const actions = window.getByTestId("branch-review-actions")
     // login: its pull request (O), its Safe Push, which lands auth with it (S), the push of its stack, without a key
     // (P is the previous change in the review); then its whole menu
-    await expect.poll(() => titleBarActions(window)).toEqual(["Open Pull Request", "Safe Push · 2", "Push Stack (2 branches)", "More actions for login"])
+    await expect.poll(() => titleBarActions(window)).toEqual(["Open Pull Request #42", "Safe Push · 2", "Push Stack (2 branches)", "More actions for login"])
     await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).hover()
     await expect(window.getByRole("tooltip", { name: "Pushes auth and login, parents first" })).toBeVisible()
     await window.mouse.move(0, 0)
@@ -1020,5 +1020,92 @@ test.describe("Branch review window", () => {
     await expect(popover.getByTestId("safe-push-status")).toHaveText("Choose the profile that skips the code-owner review")
     await expect(popoverStart(page)).toHaveText("Safe Push Without Review")
     await expect.poll(() => page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).toContain("set_focus")
+  })
+})
+
+test.describe("The robot in the title bar", () => {
+  // two Safe Pushes of 40 minutes a day ago, of other branches: the usual time of a Safe Push
+  const history = ["a", "b"].map(id =>
+    robot(`old-${id}`, `old-${id}`, { status: "success", startTime: ROBOTS_NOW - minutes(24 * 60), finishTime: ROBOTS_NOW - minutes(24 * 60 - 40) }),
+  )
+  const running = robot("JIRA-456", "running-robot", { startTime: ROBOTS_NOW - minutes(18) })
+
+  test(
+    "should show the running Safe Push of the branch after its stack bar as its row does, its details with Open in Patronus on hover, a click opening it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRepo("issue_links", { patronus: availableRobots(running, ...history) })
+      await syncAndWaitForBranches()
+      await expect(findBranchRow(page, "JIRA-456").getByTestId("robot-time")).toHaveText("18m · ~22m")
+      const window = await openLinkedSubWindow(page, await openReviewWindow(page, "JIRA-456"))
+      // in the title bar, after the branch: the ring, the time and the line, as the Status cell of its row
+      const status = window.locator("header").getByTestId("review-robot")
+      await expect(status.getByTestId("robot-time")).toHaveText("18m · ~22m")
+      await expect(status.getByTestId("robot-ring")).toBeVisible()
+      await expect(status.getByTestId("robot-progress")).toBeVisible()
+      await expect(status.getByTestId("robot-progress")).not.toHaveAttribute("data-failing")
+      await expect(status.getByTestId("review-robot-lands-with")).toHaveCount(0)
+      const stackEnd = await window.getByTestId("branch-review-stack").evaluate(bar => bar.getBoundingClientRect().right)
+      expect(await status.evaluate(it => it.getBoundingClientRect().left)).toBeGreaterThan(stackEnd)
+
+      // its hover is a popover of its details: the robot, Open in Patronus; a click on the button opens it
+      const chip = status.getByTestId("patronus-chip")
+      await chip.hover()
+      const popover = window.getByTestId("patronus-popover")
+      await expect(popover.getByTestId("patronus-name")).toHaveText("Safe Push of JIRA-456")
+      await popover.getByRole("button", { name: "Open in Patronus" }).click()
+      await expect.poll(() => getOpenedUrls(window)).toEqual([robotUrl("running-robot")])
+      await window.keyboard.press("Escape")
+      await expect(popover).toBeHidden()
+      // a click on the robot opens it too
+      await chip.click()
+      await expect.poll(() => getOpenedUrls(window)).toEqual([robotUrl("running-robot"), robotUrl("running-robot")])
+
+      // the narrowest window, whose stack bar and actions leave no room: the ring and the line stay after the branch,
+      // the time only in the name of the robot
+      await window.setViewportSize({ width: 800, height: 720 })
+      await expect(status.getByTestId("robot-time")).toBeHidden()
+      await expect(status.getByTestId("robot-ring")).toBeVisible()
+      await expect(status.getByTestId("robot-progress")).toBeVisible()
+      await expect(chip).toHaveAccessibleName("Safe Push: Running, 18 minutes, about 22 minutes left")
+    },
+  )
+
+  test("should show the robot that will fail in the colour of a failure, Failing in place of the time left", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { patronus: availableRobots(running, ...history), patronusDetails: willFail("running-robot") })
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "JIRA-456").getByTestId("robot-progress")).toHaveAttribute("data-failing", "true")
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "JIRA-456"))
+    const status = window.getByTestId("review-robot")
+    await expect(status.getByTestId("robot-time")).toHaveText("18m · Failing")
+    await expect(status.getByTestId("robot-ring")).toHaveClass(/text-destructive/)
+    await expect(status.getByTestId("robot-progress")).toHaveAttribute("data-failing", "true")
+  })
+
+  test("should show the running Safe Push of a branch built on the branch that lands it, and nothing on a branch it doesn't land", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // stacked_branches: login and session are built on auth; the Safe Push of session lands auth with it, not login
+    await setupRepo("stacked_branches", { patronus: availableRobots(robot("session", "session-robot", { startTime: ROBOTS_NOW - minutes(18) }), ...history) })
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "session").getByTestId("robot-time")).toHaveText("18m · ~22m")
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    const segments = window.getByTestId("branch-review-segment")
+    await expect(segments).toHaveText(["auth1", "login1"])
+    // auth alone: the robot of session, which lands it, said so
+    await segments.first().click()
+    const status = window.getByTestId("review-robot")
+    await expect(status.getByTestId("review-robot-lands-with")).toHaveText("lands with session")
+    await expect(status.getByTestId("robot-time")).toHaveText("18m · ~22m")
+    await status.getByTestId("patronus-chip").hover()
+    await expect(window.getByTestId("patronus-popover").getByTestId("patronus-name")).toHaveText("Safe Push of session")
+    await window.keyboard.press("Escape")
+    // login on auth: no robot lands login
+    await segments.last().click()
+    await expect(segments.last()).toHaveAttribute("aria-pressed", "true")
+    await expect(segments.first()).toHaveAttribute("aria-pressed", "false")
+    await expect(status).toHaveCount(0)
   })
 })
