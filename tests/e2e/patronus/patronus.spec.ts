@@ -20,7 +20,7 @@ import {
   pushBranchFromRow,
   switchBranchPreview,
 } from "../helpers/review-status-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
 import { recordCommand } from "../helpers/wait-helpers"
@@ -110,8 +110,8 @@ test.describe("Patronus chip", () => {
     await expect(restart).toBeVisible()
     await findBranchRow(page, "ABC-123").locator("td").nth(1).hover()
     await expect(getChip(page, "ABC-123")).toHaveText("Failed")
-    await restart.click()
-    await expect.poll(async () => (await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
+    await runAndWaitForAnswer(page, "execute", () => restart.click())
+    expect((await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })
 
@@ -122,7 +122,7 @@ test.describe("Patronus chip", () => {
     const node = getLandingNode(findBranchRow(page, "ABC-123"))
     await expect(node).toHaveAttribute("data-kind", "needsFix")
     await restart.click()
-    await expect.poll(async () => (await repo.getArrivedAnswers()).includes("restart")).toBe(true)
+    await repo.arrival("restart")
     await expect(restart).toHaveAttribute("aria-busy", "true")
     await expect(restart).toBeDisabled()
     // the restart is the move made: the branch lands before Patronus answers it

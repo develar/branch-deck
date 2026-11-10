@@ -249,7 +249,7 @@ test.describe("Landing overview", () => {
     const indicator = page.getByTestId("landing-indicator")
     // not on Space, no pull requests GitHub lists: the push is the step
     await expect(indicator).toHaveAccessibleName("On the way to master: 1 move is yours")
-    await getPushButton(findBranchRow(page, "test-branch")).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "test-branch")).click())
     await expect(pushedToast(page, "test-branch")).toBeVisible()
     await expectPushedToRemote(repo, ["test-branch"])
     // pushed: it lands through its pull request, which nobody opened; the work still waits

@@ -395,15 +395,20 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   );
 }
 
-/// Waits until a request of the page reached the held answer `answer` of the repository `id` (`/remote-gates`)
+/// Waits until a request of the page reached the held answer `answer` of the repository `id` (`/remote-gates`): the
+/// arrival answers once one did
 async fn until_arrived(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str, answer: &str) {
-  while !get(client, addr, &format!("/repositories/{id}/remote-gates")).await["arrived"]
-    .as_array()
-    .unwrap()
-    .contains(&json!(answer))
-  {
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-  }
+  assert_eq!(
+    get(client, addr, &format!("/repositories/{id}/remote-gates/{answer}/arrival")).await,
+    json!({"arrived": true})
+  );
+  assert!(
+    get(client, addr, &format!("/repositories/{id}/remote-gates")).await["arrived"]
+      .as_array()
+      .unwrap()
+      .contains(&json!(answer)),
+    "the arrival of {answer} is in the arrived answers"
+  );
 }
 
 /// The listing of the pull request #7 of login, which goes into the branch of its parent, from before
@@ -473,8 +478,13 @@ async fn a_held_answer_waits_at_the_fake_until_it_is_released() {
   .await;
   assert_eq!(get(&client, addr, &format!("/repositories/{id}/remote-gates")).await, json!({"arrived": []}));
 
+  // the arrival of an answer no test holds is refused; of a held one it waits for the request
+  let unheld = client.get(format!("http://{addr}/repositories/{id}/remote-gates/robots/arrival")).send().await.unwrap();
+  assert_eq!(unheld.status(), 409);
+  let arrival = tokio::spawn(client.get(format!("http://{addr}/repositories/{id}/remote-gates/pullRequests/arrival")).send());
   let _window = window(&client, addr, &id, &repository_path).await;
   let listing = tokio::spawn(refresh(&client, addr, &id, &repository_path).send());
+  assert_eq!(arrival.await.unwrap().unwrap().json::<Value>().await.unwrap(), json!({"arrived": true}));
   until_arrived(&client, addr, &id, "pullRequests").await;
   let requests = refresh_review_requests(&client, addr, &id, &repository_path);
   until_arrived(&client, addr, &id, "reviewRequests").await;

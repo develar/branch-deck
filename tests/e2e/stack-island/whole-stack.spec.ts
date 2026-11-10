@@ -310,8 +310,8 @@ test.describe("Whole stack", () => {
     await held.arrived()
     await expect(submit).toContainText(/Pushing \d+%/)
     expect(await creates()).toEqual([])
-    await held.release()
-    await expect.poll(creates).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master", title: "air, with the 6 branches built on it" })])
+    await runAndWaitForAnswer(page, "execute", () => held.release())
+    expect(await creates()).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master", title: "air, with the 6 branches built on it" })])
     // it pushed the stack branch alone
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await pushedBranches(repo)).toEqual([stackBranchOf("air")])
@@ -345,9 +345,9 @@ test.describe("Whole stack", () => {
     await dialog.getByTestId("create-pull-request-submit").click()
     // the creation is the move of the whole stack: its node waits for GitHub from the click on
     await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "waiting")
-    await repo.holdRemoteAnswers({ release: ["createPullRequest"] })
-    await expect.poll(() => gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air" })])
-    await expect.poll(() => gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["createPullRequest"] }))
+    expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air" })])
+    expect(await gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([{ reviewers: ["ikorennoy"] }])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
   })
 
@@ -404,8 +404,8 @@ test.describe("Whole stack", () => {
     await page.mouse.move(0, 0)
     expect(await restartedRobots(repo)).toEqual([])
 
-    await held.release()
-    await expect.poll(() => restartedRobots(repo)).toEqual(["whole"])
+    await runAndWaitForAnswer(page, "execute", () => held.release())
+    expect(await restartedRobots(repo)).toEqual(["whole"])
     // the push replaced the stack branch the remote had with the one the sync built
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()
@@ -427,8 +427,8 @@ test.describe("Whole stack", () => {
     await restart.click({ force: true })
     await page.keyboard.press("Escape")
     await expect(push).toHaveAccessibleName(/^Pushing the whole stack \d+%$/)
-    await held.release()
-    await expect.poll(() => restartedRobots(repo)).toEqual(["whole"])
+    await runAndWaitForAnswer(page, "execute", () => held.release())
+    expect(await restartedRobots(repo)).toEqual(["whole"])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toHaveCount(1)
     await expect(push).not.toHaveAttribute("aria-busy", "true")
     await expectPushedToRemote(repo, [stackBranchOf("air")])
@@ -861,7 +861,7 @@ test.describe("Whole stack", () => {
 
     // Create: the window pushes the stack branch alone and creates it (the answer of its run first); the toast is there
     await runAndWaitForAnswer(window, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
-    await expect.poll(() => gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master" })])
+    expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master" })])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await pushedBranches(repo)).toEqual([stackBranchOf("air")])
     await expect(window.locator("[data-slot=toast]").filter({ hasText: "Created pull request #12" })).toBeVisible()
@@ -897,8 +897,8 @@ test.describe("Whole stack", () => {
 
     // its actions are the whole stack's, in the root's menu
     await openWholeStackSubmenu(page, "auth")
-    await page.getByRole("menuitem", { name: "Cancel Safe Push" }).click()
-    await expect.poll(async () => (await repo.getPatronusLog()).cancels).toEqual(["whole"])
+    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Cancel Safe Push" }).click())
+    expect((await repo.getPatronusLog()).cancels).toEqual(["whole"])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push is canceling" })).toContainText("Whole auth stack → master")
   })
 

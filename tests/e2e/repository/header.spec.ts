@@ -222,7 +222,7 @@ test.describe("Header before the answers", () => {
     await repo.holdRemoteAnswers({ hold: ["robots"] })
     await syncAndWaitForBranches()
     // the page asked Patronus, whose answer decides the user's move: none is counted before it
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("robots")
+    await repo.arrival("robots")
     await expect(header(page).getByTestId("landing-indicator")).toBeVisible()
     await expect(header(page).getByTestId("landing-moves")).toHaveCount(0)
     const before = await headerBoxes(page, HEADER_CONTROLS)

@@ -11,7 +11,7 @@ import type { ReviewRequestsFixture } from "../helpers/review-request-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 
@@ -150,8 +150,9 @@ test.describe("Reviews view", () => {
     await expect(review.getByTestId("review-asked-by")).toContainText("ide-platform asked for a review of carol's pull request")
 
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
-    await pressDecisionKey(window, review, "a")
-    await expect.poll(() => gitHubRequests(repo, "POST", "pulls", 201, "reviews")).toEqual([{ event: "APPROVE", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/) }])
+    // the review is an intent the window runs: its answer, then what GitHub got
+    await runAndWaitForAnswer(window, "execute", () => pressDecisionKey(window, review, "a"))
+    expect(await gitHubRequests(repo, "POST", "pulls", 201, "reviews")).toEqual([{ event: "APPROVE", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/) }])
     await expect(review.getByTestId("review-approve")).toHaveText("Approved")
   })
 

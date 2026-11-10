@@ -124,6 +124,54 @@ test("an e2e file takes the expect of its fixtures, whose poll asks every 50 ms"
   assert.deepEqual(rules("src/lib/example.ts"), [])
 })
 
+test("a poll of an e2e test that reads the remote or what an operation wrote at a fake is refused, a poll of the page or of a read not", () => {
+  const source = [
+    'await expect.poll(() => remotePushes(repo)).toEqual([["auth"]])',
+    "await expect",
+    "  .poll(async () => gitHubWrites(await repo.getGitHubLog()))",
+    "  .toEqual([])",
+    "await expect.poll(async () => (await repo.getRemoteBranches()).master).toBe(copy)",
+    "await expect.poll(async () => (await repo.getPatronusLog()).restarts).toEqual([id])",
+    'await expect.poll(() => gitHubRequests(repo, "POST", "pulls")).toHaveLength(1)',
+    "await expect.poll(() => repo.revision(virtualBranch(BRANCH))).not.toBe(copy)",
+    'await expect.poll(() => repo.getArrivedAnswers()).toContain("push")',
+    // the page and the reads of a fake: no operation answers them
+    "await expect.poll(() => toast.count()).toBe(0)",
+    'await expect.poll(() => gitHubRequests(repo, "GET", "rules", "branches", "master")).toHaveLength(1)',
+    "await expect.poll(async () => (await repo.getPatronusLog()).listCalls).toBe(2)",
+    // a single read after the answer
+    "expect(await remotePushes(repo)).toEqual([])",
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("tests/e2e/landing/example.spec.ts"), [
+    "1 e2e-remote-poll",
+    "2 e2e-remote-poll",
+    "5 e2e-remote-poll",
+    "6 e2e-remote-poll",
+    "7 e2e-remote-poll",
+    "8 e2e-remote-poll",
+    "9 e2e-remote-poll",
+  ])
+  assert.deepEqual(rules("src/lib/example.ts"), [])
+})
+
+test("an allowlist entry of a poll of a write names the exact count of its findings", t => {
+  const root = mkdtempSync(join(tmpdir(), "lint-arch-"))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, "tests/e2e"), { recursive: true })
+  writeFileSync(join(root, "tests/e2e/a.spec.ts"), "await expect.poll(() => remotePushes(repo)).toEqual([])\nawait expect.poll(() => pushedBranches(repo)).toEqual([])\n")
+  const problems = allowlist => lintArchitecture(root, allowlist, {})
+  const reason = "the operation waits for the test"
+  assert.deepEqual(problems([{ file: "tests/e2e/a.spec.ts", rule: "e2e-remote-poll", count: 2, reason }]), [])
+  assert.deepEqual(problems([{ file: "tests/e2e/a.spec.ts", rule: "e2e-remote-poll", count: 1, reason }]), [
+    "ALLOWLIST: tests/e2e/a.spec.ts (e2e-remote-poll) holds 2 finding(s), its count says 1: name the exact count",
+  ])
+  assert.deepEqual(problems([]), [
+    "tests/e2e/a.spec.ts:1: e2e-remote-poll: await expect.poll(() => remotePushes(repo)).toEqual([])",
+    "tests/e2e/a.spec.ts:2: e2e-remote-poll: await expect.poll(() => pushedBranches(repo)).toEqual([])",
+  ])
+})
+
 test("a timer of a store or a hook is a poll, of its test or another module not", () => {
   const source = ["const timer = setTimeout(ask, 300_000)", "const every = window.setInterval(read, 60_000)", "// setTimeout(ask) in a comment", "clearTimeout(timer)"].join("\n")
   const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
@@ -150,7 +198,7 @@ test("an allowlist entry needs its reason and a finding to hold, and only a time
   // the words of an error, a rule of the domain: no exception
   assert.deepEqual(problems([{ file: "src/b.ts", rule: "message-control", reason: "the words of a third-party library" }]), [
     timer,
-    "ALLOWLIST: src/b.ts (message-control): the rule takes no exception, only a timer of the UI does (poll-timer)",
+    "ALLOWLIST: src/b.ts (message-control): the rule takes no exception, only a timer of the UI (poll-timer) and a write of a waiting operation (e2e-remote-poll) do",
   ])
 })
 

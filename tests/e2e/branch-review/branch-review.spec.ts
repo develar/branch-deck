@@ -381,7 +381,7 @@ async function openLoginBeforeTheCheck(
   await repo.setReviewAnswers({ answers: { login: answer } })
   await repo.holdRemoteAnswers({ hold: ["readiness"] })
   await syncAndWaitForBranches()
-  await expect.poll(() => repo.getArrivedAnswers()).toContain("readiness")
+  await repo.arrival("readiness")
   const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
   await expect(window.getByTestId("review-file-header").first()).toBeVisible()
   return { repo, window }
@@ -430,7 +430,7 @@ test.describe("Branch review window", () => {
     await repo.commit("(login) Style the button", { "ui/button.css": "button {}\n" }, 1704124800)
     await syncAndWaitForBranches()
     await expect.poll(() => reviewedPaths(window)).toEqual(["ui/button.css", "ui/login.css"])
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("readiness")
+    await repo.arrival("readiness")
     await repo.holdRemoteAnswers({ release: ["readiness"] })
     await expect.poll(() => reviewedPaths(window)).toEqual(["ui/button.css", "ui/login.css", "ui/login.js", "README.md"])
     await expect(position).toHaveText("All Changes · File 3 / 4 · Design")
@@ -787,8 +787,8 @@ test.describe("Branch review window", () => {
     await window.mouse.move(0, 0)
     // the push asks first at the row when it would drop remote commits: the main window runs it there, switched back,
     // the stack in one push
-    await push.click()
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
+    await runAndWaitForAnswer(page, "execute", () => push.click())
+    expect(await remotePushes(repo)).toEqual([["auth", "login"]])
     await expect(findBranchRow(page, "login")).toBeVisible()
 
     // S: the Safe Push of login lands auth with it, something to say: the popover at login's row of the main window
@@ -954,7 +954,7 @@ test.describe("Branch review window", () => {
     // the main window pushes: its answer, however long the push takes
     await runAndWaitForAnswer(page, "execute", () => window.getByRole("menuitem", { name: "Push Up to Here" }).click())
     // one push of the stack: login up to the copy of that commit, its newer commit left out
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
+    expect(await remotePushes(repo)).toEqual([["auth", "login"]])
     expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(await repo.revision(`${virtualBranch("login")}~1`))
   })
 

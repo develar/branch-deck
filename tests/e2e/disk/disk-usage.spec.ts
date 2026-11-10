@@ -46,7 +46,7 @@ test.describe("Disk usage", () => {
     const dialog = page.getByTestId("disk-usage-dialog")
     const progress = dialog.getByRole("status").filter({ hasText: "Measured" })
     await expect(progress).toHaveText("Measured 3 of 3 slots")
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("hostDisks")
+    await repo.arrival("hostDisks")
     await expect(dialog.getByRole("region", { name: "studio" })).toHaveCount(0)
     await repo.holdRemoteAnswers({ release: ["hostDisks"] })
     await expect(progress).toHaveCount(0)

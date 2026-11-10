@@ -65,7 +65,8 @@ test.describe("YouTrack sign-in", () => {
     // the hover of Save Token says why
     await repo.holdRemoteAnswers({ hold: ["youTrackConfig"] })
     await auth.getByRole("button", { name: "Sign In to YouTrack" }).click()
-    await expect.poll(() => repo.getArrivedAnswers()).toEqual(["youTrackConfig"])
+    await repo.arrival("youTrackConfig")
+    expect(await repo.getArrivedAnswers()).toEqual(["youTrackConfig"])
     await auth.getByRole("button", { name: "Use a Token Instead" }).click()
     const form = auth.getByTestId("youtrack-token-form")
     const save = form.getByRole("button", { name: "Save Token" })

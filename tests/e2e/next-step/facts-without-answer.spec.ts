@@ -9,7 +9,7 @@ import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, availableRobots, failedFas
 import { availablePullRequests, createPullRequestDialog, gitHubRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { hoverStatusChip, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
-import { oneCommitUnpushedRemote, pushedRemote } from "../helpers/sync-helpers"
+import { oneCommitUnpushedRemote, pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 
 const BRANCH = "JIRA-456"
@@ -57,7 +57,7 @@ function slot(page: Page) {
 
 /** The page asked for `answer`, which the fake holds: the page shows what it shows before it */
 async function expectHeld(repo: TestRepositoryBuilder, answer: HeldAnswer): Promise<void> {
-  await expect.poll(() => repo.getArrivedAnswers()).toContain(answer)
+  await repo.arrival(answer)
 }
 
 /** The step waits with "Checking…", disabled, `reason` on hover, the node of the row pending too */
@@ -389,7 +389,7 @@ test.describe("Next step before the answers", () => {
     await findBranchRow(page, failed).click({ button: "right" })
     await page.getByRole("menu").getByRole("menuitem", { name: "Copy Prompt for Agent" }).click()
     await expect.poll(() => readClipboard(page)).toContain(`Safe Push of \`${failed}\` into \`master\` failed`)
-    await step.click()
-    await expect.poll(async () => (await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
+    await runAndWaitForAnswer(page, "execute", () => step.click())
+    expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
   })
 })

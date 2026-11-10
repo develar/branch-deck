@@ -224,18 +224,20 @@ test.describe("Push to master", () => {
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popoverStart(page)).toBeFocused()
+    // the session tells what the push landed, and the page closes the pull requests it landed by that news: the closes
+    // are an operation of their own, whose answer is the second
+    const closed = nextAnswer(page, "execute", 2)
     await pushAndWait(page)
     expect((await repo.getRemoteBranches())["master"]).toBe(copy)
+    await closed
     // the session told what the push landed before its update dropped the branches: each close with its comment
     const landed = `Landed in master as ${copy.slice(0, 7)} with the push of user-name/virtual/login`
-    await expect
-      .poll(async () => gitHubWrites(await repo.getGitHubLog()))
-      .toEqual([
-        ["POST", repoPath("issues", 4, "comments"), { body: `${landed}, which is built on this branch.` }],
-        ["PATCH", repoPath("pulls", 4), { state: "closed" }],
-        ["POST", repoPath("issues", 5, "comments"), { body: `${landed}.` }],
-        ["PATCH", repoPath("pulls", 5), { state: "closed" }],
-      ])
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
+      ["POST", repoPath("issues", 4, "comments"), { body: `${landed}, which is built on this branch.` }],
+      ["PATCH", repoPath("pulls", 4), { state: "closed" }],
+      ["POST", repoPath("issues", 5, "comments"), { body: `${landed}.` }],
+      ["PATCH", repoPath("pulls", 5), { state: "closed" }],
+    ])
     // the update dropped the originals that landed: their rows are gone, oauth is built on master now
     await expect(findBranchRow(page, "login")).toHaveCount(0)
     await expect(findBranchRow(page, "auth")).toHaveCount(0)
@@ -256,7 +258,7 @@ test.describe("Push to master", () => {
     await expect(notice).toContainText("Updated master")
     await expect(notice).toContainText("Push to master again")
     expect((await repo.getRemoteBranches())["master"]).toBe(theirs)
-    await expect.poll(() => repo.revision(virtualBranch(BRANCH))).not.toBe(copy)
+    expect(await repo.revision(virtualBranch(BRANCH))).not.toBe(copy)
     await expect(pushStep(page, BRANCH)).toBeEnabled()
     await expect(pushStep(page, BRANCH)).toHaveText("Push to master")
     await expect(findBranchRow(page, BRANCH)).toBeVisible()

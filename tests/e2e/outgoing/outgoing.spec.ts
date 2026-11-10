@@ -10,7 +10,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, pressSyncHeld, releaseHeldSync, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { RemoteCommit, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import { recordCommand } from "../helpers/wait-helpers"
@@ -54,7 +54,7 @@ test.describe("Push progress", () => {
     // git's last line says the amount and the rate already: no second line repeats them
     await expect(page.getByTestId("push-progress")).toHaveText(/^Writing objects: 100% \(\d+\/\d+\), [^|]+ \| [^|]+\/s, done\.$/)
 
-    await held.release()
+    await runAndWaitForAnswer(page, "execute", () => held.release())
     await expectPushedToast(page, "JIRA-456")
     await expectPushedToRemote(issueLinksRepo, ["JIRA-456"])
     // done: the button gives way to its empty place, the status says the branch is up to date; the focus it had goes to
@@ -160,7 +160,7 @@ test.describe("Force push", () => {
     const forcePush = row.getByRole("button", { name: "Force Push Branch (1)" })
     await expect(forcePush).toBeEnabled()
 
-    await forcePush.click()
+    await runAndWaitForAnswer(page, "execute", () => forcePush.click())
 
     await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
     expect(await remotePushes(issueLinksRepo)).toEqual([["ABC-123"]])
@@ -310,8 +310,8 @@ test.describe("Push button", () => {
     await held.arrived()
     // the window opens another repository while the push sends: the push goes on in its own
     await switchRepository(page, OTHER_REPOSITORY)
-    await held.release()
-    await expect.poll(() => remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
+    await runAndWaitForAnswer(page, "execute", () => held.release())
+    expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
     await expect(pushedToast(page, "JIRA-456")).toBeVisible()
     await expect(page.getByText("Cannot push branch JIRA-456")).toHaveCount(0)
     // back in it, the row has the status the push left in its session
@@ -325,7 +325,7 @@ test.describe("Push button", () => {
     // first): the main window runs it on the table of the sync that runs, once that sync ended
     const request = { id: "window", repositoryPath: issueLinksRepo.path, subject: "JIRA-456", itemId: "push" } satisfies ReviewRunRequest
     await emitTauriEvent(page, "review/run", request)
-    await releaseHeldSync(page, issueLinksRepo, previousCount)
+    await runAndWaitForAnswer(page, "execute", () => releaseHeldSync(page, issueLinksRepo, previousCount))
     await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "window", ok: true }])
     await expectPushedToast(page, "JIRA-456")
     expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])

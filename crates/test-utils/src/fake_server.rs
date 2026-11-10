@@ -109,6 +109,12 @@ impl FakeGate {
     }
   }
 
+  /// Resolves once the gate opened (`open`): the held requests went through, or never came
+  pub async fn opened(&self) {
+    // a semaphore without permits answers only once it is closed
+    let _ = self.semaphore.acquire().await;
+  }
+
   /// Waits here until the gate opens: the fake calls it before it answers a held request
   pub async fn pass(&self) {
     self.arrivals.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

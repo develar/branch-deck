@@ -611,7 +611,7 @@ the methods of `TestRepository` (`tests/e2e/helpers/test-repository.ts`) unless 
 | `POST`/`GET …/youtrack` | the fake YouTrack and its log | `setYouTrack`, `getYouTrack` |
 | `POST`/`GET …/branch-name-suggestions` | the answer claude would give, and its calls | `setBranchNameSuggestions`, `getBranchNameSuggestionCalls` |
 | `GET …/remote`, `POST …/remote/push`, `…/remote/commit`, `…/remote/fetch`, `…/remote/refusal`, `POST`/`GET …/landing` | the remote of the repository and its route into master ([The remote of a repository](#the-remote-of-a-repository)) | `getRemoteBranches`, `getRemotePushes`, `pushInTerminal`, `commitOnRemote`, `fetchInTerminal`, `refuseRemotePushes`, `setLanding`, `getLanding` |
-| `POST`/`GET …/remote-gates` | answers of the fakes held or failed, and those that arrived | `holdRemoteAnswers`, `getArrivedAnswers` |
+| `POST`/`GET …/remote-gates`, `GET …/remote-gates/{answer}/arrival` | answers of the fakes held or failed, those that arrived, the arrival of one | `holdRemoteAnswers`, `getArrivedAnswers`, `arrival` |
 | `POST …/host-disks`, `…/lease-slots` | the hosts of `brd-host` Disk Usage shows (held with `hostDisks`), free slots in the pool of the fake home by real gets and returns (`disk_fixtures.rs`) | `setHostDisks`, `addLeaseSlots` |
 | `POST …/update`, `POST`/`GET …/cli-tools` | the update of the updater; the CLIs of Settings → Tools and what they were asked | `setAvailableUpdate`, `setCliTools`, `getCliToolsLog` |
 | `POST …/sessions/close`, `…/clock/advance` | the app quits; the clock of the sessions moves | `closeSessions`, `advanceBackendClock` |
@@ -790,8 +790,11 @@ log of the fake). No test answers a remote write in the page: the registry test 
   the fake Patronus answer 500 (`FakePatronus::set_failing`) or the server reject the read at its gate
   (`host::held_or_failed`: "the fixture fails this read") from now on, until a release; the failing set changes before the gates of the same request open, so
   `{ fail: [a], release: [a] }` fails the request held at `a`. `GET` (`getArrivedAnswers`)
-  names the held answers a request reached: a test waits for that (`expect.poll`) before it asserts the page before
-  the answer, so the assertion is never vacuous, then releases and asserts the page after it. Set before the sync whose
+  names the held answers a request reached, and `GET …/remote-gates/{answer}/arrival` (`repo.arrival(answer)`) answers
+  once a request reached `answer` (or its gate opened before one did; 409 for an answer not held): a test waits for that
+  before it asserts the page before the answer, so the assertion is never vacuous, then releases and asserts the page
+  after it. A poll of the arrived answers gave up after an assertion's time where the start of a robot or a push took
+  longer under load to reach its gate (`pnpm lint:arch` refuses it, `e2e-remote-poll`). Set before the sync whose
   answers it holds (a reload keeps it: the next start of the page), or before the page opens by the setup option
   `remoteAnswers` (the reads of the session's open meet it, its sign-ins among them); the deletion of the repository releases what is
   still held, so no command outlives its test ([Facts without an answer](../../openspec/specs/branch/next-step/spec.md#facts-without-an-answer)).
@@ -964,7 +967,9 @@ branch at the commit it was pushed up to.
   remote up to a second after it did (`holdRemotePushes().arrived`: 1.7 → 1.3 s). A poll that reads the page reads
   what it compares at once: `expectPopoverAtSlot` asks for both boxes together (one round trip of 100-250 ms under
   load, not two: 0.56 → 0.36 s), and `closeToast` polls the count of the toast it closed (its exit is 500 ms; the
-  backoff of `toHaveCount` saw it gone 350 ms later: with the slide in off, 1.6 → 1.1 s per toast)
+  backoff of `toHaveCount` saw it gone 350 ms later: with the slide in off, 1.6 → 1.1 s per toast). A poll never waits
+  for what an operation writes at the remote or a fake: the test waits for the answer of the operation, then reads once
+  (`e2e-remote-poll` of `pnpm lint:arch`, [Writing E2E Tests](../contributing/e2e-tests.md#rules))
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close

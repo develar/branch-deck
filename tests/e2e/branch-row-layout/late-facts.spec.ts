@@ -43,7 +43,9 @@ async function restartHolding(page: Page, repo: TestRepositoryBuilder, held: Hel
   // a repository synced before syncs when the window opens it; the remote is asked once that sync ended
   await repo.closeSessions()
   await page.reload()
-  await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(held))
+  for (const answer of held) {
+    await repo.arrival(answer)
+  }
 }
 
 test.describe("Late facts", () => {
@@ -100,7 +102,8 @@ test.describe("Late facts", () => {
     })
     await repo.holdRemoteAnswers({ hold: ["pullRequests", "robots"] })
     await syncAndWaitForBranches()
-    await expect.poll(() => repo.getArrivedAnswers()).toEqual(expect.arrayContaining(["pullRequests", "robots"]))
+    await repo.arrival("pullRequests")
+    await repo.arrival("robots")
 
     // the sections of a pushed branch hold their places while Patronus and GitHub answer
     const first = await openBranchPreview(page, "ABC-123")

@@ -4,7 +4,7 @@ import { expandBranch, findBranchRow, getBranchCommitRows, getBranchDetailsRow, 
 import { mergeRunningRobot, robot, setupRunningRobot } from "../helpers/patronus-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
-import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 
 // the `stack_island` template: air → bazel → bridge → runtime → deploy with the side chain side-fix → side-test off
 // bazel, none of them on the remote; the commits of a branch are the same wherever its row is, here in the island
@@ -32,9 +32,9 @@ test.describe("Push Up to Here", () => {
     await expect(findBranchRow(page, "bazel").getByTestId("lane-node")).toHaveAttribute("data-pushed", "true")
     await expect(findBranchRow(page, "bridge").getByTestId("lane-node")).not.toHaveAttribute("data-pushed", "true")
 
-    await popover.getByTestId("push-up-to-button").click()
+    await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("push-up-to-button").click())
     // one push: air goes whole, bazel up to its first commit
-    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel"]])
+    expect(await remotePushes(repo)).toEqual([["air", "bazel"]])
     const remote = await repo.getRemoteBranches()
     expect(remote[virtualBranch("air")]).toBe(await repo.revision(virtualBranch("air")))
     expect(remote[virtualBranch("bazel")]).toBe(await repo.revision(`${virtualBranch("bazel")}~1`))
@@ -86,8 +86,8 @@ test.describe("Push Up to Here", () => {
     const first = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]").first()
     await expect(first).toContainText("Build the deploy jar, part 1")
     await openContextMenu(page, first)
-    await clickContextMenuItem(page, "Push Up to Here")
-    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel"]])
+    await runAndWaitForAnswer(page, "execute", () => clickContextMenuItem(page, "Push Up to Here"))
+    expect(await remotePushes(repo)).toEqual([["air", "bazel"]])
   })
 
   test("should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches", async ({
@@ -122,7 +122,7 @@ test.describe("Push Up to Here", () => {
     await page.keyboard.press("Escape")
     // the new commit pushes bazel, without air: all of air landed
     await openContextMenu(page, commitRows.last())
-    await clickContextMenuItem(page, "Push Up to Here")
-    await expect.poll(() => remotePushes(repo)).toEqual([["bazel"]])
+    await runAndWaitForAnswer(page, "execute", () => clickContextMenuItem(page, "Push Up to Here"))
+    expect(await remotePushes(repo)).toEqual([["bazel"]])
   })
 })

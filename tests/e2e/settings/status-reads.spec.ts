@@ -24,7 +24,7 @@ async function expectStatusRead(page: Page, repo: TestRepositoryBuilder, read: S
   await repo.holdRemoteAnswers({ hold: [read.answer] })
   const settings = await openSettingsWindow(page, { page: read.page })
   const section = settings.getByTestId(`settings-page-${read.page}`)
-  await expect.poll(() => repo.getArrivedAnswers()).toContain(read.answer)
+  await repo.arrival(read.answer)
   await expect(section.getByText(read.reading)).toBeVisible()
   // the line above anchors it: the section is there, the status is not
   await expect(read.status(section)).toHaveCount(0)

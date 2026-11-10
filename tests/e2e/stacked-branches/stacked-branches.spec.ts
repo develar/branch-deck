@@ -698,9 +698,9 @@ test.describe("Stacked branches", () => {
     await openContextMenu(page, oauth)
     await expect(page.getByRole("menuitem", { name: /^Push Stack/ })).toHaveCount(1)
     await expect(page.getByRole("menuitem", { name: "Push oauth Only" })).toBeVisible()
-    await page.getByRole("menuitem", { name: "Push Stack (3 branches) P" }).click()
+    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Stack (3 branches) P" }).click())
     // one push of the stack
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
+    expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
     await expectPushedToRemote(repo, ["auth", "login", "oauth"])
     // the stack is on the remote: up to date needs no action, so the rows that said "not pushed" say nothing
     for (const name of ["auth", "login", "oauth"]) {
@@ -774,8 +774,8 @@ test.describe("Stacked branches", () => {
     await syncAndWaitForBranches()
 
     await getPushButton(findBranchRow(page, "oauth")).hover()
-    await page.getByTestId("push-description").getByRole("button", { name: "Push oauth Only" }).click()
-    await expect.poll(() => remotePushes(repo)).toEqual([["oauth"]])
+    await runAndWaitForAnswer(page, "execute", () => page.getByTestId("push-description").getByRole("button", { name: "Push oauth Only" }).click())
+    expect(await remotePushes(repo)).toEqual([["oauth"]])
     await expect(pushedToast(page, "oauth")).toBeVisible()
     // oauth is on the remote: its menu pushes nothing more, as its button; login's pushes the parents
     await openContextMenu(page, findBranchRow(page, "oauth"))
@@ -792,8 +792,8 @@ test.describe("Stacked branches", () => {
 
     await openContextMenu(page, findBranchRow(page, "oauth"))
     await expect(page.getByRole("menuitem", { name: "Push Stack (3 branches) P" })).toBeVisible()
-    await page.getByRole("menuitem", { name: "Push oauth Only" }).click()
-    await expect.poll(() => remotePushes(repo)).toEqual([["oauth"]])
+    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push oauth Only" }).click())
+    expect(await remotePushes(repo)).toEqual([["oauth"]])
     await expect(pushedToast(page, "oauth")).toBeVisible()
   })
 
@@ -809,9 +809,9 @@ test.describe("Stacked branches", () => {
     await expect(alternative).toHaveCount(1)
     await expect(alternative).toContainText("session and 2 more branches are stacked on auth and have commits to push.")
 
-    await alternative.getByRole("button", { name: "Push with Children (4 branches)" }).click()
+    await runAndWaitForAnswer(page, "execute", () => alternative.getByRole("button", { name: "Push with Children (4 branches)" }).click())
     // one push of the four; the stack branch of the whole stack, on no remote and in no pull request, stays local
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login", "oauth", "session"]])
+    expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth", "session"]])
     expect(await pushedBranches(repo)).toEqual(["auth", "login", "oauth", "session"])
     // every branch is on the remote: the menu keeps it beside the push, disabled with the reason, which says that the
     // stack branch isn't
@@ -851,7 +851,7 @@ test.describe("Stacked branches", () => {
     // its Force Push runs Push with Children on that drop: one push of auth over Ann's commit and of the children that
     // drop nothing; login, whose drop nobody showed, keeps Bob's commit and asks in its own row
     await confirmForcePush(page, "Force Push Branch (1)")
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "oauth", "session"]])
+    expect(await remotePushes(repo)).toEqual([["auth", "oauth", "session"]])
     await expectPushedToRemote(repo, ["auth", "oauth", "session"])
     expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(theirs.login)
     await expect(getPushButton(findBranchRow(page, "login"))).toHaveAccessibleName("Force Push Branch (1)")
@@ -895,7 +895,7 @@ test.describe("Stacked branches", () => {
     // its Force Push runs the push of the stack again on that drop, over the remote head the row shows now (the one
     // the lease of the click predates): one push of auth and login
     await confirmForcePush(page, "Force Push Branch (1)")
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
+    expect(await remotePushes(repo)).toEqual([["auth", "login"]])
     await expectPushedToRemote(repo, ["auth", "login"])
   })
 
@@ -972,9 +972,9 @@ test.describe("Stacked branches", () => {
     await getPushButton(auth).hover()
     const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
     await expect(alternative).toContainText("session and 2 more branches are stacked on auth and have commits to push. The whole stack branch user-name/stack/auth goes along.")
-    await alternative.getByRole("button", { name: "Push with Children (5 branches)" }).click()
+    await runAndWaitForAnswer(page, "execute", () => alternative.getByRole("button", { name: "Push with Children (5 branches)" }).click())
     // one atomic push, the stack branch with the branches
-    await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login", "oauth", "session", "stack:auth"]])
+    expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth", "session", "stack:auth"]])
     await expectPushedToRemote(repo, ["auth", "login", "oauth", "session", stackBranchOf("auth")])
     // one toast: the four branches named, the stack branch said
     const pushed = page.locator("[data-slot=toast]").filter({ hasText: "pushed the whole stack branch" })
@@ -998,8 +998,8 @@ test.describe("Stacked branches", () => {
     await expect(item).toBeEnabled()
     await item.hover()
     await expect(page.getByRole("tooltip").filter({ hasText: "Also pushes" })).toHaveText("Also pushes the whole stack branch user-name/stack/auth, the head of #12")
-    await item.click()
-    await expect.poll(async () => (await remotePushes(repo)).at(-1)).toEqual(["stack:auth"])
+    await runAndWaitForAnswer(page, "execute", () => item.click())
+    expect((await remotePushes(repo)).at(-1)).toEqual(["stack:auth"])
     await expectPushedToRemote(repo, [stackBranchOf("auth")])
     // its toast opens the pull request of the whole stack
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Pushed the whole stack branch of auth" })
@@ -1481,8 +1481,8 @@ test.describe("Stacked branches", () => {
       await expect(popover).toHaveCount(0)
 
       // the retarget of the slot (its own test in next-step.spec.ts)
-      await retarget.click()
-      await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", 8), { base: "master" }]])
+      await runAndWaitForAnswer(page, "execute", () => retarget.click())
+      expect(gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", 8), { base: "master" }]])
       await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #8 to master" })).toBeVisible()
       // into master again: its approvals count, the start comments on it
       await expect(slot).toHaveAttribute("data-step", "safePush")
@@ -1629,13 +1629,13 @@ test.describe("Stacked branches", () => {
         await syncFromMenu(page)
       }
       await openContextMenu(page, docsRow)
-      await page.getByRole("menuitem", { name: /^Push Branch \(1\)/ }).click()
+      await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: /^Push Branch \(1\)/ }).click())
       await expectPushedToast(page, "docs")
-      await expect.poll(() => remotePushes(repo)).toEqual([["docs"]])
+      expect(await remotePushes(repo)).toEqual([["docs"]])
       await unpushed()
       await docsRow.focus()
-      await page.keyboard.press("p")
-      await expect.poll(() => remotePushes(repo)).toEqual([["docs"], ["docs"]])
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("p"))
+      expect(await remotePushes(repo)).toEqual([["docs"], ["docs"]])
       await unpushed()
       await openContextMenu(page, docsRow)
       await clickContextMenuItem(page, "Create Pull Request…")

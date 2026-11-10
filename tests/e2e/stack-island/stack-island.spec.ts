@@ -238,8 +238,8 @@ test.describe("Stack island", () => {
     for (const name of ["air", "bazel", "side-test"]) {
       await expect(findBranchRow(page, name).getByTestId("push-button")).toHaveAccessibleName(/^Pushing \d+%$/)
     }
-    await held.release()
-    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test"]])
+    await runAndWaitForAnswer(page, "execute", () => held.release())
+    expect(await remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test"]])
     // the branches are on the remote, the stack branch of the whole stack is not (no pull request, no Safe Push put it
     // there): the header's push stays, disabled with the reason, which says so
     await expect(push).toBeDisabled()
@@ -273,7 +273,7 @@ test.describe("Stack island", () => {
     // nothing; side-test, whose drop nobody showed, keeps Bob's commit
     await confirmForcePush(page, "Force Push Branch (2)")
     const sent = ["air", "bazel", "bridge", "deploy", "runtime", "side-fix"]
-    await expect.poll(() => remotePushes(repo)).toEqual([sent])
+    expect(await remotePushes(repo)).toEqual([sent])
     await expectPushedToRemote(repo, sent)
     expect((await repo.getRemoteBranches())[virtualBranch("side-test")]).toBe(theirs["side-test"])
   })
@@ -297,9 +297,9 @@ test.describe("Stack island", () => {
     const description = page.getByTestId("stack-island-push-description")
     await expect(description).toContainText("Pushes 8 branches, parents first:")
     await expect(description).toContainText("user-name/stack/air · the whole stack branch · 2 commits")
-    await push.click()
+    await runAndWaitForAnswer(page, "execute", () => push.click())
     // one push of the 8, the stack branch over what its remote had
-    await expect.poll(() => remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test", "stack:air"]])
+    expect(await remotePushes(repo)).toEqual([["air", "bazel", "bridge", "deploy", "runtime", "side-fix", "side-test", "stack:air"]])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     await expect(push).toHaveAccessibleName("Push with Children")
     await page.mouse.move(0, 0)
@@ -310,7 +310,7 @@ test.describe("Stack island", () => {
     await expect(push).toHaveAccessibleName("Push with Children (the whole stack branch)")
     await expect(push).toHaveText("1")
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
-    await page.getByRole("menuitem", { name: "Push with Children (the whole stack branch)" }).click()
+    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push with Children (the whole stack branch)" }).click())
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed the whole stack branch of air" })).toBeVisible()
     expect((await remotePushes(repo)).at(-1)).toEqual(["stack:air"])
     await expectPushedToRemote(repo, [stackBranchOf("air")])

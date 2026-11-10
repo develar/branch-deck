@@ -7,6 +7,7 @@ import { availableRobots, expectPatronusStarts, robot, startRequest } from "../h
 import { expectPushedToast, holdRemotePushes, remotePushes } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { waitForStepFacts } from "../helpers/wait-helpers"
 
@@ -365,7 +366,7 @@ test.describe("Branch filter", () => {
     await expect(chip(page, "yourMove")).toHaveText("Your Move6")
     await expect(chip(page, "landing")).toHaveText("Landing4")
     expect((await repo.getPatronusLog()).starts).toEqual([])
-    await held.release()
+    await runAndWaitForAnswer(page, "execute", () => held.release())
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
     await expect(chip(page, "yourMove")).toHaveText("Your Move6")
     await expect(chip(page, "landing")).toHaveText("Landing4")

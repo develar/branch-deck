@@ -58,7 +58,7 @@ test.describe("Landing needs", () => {
     const rowsAt = Date.now()
     await syncAndWaitForBranches()
     // Rust computes the needs after the view: the page waits for them, the step too
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("landingNeeds")
+    await repo.arrival("landingNeeds")
     for (const name of ["lane-run", "stills-codec"]) {
       await expect(step(page, name)).toHaveAttribute("data-step", "pending")
     }

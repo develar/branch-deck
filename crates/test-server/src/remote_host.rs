@@ -532,13 +532,15 @@ impl RemoteHost {
     }
   }
 
-  /// Resolves once a request reached the held answer `answer`, at once while it is not held
-  #[cfg(test)]
-  pub async fn arrival(&self, answer: HeldAnswer) {
-    let gate = self.held.lock().expect("held answers lock").get(&answer).cloned();
-    if let Some(gate) = gate {
-      gate.arrived().await;
-    }
+  /// Resolves once a request reached the held answer `answer` (true) or its gate opened before one did (false, a
+  /// release or the deletion of the repository); `None` while `answer` is not held
+  pub async fn arrival(&self, answer: HeldAnswer) -> Option<bool> {
+    let gate = self.held.lock().expect("held answers lock").get(&answer).cloned()?;
+    Some(tokio::select! {
+      biased;
+      () = gate.arrived() => true,
+      () = gate.opened() => gate.has_arrived(),
+    })
   }
 
   /// The held answers a request reached (it waits at the gate now)

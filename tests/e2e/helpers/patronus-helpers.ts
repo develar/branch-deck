@@ -186,9 +186,13 @@ export function wholeStackStartRequest(root: string, patch: Partial<PatronusStar
   return startRequest(root, { sourceBranch: `refs/heads/user-name/stack/${root}`, ...patch })
 }
 
-/** Waits until the fake Patronus logged exactly the start requests `requests`, in order */
+/**
+ * The fake Patronus logged exactly the start requests `requests`, in order. Read once, after the answer of the start
+ * (`runAndWaitForAnswer(page, "execute", …)`): its checks, its push and the start end before it, which take seconds
+ * under load
+ */
 export async function expectPatronusStarts(repo: TestRepositoryBuilder, requests: PatronusStartRequest[]): Promise<void> {
-  await expect.poll(async () => (await repo.getPatronusLog()).starts).toEqual(requests)
+  expect((await repo.getPatronusLog()).starts).toEqual(requests)
 }
 
 /** The page of the robot `id` a fake Patronus started (`started-<n>`, `restarted-<n>`), as the client derives it */

@@ -50,6 +50,17 @@
 // - `e2e-expect`: a file of tests/e2e but `fixtures/base-test.ts` that imports `expect` from "@playwright/test", whose
 //   `poll` waits up to a second between its tries; the `expect` of `fixtures/base-test.ts` (or `test-fixtures.ts`) asks
 //   every 50 ms.
+// A test waits for the answer of an operation, never for its effect by time (docs/contributing/e2e-tests.md, "Wait for the
+// state, never for time"):
+// - `e2e-remote-poll`: an `expect.poll` of tests/e2e that reads the remote of a repository (`getRemoteBranches`,
+//   `getRemotePushes`, `remotePushes`, `pushedBranches`, `revision`), what an operation wrote at a fake (`gitHubWrites`,
+//   `gitHubMutations`, a write of `gitHubRequests`, the `starts`, `restarts` or `cancels` of the log of Patronus) or the
+//   held answers a request reached (`getArrivedAnswers`): the operation has an answer (`runAndWaitForAnswer(page,
+//   "execute", …)`), after which the test reads it once, and a held answer its arrival (`repo.arrival(answer)`, which
+//   answers once a request reached it); a poll of a few seconds after the press failed where the operation took longer
+//   under load. A write the operation makes while
+//   it waits for the test (a start from a pull request reads the reply of the bot on the clock of the session) is an
+//   entry of ALLOWLIST with its reason and its `count`.
 // The focus is one token, `bd-focus` of src/index.css (docs/design/ui-theme.md, "Focus"), never a look of its own:
 // - `focus-ring`: a class of src (its tests aside) whose variants name a focus (`focus:`, `focus-visible:`,
 //   `focus-within:`, `group-focus-visible/…:`, `has-[…:focus-visible]:`) and whose utility draws a ring, an outline, a
@@ -57,12 +68,13 @@
 //   or a ring offset under any variant (`ring-ring`, `outline-ring/50`, `ring-offset-background`); `outline-none` and
 //   `outline-hidden` under a focus take the outline away and pass.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
-// file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`, `EXCEPTED_RULES`): every other rule
-// holds without exceptions; an entry that matches nothing fails, so the list never outlives its code.
+// file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`) and of a write a test polls
+// (`e2e-remote-poll`, with the exact `count` of its findings in the file; `EXCEPTED_RULES`): every other rule holds
+// without exceptions; an entry that matches nothing fails, so the list never outlives its code.
 import { globSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
-/** `{ file, rule, reason }`: a finding of `rule` in `file` that holds, and why */
+/** `{ file, rule, reason, count? }`: a finding of `rule` in `file` that holds (`count` of them), and why */
 export const ALLOWLIST = [
   { file: "src/hooks/useNow.ts", rule: "poll-timer", reason: "the tick of the relative times and of the time of a running robot: no request" },
   { file: "src/stores/update-project.ts", rule: "poll-timer", reason: "the bar of an Update Project that ended stays for END_HOLD_MS: no request" },
@@ -81,11 +93,30 @@ export const ALLOWLIST = [
   { file: "src/hooks/useCommitDrag.ts", rule: "poll-timer", reason: "the drag image goes once the browser took it: no request" },
   { file: "src/hooks/useAutoUpdate.ts", rule: "poll-timer", reason: "one check for updates shortly after the start of the app, never again by a timer" },
   { file: "src/hooks/useMovePreview.ts", rule: "poll-timer", reason: "the dry run of a move waits for the selection to rest: a debounce" },
+  {
+    file: "tests/e2e/next-step/next-step.spec.ts",
+    rule: "e2e-remote-poll",
+    count: 2,
+    reason:
+      "a start from a pull request comments, then reads the reply of the bot on the clock of the session, which only the test moves: the start answers after that, never by the comment",
+  },
+  {
+    file: "tests/e2e/next-step/facts-without-answer.spec.ts",
+    rule: "e2e-remote-poll",
+    count: 1,
+    reason:
+      "a start from a pull request comments, then reads the reply of the bot on the clock of the session, which only the test moves: the start answers after that, never by the comment",
+  },
 ]
 
 const SOURCES = ["src/**/*.{ts,tsx}", "tests/e2e/**/*.ts"]
-/** The rules an entry of ALLOWLIST may except: a timer of the UI, which `poll-timer` cannot tell from a poll */
-const EXCEPTED_RULES = new Set(["poll-timer"])
+/**
+ * The rules an entry of ALLOWLIST may except: a timer of the UI, which `poll-timer` cannot tell from a poll, and a write a
+ * running operation makes while it waits for the test, which `e2e-remote-poll` cannot tell from one after its answer
+ */
+const EXCEPTED_RULES = new Set(["poll-timer", "e2e-remote-poll"])
+/** The rules whose entry of ALLOWLIST names the exact count of its findings in the file */
+const COUNTED_RULES = new Set(["e2e-remote-poll"])
 
 /** The rule modules of the page whose rules Rust decides now (`domain-policy`): deleted, they don't come back */
 export const RULE_MODULES = ["src/lib/branch-next-step.ts", "src/lib/landing-node.ts", "src/lib/safe-push-decision.ts", "src/hooks/useStatusBadge.ts"]
@@ -354,6 +385,11 @@ const ROUTE_ERROR = /\brouteCommandError\(/g
 const EXPECTING = /^tests\/e2e\/(?!fixtures\/base-test\.ts$)/
 const PLAYWRIGHT_EXPECT = /(?<![\w$])import\s+\{[^}]*(?<![\w$])expect(?![\w$])[^}]*\}\s*from\s*["']@playwright\/test["']/g
 const TIMER = /(?<![\w$])(?:window\.)?set(?:Timeout|Interval)\(/
+/** A poll of the `expect` of a test, `expect.poll(` or `expect` and `.poll(` on the next line */
+const POLL = /(?<![\w$])expect\s*\.\s*poll\s*\(/g
+/** The reads of the remote of a repository and of what an operation wrote at a fake, in the callback of a poll */
+const REMOTE_READ =
+  /(?<![\w$])(?:getRemoteBranches|getRemotePushes|remotePushes|pushedBranches|revision|gitHubWrites|gitHubMutations|getArrivedAnswers)\s*\(|(?<![\w$])gitHubRequests\s*\([^,()]+,\s*["'](?:POST|PATCH|PUT|DELETE)["']|\)\s*\.\s*(?:starts|restarts|cancels)(?![\w$])/
 /** The sources whose timers are polls unless they say otherwise: the stores and the hooks, their tests aside */
 const TIMED = /^src\/(?:stores|hooks)\/(?!.*\.test\.tsx?$)/
 
@@ -546,6 +582,14 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
       problems.push({ file, line, rule: "e2e-expect", text: sourceLines[line - 1].trim() })
     }
   }
+  if (file.startsWith("tests/e2e/")) {
+    for (const found of text.matchAll(POLL)) {
+      if (REMOTE_READ.test(argumentsAt(text, found.index + found[0].length - 1))) {
+        const line = text.slice(0, found.index).split("\n").length
+        problems.push({ file, line, rule: "e2e-remote-poll", text: sourceLines[line - 1].trim() })
+      }
+    }
+  }
   for (const call of text.matchAll(ROUTE_ERROR)) {
     // the declaration of the helper
     if (/function\s+$/.test(text.slice(0, call.index))) {
@@ -565,6 +609,8 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
  */
 export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMMAND_CALLERS) {
   const used = new Set()
+  // the findings each entry of ALLOWLIST holds, by its index
+  const held = new Map()
   const problems = []
   const registry = readRegistry(root)
   // the modules that call each command of the app, by its name in the registry
@@ -585,6 +631,7 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
         problems.push(`${problem.file}:${problem.line}: ${problem.rule}: ${problem.text}`)
       } else {
         used.add(allowed)
+        held.set(allowed, (held.get(allowed) ?? 0) + 1)
       }
     }
   }
@@ -598,11 +645,15 @@ export function lintArchitecture(root, allowlist = ALLOWLIST, callers = APP_COMM
   }
   allowlist.forEach((entry, index) => {
     if (!EXCEPTED_RULES.has(entry.rule)) {
-      problems.push(`ALLOWLIST: ${entry.file} (${entry.rule}): the rule takes no exception, only a timer of the UI does (poll-timer)`)
+      problems.push(
+        `ALLOWLIST: ${entry.file} (${entry.rule}): the rule takes no exception, only a timer of the UI (poll-timer) and a write of a waiting operation (e2e-remote-poll) do`,
+      )
     } else if (typeof entry.reason !== "string" || entry.reason.trim() === "") {
       problems.push(`ALLOWLIST: ${entry.file} (${entry.rule}) gives no reason`)
     } else if (!used.has(index)) {
       problems.push(`ALLOWLIST: ${entry.file} (${entry.rule}) matches nothing: remove it`)
+    } else if (COUNTED_RULES.has(entry.rule) && entry.count !== held.get(index)) {
+      problems.push(`ALLOWLIST: ${entry.file} (${entry.rule}) holds ${held.get(index)} finding(s), its count says ${entry.count}: name the exact count`)
     }
   })
   return problems

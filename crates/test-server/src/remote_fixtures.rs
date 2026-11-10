@@ -293,6 +293,20 @@ pub async fn get_remote_gates(Path(id): Path<String>, State(state): State<Arc<Ap
   Ok(Json(serde_json::json!({ "arrived": host.arrived_answers() })))
 }
 
+/// Answers once a request reached the held answer `answer` and waits there (`{"arrived": true}`), or once its gate
+/// opened before one did (`false`): a test waits for this event, as long as the test lasts, instead of polling `arrived`
+/// for an assertion's time while the page computes what it asks under load; 409 for an answer the test does not hold
+pub async fn get_remote_gate_arrival(Path((id, answer)): Path<(String, HeldAnswer)>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+  let (host, _) = host_of(&state, &id)?;
+  match host.arrival(answer).await {
+    Some(arrived) => Ok(Json(serde_json::json!({ "arrived": arrived }))),
+    None => Err((
+      StatusCode::CONFLICT,
+      "the answer is not held: POST /repositories/{id}/remote-gates with it first".to_string(),
+    )),
+  }
+}
+
 /// Sets the TeamCity checks and the problems Patronus answers for robots (`PatronusDetailsFixture`)
 pub async fn set_patronus_details(Path(id): Path<String>, State(state): State<Arc<AppState>>, Json(fixture): Json<PatronusDetailsFixture>) -> FixtureResult {
   let (host, _) = host_of(&state, &id)?;

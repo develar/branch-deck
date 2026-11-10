@@ -39,7 +39,14 @@ rules in one line each and links here.
   `runAndWaitForUpdate`, a start `runAndWaitForAnswer(page, "execute", …)` (the end of its stream), the facts of a next step
   `waitForStepFacts`, any other step `nextAnswer(page, command)` before the assertion that reads its answer. The press
   goes into the wait (`runAndWaitForAnswer(page, command, () => button.click())`) or comes after `nextAnswer`: a wait
-  that starts after the press misses a quick answer and holds the test until its timeout.
+  that starts after the press misses a quick answer and holds the test until its timeout. What an operation wrote (the
+  remote's branches, a start, a restart, a cancel or a GitHub write at a fake) is read once after its answer, never
+  polled: `expectPushedToRemote` and `expectPatronusStarts` read once, `confirmForcePush` and `pushBranchFromRow` wait
+  for the answer of their push, and `pnpm lint:arch` (`e2e-remote-poll`) refuses an `expect.poll` of the remote or of
+  such a write; a write of an operation that waits for the test (a start from a pull request reads the reply of the bot
+  on the clock of the session) is an entry of its `ALLOWLIST` with its count. A 5 s poll after the press failed where
+  the push, the update and the sync of one landing took longer under load (`merge-pull-request.spec.ts`,
+  `push-to-master.spec.ts`).
 - **Close a read toast** before acting where it lies (`closeToast` of `tests/e2e/helpers/toast-helpers.ts`): the toasts
   lie above menus and dialogs at the bottom right, and a click or hover under one waits until it times out (5 s, 10 s
   with an action); six tests spent 7-9 s each this way, which the timing summary names as stalled actions.

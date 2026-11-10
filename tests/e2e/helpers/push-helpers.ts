@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
-import { syncFromMenu } from "./sync-helpers"
+import { runAndWaitForAnswer, syncFromMenu } from "./sync-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 
 /**
@@ -62,24 +62,23 @@ export async function remotePushes(repo: TestRepositoryBuilder, prefix = "user-n
 }
 
 /**
- * Waits until the remote of `repo` has the branches `names` (`branchOf`) at the commits their local branches are at,
- * and its log has the push of the app that moved each there: the push of each reached the remote and ended, so
- * `remotePushes` has it. The hook that logs a push runs after its refs moved (docs/design/e2e-testing.md#the-remote-of-a-repository)
+ * The remote of `repo` has the branches `names` (`branchOf`) at the commits their local branches are at, and its log has
+ * the push of the app that moved each there. Read once, after the answer of the operation that pushed
+ * (`runAndWaitForAnswer(page, "execute", …)`): the push, the hook that logs it once its refs moved
+ * (docs/design/e2e-testing.md#the-remote-of-a-repository) and what the operation does after it end before that answer,
+ * while a poll of a few seconds after the press failed where the operation took longer under load
  */
 export async function expectPushedToRemote(repo: TestRepositoryBuilder, names: readonly string[], prefix = "user-name"): Promise<void> {
   const tips = Object.fromEntries(await Promise.all(names.map(async name => [name, await repo.revision(branchOf(name, prefix))] as const)))
-  await expect
-    .poll(async () => {
-      const [remote, pushes] = await Promise.all([repo.getRemoteBranches(), repo.getRemotePushes()])
-      return Object.fromEntries(
-        names.map(name => {
-          const branch = branchOf(name, prefix)
-          const logged = pushes.some(push => push[branch] === tips[name])
-          return [name, logged ? (remote[branch] ?? null) : `${remote[branch] ?? null}, no push logged`]
-        }),
-      )
-    })
-    .toEqual(tips)
+  const [remote, pushes] = await Promise.all([repo.getRemoteBranches(), repo.getRemotePushes()])
+  const pushed = Object.fromEntries(
+    names.map(name => {
+      const branch = branchOf(name, prefix)
+      const logged = pushes.some(push => push[branch] === tips[name])
+      return [name, logged ? (remote[branch] ?? null) : `${remote[branch] ?? null}, no push logged`]
+    }),
+  )
+  expect(pushed).toEqual(tips)
 }
 
 /**
@@ -110,7 +109,7 @@ export async function pushedBefore(
 export async function holdRemotePushes(repo: TestRepositoryBuilder): Promise<{ arrived: () => Promise<void>; release: () => Promise<void> }> {
   await repo.holdRemoteAnswers({ hold: ["push"] })
   return {
-    arrived: () => expect.poll(() => repo.getArrivedAnswers(), { timeout: 0 }).toContain("push"),
+    arrived: () => repo.arrival("push"),
     release: () => repo.holdRemoteAnswers({ release: ["push"] }),
   }
 }
@@ -137,7 +136,8 @@ export async function fixesOfOthersOnRemote(repo: TestRepositoryBuilder, authors
 
 /**
  * A push that drops remote commits asks first: the click on its button (the toast's action, P in the preview) opens its
- * description with the dropped commits and a destructive Force Push button; this clicks that button, which pushes.
+ * description with the dropped commits and a destructive Force Push button; this clicks that button, which pushes, and
+ * waits for the answer of the push (`execute`), which takes seconds under load
  */
 export async function confirmForcePush(page: Page, label: string): Promise<void> {
   // the description of another push may still be closing
@@ -145,7 +145,7 @@ export async function confirmForcePush(page: Page, label: string): Promise<void>
   await expect(description.getByTestId("dropped-commits")).toBeVisible()
   const confirm = description.getByTestId("push-confirm")
   await expect(confirm).toHaveText(label)
-  await confirm.click()
+  await runAndWaitForAnswer(page, "execute", () => confirm.click())
 }
 
 /**

@@ -7,7 +7,7 @@ import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-fo
 import { branchOf, expectPushedToRemote, remotePushes } from "../helpers/push-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
+import { finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
@@ -150,7 +150,7 @@ test.describe("Unapplied branches", () => {
     await expect(safePush).toHaveAttribute("aria-disabled", "true")
     await safePush.hover()
     await expect(page.getByRole("tooltip")).toHaveText("Not in master: Reapply it to land it")
-    await page.getByRole("menuitem", { name: "Push Branch", exact: true }).click()
+    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
     await expect(toast(page, "Pushed branch docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
     await expectPushedToRemote(repo, ["unapplied:docs"])
     expect(await remotePushes(repo)).toEqual([["unapplied:docs"]])
@@ -170,8 +170,8 @@ test.describe("Unapplied branches", () => {
     await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("1 commit to push")
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
-    await page.getByRole("menuitem", { name: "Push Branch", exact: true }).click()
-    await expect.poll(() => remotePushes(repo)).toEqual([["unapplied:docs"], ["unapplied:docs"]])
+    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
+    expect(await remotePushes(repo)).toEqual([["unapplied:docs"], ["unapplied:docs"]])
     await expectPushedToRemote(repo, ["unapplied:docs"])
   })
 

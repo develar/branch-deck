@@ -10,7 +10,7 @@ import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { waitForStepFacts } from "../helpers/wait-helpers"
 
@@ -59,7 +59,15 @@ async function confirmStackMerge(page: Page): Promise<void> {
   await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText("Pushes its stack branch user-name/stack/air.")
   await expect(popoverStart(page)).toHaveText("Merge #12")
   await expect(popoverStart(page)).toBeFocused()
-  await page.keyboard.press("Enter")
+  await mergeAndWait(page, () => page.keyboard.press("Enter"))
+}
+
+/**
+ * The press that merges, and the answer of the landing it starts (`execute`): the merge, the update that follows it and
+ * its sync are one operation, which takes seconds under load; the remote and the page then only show what it did
+ */
+async function mergeAndWait(page: Page, press: () => Promise<unknown>): Promise<void> {
+  await runAndWaitForAnswer(page, "execute", press)
 }
 
 /**
@@ -67,8 +75,8 @@ async function confirmStackMerge(page: Page): Promise<void> {
  * and the update that follows drops the originals, the stack with them
  */
 async function expectStackMerged(page: Page, repo: TestRepositoryBuilder, root: string, copy: string): Promise<void> {
-  await expect.poll(async () => gitHubMutations(await repo.getGitHubLog())).toEqual([["mergePullRequest", { id: "PR_12", method: "REBASE", head: copy }]])
-  await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+  expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["mergePullRequest", { id: "PR_12", method: "REBASE", head: copy }]])
+  expect((await repo.getRemoteBranches())["master"]).toBe(copy)
   await expect(findBranchRow(page, root)).toHaveCount(0)
   await expect(findBranchRow(page, "docs")).toBeVisible()
 }
@@ -98,11 +106,11 @@ function mergeToast(page: Page, title: string): Locator {
 
 /**
  * GitHub merged #7 on the head the user saw by rebase (`expectedHeadOid`): the remote's master is the copy, the toast
- * says what landed, and the update that follows drops the originals
+ * says what landed, and the update that follows drops the originals. After the answer of the merge (`mergeAndWait`)
  */
 async function expectMerged(page: Page, repo: TestRepositoryBuilder, copy: string): Promise<void> {
-  await expect.poll(async () => gitHubMutations(await repo.getGitHubLog())).toEqual([["mergePullRequest", { id: "PR_7", method: "REBASE", head: copy }]])
-  await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+  expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["mergePullRequest", { id: "PR_7", method: "REBASE", head: copy }]])
+  expect((await repo.getRemoteBranches())["master"]).toBe(copy)
   const toast = mergeToast(page, `Merged #7 of ${BRANCH} into master · 3 commits`)
   await expect(toast).toBeVisible()
   await expect(toast).toContainText(`${BRANCH} landed in origin/master · Updated master`)
@@ -116,7 +124,7 @@ test.describe("Merge #7", () => {
     await expect(getLandingNode(findBranchRow(page, BRANCH))).toHaveAttribute("data-kind", "ready")
     const copy = await repo.revision(virtualBranch(BRANCH))
     // it asks nothing: the click merges at once
-    await mergeStep(page).click()
+    await mergeAndWait(page, () => mergeStep(page).click())
     await expectMerged(page, repo, copy)
   })
 
@@ -128,7 +136,7 @@ test.describe("Merge #7", () => {
     await expect(popover.getByTestId("safe-push-dry-run")).toHaveCount(0)
     await expect(popoverStart(page)).toHaveText("Merge #7")
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
+    await mergeAndWait(page, () => page.keyboard.press("Enter"))
     await expectMerged(page, repo, copy)
   })
 
@@ -136,7 +144,7 @@ test.describe("Merge #7", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
     await findBranchRow(page, BRANCH).click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Merge #7" }).click()
+    await mergeAndWait(page, () => page.getByRole("menuitem", { name: "Merge #7" }).click())
     await expectMerged(page, repo, copy)
   })
 
@@ -156,7 +164,7 @@ test.describe("Merge #7", () => {
 
     await releaseTheFirstSync(page, repo)
     await findBranchRow(page, BRANCH).click({ button: "right" })
-    await merge.click()
+    await mergeAndWait(page, () => merge.click())
     await expectMerged(page, repo, copy)
   })
 
@@ -164,7 +172,7 @@ test.describe("Merge #7", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
     // the start is the row's: the preview closes, the merge asks nothing
-    await startFromPreviewFooter(page, BRANCH, "Merge #7")
+    await mergeAndWait(page, () => startFromPreviewFooter(page, BRANCH, "Merge #7"))
     await expectMerged(page, repo, copy)
   })
 
@@ -172,7 +180,9 @@ test.describe("Merge #7", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
     // the button of the title bar of the review window, run by the main window at the row
-    await emitTauriEvent(page, "review/run", { id: "merge", repositoryPath: repo.path, subject: BRANCH, itemId: "merge-pull-request" } satisfies ReviewRunRequest)
+    await mergeAndWait(page, () =>
+      emitTauriEvent(page, "review/run", { id: "merge", repositoryPath: repo.path, subject: BRANCH, itemId: "merge-pull-request" } satisfies ReviewRunRequest),
+    )
     await expectMerged(page, repo, copy)
   })
 
@@ -204,8 +214,8 @@ test.describe("Merge #7", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, seven({ mergeState: "blocked", checks: RUNNING }))
     await expect(mergeStep(page)).toHaveText("Auto-Merge #7")
     const copy = await repo.revision(virtualBranch(BRANCH))
-    await mergeStep(page).click()
-    await expect.poll(async () => gitHubMutations(await repo.getGitHubLog())).toEqual([["enablePullRequestAutoMerge", { id: "PR_7", method: "REBASE", head: copy }]])
+    await mergeAndWait(page, () => mergeStep(page).click())
+    expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["enablePullRequestAutoMerge", { id: "PR_7", method: "REBASE", head: copy }]])
     const enabled = mergeToast(page, "Auto-Merge of #7 is on")
     await expect(enabled).toContainText("GitHub merges it into master by rebase once its checks pass")
     const slot = findBranchRow(page, BRANCH).getByTestId("next-step-slot")
@@ -225,8 +235,8 @@ test.describe("Merge #7", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, seven({ mergeState: "blocked", checks: RUNNING, autoMerge: "rebase" }))
     await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toContainText("Merges when checks pass")
     await findBranchRow(page, BRANCH).click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Cancel Auto-Merge" }).click()
-    await expect.poll(async () => gitHubMutations(await repo.getGitHubLog())).toEqual([["disablePullRequestAutoMerge", { id: "PR_7" }]])
+    await mergeAndWait(page, () => page.getByRole("menuitem", { name: "Cancel Auto-Merge" }).click())
+    expect(gitHubMutations(await repo.getGitHubLog())).toEqual([["disablePullRequestAutoMerge", { id: "PR_7" }]])
     await expect(mergeToast(page, "Canceled the auto-merge of #7")).toBeVisible()
   })
 

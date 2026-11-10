@@ -146,10 +146,10 @@ async function setupRetarget(
 
 /**
  * GitHub got the retarget of pull request `number` into master, the toast said so, and the step of `stepSlot` is the
- * Safe Push that counts its approvals now
+ * Safe Push that counts its approvals now. After the answer of the retarget (`execute`)
  */
 async function expectRetargeted(page: Page, repo: TestRepositoryBuilder, number = 7, stepSlot = slot(page)) {
-  await expect.poll(async () => gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", number), { base: "master" }]])
+  expect(gitHubWrites(await repo.getGitHubLog())).toEqual([["PATCH", repoPath("pulls", number), { base: "master" }]])
   await expect(page.locator("[data-slot=toast]", { hasText: `Retargeted #${number} to master` })).toBeVisible()
   await expect(stepSlot).toHaveAttribute("data-step", "safePush")
 }
@@ -382,7 +382,7 @@ test.describe("Next step", () => {
     await dialog.getByTestId("create-pull-request-submit").click()
     // the creation is the move made: the branch waits for GitHub from the click on, the push and the mirror included
     await expect(node).toHaveAttribute("data-kind", "waiting")
-    await repo.holdRemoteAnswers({ release: ["createPullRequest"] })
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["createPullRequest"] }))
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
     await expect(dialog).toHaveCount(0)
     await expectPushedToRemote(repo, [BRANCH])
@@ -413,11 +413,11 @@ test.describe("Next step", () => {
     // the remote takes the push of the creation only when the test lets it
     await repo.holdRemoteAnswers({ hold: ["push"] })
     await dialog.getByTestId("create-pull-request-submit").click()
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("push")
+    await repo.arrival("push")
 
     // the main window opens another repository while the push runs: the window creates it in its own repository
     await switchRepository(page, OTHER_REPOSITORY)
-    await repo.holdRemoteAnswers({ release: ["push"] })
+    await runAndWaitForAnswer(window, "execute", () => repo.holdRemoteAnswers({ release: ["push"] }))
     await expect(window.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
     await expect(dialog).toHaveCount(0)
     await expectPushedToRemote(repo, [BRANCH])
@@ -433,7 +433,7 @@ test.describe("Next step", () => {
     const preview = await openBranchPreview(page, BRANCH)
     await preview.getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(page)
-    await dialog.getByTestId("create-pull-request-on-github").click()
+    await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-on-github").click())
     await expect(dialog).toHaveCount(0)
     await expectPushedToRemote(repo, [BRANCH])
     // the run waited until GitHub had the pushed branch, and wrote nothing to GitHub
@@ -475,9 +475,9 @@ test.describe("Next step", () => {
     await expectStartedToast(page)
     await expect(safePushPopover(page)).toHaveCount(0)
     expect((await repo.getPatronusLog()).starts).toEqual([startRequest(BRANCH)])
-    await page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).getByRole("button", { name: "Cancel Safe Push" }).click()
+    await runAndWaitForAnswer(page, "execute", () => page.locator("[data-slot=toast]", { hasText: "Safe Push started" }).getByRole("button", { name: "Cancel Safe Push" }).click())
     // the robot Patronus started
-    await expect.poll(async () => (await repo.getPatronusLog()).cancels).toEqual(["started-1"])
+    expect((await repo.getPatronusLog()).cancels).toEqual(["started-1"])
 
     // the pull request is the menu's
     const menu = await openMenu(page)
@@ -578,16 +578,15 @@ test.describe("Next step", () => {
     // GitHub answers the request only when the test lets it
     await repo.holdRemoteAnswers({ hold: ["requestReviewers"] })
     await popover.getByTestId("request-review-submit").click()
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("requestReviewers")
+    await repo.arrival("requestReviewers")
 
     // the retarget writes the base of the pull request, the request its reviewers: it runs while the request waits
     await page.keyboard.press("Escape")
     const retarget = slot(page).getByRole("button", { name: "Retarget #1078" })
     await expect(retarget).toBeEnabled()
-    await retarget.click()
-    await expect
-      .poll(async () => (await repo.getGitHubLog()).requests.filter(it => it.method === "PATCH").map(it => [it.path, it.body]))
-      .toEqual([[repoPath("pulls", 1078), { base: "master" }]])
+    // its answer comes while the request still waits at GitHub: the next answer of an operation is the retarget's
+    await runAndWaitForAnswer(page, "execute", () => retarget.click())
+    expect((await repo.getGitHubLog()).requests.filter(it => it.method === "PATCH").map(it => [it.path, it.body])).toEqual([[repoPath("pulls", 1078), { base: "master" }]])
     await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #1078 to master" })).toBeVisible()
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot retarget" })).toHaveCount(0)
 
@@ -599,7 +598,7 @@ test.describe("Next step", () => {
   test("should retarget a pull request into the branch of a parent that landed, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the base is the branch of a parent that is no branch of the table any more
     const repo = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
-    await slot(page).getByRole("button", { name: "Retarget #7" }).click()
+    await runAndWaitForAnswer(page, "execute", () => slot(page).getByRole("button", { name: "Retarget #7" }).click())
     await expectRetargeted(page, repo)
   })
 
@@ -635,7 +634,7 @@ test.describe("Next step", () => {
     await expect(page.getByTestId("next-step-hover")).toContainText("Approvals in #7 don't count: its base is user-name/virtual/feature-auth, a virtual branch.")
     // the menu offers the same retarget
     const menu = await openMenu(page)
-    await menu.getByRole("menuitem", { name: "Retarget #7 to master" }).click()
+    await runAndWaitForAnswer(page, "execute", () => menu.getByRole("menuitem", { name: "Retarget #7 to master" }).click())
     await expectRetargeted(page, repo)
   })
 
@@ -652,7 +651,7 @@ test.describe("Next step", () => {
 
     const oauthSlot = findBranchRow(page, "oauth").getByTestId("next-step-slot")
     await expect(oauthSlot).toHaveAttribute("data-step", "retarget")
-    await oauthSlot.getByRole("button", { name: "Retarget #8" }).click()
+    await runAndWaitForAnswer(page, "execute", () => oauthSlot.getByRole("button", { name: "Retarget #8" }).click())
     await expectRetargeted(page, repo, 8, oauthSlot)
   })
 
@@ -743,7 +742,7 @@ test.describe("Next step", () => {
       "The push dismisses the approvals of #1078: the rules of the repository dismiss stale reviews when new commits are pushed.",
     )
     await expect(popoverStart(page)).toBeDisabled()
-    await popover.getByTestId("safe-push-push-only").click()
+    await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("safe-push-push-only").click())
     await expectPushedToRemote(repo, [BRANCH])
     await page.keyboard.press("Escape")
     await expect(popover).toHaveCount(0)
@@ -757,7 +756,7 @@ test.describe("Next step", () => {
     await expect(toast).toHaveAttribute("data-type", "info")
     await expect(toast).toContainText(reason)
     await expect(safePushPopover(page)).toHaveCount(0)
-    await toast.getByRole("button", { name: "Push Branch", exact: true }).click()
+    await runAndWaitForAnswer(page, "execute", () => toast.getByRole("button", { name: "Push Branch", exact: true }).click())
     await expectPushedToRemote(repo, [BRANCH])
   })
 

@@ -803,7 +803,7 @@ test.describe("Review window", () => {
     expect(await windowCalls(reviewPage)).not.toContain("close")
 
     // the window runs the approval in its own session: it says how it went, nothing asked of the main window
-    await expect.poll(() => repo.getArrivedAnswers()).toContain("submitReview")
+    await repo.arrival("submitReview")
     await repo.holdRemoteAnswers({ release: ["submitReview"] })
     await expect(reviewToast(reviewPage, "Approved #101")).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])

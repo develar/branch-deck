@@ -651,6 +651,22 @@ export class TestRepositoryBuilder {
   }
 
   /**
+   * Resolves once a request reached the held answer `answer` and waits there (`GET …/remote-gates/{answer}/arrival`, which
+   * answers then), however long the page and the session take to ask it under load: a poll of `getArrivedAnswers` gave
+   * up after an assertion's time. Throws for an answer the test does not hold, and when its gate opened before a request
+   * came
+   */
+  async arrival(answer: HeldAnswer): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/remote-gates/${answer}/arrival`)
+    if (!response.ok) {
+      throw new Error(`Cannot wait for the arrival of ${answer}: ${response.status} ${await response.text()}`)
+    }
+    if (!((await response.json()) as { arrived: boolean }).arrived) {
+      throw new Error(`${answer} was released before a request reached it`)
+    }
+  }
+
+  /**
    * Takes the repository lock of the repository (`held`) or releases it, as another process holds it (`brd pick
    * --follow` of an agent): its holder record names the test server, `test-server`, alive while it runs
    */

@@ -279,6 +279,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
       "/repositories/{id}/remote-gates",
       post(remote_fixtures::set_remote_gates).get(remote_fixtures::get_remote_gates),
     )
+    .route("/repositories/{id}/remote-gates/{answer}/arrival", get(remote_fixtures::get_remote_gate_arrival))
     .route(
       "/repositories/{id}/review-answers",
       post(review_fixtures::set_review_answers).get(review_fixtures::get_review_answers),

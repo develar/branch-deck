@@ -6,6 +6,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { availablePullRequests, createPullRequestDialog, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `stacked_chain` template: oauth on login on auth and docs alone, none pushed. The repository lands by a merge of the pull
@@ -78,11 +79,12 @@ test.describe("Stacks of GitHub", () => {
     await expect(safePushPopover(page).getByTestId("safe-push-lands")).toContainText("GitHub merges #7 of login")
     await expect(popoverStart(page)).toHaveText("Merge #7")
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
+    // the merge, the update after it and its sync are one operation: its answer, then the fake and the page once
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
     // one merge of login's #7, which GitHub runs with auth's #6 below it; oauth stays open
-    await expect
-      .poll(async () => gitHubWrites(await repo.getGitHubLog()).filter(([method]) => method === "PUT"))
-      .toEqual([["PUT", repoPath("pulls", 7, "merge-async"), expect.objectContaining({ merge_method: "rebase" })]])
+    expect(gitHubWrites(await repo.getGitHubLog()).filter(([method]) => method === "PUT")).toEqual([
+      ["PUT", repoPath("pulls", 7, "merge-async"), expect.objectContaining({ merge_method: "rebase" })],
+    ])
     // the toast says what landed, and the update that follows drops the originals of both
     const toast = page.locator("[data-slot=toast]", { hasText: "Merged #7 of login into master · 2 commits" })
     await expect(toast).toContainText("2 branches landed in origin/master · auth and login")
