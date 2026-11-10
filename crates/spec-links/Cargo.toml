@@ -1,0 +1,26 @@
+[package]
+name = "spec-links"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The check of the links of the specs and the design docs to the code (`pnpm lint:specs`): the `[@test]` links, the `targets:`, the rules and the presenters a spec lists, the links into a spec, the groups of its requirements, the old layout, `openspec validate --strict` and the budget of AGENTS.md"
+publish = false
+
+[[bin]]
+name = "spec-links"
+path = "src/main.rs"
+
+[dependencies]
+# a link's path by the rule of its file's format (`spec_syntax::resolve`) and a glob of the files checked
+# (`spec_syntax::glob_matches`): psi-syntax's reader of the specs, which the review and accio read them with too
+spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "c7aff9dfd2272eccbd0e57ebce2e0f542e13f647" }
+regex = "1.13"
+serde_json.workspace = true
+# the anchor GitHub gives a heading keeps its letters, marks, numbers and connector punctuation (github-slugger)
+unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

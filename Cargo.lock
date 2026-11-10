@@ -6814,6 +6814,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "spec-links"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde_json",
+ "spec-syntax",
+ "tempfile",
+ "unicode-properties",
+]
+
+[[package]]
 name = "spec-syntax"
 version = "0.1.0"
 source = "git+https://github.com/develar/psi-syntax?rev=c7aff9dfd2272eccbd0e57ebce2e0f542e13f647#c7aff9dfd2272eccbd0e57ebce2e0f542e13f647"
