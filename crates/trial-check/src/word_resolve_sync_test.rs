@@ -309,6 +309,24 @@ async fn a_copy_of_an_older_resolve_with_other_bytes_is_copied_again() {
   assert_eq!(noted(&repo, &original), (RESOLVE_VERSION, tip));
 }
 
+/// `copy` on the branch of beta as the copy of the commit `original` that the resolve of `version` wrote of a conflict:
+/// its mapping note with the source of `original` and one resolved conflict
+fn resolved_copy(repo: &TestRepo, original: &str, copy: &str, version: u32) {
+  let tree = |rev: &str| repo.rev_parse(&format!("{rev}^{{tree}}")).unwrap();
+  let source = format!("{} {}", tree(&format!("{original}~1")), tree(original));
+  repo.git(&["update-ref", BETA, copy]);
+  let note = format!("v-commit-v1:{copy}\nv-commit-source-v1:{source}\nv-commit-resolved-v1:{version} 1 1");
+  repo.git(&["notes", "add", "-f", "-m", &note, original]);
+}
+
+/// The status the last sync of `events` gave beta
+fn beta_status(events: &[SyncEvent]) -> Option<BranchSyncStatus> {
+  events.iter().rev().find_map(|event| match event {
+    SyncEvent::BranchStatusUpdate { branch_name, status, .. } if branch_name == "beta" => Some(*status),
+    _ => None,
+  })
+}
+
 /// A copy that an older resolve wrote of a conflict that this resolve leaves is the conflict of git: a blank line at the
 /// end of the baseline and a line that beta adds there, which an older merge took for two insertions
 /// (`word_resolve_test::two_insertions_at_the_end_of_a_file_stay_the_conflict_of_git` of git-ops); the same copy noted
@@ -319,20 +337,40 @@ async fn a_copy_of_an_older_resolve_that_this_resolve_leaves_is_the_conflict_of_
   let original = repo.head();
   assert!(has_conflict(&sync_events(&repo).await), "this resolve leaves the conflict to git");
   let copy = copy_with(&repo, "end.txt", "x\ny\n\n");
-  let tree = |rev: String| repo.rev_parse(&format!("{rev}^{{tree}}")).unwrap();
-  let note = |version: u32| {
-    format!(
-      "v-commit-v1:{copy}\nv-commit-source-v1:{} {}\nv-commit-resolved-v1:{version} 1 1",
-      tree(format!("{original}~1")),
-      tree(original.clone())
-    )
-  };
-  repo.git(&["update-ref", BETA, &copy]);
-  repo.git(&["notes", "add", "-f", "-m", &note(RESOLVE_VERSION), &original]);
+  resolved_copy(&repo, &original, &copy, RESOLVE_VERSION);
   let events = sync_events(&repo).await;
   assert!(!has_conflict(&events), "a copy of this resolve is taken as it is");
   assert_eq!(repo.rev_parse(BETA).unwrap(), copy);
 
-  repo.git(&["notes", "add", "-f", "-m", &note(1), &original]);
+  resolved_copy(&repo, &original, &copy, 1);
   assert!(has_conflict(&sync_events(&repo).await));
+}
+
+/// A copy of resolve 3 whose bytes its step that ignored whitespace wrote, a line of code joined
+/// (`releaseOnFailure = true;try {`, a shape of a merge of real history), is not kept by this resolve, which takes the
+/// default policy alone: the sync gives the conflict of git, and the branch is not built, so no copy of the sync holds
+/// the joined line. Its ref keeps the last build, as the ref of every conflicting branch does: nothing pushes it, and
+/// the view takes no tip of it ("A conflicting branch keeps its copies before the conflict" of
+/// docs/design/git-operations.md). The same copy noted by this resolve is taken as it is
+#[tokio::test]
+async fn a_copy_of_resolve_3_with_a_line_its_whitespace_step_joined_is_the_conflict_of_git() {
+  let (baseline, alpha, beta) = ("try {\n  connect();", "try {\n", "releaseOnFailure = true; try {\n\n");
+  let joined = "releaseOnFailure = true;try {\n  connect();";
+  // what the resolve of version 3 wrote: the second step of IntelliJ's simple resolve, which this one no longer takes
+  let [ours, base, theirs] = [baseline, alpha, beta].map(|text| text.encode_utf16().collect::<Vec<u16>>());
+  let old = text_diff::merge_resolve_util::try_resolve(&ours, &base, &theirs, &text_diff::cancellation::Deadline::NONE);
+  assert_eq!(old.map(|text| String::from_utf16_lossy(&text)).as_deref(), Some(joined));
+
+  let repo = repo_with(&[("Release.java", baseline)], &[("Release.java", alpha)], &[("Release.java", beta)]);
+  let original = repo.head();
+  assert!(has_conflict(&sync_events(&repo).await), "this resolve leaves the conflict to git");
+  let copy = copy_with(&repo, "Release.java", joined);
+  resolved_copy(&repo, &original, &copy, RESOLVE_VERSION);
+  assert!(!has_conflict(&sync_events(&repo).await), "a copy of this resolve is taken as it is");
+
+  resolved_copy(&repo, &original, &copy, 3);
+  let events = sync_events(&repo).await;
+  assert!(has_conflict(&events));
+  assert_eq!(beta_status(&events), Some(BranchSyncStatus::MergeConflict));
+  assert_eq!(beta_copies(&events), Vec::new(), "no copy holds the joined line");
 }

@@ -3610,7 +3610,7 @@ conflict of git.
 #### Scenario: A conflict the current resolve leaves
 - **WHEN** the current resolve leaves the conflict of git
 - **THEN** the commit is that conflict, and a copy noted by the current resolve is taken as it is
-  [@test] crates/trial-check/src/word_resolve_sync_test.rs (`a_copy_of_an_older_resolve_that_this_resolve_leaves_is_the_conflict_of_git`)
+  [@test] crates/trial-check/src/word_resolve_sync_test.rs (`a_copy_of_an_older_resolve_that_this_resolve_leaves_is_the_conflict_of_git`, `a_copy_of_resolve_3_with_a_line_its_whitespace_step_joined_is_the_conflict_of_git`)
 
 ### Requirement: `brd sync`: Without the setting or a resolved file the conflict stays
 
