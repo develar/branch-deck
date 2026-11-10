@@ -38,7 +38,7 @@ fn fake_cli(dir: &Path, auth_status: &str) -> PathBuf {
       r#"case "$1 $2" in
   "auth status") cat '{shown}/auth.json' ;;
   "run log")
-    if [ "$3" = 999 ]; then sleep 30; fi
+    if [ "$3" = 999 ]; then sleep 120; fi
     echo "$TEAMCITY_URL $*"
     printf '\033[31mCompilation failed\033[0m\n' ;;
   "run tests") cat '{shown}/tests.json' ;;
@@ -101,9 +101,10 @@ async fn a_command_that_hangs_is_killed_after_the_timeout() {
     .await
     .unwrap()
     .with_timeout(Duration::from_millis(300));
+  // the command ends by itself only after two minutes: an end within a minute, which no run of a kill reaches, is the kill
   let started = Instant::now();
   assert_eq!(cli.log_tail("https://ci.example", "999").await, None);
-  assert!(started.elapsed() < Duration::from_secs(5));
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
 #[test]

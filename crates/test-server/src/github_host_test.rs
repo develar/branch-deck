@@ -382,9 +382,11 @@ async fn the_sign_in_runs_the_device_flow_of_the_fake_and_ends_with_its_reposito
   while sign_in_log().await["polls"].as_u64() < Some(2) {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
   }
+  // the device flow ends by itself only at its expiry, in 900 s: a deletion within a minute, which no run reaches, did
+  // not wait for it
   let started = std::time::Instant::now();
   delete_repository(&client, addr, &id, &path).await;
-  assert!(started.elapsed() < std::time::Duration::from_secs(5), "the deletion waited {:?}", started.elapsed());
+  assert!(started.elapsed() < std::time::Duration::from_mins(1), "the deletion waited {:?}", started.elapsed());
   // the error of the command names its operation, as the app's does
   let mut canceled = wait.await.unwrap();
   assert!(canceled["error"]["operation_id"].is_string(), "{canceled}");

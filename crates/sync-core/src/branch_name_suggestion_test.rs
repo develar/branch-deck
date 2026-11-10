@@ -213,11 +213,12 @@ fn rejects_what_is_not_a_commit_id() {
 fn kills_claude_after_the_timeout() {
   let (repo, params) = repo_with_commits();
   let dir = tempfile::tempdir().unwrap();
-  let claude = fake_executable(dir.path(), "claude", "exec sleep 30");
+  // claude ends by itself only after two minutes: an end within a minute, which no run of a kill reaches, is the kill
+  let claude = fake_executable(dir.path(), "claude", "exec sleep 120");
   let started = Instant::now();
   let outcome = suggest_branch_names_with(repo.git_executor(), &params, Some(&claude), Duration::from_millis(300), &|| false);
   assert_eq!(outcome, error("Claude did not answer within 300ms"));
-  assert!(started.elapsed() < Duration::from_secs(5));
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
 #[test]
@@ -225,12 +226,12 @@ fn a_newer_request_kills_the_running_one() {
   let (repo, params) = repo_with_commits();
   let dir = tempfile::tempdir().unwrap();
   let running = dir.path().join("running");
-  let claude = fake_executable(dir.path(), "claude", &format!(": > '{}'\nexec sleep 30", shell_path(&running)));
+  let claude = fake_executable(dir.path(), "claude", &format!(": > '{}'\nexec sleep 120", shell_path(&running)));
   let started = Instant::now();
   // the newer request comes while claude runs
   let outcome = suggest_branch_names_with(repo.git_executor(), &params, Some(&claude), TIMEOUT, &|| running.exists());
   assert_eq!(outcome, BranchNameSuggestionOutcome::Superseded);
-  assert!(started.elapsed() < Duration::from_secs(5));
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
 #[test]

@@ -20,7 +20,7 @@ use lease_pool::lease_clean::CleanOverrides;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::TryRecvError;
 use std::time::Duration;
 #[cfg(unix)]
 use std::time::UNIX_EPOCH;
@@ -936,17 +936,22 @@ fn a_host_object_call_waits_for_an_upgrade_of_git_but_a_scan_of_a_lent_run_goes_
   let (fixture, context, params) = host.parts();
   let head = fixture.repo.head();
   record_live_upgrade(fixture);
+  // a gone git user: each look of a call at the table under its lock lets it go, so its leave is the word of the call
+  // that it looked while the upgrade was recorded
+  let (gone, started) = gone_process();
+  edit_table(fixture, |table| table["users"] = json!([{ "pid": gone, "process_started": started }]));
 
   std::thread::scope(|scope| {
     let (done, answered) = std::sync::mpsc::channel();
     let (context, head) = (&context, &head);
     scope.spawn(move || done.send(have(&context.git, &context.dirs, std::slice::from_ref(head), context.lock_timeout).map_err(|error| format!("{error:#}"))));
-    // a loaded machine can make this pass later, never fail: the call must not answer while the upgrade is recorded
-    assert_eq!(
-      answered.recv_timeout(Duration::from_millis(300)),
-      Err(RecvTimeoutError::Timeout),
-      "it waits for the upgrade"
-    );
+    let looking = std::time::Instant::now();
+    while !table(fixture).users.is_empty() {
+      assert!(looking.elapsed() < Duration::from_mins(1), "the call never looked at the table");
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    // it looked, stayed out of the users and has no answer: it waits for the upgrade
+    assert_eq!(answered.try_recv(), Err(TryRecvError::Empty), "it waits for the upgrade");
     remove_upgrade(fixture);
     assert_eq!(answered.recv().unwrap(), Ok(vec![head.clone()]));
   });

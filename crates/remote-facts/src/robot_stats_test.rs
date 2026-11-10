@@ -215,14 +215,24 @@ async fn a_read_with_nothing_to_ask_does_not_wait_for_a_running_read() {
   let ReadTurn::Lead(running) = reads.begin(read_key(&source_of(&setup, None))) else {
     panic!("no read in flight");
   };
-  let (kept, _) = tokio::time::timeout(Duration::from_secs(5), read_period(&setup, NOW + 60, StatsPeriod::Days14, Some(&reads)))
+  // the running read never ends by itself: a read within a minute, which no run reaches, did not wait for it
+  let (kept, _) = tokio::time::timeout(Duration::from_mins(1), read_period(&setup, NOW + 60, StatsPeriod::Days14, Some(&reads)))
     .await
     .expect("a read from the cache does not wait");
   assert_eq!(kept.stats.unwrap().mine.merged, 1);
+  // the Refresh joins the running read, which its subscription to the progress of that read tells, and stays pending
   let asking = read_with(&setup, NOW + 60, StatsPeriod::Days14, true, Some(&reads));
   tokio::pin!(asking);
+  let joining = std::time::Instant::now();
+  while running.progress.receiver_count() == 0 {
+    assert!(
+      tokio::time::timeout(Duration::from_millis(10), &mut asking).await.is_err(),
+      "a Refresh waits for the running read"
+    );
+    assert!(joining.elapsed() < Duration::from_mins(1), "the Refresh never joined the running read");
+  }
   assert!(
-    tokio::time::timeout(Duration::from_millis(200), &mut asking).await.is_err(),
+    tokio::time::timeout(Duration::from_millis(10), &mut asking).await.is_err(),
     "a Refresh waits for the running read"
   );
   drop(running);

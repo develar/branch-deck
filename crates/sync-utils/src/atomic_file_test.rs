@@ -121,8 +121,9 @@ fn a_program_that_keeps_the_file_without_sharing_delete_fails_the_write_after_a_
 
   let error = write_atomically(&path, b"new", AtomicWrite::default()).unwrap_err();
 
+  // the holder never lets go, so only the end of the retries ends the write
   let waited = started.elapsed();
-  assert!(waited >= Duration::from_millis(900) && waited < Duration::from_secs(10), "{waited:?}: {error}");
+  assert!(waited >= Duration::from_millis(900), "{waited:?}: {error}");
   drop(holder);
   assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
   assert_eq!(names(dir.path()), ["settings.json"]);

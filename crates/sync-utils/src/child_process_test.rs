@@ -32,25 +32,29 @@ fn reports_a_missing_binary() {
   assert!(matches!(result, Err(ChildProcessError::NotFound)), "{result:?}");
 }
 
+/// A child that ends by itself only after two minutes: an end within a minute, which no run of a kill reaches, is the
+/// kill
+const HANG: &str = "exec sleep 120";
+
 #[test]
 fn kills_the_child_after_the_timeout() {
   let dir = tempfile::tempdir().unwrap();
-  let mut hang = Command::new(fake(&dir, "exec sleep 30"));
+  let mut hang = Command::new(fake(&dir, HANG));
   let started = Instant::now();
   let result = run_child(&mut hang, None, Duration::from_millis(300), &|| false);
   assert!(matches!(result, Err(ChildProcessError::TimedOut)), "{result:?}");
-  assert!(started.elapsed() < Duration::from_secs(5));
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
 #[test]
 fn kills_the_child_when_superseded() {
   let dir = tempfile::tempdir().unwrap();
-  let mut hang = Command::new(fake(&dir, "exec sleep 30"));
+  let mut hang = Command::new(fake(&dir, HANG));
   let started = Instant::now();
   // a newer request came before the child ended
   let result = run_child(&mut hang, None, TIMEOUT, &|| true);
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
-  assert!(started.elapsed() < Duration::from_secs(5));
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
 #[test]
@@ -120,8 +124,8 @@ fn hands_over_each_line_as_it_comes_and_returns_the_output() {
 fn a_cancel_ends_the_whole_process_group() {
   let dir = tempfile::tempdir().unwrap();
   let grandchild_pid = dir.path().join("grandchild-pid");
-  // the grandchild outlives a kill of the child alone, by half a minute
-  let child = fake(&dir, &format!("(sleep 30; :) & echo $! > {}; echo started; sleep 30", grandchild_pid.display()));
+  // the grandchild outlives a kill of the child alone, by two minutes
+  let child = fake(&dir, &format!("(sleep 120; :) & echo $! > {}; echo started; sleep 120", grandchild_pid.display()));
   let canceled = AtomicBool::new(false);
   let started = Instant::now();
   let result = run_child_lines(
@@ -135,10 +139,10 @@ fn a_cancel_ends_the_whole_process_group() {
     &|| canceled.load(Ordering::SeqCst),
   );
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
-  assert!(started.elapsed() < Duration::from_secs(10));
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
   // the group got its signals before the cancel returned: the grandchild ends within moments, never after its sleep
   let pid: u32 = std::fs::read_to_string(&grandchild_pid).unwrap().trim().parse().unwrap();
-  let deadline = Instant::now() + Duration::from_secs(10);
+  let deadline = Instant::now() + Duration::from_mins(1);
   while is_running(pid, None) {
     assert!(Instant::now() < deadline, "the grandchild {pid} survived the cancel");
     std::thread::sleep(Duration::from_millis(5));

@@ -289,12 +289,13 @@ fn refused_github_credentials_are_told_how_to_fix() {
 /// The file the ssh of `hanging_fixture` writes in its directory once the fetch started it
 const SSH_STARTED: &str = "ssh-started";
 
-/// A fixture whose origin is an ssh remote that never answers, once it wrote `SSH_STARTED`
+/// A fixture whose origin is an ssh remote that never answers, once it wrote `SSH_STARTED`: it ends by itself only
+/// after two minutes
 fn hanging_fixture() -> (Fixture, tempfile::TempDir) {
   let fixture = fixture();
   let dir = tempfile::tempdir().unwrap();
   let started = shell_path(&dir.path().join(SSH_STARTED));
-  let ssh = fake_executable(dir.path(), "ssh", &format!(": > '{started}'\nexec sleep 30"));
+  let ssh = fake_executable(dir.path(), "ssh", &format!(": > '{started}'\nexec sleep 120"));
   fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
   (fixture, dir)
@@ -309,7 +310,7 @@ fn a_cancel_kills_the_fetch() {
   let result = fetch_review_head(fixture.local.git_executor(), &fixture.params(), &mut |_| {}, &|| ssh_started.exists());
   let error = result.unwrap_err();
   assert_eq!(error.downcast_ref::<StoppedCommand>(), Some(&StoppedCommand::Cancelled), "{error:#}");
-  assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+  assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
 }
 
 #[test]

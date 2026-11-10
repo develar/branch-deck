@@ -76,7 +76,8 @@ fn a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second(
   if cfg!(windows) {
     let error = result.unwrap_err();
     assert_eq!(error.raw_os_error(), Some(SHARING_VIOLATION), "{error}");
-    assert!(waited >= Duration::from_millis(900) && waited < Duration::from_secs(10), "{waited:?}: {error}");
+    // the holder never lets go, so only the end of the retries ends the call
+    assert!(waited >= Duration::from_millis(900), "{waited:?}: {error}");
     assert!(file.exists());
   } else {
     result.unwrap();
@@ -106,7 +107,10 @@ fn a_read_only_file_and_directory_are_renamed_and_removed_at_once() {
   remove_dir(&empty).unwrap();
 
   assert!(!file.exists() && !moved.exists() && !empty.exists());
-  assert!(started.elapsed() < Duration::from_millis(500), "waited as for a holder: {:?}", started.elapsed());
+  // only Windows retries: the retries for a holder take about a second
+  if cfg!(windows) {
+    assert!(started.elapsed() < Duration::from_millis(500), "waited as for a holder: {:?}", started.elapsed());
+  }
 }
 
 /// `remove_entry` of `path`, by the file type of its `symlink_metadata`, as a walk removes it

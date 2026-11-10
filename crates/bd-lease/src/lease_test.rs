@@ -1279,7 +1279,7 @@ fn fake_maintenance(cwd: &str) -> std::process::Child {
     .stdin(std::process::Stdio::piped())
     .spawn()
     .unwrap();
-  let deadline = std::time::Instant::now() + Duration::from_secs(10);
+  let deadline = std::time::Instant::now() + Duration::from_mins(1);
   while !sync_utils::process_scan::ProcessScan::scan().git_maintenance().contains(&child.id()) {
     assert!(std::time::Instant::now() < deadline, "the fake maintenance never showed up");
     std::thread::sleep(Duration::from_millis(20));

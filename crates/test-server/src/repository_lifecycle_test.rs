@@ -189,9 +189,11 @@ async fn deleting_a_repository_closes_its_sessions() {
   };
   assert!(state.sessions.is_open(&key));
 
+  // the stream of a subscribed window never ends by itself: a deletion within a minute, which no run reaches, did not
+  // wait for it
   let started = Instant::now();
   delete_repository(&client, addr, &id, &path).await;
-  assert!(started.elapsed() < Duration::from_secs(30), "the deletion waited for the stream: {:?}", started.elapsed());
+  assert!(started.elapsed() < Duration::from_mins(1), "the deletion waited for the stream: {:?}", started.elapsed());
   // the patch of what the session read before it closed (the sign-ins, read at its open) may come first
   let mut after = Vec::new();
   while let Some(message) = messages.next_or_end().await {

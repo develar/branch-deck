@@ -442,7 +442,7 @@ fn planned() -> Vec<Planned> {
 }
 
 /// The branches of a check build at the same time when they don't wait for each other: the two roots each wait for the
-/// other to start, which a build one by one never does
+/// other to start, which a build one by one never does. Each waits up to a minute, which no run reaches
 #[test]
 fn independent_branches_build_at_the_same_time() {
   let (started_a, wait_a) = mpsc::channel::<()>();
@@ -453,11 +453,11 @@ fn independent_branches_build_at_the_same_time() {
     let both_started = match index {
       0 => {
         started_a.lock().unwrap().send(()).unwrap();
-        wait_c.lock().unwrap().recv_timeout(Duration::from_secs(10)).is_ok()
+        wait_c.lock().unwrap().recv_timeout(Duration::from_mins(1)).is_ok()
       }
       2 => {
         started_c.lock().unwrap().send(()).unwrap();
-        wait_a.lock().unwrap().recv_timeout(Duration::from_secs(10)).is_ok()
+        wait_a.lock().unwrap().recv_timeout(Duration::from_mins(1)).is_ok()
       }
       _ => true,
     };

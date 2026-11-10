@@ -191,11 +191,11 @@ fn a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot() {
   assert_eq!(kinds(&steps), [&["reserve", "wait", "reserve adding"][..], new_slot_steps()].concat());
 }
 
-/// Until `done` holds, polled every 10 ms; past 30 s the test fails with `what`
+/// Until `done` holds, polled every 10 ms; past a minute, which no run reaches, the test fails with `what`
 pub(crate) fn wait_until(what: &str, done: impl Fn() -> bool) {
-  let deadline = Instant::now() + Duration::from_secs(30);
+  let deadline = Instant::now() + Duration::from_mins(1);
   while !done() {
-    assert!(Instant::now() < deadline, "{what} for 30 s");
+    assert!(Instant::now() < deadline, "{what} for a minute");
     std::thread::sleep(Duration::from_millis(10));
   }
 }

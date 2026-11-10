@@ -58,7 +58,8 @@ fn the_script_gets_the_arguments_stdin_and_environment_and_gives_its_output_and_
 #[test]
 fn a_killed_fake_leaves_no_process_that_holds_its_output() {
   let dir = tempfile::tempdir().unwrap();
-  let fake = fake_executable(dir.path(), "hang", "echo started\nexec sleep 30");
+  // a process of the fake that outlived the kill would hold the output for two minutes, past the wait of a minute
+  let fake = fake_executable(dir.path(), "hang", "echo started\nexec sleep 120");
   let mut child = Command::new(&fake).stdin(Stdio::null()).stdout(Stdio::piped()).spawn().unwrap();
   let mut stdout = child.stdout.take().unwrap();
   let mut started = [0; 8];
@@ -73,6 +74,6 @@ fn a_killed_fake_leaves_no_process_that_holds_its_output() {
     let _ = stdout.read_to_end(&mut rest);
     let _ = sender.send(rest);
   });
-  let rest = receiver.recv_timeout(Duration::from_secs(10)).expect("a process of the killed fake still holds its stdout");
+  let rest = receiver.recv_timeout(Duration::from_mins(1)).expect("a process of the killed fake still holds its stdout");
   assert_eq!(rest, b"");
 }

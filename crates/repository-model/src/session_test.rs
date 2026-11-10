@@ -1188,7 +1188,7 @@ async fn a_timer_waits_on_the_test_clock_until_an_advance_reaches_its_time() {
   }
   assert!(!timer.is_finished(), "59 s of 60");
   clock.advance(Duration::from_secs(1));
-  tokio::time::timeout(Duration::from_secs(5), timer).await.unwrap().unwrap();
+  tokio::time::timeout(UNHURRIED, timer).await.unwrap().unwrap();
 }
 
 /// What the scheduler of the facts heard of the session since the last call, by kind

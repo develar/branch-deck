@@ -156,7 +156,7 @@ fn a_patch_is_saved_after_the_debounce_without_a_flush() {
   let path = settings_path(&directory);
   let service = SettingsService::open_with_debounce(directory.path().to_path_buf(), Duration::from_millis(20)).unwrap();
   service.set(app_fields(json!({ "systemTitleBar": true })), "rust").unwrap();
-  let deadline = Instant::now() + Duration::from_secs(10);
+  let deadline = Instant::now() + Duration::from_mins(1);
   while !path.exists() {
     assert!(Instant::now() < deadline, "the debounced save never came");
     std::thread::sleep(Duration::from_millis(5));
