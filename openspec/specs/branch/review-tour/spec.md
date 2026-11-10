@@ -1649,7 +1649,7 @@ three file names buttons and the rest in a tooltip.
 - **WHEN** the brief has a repeated replacement
 - **THEN** What Changes shows one row of it ("Renames `bd` → `brd` · 23 places in 5 files")
 - **AND** the first three file names are buttons, the rest in a tooltip
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should name a repeated substitution once in What Changes, its first files buttons that show the file, the others in its tooltip`)
 
 ### Requirement: In the Review Window: What Changes shows one header per file
 
@@ -1685,7 +1685,7 @@ paragraph changed only by replacements MUST stay muted in place without a change
 - **WHEN** a paragraph holds a repeated replacement
 - **THEN** it is dotted-underlined, the old word in its tooltip and screen-reader text
 - **AND** a paragraph changed only by replacements stays muted in place without a change bar
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should show the paragraphs of a repeated substitution quiet in the openings of their steps, a change inside code inside its chip and a fenced block as code`)
   [@test] src/presenters/review-story.test.ts (`passes paragraph forms and resolves substitution marks to their original words`)
 
 ### Requirement: In the Review Window: An entry is quoted in the first step that shows it
@@ -1716,7 +1716,7 @@ A code span MUST keep one chip with its inserted and deleted words diffed inside
 #### Scenario: A change inside a code span
 - **WHEN** a change rewrites words inside a code span
 - **THEN** the span stays one chip, its inserted and deleted words diffed inside it
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should show the paragraphs of a repeated substitution quiet in the openings of their steps, a change inside code inside its chip and a fenced block as code`)
 
 ### Requirement: In the Review Window: A fenced code block is a pre diffed by words
 
@@ -1727,7 +1727,7 @@ opens the whole paragraph and has the tooltip "Show the whole paragraph".
 #### Scenario: A fenced block in What Changes
 - **WHEN** What Changes quotes a changed fenced code block
 - **THEN** it is a `pre`, its line breaks preserved, diffed by words without code heuristics
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should show the paragraphs of a repeated substitution quiet in the openings of their steps, a change inside code inside its chip and a fenced block as code`)
   [@test] src/presenters/review-story.test.ts (`passes paragraph forms and resolves substitution marks to their original words`)
 
 #### Scenario: A long block changed in several lines

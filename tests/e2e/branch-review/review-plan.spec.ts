@@ -156,6 +156,14 @@ async function showHelperUseOutside(window: Page, helper: Locator): Promise<Loca
 }
 
 /** The card of the one mark of a row: the pointer leaves the card open before, then moves onto the mark of `row` */
+/**
+ * The card of a mark while it is open: a closed one is closed at once, as the user sees it, while its exit runs, which
+ * ends only as the page paints (a loaded machine may paint no frame of the window for seconds)
+ */
+function openCard(window: Page): Locator {
+  return window.locator("[data-testid=file-facts-card][data-open]")
+}
+
 async function openFactsCard(window: Page, row: Locator): Promise<Locator> {
   const card = window.getByTestId("file-facts-card")
   await window.mouse.move(0, 0)
@@ -514,7 +522,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(link).toBeFocused()
       await expect(footer).not.toContainText("Details")
       await window.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expect(openCard(window)).toHaveCount(0)
       await expect(reader).toBeFocused()
       await expect(footer).toContainText("Details")
 
@@ -524,9 +532,22 @@ test.describe("The review plan in the branch review", () => {
       await expect(cache).toHaveAttribute("aria-selected", "false")
       await window.keyboard.press("Enter")
       await expect(cache).toHaveAttribute("aria-selected", "true")
-      await expect(card).toHaveCount(0)
+      await expect(openCard(window)).toHaveCount(0)
       await expect(reader).toBeFocused()
       await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
+    },
+  )
+
+  test(
+    "should give the focus to the card of a row's mark that lists no file, its Escape the card's and not the window's",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
+      const window = await openPlanWindow(page, syncAndWaitForBranches)
+      const { store } = planRows(window)
+      const card = window.getByTestId("file-facts-card")
+      // the plan with the usages, after the one without them
+      await expect(store).toHaveAttribute("aria-description", /, breaks 3$/)
 
       // the card of Store lists no file: the card takes the focus, and its Escape is the card's, not the window's
       await store.getByText("Store.kt", { exact: true }).click()
@@ -535,7 +556,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(card.getByTestId("file-facts-breaks")).toHaveText("breaks 3 · 3 uses left outside the change")
       await expect(card).toBeFocused()
       await window.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expect(openCard(window)).toHaveCount(0)
       await expect(store).toBeFocused()
       expect(await windowCalls(window)).not.toContain("close")
     },

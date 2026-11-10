@@ -1024,7 +1024,9 @@ test.describe("Review tour", () => {
       { "src/b/Splash.kt": "package b\n\nclass Splash {\n  fun show(): Int = 2\n}\n" },
       1704124800,
     )
-    await syncAndWaitForBranches()
+    // the window reads the plan of the new head after the sync of the main window: the assertion waits for its answer,
+    // however long the chain takes, then only for the page to show it
+    await runAndWaitForAnswer(window, "get_review_plan", () => syncAndWaitForBranches())
     const splash = tree.getByRole("treeitem", { name: /^\d · the splash shows before the frame$/ })
     await expect(splash.getByTestId("review-commit-since")).toHaveText("New")
     await expect(splash).toHaveAttribute("aria-description", /, New, commit [0-9a-f]{7,}$/)
@@ -1280,7 +1282,7 @@ test.describe("Review tour", () => {
     await captureHtmlSnapshot(limits, "review-brief-table")
   })
 
-  test("should name a repeated substitution once, show its paragraphs quiet in place, a change inside code inside its chip and a fenced block as code", async ({
+  test("should name a repeated substitution once in What Changes, its first files buttons that show the file, the others in its tooltip", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -1308,7 +1310,15 @@ test.describe("Review tour", () => {
     }
     await summaryFile.click()
     await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: path, exact: true })).toHaveAttribute("aria-selected", "true")
+  })
 
+  test("should show the paragraphs of a repeated substitution quiet in the openings of their steps, a change inside code inside its chip and a fenced block as code", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("review_prose"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
     await openContractFolds(window)
     const commands = window
       .getByTestId("review-opening")

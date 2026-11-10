@@ -2899,6 +2899,7 @@ hints MUST list `I` while a row of the tree has the focus.
 - **AND** Enter on a file selects it as a click does, and the focus goes back to the row
 - **AND** Escape closes the card alone, not the window or the review, and gives the focus back to the row
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should open the card of a row's mark by I on the focused row, the focus on its first file, Enter selecting it and Escape giving the focus back to the row`)
+  [@test] tests/e2e/branch-review/review-plan.spec.ts (`should give the focus to the card of a row's mark that lists no file, its Escape the card's and not the window's`)
 
 #### Scenario: The key hints
 - **WHEN** a row of the tree has the focus
