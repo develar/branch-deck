@@ -68,13 +68,14 @@ export function ReviewMap({ view }: { view: MapView }) {
 
 /**
  * The rows of the shape and "and N more modules", the one view of them: in the map, and in the rail of the overview of a
- * pull request (`ReviewRail`), where a click shows the first file of the row in the changes. A list narrower than 24rem
- * (the rail) drops the bars, so the labels keep their width
+ * pull request (`ReviewRail`), where a click shows the first file of the row in the changes. The rows share the columns
+ * of one grid (each row a subgrid of it), so the bars start at one edge and the counts and the files stand in columns
+ * whatever their widths. A list narrower than 24rem (the rail) drops the bars, so the labels keep their width
  */
 export function ShapeRows({ rows, more }: Pick<MapView, "rows" | "more">) {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <ul aria-label="Modules" className="@container flex min-w-0 flex-col gap-1.5">
+    <div className="@container flex min-w-0 flex-col gap-1.5">
+      <ul aria-label="Modules" className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1.5 @sm:grid-cols-[minmax(0,1fr)_5rem_auto_auto]">
         {rows.map(row => (
           <ShapeRow key={row.key} row={row} />
         ))}
@@ -101,10 +102,10 @@ function ShapeRow({ row }: { row: MapRow }) {
   const tone = row.badge === null ? null : row.badge === "New module" ? "success" : "warning"
   const below = [row.detail, row.extra].filter(part => part !== null)
   return (
-    <li className="flex min-w-0 flex-col" data-testid="review-map-module" data-root={row.root}>
+    <li className="col-span-full grid min-w-0 grid-cols-subgrid" data-testid="review-map-module" data-root={row.root}>
       <button
         type="button"
-        className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-sm text-left text-sm outline-none hover:bg-muted/50 focus-visible:bd-focus disabled:hover:bg-transparent @sm:grid-cols-[minmax(0,1fr)_5rem_auto]"
+        className="col-span-full grid min-w-0 grid-cols-subgrid items-center rounded-sm text-left text-sm outline-none hover:bg-muted/50 focus-visible:bd-focus disabled:hover:bg-transparent"
         title={row.root}
         disabled={navigator === null || row.place === null}
         onClick={() => {
@@ -126,20 +127,23 @@ function ShapeRow({ row }: { row: MapRow }) {
             {row.label}
           </span>
         </span>
-        <span aria-hidden="true" className="hidden h-1 w-full overflow-hidden rounded-full bg-muted @sm:block">
+        <span aria-hidden="true" className="hidden h-1 w-full overflow-hidden rounded-full bg-muted @sm:block" data-testid="review-map-bar">
           <span
             className={cn("block h-full rounded-full", row.badge === "New module" ? "bg-success/60" : "bg-muted-foreground/40")}
             style={{ width: `${Math.max(4, Math.round(row.share * 100))}%` }}
           />
         </span>
-        <span className="flex shrink-0 items-baseline gap-2 text-xs text-muted-foreground tabular-nums">
+        {/* a column each, the counts at its end and the files at its start, so the digits of the rows line up */}
+        <span className="justify-self-end text-xs text-muted-foreground tabular-nums" data-testid="review-map-lines">
           {(row.additions > 0 || row.deletions > 0) && <LineCounts additions={row.additions} deletions={row.deletions} colored={false} />}
-          <span>{row.files === 1 ? "1 file" : `${row.files} files`}</span>
+        </span>
+        <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums" data-testid="review-map-files">
+          {row.files === 1 ? "1 file" : `${row.files} files`}
         </span>
       </button>
       {(below.length > 0 || row.badge !== null) && (
         <span
-          className={cn("flex min-w-0 gap-1.5 text-xs text-muted-foreground", below.length === 0 && "@sm:hidden")}
+          className={cn("col-span-full flex min-w-0 gap-1.5 text-xs text-muted-foreground", below.length === 0 && "@sm:hidden")}
           title={below.length === 0 ? undefined : below.join(" · ")}
           data-testid="review-map-detail"
         >
@@ -162,7 +166,7 @@ function ShapeRow({ row }: { row: MapRow }) {
       )}
       {row.registrations.length > 0 && (
         // what the module plugs into the platform: a line each, under its row; the rail has no room for them
-        <ul aria-label={`Registrations of ${row.label}`} className="hidden min-w-0 flex-col pl-3 text-xs @sm:flex" data-testid="review-map-registrations">
+        <ul aria-label={`Registrations of ${row.label}`} className="col-span-full hidden min-w-0 flex-col pl-3 text-xs @sm:flex" data-testid="review-map-registrations">
           {row.registrations.map(registration => (
             <li key={registration.key} className="flex min-w-0">
               <RegistrationLine registration={registration} />

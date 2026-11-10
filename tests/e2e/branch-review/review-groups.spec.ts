@@ -183,6 +183,32 @@ test.describe("Review groups", () => {
     await expect(wiring.getByTestId("review-seen-progress")).toHaveText(/^[1-5] \/ 5 seen$/)
   })
 
+  test("should stand the bars, the lines and the files of the rows of the shape in columns, whatever the widths of their counts", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_modules")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "media")
+    const rows = window.getByTestId("review-map").getByTestId("review-map-module")
+    await expect(rows).toHaveCount(3)
+    // the counts differ in width, the columns do not
+    const lines = await rows.getByTestId("review-map-lines").allTextContents()
+    expect(new Set(lines.map(text => text.length)).size, lines.join(", ")).toBeGreaterThan(1)
+    const edges = (testId: string, edge: "left" | "right") =>
+      rows.getByTestId(testId).evaluateAll((items, side) => items.map(item => Math.round(item.getBoundingClientRect()[side as "left" | "right"])), edge)
+    for (const [testId, edge] of [
+      ["review-map-bar", "left"],
+      ["review-map-lines", "right"],
+      ["review-map-files", "left"],
+    ] as const) {
+      const found = await edges(testId, edge)
+      expect(found, `${testId} ${edge}`).toHaveLength(3)
+      expect(new Set(found).size, `${testId} ${edge}: ${found.join(", ")}`).toBe(1)
+    }
+  })
+
   test("should name under the row of a module of the map what its descriptor registers, a click showing the class it registers", async ({
     page,
     setupRepo,

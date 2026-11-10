@@ -88,7 +88,7 @@ describe("the map of a review", () => {
     expect(view.total).toEqual({ files: 5, additions: 10078, deletions: 207 })
     expect(view.rows.map(row => [row.label, row.badge, row.files, row.detail, row.extra, row.place?.path ?? null])).toEqual([
       ["view.gui.media", "New module", 61, "uses view.gui and shared/code · content of com.intellij.air", null, "gui/media/src/Player.kt"],
-      ["view.gui", null, 47, "ui/embeds 29 · ui/markdown 11 · ui/util 2", null, "gui/src/Embed.kt"],
+      ["view.gui", null, 47, "in ui/embeds, ui/markdown, ui/util and references", null, "gui/src/Embed.kt"],
       ["view.gui.showcase", null, 16, null, "+ depends on intellij.platform.ide.util.io", "gui/showcase/src/Clip.kt"],
       ["shared/code", null, 2, null, "Opens wider: isNightly", "shared/src/Flag.kt"],
     ])

@@ -41,7 +41,7 @@ export interface MapRow {
   readonly files: number
   /** Its changed lines against the largest row's, 0..1, for its bar */
   readonly share: number
-  /** Of a new module what it uses and where it plugs in ("uses view.gui and shared/code · content of com.intellij.air"), of another its folders ("ui/embeds 29 · ui/markdown 11") */
+  /** Of a new module what it uses and where it plugs in ("uses view.gui and shared/code · content of com.intellij.air"), of another its folders ("in ui/embeds, ui/markdown and ui/util") */
   readonly detail: string | null
   /** What it adds beside its code: a dependency on a module outside the review, a declaration opened wider */
   readonly extra: string | null
@@ -115,8 +115,6 @@ export const MAP_ROWS = 6
 /** The registrations a row names before "and N more registrations", and all rows together */
 const ROW_REGISTRATIONS = 3
 const MAP_REGISTRATIONS = 8
-/** The folders a changed module names on its row */
-const MAP_FOLDERS = 3
 /** A change of one module with more files names its folders */
 const MIN_FOLDER_FILES = 12
 
@@ -201,16 +199,16 @@ function moduleRow(module: ModuleShape, index: number, plan: Pick<ReviewPlan, "m
   }
 }
 
-/** The folders of a changed module, the most files first: "ui/embeds 29 · ui/markdown 11 · references 2" */
+/**
+ * The folders of a changed module in words, the most files first, from five on the first three and the count of the
+ * rest: "in ui/embeds, ui/markdown and references"; the row counts its files already, so a folder names none
+ */
 function foldersOf(module: ModuleShape): string | null {
   const named = module.directories.filter(directory => directory.path !== "")
   if (named.length < 2) {
     return null
   }
-  return named
-    .slice(0, MAP_FOLDERS)
-    .map(directory => `${directory.path} ${directory.files}`)
-    .join(" · ")
+  return `in ${joinNames(named.map(directory => directory.path))}`
 }
 
 /** Of a change of one module and many files: a row per folder of it, each to its first file in `story`, else none */
