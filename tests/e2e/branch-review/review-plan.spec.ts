@@ -1171,7 +1171,8 @@ test.describe("The review plan in the branch review", () => {
 
     // a commit on top, then a sync: Since Your Review is its range, the files of that commit alone
     await repo.commit("(plan) read the cache twice", { "src/a/Reader.kt": READER('cache.get("x") + cache.get("y")') }, 1704124800)
-    await syncAndWaitForBranches()
+    // the window reads the plan of the new head after the sync of the main window: its answer, then the page
+    await runAndWaitForAnswer(window, "get_review_plan", () => syncAndWaitForBranches())
     await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew", "add the cache", "scale the helper"])
     await expect.poll(() => commitColumn(window)).toEqual(["All Changes3 commits", "Since Your Review1 commit"])
     await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
@@ -1184,7 +1185,7 @@ test.describe("The review plan in the branch review", () => {
     // the commit of nav joins plan below the reviewed ones: the new commits are not one range of the branch, so Since
     // Your Review is the diff from the reviewed change, both new commits together
     await repo.reword(await repo.revision("HEAD~3"), "(plan) use the store and the queue")
-    await syncAndWaitForBranches()
+    await runAndWaitForAnswer(window, "get_review_plan", () => syncAndWaitForBranches())
     await expect(findBranchRow(page, "nav")).toHaveCount(0)
     await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew", "use the store and the queueNew"])
     await expect.poll(() => commitColumn(window)).toEqual(["All Changes4 commits", "Since Your Review2 commits"])

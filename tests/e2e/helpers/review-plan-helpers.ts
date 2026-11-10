@@ -4,6 +4,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
 import { openReviewWindow } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
+import { nextAnswer } from "./sync-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 import { expectClosed } from "./wait-helpers"
 
@@ -59,10 +60,20 @@ export async function reviewedPaths(page: Page): Promise<string[]> {
     .evaluateAll(headers => headers.map(header => header.getAttribute("data-path")!))
 }
 
-/** The review window of `branch` (`plan`) after a sync, as a page of its own beside the main window, its diffs shown */
+/**
+ * The review window of `branch` (`plan`) after a sync, as a page of its own beside the main window, its diffs shown. The
+ * first file shows after the answers of the window's plan and of its diffs (`get_review_plan`, `get_file_diffs`): 0.1 s on
+ * a quiet machine, 2.5 s at a load of 50-300 and past an assertion's 5 s in 3% of the opens, so each answer is waited for
+ */
 export async function openPlanWindow(page: Page, syncAndWaitForBranches: () => Promise<unknown>, branch = "plan"): Promise<Page> {
   await syncAndWaitForBranches()
-  const window = await openLinkedSubWindow(page, await openReviewWindow(page, branch))
+  let answered!: Promise<unknown>
+  const window = await openLinkedSubWindow(page, await openReviewWindow(page, branch), {
+    beforeLoad: async window => {
+      answered = Promise.all([nextAnswer(window, "get_review_plan"), nextAnswer(window, "get_file_diffs")])
+    },
+  })
+  await answered
   await expect(window.getByTestId("review-file-header").first()).toBeVisible()
   return window
 }
