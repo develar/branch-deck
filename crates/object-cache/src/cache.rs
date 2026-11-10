@@ -158,11 +158,13 @@ impl Store {
       Self::CommitFiles => 3,
       // `commit_lines` 2: the paths of the raw entries, so a file whose name holds a space or a quote is there; 3: the
       // lines and their order in each hunk, with the algorithm, the inter-hunk context and the indent heuristic pinned;
-      // 4: the lines of the blocks of the diff views (`file_diffs::patch`)
-      Self::CommitLines => 4,
+      // 4: the lines of the blocks of the diff views (`file_diffs::patch`); 5: those blocks with the empty last line of a
+      // text paired only with its like (`text_diff::provider::compare_for_view`)
+      Self::CommitLines => 5,
       // `commit_diff` 2: the blob ids of `FileChange`; 3: the hunks pinned as `commit_lines`; 4: the hunks and the
-      // counts from the blocks of the diff views (`file_diffs::blocks`); 5: git's counts beside them (`--numstat`)
-      Self::CommitDiff => 5,
+      // counts from the blocks of the diff views (`file_diffs::blocks`); 5: git's counts beside them (`--numstat`); 6: the
+      // blocks with the empty last line of a text paired only with its like
+      Self::CommitDiff => 6,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
       // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`, `word_resolution`, the schema of
       // `session_frame`)

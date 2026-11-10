@@ -121,7 +121,7 @@ pub fn compare_lines_inner_in_range(
 
 /// The changes inside each block; a block whose words differ in too many places keeps no inner changes, and after
 /// `MAX_BAD_LINES` such blocks the rest is not compared by word at all
-fn create_inner_fragments(
+pub(crate) fn create_inner_fragments(
   line_fragments: &[LineFragment],
   text1: &[u16],
   text2: &[u16],

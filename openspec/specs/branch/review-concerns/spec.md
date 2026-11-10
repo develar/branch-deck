@@ -684,7 +684,7 @@ The filter of the files MUST keep the concerns of the files it shows.
 The tree of the review window, the range of the `review_concerns` template (`review-plan-concerns-tree`):
 
 ```
-◎ ijproxy                          +0 −10
+◎ ijproxy                          +0 −12
     .codex/config.toml
     docs/guide.md  also
     tools/codex/config.toml

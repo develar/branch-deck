@@ -3061,7 +3061,7 @@ the Shape of a review, which counts as `git diff --stat` does.
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`; the blocks come from the diff
   engine, so `diff.algorithm` changes no dependency edge, and git's counts take `--diff-algorithm=myers`) are the same
   forever. Entries are only evicted, never stale. Each
-  store versions its values in its database name (`commit_diff.v5`, `Store::version`), bumped when their type, the
+  store versions its values in its database name (`commit_diff.v6`, `Store::version`), bumped when their type, the
   options or the engine that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
   others, the costly `merge_result` above all.
 - **Shared by processes.** The cache is four LMDB environments in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
@@ -3596,8 +3596,9 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    --batch` of the blobs): the same blocks as the diff views, the dependency edges and `brd commits --patch`, so the
    user's diff config changes no line. Without renames, a moved file removes its lines from the old path and adds them
    at the new one. The paths are those of the raw entries, NUL-separated and verbatim. A side without text (a symlink)
-   is empty. The `commit_lines` store is at version 4: the entries of version 1 lack such files, those of version 2
-   were read with the user's hunk options, those of version 3 hold git's hunks.
+   is empty. The `commit_lines` store is at version 5: the entries of version 1 lack such files, those of version 2
+   were read with the user's hunk options, those of version 3 hold git's hunks, those of version 4 blocks that paired
+   the empty last line of a text with a blank line of the other.
 2. A removed line of a branch's commit is a declaration when it declares a name other files can use (a top-level type
    or function, a static member), by per-language patterns. A member is searched as `<file stem>.<name>`, a top-level
    name as a whole word, a private one only in its file; a top-level JVM declaration moved to another package as

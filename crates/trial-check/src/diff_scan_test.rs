@@ -118,17 +118,20 @@ fn parses_git_counts_after_the_raw_part() {
 }
 
 /// Git's counts of each file beside the engine's, of a commit and of the pair diff of two commits alike: where the engine
-/// aligns a block otherwise they differ (it takes the empty line after the final line end of the old text for the
-/// blank line before the last declaration of the new one: one line fewer than the file grew by); a binary file counts
-/// nothing, a rename its changed lines
+/// aligns a block otherwise they differ (it matches a call moved into the function above, an important line, before the
+/// closing brace and the blank line it then deletes and adds again); where the blank line and the brace at the end of a
+/// class meet the new ones they agree, as the empty line after the final line end pairs only with its like; a binary
+/// file counts nothing, a rename its changed lines
 #[test]
 fn read_commit_diffs_gives_git_counts_beside_the_engines() {
   let repo = TestRepo::new();
   let old = "class A {\n  fun a() {\n    a()\n  }\n\n}\n";
   let new = "class A {\n  fun a() {\n    a()\n  }\n\n  fun b() {\n    b()\n  }\n}\n\nprivate fun c() {\n  c()\n}\n\nprivate fun d() = 1\n";
-  let base = repo.create_commit_with_files("base", &[("A.kt", old), ("data.bin", "\0one"), ("moved.txt", "a\nb\nc\nd\ne\n")]);
+  let old_b = "class B {\n  fun a() {\n    one()\n  }\n\n  fun b() {\n    two()\n  }\n}\n";
+  let new_b = "class B {\n  fun a() {\n    one()\n    two()\n  }\n\n  fun b() {\n  }\n}\n";
+  let base = repo.create_commit_with_files("base", &[("A.kt", old), ("B.kt", old_b), ("data.bin", "\0one"), ("moved.txt", "a\nb\nc\nd\ne\n")]);
   repo.git(&["mv", "moved.txt", "renamed.txt"]);
-  let commit = repo.create_commit_with_files("change", &[("A.kt", new), ("data.bin", "\0two"), ("renamed.txt", "a\nb\nc\nd\nE\n")]);
+  let commit = repo.create_commit_with_files("change", &[("A.kt", new), ("B.kt", new_b), ("data.bin", "\0two"), ("renamed.txt", "a\nb\nc\nd\nE\n")]);
 
   // each file: its path, the engine's counts, git's counts
   let counts = |diff: &CommitDiff| -> Vec<String> {
@@ -138,7 +141,12 @@ fn read_commit_diffs_gives_git_counts_beside_the_engines() {
       .map(|file| format!("{} +{} -{}, git +{} -{}", file.path, file.additions, file.deletions, file.git_additions, file.git_deletions))
       .collect()
   };
-  let expected = ["A.kt +8 -0, git +9 -0", "data.bin +0 -0, git +0 -0", "renamed.txt +1 -1, git +1 -1"];
+  let expected = [
+    "A.kt +9 -0, git +9 -0",
+    "B.kt +3 -3, git +1 -1",
+    "data.bin +0 -0, git +0 -0",
+    "renamed.txt +1 -1, git +1 -1",
+  ];
   assert_eq!(counts(&commit_diffs(&repo, &commit)[0]), expected);
   let pair = read_pair_diff(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), &unhurried(), &base, &commit).unwrap();
   assert_eq!(counts(&pair), expected);

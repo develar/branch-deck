@@ -242,6 +242,61 @@ fn a_new_final_line_end_is_a_block_of_the_empty_last_line() {
   assert_eq!(diff("", "a").empty_last_line, EmptyLastLine { old: true, new: false });
 }
 
+const POLICIES: [WhitespacePolicy; 4] = [
+  WhitespacePolicy::Default,
+  WhitespacePolicy::Trim,
+  WhitespacePolicy::Ignore,
+  WhitespacePolicy::IgnoreBlankLines,
+];
+
+/// The empty last line of a text (after a final line end, or the one line of an empty text) pairs with no line but the
+/// empty last line of the other, under every policy: a blank line added before the end is that blank line, and the
+/// counts are git's (`git diff --numstat`)
+#[test]
+fn the_empty_last_line_pairs_only_with_the_empty_last_line() {
+  // a class that grows by a method and two declarations after it, where its blank line and its brace meet the new ones
+  let old = "class A {\n  fun a() {\n    a()\n  }\n\n}\n";
+  let new = "class A {\n  fun a() {\n    a()\n  }\n\n  fun b() {\n    b()\n  }\n}\n\nprivate fun c() {\n  c()\n}\n\nprivate fun d() = 1\n";
+  for policy in POLICIES {
+    let result = diff_with(old, new, policy);
+    assert_eq!(shape(&result), vec![(5..5, 5..8, BlockKind::Changed), (6..6, 9..15, BlockKind::Changed)], "{policy:?}");
+    assert_eq!((result.deletions, result.additions), (0, 9), "{policy:?}");
+  }
+
+  // a blank line added or removed at the end, with any line end: the blank line, before the empty last line; a block of
+  // blank lines alone is pale under `Ignore` and cut off under `IgnoreBlankLines`
+  for (old, new, lines, counts, blank) in [
+    ("x\n", "x\n\n", (1..1, 1..2), (0, 1), true),
+    ("x\r\n", "x\r\n\r\n", (1..1, 1..2), (0, 1), true),
+    ("x\n\n", "x\n", (1..2, 1..1), (1, 0), true),
+    ("a\n", "a\n\nb\n\n", (1..1, 1..4), (0, 3), false),
+    // the one line of an empty text is no line either
+    ("", "\n", (0..0, 0..1), (0, 1), true),
+    ("", "\nx\n", (0..0, 0..2), (0, 2), false),
+    ("\nx\n", "", (0..2, 0..0), (2, 0), false),
+  ] {
+    for policy in POLICIES {
+      let result = diff_with(old, new, policy);
+      let (kind, counts) = match policy {
+        WhitespacePolicy::Ignore if blank => (BlockKind::WhitespaceOnly, counts),
+        WhitespacePolicy::IgnoreBlankLines if blank => (BlockKind::Ignored, (0, 0)),
+        _ => (BlockKind::Changed, counts),
+      };
+      assert_eq!(shape(&result), vec![(lines.0.clone(), lines.1.clone(), kind)], "{old:?} to {new:?} under {policy:?}");
+      assert_eq!((result.deletions, result.additions), counts, "{old:?} to {new:?} under {policy:?}");
+    }
+  }
+
+  // only one text ends with a line end: its empty last line is a line of the block that reaches the end
+  let result = diff("a\nb\n", "a\nb\n\nc");
+  assert_eq!(shape(&result), vec![(2..3, 2..4, BlockKind::Changed)]);
+  assert_eq!((result.deletions, result.additions), (0, 2));
+  assert_eq!(shape(&diff("a\nb\n\nc", "a\nb\n")), vec![(2..4, 2..3, BlockKind::Changed)]);
+  assert_eq!(shape(&diff("x", "x\n\n")), vec![(1..1, 1..3, BlockKind::Changed)]);
+  // neither does: every line is compared
+  assert_eq!(shape(&diff("a\n\nb", "a\n\nb\n\nc")), vec![(3..3, 3..5, BlockKind::Changed)]);
+}
+
 #[test]
 fn equal_texts_have_no_blocks() {
   assert_eq!(
@@ -376,6 +431,20 @@ fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &TextDiff) {
   };
   assert_eq!(result.deletions, sum(|block| (block.old_start, block.old_end), counted(old, &old_lines)));
   assert_eq!(result.additions, sum(|block| (block.new_start, block.new_end), counted(new, &new_lines)));
+
+  // the empty last line of a text pairs with no line but the empty last line of the other: then the counted lines of
+  // all blocks, also the ignored ones, differ by what the file grew by, as git's counts do
+  let all = |side: fn(&DiffBlock) -> (u32, u32), limit: usize| -> i64 {
+    let limit = u32::try_from(limit).unwrap();
+    result.blocks.iter().map(|block| i64::from(side(block).1.min(limit).saturating_sub(side(block).0))).sum()
+  };
+  let (old_counted, new_counted) = (counted(old, &old_lines), counted(new, &new_lines));
+  assert_eq!(
+    all(|block| (block.new_start, block.new_end), new_counted) - all(|block| (block.old_start, block.old_end), old_counted),
+    i64::try_from(new_counted).unwrap() - i64::try_from(old_counted).unwrap(),
+    "{:?}",
+    result.blocks
+  );
 }
 
 proptest! {

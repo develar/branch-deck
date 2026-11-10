@@ -1,7 +1,7 @@
 # Text Diff Engine
 
 **Status:** Implemented (the crate and its model; the app does not call it yet)
-**Updated:** 2026-10-18
+**Updated:** 2026-11-10
 **Tags:** [diff, comparison, intellij, port]
 
 ## Problem
@@ -123,7 +123,11 @@ flowchart TD
   end of file added" or "removed". The change itself is a `WhitespaceOnly` block on the empty last line. An added or
   a deleted file (an empty side) has none.
 - **Counts.** `additions` and `deletions` count the lines of the blocks that are not `Ignored`. The empty line after a
-  final line end does not count, so the counts are git's, except for a change of the final line end alone.
+  final line end does not count, and the comparison pairs it with no line but the empty last line of the other text
+  (Key Decision 8), so the lines of all the blocks differ by the lines the file grew by, as git's counts do. The counts
+  themselves are git's where the comparison aligns the lines as git does; they are more where it matches an important
+  line before a closing brace or a blank line (a call moved into the function above: +3 −3, git +1 −1), and a change of
+  the final line end alone counts nothing, where git counts the last line removed and added.
 - **Budget.** A side over `MAX_INNER_LINES` (20,000) or `MAX_INNER_BYTES` (1 MiB), or an inner comparison out of
   time (`DiffBudget::inner`), gives `line_level_only`: the comparison runs again by line, and the blocks stay exact.
   When the line comparison runs out of time too (`DiffBudget::lines`), the diff is one block of both whole texts.
@@ -228,6 +232,18 @@ not squashed) and `ByChar`.
 
 7. **Decision**: Well-maintained crates replace the infrastructure of the source. The algorithm code stays a port.
    **Rationale**: Less code to keep, and each crate is tested by many more users. See "Dependencies".
+
+8. **Decision**: The comparison of a view (`provider::compare_for_view`) leaves the empty last line of each text out of
+   the comparison of lines: the line after a final line end, and the one line of an empty text. The two pair with each
+   other; when only one text has one, it is the change of the final line end, a block of its own or the end of the
+   block that reaches the ends of both texts.
+   **Rationale**: IntelliJ compares every line of a document, and that line is one of them, so it can pair with a blank
+   line of the other text: `"x\n"` to `"x\n\n"` then adds the new empty last line, which does not count, instead of the
+   blank line, and a class that grows by a blank line and a declaration after its brace counts a line fewer than git.
+   Git has no such line. The ported functions of `manager.rs` keep the lines of the source, and so do their tests and
+   the merge (`merge_texts`), which counts no lines: there the pairing can put an insertion at the end of a side after
+   the empty last line of the base instead of before it, so a blank line that one side adds at the end and a line that
+   the other adds there merge without a conflict, as in IntelliJ.
 
 ### Dependencies
 

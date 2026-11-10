@@ -917,7 +917,7 @@ test.describe("The review plan in the branch review", () => {
         "Mechanical (1)",
       ])
     await expect(row("src").getByTestId("review-directory-path")).toHaveAttribute("dir", "rtl")
-    await expect(row("1 · ijproxy")).toHaveAttribute("aria-description", "3 files, +0 −10")
+    await expect(row("1 · ijproxy")).toHaveAttribute("aria-description", "3 files, +0 −12")
     await captureHtmlSnapshot(tree, "review-plan-concerns-tree")
     await row("Generated (1)").click()
     await expect(row("AGENTS.md")).toBeVisible()

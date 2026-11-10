@@ -1394,9 +1394,9 @@ says, never the engine's, which aligns some blocks otherwise. A file that severa
 as the engine does, since git's count of the range would take a process of its own.
 
 #### Scenario: A file one commit changes that the engine aligns otherwise
-- **WHEN** the engine counts the lines of a file one commit changes otherwise than git: a test appended after the
-  blank line before the closing brace of a class, +8 −0 by the engine and +9 −0 by git
-- **THEN** the shape counts +9 −0
+- **WHEN** the engine counts the lines of a file one commit changes otherwise than git: a call moved into the test
+  above it, +3 −3 by the engine, which matches the call before the closing brace and the blank line, and +1 −1 by git
+- **THEN** the shape counts +1 −1
 - **AND** the tree and the header of its card count as the engine does, under the whitespace policy
   ([Commit Files](../../commit/commit-files/spec.md#requirement-reading-the-diffs-the-counts-of-a-file-are-the-engines)),
   and the header of a part of a file its own blocks as the engine counts them under `Default`
