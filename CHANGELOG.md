@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.7.0](https://github.com/develar/branch-deck/compare/v1.6.0...v1.7.0) (2026-11-10)
+
+
+### Features
+
+* **air:** Start in Air asks each running IDE for its hosts, and the instance file names only its socket ([4ada4b7](https://github.com/develar/branch-deck/commit/4ada4b74579d0a4d47c23f8f2d39ff09b7aca7c4))
+* **review-plan:** an API form writes each type as the source does and marks what the change did to each parameter ([2828a8d](https://github.com/develar/branch-deck/commit/2828a8d9a4433773a52217469e909f998658caed))
+* **review:** a part of a file says which part it is and its own lines, a fold names the changes it hides ([f7b144c](https://github.com/develar/branch-deck/commit/f7b144c623495949f405c80859b14b4e332e8c77))
+* **review:** the diffs of a review scroll past their end, so J, K, N, P and a row bring any section to the top ([1d445bb](https://github.com/develar/branch-deck/commit/1d445bbc8d3a9f945c1a10e7f078d77ff7b38efd))
+* **review:** the title bar of the review shows the robot that lands the branch, Open Pull Request names its number ([eae6bfd](https://github.com/develar/branch-deck/commit/eae6bfd75e7eabb49c5f8bc92f9a7400771d5870))
+
+
+### Bug Fixes
+
+* **bd:** a lane keeps its width across the border of a row, the robot's line as wide in the branch row as on the rail ([ee6e5f3](https://github.com/develar/branch-deck/commit/ee6e5f3f47bb1c6239bd2fccedc09d5e96eb747e))
+* **bd:** a robot past its usual time says the minutes after the hour, "1h 36m · usually ~1h 14m" ([a34a566](https://github.com/develar/branch-deck/commit/a34a5663038992a3f035240d48f118c66b3daf1c))
+* **bd:** a tooltip enabled with the pointer resting on its trigger opens after the delay of its hover ([342c8a8](https://github.com/develar/branch-deck/commit/342c8a8a590fb1855a2d5c130ab93b455974d8ae))
+* **bd:** each menu of a branch memoizes its own selector, so two menus of one branch never blank the window ([2577e61](https://github.com/develar/branch-deck/commit/2577e61b75c24c6476ff5ae2294c597bf77c6b8c))
+* **bd:** the line of a running robot starts at the ring of its node, its dots and a failing robot in its colour ([7e4d3d2](https://github.com/develar/branch-deck/commit/7e4d3d28c975f034af2fce77d3e783e98f465de3))
+* **bd:** the pointer back over a trigger opens its popup after the delay of its hover, also once the closed popup went ([c554ac5](https://github.com/develar/branch-deck/commit/c554ac5dc847bef83513f0948a8ce57dfea0d570))
+* **e2e:** a long test is split into tests of a few starts, or costs no start that is not its subject ([8b2e9bb](https://github.com/develar/branch-deck/commit/8b2e9bb0b9cfd122c07b5e7ccb00e37028c8bfbd))
+* **e2e:** a push to master asserts each landing at its answer, its open toast, and waits for a held push without 5 s ([bc718bb](https://github.com/develar/branch-deck/commit/bc718bb437b49738739d2f9de3f895947cd21bb9))
+* **e2e:** a push to master waits for the answer of its landing, not 5 s of polling the remote ([6ad52fc](https://github.com/develar/branch-deck/commit/6ad52fc2ff8447a680c58965f3a576166f9edec7))
+* **e2e:** a pushed toast is checked once the push answered, and the Your Turn card once a focus past the answer asked ([2106954](https://github.com/develar/branch-deck/commit/210695438a575d5ded8cc126f44c2faaeb3adda7))
+* **e2e:** a review test waits for the plan of the new head and for a closed card, not its exit, and two long ones are split ([b7a1707](https://github.com/develar/branch-deck/commit/b7a1707c2a9d238cf8ddbda698eaa9028226f3f0))
+* **e2e:** a review window opens on the answers of its plan and its diffs, not on a 5 s look at its first file ([93f1059](https://github.com/develar/branch-deck/commit/93f1059ee9d3860a9631fc22d8a74b6126bf5c44))
+* **e2e:** a test asserts a closed popup by its state and ends its exit, never waits for the exit by time ([37a4816](https://github.com/develar/branch-deck/commit/37a481607a6a1ded47a9992d8ad932ffdfefaa51))
+* **e2e:** a test reads what an operation wrote once after its answer, and waits for a held request by its arrival ([ba55d82](https://github.com/develar/branch-deck/commit/ba55d826bb1fa5537deaf5ed33240c4e5db31730))
+* **e2e:** a toast or a row after an operation is checked once the operation answered ([17eaa5d](https://github.com/develar/branch-deck/commit/17eaa5d072177676f30fe1499df559fcceec6f17))
+* **e2e:** the exit guard answers a removal assertion that finds nothing in its one look ([80620f6](https://github.com/develar/branch-deck/commit/80620f64f677a1b3dc076c0e5e71ccae3410d718))
+* **e2e:** the parts of a split test share their setup, so the clone check finds none ([3f678e4](https://github.com/develar/branch-deck/commit/3f678e454284349e4736a2885c0d02cadac54a68))
+* **e2e:** the renders of a sync are counted once the session answered the facts of the first sync ([9088bb7](https://github.com/develar/branch-deck/commit/9088bb723fc8ade8cb0551865a5c5cc9b5c841ed))
+* **e2e:** the test of the menu of the row the palette listed last asserts the close of the palette by its state ([dcb1b0c](https://github.com/develar/branch-deck/commit/dcb1b0c9e8f0bac33b9e15f4639fe8378f66ce83))
+* **e2e:** the two tests of the tallest settings window open it in one beforeEach, so the page answers stay at their pins ([1fe7dbe](https://github.com/develar/branch-deck/commit/1fe7dbec21031836022c3a299c308da63975a6ce))
+* **e2e:** the wait for a sync and for the search of a conflict fix is the test's, and a check after a reword waits for its answer ([3a80b7f](https://github.com/develar/branch-deck/commit/3a80b7f323891c670206badeb33211f4bb7aff68))
+* **host:** only a run and a hello hash the client's binary, and the process tests get a handshake deadline no run reaches ([874b546](https://github.com/develar/branch-deck/commit/874b5468735040118ee77c987b029d29bd636138))
+* **lease:** a get records its holder on Windows, a reclaim names a lease without one ([8873906](https://github.com/develar/branch-deck/commit/88739065b63df982357b464e45ff6edaf2f3db76)), closes [#204](https://github.com/develar/branch-deck/issues/204)
+* **processes:** a kill ends the processes its child started, a git's ssh on Unix too ([7988d11](https://github.com/develar/branch-deck/commit/7988d11ecbd43c9d7de6ca3bed6045f4924c1420))
+* **processes:** a kill on Unix stops the tree pass by pass until a scan finds nothing new, and says what it misses ([4bb8aad](https://github.com/develar/branch-deck/commit/4bb8aad3075bb6b3fb589504d5cd030b85eaa8ce))
+* **review:** commit titles keep their prefix apart, symbols follow the source, a name shows in its own section ([2bf8797](https://github.com/develar/branch-deck/commit/2bf87971a6731b47fe6e06dff2dfece263ecc7ba))
+* **review:** the bar names Other changes and a group after the steps alone, a fold names a group without its count ([5a08fbb](https://github.com/develar/branch-deck/commit/5a08fbb6412dd84efe3edc561d82e7d76cacb0d8))
+* **review:** the brief reads specs by their format, a test link from its spec's directory ([cc7c3f9](https://github.com/develar/branch-deck/commit/cc7c3f97e83a62d6204e2afaf4e9c71d1f43e9ed))
+* **review:** the counts of a group mark the lines its read files hide, as the counts of a file do ([76dc32e](https://github.com/develar/branch-deck/commit/76dc32e4d8ffea753ab4ec2a8bf6adfa965d935e))
+* **review:** the focus of the tree follows the selection, the first J goes on from the overview ([e49fb4a](https://github.com/develar/branch-deck/commit/e49fb4aa916add80ada2a0154d1d2c803a39ffa8))
+* **review:** the rows of the Shape share their columns, the folders of a module in words ([2b0f261](https://github.com/develar/branch-deck/commit/2b0f2615c01201a2d4eb193ab6d1fdeb1d87cb5d))
+* **review:** the scrollbar of a long line takes a strip of its own below the rows, never the lower half of the last row ([205bdd1](https://github.com/develar/branch-deck/commit/205bdd1d2bf0d7b217f4135541f71f6b46e6c8e4))
+* **review:** the Shape counts the lines as git does, "+204 −6" as `git diff --stat` ([9f80036](https://github.com/develar/branch-deck/commit/9f8003644bdbe2ad65d86c4509e4e38246aab7f8))
+* **specs:** spec-links lists the tracked files through the executor and runs openspec without a console window ([934504e](https://github.com/develar/branch-deck/commit/934504e91bfdfd0175c5433f843b9ce840c25c4d))
+* **specs:** the target of the process tree is its file in sync-utils ([d187996](https://github.com/develar/branch-deck/commit/d1879961ef02d69e7042fe9539ad4dea06e5cd33))
+* **sync:** a copy of an older resolve by words is checked once, kept with its note upgraded where its bytes hold ([e59cbee](https://github.com/develar/branch-deck/commit/e59cbeef2350801984a1a7fc4461cbc21fb27fe9))
+* **text-diff:** a merge again with its result may conflict as in git, and a resolve that leaves nothing is the empty file ([c961efd](https://github.com/develar/branch-deck/commit/c961efda7ee32cc1cb89d8489e50705bfbc05c58))
+* **text-diff:** the empty line after a final line end pairs only with its like, so a file counts the lines git counts ([9797a41](https://github.com/develar/branch-deck/commit/9797a417b5ab567c73f062fa68d912135b7f88d4))
+* **text-diff:** the merge pairs the empty line after a final line end only with that of the base, so the conflicts at the end of a file are git's ([7eff899](https://github.com/develar/branch-deck/commit/7eff8990bb04162045cccf5c3fdb65334617c3ab))
+* **text-diff:** the resolve by words takes the default policy alone, and a last line without an end pairs only with its like ([7766200](https://github.com/develar/branch-deck/commit/77662006473587a28d670f7751f7db8239fb3eaa))
+
 ## [1.6.0](https://github.com/develar/branch-deck/compare/v1.5.1...v1.6.0) (2026-11-09)
 
 
