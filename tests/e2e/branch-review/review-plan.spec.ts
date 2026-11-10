@@ -1041,7 +1041,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(own.getByTestId("diff-unit-heading")).toHaveText("other — new")
     await expect(own).toContainText("fun other() = max(1, 2)")
     await expect(own).not.toContainText("import kotlin.math.max")
-    await expect(own.getByTestId("diff-unit-elsewhere")).toHaveText("Shown in Imports only (1)")
+    await expect(own.getByTestId("diff-unit-elsewhere")).toHaveText("Shown in Imports only")
 
     // from the top of Base.kt, N goes to the function, then to Store.kt: the import is no change of this section
     await window.getByTestId("commit-review-code").locator("[aria-label='Changes of the commit']").focus()

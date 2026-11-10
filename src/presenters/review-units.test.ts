@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, Concern, ConcernName, ConcernPart, FileFacts, GeneratedBy, ReviewUnit, UnitBlock, UnitKind } from "@/lib/bindings"
 import { headingText } from "@/lib/diff/rows"
 import { concernChapters } from "@/presenters/review-steps"
-import { formatPart, formatUnitHeading, presentNarrative } from "@/presenters/review-units"
+import { formatPart, formatUnitHeading, presentNarrative, presentStepBar } from "@/presenters/review-units"
 import type { NarrativeFile } from "@/presenters/review-units"
 
 /** Block `index` of a file: one line changed at `line` on each side */
@@ -25,6 +25,20 @@ function unit(kind: UnitKind, name: string | null, slices: { path: string; block
   }
 }
 
+/** The same edit of the first line of A.kt and of B.kt */
+function sameEditOfAB(): ReviewUnit {
+  return unit({ kind: "repeatedEdit", group: 0 }, null, [
+    { path: "src/A.kt", blocks: [block(0, 1)] },
+    { path: "src/B.kt", blocks: [block(0, 1)] },
+  ])
+}
+
+/** The parameters of `open` of Api.kt changed, `outside` uses of it left outside, of which those at `lines` of Use.kt */
+function openChanged(lines: number[], outside: number): ApiChange {
+  const usages = { inside: 0, outside, outsideSites: lines.map(line => ({ path: "src/Use.kt", line })), stillBound: 0, byName: 0, complete: true, unbroken: false }
+  return { path: "src/Api.kt", line: 3, name: "open", key: "open", kind: "changed", widened: false, changes: ["parameters"], before: null, after: null, usages }
+}
+
 /** A file whose diff has blocks at `lines` */
 function file(path: string, lines: number[] | null): NarrativeFile {
   return { path, blocks: lines === null ? null : lines.map((line, index) => block(index, line)) }
@@ -44,10 +58,7 @@ describe("the story of a review", () => {
       unit({ kind: "behaviour" }, "close", [{ path: "src/Api.kt", blocks: [block(2, 20)] }]),
       unit({ kind: "removed" }, "gone", [{ path: "src/Api.kt", blocks: [] }]),
       unit({ kind: "behaviour" }, "use", [{ path: "src/Use.kt", blocks: [block(0, 3)] }]),
-      unit({ kind: "repeatedEdit", group: 0 }, null, [
-        { path: "src/A.kt", blocks: [block(0, 1)] },
-        { path: "src/B.kt", blocks: [block(0, 1)] },
-      ]),
+      sameEditOfAB(),
       unit({ kind: "mechanical", mechanical: "importsOnly" }, null, [{ path: "src/Api.kt", blocks: [block(0, 2)] }]),
     ]
     const sections = presentNarrative(units, [file("src/A.kt", [1]), file("src/Api.kt", [2, 10, 20]), file("src/B.kt", [1]), file("src/Use.kt", [3])], [], [], [])
@@ -72,9 +83,37 @@ describe("the story of a review", () => {
       ["repeatedEdit:src/A.kt"],
       ["mechanical:src/Api.kt"],
     ])
-    // the block of the imports is one row here, which opens the group
-    expect([...api.units!.elsewhere]).toEqual([[0, "Shown in Imports only (1)"]])
+    // the block of the imports is one row here, which opens the group: named by the group, never by its count
+    expect([...api.units!.elsewhere]).toEqual([[0, "Shown in Imports only"]])
     expect(api.targets.get(0)).toBe("group:mechanical:src/Api.kt:src/Api.kt")
+  })
+
+  it("names a block a group shows by the name of the group on each of its files, never by the count of its heading", () => {
+    // B.kt: a line of the same edit as A.kt, an import and the body of open
+    const units = [
+      unit({ kind: "behaviour" }, "open", [{ path: "src/B.kt", blocks: [block(2, 10)] }]),
+      sameEditOfAB(),
+      unit({ kind: "mechanical", mechanical: "importsOnly" }, null, [{ path: "src/B.kt", blocks: [block(1, 2)] }]),
+    ]
+    const sections = presentNarrative(units, [file("src/A.kt", [1]), file("src/B.kt", [1, 2, 10])], [], [], [])
+    expect(sections.map(section => [section.key, section.heading, section.groupName])).toEqual([
+      ["file:src/B.kt", null, null],
+      ["group:repeatedEdit:src/A.kt:src/A.kt", "Same edit in 2 files", "Same edit in 2 files"],
+      ["group:repeatedEdit:src/A.kt:src/B.kt", null, "Same edit in 2 files"],
+      ["group:mechanical:src/B.kt:src/B.kt", "Imports only (1)", "Imports only"],
+    ])
+    // the rows and the folds of the body of open name the group of each block it does not show, of a file after the
+    // first of the group too; those of the imports the same edit by its group, the body by its part
+    expect([...sections[0]!.units!.elsewhere]).toEqual([
+      [0, "Shown in Same edit in 2 files"],
+      [1, "Shown in Imports only"],
+    ])
+    expect(new Map(sections[3]!.units!.elsewhere)).toEqual(
+      new Map([
+        [0, "Shown in Same edit in 2 files"],
+        [2, "Shown in part 1"],
+      ]),
+    )
   })
 
   it("numbers the parts of a file the story shows in several sections, each with the lines of its own blocks, a part of deletions alone too", () => {
@@ -180,27 +219,7 @@ describe("the generated files in the story", () => {
 
 describe("the uses a change left outside in the story", () => {
   it("follow the section of the change: each its file around the use, at most five", () => {
-    const usages = {
-      inside: 0,
-      outside: 7,
-      outsideSites: [1, 2, 3, 4, 5, 6].map(line => ({ path: "src/Use.kt", line })),
-      stillBound: 0,
-      byName: 0,
-      complete: true,
-      unbroken: false,
-    }
-    const change: ApiChange = {
-      path: "src/Api.kt",
-      line: 3,
-      name: "open",
-      key: "open",
-      kind: "changed",
-      widened: false,
-      changes: ["parameters"],
-      before: null,
-      after: null,
-      usages,
-    }
+    const change = openChanged([1, 2, 3, 4, 5, 6], 7)
     const units = [unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(0, 3)] }])]
     const sections = presentNarrative(units, [file("src/Api.kt", [3])], [change], [], [])
     expect(sections.map(section => section.key)).toEqual(["file:src/Api.kt", ...[1, 2, 3, 4, 5].map(line => `ghost:shape:open:src/Use.kt:${line}`)])
@@ -220,7 +239,11 @@ describe("the concerns in the story", () => {
   })
   const part = (unit: string, path: string, blocks: number[] | null = null): ConcernPart => ({ unit, path, blocks })
 
-  it("lays the parts of each concern out together under its name, a unit cut by the concerns in each, its generated file collapsed at its end, the mechanical groups after", () => {
+  /**
+   * ijproxy and grep → accio, each a told step, the version of App.kt in Other changes, AGENTS.md generated in grep →
+   * accio and pnpm-lock.yaml generated after the story
+   */
+  function concernsStory() {
     const units = [
       unit({ kind: "other", reason: "noLanguage" }, ".codex/config.toml", [{ path: ".codex/config.toml", blocks: [block(0, 3)] }]),
       // a file of no language the story shows whole, cut by the concerns
@@ -256,7 +279,12 @@ describe("the concerns in the story", () => {
           slice.blocks.map(block => block.oldStart),
         ),
       )
-    const sections = presentNarrative(units, files, [], facts, concernChapters(concerns))
+    const chapters = concernChapters(concerns)
+    return { chapters, sections: presentNarrative(units, files, [], facts, chapters) }
+  }
+
+  it("lays the parts of each concern out together under its name, a unit cut by the concerns in each, its generated file collapsed at its end, the mechanical groups after", () => {
+    const { sections } = concernsStory()
     expect(sections.map(section => [section.key, section.concern, section.concernHeading, section.heading, section.folded])).toEqual([
       ["file:.codex/config.toml", "p", "ijproxy", null, null],
       ["file:docs/guide.md", "p", null, null, null],
@@ -272,6 +300,59 @@ describe("the concerns in the story", () => {
     const [, ofProxy, , ofSearch] = sections
     expect([[...ofProxy!.units!.marks.keys()], [...ofProxy!.units!.elsewhere]]).toEqual([[], [[0, "Shown in grep → accio"]]])
     expect([[...ofSearch!.units!.marks.keys()], ofSearch!.targets.get(1)]).toEqual([[], "file:docs/guide.md"])
+  })
+
+  it("names in the bar above the diffs a step by its place among the told steps and its title, Other changes and a group after the story by their name alone", () => {
+    const { chapters, sections } = concernsStory()
+    const bar = (opening: string | null, section: string | null) => {
+      const view = presentStepBar(chapters, sections, { opening, section })
+      return view === null ? null : [view.position, view.label, view.chapter?.id ?? null, view.section?.key ?? null]
+    }
+    // before the diffs report a section the first step; "Overview · 2 steps" counts the told steps alone
+    expect(presentStepBar(chapters, sections, { opening: null, section: null })?.steps).toBe(2)
+    expect(bar(null, null)).toEqual(["Step 1 / 2", "ijproxy", "p", null])
+    expect(bar("g", null)).toEqual(["Step 2 / 2", "grep → accio", "g", null])
+    expect(bar(null, "group:mechanical:AGENTS.md:AGENTS.md")).toEqual(["Step 2 / 2", "grep → accio", "g", null])
+    // Other changes, at its opening and at its card: no place, as the overview and its opening give it no number
+    expect(bar("r", null)).toEqual([null, "Other changes", "r", null])
+    expect(bar(null, "file:src/App.kt")).toEqual([null, "Other changes", "r", null])
+    // the generated file after the story is of no step: its group by its name, a click showing its first file
+    expect(bar(null, "group:mechanical:AGENTS.md:pnpm-lock.yaml")).toEqual([null, "Generated", null, "group:mechanical:AGENTS.md:pnpm-lock.yaml"])
+  })
+
+  it("names in the bar a use left outside by the step of the section before it, a group after the story from any of its files, a file of no unit by Other changes, and has no bar in a story that tells no step", () => {
+    const change = openChanged([4], 1)
+    const units = [
+      unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(0, 3)] }]),
+      unit({ kind: "mechanical", mechanical: "importsOnly" }, null, [
+        { path: "src/A.kt", blocks: [block(0, 1)] },
+        { path: "src/B.kt", blocks: [block(0, 1)] },
+      ]),
+    ]
+    const chapters = concernChapters([concern("p", { source: "token", token: "open" }, [part("shape:open", "src/Api.kt")])])
+    const files = [file("src/Api.kt", [3]), file("src/A.kt", [1]), file("src/B.kt", [1]), file("README.md", null)]
+    const sections = presentNarrative(units, files, [change], [], chapters)
+    expect(sections.map(section => [section.key, section.concern, section.groupName])).toEqual([
+      ["file:src/Api.kt", "p", null],
+      ["ghost:shape:open:src/Use.kt:4", null, null],
+      ["group:mechanical:src/A.kt:src/A.kt", null, "Imports only"],
+      ["group:mechanical:src/A.kt:src/B.kt", null, "Imports only"],
+      ["README.md", null, null],
+    ])
+    const bar = (section: string) => {
+      const view = presentStepBar(chapters, sections, { opening: null, section })
+      return view === null ? null : [view.position, view.label, view.chapter?.id ?? null, view.section?.key ?? null]
+    }
+    expect(bar("ghost:shape:open:src/Use.kt:4")).toEqual(["Step 1 / 1", "open", "p", null])
+    expect(bar("group:mechanical:src/A.kt:src/B.kt")).toEqual([null, "Imports only", null, "group:mechanical:src/A.kt:src/A.kt"])
+    // a file no unit names, as the tree lists it; with the rest, Other changes is its chapter
+    expect(bar("README.md")).toEqual([null, "Other changes", null, "README.md"])
+    const withRest = [...chapters, ...concernChapters([concern("r", { source: "rest" }, [])]).map(rest => ({ ...rest, number: 2 }))]
+    expect(presentStepBar(withRest, sections, { opening: null, section: "README.md" })?.chapter?.id).toBe("r")
+    // a story of no told step has no bar
+    expect(
+      presentStepBar(concernChapters([concern("r", { source: "rest" }, [part("shape:open", "src/Api.kt")])]), sections, { opening: null, section: "file:src/Api.kt" }),
+    ).toBeNull()
   })
 
   it("keeps the order of the units while the plan has no concern but the rest", () => {

@@ -1,9 +1,11 @@
-import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewTitle, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
+import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import type { Heading, HeadingPart, SectionUnits } from "@/lib/diff/rows"
 import { joinNames } from "@/lib/text"
+import { OTHER_CHANGES } from "@/presenters/review-concerns"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
-import { formatStepNumber } from "@/presenters/review-steps"
+import { formatStepNumber, formatStepPosition } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
 
 /*
@@ -36,6 +38,12 @@ export interface NarrativeSection {
   readonly targets: ReadonlyMap<number, string>
   /** The group it is of, on its first file: "Same edit in 3 files", "Imports only (2)" */
   readonly heading: string | null
+  /**
+   * The name of the group it is of, on each of its files, without the count of its heading: "Imports only", "Same
+   * edit in 3 files"; the place a row and a fold of another section name it by, the bar above the diffs a section of no
+   * concern by. Null for a section of no group
+   */
+  readonly groupName: string | null
   /** The opening of the group of a large step it starts (`ChapterPart.groupOpening`), by its key; null otherwise */
   readonly group: string | null
   /** `Concern.id` of the concern it is of; null without concerns, for the mechanical groups and a use left outside */
@@ -105,16 +113,18 @@ export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
   }
 }
 
-/** "Same edit in 3 files", "Imports only (2)": the heading of a group on its first file */
-function groupHeading(unit: ReviewUnit): string {
-  const count = unit.slices.length
+/** "Same edit in 3 files", "Imports only", "Deleted from src/": the name of a group, without a count of its files */
+function groupName(unit: ReviewUnit): string {
   if (unit.kind.kind === "repeatedEdit") {
-    return `Same edit in ${count} files`
+    return `Same edit in ${unit.slices.length} files`
   }
-  if (unit.kind.kind === "deletedFiles") {
-    return `Deleted from ${unit.kind.directory}/ (${count})`
-  }
-  return unit.kind.kind === "mechanical" ? `${MECHANICAL_WORDS[unit.kind.mechanical]} (${count})` : headingText([formatUnitHeading(unit)])
+  return unit.kind.kind === "mechanical" ? MECHANICAL_WORDS[unit.kind.mechanical] : headingText([formatUnitHeading(unit)])
+}
+
+/** "Same edit in 3 files", "Imports only (2)": the heading of a group on its first file, its name and the count of its files */
+function groupHeading(unit: ReviewUnit): string {
+  const name = groupName(unit)
+  return unit.kind.kind === "mechanical" || unit.kind.kind === "deletedFiles" ? `${name} (${unit.slices.length})` : name
 }
 
 function isGroup(unit: ReviewUnit): boolean {
@@ -159,6 +169,8 @@ interface Draft {
   /** The lines of the told bodies that name what it shows */
   story?: StoryRef[]
   heading: string | null
+  /** The name of the group it is of (`NarrativeSection.groupName`) */
+  groupName: string | null
   /** The opening of the group it starts (`NarrativeSection.group`) */
   group?: string | null
   folded: string | null
@@ -346,7 +358,7 @@ export function presentNarrative(
   const placeWhole = (path: string, unit?: string, heading: string | null = null, group: string | null = null) => {
     if (!placed.has(path)) {
       placed.add(path)
-      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading, group, folded: null, ghosts: [] }))
+      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading, groupName: null, group, folded: null, ghosts: [] }))
     }
     const draft = wholeDrafts.get(path)
     if (draft !== undefined && unit !== undefined) {
@@ -386,6 +398,7 @@ export function presentNarrative(
           marks: new Map(),
           // a generated file at the end of the concern of its source says why it is folded, no group
           heading: first && startsGroup !== null ? startsGroup : first && (concern === null || unit.kind.kind !== "mechanical") ? groupHeading(unit) : null,
+          groupName: groupName(unit),
           group: first ? (step.groupOpening ?? null) : null,
           folded,
           ghosts: [],
@@ -419,6 +432,7 @@ export function presentNarrative(
         blocks: new Set(),
         marks: new Map(),
         heading: startsGroup,
+        groupName: null,
         group: step.groupOpening ?? null,
         folded: null,
         ghosts: [],
@@ -486,6 +500,79 @@ export function presentNarrative(
 }
 
 /**
+ * What the bar above the diffs names (openspec/specs/branch/review-tour/spec.md, "The bar of the step at the top is
+ * one line", "The bar names what is no step alone"): the chapter of what is at the top (the step whose opening is
+ * there, else the section; the first chapter before the diffs report one), a use left outside of the chapter of the
+ * section before it. A step the story tells by its place and its title ("Step 2 / 4"), a chapter it tells as no step
+ * (Other changes) by its title alone; a section of no chapter, after the story, by its group alone ("Imports only"),
+ * of no group as the tree lists it, under Other changes
+ */
+export interface StepBarView {
+  /** "Step 2 / 4"; null for what the story tells as no step */
+  readonly position: string | null
+  readonly title: ReviewTitle
+  /** `title` as one line: its hover */
+  readonly label: string
+  readonly code: boolean
+  /** The steps the story tells: "Overview · 4 steps" */
+  readonly steps: number
+  /** The chapter, whose opening a click shows; null for a section of no chapter */
+  readonly chapter: Chapter | null
+  /** Of a section of no chapter, the first section of its group, which a click shows */
+  readonly section: { readonly key: string; readonly path: string } | null
+}
+
+/** The bar above the diffs at `top` (`StepBarView`); null for a story that tells no step, which has no bar */
+export function presentStepBar(
+  chapters: readonly Chapter[],
+  narrative: readonly NarrativeSection[],
+  top: { readonly opening: string | null; readonly section: string | null },
+): StepBarView | null {
+  const steps = chapters.filter(chapter => chapter.told).length
+  if (steps === 0) {
+    return null
+  }
+  const at = top.opening === null ? narrative.findIndex(section => section.key === top.section) : -1
+  const id = top.opening ?? (at < 0 ? narrative.find(section => section.concern !== null)?.concern : concernAt(narrative, at))
+  const ofChapter = (chapter: Chapter): StepBarView => ({
+    position: chapter.told ? formatStepPosition(chapter.number, steps) : null,
+    title: chapter.title,
+    label: chapter.label,
+    code: chapter.code,
+    steps,
+    chapter,
+    section: null,
+  })
+  if (id !== null && id !== undefined) {
+    const chapter = chapters.find(it => it.id === id)
+    return chapter === undefined ? null : ofChapter(chapter)
+  }
+  const section = narrative[at]
+  if (section === undefined) {
+    return null
+  }
+  const rest = chapters.find(chapter => chapter.rest)
+  if (section.groupName === null && rest !== undefined) {
+    return ofChapter(rest)
+  }
+  // the heading of a group stands on its first file
+  const first = narrative.find(it => it.concern === null && it.groupName === section.groupName && [...it.unitIds].some(unit => section.unitIds.has(unit))) ?? section
+  const name = section.groupName ?? OTHER_CHANGES
+  return { position: null, title: plainTitle(name), label: name, code: false, steps, chapter: null, section: { key: first.key, path: first.path } }
+}
+
+/** The concern of the section at `index`, of a use left outside the one of the section before it */
+function concernAt(narrative: readonly NarrativeSection[], index: number): string | null {
+  for (let at = index; at >= 0; at--) {
+    const section = narrative[at]!
+    if (section.ghost === null) {
+      return section.concern
+    }
+  }
+  return null
+}
+
+/**
  * The part each section of a file is (`SectionPart`), of a file the story shows in two sections or more: their place in
  * the order of the story, the lines of the blocks each shows (all of the file for a section of the whole file)
  */
@@ -545,6 +632,7 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     story: NO_STORY,
     targets: new Map(),
     heading: null,
+    groupName: null,
     group: null,
     concern: null,
     concernHeading: null,
@@ -556,8 +644,8 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
 
 /**
  * The section of `draft`: its headings, its part of its file (`parts`), and a row for each block another section shows
- * (`owners`, by path and block): another part of the file by its number ("Shown in part 2"), of another concern that
- * concern, else the heading of the owner
+ * (`owners`, by path and block): of another concern that concern, of a group that folds it the group by its name
+ * ("Shown in Imports only"), another part of the file by its number ("Shown in part 2"), else the heading of the owner
  */
 function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number, Draft>>, parts: ReadonlyMap<Draft, SectionPart>): NarrativeSection {
   {
@@ -572,6 +660,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
         story: draft.story ?? NO_STORY,
         targets: new Map(),
         heading: draft.heading,
+        groupName: draft.groupName,
         group: draft.group ?? null,
         concern,
         concernHeading,
@@ -584,15 +673,17 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
     const targets = new Map<number, string>()
     for (const [block, owner] of owners.get(draft.path) ?? []) {
       if (owner !== draft) {
-        // a block of another concern says which: the section of the same file there; of another part of the file in
-        // this concern, that part
+        // a block of another concern says which: the section of the same file there; of a group that folds it, the group
+        // by its name ("Imports only"), never its count; of another part of the file in this concern, that part
         const ownerPart = parts.get(owner)
         const where =
           owner.concern !== draft.concern && owner.concernName !== null
             ? owner.concernName
-            : ownerPart !== undefined && owner.folded === null
-              ? `part ${ownerPart.index + 1}`
-              : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : headingOrName(owner.marks.values().next().value, owner.path)))
+            : owner.folded !== null && owner.groupName !== null
+              ? owner.groupName
+              : ownerPart !== undefined
+                ? `part ${ownerPart.index + 1}`
+                : (owner.heading ?? headingOrName(owner.marks.values().next().value, owner.path))
         elsewhere.set(block, `Shown in ${where}`)
         targets.set(block, owner.key)
       }
@@ -605,6 +696,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
       story: draft.story ?? NO_STORY,
       targets,
       heading: draft.heading,
+      groupName: draft.groupName,
       group: draft.group ?? null,
       concern,
       concernHeading,

@@ -120,6 +120,31 @@ describe("review steps", () => {
     ])
   })
 
+  it("words Other changes in the hover of the map of the files by its name alone, as it has no number of a step", () => {
+    const concern = (id: string, name: Concern["name"], path: string): Concern => ({
+      id,
+      name,
+      parts: [{ unit: `u:${id}`, path, blocks: null }],
+      paths: [path],
+      elsewhere: [],
+      evidence: [],
+      fingerprint: id,
+    })
+    const chapters = presentChapters(
+      plan(
+        [
+          { ...step("c", [commit("one")], [["u:c", "a.json"]]), concern: "c" },
+          { ...step("r", [], [["u:r", "App.kt"]]), concern: "r" },
+        ],
+        [concern("c", { source: "token", token: "proxy" }, "a.json"), concern("r", { source: "rest" }, "App.kt")],
+      ),
+    )
+    expect(chapters.map(chapter => [chapter.told, formatStepDivider(chapter)])).toEqual([
+      [true, "Step 1 · proxy"],
+      [false, "Other changes"],
+    ])
+  })
+
   it("sets names with spaces as phrases, not code", () => {
     const phrase: Concern = {
       id: "phrase",

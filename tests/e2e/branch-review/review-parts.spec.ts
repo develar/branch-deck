@@ -41,16 +41,59 @@ test.describe("Parts of a file", () => {
     await window.keyboard.press("j")
     await expect(position).toHaveText(/File 2 \/ 2 · part 2 of 3$/)
     await window.keyboard.press("j")
-    await expect(position).toHaveText("Step 1 · File 2 / 2 · part 3 of 3")
+    // the group of the imports comes after the story, in no step
+    await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
 
-    // the fold of the second part names the probe of the first and the import of the third, and opens each
+    // the fold of the second part names the probe of the first and the import of the third, the group by its name
+    // alone, and opens each
     const targets = fold(1).getByTestId("diff-fold-elsewhere")
-    await expect(targets).toHaveText(["1 change in Imports only (1)", "1 change in step 1"])
+    await expect(targets).toHaveText(["1 change in Imports only", "1 change in step 1"])
     await targets.nth(1).click()
     await expect(position).toHaveText("Step 1 · File 2 / 2 · part 1 of 3")
     // the third part, a group of the imports, starts collapsed: its fold target opens it
     await expect(cards.nth(2)).not.toContainText("import java.util.Locale")
     await targets.first().click()
     await expect(cards.nth(2)).toContainText("import java.util.Locale")
+  })
+
+  test("should name in the bar above the diffs a step by its place, Other changes and the group of the imports after the story by their name alone, a click showing the opening of Other changes", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_parts")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+    const { tree } = reviewSidebar(window)
+    const bar = window.getByTestId("review-step-bar")
+    const position = window.getByTestId("review-position")
+    // the overview counts the one step, Other changes not
+    await expect(bar).toHaveText("Overview·1 step")
+
+    // the first part is of step 1: its place among the steps and its title
+    await tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 1 / 1")
+    await expect(bar.getByTestId("review-step-title")).toHaveText("probe")
+
+    // Other changes, at its opening and at its card, has no place: its name alone, and the footer no step
+    await window.keyboard.press("j")
+    await expect(bar).toHaveText("Other changes")
+    await expect(bar.getByTestId("review-step-position")).toHaveCount(0)
+    await window.keyboard.press("j")
+    await expect(position).toHaveText("File 2 / 2 · part 2 of 3")
+    await expect(bar).toHaveText("Other changes")
+
+    // the group of the imports comes after the story, in no step: its name, without the count of its heading
+    await window.keyboard.press("j")
+    await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
+    await expect(bar).toHaveText("Imports only")
+    await expect(bar).toHaveAttribute("title", "Imports only")
+
+    // back at the second part, a click on the bar shows the opening of Other changes, where the footer names no part
+    await window.keyboard.press("k")
+    await expect(position).toHaveText("File 2 / 2 · part 2 of 3")
+    await bar.click()
+    await expect(position).toHaveText("File 2 / 2")
+    await expect(window.getByTestId("review-concern-heading").filter({ hasText: "Other changes" })).toBeInViewport()
   })
 })

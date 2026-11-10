@@ -55,22 +55,12 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import {
-  formatSeen,
-  formatStepCount,
-  formatStepDivider,
-  formatStepNumber,
-  formatStepPosition,
-  placeCommits,
-  presentChapters,
-  presentGroupCounts,
-  presentOwnerMarks,
-} from "@/presenters/review-steps"
+import { formatSeen, formatStepCount, formatStepDivider, formatStepNumber, placeCommits, presentChapters, presentGroupCounts, presentOwnerMarks } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
 import { presentGroupOpenings, presentOpenings, storyMarks } from "@/presenters/review-story"
 import type { StoryMark } from "@/presenters/review-story"
-import { presentNarrative } from "@/presenters/review-units"
-import type { NarrativeSection } from "@/presenters/review-units"
+import { presentNarrative, presentStepBar } from "@/presenters/review-units"
+import type { NarrativeSection, StepBarView } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { getDiffRepositoryPath } from "@/stores/repository"
@@ -1200,15 +1190,14 @@ function ReviewLayout({
   // the opening of each step above the card of its first section
   const openings = useMemo(() => (reviewFacts === null ? undefined : presentOpenings(reviewFacts)), [reviewFacts])
   const groupOpenings = useMemo(() => (reviewFacts === null ? undefined : presentGroupOpenings(reviewFacts)), [reviewFacts])
-  const topStep = useMemo(() => {
-    const chapter = topOpening ?? narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
-    const index = chapters.findIndex(it => it.id === chapter)
-    return index < 0 ? null : { chapter: chapters[index]!, count: chapters.filter(it => !it.rest).length }
-  }, [narrative, topSection, topOpening, chapters])
+  const topStep = useMemo(
+    () => (narrative === null ? null : presentStepBar(chapters, narrative, { opening: topOpening, section: topSection })),
+    [narrative, topSection, topOpening, chapters],
+  )
   // the group of a large step the section at the top is of, with the part of it seen: where the reader is in the step
   const topGroup = useMemo(() => {
     const path = topOpening === null ? narrative?.find(it => it.key === topSection)?.path : undefined
-    const group = path === undefined ? undefined : topStep?.chapter.groups.find(it => it.paths.includes(path))
+    const group = path === undefined ? undefined : topStep?.chapter?.groups.find(it => it.paths.includes(path))
     return group === undefined ? null : { name: group.name, code: group.code, seen: formatSeen(group.paths.filter(it => seenPaths.has(it)).length, group.paths.length) }
   }, [narrative, topSection, topOpening, topStep, seenPaths])
 
@@ -1337,7 +1326,7 @@ function ReviewLayout({
     setPlanned(true)
   }
   const overviewAtTop = overviewShown && prologue !== undefined && prologue !== null && planned
-  const stepAtTop = topStep !== null && topStep.chapter.told ? topStep.chapter.number : undefined
+  const stepAtTop = topStep?.chapter?.told === true ? topStep.chapter.number : undefined
   // the part of its file the card at the top is, of a file the story shows in several sections: numbers, which stay the
   // same while the story is laid out again
   const topCard = topOpening === null ? narrative?.find(it => it.key === topSection) : undefined
@@ -1478,11 +1467,11 @@ function ReviewLayout({
           <div className="flex h-full flex-col">
             {loaded !== null && topStep !== null && (
               <StepBar
-                chapter={topStep.chapter}
-                count={topStep.count}
+                view={topStep}
                 overview={overviewShown && hasPrologue}
                 group={overviewShown && hasPrologue ? null : topGroup}
-                onShow={showStep}
+                onShowStep={showStep}
+                onShowSection={showSection}
               />
             )}
             {/* a search that hides every file keeps the overview: a click reveals the file */}
@@ -1552,41 +1541,54 @@ function PlainPrologue({ prologue }: { prologue: ReactNode }) {
 
 /**
  * The bar above the diffs of a review with its plan (openspec/specs/branch/review-tour/spec.md, "In the Review Window"): one line,
- * the step of the section at the top, its place in the story and its title, whole in its hover, which a click shows at
- * its opening; "Overview · 4 steps" while the overview is at the top, a click the first step. It follows the diffs as
- * they scroll. It lies on the canvas of the diffs, so the column of the review is one canvas of cards
+ * what the section at the top is of (`StepBarView`): a step by its place in the story and its title, whole in its
+ * hover, which a click shows at its opening; Other changes and a group of no step by their name alone, a click showing
+ * the opening of Other changes, the first section of the group; "Overview · 4 steps" while the overview is at the top,
+ * a click the first step. It follows the diffs as they scroll. It lies on the canvas of the diffs, so the column of the
+ * review is one canvas of cards
  */
 function StepBar({
-  chapter,
-  count,
+  view,
   overview,
   group,
-  onShow,
+  onShowStep,
+  onShowSection,
 }: {
-  chapter: Chapter
-  count: number
+  view: StepBarView
   overview: boolean
   /** The group of a large step the section at the top is of, with the part of it seen: "view.gui.media · 12 / 59 seen" */
   group: { readonly name: string; readonly code: boolean; readonly seen: string } | null
-  onShow: (step: string) => void
+  onShowStep: (step: string) => void
+  onShowSection: (section: NextSection) => void
 }) {
+  const position = overview ? "Overview" : view.position
   return (
     <button
       type="button"
       data-testid="review-step-bar"
-      data-step={chapter.id}
-      title={overview ? undefined : chapter.label}
+      data-step={view.chapter?.id}
+      title={overview ? undefined : view.label}
       className="flex min-w-0 shrink-0 items-baseline gap-1.5 bg-canvas px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:bd-focus"
-      onClick={() => onShow(chapter.id)}
+      onClick={() => {
+        if (view.chapter !== null) {
+          onShowStep(view.chapter.id)
+        } else if (view.section !== null) {
+          onShowSection({ ...view.section, part: "card" })
+        }
+      }}
     >
-      <span className="shrink-0 text-muted-foreground tabular-nums" data-testid="review-step-position">
-        {overview ? "Overview" : formatStepPosition(chapter.number, count)}
-      </span>
-      <span aria-hidden className="shrink-0 text-muted-foreground">
-        ·
-      </span>
-      <span className={cn("min-w-0 truncate font-medium", !overview && chapter.code && "font-mono")} data-testid="review-step-title">
-        {overview ? formatStepCount(count) : <ReviewTitleText title={chapter.title} code={chapter.code} />}
+      {position !== null && (
+        <>
+          <span className="shrink-0 text-muted-foreground tabular-nums" data-testid="review-step-position">
+            {position}
+          </span>
+          <span aria-hidden className="shrink-0 text-muted-foreground">
+            ·
+          </span>
+        </>
+      )}
+      <span className={cn("min-w-0 truncate font-medium", !overview && view.code && "font-mono")} data-testid="review-step-title">
+        {overview ? formatStepCount(view.steps) : <ReviewTitleText title={view.title} code={view.code} />}
       </span>
       {group !== null && (
         <span className="flex shrink-0 items-baseline gap-1.5 text-muted-foreground" data-testid="review-step-group">

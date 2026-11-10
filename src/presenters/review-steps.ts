@@ -553,9 +553,12 @@ function isCodeName(name: ConcernName): boolean {
   return name.source !== "rest" && !(name.source === "directory" && name.directory === "") && !(name.source === "declaration" && name.name.includes(" "))
 }
 
-/** The words of a step in the diffs, in the hover of the map of the files: "Step 2 · The open keeps a stored layout" */
-export function formatStepDivider(chapter: Pick<Chapter, "number" | "label">): string {
-  return `${formatStepNumber(chapter.number)} · ${chapter.label}`
+/**
+ * The words of a step in the diffs, in the hover of the map of the files: "Step 2 · The open keeps a stored layout";
+ * what the story tells as no step by its name alone, "Other changes"
+ */
+export function formatStepDivider(chapter: Pick<Chapter, "number" | "label" | "told">): string {
+  return chapter.told ? `${formatStepNumber(chapter.number)} · ${chapter.label}` : chapter.label
 }
 
 /** The number of a step, which the divider above its first section mutes before its title: "Step 2" */
@@ -563,7 +566,7 @@ export function formatStepNumber(number: number): string {
   return `Step ${number}`
 }
 
-/** The bar above the diffs: the step of the section at the top, "Step 2 / 4" and its title */
+/** The bar above the diffs: the place of the step of the section at the top, "Step 2 / 4", before its title */
 export function formatStepPosition(number: number, count: number): string {
   return `Step ${number} / ${count}`
 }

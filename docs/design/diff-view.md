@@ -174,8 +174,9 @@ folded lines, the new side first. A scope is a type, a function or a module of t
 file a target as well (`scopes_of_summary`), so the folded lines inside `jps_test(name = "monolith", …)` carry
 `monolith` rather than nothing. A fold counts only the unchanged lines it hides (`foldWords`): a block another section
 of a review shows, which the rows of a fold take as lines, is named after them with where it is shown, "⋯ 62 unchanged
-lines · 1 change in part 2", a click there showing that section; an `ignored` block says its lines, "· 1 line hidden by
-Whitespace", the most of a side of each.
+lines · 1 change in part 2", a group by its name and never the count of its heading ("1 change in Imports only", the
+group headed "Imports only (1)"), a click there showing that section; an `ignored` block says its lines, "· 1 line
+hidden by Whitespace", the most of a side of each.
 
 The folds nest as in IntelliJ (`FoldingModelSupport`: `getRangeShift`, `FoldingBuilderBase.addGroup`). Around each
 change they start at 4, 8 and 16 lines of context. So the unchanged lines between two changes have up to three levels:
@@ -265,7 +266,8 @@ and the opening of each step (below). Each item but those has a known height:
   muted line. The prologue of a review is its overview (`ReviewPrologue`). The header names the file alone: its order is
   always the chevron, the letter, the name, the path, then the actions (the mark of a story that names the section
   first, an icon button of the header's height) and the counts, so the name of every file stands at one x. The opening and the divider scroll with their card and never stick: the bar of the step above the diffs
-  names the step at the top.
+  names the step at the top ("Step 2 / 4 · …"), what the story tells as no step by its name alone ("Other changes", a
+  group after the steps "Imports only"), never a place among the steps it has not (`presentStepBar`).
 - A card of more than 30 rows and the last card end with a line one row high below their rows (`renderFooter`,
   `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: **SKILL.md** .claude/skills/setup-local-rd-flow
   `J`", the file as the header of its card names it (`FilePathLabel`), so the line promises what the next header
