@@ -146,12 +146,15 @@ describe("formatRobotProgress", () => {
     expect(formatSpokenRobotProgress(getRobotTiming(start, null, NOW))).toBe("18 minutes")
   })
 
-  it("names the usual time once a robot runs longer, in hours once it runs an hour", () => {
+  it("names the usual time once a robot runs longer, with the minutes after the hour until it runs 10 hours", () => {
     expect(progressText(getRobotTiming({ startTime: NOW_SECONDS - 45 * 60 }, rough(40), NOW))).toBe("45m · usually ~40m")
+    // the minutes say how far past its usual time it is
+    expect(progressText(getRobotTiming({ startTime: NOW_SECONDS - 96 * 60 }, rough(74), NOW))).toBe("1h 36m · usually ~1h 14m")
+    expect(progressText(getRobotTiming({ startTime: NOW_SECONDS - 65 * 60 }, rough(60), NOW))).toBe("1h 05m · usually ~1h")
+    expect(progressText(getRobotTiming({ startTime: NOW_SECONDS - 120 * 60 }, rough(60), NOW))).toBe("2h · usually ~1h")
     const fourteenHours = getRobotTiming({ startTime: NOW_SECONDS - 14 * 3600 }, rough(60), NOW)
     expect(progressText(fourteenHours)).toBe("14h · usually ~1h")
     expect(formatSpokenRobotProgress(fourteenHours)).toBe("14 hours, longer than usual")
-    expect(progressText(getRobotTiming({ startTime: NOW_SECONDS - 65 * 60 }, rough(60), NOW))).toBe("1h · usually ~1h")
   })
 
   it("explains the estimate and what it is of in the details", () => {

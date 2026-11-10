@@ -227,9 +227,9 @@ export interface RobotProgressText {
 /**
  * The text of a running robot in a row or a list: "18m · ~20m", the time it runs, then the time left, the pair short
  * for its column ("about 20 minutes left" in its hover and for the screen reader); past its usual time the usual time
- * instead, "55m · usually ~40m" (the hours only from an hour, "14h · usually ~1h": the minutes no longer matter, and
- * "longer than usual" is for the details and the screen reader); without history "18m". `etaAlone` for a sentence that
- * names no elapsed time: "~20m left".
+ * instead, "1h 36m · usually ~1h 14m" (the minutes after the hour say how far past it is; from 10 hours the hours
+ * only, "14h · usually ~1h"; "longer than usual" is for the details and the screen reader); without history "18m".
+ * `etaAlone` for a sentence that names no elapsed time: "~20m left".
  */
 export function formatRobotProgress(timing: RobotTiming): RobotProgressText {
   if (timing.remaining !== null) {
@@ -237,9 +237,8 @@ export function formatRobotProgress(timing: RobotTiming): RobotProgressText {
     return { elapsed: formatShortDuration(timing.elapsed), eta: left, etaAlone: `${left} left` }
   }
   if (timing.expected !== null) {
-    const elapsed = timing.elapsed >= HOUR ? `${Math.floor(timing.elapsed / HOUR)}h` : formatShortDuration(timing.elapsed)
     const usually = `usually ~${formatShortDuration(timing.expected)}`
-    return { elapsed, eta: usually, etaAlone: usually }
+    return { elapsed: formatShortDuration(timing.elapsed), eta: usually, etaAlone: usually }
   }
   return { elapsed: formatShortDuration(timing.elapsed), eta: null, etaAlone: null }
 }
