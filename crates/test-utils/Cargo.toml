@@ -38,7 +38,7 @@ tracing-subscriber.workspace = true
 [target.'cfg(windows)'.dependencies]
 junction = "2.1.0"
 # the CPU time of a thread (`cpu_time`): GetThreadTimes
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 # the CPU time of a thread (`cpu_time`): clock_gettime of CLOCK_THREAD_CPUTIME_ID
 [target.'cfg(unix)'.dependencies]

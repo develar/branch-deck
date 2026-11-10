@@ -46,6 +46,36 @@ pub fn thread_cpu_time() -> Duration {
   Duration::from_nanos((hundreds(kernel) + hundreds(user)).saturating_mul(100))
 }
 
+/// A count of the CPU work of the calling thread, for the ratio of two pieces of work on it: the nanoseconds of its CPU
+/// time on Unix (`thread_cpu_time`), its CPU cycles on Windows (`QueryThreadCycleTime`), where the CPU time counts whole
+/// ticks of 15.6 ms and a piece of work of a few milliseconds would read 0 or one tick
+#[cfg(unix)]
+#[must_use]
+pub fn thread_work() -> u64 {
+  u64::try_from(thread_cpu_time().as_nanos()).unwrap_or(u64::MAX)
+}
+
+/// A count of the CPU work of the calling thread, for the ratio of two pieces of work on it: the nanoseconds of its CPU
+/// time on Unix (`thread_cpu_time`), its CPU cycles on Windows (`QueryThreadCycleTime`), where the CPU time counts whole
+/// ticks of 15.6 ms and a piece of work of a few milliseconds would read 0 or one tick
+///
+/// # Panics
+///
+/// When Windows cannot count the cycles of this thread
+#[cfg(windows)]
+#[must_use]
+#[expect(unsafe_code, reason = "QueryThreadCycleTime of this thread, which std does not offer")]
+pub fn thread_work() -> u64 {
+  use windows_sys::Win32::System::Threading::GetCurrentThread;
+  use windows_sys::Win32::System::WindowsProgramming::QueryThreadCycleTime;
+  let mut cycles = 0_u64;
+  // SAFETY: GetCurrentThread answers a pseudo handle that needs no close, and QueryThreadCycleTime writes one u64 through
+  // a pointer to a local
+  let done = unsafe { QueryThreadCycleTime(GetCurrentThread(), &raw mut cycles) };
+  assert_ne!(done, 0, "the cycles of this thread: {}", std::io::Error::last_os_error());
+  cycles
+}
+
 #[cfg(test)]
 #[path = "cpu_time_test.rs"]
 mod cpu_time_test;
