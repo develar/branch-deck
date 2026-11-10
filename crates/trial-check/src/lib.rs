@@ -22,7 +22,7 @@
 //!
 //! The diffs and the symbols of the commits:
 //! - `dependencies`: which commits depend on which, from the hunks of `diff_scan`
-//! - `diff_scan`: the changes of many commits from one `log --raw -z` and the blocks of the diff views
+//! - `diff_scan`: the changes of many commits from one `log --raw --numstat -z` and the blocks of the diff views
 //! - `symbol_scan`: the syntax summaries of the changed source files, by blob id
 //! - `symbol_dependencies`: the edges between commits by the names they declare and use
 //! - `module_roots`: where the modules of source files begin

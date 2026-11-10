@@ -25,6 +25,8 @@ fn change(path: &str) -> FileChange {
     old_path: Some("old name.txt".to_string()),
     additions: 3,
     deletions: 1,
+    git_additions: 2,
+    git_deletions: 0,
     binary: false,
     old_blob: None,
     new_blob: None,

@@ -1,5 +1,5 @@
 //! `commit_diff`: commit id -> the changes of the commit against its first parent, as `brd commits` reads them with
-//! `git log -z --raw --no-abbrev -M` and the blocks of the diff views (`trial_check::diff_scan`)
+//! `git log -z --raw --numstat --no-abbrev -M` and the blocks of the diff views (`trial_check::diff_scan`)
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Deserialize, Serialize};
@@ -23,9 +23,15 @@ pub struct FileChange {
   pub path: String,
   /// The path before a rename or copy
   pub old_path: Option<String>,
+  /// Its lines added and removed as the engine counts them, from the blocks of the diff views under `Default`
   pub additions: u32,
   pub deletions: u32,
-  /// Git shows no lines for the file, as `-` in `--numstat`
+  /// Its lines added and removed as git counts them (`--numstat`, the default algorithm pinned), 0 of a file git shows
+  /// as binary: the engine aligns some blocks otherwise than git (a closing brace deleted and added again), so the two
+  /// can differ. What the Shape of a review counts, which says what `git diff --stat` says
+  pub git_additions: u32,
+  pub git_deletions: u32,
+  /// The engine shows no lines for the file: binary, a symlink, a submodule, over 8 MiB
   pub binary: bool,
   /// The blob of the file before the commit (of `old_path` for a rename or copy) and after it, full ids; `None` where
   /// the file doesn't exist, or is a symlink or a submodule: nothing to read as source

@@ -20,6 +20,8 @@ fn file(status: char, path: &str, old_path: Option<&str>) -> FileChange {
     old_path: old_path.map(str::to_string),
     additions: 1,
     deletions: 0,
+    git_additions: 0,
+    git_deletions: 0,
     binary: false,
     old_blob: None,
     new_blob: None,

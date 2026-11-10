@@ -13,7 +13,8 @@
 //!   not `code`; `view.gui.media` and `review-plan` alone).
 //! - **Its files** by role: `build` (the build model, a manifest, the list of a module: `MechanicalKind::BuildModel` and
 //!   `ModuleList`), `prose` (Markdown and the like), `tests` (the test paths of `files::test_subject`), `code` (a
-//!   language `code_symbols` parses), the rest `resources`; its lines added and removed over the range.
+//!   language `code_symbols` parses), the rest `resources`; its lines added and removed over the range, as
+//!   `git diff --numstat` counts them (`line_counts`).
 //! - **Its directories**: below the root, without the leading source directories (`src`, `testSrc`, `main`, `kotlin`,
 //!   …) and the folders its code and its tests share (the packages `com/example/player` under `src` and under
 //!   `testSrc`), its resources apart (a bundle under `resources/messages` shares none of them), a file right in its root
@@ -411,14 +412,17 @@ pub(crate) fn is_prose(path: &str) -> bool {
     .is_some_and(|(_, extension)| PROSE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
 }
 
-/// The lines the range adds and removes in `file`: of its blocks, else of its commits
+/// The lines the range adds and removes in `file`, as `git diff --numstat` of the range counts them: git's counts of its
+/// commits (`FileChange::git_additions`), which the engine's can differ from. A file that several commits change counts
+/// the blocks of its pair (`pair::LineBlock::added`), the engine's count of the range: git's would take a process of
+/// its own, and the sum of the counts of its commits is no count of the range
 fn line_counts(file: &ChangedFile<'_>, pair: Option<&PairBlocks>) -> (u32, u32) {
   let (added, removed) = file
     .changes
     .iter()
-    .fold((0u32, 0u32), |(added, removed), change| (added + change.additions, removed + change.deletions));
+    .fold((0u32, 0u32), |(added, removed), change| (added + change.git_additions, removed + change.git_deletions));
   match pair {
-    Some(PairBlocks::Blocks(blocks)) => blocks.iter().fold((0, 0), |(added, removed), block| (added + span(&block.new), removed + span(&block.old))),
+    Some(PairBlocks::Blocks(blocks)) if file.changes.len() > 1 => blocks.iter().fold((0, 0), |(added, removed), block| (added + block.added, removed + block.removed)),
     // a file the range adds has the lines its commits leave, one it deletes the lines it had: as the diff of the range
     // counts them, though a later commit changed what an earlier one added
     Some(PairBlocks::Added) => (added.saturating_sub(removed), 0),
@@ -575,11 +579,6 @@ fn state_of(root: &str, changed: &[ChangedFile<'_>], deleted_roots: &HashSet<&st
   } else {
     ModuleState::Changed
   }
-}
-
-/// The lines of a range of lines
-const fn span(lines: &std::ops::Range<u32>) -> u32 {
-  lines.end.saturating_sub(lines.start)
 }
 
 fn file_name(path: &str) -> &str {

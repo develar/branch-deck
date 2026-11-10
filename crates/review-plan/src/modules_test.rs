@@ -240,3 +240,42 @@ fn the_folders_of_a_module_start_below_the_packages_its_files_share() {
     ]
   );
 }
+
+/// The lines of a module are what `git diff --numstat` of the range counts, also where the engine aligns a block
+/// otherwise than git: a test appended after the blank line before the closing brace of a class, where the engine takes
+/// the empty line after the final line end of the old text for the blank line before the last declaration of the new
+/// one and counts one line fewer than the file grew by (+8 −0, `diff_scan_test::read_commit_diffs_gives_git_counts_beside_the_engines`)
+#[test]
+fn the_lines_of_a_module_are_what_git_counts_where_the_engine_aligns_otherwise() {
+  let repo = TestRepo::new();
+  let old = "class FooTest {\n  fun a() {\n    a()\n  }\n\n}\n";
+  let new = "class FooTest {\n  fun a() {\n    a()\n  }\n\n  fun b() {\n    b()\n  }\n}\n\nprivate fun c() {\n  c()\n}\n\nprivate fun d() = 1\n";
+  let base = repo.create_commit_with_files("Add the tests", &[("tests/BUILD.bazel", "# tests\n"), ("tests/testSrc/a/FooTest.kt", old)]);
+  let head = repo.create_commit_with_files("Test more", &[("tests/testSrc/a/FooTest.kt", new)]);
+  let plan = plan_of_range(&repo, &base, &head);
+  let tests = plan.modules.iter().find(|module| module.root == "tests").unwrap();
+  assert_eq!((tests.additions, tests.deletions), (9, 0));
+}
+
+/// A file that several commits change counts the blocks of its pair, the engine's count of the range (git's would take
+/// a process of its own, and the sum of its commits' is no count of the range): without the empty line after the final
+/// line end, which a block that reaches the end of the file holds and no count takes. Here git counts one line more
+/// (`the_lines_of_a_module_are_what_git_counts_where_the_engine_aligns_otherwise`)
+#[test]
+fn the_lines_of_a_file_several_commits_change_are_the_engines_count_of_its_pair() {
+  let repo = TestRepo::new();
+  let old = "class FooTest {\n  fun a() {\n    a()\n  }\n\n}\n";
+  let base = repo.create_commit_with_files("Add the tests", &[("tests/BUILD.bazel", "# tests\n"), ("tests/testSrc/a/FooTest.kt", old)]);
+  repo.create_commit_with_files(
+    "Test b",
+    &[("tests/testSrc/a/FooTest.kt", "class FooTest {\n  fun a() {\n    a()\n  }\n\n  fun b() {\n    b()\n  }\n}\n")],
+  );
+  let last = "class FooTest {\n  fun a() {\n    a()\n  }\n\n  fun b() {\n    b()\n  }\n}\n\nprivate fun c() {\n  c()\n}\n\nprivate fun d() = 1\n";
+  let head = repo.create_commit_with_files("Add the helpers", &[("tests/testSrc/a/FooTest.kt", last)]);
+  let plan = plan_of_range(&repo, &base, &head);
+  let tests = plan.modules.iter().find(|module| module.root == "tests").unwrap();
+  let engine = text_diff::model::diff_texts(old, last, text_diff::policy::WhitespacePolicy::Default, &text_diff::model::DiffBudget::NONE);
+  let blocks: u32 = engine.blocks.iter().map(|block| block.new_end - block.new_start).sum();
+  assert_eq!((engine.additions, blocks), (8, 9), "a block holds the empty last line");
+  assert_eq!((tests.additions, tests.deletions), (8, 0));
+}

@@ -3053,13 +3053,15 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 
 `brd commits` and `brd status --stats` read the changes of each commit (files, statuses, line counts, the line ranges
 of the blocks and the blob ids before and after) from a disk cache before they run git. Only for the commits it misses
-they run one `log --no-walk=unsorted --stdin -z --raw --no-abbrev` (`--no-abbrev`, not `--abbrev=40`, so a SHA-256 id
-stays whole) and one `cat-file --batch` of the blobs that the diff caches lack. The blocks are those of the diff views
-under `Default` (`file_diffs::blocks`).
+they run one `log --no-walk=unsorted --stdin -z --raw --numstat --no-abbrev` (`--no-abbrev`, not `--abbrev=40`, so a
+SHA-256 id stays whole) and one `cat-file --batch` of the blobs that the diff caches lack. The blocks are those of the
+diff views under `Default` (`file_diffs::blocks`), with their counts; git's counts (`--numstat`) stay beside them for
+the Shape of a review, which counts as `git diff --stat` does.
 - **Safe without invalidation** (but `review_answer`, `patronus_robots` and `build_result`, below). Keys are object ids (`remote_status`, `stack_branch`: a hash of them), and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`; the blocks come from the diff
-  engine, so `diff.algorithm` changes no dependency edge) are the same forever. Entries are only evicted, never stale. Each
-  store versions its values in its database name (`commit_diff.v4`, `Store::version`), bumped when their type, the
+  engine, so `diff.algorithm` changes no dependency edge, and git's counts take `--diff-algorithm=myers`) are the same
+  forever. Entries are only evicted, never stale. Each
+  store versions its values in its database name (`commit_diff.v5`, `Store::version`), bumped when their type, the
   options or the engine that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
   others, the costly `merge_result` above all.
 - **Shared by processes.** The cache is four LMDB environments in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
@@ -3475,13 +3477,13 @@ Then the API surface, its usages, the order, the links, the dependency changes a
 reviewed commits: those of
 `base..head`, the commits of the interdiff when there is one (no process of their own), else one `rev-list`; with
 `--since-reviewed` and a carried scope the one diff of `<carried>..<tip>` (`read_pair_diff`: one `diff-tree -r -z --raw
--M` in place of the `log` of step 6), so a rewritten commit counts against its reviewed version and an unchanged commit
+--numstat -M` in place of the `log` of step 6), so a rewritten commit counts against its reviewed version and an unchanged commit
 between two new ones adds nothing; with a plain scope the `added` commits; only when the carry conflicted the `added`
 and the `rewritten` ones, each against its own parent:
 
 | Step | Command | Note |
 |------|---------|------|
-| 6. Changes | `log --no-walk=unsorted --stdin --raw -z -M` (`read_commit_diffs_cached`), and one `cat-file --batch` of the blobs for their blocks | the object cache first: a commit it knows runs nothing |
+| 6. Changes | `log --no-walk=unsorted --stdin --raw --numstat -z -M` (`read_commit_diffs_cached`), and one `cat-file --batch` of the blobs for their blocks | the object cache first: a commit it knows runs nothing; git's counts are the Shape's (`modules::line_counts`), the blocks the engine's |
 | 7. Summaries | `cat-file --batch` of the trees above the files at the head reviewed, then one of the blobs no cache has, the `Cargo.toml` and `tsconfig*.json` files and the blobs of the hunk text and of the build files that the memory of `FileDiffs` lacks (`read_symbol_input_with`) | parsed in parallel, written back to the cache by blob id; the second batch runs only when it has a blob to read |
 | 8. API | none | `changed_declarations` (trial-check) gives per commit and file the forms of the declarations of the names on the changed lines, with their containers, namespace and override mark; `api.rs` compares, per key, the forms before the first commit that touches it in a file with those after the last one: public ones added, removed, or changed in the parts a use sees (`changed_form`, the constructors), no override; each gets its place (`ApiChange::at`): the line of its name in the last commit that touched it, of a removal at the parent of the first, with the parameter lists of its forms before and after (`DeclarationForm::signatures`) |
 | 9. Usages | one `accio references --no-build --format json --limit 100 --ref <head> --at <place>…` of every removal and change, no git: the lines they split by are those of the pair (step 15) | through `Lenient`: a failed query leaves the entries without usages and `index_note` says why; no accio, or no usable index (`available: false` of `--no-build`, its reason the note), is a note too, never an index build; a cancel of the caller cancels the plan. A usage is a hit in code that a type or an import ties to the declaration: no declaration, `import` or `doc` hit (`NOT_USES`), a hit only the name ties (`resolved: name`) counted apart as `by_name`, and of a type whose constructors are its only change only a `call` (a Kotlin `class Sub : Type(…)` too) and a `supertype` hit (a Java `extends Type`). A usage on a line the commits changed at the head, a call by any line up to its `end_line`, is `inside` (`pair.rs`: the hunks of a file one commit changes, the blocks of its first blob against its last for one that several change, every line of an added file); left outside, a call of a change of the parameters or constructors alone that `fits` the new form and whose every argument binds a parameter of the same name and type as before is `still_bound`, any other `outside`, the first 5 of those kept by path and line; the card ranks by `outside` (`fan_in.rs`) |

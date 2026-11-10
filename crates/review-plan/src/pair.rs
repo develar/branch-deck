@@ -25,6 +25,10 @@ use std::ops::Range;
 pub struct LineBlock {
   pub old: Range<u32>,
   pub new: Range<u32>,
+  /// Its lines of the new side and of the old one as the engine counts them (`counted`): a block that reaches the end of
+  /// the text may hold the empty line after its final line end, which no count takes
+  pub added: u32,
+  pub removed: u32,
 }
 
 /// What the pair of a file is
@@ -51,7 +55,24 @@ pub(crate) fn block_of(hunk: &Hunk) -> LineBlock {
   LineBlock {
     old: old..old + hunk.old_lines,
     new: new..new + hunk.new_lines,
+    added: hunk.new_lines,
+    removed: hunk.old_lines,
   }
+}
+
+/// `blocks` (the blocks of one diff, in order) with the lines the engine counts of each, given its counts of the whole
+/// diff (`additions`, `deletions`: `text_diff::model::TextDiff`, which leaves the empty line after a final line end
+/// out). That line is the last of its text, so only the last block of lines on that side can hold it: the lines the
+/// blocks are over by come off it. The one count of the lines of a block (`LineBlock::added`)
+fn counted(mut blocks: Vec<LineBlock>, additions: u32, deletions: u32) -> Vec<LineBlock> {
+  let (added, removed) = blocks.iter().fold((0u32, 0u32), |(added, removed), block| (added + block.added, removed + block.removed));
+  if let Some(last) = blocks.iter_mut().rev().find(|block| block.added > 0) {
+    last.added -= added.saturating_sub(additions).min(last.added);
+  }
+  if let Some(last) = blocks.iter_mut().rev().find(|block| block.removed > 0) {
+    last.removed -= removed.saturating_sub(deletions).min(last.removed);
+  }
+  blocks
 }
 
 /// Whether two texts differ only in their line ends
@@ -92,7 +113,7 @@ pub(crate) fn pair_blocks(
         Some(if line_ends {
           PairBlocks::LineEnds
         } else {
-          PairBlocks::Blocks(change.hunks.iter().map(block_of).collect())
+          PairBlocks::Blocks(counted(change.hunks.iter().map(block_of).collect(), change.additions, change.deletions))
         })
       }
       _ => {
@@ -115,16 +136,20 @@ pub(crate) fn pair_blocks(
     for ((index, _), diff) in compared.iter().zip(file_diffs.blocks_of(git, repository_path, cache, &blob_pairs)?) {
       pairs[*index] = Some(match diff {
         PairDiff::Text(diff) if diff.blocks.is_empty() && diff.line_ends.is_some() => PairBlocks::LineEnds,
-        PairDiff::Text(diff) => PairBlocks::Blocks(
+        PairDiff::Text(diff) => PairBlocks::Blocks(counted(
           diff
             .blocks
             .iter()
             .map(|block| LineBlock {
               old: block.old_start..block.old_end,
               new: block.new_start..block.new_end,
+              added: block.new_end - block.new_start,
+              removed: block.old_end - block.old_start,
             })
             .collect(),
-        ),
+          diff.additions,
+          diff.deletions,
+        )),
         PairDiff::NoText => PairBlocks::NoText,
       });
     }

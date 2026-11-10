@@ -1,11 +1,13 @@
-//! The changes of many commits: per file the status and the paths, from one `git log --raw -z` process (NUL-separated
-//! and never quoted), and the blocks of the diff views (`file_diffs::blocks`), from one `cat-file --batch` for the blobs
-//! that no cache has. The blocks give the hunk ranges the dependency edges are computed from, and the counts.
+//! The changes of many commits: per file the status, the paths and git's counts, from one `git log --raw --numstat -z`
+//! process (NUL-separated and never quoted), and the blocks of the diff views (`file_diffs::blocks`), from one
+//! `cat-file --batch` for the blobs that no cache has. The blocks give the hunk ranges the dependency edges are computed
+//! from, and the counts of the engine; git's counts are the Shape's of a review (`FileChange::git_additions`).
 
 use anyhow::{Result, anyhow};
 use file_diffs::blocks::{BlobPair, PairDiff};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_files::split_numstat;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::{FileChange, Hunk};
 use text_diff::model::DiffBlock;
@@ -23,6 +25,10 @@ pub struct CommitDiff {
 /// Diff options that make the raw part independent of the user's diff config
 const DIFF_OPTIONS: [&str; 4] = ["--no-color", "--no-ext-diff", "--no-textconv", "--no-relative"];
 
+/// Git's counts of each file (`FileChange::git_additions`) with git's default algorithm, whatever `diff.algorithm` says:
+/// `log` reads that config, `diff-tree` does not, and a cached count must not depend on it
+const GIT_COUNTS: [&str; 2] = ["--numstat", "--diff-algorithm=myers"];
+
 /// Whether `read_commit_changes` pairs a deleted and an added file as a rename (`-M`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Renames {
@@ -35,7 +41,7 @@ pub enum Renames {
 /// views or one `cat-file --batch`, through `file_diffs` (an instance `for_scans` keeps the blobs for a next pass)
 #[instrument(skip(git, cache, file_diffs, ids), fields(commits = ids.len()))]
 pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, ids: &[String]) -> Result<Vec<CommitDiff>> {
-  let mut diffs = read_commit_changes(git, repository, ids, Renames::Detect)?;
+  let mut diffs = read_changes(git, repository, ids, Renames::Detect, &GIT_COUNTS)?;
   add_blocks(git, repository, cache, file_diffs, &mut diffs)?;
   Ok(diffs)
 }
@@ -43,29 +49,38 @@ pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, cache: &Obj
 /// The changed files of `ids` (in this order) with their statuses, paths and blob ids, from one `log --raw`: no hunks,
 /// no counts
 pub fn read_commit_changes(git: &GitCommandExecutor, repository: &str, ids: &[String], renames: Renames) -> Result<Vec<CommitDiff>> {
+  read_changes(git, repository, ids, renames, &[])
+}
+
+/// `read_commit_changes` with `counts` among the options: `GIT_COUNTS` for git's counts of each file, which only the
+/// commit diffs keep
+fn read_changes(git: &GitCommandExecutor, repository: &str, ids: &[String], renames: Renames, counts: &[&str]) -> Result<Vec<CommitDiff>> {
   if ids.is_empty() {
     return Ok(Vec::new());
   }
   // full blob ids in the raw part, whatever the hash: `--abbrev=40` would cut a SHA-256 id
   let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev"];
+  args.extend_from_slice(counts);
   args.push(if renames == Renames::Detect { "-M" } else { "--no-renames" });
   args.extend(DIFF_OPTIONS);
   let output = git.cmd(&args, repository).stdin(stdin_ids(ids).as_bytes()).bytes()?;
   parse_commit_diffs(&output)
 }
 
-/// The changes from `base` to `head` (full commit ids) as one diff, as `read_commit_diffs` reads a commit: the files from
-/// one `diff-tree --raw`, their blocks from the caches of the diff views or one `cat-file --batch`; its id is
-/// `<base>..<head>`. Not cached: a pair is no commit
+/// The changes from `base` to `head` (full commit ids) as one diff, as `read_commit_diffs` reads a commit: the files and
+/// git's counts from one `diff-tree --raw --numstat`, their blocks from the caches of the diff views or one
+/// `cat-file --batch`; its id is `<base>..<head>`. Not cached: a pair is no commit
 #[instrument(skip(git, cache, file_diffs))]
 pub fn read_pair_diff(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, base: &str, head: &str) -> Result<CommitDiff> {
   let mut args = vec!["diff-tree", "-r", "-z", "--raw", "--no-abbrev", "-M"];
+  args.extend(GIT_COUNTS);
   args.extend(DIFF_OPTIONS);
   args.extend(["--end-of-options", base, head]);
   let output = git.cmd(&args, repository).bytes()?;
   let id = format!("{base}..{head}");
   let mut fields = Fields { data: &output, pos: 0 };
-  let files = parse_raw_files(&mut fields, &id)?;
+  let mut files = parse_raw_files(&mut fields, &id)?;
+  parse_numstat(&mut fields, &mut files, &id)?;
   let mut diffs = [CommitDiff { id, files }];
   add_blocks(git, repository, cache, file_diffs, &mut diffs)?;
   let [diff] = diffs;
@@ -166,7 +181,7 @@ fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
   starts.into_iter().zip(ends).map(move |(start, end)| &output[start + 1..end])
 }
 
-/// Parse the output of `log --format=%x1e%H -z --raw --no-abbrev`
+/// Parse the output of `log --format=%x1e%H -z --raw --no-abbrev`, with `--numstat` or without
 pub fn parse_commit_diffs(output: &[u8]) -> Result<Vec<CommitDiff>> {
   split_records(output).map(parse_record).collect()
 }
@@ -176,7 +191,8 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
   let id = fields.until_nul().ok_or_else(|| anyhow!("commit record without an id"))?;
   let id = String::from_utf8_lossy(id).trim().to_string();
   fields.skip_while(b'\n');
-  let files = parse_raw_files(&mut fields, &id)?;
+  let mut files = parse_raw_files(&mut fields, &id)?;
+  parse_numstat(&mut fields, &mut files, &id)?;
   Ok(CommitDiff { id, files })
 }
 
@@ -208,6 +224,8 @@ fn parse_raw_files(fields: &mut Fields<'_>, id: &str) -> Result<Vec<FileChange>>
       old_path,
       additions: 0,
       deletions: 0,
+      git_additions: 0,
+      git_deletions: 0,
       binary: false,
       old_blob,
       new_blob,
@@ -215,6 +233,38 @@ fn parse_raw_files(fields: &mut Fields<'_>, id: &str) -> Result<Vec<FileChange>>
     });
   }
   Ok(files)
+}
+
+/// The `--numstat` part after the raw part at `fields`, if any: `<added>\t<deleted>\t<path>` NUL, or
+/// `<added>\t<deleted>\t` NUL `<old>` NUL `<new>` NUL of a rename, `-` counts for a binary file, in the order of the raw
+/// entries (`git_ops::commit_files::split_numstat`); each gives git's counts of the file of its path in `files`. `id`
+/// names the diff in an error
+fn parse_numstat(fields: &mut Fields<'_>, files: &mut [FileChange], id: &str) -> Result<()> {
+  // the next raw entry an entry applies to
+  let mut next = 0;
+  while fields.peek().is_some_and(|byte| byte.is_ascii_digit() || byte == b'-') {
+    let entry = fields.until_nul().ok_or_else(|| anyhow!("truncated numstat entry in {id}"))?;
+    let (additions, deletions, path) = split_numstat(entry).ok_or_else(|| anyhow!("malformed numstat entry in {id}"))?;
+    let path = if path.is_empty() {
+      fields.until_nul().ok_or_else(|| anyhow!("numstat rename without a source in {id}"))?;
+      fields.until_nul().ok_or_else(|| anyhow!("numstat rename without a target in {id}"))?
+    } else {
+      path
+    };
+    let path = String::from_utf8_lossy(path);
+    // the entries come in the order of the raw entries; the path is looked up only if they don't
+    let index = if files.get(next).is_some_and(|file| file.path == path) {
+      Some(next)
+    } else {
+      files.iter().position(|file| file.path == path)
+    };
+    if let Some(index) = index {
+      files[index].git_additions = additions.unwrap_or(0);
+      files[index].git_deletions = deletions.unwrap_or(0);
+      next = index + 1;
+    }
+  }
+  Ok(())
 }
 
 /// Whether a file of `mode` (`--raw`, octal) has content to read as source: a regular file, executable or not; not a

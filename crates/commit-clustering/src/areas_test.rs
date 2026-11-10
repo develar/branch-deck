@@ -11,6 +11,8 @@ fn change(path: &str, additions: u32, deletions: u32) -> FileChange {
     old_path: None,
     additions,
     deletions,
+    git_additions: 0,
+    git_deletions: 0,
     binary: false,
     old_blob: None,
     new_blob: None,

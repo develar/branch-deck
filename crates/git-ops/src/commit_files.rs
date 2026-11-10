@@ -287,8 +287,9 @@ fn next_path<'a>(fields: &mut impl Iterator<Item = &'a [u8]>, what: &str) -> Res
     .ok_or_else(|| anyhow!("{what} without a path"))
 }
 
-/// `<added>\t<deleted>\t<path>` with each count a number or `-` (`None`)
-fn split_numstat(field: &[u8]) -> Option<(Option<u32>, Option<u32>, &[u8])> {
+/// `<added>\t<deleted>\t<path>` with each count a number or `-` (`None`): an entry of `--numstat -z`, whose path is
+/// empty for a rename (its two paths are the next fields)
+pub fn split_numstat(field: &[u8]) -> Option<(Option<u32>, Option<u32>, &[u8])> {
   let mut parts = field.splitn(3, |&b| b == b'\t');
   let (added, deleted, path) = (parts.next()?, parts.next()?, parts.next()?);
   let count = |part: &[u8]| -> Option<Option<u32>> {
