@@ -26,6 +26,17 @@ pub fn try_resolve(left_text: &[u16], base_text: &[u16], right_text: &[u16], dea
   resolve().ok().flatten()
 }
 
+/// The merged text of a conflict by its word blocks under the default policy alone, or `None`: what an automatic merge
+/// takes (`merge_model::merge_texts`, whose resolve by words a sync commits). Branch Deck's own: the second step of
+/// `try_resolve` ignores whitespace, the line ends too, so it can join two lines into one that no side has (`x y z\n`
+/// and `a` into `x y za`), and IntelliJ offers it only behind a button of its merge viewer, whose result the user reads
+pub fn try_resolve_by_default(left_text: &[u16], base_text: &[u16], right_text: &[u16], deadline: &Deadline) -> Option<Vec<u16>> {
+  SimpleHelper::new(left_text, base_text, right_text)
+    .execute(ComparisonPolicy::Default, deadline)
+    .ok()
+    .flatten()
+}
+
 /// The merged text of a conflict, more eager than `try_resolve`, or `None`.
 ///
 /// Here we assume that resolve results are explicitly verified by the user and can be safely undone. Thus we trade

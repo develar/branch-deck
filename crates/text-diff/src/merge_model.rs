@@ -12,7 +12,7 @@ use crate::manager::merge_content_lines;
 use crate::merge_conflict_type::{MergeConflictKind, MergeConflictType, ResolutionStrategy};
 use crate::merge_range::{MergeRange, ThreeSide};
 use crate::merge_range_util::{compare_line_merge_contents, get_merge_type, lines_content};
-use crate::merge_resolve_util::try_resolve;
+use crate::merge_resolve_util::try_resolve_by_default;
 use crate::model::{DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, flat_ranges, has_empty_last_line, line_ranges, to_u32};
 use crate::policy::{ComparisonPolicy, WhitespacePolicy};
 use crate::text::{LineEndKind, SourceText, Utf16Text};
@@ -183,7 +183,7 @@ fn block_of(range: &MergeRange, texts: [&Utf16Text; 3], sources: &[SourceText; 3
         return false;
       };
       let [left, base, right] = ThreeSide::ALL.map(|side| lines_content(texts[side.index()], range.start(side), range.end(side)));
-      resolved = try_resolve(left, base, right, deadline);
+      resolved = try_resolve_by_default(left, base, right, deadline);
       completed = deadline.check_canceled().is_ok();
       resolved.is_some()
     },

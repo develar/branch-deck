@@ -63,6 +63,21 @@ fn a_conflict_of_the_same_words_stays_with_the_user() {
   assert_eq!((result.conflicts, result.unresolved), (1, 1));
 }
 
+/// A conflict that only a resolve ignoring whitespace, the line ends too, would take stays with the user: that resolve
+/// joins lines into one that no side has (`ab` of `b\nb` and `a b\n\n`, `a bx y z` of `a b` and `b\nx y z\n}`), so the
+/// merge resolves by words under the default policy alone (`merge_resolve_util::try_resolve_by_default`); the ported
+/// `try_resolve` still takes it
+#[test]
+fn a_conflict_that_only_ignoring_whitespace_resolves_stays_with_the_user() {
+  for (left, base, right, joined) in [("b\nb", "b", "a b\n\n", "ab\nb"), ("a b", "b\n", "b\nx y z\n}", "a bx y z\n}")] {
+    let result = merge(left, base, right);
+    assert_eq!((result.conflicts, result.unresolved), (1, 1), "{left:?} {base:?} {right:?}");
+    let [left, base, right] = [left, base, right].map(|text| text.encode_utf16().collect::<Vec<u16>>());
+    let resolved = crate::merge_resolve_util::try_resolve(&left, &base, &right, &Deadline::NONE).map(|text| String::from_utf16_lossy(&text));
+    assert_eq!(resolved.as_deref(), Some(joined));
+  }
+}
+
 #[test]
 fn equal_changes_and_insertions_have_their_kinds() {
   assert_eq!(
@@ -199,12 +214,13 @@ fn a_block_is_ignored_where_its_changed_sides_are_equal_ignoring_whitespace() {
   assert!(merge(left, base, right).blocks.iter().all(|block| !block.ignored));
 }
 
-/// The empty last line of a text (after a final line end, or the one line of an empty text) pairs only with the empty
-/// last line of the base, as git merges: two insertions at the end of a file are one conflict, never two insertions on
-/// two sides of that line; the conflicts are those of `git merge-file`
+/// The last line of a text pairs only with the last line of the base of its kind, as git merges: the empty line after a
+/// final line end (or the one line of an empty text) with its like, so two insertions at the end of a file are one
+/// conflict, never two insertions on two sides of that line; a line without an end with an equal line without an end,
+/// so a change of the final line end is a change of that line; the conflicts are those of `git merge-file`
 /// (`word_resolve_test::the_end_of_a_file_merges_as_git_merge_file_merges_it` of git-ops)
 #[test]
-fn the_empty_last_line_pairs_only_with_the_empty_last_line_of_the_base() {
+fn the_last_line_pairs_only_with_the_last_line_of_the_base_of_its_kind() {
   let conflict = |lines: [u32; 6]| vec![(lines, MergeBlockKind::Conflict, None)];
   // a blank line on one side and a line on the other, with any line end, and from an empty base
   assert_eq!(shape(&merge("x\n\n", "x\n", "x\ny\n")), conflict([1, 2, 1, 1, 1, 2]));
@@ -213,9 +229,21 @@ fn the_empty_last_line_pairs_only_with_the_empty_last_line_of_the_base() {
   assert_eq!(shape(&merge("\n", "", "x\n")), conflict([0, 1, 0, 0, 0, 1]));
   // a blank line removed on one side, a line added after it on the other
   assert_eq!(shape(&merge("x\n", "x\n\n", "x\n\nz\n")), conflict([1, 1, 1, 2, 1, 3]));
-  // a side without the final line end: its change is the end of the base's last line
-  assert_eq!(shape(&merge("x", "x\n", "x\ny\n")), conflict([1, 1, 1, 2, 1, 3]));
-  assert_eq!(shape(&merge("a\nb\n\n", "a\nb\n", "a\nb")), conflict([2, 4, 2, 3, 2, 2]));
+  // a side without the final line end: its last line pairs with no line that has an end, so a change of the final line
+  // end is a change of that line, as in git
+  assert_eq!(shape(&merge("x", "x\n", "x\ny\n")), conflict([0, 1, 0, 2, 0, 3]));
+  assert_eq!(shape(&merge("a\nb\n\n", "a\nb\n", "a\nb")), conflict([1, 4, 1, 3, 1, 2]));
+  let words = |lines: [u32; 6]| vec![(lines, MergeBlockKind::Conflict, Some(MergeResolution::Text))];
+  assert_eq!(shape(&merge("a", "}\na", "a\n")), words([0, 1, 0, 2, 0, 2]));
+  assert_eq!(shape(&merge("a\nb", "a\nb\n", "A\nb\n")), words([0, 2, 0, 3, 0, 3]));
+  // apart from a change of the other side, a change of the final line end merges
+  assert_eq!(
+    shape(&merge("a\nb\nc", "a\nb\nc\n", "A\nb\nc\n")),
+    vec![
+      ([0, 1, 0, 1, 0, 1], MergeBlockKind::Modified, Some(MergeResolution::Default)),
+      ([2, 3, 2, 4, 2, 4], MergeBlockKind::Modified, Some(MergeResolution::Default)),
+    ]
+  );
   // an insertion at the end beside a change elsewhere: before the empty last line, no conflict
   let result = merge("A\nb\nc\n", "a\nb\nc\n", "a\nb\nc\n\nd\n");
   assert_eq!(
@@ -344,10 +372,10 @@ fn check(texts: [&str; 3], policy: WhitespacePolicy, result: &TextMerge) {
   }
   let tail = counts[1] - position[1];
   assert_eq!([counts[0] - position[0], counts[2] - position[2]], [tail, tail], "{:?}", result.blocks);
-  // the lines outside the blocks pair in order: the empty last line of a text pairs only with the empty last line of
-  // the base
+  // the lines outside the blocks pair in order: the last line of a text pairs only with the last line of the base of its
+  // kind, the empty line after a final line end or a line without an end
   let empty = [result.empty_last_line.left, result.empty_last_line.base, result.empty_last_line.right];
-  let is_empty_last = |side: usize, line: usize| empty[side] && line + 1 == counts[side];
+  let last_kind = |side: usize, line: usize| (line + 1 == counts[side]).then_some(empty[side]);
   let bounds = result.blocks.iter().map(|block| {
     let start = [block.left_start, block.base_start, block.right_start].map(|line| line as usize);
     (start, [block.left_end, block.base_end, block.right_end].map(|line| line as usize))
@@ -355,7 +383,7 @@ fn check(texts: [&str; 3], policy: WhitespacePolicy, result: &TextMerge) {
   let mut start = [0usize; 3];
   for (block_start, block_end) in bounds.chain([(counts, counts)]) {
     for offset in 0..block_start[1] - start[1] {
-      let last = [0, 1, 2].map(|side| is_empty_last(side, start[side] + offset));
+      let last = [0, 1, 2].map(|side| last_kind(side, start[side] + offset));
       assert_eq!(last, [last[1]; 3], "{:?}: line {} of the base", result.blocks, start[1] + offset);
     }
     start = block_end;

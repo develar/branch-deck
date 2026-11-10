@@ -89,7 +89,7 @@ async fn a_conflict_that_its_words_resolve_is_copied_with_the_author_and_the_mes
   );
   // the fact is in the mapping note of the original, not in the commit
   let note = repo.git(&["notes", "show", &original]);
-  assert!(note.contains("v-commit-resolved-v1:3 1 1"), "{note}");
+  assert!(note.contains("v-commit-resolved-v1:4 1 1"), "{note}");
 }
 
 #[tokio::test]
@@ -272,18 +272,21 @@ fn noted(repo: &TestRepo, original: &str) -> (u32, String) {
   (version, git_ops::notes::mapped_commit_id(&note).expect("a mapping line").to_string())
 }
 
-/// A copy that an older resolve wrote with the bytes this resolve gives keeps its commit, and its note takes this resolve:
-/// the next sync checks it no more (`process_budget_test::a_copy_of_an_older_resolve_is_checked_once` of sync-core)
+/// A copy that an older resolve wrote with the bytes this resolve gives keeps its commit, and its note takes this resolve,
+/// whichever older resolve it was: the next sync checks it no more
+/// (`process_budget_test::a_copy_of_an_older_resolve_is_checked_once` of sync-core)
 #[tokio::test]
 async fn a_copy_of_an_older_resolve_with_the_same_bytes_keeps_its_commit_and_takes_this_resolve() {
   let repo = repo_with_a_word_conflict();
   sync_events(&repo).await;
   let (original, tip) = (repo.head(), repo.rev_parse(BETA).unwrap());
-  older_copy(&repo, &original, &tip, 1);
-  let events = sync_events(&repo).await;
-  assert_eq!(repo.rev_parse(BETA).unwrap(), tip);
-  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Unchanged, Some(resolved_call(&repo)))]);
-  assert_eq!(noted(&repo, &original), (RESOLVE_VERSION, tip));
+  for version in 1..RESOLVE_VERSION {
+    older_copy(&repo, &original, &tip, version);
+    let events = sync_events(&repo).await;
+    assert_eq!(repo.rev_parse(BETA).unwrap(), tip, "the copy of version {version}");
+    assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Unchanged, Some(resolved_call(&repo)))], "version {version}");
+    assert_eq!(noted(&repo, &original), (RESOLVE_VERSION, tip.clone()), "version {version}");
+  }
 }
 
 /// A copy that an older resolve wrote with other bytes is copied again, as a copy whose commit changed; the same copy

@@ -76,7 +76,7 @@ flowchart TD
 | `manager.rs` | `diff-impl/.../comparison/ComparisonManagerImpl.java`, the two-way half |
 | `provider.rs` | `diff-impl/.../tools/util/text/TwosideTextDiffProviderBase.java`, `SimpleTextDiffProvider.java` |
 | `text.rs` | Branch Deck's own: `Utf16Text`, the UTF-16 code units of a text and its lines |
-| `last_line.rs` | Branch Deck's own: the empty last line of a text, paired only with its like (Key Decision 8) |
+| `last_line.rs` | Branch Deck's own: the last line of a text, paired only with its like (Key Decision 8) |
 | `merge_range.rs` | `util/MergeRange.kt`, `util/ThreeSide.kt`, `fragments/MergeLineFragment*.kt`, `MergeWordFragment*.kt` |
 | `comparison_merge_util.rs` | `diff/comparison/ComparisonMergeUtil.kt` |
 | `merge_conflict_type.rs` | `diff/util/MergeConflictType.kt`, `MergeConflictResolutionStrategy.kt` |
@@ -150,8 +150,8 @@ from it.
 - **Merge.** `manager::merge_lines` is the same, but under `Trim` and `Ignore` a run of lines that differs only in what
   the policy ignores stays a block of its own (`build_merge`), outside the conflicts, as the merge view of IntelliJ
   shows it. `merge_lines_within_range` merges a part of the texts, `merge_lines_additions` the lines two texts share.
-  `merge_content_lines` merges three whole texts with the empty last line of each paired only with that of the base
-  (`by_line::merge_whole_texts`, Key Decision 8): what `merge_texts` takes.
+  `merge_content_lines` merges three whole texts with the last line of each paired only with the last line of the base
+  of its kind (`by_line::merge_whole_texts`, Key Decision 8): what `merge_texts` takes.
 - **Words.** `by_word::compare_three` gives the word blocks inside a block of lines, in offsets of the three texts,
   with the whitespace correctors of the merge.
 - **Types.** `merge_range_util::get_line_merge_type` gives the `MergeConflictType` of a block: inserted, deleted,
@@ -161,7 +161,8 @@ from it.
 - **Resolve.** `comparison_merge_util::try_resolve_conflict` merges a conflict when the changes of the two sides do not
   overlap at the word level (`merge_resolve_util::try_resolve`, the default policy first, then ignoring whitespace).
   The greedy resolve (`try_greedy_resolve`) applies deletions and insertions of both sides; the source keeps it off
-  (`USE_GREEDY_MERGE_MAGIC_RESOLVE`), and so does the port.
+  (`USE_GREEDY_MERGE_MAGIC_RESOLVE`), and so does the port. `merge_texts` takes the default policy alone
+  (`try_resolve_by_default`, Key Decision 9).
 - **Model.** `merge_texts(left, base, right, policy, &budget)` gives a `TextMerge`: left is ours (the target as built),
   base is stage 1, right is theirs (the commit being picked), as in IntelliJ. Each `MergeBlock` has the lines of each
   side, its kind, `leftChanged` and `rightChanged`, `ignored` (below; only under `Ignore`), its resolution (`default`: the
@@ -170,7 +171,7 @@ from it.
   git that its words resolve. `lineEnds` and `finalNewline` name the sides when they differ. `budget.inner` bounds the
   words and the resolves of a file (after it, `lineLevelOnly` and no resolve by words), `budget.lines` the line merge
   (after it, one block). A property test checks that the blocks partition the three texts, and that the
-  empty last line of a text outside the blocks pairs only with the empty last line of the base.
+  last line of a text outside the blocks pairs only with the last line of the base of its kind.
 - **Ignored blocks of a merge.** IntelliJ's merge viewer drops no block under any policy. It offers `Default`, `Trim`
   and `Ignore`, and `IgnoreBlankLines` merges here as `Ignore`, with nothing cut off. Every block is a change that a
   side applies and the navigation stops at. The merge keeps a block equal under the policy, so that a side can still
@@ -241,19 +242,37 @@ not squashed) and `ByChar`.
 7. **Decision**: Well-maintained crates replace the infrastructure of the source. The algorithm code stays a port.
    **Rationale**: Less code to keep, and each crate is tested by many more users. See "Dependencies".
 
-8. **Decision**: The comparison of a view (`provider::compare_for_view`) and the merge (`merge_texts`) leave the empty
-   last line of each text out of the comparison of lines: the line after a final line end, and the one line of an
-   empty text (`last_line.rs`). Two empty last lines pair with each other; when only one text of a pair has one, it is
-   the change of the final line end, a change of its own or the end of the change that reaches the ends of both texts.
-   The merge does so in each comparison of a side with the base, and joins the two as the source does.
-   **Rationale**: IntelliJ compares every line of a document, and that line is one of them, so it can pair with a blank
-   line of the other text, and git has no such line. In a diff, `"x\n"` to `"x\n\n"` then adds the new empty last
-   line, which does not count, instead of the blank line: an added file with a blank line counted a line fewer than
-   git. In a merge, an insertion at the end of a side then stands after the empty last line of the base instead of
+8. **Decision**: The comparison of a view (`provider::compare_for_view`) leaves the empty last line of each text out of
+   the comparison of lines: the line after a final line end, and the one line of an empty text (`last_line.rs`). Two
+   empty last lines pair with each other; when only one text has one, it is the change of the final line end, a change
+   of its own or the end of the change that reaches the ends of both texts. The merge (`merge_texts`) leaves the last
+   line of each text out of each comparison of a side with the base, whatever its kind, and pairs it only with the last
+   line of the base of its kind: an empty last line with an empty last line, a line without an end with an equal line
+   without an end (`with_last_lines`); then it joins the two comparisons as the source does.
+   **Rationale**: IntelliJ compares every line of a document and takes line ends as equal, so the empty last line can
+   pair with a blank line of the other text, and a line without an end with the same line with one; git has no empty
+   last line, and a line without an end is another line for it. In a diff, `"x\n"` to `"x\n\n"` then adds the new empty
+   last line, which does not count, instead of the blank line: an added file with a blank line counted a line fewer
+   than git. In a merge, an insertion at the end of a side then stands after the empty last line of the base instead of
    before it: a blank line that one side adds at the end and a line that the other adds there merged without a
-   conflict, where `git merge-file` stops, and the resolve by words committed it. Now the conflicts at the end of a file
-   are git's, and a clean merge there is git's result (`word_resolve_test` of git-ops runs `git merge-file` on the
-   cases). The ported functions of `manager.rs` keep the lines of the source, and so do their tests.
+   conflict, where `git merge-file` stops, and the resolve by words committed it; a final line end that one side removes
+   beside a change of the last line by the other merged too. On 30,000 random merges, 729 merged without a conflict
+   where git conflicts, 62 after the empty last line paired only with its like, all with a line without an end; none
+   with both rules. The conflicts at the end of a file are git's now, and a clean merge there is git's result
+   (`word_resolve_test` of git-ops runs `git merge-file` on the cases). The view keeps a change of the final line end
+   alone a change of the empty last line, with its notice. The ported functions of `manager.rs` keep the lines of the
+   source, and so do their tests.
+
+9. **Decision**: The resolve by words of `merge_texts`, which the conflict view proposes and a sync commits
+   (`word_resolve` of git-ops), takes the default policy alone (`merge_resolve_util::try_resolve_by_default`); the
+   ported `try_resolve` keeps its second step, which ignores whitespace, and so do its tests.
+   **Rationale**: that step takes line ends as whitespace too, so it joins two lines into one that no side has: of
+   35,610 resolves of 1M random merges, 24,402 took it and 3,346 wrote such a line (`b\nb` and `a b\n\n` of `b` into
+   `ab\nb`), none of the default policy. On real history, 4,000 commits of a large monorepo each copied without the
+   latest earlier commit of its files, 2,365 files conflicted in git: the default policy resolves 383, and the second
+   step 16 more, 4 of them by code lines joined into one (`releaseOnFailure = true;try {`), others by prose wrapped
+   anew or a line of whitespace for two lines. IntelliJ offers that step only behind a button of its merge viewer, whose
+   result the user reads; a sync commits it unread.
 
 ### Dependencies
 

@@ -235,15 +235,17 @@ fn the_mode_that_one_side_changes_is_kept() {
   assert_eq!(resolution.tree, tree_from_git(&repo, &merge.tree, &[("100755", "run.sh", b"echo A b C\n")]));
 }
 
-/// A conflict whose words leave nothing of the file resolves to the empty file: ours drops the final line end, theirs
-/// the last line (`apply_test::a_resolve_that_leaves_nothing_is_the_empty_text` of text-diff)
+/// A conflict that only a resolve ignoring whitespace, the line ends too, would take stays the conflict of git: such a
+/// resolve joins lines into one that no side has (`b\nb` and `a b\n\n` of `b` into `ab\nb`, `a b` and `b\nx y z\n}` of
+/// `b\n` into `a bx y z\n}`), or merges a final line end removed beside a removed last line; the resolve by words takes
+/// the default policy alone (`text_diff::merge_resolve_util::try_resolve_by_default`)
 #[test]
-fn a_conflict_its_words_resolve_to_nothing_gives_the_empty_file() {
-  let repo = TestRepo::new();
-  let (tree, outcome) = resolve(&repo, &[("end.txt", "}\n"), ("kept.txt", "kept\n")], &[("end.txt", "}")], &[("end.txt", "")]);
-  let resolution = resolved(outcome);
-  assert_eq!((resolution.files[0].path.as_str(), resolution.files[0].content.as_slice()), ("end.txt", &b""[..]));
-  assert_eq!(resolution.tree, tree_from_git(&repo, &tree, &[("100644", "end.txt", b"")]));
+fn a_conflict_that_only_ignoring_whitespace_resolves_stays_the_conflict_of_git() {
+  for (base, ours, theirs) in [("b", "b\nb", "a b\n\n"), ("b\n", "a b", "b\nx y z\n}"), ("}\n", "}", "")] {
+    let repo = TestRepo::new();
+    let (_, outcome) = resolve(&repo, &[("f.txt", base), ("kept.txt", "kept\n")], &[("f.txt", ours)], &[("f.txt", theirs)]);
+    assert_eq!(reason(&outcome), Some(NotResolved::Unresolved), "{base:?}, ours {ours:?}, theirs {theirs:?}");
+  }
 }
 
 /// Two insertions at the end of a file, which git conflicts on, stay the conflict of git: the merge pairs the empty line
@@ -284,6 +286,12 @@ fn the_end_of_a_file_merges_as_git_merge_file_merges_it() {
     ("A\nb\n", "a\nb\n", "a\nb\n\n"),
     ("x\n\n", "x\n", "x\n\n"),
     ("A\r\nb\r\n", "a\r\nb\r\n", "a\r\nb\r\n\r\n"),
+    // a line without an end pairs only with an equal line without an end
+    ("a", "}\na", "a\n"),
+    ("b\n}", "\nb", "b"),
+    ("x y z\nx y z\n}", "}", "}\na\na c\nx y z\na c\nb"),
+    ("a\nb\nc", "a\nb\nc\n", "A\nb\nc\n"),
+    ("x", "x", "x\ny"),
   ];
   let directory = tempfile::tempdir().unwrap();
   for (ours, base, theirs) in cases {
@@ -311,25 +319,22 @@ fn git_merge_file(directory: &std::path::Path, ours: &str, base: &str, theirs: &
 }
 
 /// A side merged again with the result of a resolve by words can conflict, and git conflicts on it too: the words
-/// resolve a final line end removed on one side and the last line replaced on the other, a conflict of git, and the
-/// replacement merged again with that result is one conflict of the last line for git as for the engine. Why
+/// resolve a line added at the top on one side and the blank line and the last line removed on the other, a conflict
+/// of git, and the second side merged again with that result is one conflict for git as for the engine. Why
 /// `apply_test::an_exact_result_has_the_lines_of_a_merge` of text-diff does not ask a merge again to resolve
 #[test]
 fn a_side_merged_again_with_the_result_conflicts_in_git_too() {
   let directory = tempfile::tempdir().unwrap();
-  let (ours, base, theirs) = ("}", "}\n", "a\nb\n");
+  let (ours, base, theirs) = ("\n", "\n\na", "a\n\na");
   assert_eq!(git_merge_file(directory.path(), ours, base, theirs).status.code(), Some(1));
   let merge = merge_texts(ours, base, theirs, WhitespacePolicy::Default, &DiffBudget::NONE);
   let composed = compose_merge(ours.as_bytes(), base.as_bytes(), theirs.as_bytes(), &merge);
-  assert_eq!(
-    (merge.unresolved, String::from_utf8(composed.bytes).unwrap(), composed.exact),
-    (0, "a\nb".to_string(), true)
-  );
+  assert_eq!((merge.unresolved, String::from_utf8(composed.bytes).unwrap(), composed.exact), (0, "a\n".to_string(), true));
 
-  let again = git_merge_file(directory.path(), theirs, base, "a\nb");
+  let again = git_merge_file(directory.path(), ours, base, "a\n");
   assert_eq!(
     (again.status.code(), String::from_utf8(again.stdout).unwrap()),
-    (Some(1), "a\n<<<<<<< ours\nb\n=======\nb\n>>>>>>> theirs\n".to_string())
+    (Some(1), "<<<<<<< ours\n\n=======\na\n>>>>>>> theirs\n".to_string())
   );
-  assert_eq!(merge_texts(theirs, base, "a\nb", WhitespacePolicy::Default, &DiffBudget::NONE).unresolved, 1);
+  assert_eq!(merge_texts(ours, base, "a\n", WhitespacePolicy::Default, &DiffBudget::NONE).unresolved, 1);
 }

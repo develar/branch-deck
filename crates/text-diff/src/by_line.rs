@@ -11,7 +11,7 @@ use crate::comparison_merge_util::{build_merge, build_simple};
 use crate::comparison_util::{hash_code, is_equals, unimportant_line_char_count};
 use crate::iterables::diff_iterable::DiffIterable;
 use crate::iterables::diff_iterable_util::{ExpandChangeBuilder, create, diff, fair};
-use crate::last_line::with_empty_last_lines;
+use crate::last_line::with_last_lines;
 use crate::merge_range::MergeRange;
 use crate::policy::ComparisonPolicy;
 use crate::trim_util::{expand, is_space_enter_or_tab};
@@ -36,26 +36,29 @@ pub fn merge(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], policy: Co
   do_compare_three(&get_lines(lines1, policy), &get_lines(lines2, policy), &get_lines(lines3, policy), policy, deadline, true)
 }
 
-/// As `merge`, of the lines of three whole texts, the empty last line of each left out of its comparison with the base
-/// and paired only with the empty last line of the base (`last_line::with_empty_last_lines`). Branch Deck's own: the
-/// source pairs it with a blank line of the other text too, so two insertions at the end of a file can stand on two
-/// sides of the empty last line of the base and merge without the conflict that git sees
+/// As `merge`, of the lines of three whole texts, the last line of each left out of its comparison with the base and
+/// paired only with the last line of the base of its kind (`last_line::with_last_lines`): the empty lines after the
+/// final line ends with each other, a line without an end with an equal line without an end. Branch Deck's own: the
+/// source pairs the empty last line with a blank line of the other text too, and a line without an end with the same
+/// line with one, so two insertions at the end of a file can stand on two sides of the empty last line of the base, and
+/// a change of the final line end beside a change of the other side merges without the conflict that git sees
 pub fn merge_whole_texts(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
   deadline.check_canceled()?;
   let [lines1, lines2, lines3] = [lines1, lines2, lines3].map(|lines| get_lines(lines, policy));
   let compare = |base: &[Line<'_>], side: &[Line<'_>]| -> Result<DiffIterable, DiffTooBig> {
-    let changes = compare_with_base(&base[..content_count(base)], &side[..content_count(side)], deadline)?;
-    Ok(with_empty_last_lines(&changes, base.len(), side.len()))
+    let (base_last, side_last) = (base.len() - 1, side.len() - 1);
+    let changes = compare_with_base(&base[..base_last], &side[..side_last], deadline)?;
+    Ok(with_last_lines(&changes, base.len(), side.len(), same_last_line(base[base_last], side[side_last])))
   };
   let iterable1 = compare(&lines2, &lines1)?;
   let iterable2 = compare(&lines2, &lines3)?;
   Ok(build_merge_ranges(&lines1, &lines2, &lines3, policy, true, &iterable1, &iterable2))
 }
 
-/// The number of the lines of a whole text without its empty last line: its last line is empty only when the text ends
-/// with a line end or is empty
-fn content_count(lines: &[Line<'_>]) -> usize {
-  lines.len() - usize::from(lines.last().is_some_and(|line| line.content.is_empty()))
+/// Whether the last lines of two whole texts pair: both the empty line after a final line end, or both a line without
+/// an end, equal under the policy. A last line is empty only when its text ends with a line end or is empty
+fn same_last_line(line1: Line<'_>, line2: Line<'_>) -> bool {
+  line1.content.is_empty() == line2.content.is_empty() && line1 == line2
 }
 
 /// The merge ranges of a part of the texts, shifted to the lines of the whole texts

@@ -2822,9 +2822,11 @@ cherry-pick stays the conflict of git.
   the commit) under `Default`, without a deadline, so that every machine resolves alike; the size limits of the
   engine (`MAX_INNER_LINES`, `MAX_INNER_BYTES`) still hold, and a file over them stays a conflict. Every block must
   resolve: a side that changed alone, the same change of both, or a conflict of both that the words resolve
-  (`MergeResolveUtil.tryResolve`, the simple resolve; the greedy one stays off). The empty line after the final line
-  end of a side pairs only with that of the base ([Text Diff Engine](text-diff.md), Key Decision 8), so two insertions
-  at the end of a file stay the conflict that git sees.
+  (`MergeResolveUtil.tryResolve` under the default policy alone, the simple resolve; its step that ignores whitespace,
+  line ends too, would join lines into one that no side has, and the greedy one stays off: [Text Diff
+  Engine](text-diff.md), Key Decision 9). The last line of a side pairs only with the last line of the base of its kind
+  (Key Decision 8), so two insertions at the end of a file, and a final line end changed beside a change of the last
+  line, stay the conflict that git sees.
 - **The result.** `compose_merge` of the three blobs, which must keep every line end (`exact`, see [Text Diff
   Engine](text-diff.md), "Merge"). It replaces the file with the markers in the tree of the merge, with the merged
   mode; the rest of the tree is git's, renames and clean files as git placed them.

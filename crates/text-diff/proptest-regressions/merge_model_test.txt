@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc fe2af742150e7f6bcbec33b74fca8560a0b2b55ef16b617c333d30101bed832c # shrinks to left = "\na", base = "", right = ""
+cc 0fdbe37cc2d77acbb81e44c3bc9b99e97e618dbde54e549cc94fbc7415e1a0da # shrinks to left = "fn f() {", base = "fn f() {\na", right = "fn f() {"
