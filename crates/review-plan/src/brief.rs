@@ -179,17 +179,17 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
         UnitKind::NewFile => {
           let mut added = entry(Vec::new());
           if kind == ContractKind::Spec {
-            added.new_spec = Some(new_spec(&new));
+            added.new_spec = Some(new_spec(&slice.path, &new));
           } else {
             // its first paragraph of prose says what it is
-            let (texts, proven_by) = paragraphs(&new[new_front.min(new.len())..]);
+            let texts = paragraphs(&new[new_front.min(new.len())..]);
             let first: Vec<_> = texts
               .into_iter()
               .find(|text| text.form == ProseForm::Prose && reads_as_prose(&text.text))
               .into_iter()
               .collect();
             added.paragraphs = prose_changes(&[], &first, &slice.path);
-            added.proven_by = proven_by;
+            added.proven_by = proven_by(&slice.path, &new[new_front.min(new.len())..]);
           }
           contract.push(added);
         }
@@ -211,8 +211,8 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
           let blocks: Vec<UnitBlock> = slice.blocks.iter().filter_map(|block| below_front_matter(block, old_front, new_front)).collect();
           for (old_range, new_range, indexes) in paragraph_spans(&old, &new, &blocks) {
             let mut changed = entry(indexes.clone());
-            let (before, _) = paragraphs(&old[old_range.clone()]);
-            let (after, _) = paragraphs(&new[new_range.clone()]);
+            let before = paragraphs(&old[old_range.clone()]);
+            let after = paragraphs(&new[new_range.clone()]);
             changed.heading = if !markdown {
               None
             } else if !new_range.is_empty() {
@@ -228,7 +228,7 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
             changed.proven_by = blocks
               .iter()
               .filter(|it| indexes.contains(&it.index))
-              .flat_map(|it| paragraphs(&lines_in(&new, it.new_start..it.new_end)).1)
+              .flat_map(|it| proven_by(&slice.path, &lines_in(&new, it.new_start..it.new_end)))
               .collect();
             if !changed.paragraphs.is_empty() || !changed.proven_by.is_empty() || (values && changed.heading.is_some()) {
               contract.push(changed);
@@ -354,47 +354,41 @@ fn reads_as_prose(paragraph: &str) -> bool {
   words >= 3
 }
 
-/// The description and the count of the rules of a new spec: the `description:` of its front matter, else the first
-/// paragraph of its "Purpose" section; the `### Requirement:` headings of OpenSpec below `## Requirements` (of a delta:
-/// `## ADDED Requirements` and `## MODIFIED Requirements`), else the items of its "Requirements" section (a line `- ` at
-/// its start, below `## Requirements` up to the next `## `)
-pub(crate) fn new_spec(lines: &[&str]) -> NewSpec {
-  let front: Vec<&str> = if lines.first() == Some(&"---") {
-    lines.iter().skip(1).take_while(|line| **line != "---").copied().collect()
-  } else {
-    Vec::new()
-  };
-  let purpose = || {
-    let start = lines
-      .iter()
-      .position(|line| line.strip_prefix("## ").is_some_and(|heading| heading.trim().eq_ignore_ascii_case("purpose")))?;
-    let paragraph: Vec<&str> = lines[start + 1..]
-      .iter()
-      .skip_while(|line| line.trim().is_empty())
-      .take_while(|line| !line.trim().is_empty() && !line.starts_with('#'))
-      .map(|line| line.trim())
-      .collect();
-    (!paragraph.is_empty()).then(|| paragraph.join(" "))
-  };
-  let description = front
+/// The spec at `path` with its lines `lines`, read as its format defines it (`spec_syntax`): an OpenSpec main spec, a delta
+/// of an open change or an IntelliJ `*.spec.md` by its path, any other spec the review reads (a file below `spec/` or
+/// `specs/`) as an IntelliJ one, its rules the items of its "Requirements"
+fn spec_doc(path: &str, lines: &[&str]) -> (spec_syntax::SpecFile, spec_syntax::SpecDoc) {
+  let kind = spec_syntax::kind_of(path).unwrap_or(spec_syntax::SpecFile::IntelliJ);
+  let doc = spec_syntax::parse(&kind, lines.join("\n").as_bytes());
+  (kind, doc)
+}
+
+/// The description and the count of the rules of a new spec at `path`, as its format reads them (`spec_doc`): its
+/// front matter's `description:`, else the first paragraph of its "Purpose" (or "Summary"); its OpenSpec requirements
+/// (of a delta, the added and the modified ones), else the items of its "Requirements"
+pub(crate) fn new_spec(path: &str, lines: &[&str]) -> NewSpec {
+  let (_, doc) = spec_doc(path, lines);
+  let requirements = doc
+    .requirements
     .iter()
-    .find_map(|line| line.strip_prefix("description:"))
-    .map(|text| text.trim().trim_matches('"').to_string())
-    .or_else(purpose);
-  let mut inside = false;
-  let (mut requirements, mut items) = (0, 0);
-  for line in lines {
-    if let Some(heading) = line.strip_prefix("## ") {
-      let heading = heading.trim().to_ascii_lowercase();
-      inside = matches!(heading.as_str(), "requirements" | "added requirements" | "modified requirements");
-    } else if inside && line.starts_with("### Requirement:") {
-      requirements += 1;
-    } else if inside && line.starts_with("- ") {
-      items += 1;
-    }
-  }
+    .filter(|requirement| matches!(requirement.op, spec_syntax::Op::Main | spec_syntax::Op::Added | spec_syntax::Op::Modified))
+    .count();
+  let rules = if requirements > 0 { requirements } else { doc.rules.len() };
   NewSpec {
-    description,
-    rules: if requirements > 0 { requirements } else { items },
+    description: doc.description,
+    rules: u32::try_from(rules).unwrap_or(u32::MAX),
   }
+}
+
+/// The test files the `[@test]` lines of `lines` of the file at `path` name, from the root: a path by the rule of the
+/// file's format (`spec_syntax::resolve`: of an IntelliJ spec from its directory, of any other file from the root unless
+/// it starts `./` or `../`), as written where it resolves to none (a URL)
+pub(crate) fn proven_by(path: &str, lines: &[&str]) -> Vec<String> {
+  let (kind, doc) = spec_doc(path, lines);
+  let format = spec_syntax::kind_of(path).map_or(spec_syntax::Format::OpenSpec, |_| kind.format());
+  doc
+    .links
+    .iter()
+    .map(|link| spec_syntax::resolve(path, format, &link.path).unwrap_or_else(|| link.path.clone()))
+    .collect()
 }

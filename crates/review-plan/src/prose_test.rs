@@ -59,7 +59,7 @@ fn changes_of(old: &str, new: &str, blocks: &[UnitBlock]) -> Vec<ProseParagraph>
   let new: Vec<&str> = new.split('\n').collect();
   paragraph_spans(&old, &new, blocks)
     .into_iter()
-    .flat_map(|(old_range, new_range, _)| prose_changes(&paragraphs(&old[old_range]).0, &paragraphs(&new[new_range]).0, "spec/a.spec.md"))
+    .flat_map(|(old_range, new_range, _)| prose_changes(&paragraphs(&old[old_range]), &paragraphs(&new[new_range]), "spec/a.spec.md"))
     .collect()
 }
 
@@ -152,20 +152,17 @@ fn a_paragraph_added_before_a_changed_one_leaves_it_its_pair() {
   assert_eq!(changes[0].code.len(), 1, "its code is set as code");
 }
 
-/// The `[@test]` lines of an item are not its prose: the paths they name prove it
+/// The `[@test]` lines of an item are not its prose (the tests they name: `brief::proven_by`)
 #[test]
-fn the_test_lines_of_an_item_name_its_tests() {
-  let (texts, tests) = paragraphs(&[
+fn the_test_lines_of_an_item_are_no_prose() {
+  let texts = paragraphs(&[
     "- The window keeps its layout across a restart, and the project view does",
     "  not take its place.",
     "  [@test] ../tests/restart.json",
   ]);
   assert_eq!(
-    (texts, tests),
-    (
-      vec![prose_text("The window keeps its layout across a restart, and the project view does not take its place.")],
-      vec!["tests/restart.json".to_string()]
-    )
+    texts,
+    vec![prose_text("The window keeps its layout across a restart, and the project view does not take its place.")]
   );
 }
 
@@ -176,10 +173,13 @@ fn a_fenced_block_is_one_paragraph_with_its_lines_preserved() {
   let after_markdown = "```sh\nbrd workspace -C <repo>\necho [@test] not-a-test\n```";
   let before_lines: Vec<&str> = before_markdown.lines().collect();
   let after_lines: Vec<&str> = after_markdown.lines().collect();
-  let (before, before_proven_by) = paragraphs(&before_lines);
-  let (after, after_proven_by) = paragraphs(&after_lines);
-  assert_eq!(before_proven_by, Vec::<String>::new());
-  assert_eq!(after_proven_by, Vec::<String>::new());
+  let before = paragraphs(&before_lines);
+  let after = paragraphs(&after_lines);
+  assert_eq!(
+    crate::brief::proven_by("docs/guide.md", &after_lines),
+    Vec::<String>::new(),
+    "a fenced `[@test]` names no test"
+  );
   assert_eq!(before[0].text, format!("{old_cli} workspace -C <repo>\necho [@test] not-a-test"));
   assert_eq!(before[0].form, ProseForm::Code { language: Some("sh".to_string()) });
 
@@ -298,7 +298,7 @@ fn the_front_matter_is_the_lines_up_to_its_closing_rule() {
 /// A thematic break ends a paragraph and is no prose of its own
 #[test]
 fn a_thematic_break_ends_a_paragraph() {
-  let (texts, _) = paragraphs(&["The window opens.", "---", "The window closes.", "***", "_ _ _", "The store keeps 500."]);
+  let texts = paragraphs(&["The window opens.", "---", "The window closes.", "***", "_ _ _", "The store keeps 500."]);
   assert_eq!(
     texts,
     [prose_text("The window opens."), prose_text("The window closes."), prose_text("The store keeps 500.")]
@@ -309,7 +309,7 @@ fn a_thematic_break_ends_a_paragraph() {
 /// changes no paragraph; a label, or a key followed by words, is prose
 #[test]
 fn a_line_of_metadata_is_no_prose() {
-  let (texts, _) = paragraphs(&[
+  let texts = paragraphs(&[
     "The window opens.",
     "refs: flow:layout, spec:window, flag:restore",
     "targets: ../../src/Window.kt, ../../src/Layout.kt",
@@ -336,7 +336,7 @@ fn a_table_with_one_added_row_is_its_header_and_that_row() {
     panic!("one place: {spans:?}");
   };
   assert_eq!((old_range.clone(), new_range.clone()), (2..6, 2..7), "the whole table on both sides");
-  let changed = prose_changes(&paragraphs(&old_lines[2..6]).0, &paragraphs(&new_lines[new_range.clone()]).0, "spec/ownership.spec.md");
+  let changed = prose_changes(&paragraphs(&old_lines[2..6]), &paragraphs(&new_lines[new_range.clone()]), "spec/ownership.spec.md");
   assert_eq!(
     changed,
     [ProseParagraph {
@@ -383,6 +383,6 @@ fn a_changed_row_is_diffed_by_word_in_its_cells() {
 /// A line of pipes with no delimiter row below it is no table: it reads as prose
 #[test]
 fn a_line_of_pipes_without_a_delimiter_row_is_prose() {
-  let (texts, _) = paragraphs(&["Run a | b to pipe.", "The | stays."]);
+  let texts = paragraphs(&["Run a | b to pipe.", "The | stays."]);
   assert_eq!(texts, [prose_text("Run a | b to pipe. The | stays.")]);
 }

@@ -429,9 +429,9 @@ pub(crate) fn paragraph_spans(old: &[&str], new: &[&str], blocks: &[UnitBlock]) 
 
 /// The paragraphs of `lines`: a break and the start of an item of a list end one; each prose paragraph's lines are
 /// joined by a space, code fence contents keep their line breaks, a table is its header row and each of its rows
-/// under it (`ProseForm::Row`); the `[@test]` lines apart, as the paths they name
-pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<ParagraphText>, Vec<String>) {
-  let (mut paragraphs, mut proven_by) = (Vec::new(), Vec::new());
+/// under it (`ProseForm::Row`); a `[@test]` line is no prose (the tests it names: `brief::proven_by`)
+pub(crate) fn paragraphs(lines: &[&str]) -> Vec<ParagraphText> {
+  let mut paragraphs = Vec::new();
   let mut current = String::new();
   let mut code_lines: Vec<&str> = Vec::new();
   let mut code_language = None;
@@ -478,10 +478,7 @@ pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<ParagraphText>, Vec<String>) {
       in_code = true;
       continue;
     }
-    if let Some(test) = trimmed.strip_prefix("[@test]") {
-      if let Some(path) = test.split_whitespace().next() {
-        proven_by.push(path.trim_start_matches("../").to_string());
-      }
+    if trimmed.starts_with("[@test]") {
       continue;
     }
     let item = item_text(trimmed);
@@ -503,7 +500,7 @@ pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<ParagraphText>, Vec<String>) {
       form: ProseForm::Code { language: code_language },
     });
   }
-  (paragraphs, proven_by)
+  paragraphs
 }
 
 /// The paragraphs `new` has that `old` lacks, in their order: an equal paragraph is no change (a paragraph wrapped

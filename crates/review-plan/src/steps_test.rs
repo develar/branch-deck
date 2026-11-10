@@ -1,5 +1,5 @@
 use crate::ReviewPlan;
-use crate::brief::{ContractKind, NewSpec, Substitution, contract_kind, new_spec, shared_issue};
+use crate::brief::{ContractKind, NewSpec, Substitution, contract_kind, new_spec, proven_by, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
@@ -1022,8 +1022,8 @@ fn a_file_of_openspec_is_a_spec_a_decision_or_none_by_its_place_in_a_change() {
   assert_eq!(contract_kind("openspec/changes/archive/2026-11-09-add-undo/specs/branch/unapply/spec.md"), None);
 }
 
-/// A new spec counts its requirements: the `### Requirement:` headings of OpenSpec (of a delta, the added and the
-/// modified ones), else the items of its "Requirements"; its description is its `description:`, else its purpose
+/// A new spec counts its requirements as its format reads them: the requirements of OpenSpec (of a delta, the added and
+/// the modified ones), else the items of its "Requirements"; its description is its `description:`, else its purpose
 #[test]
 fn a_new_spec_counts_its_requirements_in_either_format() {
   let plain = [
@@ -1037,7 +1037,7 @@ fn a_new_spec_counts_its_requirements_in_either_format() {
     "- A note.",
   ];
   assert_eq!(
-    new_spec(&plain),
+    new_spec("plugins/air/spec/window.spec.md", &plain),
     NewSpec {
       description: Some("The window.".to_string()),
       rules: 2
@@ -1059,7 +1059,7 @@ fn a_new_spec_counts_its_requirements_in_either_format() {
     "### Requirement: Opening: It closes",
   ];
   assert_eq!(
-    new_spec(&openspec),
+    new_spec("openspec/specs/review/window/spec.md", &openspec),
     NewSpec {
       description: Some("The window of a review, where it opens.".to_string()),
       rules: 2
@@ -1073,7 +1073,26 @@ fn a_new_spec_counts_its_requirements_in_either_format() {
     "## REMOVED Requirements",
     "### Requirement: C",
   ];
-  assert_eq!(new_spec(&delta).rules, 2);
+  assert_eq!(new_spec("openspec/changes/close-it/specs/review/window/spec.md", &delta).rules, 2);
+}
+
+/// A `[@test]` line names its test file by the rule of its spec's format: an IntelliJ spec's path from its directory
+/// (`../../src/A.kt` of `plugins/air/spec/actions/a.spec.md` is `plugins/air/src/A.kt`), an OpenSpec spec's and a doc's
+/// from the root unless it starts `./` or `../`; a bullet's link and one in brackets are links too
+#[test]
+fn a_test_line_names_its_file_by_the_rule_of_its_format() {
+  let air = [
+    "- The page lists agents.",
+    "  [@test] ../../src/AgentsPageTest.kt (`lists every agent`)",
+    "- [@test](../../src/SortTest.kt)",
+  ];
+  assert_eq!(
+    proven_by("plugins/air/spec/actions/agents-page.spec.md", &air),
+    ["plugins/air/src/AgentsPageTest.kt", "plugins/air/src/SortTest.kt"]
+  );
+  let openspec = ["#### Scenario: Open", "- **THEN** it opens", "  [@test] crates/window/src/open_test.rs (`opens`)"];
+  assert_eq!(proven_by("openspec/specs/review/window/spec.md", &openspec), ["crates/window/src/open_test.rs"]);
+  assert_eq!(proven_by("docs/design/window.md", &["[@test] ./window_test.rs"]), ["docs/design/window_test.rs"]);
 }
 
 /// A manager whose hooks a commit drops, then a commit of `rule` in their place: the repository and the base
