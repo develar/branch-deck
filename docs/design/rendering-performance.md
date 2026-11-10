@@ -144,9 +144,15 @@ flowchart LR
    picks their `row` (`useUnpushedParent`), so the push of a stacked branch does not render for the sync of its parent.
    The selected project is read by field
    (`useSelectedProjectPath`); `useSelectedProject` re-renders on every change of the
-   metadata. A menu a component renders comes from a selector cached by the states of the stores its builder reads
-   (`getBranchMenuNow` and `useBranchMenu`, `getStackIslandMenuNow` of the "⋯" of an island header, `menuSources`),
-   or takes the state it marks as a parameter (the running operations of the session and the busy states this window
+   metadata. A menu a component renders comes from a selector memoized on the states of the stores its builder reads
+   and on its own arguments (`useBranchMenu`, `StackIslandMenu` of the "⋯" of an island header, `menuSources`; the read
+   of the Safe Push popover, the actions of the review), a memo of each subscriber (`useSourceMemo`), never a cache by
+   a key that two subscribers share: a cache by branch held one menu for the menu of a row that still faded out and
+   for the command palette opened on the row, whose `setExpanded` differs, each read replaced the other's entry, every
+   read answered a new menu, and React rendered both again until it gave up ("Maximum update depth exceeded", React
+   #185, the window blank); the palette, which read the menu of the branch of its last open also while closed, beside
+   every menu of that branch opened later, reads it only while it shows. Or the menu takes the state it marks as a
+   parameter (the running operations of the session and the busy states this window
    gave its own, `getOperationWords()` of the builder handed to `getRobotActionItems` and `BlockerWords`, selected by
    a component with `useOperationWords` only while an item of it runs, waits or is busy, [Running
    Operations](operations.md); a presenter reads no store: it imports a store module for its types only, and the

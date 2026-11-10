@@ -188,4 +188,36 @@ test.describe("The warm start", () => {
     await page.clock.fastForward("01:15")
     await expect(page.getByTestId("last-sync-time")).toHaveText("Last synced 1 minute ago")
   })
+
+  test(
+    "keeps the window when the palette opens on a row whose menu still fades out and the sync of the unstack pressed in it comes",
+    { tag: "@webkit" },
+    async ({ page, setupRepo }) => {
+      const repo = await startWarmWithTheSyncHeld(page, setupRepo)
+      // the exit of the menu lasts until the test ends it, as on a machine that paints no frame of the window for seconds:
+      // Base UI keeps a closing popup mounted until its finite animations finished
+      await page.addStyleTag({ content: "[data-slot=context-menu-content][data-closed] { animation-duration: 600s !important; }" })
+      const menu = page.locator("[data-slot=context-menu-content]")
+      await unstackOauthFromMenuWaiting(page, "Unstacking oauth after the sync")
+      await expect(menu).toHaveAttribute("data-closed")
+      // the palette lists the menu of oauth beside the menu of its row that still fades out
+      await findBranchRow(page, "oauth").focus()
+      await openPalette(page)
+      const actions = palette(page)
+        .getByRole("group")
+        .filter({ hasText: /^oauth/ })
+      await expect(actions.getByRole("option", { name: /^Unstack from login/ })).toContainText("Unstacking oauth after the sync…")
+
+      // the sync of the unstack changes the stores both menus read: the window keeps its rows, oauth at the root, and the
+      // palette has the menu of oauth as it is now (React gave up rendering the two menus again, "Maximum update depth
+      // exceeded", and the window went blank)
+      await releaseTheSyncOfTheUnstack(page, repo)
+      expect(await branchTree(page)).toEqual(["docs@0", "oauth@0", "auth@0", "session@1", "login@1"])
+      await expect(actions.getByRole("option", { name: /^Review Changes/ })).toBeVisible()
+      await expect(actions.getByRole("option", { name: /^Unstack/ })).toHaveCount(0)
+      await expect(menu).toHaveAttribute("data-closed")
+      await menu.evaluate(element => element.getAnimations().forEach(animation => animation.finish()))
+      await expect(menu).toHaveCount(0)
+    },
+  )
 })

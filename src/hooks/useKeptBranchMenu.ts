@@ -1,5 +1,6 @@
 import { useStore } from "zustand"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
+import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { getSimpleBranchName } from "@/lib/branch"
 import { reapplyBranch } from "@/lib/git/reapply"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -62,32 +63,16 @@ export function getKeptBranchMenu(kind: KeptKind, name: string, onReview?: () =>
   return groups.filter(group => group.length > 0)
 }
 
-/** By subject: the menu built last, and the store states it was built from (`getKeptBranchMenuNow`) */
-const shownMenus = new Map<string, { sources: readonly unknown[]; groups: MenuItemGroups }>()
-
-/**
- * The menu of the kept branch as the stores are now (`getKeptBranchMenu`), one object while the stores it reads stay: the
- * selector of `useKeptBranchMenu`, so a menu that stays mounted shows what runs now (React Compiler memoizes a builder
- * called in a component on its arguments)
- */
-function getKeptBranchMenuNow(kind: KeptKind, name: string, onReview: () => void): MenuItemGroups {
-  const key = keptSubject(kind, name)
-  const sources = [branchSyncStore.getState(), indicatorsStore.getState(), unappliedBranchesStore.getState(), onReview]
-  const shown = shownMenus.get(key)
-  if (shown !== undefined && shown.sources.every((source, index) => source === sources[index])) {
-    return shown.groups
-  }
-  const groups = getKeptBranchMenu(kind, name, onReview)
-  shownMenus.set(key, { sources, groups })
-  return groups
-}
-
 /**
  * The menu of the kept row `name` (its full name), rendered again when its actions, the operations or its record change;
- * `onReview` opens its review (keep it stable: a new one is a new menu)
+ * `onReview` opens its review (keep it stable: a new one is a new menu). Its selector answers one object while the
+ * stores and its arguments stay (`useSourceMemo`, its own), so a menu that stays mounted shows what runs now (React
+ * Compiler memoizes a builder called in a component on its arguments)
  */
 export function useKeptBranchMenu(kind: KeptKind, name: string, onReview: () => void): MenuItemGroups {
-  const select = () => getKeptBranchMenuNow(kind, name, onReview)
+  const memo = useSourceMemo<MenuItemGroups>()
+  const select = () =>
+    memo([kind, name, onReview, branchSyncStore.getState(), indicatorsStore.getState(), unappliedBranchesStore.getState()], () => getKeptBranchMenu(kind, name, onReview))
   useStore(branchSyncStore, select)
   useStore(indicatorsStore, select)
   return useStore(unappliedBranchesStore, select)

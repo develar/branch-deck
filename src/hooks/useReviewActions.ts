@@ -1,6 +1,7 @@
 import { useStore } from "zustand"
 import { getBranchReviewItems, menuSources, useMenuStores } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
+import { useSourceMemo } from "@/hooks/useSourceMemo"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { repositoryName } from "@/lib/repository-config"
 import {
@@ -143,27 +144,15 @@ function buildReviewActions(subject: ReviewedSubject): ReviewActions {
   }
 }
 
-/** The actions built last, by the subject, and the store states they were built from (`getReviewActionsNow`) */
-let built: { key: string; sources: readonly unknown[]; actions: ReviewActions } | null = null
-
 /**
- * The actions of the review of `subject` as the stores are now, one object while the stores they read stay: the
- * selector of `useReviewActions` (React Compiler memoizes a builder called in a component on its arguments, so the
- * actions would show their first state)
+ * The actions of the review of `subject`, built again when a store they read changes. Its selector answers one object
+ * while the stores and the subject stay (`useSourceMemo`, its own; the subject by its content): React Compiler memoizes a
+ * builder called in a component on its arguments, so the actions would show their first state
  */
-function getReviewActionsNow(subject: ReviewedSubject): ReviewActions {
-  const key = JSON.stringify([subject.repositoryPath, subject.baselineBranch, subject.chain, subject.wholeStack, subject.kept ?? null])
-  const sources = [...menuSources(), unappliedBranchesStore.getState(), archivedBranchesStore.getState()]
-  if (built !== null && built.key === key && built.sources.length === sources.length && built.sources.every((source, index) => source === sources[index])) {
-    return built.actions
-  }
-  built = { key, sources, actions: buildReviewActions(subject) }
-  return built.actions
-}
-
-/** The actions of the review of `subject`, built again when a store they read changes */
 export function useReviewActions(subject: ReviewedSubject): ReviewActions {
-  const select = () => getReviewActionsNow(subject)
+  const memo = useSourceMemo<ReviewActions>()
+  const key = JSON.stringify([subject.repositoryPath, subject.baselineBranch, subject.chain, subject.wholeStack, subject.kept ?? null])
+  const select = () => memo([key, ...menuSources(), unappliedBranchesStore.getState(), archivedBranchesStore.getState()], () => buildReviewActions(subject))
   useStore(unappliedBranchesStore, select)
   useStore(archivedBranchesStore, select)
   return useMenuStores(select)

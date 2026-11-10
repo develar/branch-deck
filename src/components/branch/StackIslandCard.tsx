@@ -21,6 +21,7 @@ import { useOrphanedStackPullRequest } from "@/hooks/useOrphanedStackPullRequest
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { useSettledStackLine } from "@/hooks/useSettledLayout"
+import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
@@ -417,25 +418,9 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
 /** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */
 /** The "⋯" of the header: an open menu follows every store it reads, the pull requests that load after the sync too */
 function StackIslandMenu({ root, collapsed }: { root: string; collapsed: boolean }) {
-  return <DropdownMenuItems groups={useMenuStores(() => getStackIslandMenuNow(root, collapsed))} />
-}
-
-/** By root: the menu of the header built last, and the store states it was built from (`getStackIslandMenuNow`) */
-const shownIslandMenus = new Map<string, { sources: readonly unknown[]; groups: MenuItemGroups }>()
-
-/**
- * The menu of the header as the stores are now (`getStackIslandMenuItems`), one object while the stores it reads stay: the
- * selector of `StackIslandMenu`, as `getBranchMenuNow` is of the branch menu
- */
-function getStackIslandMenuNow(root: string, collapsed: boolean): MenuItemGroups {
-  const sources = [...menuSources(), collapsed]
-  const shown = shownIslandMenus.get(root)
-  if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
-    return shown.groups
-  }
-  const groups = getStackIslandMenuItems(root, collapsed)
-  shownIslandMenus.set(root, { sources, groups })
-  return groups
+  // the menu of the header as the stores are now, one object while they and its arguments stay, as `useBranchMenu`
+  const memo = useSourceMemo<MenuItemGroups>()
+  return <DropdownMenuItems groups={useMenuStores(() => memo([root, collapsed, ...menuSources()], () => getStackIslandMenuItems(root, collapsed)))} />
 }
 
 /** The items of the first group of the "⋯" of the header: the starts of the whole stack, and the piece of its main line */

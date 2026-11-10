@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Channel } from "@tauri-apps/api/core"
 import { useStore } from "zustand"
 import { getBranchNextStep } from "@/hooks/useBranchNextStep"
+import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { runLandingFix } from "@/hooks/useStackActions"
 import { getStackNextStep, wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { askUntilSettled } from "@/lib/ask-until-settled"
@@ -526,8 +527,8 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     requestReveal({ branchName: row, commitIds: [] })
   }
   // a failed read of the rules is asked again by each start: the click waits for the new answer, the popover reads anew
+  // (the open is a new state of the store of the starts, which its read is memoized on)
   void askBranchRulesAgain()
-  shownRead = null
   const ask: SafePushAsk = {
     branchName,
     mode,
@@ -888,35 +889,6 @@ function tellStartRefusal(error: ApiError, plan: Plan, repositoryPath: string): 
   }
 }
 
-/** The read the popover shows, and what it was read from: the same object while nothing it reads changed */
-let shownRead: { inputs: readonly unknown[]; read: SafePushRead | null } | null = null
-
-/**
- * `readSafePush` of the popover, once per change of what it reads (the stores, the plan of the session): the
- * subscriptions of the popover share the plan, and a selector returns the same object for the same state
- */
-function readSafePushNow(branchName: string, ask: Omit<SafePushRequest, "placement">, plan: Plan | null): SafePushRead | null {
-  const inputs = [
-    branchSyncStore.getState(),
-    reviewReadinessStore.getState(),
-    pullRequestsStore.getState(),
-    patronusStore.getState(),
-    safePushStore.getState(),
-    branchName,
-    ask.mode,
-    ask.via,
-    ask.profileId,
-    ask.bypassReview,
-    plan,
-  ]
-  if (shownRead !== null && shownRead.inputs.every((input, index) => input === inputs[index])) {
-    return shownRead.read
-  }
-  const read = readSafePush(branchName, ask, plan)
-  shownRead = { inputs, read }
-  return read
-}
-
 /**
  * The plan the session answers of the start of the popover (`prepare`), asked again with every patch of the view (its
  * facts are the session's) and every other profile; the last plan while the next is asked, null before the first
@@ -951,8 +923,14 @@ export function useSafePushRead(ask: SafePushAsk, profileId: string | null | und
   useDemandReviewReadiness(ask.branchName, ask.mode === "rebaseAutosquash")
   const request: Omit<SafePushRequest, "placement"> = { mode: ask.mode, via: "key", bypassReview: ask.bypassReview, ...(profileId !== undefined && { profileId }) }
   const plan = useStartPlan(ask.branchName, request)
-  // the read flows out of the subscriptions: a value read beside them would be memoized by the compiler
-  const select = () => readSafePushNow(ask.branchName, request, plan)
+  // the read flows out of the subscriptions: a value read beside them would be memoized by the compiler. One read per
+  // change of what it reads (the stores, the plan of the session), the same object for the same state, shared by the
+  // subscriptions of this popover alone (`useSourceMemo`): another popover keeps its own
+  const memo = useSourceMemo<SafePushRead | null>()
+  const select = () => {
+    const stores = [branchSyncStore.getState(), reviewReadinessStore.getState(), pullRequestsStore.getState(), patronusStore.getState(), safePushStore.getState()]
+    return memo([ask.branchName, request.mode, request.via, request.profileId, request.bypassReview, plan, ...stores], () => readSafePush(ask.branchName, request, plan))
+  }
   useStore(branchSyncStore, select)
   useStore(reviewReadinessStore, select)
   useStore(pullRequestsStore, select)

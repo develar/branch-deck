@@ -1,4 +1,4 @@
-import { createContext, use, useLayoutEffect, useState } from "react"
+import { createContext, useContext, useLayoutEffect, useState } from "react"
 import type { RefObject } from "react"
 
 /** The card of the heading of a commit reviewed alone, by the id of that commit: open, and opened by `I` */
@@ -56,7 +56,7 @@ export function useHeadingCardState(): HeadingCard {
  * uncontrolled outside such a view
  */
 export function useHeadingMenu(commit: string): { open?: boolean; onOpenChange?: (open: boolean) => void } {
-  const shared = use(HeadingCardContext)
+  const shared = useContext(HeadingCardContext)
   if (shared === null) {
     return {}
   }
@@ -72,7 +72,7 @@ export function useHeadingMenu(commit: string): { open?: boolean; onOpenChange?:
  * held the focus takes it
  */
 export function useHeadingCard(commit: string, heading: RefObject<HTMLElement | null>): readonly [{ open: boolean; byKey: boolean }, (open: boolean, byKey: boolean) => void] {
-  const shared = use(HeadingCardContext)
+  const shared = useContext(HeadingCardContext)
   const [own, setOwn] = useState<HeadingCardState>(CLOSED)
   const state = shared?.card ?? own
   const set = shared?.setCard ?? setOwn

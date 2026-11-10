@@ -17,6 +17,7 @@ export default defineConfig({
     "stacked-branches/stacked-branches.spec.ts",
     "landing/statistics.spec.ts",
     "command-palette/command-palette.spec.ts",
+    "startup/warm-start.spec.ts",
     "youtrack/issue-popover.spec.ts",
     "branch-row-layout/branch-row-layout.spec.ts",
     "branch-row-layout/column-widths.spec.ts",

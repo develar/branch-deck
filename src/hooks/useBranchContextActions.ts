@@ -8,6 +8,7 @@ import { removeNeed } from "@/hooks/useDeclareNeed"
 import { ungroupBranch } from "@/hooks/useMoveCommits"
 import { unparkBranch } from "@/hooks/useParkBranch"
 import { requestSafePush } from "@/hooks/useSafePush"
+import { useSourceMemo } from "@/hooks/useSourceMemo"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { cancelAutoMerge } from "@/lib/auto-merge-news"
@@ -706,32 +707,21 @@ export function useMenuStores<T>(select: () => T): T {
   return useStore(indicatorsStore, select)
 }
 
-/** By branch: the menu built last, and the store states it was built from (`getBranchMenuNow`) */
-const shownMenus = new Map<string, { sources: readonly unknown[]; groups: MenuItemGroups }>()
-
-/**
- * The menu of the branch as the stores are now (`getBranchContextMenuItems`), one object while the stores it reads stay:
- * the selector of `useBranchMenu`. A builder called in a component would be memoized by the compiler on its arguments,
- * so a menu that stays mounted (reopened while it fades out) would show its first state.
- */
-export function getBranchMenuNow(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
+/** The menu of the branch as the stores are now (`getBranchContextMenuItems`); null without the branch */
+function getBranchMenuNow(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
   const branch = getBranch(name)
-  if (branch === undefined) {
-    return null
-  }
-  const sources = [...menuSources(), setExpanded]
-  const shown = shownMenus.get(name)
-  if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
-    return shown.groups
-  }
-  const groups = getBranchContextMenuItems(branch, setExpanded)
-  shownMenus.set(name, { sources, groups })
-  return groups
+  return branch === undefined ? null : getBranchContextMenuItems(branch, setExpanded)
 }
 
-/** The menu of the branch, rendered again when a store it reads changes (the view's operations among them); null without the branch */
+/**
+ * The menu of the branch, rendered again when a store it reads changes (the view's operations among them); null without
+ * the branch. Its selector answers one object while the stores and its arguments stay (`useSourceMemo`, its own): a
+ * builder called in a component would be memoized by the compiler on its arguments, so a menu that stays mounted
+ * (reopened while it fades out) would show its first state
+ */
 export function useBranchMenu(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
-  return useMenuStores(() => getBranchMenuNow(name, setExpanded))
+  const memo = useSourceMemo<MenuItemGroups | null>()
+  return useMenuStores(() => memo([name, setExpanded, ...menuSources()], () => getBranchMenuNow(name, setExpanded)))
 }
 
 /**

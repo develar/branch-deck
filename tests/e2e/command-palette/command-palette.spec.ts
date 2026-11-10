@@ -2,13 +2,14 @@
 import type { Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
 import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
-import { collapseBranch, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
+import { branchTree, collapseBranch, findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { openPalette, palette, runByKeyboard, search } from "../helpers/command-palette-helpers"
 import { header } from "../helpers/header-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
+import { openContextMenu } from "../helpers/selection-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
+import { runAndWaitForSync, runAndWaitForUpdate, syncFromMenu } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { recordCommand, expectClosed } from "../helpers/wait-helpers"
 
@@ -213,6 +214,32 @@ test.describe("Command palette of a stack", () => {
       expect(executes).toEqual([])
     },
   )
+
+  test("should keep the window when the row the palette listed last opens its menu and a sync runs", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    // the palette lists the menu of oauth, the row at hand, and closes
+    const oauth = findBranchRow(page, "oauth")
+    await oauth.focus()
+    await openPalette(page)
+    await expect(
+      palette(page)
+        .getByRole("group")
+        .filter({ hasText: /^oauth/ })
+        .getByRole("option", { name: /^Unstack from login/ }),
+    ).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(palette(page)).toHaveCount(0)
+
+    // the menu of the same row, open while a sync from the app's menu changes the stores it reads: it follows the sync
+    // with its items, and the window keeps its rows (the palette read that menu again with every change, beside it)
+    await openContextMenu(page, oauth)
+    const unstack = page.getByRole("menuitem", { name: "Unstack from login" })
+    await expect(unstack).toBeVisible()
+    await syncFromMenu(page)
+    await expect(unstack).toBeVisible()
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+  })
 })
 
 test.describe("Command palette beside a native menu", () => {

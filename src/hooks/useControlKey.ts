@@ -1,4 +1,4 @@
-import { createContext, use, useId } from "react"
+import { createContext, useContext, useId } from "react"
 import type { Ref, RefCallback } from "react"
 import { registerControl } from "@/lib/pointer-moves"
 
@@ -15,9 +15,14 @@ export function useControlKey(controlKey: string | undefined): string {
   return controlKey ?? own
 }
 
-/** The ref of a trigger: `ref`, and its element named as the control `key`, else as the control of its root */
+/**
+ * The ref of a trigger: `ref`, and its element named as the control `key`, else as the control of its root. The same
+ * callback while `ref` and the control stay: React Compiler compiles a hook only when it calls a hook named `use…`
+ * (`useContext`, not `use`), and the callback of each render made React detach and attach the ref of every trigger it
+ * rendered again, a menu item unregistered from its menu and registered again with every render
+ */
 export function useControlRef<T extends Element>(ref: Ref<T> | undefined, key?: string): RefCallback<T> {
-  const inherited = use(ControlKeyContext)
+  const inherited = useContext(ControlKeyContext)
   const control = key ?? inherited
   return (element: T | null) => {
     const unset = assignRef(ref, element)

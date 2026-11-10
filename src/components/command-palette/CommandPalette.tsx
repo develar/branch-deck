@@ -65,9 +65,11 @@ export function CommandPalette() {
   const branches = useBranchSync(state => state.branchOrder)
   // the repository selector waits for a sync to end, its folder button too
   const isSyncing = useBranchSync(state => state.isSyncing)
-  // the branch at hand when the palette opened, and its menu as the stores have it while the palette shows
+  // the branch at hand when the palette opened, and its menu as the stores have it while the palette shows; none while it
+  // is closed, as it lists nothing then: the menu of the branch of the last open was built again on every change of a
+  // store, beside the menus of that branch the user opened later
   const [actionBranch, setActionBranch] = useState<string | null>(null)
-  const branchGroups = useBranchMenu(actionBranch ?? "", expandRow)
+  const branchGroups = useBranchMenu(open && actionBranch !== null ? actionBranch : "", expandRow)
   // the element focused before the palette, and the command chosen in it
   const focusBefore = useRef<HTMLElement | null>(null)
   const chosen = useRef<PaletteCommand | null>(null)

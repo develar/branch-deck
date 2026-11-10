@@ -1085,7 +1085,7 @@ first.
 ### Requirement: The whole stack in the app: An open menu of the island follows the pull requests
 
 An open "⋯" of the island MUST follow what the list reads: the pull requests that load after the sync change its items
-while it is open (`getStackIslandMenuNow`).
+while it is open (`StackIslandMenu`, its selector memoized on the stores it reads).
 
 #### Scenario: The pull requests load after the sync
 - **GIVEN** the "⋯" of the island is open

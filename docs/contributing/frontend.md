@@ -115,6 +115,16 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   `useStore`, is memoized on its arguments and shows a stale value. The value must come out of a selector, or be an
   argument the hook selected: `useStepInputs` beside `useRowPart(name, "landing")` (`src/hooks/useBranchNextStep.ts`);
   a menu builder likewise (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
+- **A selector answers one object per state, of its own**: `useSyncExternalStore` reads a selector again after each
+  commit and renders again for another object, so a selector that builds (a menu, the read of a popover) keeps what it
+  built in a memo of its subscriber (`useSourceMemo`), keyed by the stores and by every argument. A cache by a key that
+  two subscribers share, whose other arguments differ, answers each a new object on every read: the menu of a row that
+  still faded out and the palette opened on that row rendered each other again until React gave up (#185, a blank
+  window).
+- **A hook that calls only `use(…)` is not compiled**: React Compiler compiles a function named `use…` only when it
+  calls a hook named `use` and a capital (`useContext`, `useState`); `use(Context)` alone leaves it plain, and a
+  callback it returns is new on every render (`useControlRef` gave every trigger a new ref: React detached and attached
+  it, a menu item left its menu and came back, with each render). Read a context in such a hook with `useContext`.
 - **The effects of a kept view run again**: a view of the main window (React's `Activity`, `KeepMounted` in
   `IndexPage`) destroys the effects of its components as it hides and runs them again as it shows, state and refs kept.
   An effect that acts once (a replay, a focus) marks it in a ref, as `useLazyRoot` does; a popup root closes as its view
