@@ -146,7 +146,7 @@ test.describe("Landing overview", () => {
     await expect(row.getByTestId("robots-row-mode")).toHaveCount(0)
     await row.getByRole("button", { name: "Open Safe Push of ABC-123 in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest.url, FAILED.url])
-    await row.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
+    await runAndWaitForAnswer(page, "execute", () => row.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
     expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
   })

@@ -48,7 +48,7 @@ test.describe("Stacks of GitHub", () => {
       "A layer of the GitHub stack auth → login → oauth: it shows only the commits of oauth, into login. Also creates the pull requests of auth and login.",
     )
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add OAuth provider")
-    await dialog.getByTestId("create-pull-request-submit").click()
+    await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #902" })).toBeVisible()
     // the push of the chain, then the pull requests bottom first, each into the branch below it, then the stack of them
     const writes = gitHubWrites(await repo.getGitHubLog()).filter(([, path]) => !path.endsWith("/assignees"))

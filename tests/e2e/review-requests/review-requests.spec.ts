@@ -25,7 +25,7 @@ import { openedReview } from "../helpers/review-window-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -959,7 +959,8 @@ test.describe("Review window", () => {
     const { window: reviewPage, review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await pressDecisionKey(reviewPage, review, "m")
-    await reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click()
+    // the main window runs the start the review window asks for (askReviewRun)
+    await runAndWaitForAnswer(page, "execute", () => reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click())
     await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
 
     // the header of the main window lists it by the pull request, without a row to show

@@ -404,7 +404,7 @@ test.describe("Patronus actions", () => {
     await expect(popover.getByTestId("safe-push-profile")).toContainText("Default checks")
     await expect(popoverStart(page)).toBeFocused()
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     popover = await openSafePushWithProfile(page, "JIRA-456")
     await popover.getByTestId("safe-push-profile").click()
@@ -414,9 +414,9 @@ test.describe("Patronus actions", () => {
     await page.keyboard.press("Escape")
     await chooseProfile(page, "Large Scale Change")
     await expect(popover.getByTestId("safe-push-profile-description")).toHaveText("All the tests")
-    await popoverStart(page).click()
-    // a start closes the popover
-    await expect(popover).toHaveCount(0)
+    // a start closes the popover; its checks, its push and the start are one operation: its answer, then what it did
+    await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
+    await expectClosed(popover)
 
     // Patronus got one start of the virtual branch with the profile chosen
     await expectJiraStarted(page, repo, { mergeProfileId: "lsc" })
@@ -538,13 +538,13 @@ test.describe("Patronus actions", () => {
     await expect(popover.getByTestId("safe-push-lands")).toHaveText(/^Lands ABC-123 into master: \d+ commits?\.$/)
     // its start takes the focus: Enter starts
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
-    await expect(popover).toHaveCount(0)
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+    await expectClosed(popover)
     await expect(chip(page, "ABC-123")).toHaveAccessibleName(/^Safe Push: Running, /)
 
     // the footer button is a click: the preview closes, and nothing to say starts it at once
     preview = await openBranchPreview(page, "feature-auth")
-    await preview.getByTestId("safe-push-button").click()
+    await runAndWaitForAnswer(page, "execute", () => preview.getByTestId("safe-push-button").click())
     await expectClosed(preview)
     await expect(chip(page, "feature-auth")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await startedBranches(repo)).toEqual(["ABC-123", "feature-auth"])
@@ -564,7 +564,10 @@ test.describe("Patronus actions", () => {
     await expect(popoverStart(page)).toBeFocused()
     await page.keyboard.press("Enter")
     await expect(getLandingNode(row)).toHaveAttribute("data-kind", "landing")
+    // the push and the start behind it answer once the push is let through
+    const answered = nextAnswer(page, "execute", 2)
     await held.release()
+    await answered
     // decided again on what the push left: nothing more to push, the robot starts
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
     expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
@@ -591,7 +594,10 @@ test.describe("Patronus actions", () => {
     await expect(getLandingNode(row)).toHaveAttribute("data-kind", "landing")
     expect((await repo.getPatronusLog()).starts).toEqual([])
 
+    // the push and the start run once the sync ended: their two answers, then what they did
+    const answered = nextAnswer(page, "execute", 2)
     await releaseHeldSync(page, repo, previousCount)
+    await answered
     // the push went on the table the sync left, the start after it on what the push left: one push, one start
     await expectJiraStarted(page, repo)
     expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
@@ -611,7 +617,7 @@ test.describe("Patronus actions", () => {
 
   /** The start Patronus held is released: Patronus got one start of JIRA-456, told in one toast */
   async function expectStartedOnce(page: Page, repo: TestRepositoryBuilder): Promise<void> {
-    await repo.holdRemoteAnswers({ release: ["start"] })
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["start"] }))
     await expectJiraStarted(page, repo)
     await expect(toastWith(page, "Safe Push started")).toHaveCount(1)
     await expect(toastWith(page, "Cannot start")).toHaveCount(0)
@@ -900,7 +906,7 @@ test.describe("Patronus actions", () => {
       await popover.getByRole("button", { name: "Open IJ-CR-7" }).click()
       expect(await getOpenedUrls(page)).toContain(MERGE_REQUEST.url)
       await popover.getByRole("button", { name: "Cancel" }).click()
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
 
       // the approvals come; Check Approvals Again asks Patronus again, not the kept answer: it finds them now
       const approved = { ...REVIEW_REQUIRED, required: false, groups: [] }
@@ -955,7 +961,7 @@ test.describe("Patronus actions", () => {
       // "Dry Run" of the Safe Push popover: it closes, and the dry run starts as the menu's does
       const popover = await openSafePushWithKey(page, "ABC-123")
       await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("safe-push-dry-run").click())
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
       await expect(toastWith(page, "Dry Run started").filter({ hasText: "ABC-123 → master" })).toBeVisible()
       expect((await repo.getPatronusLog()).starts).toEqual([startRequest("JIRA-456", { mode: "DRY_RUN" }), startRequest("ABC-123", { mode: "DRY_RUN" })])
     })
@@ -1496,8 +1502,8 @@ test.describe("Patronus actions", () => {
         "Patronus tells only when the robot starts whether Large Scale Change skips the code-owner review: if it doesn't, the Safe Push fails at once.",
       )
       await expect(start).toBeEnabled()
-      await start.click()
-      await expect(popover).toHaveCount(0)
+      await runAndWaitForAnswer(page, "execute", () => start.click())
+      await expectClosed(popover)
       await expectJiraStarted(page, repo, { mergeProfileId: "lsc" })
     })
 

@@ -4,7 +4,7 @@ import { expect, test } from "../fixtures/test-fixtures"
 import { branchTree, expandBranch, findBranchRow, getBranchCommitRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { editCommitMessage } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
-import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { runAndWaitForSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 function popover(page: Page): Locator {
@@ -53,7 +53,7 @@ test.describe("Squash fixups", () => {
     await expect(authRow).toHaveAttribute("data-selected", "false")
     await expect(confirm.getByTestId("squash-fixups-orphans")).toContainText("Won't be squashed: no target in this range")
     await expect(confirm.getByTestId("squash-fixups-orphans")).toContainText("fixup!Drop the session cookie")
-    await confirm.getByTestId("squash-fixups-confirm").click()
+    await runAndWaitForAnswer(page, "execute", () => confirm.getByTestId("squash-fixups-confirm").click())
 
     await expectClosed(confirm)
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
@@ -137,7 +137,7 @@ test.describe("Squash fixups", () => {
     // below the first row, so a header that the facts of the sync move moves both
     const offset = async () => (await authRow.boundingBox())!.y - (await findBranchRow(page, "search").boundingBox())!.y
     const before = await offset()
-    await confirm.getByTestId("squash-fixups-confirm").click()
+    await runAndWaitForAnswer(page, "execute", () => confirm.getByTestId("squash-fixups-confirm").click())
 
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
     await verifyCommitCount(authRow, 1)

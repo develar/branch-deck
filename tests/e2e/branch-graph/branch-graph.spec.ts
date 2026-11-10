@@ -5,6 +5,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { DAY_ROBOTS, availableRobots, setupRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
+import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
 
 test.describe("Branch graph", () => {
@@ -75,7 +76,7 @@ test.describe("Branch graph", () => {
     // the fix: the prompt for an agent; the actions of the robot as in the landing overview, the row stays as it was
     await robotRow.getByRole("button", { name: "Copy Prompt for Agent of ABC-123" }).click()
     await expect.poll(() => readClipboard(page)).toContain(`Safe Push of \`ABC-123\` into \`master\` failed: ${failed.url}`)
-    await robotRow.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
+    await runAndWaitForAnswer(page, "execute", () => robotRow.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
     expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
     await expect(row).toHaveAttribute("data-state", "closed")

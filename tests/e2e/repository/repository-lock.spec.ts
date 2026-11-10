@@ -13,7 +13,7 @@ import {
 } from "../helpers/branch-helpers"
 import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
-import { runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
+import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -65,7 +65,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     await expect(page.getByText("Cannot squash the commits")).toHaveCount(0)
 
-    await repo.holdRepositoryLock(false)
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
     await expectClosed(dialog)
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
@@ -78,14 +78,14 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     const notice = dialog.getByTestId("lock-wait-notice")
     await expect(notice).toContainText(WAITING)
 
-    await notice.getByRole("button", { name: "Stop Waiting" }).click()
+    await runAndWaitForAnswer(page, "execute", () => notice.getByRole("button", { name: "Stop Waiting" }).click())
     await expect(page.getByText("Canceled squashing 2 commits before it started")).toBeVisible()
     await expect(notice).toHaveCount(0)
     await expect(page.getByText("Cannot squash the commits")).toHaveCount(0)
     // nothing changed, and the dialog stays with its message: the next press squashes, once the holder is done
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     await repo.holdRepositoryLock(false)
-    await dialog.getByRole("button", { name: /Squash/ }).click()
+    await runAndWaitForAnswer(page, "execute", () => dialog.getByRole("button", { name: /Squash/ }).click())
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
   })
@@ -130,7 +130,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       // Enter and Enter: Stop Waiting ends the wait with nothing changed, the focus on the "⋯" again
       await page.keyboard.press("Enter")
       await expect(stop).toBeFocused()
-      await page.keyboard.press("Enter")
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
       await expect(page.getByText(/^Canceled unstacking oauth/)).toBeVisible()
       expect(cancels).toHaveLength(1)
       await expect(more).not.toHaveAttribute("aria-busy", "true")
@@ -157,7 +157,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       expect(moves).toHaveLength(1)
       const cancels = await recordCommand(page, "cancel_operation")
       await more.click()
-      await page.getByRole("menuitem", { name: "Stop Waiting" }).click()
+      await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Stop Waiting" }).click())
       await expect(page.getByText("Canceled moving 1 commit to docs before it started")).toBeVisible()
       // the stop is the cancel of the operation of the session
       expect(cancels).toHaveLength(1)
@@ -167,7 +167,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
 
       // the same move once the holder is done: it runs at once
       await repo.holdRepositoryLock(false)
-      await moveParserToDocsFromMenu(page)
+      await runAndWaitForAnswer(page, "execute", () => moveParserToDocsFromMenu(page))
       await verifyCommitCount(findBranchRow(page, "docs"), 2)
       await verifyCommitCount(findBranchRow(page, ISSUE), 2)
       expect(moves).toHaveLength(2)
@@ -186,7 +186,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await push.hover()
     const description = page.getByTestId("push-description")
     await expect(description.getByTestId("push-progress")).toContainText(WAITING)
-    await description.getByRole("button", { name: "Stop Waiting" }).click()
+    await runAndWaitForAnswer(page, "execute", () => description.getByRole("button", { name: "Stop Waiting" }).click())
     await expect(page.getByText("Canceled the push of branch feature-auth before it started")).toBeVisible()
     await expect(push).not.toHaveAttribute("aria-busy", "true")
     expect(pushes).toHaveLength(1)

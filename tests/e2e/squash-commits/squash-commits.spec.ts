@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithUnassigned } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit, shiftSelectCommit } from "../helpers/selection-helpers"
-import { syncFromMenu } from "../helpers/sync-helpers"
+import { syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
@@ -40,7 +40,7 @@ test.describe("Squash commits", () => {
     await expect(editor).toHaveValue("ABC-123: Add parser\n\nAdd tokens")
     await expect(dialog).toContainText("The first line is the subject")
 
-    await page.keyboard.press("ControlOrMeta+Enter")
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("ControlOrMeta+Enter"))
     await expectClosed(dialog)
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
     await verifyCommitCount(issueRow, 2)

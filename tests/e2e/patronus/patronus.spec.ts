@@ -134,7 +134,7 @@ test.describe("Patronus chip", () => {
     await expect(again).toBeDisabled()
     await again.click({ force: true })
 
-    await repo.holdRemoteAnswers({ release: ["restart"] })
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRemoteAnswers({ release: ["restart"] }))
     await expect(page.getByText("Safe Push restarted", { exact: true })).toBeVisible()
     // one restart reached Patronus: the second click joined the first
     expect((await repo.getPatronusLog()).restarts).toEqual([FAILED.id])
@@ -450,7 +450,7 @@ test.describe("Patronus failure", () => {
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     await emitTauriEvent(page, "tauri://focus")
     const toast = await holdToast(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" }))
-    await toast.getByRole("button", { name: "Restart Safe Push" }).click()
+    await runAndWaitForAnswer(page, "execute", () => toast.getByRole("button", { name: "Restart Safe Push" }).click())
     // the restart is the next state of the toast of the robot: in place, with the newer robot
     await expect(toast.locator("[data-slot=toast-title]")).toHaveText("Safe Push restarted")
     await expect(toast.getByRole("button", { name: "Restart Safe Push" })).toHaveCount(0)

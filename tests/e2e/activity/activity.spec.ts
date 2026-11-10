@@ -18,7 +18,7 @@ import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, expectPushedToRemote, virtualBranch } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, nextAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
@@ -160,7 +160,7 @@ testWithIssueLinks.describe("Activity", () => {
 
   testWithIssueLinks("should hide the operations of agent leases behind the Agents chip", async ({ page, issueLinksRepo }) => {
     const row = findBranchRow(page, "ABC-123")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectNothingToPush(row)
     const window = await openActivityWindow(page)
     await expect(window.getByTestId("activity-title")).toHaveText(["Pushed branch ABC-123"])
@@ -230,7 +230,7 @@ testWithIssueLinks.describe("Activity", () => {
   })
 
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {
-    await getPushButton(findBranchRow(page, "feature-auth")).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "feature-auth")).click())
     const window = await openActivityWindow(page)
     await expect(activityEntry(window, "Pushed branch feature-auth")).toBeVisible()
     await window.getByTestId("activity-clear").click()
@@ -310,7 +310,7 @@ test.describe("Activity of the selected repository", () => {
     }, otherPath)
     await page.reload()
     await syncAndWaitForBranches()
-    await getPushButton(findBranchRow(page, "test-branch")).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "test-branch")).click())
     const window = await openActivityWindow(page)
     await expect(activityEntry(window, "Pushed branch test-branch")).toBeVisible()
     const titles = (await windowCalls(window)).filter(call => call === "set_title").length

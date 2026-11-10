@@ -7,7 +7,7 @@ import { inlineIssueReference, submitInlineForm } from "../helpers/inline-form-h
 import { editCommitMessage } from "../helpers/preview-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
-import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { nextAnswer, waitForBranchSyncComplete, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordRewrites, waitForTooltip } from "../helpers/wait-helpers"
 
@@ -187,7 +187,10 @@ test.describe("Amend Changes Feature", () => {
       expect(amends.map(call => [call.repositoryPath, call.rewrite.branchName])).toEqual([[repositoryPath, "feature-auth"]])
 
       await switchRepository(page, OTHER_REPOSITORY)
+      // both run once the lock is free, one after the other with its sync: their answers, then their toasts
+      const answered = nextAnswer(page, "execute", 2)
       await repo.holdRepositoryLock(false)
+      await answered
       // both ran in the repository of their clicks, not in the one the window shows
       await expect(toastOf(page, "Added GH-1 to feature-api")).toBeVisible()
       await expect(toastOf(page, /^Amended .* into feature-auth/)).toBeVisible()
@@ -213,7 +216,10 @@ test.describe("Amend Changes Feature", () => {
       expect(references.map(call => [call.repositoryPath, call.rewrite.branchName, call.rewrite.issueReference])).toEqual([[repositoryPath, "feature-auth", "GH-2"]])
 
       await switchRepository(page, OTHER_REPOSITORY)
+      // both run once the lock is free, one after the other with its sync: their answers, then their toasts
+      const answered = nextAnswer(page, "execute", 2)
       await repo.holdRepositoryLock(false)
+      await answered
       await expect(toastOf(page, "Added GH-2 to feature-auth")).toBeVisible()
       await expect(toastOf(page, /^Amended .* into feature-api/)).toBeVisible()
       await expect(toastOf(page, "Cannot add GH-2 to feature-auth")).toHaveCount(0)
@@ -238,7 +244,7 @@ test.describe("Amend Changes Feature", () => {
       // named on the table the window showed
       await expect.poll(() => rewords.map(call => (call.rewrite.rewords as { commit: string }[])[0]!.commit)).toEqual([oldId])
 
-      await repo.holdRepositoryLock(false)
+      await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
       await expect(toastOf(page, "Added GH-1 to feature-api")).toBeVisible()
       // the session rewords the commit the issue reference wrote, through the new id it answered: the old id would fail
       // with "Cannot edit the commit message"

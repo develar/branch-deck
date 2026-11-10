@@ -367,7 +367,7 @@ test.describe("Stack island", () => {
     })
     await expect(findBranchRow(page, "side-test").getByTestId("landed-with")).toHaveText("Landed · 1 commit after it")
     await expect(push).toHaveAccessibleName("Push with Children (2 branches)")
-    await push.click()
+    await runAndWaitForAnswer(page, "execute", () => push.click())
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed branch side-test" })).toBeVisible()
     expect(await remotePushes(repo)).toEqual([["side-test", "stack:air"]])
   })
