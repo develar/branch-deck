@@ -76,6 +76,28 @@ fn a_killed_child_leaves_no_process_it_started() {
   }
 }
 
+/// A child that starts a process every 10 ms while it is killed leaves none of them: what it forks while the kill scans
+/// is a child of a process that the scan stopped or the next pass finds
+#[test]
+fn a_killed_child_that_keeps_forking_leaves_no_process_it_started() {
+  let dir = tempfile::tempdir().unwrap();
+  let pids = dir.path().join("pids");
+  let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
+  let child = fake(&dir, &format!("while :; do\n  sleep 120 &\n  {pid_of_last} >> '{}'\n  sleep 0.01\ndone", shell_path(&pids)));
+  let forked = || std::fs::read_to_string(&pids).map_or(0, |text| text.lines().count());
+  let result = run_child(&mut Command::new(child), None, TIMEOUT, &|| forked() >= 20);
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  let started: Vec<u32> = std::fs::read_to_string(&pids).unwrap().lines().filter_map(|pid| pid.trim().parse().ok()).collect();
+  assert!(started.len() >= 20, "{started:?}");
+  let deadline = Instant::now() + Duration::from_mins(1);
+  for pid in started {
+    while process_is_running(pid, None) {
+      assert!(Instant::now() < deadline, "the process {pid} that the child started survived the kill");
+      std::thread::sleep(Duration::from_millis(5));
+    }
+  }
+}
+
 #[test]
 fn kills_the_child_when_superseded() {
   let dir = tempfile::tempdir().unwrap();

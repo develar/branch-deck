@@ -447,9 +447,13 @@ its child): an ssh of a remote that does not answer reads no end of its pipes an
 the kill ends the job object that git was put into when it started: `git` on `PATH` is mostly the launcher of Git for
 Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the launcher alone would leave that
 git running with its ssh or helper, its lock files and our inherited pipe handles. On Unix the kill takes the processes
-below git by their parent pids, read just before its `SIGKILL`, and kills each that still has its start time; git stays
-in the process group of the caller, so the passphrase prompt of an ssh in a terminal still reads it. A git that exits
-by itself ends nothing. Each run is one tracing span (`git`, with the command, the exit code
+below git by their parent pids in passes: it stops git and what each pass found (`SIGSTOP`, so nothing forks more) and
+scans again until a pass finds nothing new, then kills them all; a signal goes only to a process that still has the
+start time the scan read, so a reused pid gets none. A process whose parent exited before the kill, which the system gave
+to launchd or init (a daemon that detached), is not found and runs on. git stays in the process group of the caller, so
+the passphrase prompt of an ssh in a terminal still reads it; on Linux `PR_SET_CHILD_SUBREAPER` would keep such orphans
+findable, at the cost of reaping every orphan of the caller's children, and is not used. A git that exits by itself
+ends nothing. Each run is one tracing span (`git`, with the command, the exit code
 and the time), and a guard kills a git that still runs and counts the process however the run ends: a handler error, a
 stop or a `Break`. Text is decoded with `String::from_utf8`, lossily only when it is not UTF-8; stderr is read as bytes
 and decoded lossily, the interactive one too. Three shorthands stay for the common one-liners: `execute_command` is

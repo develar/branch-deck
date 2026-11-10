@@ -8,12 +8,26 @@
 //! every process it started. A child that exits by itself ends nothing: the job has no kill-on-close, and a process that
 //! asks to break away from it (a daemon) may.
 //!
-//! On Unix a kill takes the processes below the child by their parent pids (`process_scan::descendants`), read before
-//! the child's `SIGKILL`, then `SIGKILL`s each of them that still has its start time. No process group: a child stays
-//! in the foreground group of a terminal, so a login shell (`-i`) or the passphrase prompt of an ssh still reads it. A
-//! process that leaves the tree before the kill (a daemon that detached) stays
+//! On Unix a kill takes the processes below the child by their parent pids (`process_scan::descendants`) in passes: it
+//! stops the child and each process a pass found (`SIGSTOP`: a stopped process forks no more) and scans again, until a
+//! pass finds nothing new (at most `MAX_PASSES`), then `SIGKILL`s the child and each of them. A process forked between
+//! two passes is a child of a process still there, stopped or not yet, so the next pass finds it; the usual tree takes
+//! two scans of the process list, about 20 ms each. Each signal goes only to a process that still has the start time the
+//! scan read (`process_scan::stop`, `process_scan::kill`), so a pid that the system gave again in the meantime gets none.
+//! Not found, and left running: a process whose parent exited before the kill, which the system gave to launchd or init
+//! (a daemon that detached, the child of a helper that ended), and one that another user's process started.
+//!
+//! No process group: a child stays in the foreground group of a terminal, so a login shell (`-i`) or the passphrase
+//! prompt of an ssh still reads it. On Linux `PR_SET_CHILD_SUBREAPER` would keep the orphans of a tree below this
+//! process, so a later scan finds them too, but it makes this process the parent of every orphan of its children, which
+//! it then has to reap; it is not used
 
 use std::process::Child;
+
+/// The most scans of one kill on Unix: each pass stops what it found, so only a process that forked between a scan and
+/// its stop adds another
+#[cfg(unix)]
+const MAX_PASSES: usize = 8;
 
 /// The job of a started child (none where a job could not be made or joined: then a kill ends the child alone), or on
 /// Unix the child and its start
@@ -57,13 +71,32 @@ impl ProcessTree {
       return;
     }
     #[cfg(unix)]
-    let below = self.root.map_or_else(Vec::new, |(pid, started)| crate::process_scan::descendants(pid, started));
+    let below = self.root.map_or_else(Vec::new, stopped_tree);
     let _ = child.kill();
     #[cfg(unix)]
     for (pid, started) in below {
       crate::process_scan::kill(pid, started);
     }
   }
+}
+
+/// The processes below `root`, stopped: the root, then each pass of `process_scan::descendants` stops what it found,
+/// until a pass finds nothing new
+#[cfg(unix)]
+fn stopped_tree((pid, started): (u32, u64)) -> Vec<(u32, u64)> {
+  crate::process_scan::stop(pid, started);
+  let mut tree: Vec<(u32, u64)> = Vec::new();
+  for _ in 0..MAX_PASSES {
+    let new: Vec<(u32, u64)> = crate::process_scan::descendants(pid, started).into_iter().filter(|found| !tree.contains(found)).collect();
+    if new.is_empty() {
+      break;
+    }
+    for &(pid, started) in &new {
+      crate::process_scan::stop(pid, started);
+    }
+    tree.extend(new);
+  }
+  tree
 }
 
 #[cfg(windows)]
