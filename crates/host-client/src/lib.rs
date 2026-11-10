@@ -179,10 +179,6 @@ impl<'a> Client<'a> {
     &self.config
   }
 
-  pub const fn build(&self) -> &Build {
-    &self.build
-  }
-
   /// Whether the person pressed Ctrl+C
   fn interrupted(&self) -> bool {
     (self.presses)() > 0

@@ -310,11 +310,21 @@ where
   }
 }
 
-/// The build of this binary: the version of Branch Deck and the SHA-256 of the executable
+/// The build of this binary: the version of Branch Deck and the SHA-256 of the executable. Only a run (whose start
+/// names another build of the host) and a hello (`same_build`) read the SHA-256, so only they hash the executable
 fn this_build() -> Build {
   Build {
     version: VERSION.to_owned(),
     sha256: this_exe().ok().and_then(|exe| sha256_file(&exe).ok()),
+  }
+}
+
+/// The build of this binary without the SHA-256 of the executable, for the requests that never read it: the hash reads
+/// the whole binary, 40 MB of a debug build, and took most of each command of a loaded test run
+fn unhashed_build() -> Build {
+  Build {
+    version: VERSION.to_owned(),
+    sha256: None,
   }
 }
 
@@ -323,14 +333,19 @@ fn this_exe() -> Result<PathBuf, Refusal> {
 }
 
 /// The client of this process with the git of `GitInfo::discover_for_cli`, for the commands that run git
-fn client_with_git<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync)) -> Result<Client<'a>, Refusal> {
+fn client_with_git<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync), build: Build) -> Result<Client<'a>, Refusal> {
   let git = GitInfo::discover_for_cli(None).map_err(|hint| Refusal::new(Code::GitFailed, hint))?;
-  Ok(client(out, say)?.with_git(GitCommandExecutor::with_info(git)))
+  Ok(client_of(out, say, build)?.with_git(GitCommandExecutor::with_info(git)))
 }
 
+/// The client of a request that never reads the SHA-256 of this binary
 fn client<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync)) -> Result<Client<'a>, Refusal> {
+  client_of(out, say, unhashed_build())
+}
+
+fn client_of<'a>(out: &'a (dyn Fn(&str) + Sync), say: &'a (dyn Fn(&str) + Sync), build: Build) -> Result<Client<'a>, Refusal> {
   let config = host_client::config::Config::of_user()?;
-  Ok(Client::new(config, this_build(), &OsProcesses, say, &interrupt::presses).with_stdout(out))
+  Ok(Client::new(config, build, &OsProcesses, say, &interrupt::presses).with_stdout(out))
 }
 
 /// The options of a run from its command line
@@ -373,7 +388,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     Err(refusal) => return write_report(&refused(&refusal)),
   };
   let line_out = |line: &str| out.line(line);
-  let client = match client_with_git(&line_out, &say) {
+  let client = match client_with_git(&line_out, &say, this_build()) {
     Ok(client) => client,
     Err(refusal) => return write_report(&refused(&refusal)),
   };
@@ -430,7 +445,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     }
     Command::Fetch { alias, run, fetch } => {
       let checkout = checkout_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))?;
-      let fetched = client_with_git(&line_out, &say)?.fetch(&alias, &run, &checkout, &fetch)?;
+      let fetched = client_with_git(&line_out, &say, unhashed_build())?.fetch(&alias, &run, &checkout, &fetch)?;
       out.line(&format!("copied {} files of the run {run} into {}", fetched.len(), checkout.display()));
       Ok(0)
     }
@@ -512,7 +527,8 @@ struct RunsOutput<'a> {
 /// `brd-host hello`
 fn hello(alias: &str, json: bool, out: &Out) -> Result<u8, Refusal> {
   let line_out = |line: &str| out.line(line);
-  let answer: Result<(AgentInfo, Build), Refusal> = client(&line_out, &say).and_then(|client| Ok((client.hello(alias)?, client.build().clone())));
+  // the SHA-256 once the agent answered: a refused hello compares no build
+  let answer: Result<(AgentInfo, Build), Refusal> = client(&line_out, &say).and_then(|client| Ok((client.hello(alias)?, this_build())));
   match answer {
     Ok((info, build)) => {
       let report = HelloReport::new(alias, &info, &build);

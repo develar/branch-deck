@@ -102,7 +102,8 @@ The lend table, the give-back, the clean and the shrink are in "Host slots" of
 
 The hello carries the protocol schema, the version of Branch Deck (`package.json`, as `brd version` reads it) and the
 SHA-256 of the binary as its build id. A different schema refuses with `schema`, exit 75. A different build of the
-same schema runs, and the client adds one line that names `brd-host upgrade <alias>`.
+same schema runs, and the client adds one line that names `brd-host upgrade <alias>`. The client hashes its own binary
+only for a run and for `hello`, the commands that compare the builds; the hash reads the whole executable.
 
 `brd-host upgrade <alias>` keeps the behavior of `yonder upgrade`:
 

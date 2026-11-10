@@ -16,7 +16,7 @@ use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
 
 const BD_HOST: &str = env!("CARGO_BIN_EXE_brd-host");
 
@@ -34,7 +34,7 @@ impl World {
     let home = tempfile::tempdir().expect("a temporary home");
     let repo = TestRepo::new();
     repo.create_commit_with_files("first", &[(".gitignore", "out/\n")]);
-    repo.git(&["config", "branchdeck.hostSlots", "1"]);
+    append_config(repo.path(), &[("branchdeck.hostSlots", "1")]);
     let client = Identity::load_or_create(&home.path().join(".config/brd-host")).expect("the client identity");
     let mut allow = AllowList::default();
     allow.add(client.fingerprint(), "test").expect("a name");
@@ -203,16 +203,14 @@ fn the_report_goes_to_its_descriptor_on_every_way_out() {
 fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   let world = World::new();
   let _agent = world.serve();
-  let gate = world.home.path().join("never");
-  // The trap makes the end of the command certain. Without it, sh goes on when SIGINT comes while it reaps a `sleep`
-  // that has exited 0: sh then takes the signal as handled by its child. The loop then runs to its end, before SIGKILL
-  let script = format!(
-    "trap 'exit 130' INT; echo started; i=0; while [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i + 1)); done",
-    gate.display()
-  );
+  // One `sleep` until the cancel, where a loop of short ones started a process every 50 ms: SIGINT reaches the group,
+  // so `sleep` dies of it and sh runs the trap. The trap makes the end of the command certain: without it, sh goes on
+  // when SIGINT comes while it reaps a child that has exited 0, as it takes the signal as handled by its child. A failed
+  // test leaves the command for at most 60 s
+  let script = "trap 'exit 130' INT; echo started; sleep 60";
   let mut run = world
     .command()
-    .args(["run", ALIAS, "--head", "--", "/bin/sh", "-c", &script])
+    .args(["run", ALIAS, "--head", "--", "/bin/sh", "-c", script])
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
     .spawn()
