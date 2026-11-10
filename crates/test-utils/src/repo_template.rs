@@ -636,6 +636,44 @@ pub mod templates {
     template
   }
 
+  /// The branch `parts`: a commit that adds `Loader.probe`, uses it in `Config.kt`, removes `Loader.legacy` and adds an
+  /// import, so the story shows `Loader.kt` in three parts: the probe in the step, the removal (deletions alone) in
+  /// Other changes, the import in the group of the imports; the fold at the end of the first names the removal, the
+  /// fold of the second the probe and the import
+  pub fn review_parts() -> RepoTemplate {
+    let helpers = (1..=12).fold(String::new(), |mut helpers, number| {
+      let _ = writeln!(helpers, "  fun helper{number}(): Int = {number}");
+      helpers
+    });
+    let loader = |imports: &str, probe: &str, legacy: &str| {
+      format!("package plugins\n\nimport java.io.File\n{imports}\nclass Loader {{\n  fun load(name: String): String = File(name).name\n{probe}{helpers}{legacy}}}\n")
+    };
+    let legacy = "\n  fun legacy(): Int {\n    return 1\n  }\n";
+    let probe = "\n  fun probe(name: String): Boolean {\n    return name.isNotEmpty()\n  }\n\n";
+    let config = |body: &str| format!("package plugins\n\nclass Config {{\n  fun configure(loader: Loader): String {{\n{body}  }}\n}}\n");
+    RepoTemplate::new("review_parts")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("src/plugins/Loader.kt", &loader("", "", legacy)),
+          ("src/plugins/Config.kt", &config("    return loader.load(\"a\")\n")),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(parts) feat(loader): probe the loader before configuring\n\nThe loader says whether it holds a name, and the config asks it first; the legacy count goes.",
+        &[
+          ("src/plugins/Loader.kt", &loader("import java.util.Locale\n", probe, "")),
+          (
+            "src/plugins/Config.kt",
+            &config("    if (!loader.probe(\"a\")) return \"\"\n    return loader.load(\"a\")\n"),
+          ),
+        ],
+        Some(1704118200),
+      )
+  }
+
   pub fn review_long_titles() -> RepoTemplate {
     let plan = |overview: &str, title: &str| format!("package review\n\nclass Plan {{\n  fun overview(): String = \"{overview}\"\n  fun title(): String = \"{title}\"\n}}\n");
     RepoTemplate::new("review_long_titles")

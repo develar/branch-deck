@@ -2,12 +2,12 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, Concern, ConcernName, ConcernPart, FileFacts, GeneratedBy, ReviewUnit, UnitBlock, UnitKind } from "@/lib/bindings"
 import { headingText } from "@/lib/diff/rows"
 import { concernChapters } from "@/presenters/review-steps"
-import { formatUnitHeading, presentNarrative } from "@/presenters/review-units"
+import { formatPart, formatUnitHeading, presentNarrative } from "@/presenters/review-units"
 import type { NarrativeFile } from "@/presenters/review-units"
 
 /** Block `index` of a file: one line changed at `line` on each side */
 function block(index: number, line: number): UnitBlock {
-  return { index, oldStart: line, oldEnd: line + 1, newStart: line, newEnd: line + 1 }
+  return { index, oldStart: line, oldEnd: line + 1, newStart: line, newEnd: line + 1, additions: 1, deletions: 1 }
 }
 
 function unit(kind: UnitKind, name: string | null, slices: { path: string; blocks: UnitBlock[]; whole?: boolean }[]): ReviewUnit {
@@ -75,6 +75,46 @@ describe("the story of a review", () => {
     // the block of the imports is one row here, which opens the group
     expect([...api.units!.elsewhere]).toEqual([[0, "Shown in Imports only (1)"]])
     expect(api.targets.get(0)).toBe("group:mechanical:src/Api.kt:src/Api.kt")
+  })
+
+  it("numbers the parts of a file the story shows in several sections, each with the lines of its own blocks, a part of deletions alone too", () => {
+    // Loader.kt between the changes of Config.kt three times: the second part removes two lines and adds none
+    const removal: UnitBlock = { index: 1, oldStart: 20, oldEnd: 22, newStart: 20, newEnd: 20, additions: 0, deletions: 2 }
+    const wide: UnitBlock = { index: 2, oldStart: 40, oldEnd: 40, newStart: 38, newEnd: 43, additions: 5, deletions: 0 }
+    const units = [
+      unit({ kind: "added" }, "load", [{ path: "src/Loader.kt", blocks: [block(0, 3)] }]),
+      unit({ kind: "behaviour" }, "configure", [{ path: "src/Config.kt", blocks: [block(0, 5)] }]),
+      unit({ kind: "removed" }, "legacy", [{ path: "src/Loader.kt", blocks: [removal] }]),
+      unit({ kind: "behaviour" }, "apply", [{ path: "src/Config.kt", blocks: [block(1, 9)] }]),
+      unit({ kind: "added" }, "probe", [{ path: "src/Loader.kt", blocks: [wide] }]),
+    ]
+    const files: NarrativeFile[] = [
+      { path: "src/Config.kt", blocks: [block(0, 5), block(1, 9)] },
+      { path: "src/Loader.kt", blocks: [block(0, 3), removal, wide] },
+    ]
+    const sections = presentNarrative(units, files, [], [], [])
+    expect(sections.map(section => [section.path, section.part === null ? null : formatPart(section.part), section.part?.additions, section.part?.deletions])).toEqual([
+      ["src/Loader.kt", "part 1 of 3", 1, 1],
+      ["src/Config.kt", "part 1 of 2", 1, 1],
+      ["src/Loader.kt", "part 2 of 3", 0, 2],
+      ["src/Config.kt", "part 2 of 2", 1, 1],
+      ["src/Loader.kt", "part 3 of 3", 5, 0],
+    ])
+    // a block another part of the file shows says which part
+    expect([...sections[0]!.units!.elsewhere]).toEqual([
+      [1, "Shown in part 2"],
+      [2, "Shown in part 3"],
+    ])
+    expect(sections[0]!.targets.get(2)).toBe(sections[4]!.key)
+  })
+
+  it("names no part of a file the story shows in one section", () => {
+    const units = [
+      unit({ kind: "added" }, "load", [{ path: "src/Loader.kt", blocks: [block(0, 3)] }]),
+      unit({ kind: "behaviour" }, "configure", [{ path: "src/Loader.kt", blocks: [block(1, 5)] }]),
+    ]
+    const sections = presentNarrative(units, [file("src/Loader.kt", [3, 5])], [], [], [])
+    expect(sections.map(section => section.part)).toEqual([null])
   })
 
   it("shows a deleted file whole in its place, and the files deleted from one directory as a group, each collapsed", () => {

@@ -21,7 +21,7 @@ const commit = stepCommit
 const step = reviewStep
 
 /** A block of `src/Manager.kt`, which the units of the joins share */
-const block = { index: 0, oldStart: 4, oldEnd: 6, newStart: 4, newEnd: 9 }
+const block = { index: 0, oldStart: 4, oldEnd: 6, newStart: 4, newEnd: 9, additions: 5, deletions: 2 }
 
 /** A declaration of `src/Manager.kt` whose name is on line 5, with `blocks` of its own */
 function unit(id: string, kind: ReviewUnit["kind"], name: string, blocks: (typeof block)[]): ReviewUnit {

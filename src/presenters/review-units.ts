@@ -46,6 +46,25 @@ export interface NarrativeSection {
   readonly folded: string | null
   /** A use of the change before it that the change left outside: its file at the head around its line (from 1) */
   readonly ghost: { readonly line: number; readonly name: string; readonly heading: HeadingPart } | null
+  /** Of a file the story shows in two sections or more, which one this is and what it changes; null otherwise */
+  readonly part: SectionPart | null
+}
+
+/**
+ * A part of a file the story shows in several sections: "part 2 of 3", its place among the sections of the file in the
+ * order of the story, and the lines its blocks add and remove as Rust counts them (`UnitBlock.additions`)
+ */
+export interface SectionPart {
+  /** From 0 */
+  readonly index: number
+  readonly count: number
+  readonly additions: number
+  readonly deletions: number
+}
+
+/** "part 2 of 3" */
+export function formatPart(part: Pick<SectionPart, "index" | "count">): string {
+  return `part ${part.index + 1} of ${part.count}`
 }
 
 /** The uses left outside that the story shows of a change at most, as the card lists them */
@@ -450,6 +469,7 @@ export function presentNarrative(
     placeWhole(file.path)
   }
 
+  const parts = partsOf(drafts, units)
   // the section of each block, for the rows that stand for it elsewhere
   const owners = new Map<string, Map<number, Draft>>()
   for (const draft of drafts) {
@@ -462,7 +482,47 @@ export function presentNarrative(
       ofPath.set(block, draft)
     }
   }
-  return drafts.flatMap(draft => [sectionOf(draft, owners), ...draft.ghosts])
+  return drafts.flatMap(draft => [sectionOf(draft, owners, parts), ...draft.ghosts])
+}
+
+/**
+ * The part each section of a file is (`SectionPart`), of a file the story shows in two sections or more: their place in
+ * the order of the story, the lines of the blocks each shows (all of the file for a section of the whole file)
+ */
+function partsOf(drafts: readonly Draft[], units: readonly ReviewUnit[]): Map<Draft, SectionPart> {
+  const byPath = new Map<string, Draft[]>()
+  for (const draft of drafts) {
+    byPath.set(draft.path, [...(byPath.get(draft.path) ?? []), draft])
+  }
+  // the lines of each block of each file, from the slices that hold it
+  const linesOf = new Map<string, Map<number, UnitBlock>>()
+  for (const slice of units.flatMap(unit => unit.slices)) {
+    let ofPath = linesOf.get(slice.path)
+    if (ofPath === undefined) {
+      ofPath = new Map()
+      linesOf.set(slice.path, ofPath)
+    }
+    for (const block of slice.blocks) {
+      ofPath.set(block.index, block)
+    }
+  }
+  const parts = new Map<Draft, SectionPart>()
+  for (const [path, sections] of byPath) {
+    if (sections.length < 2) {
+      continue
+    }
+    const blocks = linesOf.get(path) ?? new Map<number, UnitBlock>()
+    sections.forEach((draft, index) => {
+      const shown = draft.blocks === null ? [...blocks.values()] : [...draft.blocks].flatMap(block => blocks.get(block) ?? [])
+      parts.set(draft, {
+        index,
+        count: sections.length,
+        additions: shown.reduce((sum, block) => sum + block.additions, 0),
+        deletions: shown.reduce((sum, block) => sum + block.deletions, 0),
+      })
+    })
+  }
+  return parts
 }
 
 /** The first heading of a section as one line, else the name of its file */
@@ -490,13 +550,19 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     concernHeading: null,
     folded: null,
     ghost: { line: site.line, name: change!.name, heading: { name: change!.name, words: `left outside: ${site.path}:${site.line}` } },
+    part: null,
   }))
 }
 
-/** The section of `draft`: its headings, and a row for each block another section shows (`owners`, by path and block) */
-function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number, Draft>>): NarrativeSection {
+/**
+ * The section of `draft`: its headings, its part of its file (`parts`), and a row for each block another section shows
+ * (`owners`, by path and block): another part of the file by its number ("Shown in part 2"), of another concern that
+ * concern, else the heading of the owner
+ */
+function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number, Draft>>, parts: ReadonlyMap<Draft, SectionPart>): NarrativeSection {
   {
     const { concern, concernHeading } = draft
+    const part = parts.get(draft) ?? null
     if (draft.blocks === null) {
       return {
         key: draft.key,
@@ -511,17 +577,22 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
         concernHeading,
         folded: draft.folded,
         ghost: null,
+        part,
       }
     }
     const elsewhere = new Map<number, string>()
     const targets = new Map<number, string>()
     for (const [block, owner] of owners.get(draft.path) ?? []) {
       if (owner !== draft) {
-        // a block of another concern says which: the section of the same file there
+        // a block of another concern says which: the section of the same file there; of another part of the file in
+        // this concern, that part
+        const ownerPart = parts.get(owner)
         const where =
           owner.concern !== draft.concern && owner.concernName !== null
             ? owner.concernName
-            : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : headingOrName(owner.marks.values().next().value, owner.path)))
+            : ownerPart !== undefined && owner.folded === null
+              ? `part ${ownerPart.index + 1}`
+              : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : headingOrName(owner.marks.values().next().value, owner.path)))
         elsewhere.set(block, `Shown in ${where}`)
         targets.set(block, owner.key)
       }
@@ -539,6 +610,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
       concernHeading,
       folded: draft.folded,
       ghost: null,
+      part,
     }
   }
 }

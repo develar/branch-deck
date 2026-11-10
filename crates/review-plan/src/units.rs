@@ -97,6 +97,10 @@ pub struct UnitBlock {
   pub old_end: u32,
   pub new_start: u32,
   pub new_end: u32,
+  /// Its lines added and removed as the engine counts them under `Default` (`pair::LineBlock::added`): what the header
+  /// of a part of a file in the review window says it changes
+  pub additions: u32,
+  pub deletions: u32,
 }
 
 /// What a unit changes in one file
@@ -188,6 +192,8 @@ fn unit_block(index: usize, block: &LineBlock) -> UnitBlock {
     old_end: block.old.end,
     new_start: block.new.start,
     new_end: block.new.end,
+    additions: block.added,
+    deletions: block.removed,
   }
 }
 

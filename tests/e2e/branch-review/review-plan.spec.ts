@@ -941,7 +941,7 @@ test.describe("The review plan in the branch review", () => {
     await row("docs/guide.md, also in 1 · ijproxy").click()
     await expect(row("docs/guide.md, also in 1 · ijproxy")).toHaveAttribute("aria-selected", "true")
     await expect(row("docs/guide.md")).toHaveAttribute("aria-selected", "false")
-    await expect(position).toHaveText(/File 4 \/ 8$/)
+    await expect(position).toHaveText(/File 4 \/ 8 · part 1 of 2$/)
     await window.keyboard.press("j")
     await expect(row("tools/codex/config.toml")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("j")
@@ -950,7 +950,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(row("2 · grep → accio")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("j")
     await expect(row("docs/guide.md")).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 4 \/ 8$/)
+    await expect(position).toHaveText(/File 4 \/ 8 · part 2 of 2$/)
     await window.keyboard.press("k")
     await expect(row("2 · grep → accio")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("k")
@@ -1041,10 +1041,11 @@ test.describe("The review plan in the branch review", () => {
     const imports = window.locator('[data-testid="diff-view-file"][data-section="group:mechanical:importsOnly:src/Base.kt"]')
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Base.kt", "src/Store.kt", "src/Base.kt"])
 
-    // Base.kt in the tree: its new function under its heading, the import one row that names the group
+    // Base.kt in the tree: its new function under its heading, the import one row that names the group; the file is in
+    // two parts, its own section and the group of the imports
     const position = window.getByTestId("review-position")
     await window.getByRole("treeitem", { name: "Base.kt" }).click()
-    await expect(position).toHaveText(/File 3 \/ 4$/)
+    await expect(position).toHaveText(/File 3 \/ 4 · part 1 of 2$/)
     await expect(own.getByTestId("diff-unit-heading")).toHaveText("other — new")
     await expect(own).toContainText("fun other() = max(1, 2)")
     await expect(own).not.toContainText("import kotlin.math.max")
@@ -1053,7 +1054,7 @@ test.describe("The review plan in the branch review", () => {
     // from the top of Base.kt, N goes to the function, then to Store.kt: the import is no change of this section
     await window.getByTestId("commit-review-code").locator("[aria-label='Changes of the commit']").focus()
     await window.keyboard.press("n")
-    await expect(position).toHaveText(/File 3 \/ 4$/)
+    await expect(position).toHaveText(/File 3 \/ 4 · part 1 of 2$/)
     await window.keyboard.press("n")
     await expect(position).toHaveText(/File 4 \/ 4$/)
 

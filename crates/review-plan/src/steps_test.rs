@@ -1229,6 +1229,8 @@ fn a_declaration_without_a_block_of_two_concerns_joins_once_and_never_a_group() 
     old_end: 6,
     new_start: 2,
     new_end: 8,
+    additions: 6,
+    deletions: 4,
   };
   let units = [
     unit_of("allowed", UnitKind::Added, Some(3), vec![block.clone()]),

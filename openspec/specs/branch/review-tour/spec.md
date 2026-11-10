@@ -48,6 +48,8 @@ targets:
   - src/components/diff/diff-view.css
   - src/hooks/useSelectReviewFile.ts
   - src/stores/review-seen.ts
+  - src/lib/review-position.ts
+  - src/components/diff/diff-painter.ts
 ---
 
 # Review Tour
@@ -1388,7 +1390,8 @@ as the engine does, since git's count of the range would take a process of its o
   blank line before the closing brace of a class, +8 −0 by the engine and +9 −0 by git
 - **THEN** the shape counts +9 −0
 - **AND** the tree and the header of its card count as the engine does, under the whitespace policy
-  ([Commit Files](../../commit/commit-files/spec.md#requirement-reading-the-diffs-the-counts-of-a-file-are-the-engines))
+  ([Commit Files](../../commit/commit-files/spec.md#requirement-reading-the-diffs-the-counts-of-a-file-are-the-engines)),
+  and the header of a part of a file its own blocks as the engine counts them under `Default`
   [@test] crates/review-plan/src/modules_test.rs (`the_lines_of_a_module_are_what_git_counts_where_the_engine_aligns_otherwise`)
   [@test] crates/trial-check/src/diff_scan_test.rs (`read_commit_diffs_gives_git_counts_beside_the_engines`, `parses_git_counts_after_the_raw_part`)
 
@@ -2451,7 +2454,8 @@ description of the row too).
 
 A file MUST be seen once the window showed it on purpose (its row, J and K at its card, N and P, a place of a mark or
 of the document) or its card passed entirely through the viewport of the diffs, its top and its bottom each in view at
-some time, its diff read (`DiffLayout.passedCards`: the cards in view at each scroll, no work per frame).
+some time, its diff read (`DiffLayout.passedCards`: the cards in view at each scroll, no work per frame); a file in
+parts once each of its parts was.
 
 #### Scenario: A card scrolled entirely through the diffs
 - **WHEN** the top and the bottom of a card were each in view, at once or one scroll after the other
@@ -2464,6 +2468,61 @@ some time, its diff read (`DiffLayout.passedCards`: the cards in view at each sc
   document
 - **THEN** the file is seen
   [@test] tests/e2e/branch-review/review-groups.spec.ts (`should count the files of a group the reader saw: a file shown, a card scrolled entirely through the diffs, and say in the bar above the diffs where the reader is`)
+
+#### Scenario: A file in parts
+- **WHEN** the reader saw the first part of a file the story shows in three, then the two others
+- **THEN** the file is seen only after the third part, and a new head counts its parts from zero
+  [@test] src/stores/review-seen.test.ts (`sees a file of one card at its card, a file the story shows in parts once each of its parts was seen`)
+
+### Requirement: In the Review Window: A card of a file in parts names its part and its own lines
+
+A card of a file the story shows in two sections or more MUST say which part of the file it is, in the order of the
+story ("part 1 of 3"), and the lines its own blocks add and remove as the engine counts them under `Default` (Rust's
+count of each block), in place of the counts of the file; a part of deletions alone too ("+0 −4").
+
+#### Scenario: A file in three parts
+- **WHEN** the story shows a file in three sections: a new declaration, a removal and an import
+- **THEN** their headers say "part 1 of 3 +5 −0", "part 2 of 3 +0 −4" and "part 3 of 3 +1 −0"
+- **AND** a file the story shows in one section keeps the counts of the file and names no part
+  [@test] src/presenters/review-units.test.ts (`numbers the parts of a file the story shows in several sections, each with the lines of its own blocks, a part of deletions alone too`, `names no part of a file the story shows in one section`)
+  [@test] tests/e2e/branch-review/review-parts.spec.ts (`should show a file in parts as a card each, its part and its own lines, the footer the part at the top as J walks them, its row the first part, and a fold the changes other parts show, which it opens`)
+
+#### Scenario: The lines of a block
+- **WHEN** Rust counts the lines of a block that reaches the end of a file and holds the empty line after its final
+  line end
+- **THEN** the count leaves that line out, so the blocks of the file sum to the engine's count of it
+  [@test] crates/review-plan/src/units_test.rs (`each_block_counts_its_lines_as_the_engine_does`)
+
+### Requirement: In the Review Window: The footer names the part of a file at the top
+
+While a card of a file in parts is at the top, the footer MUST name its part after the file ("Step 1 · File 2 / 7 ·
+part 2 of 3"), as J and K walk the parts.
+
+#### Scenario: J through the parts of a file
+- **WHEN** J walks from the first part of a file to its second and third
+- **THEN** the footer says "part 1 of 3", "part 2 of 3" and "part 3 of 3" after the file, nothing at an opening
+  between them
+  [@test] src/lib/review-position.test.ts (`names the part at the top of a file the story shows in several sections after the file`)
+  [@test] tests/e2e/branch-review/review-parts.spec.ts (`should show a file in parts as a card each, its part and its own lines, the footer the part at the top as J walks them, its row the first part, and a fold the changes other parts show, which it opens`)
+
+### Requirement: In the Review Window: A fold names the changes another section shows
+
+A fold MUST count only the unchanged lines it hides and name after them each place that shows a block it hides, with
+the count of those blocks ("⋯ 9 unchanged lines · 1 change in part 2", "in Other changes" of another concern), a
+click there showing that section; it MUST name the lines of a block the whitespace policy ignores ("· 1 line hidden by
+Whitespace").
+
+#### Scenario: A fold over the change of another part
+- **WHEN** a fold of a section hides a block another section shows: an import the group of the imports shows
+- **THEN** it counts the unchanged lines alone, 66 where the old side holds 66 and the new one 67
+- **AND** it says "1 change in part 2", and a click there shows that section, expanded
+  [@test] src/lib/diff/rows.test.ts (`names in a fold of a section the blocks another section shows that it hides, and counts only its unchanged lines`)
+  [@test] tests/e2e/branch-review/review-parts.spec.ts (`should show a file in parts as a card each, its part and its own lines, the footer the part at the top as J walks them, its row the first part, and a fold the changes other parts show, which it opens`)
+
+#### Scenario: A fold over a line the policy ignores
+- **WHEN** a fold hides blocks the whitespace policy ignores: a deleted blank line, a line indented again
+- **THEN** it says "24 unchanged lines · 2 lines hidden by Whitespace"
+  [@test] src/lib/diff/rows.test.ts (`counts the unchanged lines a fold hides, apart from the lines of the blocks the policy ignores there`)
 
 ### Requirement: In the Review Window: The files seen are the state of the window by the head
 

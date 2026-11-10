@@ -18,6 +18,7 @@ targets:
   - crates/review-plan/src/registrations.rs
   - crates/review-plan/src/order.rs
   - crates/review-plan/src/texts.rs
+  - crates/review-plan/src/modules.rs
   - crates/trial-check/src/declaration_checks.rs
   - crates/code-symbols/src/kotlin/summary.rs
   - crates/code-symbols/src/java/summary.rs

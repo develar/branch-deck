@@ -147,6 +147,11 @@ export interface DiffSection {
   readonly story?: readonly StoryMark[]
   /** The units it shows (`NarrativeSection.unitIds`): a place of one of them is shown in it */
   readonly unitIds?: ReadonlySet<string>
+  /**
+   * Of a file the story shows in two sections or more, which one this is ("part 2 of 3", `index` from 0) and the lines
+   * its blocks change: its header says them in place of the counts of the file
+   */
+  readonly part?: { readonly index: number; readonly count: number; readonly additions: number; readonly deletions: number } | null
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -187,9 +192,9 @@ export interface DiffViewHandle {
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
    * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. Returns the
-   * path of the file it shows; undefined, and nothing moves, when no block is left in that direction
+   * file it shows and the key of its section; undefined, and nothing moves, when no block is left in that direction
    */
-  moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => string | undefined
+  moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => { path: string; key: string } | undefined
   /**
    * The section at the top and its part there, at its opening the step whose opening it is: the one the view showed
    * last, or the one scrolled to (`onVisibleSectionChange`); undefined without files
@@ -200,9 +205,9 @@ export interface DiffViewHandle {
   stepFind: (direction: 1 | -1) => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
-   * Back returns to. False for a file the view does not show
+   * Back returns to. Returns the key of the section that shows it; undefined for a file the view does not show
    */
-  revealDeclaration: (place: DeclarationPlace, from: DeclarationPlace | null) => boolean
+  revealDeclaration: (place: DeclarationPlace, from: DeclarationPlace | null) => string | undefined
 }
 
 /** A name in a side of a file of the view: a declaration to show, or the place a jump to one started */
@@ -242,10 +247,10 @@ export interface DiffViewProps {
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
   onFirstScreen?: () => void
   /**
-   * The files of the cards that passed entirely through the viewport (`DiffLayout.passedCards`), each once a view, as a
-   * scroll brings them: the progress of a review
+   * The cards that passed entirely through the viewport (`DiffLayout.passedCards`), each by its file and its key (of a
+   * section of a review its own), each once a view, as a scroll brings them: the progress of a review
    */
-  onCardsPassed?: (paths: readonly string[]) => void
+  onCardsPassed?: (cards: readonly { readonly path: string; readonly key: string }[]) => void
   /**
    * Go to Declaration (openspec/specs/commit/symbol-navigation/spec.md): a ⌘-click (Ctrl-click off macOS) on a name, ⌘B on the
    * selection, the item of the menu of the code; `at` is where to show a choice of declarations
@@ -1072,7 +1077,7 @@ export function DiffView({
         if (onCardsPassed !== undefined) {
           const passed = layout.passedCards(top, height, passedEdges.current, index => prepared[index]?.pending === false)
           if (passed.length > 0) {
-            onCardsPassed(passed.map(index => prepared[index]!.path))
+            onCardsPassed(passed.map(index => ({ path: prepared[index]!.path, key: prepared[index]!.key })))
           }
         }
       },
@@ -1081,10 +1086,14 @@ export function DiffView({
         const target = prepared[index]?.section?.targets.get(note.block)
         const shown = target === undefined ? -1 : layout.indexOf(target)
         if (shown >= 0) {
-          if (prepared[shown]!.collapsed) {
-            toggleFile(prepared[shown]!.key)
+          const file = prepared[shown]!
+          if (file.collapsed) {
+            toggleFile(file.key)
           }
           showSection(shown)
+          // the section shown is the one at the top, for the tree and the bar of the step, as a click on the map
+          onVisibleSectionChange?.(file.key, file.path, visiblePart.current, visibleStep.current)
+          onVisibleFileChange?.(file.path)
         }
       },
       onFirstScreen: () => onFirstScreen?.(),
@@ -1200,12 +1209,13 @@ export function DiffView({
   }
 
   /** Shows a place of the view: its file open, its fold expanded, then (`revealTick`) scrolled to and selected */
-  const revealPlace = (place: DeclarationPlace): boolean => {
+  /** Shows `place`: the key of the section that shows it, undefined for a file the view does not show */
+  const revealPlace = (place: DeclarationPlace): string | undefined => {
     const side = place.side === "old" ? OLD : NEW
     const index = sectionOf(prepared, place.path, { side, line: place.line, unit: place.unit })
     const file = prepared[index]
     if (file === undefined) {
-      return false
+      return undefined
     }
     if (file.collapsed) {
       toggleFile(file.key)
@@ -1220,7 +1230,7 @@ export function DiffView({
     }
     pendingReveal.current = place
     setRevealTick(tick => tick + 1)
-    return true
+    return file.key
   }
 
   /** Go to Declaration or Find Usages of a word: the reveal of a target keeps the place of the name for Back */
@@ -1236,7 +1246,7 @@ export function DiffView({
           }
           history.current.back.push(found.place)
           history.current.forward = []
-          return revealPlace(place)
+          return revealPlace(place) !== undefined
         },
         found.place,
       )
@@ -1392,7 +1402,7 @@ export function DiffView({
           visiblePath.current = path
           scrollToChange(fileIndex, target)
           fileMap.current?.sync()
-          return path
+          return { path, key }
         }
         fileIndex += direction
         index = direction === 1 ? 0 : Number.MAX_SAFE_INTEGER
@@ -1414,7 +1424,7 @@ export function DiffView({
     stepFind,
     revealDeclaration: (place, from) => {
       if (sectionOf(prepared, place.path) < 0) {
-        return false
+        return undefined
       }
       if (from !== null) {
         history.current.back.push(from)

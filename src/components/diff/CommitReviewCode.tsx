@@ -28,6 +28,7 @@ import { formatCommitFilePath } from "@/lib/commit-files"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { presentCardEnd } from "@/presenters/review-card-end"
 import type { GroupOpeningView, OpeningView, StoryMark } from "@/presenters/review-story"
+import { formatPart } from "@/presenters/review-units"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
@@ -61,7 +62,7 @@ export interface CommitReviewCodeProps {
   /** The section whose header is at the top, its key, its file and its part at the top, as the diffs scroll */
   onVisibleSectionChange: (key: string, path: string, part: LayoutPart, step?: string) => void
   /** The files of the cards that passed entirely through the viewport: the progress of the review */
-  onCardsPassed?: (paths: readonly string[]) => void
+  onCardsPassed?: (cards: readonly { readonly path: string; readonly key: string }[]) => void
   /** The first screen is painted: the window can show */
   onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
@@ -156,7 +157,7 @@ export function CommitReviewCode({
     stepFind: direction => review.current?.stepFind(direction),
     revealDeclaration: (place, from) => {
       setFileViews([])
-      return review.current?.revealDeclaration(place, from) ?? false
+      return review.current?.revealDeclaration(place, from)
     },
     openOutside: target => openFile(target, null),
   }))
@@ -509,7 +510,15 @@ function ReviewFileHeader({ file, section, notice, empty, folded, pending = fals
             {owner}
           </span>
         )}
-        {(file.additions > 0 || file.deletions > 0) && <LineCounts additions={file.additions} deletions={file.deletions} colored />}
+        {section?.part != null ? (
+          // a part of a file the story shows in several sections: which one, and the lines of its own blocks
+          <span className="flex items-center gap-2" data-testid="review-file-part">
+            <span className="text-muted-foreground">{formatPart(section.part)}</span>
+            <LineCounts additions={section.part.additions} deletions={section.part.deletions} colored />
+          </span>
+        ) : (
+          (file.additions > 0 || file.deletions > 0) && <LineCounts additions={file.additions} deletions={file.deletions} colored />
+        )}
       </span>
     </FileContextMenu>
   )

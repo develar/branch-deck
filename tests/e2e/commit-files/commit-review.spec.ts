@@ -881,8 +881,8 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     // Ignore Whitespace: the blank line is a whitespace-only change, pale, and N still stops at it, as in IntelliJ
     await choose("Ignore Whitespace", "modified, +2 −1")
     await stepThrough(2)
-    // Ignore Whitespace and Blank Lines: the blank line is ignored, so N passes it
-    await choose("Ignore Whitespace and Blank Lines", "modified, +1 −1")
+    // Ignore Whitespace and Blank Lines: the blank line is ignored, so N passes it, and the counts say it
+    await choose("Ignore Whitespace and Blank Lines", "modified, +1 −1, 1 line hidden by Whitespace")
     await stepThrough(1)
   })
 })

@@ -172,7 +172,10 @@ width. Unified and Inline type a deleted line deleted and an inserted line inser
 span. The unchanged lines outside the context become a fold. The label of a fold is the innermost scope around the
 folded lines, the new side first. A scope is a type, a function or a module of the file's summary, and in a Bazel
 file a target as well (`scopes_of_summary`), so the folded lines inside `jps_test(name = "monolith", …)` carry
-`monolith` rather than nothing.
+`monolith` rather than nothing. A fold counts only the unchanged lines it hides (`foldWords`): a block another section
+of a review shows, which the rows of a fold take as lines, is named after them with where it is shown, "⋯ 62 unchanged
+lines · 1 change in part 2", a click there showing that section; an `ignored` block says its lines, "· 1 line hidden by
+Whitespace", the most of a side of each.
 
 The folds nest as in IntelliJ (`FoldingModelSupport`: `getRangeShift`, `FoldingBuilderBase.addGroup`). Around each
 change they start at 4, 8 and 16 lines of context. So the unchanged lines between two changes have up to three levels:

@@ -17,6 +17,8 @@ fn block(index: u32, old: (u32, u32), new: (u32, u32)) -> UnitBlock {
     old_end: old.1,
     new_start: new.0,
     new_end: new.1,
+    additions: new.1 - new.0,
+    deletions: old.1 - old.0,
   }
 }
 

@@ -398,6 +398,22 @@ counts of the engine under the whitespace policy, and show nothing until its dif
 - **THEN** it shows no counts before, and the counts of the engine after
   [@test] src/lib/diff/view-files.test.ts (`takes the line counts of the engine, and none before its diff is read`)
 
+### Requirement: Reading the diffs: The counts of a file mark the lines the policy ignores
+
+Once the diff of a file is read, its counts in the tree MUST mark the lines of the blocks the whitespace policy
+ignores (of each the most of a side), a dotted underline whose hover says "1 line hidden by Whitespace", as the
+description of the row does; a file of no such block, one whose diff is not read and the review as a whole MUST have
+no mark.
+
+#### Scenario: A blank line under Ignore Whitespace and Blank Lines
+- **WHEN** a file of the tree holds a blank line that Ignore Whitespace and Blank Lines ignores
+- **THEN** its counts are dotted-underlined, their hover and the description of the row say "1 line hidden by
+  Whitespace"
+- **AND** under Do Not Ignore, and under a policy that compares the lines it ignores as equal (Trim Whitespace), no
+  mark
+  [@test] src/lib/diff/view-files.test.ts (`counts the lines the whitespace policy hides once the diff is read: of each ignored block the most of a side`)
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Ignore Whitespace hides an indentation-only change, and the counts say how many lines the policy hides`)
+
 ### Requirement: Reading the diffs: The meta line of a commit row keeps git's numstat
 
 The meta line of a commit row SHALL keep git's numstat, which reads no blob, so the two counts can differ.
@@ -1544,7 +1560,7 @@ the files.
 #### Scenario: A choice that ignores something
 - **WHEN** the user chooses a policy other than Do Not Ignore
 - **THEN** the button is marked, and the next read of the diffs of the files sends the choice to the backend
-  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Ignore Whitespace hides an indentation-only change`)
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Ignore Whitespace hides an indentation-only change, and the counts say how many lines the policy hides`)
 
 ### Requirement: Whitespace: Each policy ignores what IntelliJ's does
 
@@ -1555,7 +1571,7 @@ Whitespace and Blank Lines ignores it. The counts of the file follow the choice.
 #### Scenario: A change of indentation
 - **WHEN** a file changes only its indentation, under Trim Whitespace or Ignore Whitespace
 - **THEN** the change is hidden, and the counts of the file follow the choice
-  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Ignore Whitespace hides an indentation-only change`)
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Ignore Whitespace hides an indentation-only change, and the counts say how many lines the policy hides`)
 
 #### Scenario: A blank line added
 - **WHEN** a blank line is added, under Ignore Whitespace, then under Ignore Whitespace and Blank Lines

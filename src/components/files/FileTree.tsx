@@ -33,6 +33,7 @@ import { copyText, isCopyKey } from "@/lib/clipboard"
 import type { CardCommit } from "@/lib/commit"
 import { formatCommitCount, toCardCommit } from "@/lib/commit"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
+import { formatHiddenLines } from "@/lib/diff/view-files"
 import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows, isTreeHeading } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
@@ -743,7 +744,8 @@ const FileTreeRow = memo(function FileTreeRow({
 })
 
 /**
- * What a row says after its name to a screen reader: the status and the lines of a file, the files of a group, the role
+ * What a row says after its name to a screen reader: the status and the lines of a file (and those the whitespace policy
+ * hides), the files of a group, the role
  * of a commit; the group of a step of the commits its files, then its commit
  */
 function rowCounts(node: FileTreeNode): string {
@@ -761,7 +763,8 @@ function rowCounts(node: FileTreeNode): string {
     ]
     return parts.filter(part => part !== null).join(", ")
   }
-  return `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
+  const hidden = node.file.hiddenLines ?? 0
+  return `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}${hidden > 0 ? `, ${formatHiddenLines(hidden)}` : ""}`
 }
 
 /** The role of a commit, what it is since the user's review, its branch, its hash */
@@ -991,10 +994,19 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
   )
 }
 
+/**
+ * The counts of a file under the whitespace policy; with lines the policy hides, a dotted underline whose hover says how
+ * many ("1 line hidden by Whitespace"), so a count that differs from git's says why
+ */
 function FileLineCounts({ node: { file } }: { node: FileTreeFile }) {
+  const hidden = file.hiddenLines ?? 0
   return (
-    (file.additions > 0 || file.deletions > 0) && (
-      <span className="shrink-0 text-xs leading-5">
+    (file.additions > 0 || file.deletions > 0 || hidden > 0) && (
+      <span
+        className={cn("shrink-0 text-xs leading-5", hidden > 0 && "underline decoration-muted-foreground decoration-dotted underline-offset-2")}
+        title={hidden > 0 ? formatHiddenLines(hidden) : undefined}
+        data-testid={hidden > 0 ? "file-hidden-lines" : undefined}
+      >
         <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
       </span>
     )

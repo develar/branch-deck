@@ -74,7 +74,7 @@ import type { NarrativeSection } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { getDiffRepositoryPath } from "@/stores/repository"
-import { markSeen, useSeenPaths } from "@/stores/review-seen"
+import { markCardsSeen, useSeenPaths } from "@/stores/review-seen"
 import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
 import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
@@ -766,8 +766,11 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: He
   return { file, diff, quietImports: true, section }
 }
 
-/** The diffs show `place` of a shown file: its line with its name selected, or its header without one */
-function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): void {
+/**
+ * The diffs show `place` of a shown file: its line with its name selected, or its header without one; the key of the
+ * section that shows its line, undefined where the header shows instead
+ */
+function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): string | undefined {
   const line =
     place.line === null
       ? null
@@ -780,9 +783,11 @@ function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): voi
           ...(place.name !== null && { name: place.name }),
           ...(place.unit !== undefined && { unit: place.unit }),
         }
-  if (line === null || code?.revealDeclaration(line, null) !== true) {
+  const shown = line === null ? undefined : code?.revealDeclaration(line, null)
+  if (shown === undefined) {
     code?.scrollToFile(place.path)
   }
+  return shown
 }
 
 /**
@@ -911,7 +916,19 @@ function ReviewLayout({
   // step counts nothing
   const seenHead = chapters.some(chapter => chapter.groups.length > 0) ? (revision ?? loadedKey) : null
   const seenPaths = useSeenPaths(seenHead)
-  const cardsPassed = useCallback((paths: readonly string[]) => markSeen(seenHead, paths), [seenHead])
+  // the sections of each file the story shows in parts: such a file is seen once each of its parts was
+  const partsOfPath = useMemo(() => {
+    const parts = new Map<string, string[]>()
+    for (const section of narrative ?? []) {
+      if (section.part !== null) {
+        parts.set(section.path, [...(parts.get(section.path) ?? []), section.key])
+      }
+    }
+    return parts
+  }, [narrative])
+  // cards the reader saw (passed through the view, shown on purpose): the file of each, of a file in parts once all
+  // its parts were seen
+  const cardsSeen = useCallback((cards: readonly { readonly path: string; readonly key: string }[]) => markCardsSeen(seenHead, cards, partsOfPath), [seenHead, partsOfPath])
   const [outside, setOutside] = useState<ReadonlyMap<string, DeclarationTarget | null>>(() => new Map())
   useEffect(() => {
     const repositoryPath = getDiffRepositoryPath()
@@ -972,6 +989,7 @@ function ReviewLayout({
             stepHeading: stepHeadingOf(section, chapterOf),
             story: marks.get(section.key) ?? [],
             unitIds: section.unitIds,
+            part: section.part,
           },
         },
       ]
@@ -1060,10 +1078,11 @@ function ReviewLayout({
   const selectInTree = useCallback(
     (file: CommitFile, key: string) => {
       select(file.path, key === file.path ? null : key)
-      markSeen(seenHead, [file.path])
-      // a file shown on purpose: the overview is no longer what the reader is at
-      setOverviewShown(false)
       const section = rows.sectionOf.get(key)
+      // a file shown on purpose, of a file in parts the part the row shows
+      cardsSeen([{ path: file.path, key: section ?? file.path }])
+      // the overview is no longer what the reader is at
+      setOverviewShown(false)
       if (section === undefined) {
         code.current?.scrollToFile(file.path)
       } else {
@@ -1072,7 +1091,7 @@ function ReviewLayout({
         code.current?.scrollToSection(section, "card")
       }
     },
-    [rows, select, seenHead],
+    [rows, select, cardsSeen],
   )
 
   // a place of a popover or of the card of the review plan: its file is selected as a row of the tree is, by its path
@@ -1087,10 +1106,11 @@ function ReviewLayout({
         return
       }
       select(file.path, null)
-      markSeen(seenHead, [file.path])
-      showPlace(code.current, { ...place, path: file.path })
+      // of a file in parts the part that shows the place, else the one its row shows
+      const shown = showPlace(code.current, { ...place, path: file.path })
+      cardsSeen([{ path: file.path, key: shown ?? rows.sectionOf.get(file.path) ?? file.path }])
     },
-    [files, select, onRevealHidden, seenHead],
+    [files, select, onRevealHidden, cardsSeen, rows],
   )
 
   // a use the change left outside: its file at the head of the review opens over it
@@ -1299,12 +1319,12 @@ function ReviewLayout({
         code.current?.scrollToSection(next.key, next.part, next.step)
       }
       showVisibleSection(next.key, next.path, next.part, next.step)
-      // J and K show a card on purpose: its file is seen
+      // J and K show a card on purpose: its file is seen, of a file in parts that part
       if (next.part === "card") {
-        markSeen(seenHead, [next.path])
+        cardsSeen([{ path: next.path, key: next.key }])
       }
     },
-    [showVisibleSection, seenHead],
+    [showVisibleSection, cardsSeen],
   )
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   // the chosen owner chip is named in the footer; the file count is already there
@@ -1318,6 +1338,12 @@ function ReviewLayout({
   }
   const overviewAtTop = overviewShown && prologue !== undefined && prologue !== null && planned
   const stepAtTop = topStep !== null && topStep.chapter.told ? topStep.chapter.number : undefined
+  // the part of its file the card at the top is, of a file the story shows in several sections: numbers, which stay the
+  // same while the story is laid out again
+  const topCard = topOpening === null ? narrative?.find(it => it.key === topSection) : undefined
+  const partAtTop = topCard?.part != null && topCard.path === selectedPath ? topCard.part : null
+  const partIndex = partAtTop?.index
+  const partCount = partAtTop?.count
   const standIn = standsIn(selection)
   useEffect(() => {
     if (loadedKey !== null) {
@@ -1328,10 +1354,11 @@ function ReviewLayout({
         ...(ownerLabel !== null && { owner: ownerLabel }),
         ...(overviewAtTop && { overview: true }),
         ...(stepAtTop !== undefined && { step: stepAtTop }),
+        ...(partIndex !== undefined && partCount !== undefined && { part: { index: partIndex, count: partCount } }),
         ...(standIn && { standIn: true }),
       })
     }
-  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, overviewAtTop, stepAtTop, standIn])
+  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, overviewAtTop, stepAtTop, partIndex, partCount, standIn])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented) {
@@ -1370,10 +1397,11 @@ function ReviewLayout({
         break
       case "KeyN":
       case "KeyP": {
-        const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
-        if (path !== undefined) {
-          select(path, null)
-          markSeen(seenHead, [path])
+        const shown = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
+        if (shown !== undefined) {
+          select(shown.path, null)
+          // of a file in parts the part of the change
+          cardsSeen([shown])
           // a change shown on purpose: the reader is at its file, also while the overview still shows above it
           setOverviewShown(false)
         }
@@ -1496,7 +1524,7 @@ function ReviewLayout({
                         nextSection={nextSection}
                         onShowSection={showSection}
                         ownerLabel={ownerLabel}
-                        onCardsPassed={treeProgress === null ? undefined : cardsPassed}
+                        onCardsPassed={treeProgress === null ? undefined : cardsSeen}
                       />
                     </div>
                   )}

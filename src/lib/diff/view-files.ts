@@ -17,18 +17,39 @@ export function languageOf(path: string): string {
   return languageOfPath(path)
 }
 
+/** A file with the counts of the engine, and the changed lines the whitespace policy hides once its diff is read */
+export type CountedFile = CommitFile & {
+  /** Of each block the policy ignores the most of a side: "1 line hidden by Whitespace"; absent for none */
+  readonly hiddenLines?: number
+}
+
 /**
  * Git's files of a subject with the line counts of the engine, the one source of the counts a diff shows (git numstat
- * counts the changes the policy ignores too). A file without its diff yet has no counts: no number turns into another.
+ * counts the changes the policy ignores too), and the lines the policy hides (`hiddenLines`). A file without its diff
+ * yet has no counts: no number turns into another.
  */
-export function withEngineCounts(files: readonly CommitFile[], diffs: readonly FileDiff[] | undefined): CommitFile[] {
+export function withEngineCounts(files: readonly CommitFile[], diffs: readonly FileDiff[] | undefined): CountedFile[] {
   const byPath = new Map(diffs?.map(diff => [diff.path, diff]))
   return files.map(file => {
     const content = byPath.get(file.path)?.content
     const additions = content?.kind === "text" ? content.additions : 0
     const deletions = content?.kind === "text" ? content.deletions : 0
-    return additions === file.additions && deletions === file.deletions ? file : { ...file, additions, deletions }
+    const hiddenLines = content?.kind === "text" ? hiddenLinesOf(content) : 0
+    if (additions === file.additions && deletions === file.deletions && hiddenLines === 0) {
+      return file
+    }
+    return hiddenLines === 0 ? { ...file, additions, deletions } : { ...file, additions, deletions, hiddenLines }
   })
+}
+
+/** The changed lines the policy hides in `diff`: of each ignored block the most of a side, as a fold counts them */
+function hiddenLinesOf(diff: TextDiff): number {
+  return diff.blocks.reduce((sum, block) => (block.kind === "ignored" ? sum + Math.max(block.oldEnd - block.oldStart, block.newEnd - block.newStart) : sum), 0)
+}
+
+/** "1 line hidden by Whitespace", the words of `CountedFile.hiddenLines` */
+export function formatHiddenLines(count: number): string {
+  return `${count} ${count === 1 ? "line" : "lines"} hidden by Whitespace`
 }
 
 /** The line ends of a file's notice: "LF → CRLF", or that they are the only change */

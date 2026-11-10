@@ -9,6 +9,8 @@ export interface ReviewPosition {
   overview?: boolean
   /** The number of the step of the story at the top, from 1: "Step 2 · File 3 / 9" */
   step?: number
+  /** Of a file the story shows in several sections, the part at the top (`index` from 0): "File 3 / 9 · part 2 of 2" */
+  part?: { index: number; count: number }
   /**
    * The file stands in for the one the review was asked to open, the file on screen before, which the changes have and
    * the chosen owner chip does not show yet (its files of a new head are still read): no place of the reader
@@ -28,8 +30,9 @@ export function shownPath(position: ReviewPosition): string | null {
 /**
  * The footer of a review: "File 3 / 12", after the commit ("Commit 2 / 5 · File 3 / 12") or the scope of a range
  * ("All Changes · File 3 / 12") when there is one, after the step of the story at the top ("Step 2 · File 3 / 12"),
- * then the name of the chosen owner chip; "Overview" in place of the file while the overview is at the top; empty until
- * the review reports its first file
+ * then the part of a file the story shows in several sections ("File 3 / 12 · part 2 of 2") and the name of the chosen
+ * owner chip; "Overview" in place of the file while the overview is at the top; empty until the review reports its
+ * first file
  */
 export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosition | null; commit?: { index: number; count: number }; scope?: string }): string {
   const parts: string[] = []
@@ -45,6 +48,9 @@ export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosi
       parts.push(`Step ${file.step}`)
     }
     parts.push(`File ${file.index + 1} / ${file.count}`)
+    if (file.part !== undefined) {
+      parts.push(`part ${file.part.index + 1} of ${file.part.count}`)
+    }
     if (file.owner !== undefined) {
       parts.push(file.owner)
     }

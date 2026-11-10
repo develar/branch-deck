@@ -1029,6 +1029,7 @@ describe("the document of a review", () => {
       concernHeading: null,
       folded: null,
       ghost: null,
+      part: null,
     })
     const marks = storyMarks(whole, [
       section("file:src/a/Manager.kt", []),
@@ -1070,6 +1071,7 @@ describe("the document of a review", () => {
       concernHeading: null,
       folded: null,
       ghost: null,
+      part: null,
     }
     expect(
       storyMarks(whole, [section])

@@ -10,7 +10,7 @@ import type { InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RowCells } from "@/lib/diff/row-cells"
-import { isLineRow, NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
+import { foldWords, isLineRow, NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, LineRow, LineTint, NoteRow, Row } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
@@ -603,7 +603,7 @@ export class DiffPainter {
     if (value.kind === "fold") {
       rowElement.classList.add("dv-fold")
       rowElement.dataset.kind = "fold"
-      rowElement.append(this.foldButton(file, value))
+      rowElement.append(this.foldButton(file, value), ...this.foldTargets(file, value))
       return { element: rowElement, cells: [], textsRead: true }
     }
     if (value.kind === "note") {
@@ -673,17 +673,22 @@ export class DiffPainter {
     return cell
   }
 
+  /**
+   * The button of a fold, which expands it: "⋯ 62 unchanged lines", the lines the whitespace policy hides there ("1 line
+   * hidden by Whitespace"), the scope around them (`foldWords`); the count is of the unchanged lines, never of a block
+   * another section shows (`foldTargets` names those) nor of one the policy hides
+   */
   private foldButton(file: number, fold: FoldRow): HTMLElement {
     const button = element("button", "dv-fold-button")
     button.setAttribute("type", "button")
     button.tabIndex = -1
     button.dataset.file = String(file)
     button.dataset.gap = String(fold.gap)
-    const count = Math.max(...fold.lines.map(([start, end]) => end - start))
-    const lines = `${count} unchanged ${count === 1 ? "line" : "lines"}`
-    button.setAttribute("aria-label", fold.label === null ? `Expand ${lines}` : `Expand ${lines} in ${fold.label}`)
+    const { lines } = foldWords(fold)
+    const what = lines === "" ? "the folded lines" : lines
+    button.setAttribute("aria-label", fold.label === null ? `Expand ${what}` : `Expand ${what} in ${fold.label}`)
     const text = element("span", "")
-    text.textContent = `⋯ ${lines}`
+    text.textContent = lines === "" ? "⋯" : `⋯ ${lines}`
     button.append(text)
     if (fold.label !== null) {
       const label = element("span", "dv-fold-label")
@@ -691,6 +696,25 @@ export class DiffPainter {
       button.append(label)
     }
     return button
+  }
+
+  /**
+   * The blocks another section shows that a fold hides, after a `·` a button for each place they are shown at, which
+   * opens it as the row of such a block does: "· 1 change in part 2" (`foldWords`)
+   */
+  private foldTargets(file: number, fold: FoldRow): HTMLElement[] {
+    return foldWords(fold).places.flatMap(({ block, words }) => {
+      const separator = element("span", "dv-fold-separator")
+      separator.textContent = "·"
+      const button = element("button", "dv-fold-target")
+      button.setAttribute("type", "button")
+      button.tabIndex = -1
+      button.dataset.file = String(file)
+      button.dataset.block = String(block)
+      button.dataset.testid = "diff-fold-elsewhere"
+      button.textContent = words
+      return [separator, button]
+    })
   }
 
   /** The words of a note row: the heading of a change, or a button to the section that shows a block */
@@ -1142,7 +1166,7 @@ export class DiffPainter {
   }
 
   private onClick(event: MouseEvent): void {
-    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button") : null
+    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button, .dv-fold-target") : null
     const model = this.model
     if (button === null || model === null) {
       return
@@ -1154,7 +1178,12 @@ export class DiffPainter {
       return
     }
     const value = rowAt(rows, Number(row))
-    if (value.kind === "fold") {
+    if (value.kind === "fold" && button.dataset.block !== undefined) {
+      // a block another section shows, hidden in a fold: as the row of such a block, it opens that section
+      const block = Number(button.dataset.block)
+      const label = value.elsewhere.find(it => it.block === block)?.label ?? ""
+      this.callbacks.onNote(file, { kind: "note", tone: "elsewhere", label, heading: null, block, lines: [] })
+    } else if (value.kind === "fold") {
       // the button goes with the rows it stood for: the diffs keep the focus, so their keys still work
       if (this.scrollParent === null) {
         this.root?.focus({ preventScroll: true })

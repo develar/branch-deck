@@ -2,8 +2,8 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { MergeBlock } from "@/lib/diff/file-merge-model"
 import { buildLineTable, lineText } from "@/lib/diff/line-table"
-import { buildFileRows, buildMergeRows, EXPANDED, getFoldLevels, LEFT, MIDDLE, nextFoldLevel, RIGHT, rowAt, rowOfLine, setFoldLevels } from "@/lib/diff/rows"
-import type { FileRows, Heading, LineRow, Row } from "@/lib/diff/rows"
+import { buildFileRows, buildMergeRows, EXPANDED, foldWords, getFoldLevels, LEFT, MIDDLE, nextFoldLevel, RIGHT, rowAt, rowOfLine, setFoldLevels } from "@/lib/diff/rows"
+import type { FileRows, FoldRow, Heading, LineRow, Row } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import { block, mergeBlock, NESTED_SCOPES, textDiff, textMerge } from "@/test-support/diff-blocks"
 
@@ -142,6 +142,14 @@ describe("buildFileRows", () => {
     })
   })
 
+  it("counts the unchanged lines a fold hides, apart from the lines of the blocks the policy ignores there", () => {
+    // an ignored deletion of a blank line (no row in Unified) and an ignored change of indentation, both folded
+    const diff = textDiff(40, 39, [block(5, 6, 5, 5, { kind: "ignored" }), block(10, 11, 9, 10, { kind: "ignored" }), block(30, 31, 29, 30)])
+    const fold = rowAt(buildFileRows(diff, "unified"), 0)
+    expect(fold).toMatchObject({ kind: "fold", unchanged: 24, ignored: 2, elsewhere: [] })
+    expect(foldWords(fold as FoldRow)).toEqual({ lines: "24 unchanged lines · 2 lines hidden by Whitespace", places: [] })
+  })
+
   it("makes each similar pair of a block one row only in the Inline view, also at the end of a file", () => {
     const pairs = [block(2, 3, 2, 3, { inlinePairs: true })]
     expect(outline(buildFileRows(textDiff(5, 5, pairs), "inline"))).toEqual(["0:0", "1:1", "~2:2", "3:3", "4:4"])
@@ -211,6 +219,28 @@ describe("buildFileRows", () => {
       "+20",
       "fold 25-40",
     ])
+  })
+
+  it("names in a fold of a section the blocks another section shows that it hides, and counts only its unchanged lines", () => {
+    // an import another part shows, in the fold before the change of this section: 62 unchanged lines on the old side
+    // against 63 on the new one, the import no unchanged line
+    const diff = textDiff(80, 81, [block(3, 3, 3, 4), block(70, 71, 71, 72)])
+    const units = { marks: new Map<number, Heading>(), elsewhere: new Map([[0, "Shown in part 2"]]) }
+    const fold = rowAt(buildFileRows(diff, "unified", [], false, units), 0)
+    expect(fold).toMatchObject({
+      kind: "fold",
+      lines: [
+        [0, 66],
+        [0, 67],
+      ],
+      unchanged: 66,
+      elsewhere: [{ block: 0, label: "Shown in part 2" }],
+      ignored: 0,
+    })
+    expect(foldWords(fold as FoldRow)).toEqual({ lines: "66 unchanged lines", places: [{ block: 0, words: "1 change in part 2" }] })
+    // a fold of the blocks of another section alone says only where they are, each place with its first block
+    const only = { ...(fold as FoldRow), unchanged: 0, elsewhere: [3, 4].map(block => ({ block, label: "Shown in Other changes" })) }
+    expect(foldWords(only)).toEqual({ lines: "", places: [{ block: 3, words: "2 changes in Other changes" }] })
   })
 
   it("makes a section of no change of its own the rows of the blocks other sections show, alone", () => {

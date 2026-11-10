@@ -61,6 +61,12 @@ export interface FoldRow {
   lines: readonly (readonly [number, number])[]
   /** The innermost scope around the folded lines */
   label: string | null
+  /** The unchanged lines it hides: neither a block another section shows nor one the whitespace policy hides */
+  unchanged: number
+  /** The blocks another section shows that it hides, each with where (`SectionUnits.elsewhere`: "Shown in part 2") */
+  elsewhere: readonly { readonly block: number; readonly label: string }[]
+  /** The changed lines it hides that the whitespace policy ignores: of each ignored block the most of a side */
+  ignored: number
 }
 
 /**
@@ -118,8 +124,8 @@ export interface SectionUnits {
 }
 
 type Item =
-  /** Lines equal on every side, from `starts` */
-  | { kind: "equal"; starts: readonly number[]; count: number }
+  /** Lines equal on every side, from `starts`; `ignored` for the lines of an ignored block, a change the policy hides */
+  | { kind: "equal"; starts: readonly number[]; count: number; ignored?: boolean }
   /** A block of a diff; `quiet` for a block of the imports alone that a review plays down */
   | { kind: "block"; block: DiffBlock; index: number; quiet: boolean }
   /** A block of a merge: its lines on each side, from `starts` */
@@ -155,16 +161,19 @@ interface Gap extends FoldGap {
   items: Item[]
 }
 
-/** Adds `count` equal lines from `starts` to the items, joined to an equal run that ends there */
-function pushEqual(items: Item[], starts: readonly number[], count: number): void {
+/**
+ * Adds `count` equal lines from `starts` to the items, joined to an equal run that ends there; the lines of an ignored
+ * block (`ignored`) are a run of their own, which a fold counts apart
+ */
+function pushEqual(items: Item[], starts: readonly number[], count: number, ignored = false): void {
   if (count <= 0) {
     return
   }
   const last = items.at(-1)
-  if (last?.kind === "equal" && last.starts.every((start, side) => start + last.count === starts[side])) {
+  if (!ignored && last?.kind === "equal" && last.ignored !== true && last.starts.every((start, side) => start + last.count === starts[side])) {
     last.count += count
   } else {
-    items.push({ kind: "equal", starts, count })
+    items.push(ignored ? { kind: "equal", starts, count, ignored } : { kind: "equal", starts, count })
   }
 }
 
@@ -182,7 +191,7 @@ function itemsOf(diff: TextDiff, quiet: ReadonlySet<number>, elsewhere: Readonly
     if (label !== undefined) {
       items.push({ kind: "elsewhere", block, index, label })
     } else if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
-      pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart)
+      pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart, true)
     } else {
       items.push({ kind: "block", block, index, quiet: quiet.has(index) })
     }
@@ -464,7 +473,64 @@ function foldRow(labels: Labels, gap: Gap, index: number, level: number, from: n
   const around = (start: (side: number) => number) =>
     labels.order.reduce<Scope | undefined>((found, side) => found ?? innermostScope(labels.scopes[side] ?? [], start(side), lines[side]![1]), undefined)
   const label = around(side => lines[side]![0]) ?? around(side => lines[side]![1] - 1)
-  return { kind: "fold", gap: index, level, lines, label: label?.label ?? null }
+  return { kind: "fold", gap: index, level, lines, label: label?.label ?? null, ...foldedOf(gap, from, to, mode) }
+}
+
+/**
+ * What rows `[from, to)` of a gap hide: its unchanged lines, the blocks other sections show, the lines of the blocks
+ * the policy ignores (an ignored deletion has no row in Unified: it is in the fold whose rows surround it)
+ */
+function foldedOf(gap: Gap, from: number, to: number, mode: RowsMode): Pick<FoldRow, "unchanged" | "elsewhere" | "ignored"> {
+  let unchanged = 0
+  let ignored = 0
+  const elsewhere: { block: number; label: string }[] = []
+  let offset = 0
+  for (const item of gap.items) {
+    const rows = itemRowCount(item, mode)
+    const overlap = Math.min(to, offset + rows) - Math.max(from, offset)
+    if (overlap > 0 || (rows === 0 && offset >= from && offset < to)) {
+      if (item.kind === "equal") {
+        if (item.ignored === true) {
+          ignored += overlap
+        } else {
+          unchanged += overlap
+        }
+      } else if (item.kind === "elsewhere") {
+        elsewhere.push({ block: item.index, label: item.label })
+      } else if (item.kind === "block") {
+        ignored += Math.max(item.block.oldEnd - item.block.oldStart, item.block.newEnd - item.block.newStart)
+      }
+    }
+    offset += rows
+  }
+  return { unchanged, elsewhere, ignored }
+}
+
+/** "1 line", "62 lines" */
+function lineCount(count: number): string {
+  return `${count} ${count === 1 ? "line" : "lines"}`
+}
+
+/**
+ * The words of a fold (openspec/specs/branch/review-tour/spec.md, "In the Review Window: A fold names the changes it
+ * hides"): what it hides of the lines, "62 unchanged lines · 1 line hidden by Whitespace", empty for a fold of blocks
+ * another section shows alone; then each place that shows blocks it hides, with the first of them, "1 change in part 2"
+ * from the words of their row ("Shown in part 2")
+ */
+export function foldWords(fold: FoldRow): { lines: string; places: { block: number; words: string }[] } {
+  const lines = [
+    fold.unchanged > 0 || (fold.elsewhere.length === 0 && fold.ignored === 0) ? `${fold.unchanged} unchanged ${fold.unchanged === 1 ? "line" : "lines"}` : null,
+    fold.ignored > 0 ? `${lineCount(fold.ignored)} hidden by Whitespace` : null,
+  ]
+  const blocks = new Map<string, number[]>()
+  for (const { block, label } of fold.elsewhere) {
+    blocks.set(label, [...(blocks.get(label) ?? []), block])
+  }
+  const places = [...blocks].map(([label, of]) => {
+    const where = label.startsWith("Shown in ") ? label.slice("Shown ".length) : label.charAt(0).toLowerCase() + label.slice(1)
+    return { block: of[0]!, words: `${of.length === 1 ? "1 change" : `${of.length} changes`} ${where}` }
+  })
+  return { lines: lines.filter(part => part !== null).join(" · "), places }
 }
 
 /** The smallest scope around the lines `[start, end)` */

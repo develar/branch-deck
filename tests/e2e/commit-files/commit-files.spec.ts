@@ -371,7 +371,7 @@ simpleTest.describe("Whitespace of the diffs", () => {
     await syncAndWaitForBranches()
   })
 
-  simpleTest("Ignore Whitespace hides an indentation-only change", async ({ page }) => {
+  simpleTest("Ignore Whitespace hides an indentation-only change, and the counts say how many lines the policy hides", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, "format"))
     const preview = await openPreview(page, getBranchCommitRow(page, "format", "indent the block of first and return 4"))
     const tree = await openCommitFilesSection(preview)
@@ -385,6 +385,9 @@ simpleTest.describe("Whitespace of the diffs", () => {
     // Do Not Ignore: the indentation, the blank line and `4` are changes. As in IntelliJ, the re-indented lines are pale
     // and their inner ranges, the indentation, carry the full colour
     await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
+    // the policy ignores no block: the counts have no mark
+    const hidden = format.getByTestId("file-hidden-lines")
+    await expect(hidden).toHaveCount(0)
     await expect(indentation).toHaveCount(1)
     await expect(indentation.locator('.dv-half[data-tint="pale"]')).toHaveCount(2)
     await expect(indentation.locator('.dv-half[data-side="1"] .dv-changed')).toHaveText(/^ +$/)
@@ -409,12 +412,16 @@ simpleTest.describe("Whitespace of the diffs", () => {
     await expect(indentation).toHaveCount(0)
     await expect(format.locator('.dv-row[data-kind=changed] .dv-half[data-side="1"][data-tint="whitespace"]')).toHaveCount(1)
 
-    // and Blank Lines: the blank line is ignored, drawn as an unchanged line; only `4` is left
+    // and Blank Lines: the blank line is ignored, drawn as an unchanged line; only `4` is left. The counts mark the line
+    // the policy hides, as their hover and the description of the row say; the indentation the policies above compare
+    // as equal is no block, so no count of them marks a line
     await choose("Ignore Whitespace and Blank Lines")
-    await expect(format).toHaveAttribute("aria-description", "modified, +1 −1")
+    await expect(format).toHaveAttribute("aria-description", "modified, +1 −1, 1 line hidden by Whitespace")
+    await expect(hidden).toHaveAttribute("title", "1 line hidden by Whitespace")
     await expect(format.locator(".dv-row[data-kind=changed]")).toHaveCount(1)
 
     await choose("Do Not Ignore")
     await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
+    await expect(hidden).toHaveCount(0)
   })
 })

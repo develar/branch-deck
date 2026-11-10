@@ -9593,6 +9593,12 @@ export type UnitBlock = {
 	oldEnd: number,
 	newStart: number,
 	newEnd: number,
+	/**
+	 *  Its lines added and removed as the engine counts them under `Default` (`pair::LineBlock::added`): what the header
+	 *  of a part of a file in the review window says it changes
+	 */
+	additions: number,
+	deletions: number,
 };
 
 /**  What a unit changes */

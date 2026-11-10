@@ -324,12 +324,15 @@ fn heading_above(lines: &[&str], front: usize, line: usize) -> Option<String> {
 /// for a block that changes the front matter alone
 fn below_front_matter(block: &UnitBlock, old_front: usize, new_front: usize) -> Option<UnitBlock> {
   let (old_front, new_front) = (u32::try_from(old_front).unwrap_or(u32::MAX), u32::try_from(new_front).unwrap_or(u32::MAX));
+  let (old_start, new_start) = (block.old_start.max(old_front), block.new_start.max(new_front));
   let below = UnitBlock {
     index: block.index,
-    old_start: block.old_start.max(old_front),
+    old_start,
     old_end: block.old_end.max(old_front),
-    new_start: block.new_start.max(new_front),
+    new_start,
     new_end: block.new_end.max(new_front),
+    additions: block.additions.saturating_sub(new_start - block.new_start),
+    deletions: block.deletions.saturating_sub(old_start - block.old_start),
   };
   (below.old_start < below.old_end || below.new_start < below.new_end).then_some(below)
 }

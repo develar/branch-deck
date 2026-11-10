@@ -27,6 +27,10 @@ describe("the position of the document of a review", () => {
     expect(formatReviewPosition({ file: { path: "a.kt", index: 0, count: 9, overview: true }, scope: "All Changes" })).toBe("All Changes · Overview")
     expect(formatReviewPosition({ file: { path: "a.kt", index: 2, count: 9, step: 2 }, scope: "All Changes" })).toBe("All Changes · Step 2 · File 3 / 9")
   })
+
+  it("names the part at the top of a file the story shows in several sections after the file", () => {
+    expect(formatReviewPosition({ file: { path: "a.kt", index: 0, count: 7, step: 1, part: { index: 1, count: 2 } } })).toBe("Step 1 · File 1 / 7 · part 2 of 2")
+  })
 })
 
 describe("shownPath", () => {

@@ -505,3 +505,27 @@ fn a_unit_is_api_by_the_rule_of_the_api_of_the_plan() {
     assert_eq!(unit.api, plan.api.iter().any(|change| Some(&change.key) == unit.key.as_ref()), "{unit:#?}");
   }
 }
+
+/// Each block of a unit counts its lines as the engine does (`UnitBlock::additions`), what the header of a part of a
+/// file says: a block that reaches the end of the file and holds the empty line after its final line end counts
+/// without it, so the blocks of a file sum to the engine's count of the file
+#[test]
+fn each_block_counts_its_lines_as_the_engine_does() {
+  let repo = TestRepo::new();
+  let old = "class A {\n  fun a() {\n    a()\n  }\n\n}\n";
+  let new = "class A {\n  fun a() {\n    a()\n  }\n\n  fun b() {\n    b()\n  }\n}\n\nprivate fun c() {\n  c()\n}\n\nprivate fun d() = 1\n";
+  let base = repo.create_commit_with_files("Add A", &[("src/A.kt", old)]);
+  let head = repo.create_commit_with_files("Add b, c and d", &[("src/A.kt", new)]);
+  let plan = plan(&repo, &base, &head);
+  let mut blocks: Vec<(u32, u32, u32)> = plan
+    .units
+    .iter()
+    .flat_map(|unit| &unit.slices)
+    .flat_map(|slice| &slice.blocks)
+    .map(|block| (block.index, block.additions, block.deletions))
+    .collect();
+  blocks.sort_unstable();
+  blocks.dedup();
+  // the engine's +8 −0 in two blocks: `b` before the closing brace, then `c` and `d` with the empty last line
+  assert_eq!(blocks, [(0, 3, 0), (1, 5, 0)]);
+}

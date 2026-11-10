@@ -7,7 +7,8 @@ use pretty_assertions::assert_eq;
 use std::time::Duration;
 use test_utils::git_test_utils::TestRepo;
 
-fn change(status: char, path: &str) -> FileChange {
+/// A change of `path` with no lines, blobs or hunks
+pub(crate) fn change(status: char, path: &str) -> FileChange {
   FileChange {
     status,
     path: path.to_string(),

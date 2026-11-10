@@ -583,6 +583,35 @@
   color: var(--foreground);
 }
 
+/* a fold that hides blocks another section shows: the buttons to them follow its words, not the edge of the row */
+.dv-fold-button:not(:only-child) {
+  flex: 0 1 auto;
+  width: auto;
+}
+
+.dv-fold-separator {
+  flex: none;
+  margin-inline: 1ch;
+  color: var(--muted-foreground);
+}
+
+.dv-fold-target {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.dv-fold-target:hover {
+  color: var(--foreground);
+}
+
 .dv-fold-label {
   overflow: hidden;
   text-overflow: ellipsis;

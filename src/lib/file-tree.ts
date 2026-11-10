@@ -1,5 +1,6 @@
 import type { CommitFile, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
 import { titleText } from "@/lib/commit"
+import type { CountedFile } from "@/lib/diff/view-files"
 import type { FileActionTarget } from "@/lib/file-actions"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { formatAlsoIn, formatHome, formatHomeTag, OTHER_CHANGES } from "@/presenters/review-concerns"
@@ -15,7 +16,8 @@ export interface FileTreeFile {
   name: string
   depth: number
   parentKey: string | undefined
-  file: CommitFile
+  /** With the lines the whitespace policy hides once its diff is read (`withEngineCounts`) */
+  file: CountedFile
   /** Named by its path, not in the directories of its path: a file of a group */
   inGroup?: boolean
   /** Of a file of a group of a module: its directory below the root of the module, after its name ("" at the root) */
@@ -34,7 +36,7 @@ export interface FileTreeAlso {
   name: string
   depth: number
   parentKey: string | undefined
-  file: CommitFile
+  file: CountedFile
   /** `Concern.id` of the concern it shows the file in */
   concern: string
   /** "also in proxy": its name to a screen reader */

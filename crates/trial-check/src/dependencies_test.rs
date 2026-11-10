@@ -1,21 +1,12 @@
 use crate::dependencies::{Dependency, compute_dependencies};
 use crate::diff_scan::CommitDiff;
+use crate::diff_scan_test::change;
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
 
 /// A text change of `path` with hunks `(old_start, old_lines, new_start, new_lines)`
 fn text(status: char, path: &str, hunks: &[(u32, u32, u32, u32)]) -> FileChange {
   FileChange {
-    status,
-    path: path.to_string(),
-    old_path: None,
-    additions: 0,
-    deletions: 0,
-    git_additions: 0,
-    git_deletions: 0,
-    binary: false,
-    old_blob: None,
-    new_blob: None,
     hunks: hunks
       .iter()
       .map(|&(old_start, old_lines, new_start, new_lines)| Hunk {
@@ -25,6 +16,7 @@ fn text(status: char, path: &str, hunks: &[(u32, u32, u32, u32)]) -> FileChange 
         new_lines,
       })
       .collect(),
+    ..change(status, path)
   }
 }
 

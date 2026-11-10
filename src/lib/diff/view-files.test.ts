@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { buildFileRows } from "@/lib/diff/rows"
-import { fileNotice, lineEndsNotice, withEngineCounts } from "@/lib/diff/view-files"
+import { fileNotice, formatHiddenLines, lineEndsNotice, withEngineCounts } from "@/lib/diff/view-files"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { block, textDiff } from "@/test-support/diff-blocks"
 
@@ -43,6 +43,23 @@ describe("withEngineCounts", () => {
     expect(withEngineCounts([gitFile()], [textFile()])[0]).toMatchObject({ additions: 1, deletions: 1 })
     expect(withEngineCounts([gitFile()], undefined)[0]).toMatchObject({ additions: 0, deletions: 0 })
     expect(withEngineCounts([gitFile()], [{ ...textFile(), content: { kind: "binary" } }])[0]).toMatchObject({ additions: 0, deletions: 0 })
+  })
+
+  it("counts the lines the whitespace policy hides once the diff is read: of each ignored block the most of a side", () => {
+    // a removed blank line and a line indented again, both ignored, beside a change it counts
+    const ignored = {
+      kind: "text" as const,
+      ...textDiff(9, 8, [block(1, 2, 1, 1, { kind: "ignored" }), block(4, 5, 3, 4, { kind: "ignored" }), block(6, 7, 5, 6)]),
+      additions: 1,
+      deletions: 1,
+    }
+    const [counted] = withEngineCounts([gitFile()], [{ ...textFile(), content: ignored }])
+    expect(counted).toMatchObject({ additions: 1, deletions: 1, hiddenLines: 2 })
+    expect(formatHiddenLines(counted!.hiddenLines!)).toBe("2 lines hidden by Whitespace")
+    expect(formatHiddenLines(1)).toBe("1 line hidden by Whitespace")
+    // none before the diff is read, none of a diff the policy hides nothing of
+    expect(withEngineCounts([gitFile()], undefined)[0]!.hiddenLines).toBeUndefined()
+    expect(withEngineCounts([gitFile()], [textFile()])[0]!.hiddenLines).toBeUndefined()
   })
 })
 
