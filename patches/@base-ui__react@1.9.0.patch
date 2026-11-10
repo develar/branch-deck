@@ -1,3 +1,27 @@
+Branch Deck's patch of @base-ui/react@1.9.0 (patchedDependencies of pnpm-workspace.yaml; docs/contributing/frontend.md,
+"Patched Dependencies"). pnpm applies the diffs below and ignores this text.
+
+The bug: every popup part (TooltipPopup, PopoverPopup, MenuPopup, PreviewCardPopup, NavigationMenuList, through
+useHoverFloatingInteraction) takes the HoverInteraction its trigger shares (useHoverInteractionSharedState) and
+registers its `dispose` as an unmount effect of its own, which clears `restTimeout` and `openChangeTimeout`. A closed
+popup unmounts at the end of its exit: the pointer back over the trigger after a close that was not the hover's (its
+view hid, a press of an item) had started the open delay, the unmount cleared it, and the popup opened only at the next
+move of the pointer.
+
+The fix, in both builds (.mjs and .js): `useHoverInteractionSharedState(store, ownsTimers = true)`, and
+useHoverFloatingInteraction passes false: only a trigger clears the timers of its hover as it unmounts.
+
+An upgrade fails loudly: `allowUnusedPatches` and `allowNonAppliedPatches` stay unset (false), so `pnpm install` stops
+with "The following patches were not used" once the lockfile has another version of @base-ui/react, and with "error
+applying hunk" when a hunk no longer fits. Re-port it onto the new version: the master of Base UI (5aacdbb78,
+2026-11-10) keeps the shared state in HoverIntent (packages/react/src/utils/popups/interactions/hoverIntent.ts) and still
+calls `intent.cancelPendingOpen()` in the cleanup of the popup's unmount effect (useHoverPopupInteraction.ts:60-66),
+while the trigger cancels it on its own unmount (useHoverTriggerInteraction.ts:102-104): drop that call from the popup's
+cleanup and keep `intent.restoreOutsidePointerEvents()`. Then `pnpm patch-commit`, this header put back above its
+changes (pnpm writes none), `pnpm install`, and the E2E tests of "Hover back over a trigger whose popup closed"
+(tests/e2e/branch-row-layout/branch-row-layout.spec.ts) in Chromium and WebKit: they fail without the patch. Drop the
+patch once a release leaves the pending open of the trigger to the trigger.
+
 diff --git a/floating-ui-react/hooks/useHoverFloatingInteraction.js b/floating-ui-react/hooks/useHoverFloatingInteraction.js
 index 82b9c1fd40ca2e21814de831eb0e6ebb51649db0..22313fcd4e23eb7c3b94f846a832c49ff03bd48f 100644
 --- a/floating-ui-react/hooks/useHoverFloatingInteraction.js

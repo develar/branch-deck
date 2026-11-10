@@ -59,8 +59,8 @@ minimumReleaseAgeExclude:
   - "@oxlint/plugins@1.91.0"
   - oxfmt@0.76.0
   - oxlint@1.91.0
+# a dependency's bug fixed by a patch, whose header says the bug, the upstream code and how to port it; an upgrade fails
+# `pnpm install` until the patch is ported or dropped (docs/contributing/frontend.md, "Patched Dependencies")
 patchedDependencies:
-  # a popup that unmounted at the end of its exit cleared the open delay of its trigger's hover: the pointer back over the
-  # trigger opened nothing until it moved again (docs/contributing/frontend.md, Pitfalls); upstream master still does it
-  # (`intent.cancelPendingOpen()` on the unmount of `useHoverPopupInteraction`), port the patch with an upgrade
+  # a popup that went at the end of its exit cleared the open delay of its trigger's hover
   "@base-ui/react@1.9.0": patches/@base-ui__react@1.9.0.patch

@@ -1,14 +1,14 @@
 # Frontend Rules
 
 **Status:** Active  
-**Updated:** 2026-10-29  
+**Updated:** 2026-11-10  
 **Tags:** [frontend, react, ui, tailwind, shadcn]
 
 ## Summary
 
 How the page is written: the theme and its tokens, the components, the state, the React Compiler, the toolchain,
-imports and naming, and the React and WebKit behaviour that cost sessions. [AGENTS.md](../../AGENTS.md)
-("Code Style") keeps the rules an agent must not miss and links here; the theme itself is
+imports and naming, the patched dependencies, and the React and WebKit behaviour that cost sessions.
+[AGENTS.md](../../AGENTS.md) ("Code Style") keeps the rules an agent must not miss and links here; the theme itself is
 [UI Theme](../design/ui-theme.md), the wording [UX Writing](ux-writing.md).
 
 ## Style
@@ -109,6 +109,23 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   `use` prefix in `src/hooks` (`useRowSelection.ts`). **Stores**: `src/stores/*.ts` (`branch-sync.ts`), persisted
   settings in `src/stores/settings/`. **Rust-bound props**: `snake_case`, as in the generated bindings.
 
+## Patched Dependencies
+
+A bug of a dependency that the page cannot get around in its own code is fixed by a pnpm patch,
+`patches/<name>@<version>.patch`, named in `patchedDependencies` of `pnpm-workspace.yaml`. Its header, above the
+changes, says the bug, the fix, the upstream code it stands for, how to port it and its tests; pnpm reads the changes
+and ignores the header. The lockfile holds the hash of each patch: a checkout runs `pnpm install` after it changes.
+
+- **Make or change one**: `pnpm patch <name>@<version> --edit-dir notes.local/<dir>`, edit both builds (`.mjs` and `.js`),
+  `pnpm patch-commit notes.local/<dir>`; then put the header back above the changes (pnpm writes none), drop what pnpm
+  adds that is not yours (a deleted `.npmignore`), and run `pnpm install` for the hash.
+- **An upgrade fails loudly**: `allowUnusedPatches` and `allowNonAppliedPatches` stay unset, so `pnpm install` stops with
+  "The following patches were not used" while a patch is keyed to a version the lockfile no longer has, and with "error
+  applying hunk" when a hunk no longer fits. Port the patch onto the new version by its header (a new key and file),
+  run its tests, or drop it once a release fixes the bug.
+- **Now**: `@base-ui/react@1.9.0`, a popup that went took the open delay of its trigger's hover
+  ([Pitfalls](#pitfalls)).
+
 ## Pitfalls
 
 - **React Compiler and store reads**: a function that reads stores with `getState()`, called in the render body beside
@@ -142,9 +159,9 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the
   popup took with it as it went, and the popup opened only at the next move; a hidden view keeps a closed popup until
-  it shows, a loaded machine ends an exit late. `patches/@base-ui__react@1.9.0.patch` leaves the timers to the trigger:
-  an upgrade of Base UI ports it (its master cancels the pending open in the unmount of `useHoverPopupInteraction`), and
-  the tests of "Hover back over a trigger whose popup closed" (`branch-row-layout.spec.ts`) fail without it.
+  it shows, a loaded machine ends an exit late. `patches/@base-ui__react@1.9.0.patch` leaves the timers to the trigger
+  ([Patched Dependencies](#patched-dependencies)); the tests of "Hover back over a trigger whose popup closed"
+  (`branch-row-layout.spec.ts`) fail without it.
 - **A disabled root does not hear the pointer that came**: Base UI listens on the trigger of a disabled tooltip only once
   it is enabled, so a tooltip that got its words with the pointer resting on it (the description of Approve) opened
   only at the next move. The tooltip replays the hover of its trigger as it is enabled (`hoverAgain`), for a pointer
