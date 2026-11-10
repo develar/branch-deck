@@ -124,6 +124,14 @@ async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: n
   return box!
 }
 
+/** oauth-robot of oauth, started on the stack below login and merged into master as the table has it */
+async function mergedOauthRobot(page: Page, setupRepo: Parameters<typeof setupRunningRobot>[1], syncAndWaitForBranches: () => Promise<unknown>): Promise<TestRepositoryBuilder> {
+  const running = robot("oauth", "oauth-robot")
+  const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
+  await mergeRunningRobot(page, repo, running)
+  return repo
+}
+
 test.describe("Stacked branches", () => {
   test("should show the branches of a stack under their parents", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches", { patronus: availableRobots() })
@@ -1702,9 +1710,7 @@ test.describe("Stacked branches", () => {
       setupRepo,
       syncAndWaitForBranches,
     }) => {
-      const running = robot("oauth", "oauth-robot")
-      const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
-      await mergeRunningRobot(page, repo, running)
+      await mergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
       await expect(findBranchRow(page, "login").getByTestId("landed-with")).toHaveText("Landed with oauth")
 
       // no Safe Push, no Dry Run, no push of commits that landed in the menu, each saying why; S says it too
@@ -1725,10 +1731,8 @@ test.describe("Stacked branches", () => {
       setupRepo,
       syncAndWaitForBranches,
     }) => {
-      const running = robot("oauth", "oauth-robot")
-      const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
       // it merged on oauth as the table has it
-      await mergeRunningRobot(page, repo, running)
+      const repo = await mergedOauthRobot(page, setupRepo, syncAndWaitForBranches)
       await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toBeVisible()
       const authRow = findBranchRow(page, "auth")
       const loginRow = findBranchRow(page, "login")

@@ -52,6 +52,20 @@ async function failPatronusRefresh(page: Page, repo: TestRepositoryBuilder): Pro
   await expectClosed(overview)
 }
 
+/**
+ * ABC-123 whose Safe Push the CI failed, not the approvals; why it failed held at the fake of Patronus: its slot, its step
+ * and the menu items that wait for why
+ */
+async function setupFailedRobot(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
+  const failed = "ABC-123"
+  const repo = await setupRepo("issue_links", { patronus: availableRobots(robot(failed, "failed-robot", { status: "failure", finishTime: 1704142800 })) })
+  await repo.setPatronusDetails({ ...failedFastTests("failed-robot"), problems: { "failed-robot": [] } })
+  await repo.holdRemoteAnswers({ hold: ["robotProblems"] })
+  await syncAndWaitForBranches()
+  const failedSlot = findBranchRow(page, failed).getByTestId("next-step-slot")
+  return { repo, failed, failedSlot, step: failedSlot.getByTestId("next-step"), unknownFailure: [{ name: "Restart Safe Push" }, { name: "Copy Prompt for Agent" }] }
+}
+
 function slot(page: Page) {
   return findBranchRow(page, BRANCH).getByTestId("next-step-slot")
 }
@@ -352,15 +366,7 @@ test.describe("Next step before the answers", () => {
   })
 
   test("should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const failed = "ABC-123"
-    const repo = await setupRepo("issue_links", { patronus: availableRobots(robot(failed, "failed-robot", { status: "failure", finishTime: 1704142800 })) })
-    // the CI failed it, not the approvals
-    await repo.setPatronusDetails({ ...failedFastTests("failed-robot"), problems: { "failed-robot": [] } })
-    await repo.holdRemoteAnswers({ hold: ["robotProblems"] })
-    await syncAndWaitForBranches()
-    const failedSlot = findBranchRow(page, failed).getByTestId("next-step-slot")
-    const step = failedSlot.getByTestId("next-step")
-    const unknownFailure = [{ name: "Restart Safe Push" }, { name: "Copy Prompt for Agent" }]
+    const { repo, failed, failedSlot, step, unknownFailure } = await setupFailedRobot(page, setupRepo, syncAndWaitForBranches)
 
     // why it failed is still to come: no restart, no prompt as if it hadn't failed for the approvals
     await expectHeld(repo, "robotProblems")
@@ -381,15 +387,7 @@ test.describe("Next step before the answers", () => {
 
   // the failed answer apart from the one to come: one test of both took 30 s under load
   test("should say a failed answer of why a Safe Push failed, its restart disabled until Check Approvals Again asks again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const failed = "ABC-123"
-    const repo = await setupRepo("issue_links", { patronus: availableRobots(robot(failed, "failed-robot", { status: "failure", finishTime: 1704142800 })) })
-    // the CI failed it, not the approvals
-    await repo.setPatronusDetails({ ...failedFastTests("failed-robot"), problems: { "failed-robot": [] } })
-    await repo.holdRemoteAnswers({ hold: ["robotProblems"] })
-    await syncAndWaitForBranches()
-    const failedSlot = findBranchRow(page, failed).getByTestId("next-step-slot")
-    const step = failedSlot.getByTestId("next-step")
-    const unknownFailure = [{ name: "Restart Safe Push" }, { name: "Copy Prompt for Agent" }]
+    const { repo, failed, failedSlot, step, unknownFailure } = await setupFailedRobot(page, setupRepo, syncAndWaitForBranches)
     await expectHeld(repo, "robotProblems")
 
     // Patronus fails to tell it: the restart stays disabled, with the failure and the way to ask again

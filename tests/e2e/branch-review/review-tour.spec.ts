@@ -116,15 +116,33 @@ async function openContractFolds(window: Page): Promise<void> {
   }
 }
 
+/** The review window of layout of the `review_tour` template, its plan on, the tests that reach its code indexed unless not */
+async function openLayoutTour(
+  page: Page,
+  setupRepo: (template: string) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  { testIndex = true }: { testIndex?: boolean } = {},
+): Promise<Page> {
+  const repo = await setupRepo("review_tour")
+  turnOnReviewPlan(repo)
+  if (testIndex) {
+    writeTestIndex(repo.path)
+  }
+  return openPlanWindow(page, syncAndWaitForBranches, "layout")
+}
+
+/** The review window of layout (`openLayoutTour`, no test index), its tree of changed files and the bar of its steps */
+async function openLayoutSteps(page: Page, setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
+  const window = await openLayoutTour(page, setupRepo, syncAndWaitForBranches, { testIndex: false })
+  return { window, tree: window.getByRole("tree", { name: "Changed files" }), bar: window.getByTestId("review-step-bar") }
+}
+
 test.describe("Review tour", () => {
   test(
     "should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupRepo("review_tour")
-      turnOnReviewPlan(repo)
-      writeTestIndex(repo.path)
-      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+      const window = await openLayoutTour(page, setupRepo, syncAndWaitForBranches)
       const overview = window.getByTestId("review-overview")
       const bar = window.getByTestId("review-step-bar")
 
@@ -268,10 +286,7 @@ test.describe("Review tour", () => {
     "should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupRepo("review_tour")
-      turnOnReviewPlan(repo)
-      writeTestIndex(repo.path)
-      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+      const window = await openLayoutTour(page, setupRepo, syncAndWaitForBranches)
       const overview = window.getByTestId("review-overview")
       const bar = window.getByTestId("review-step-bar")
       const step = (number: number) => overview.getByTestId("review-contents-step").nth(number - 1)
@@ -606,10 +621,7 @@ test.describe("Review tour", () => {
     "should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      turnOnReviewPlan(await setupRepo("review_tour"))
-      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
-      const tree = window.getByRole("tree", { name: "Changed files" })
-      const bar = window.getByTestId("review-step-bar")
+      const { window, tree, bar } = await openLayoutSteps(page, setupRepo, syncAndWaitForBranches)
       const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
 
       // `Manager.allowed` in the body of step 2 resolves to the rule the step adds: a link, its hover names it, its file,
@@ -673,10 +685,7 @@ test.describe("Review tour", () => {
     "should show the Look closely of a step as a callout, and open a part folded under it from the mark of its section, its block outlined once",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      turnOnReviewPlan(await setupRepo("review_tour"))
-      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
-      const tree = window.getByRole("tree", { name: "Changed files" })
-      const bar = window.getByTestId("review-step-bar")
+      const { window, tree, bar } = await openLayoutSteps(page, setupRepo, syncAndWaitForBranches)
 
       // the Look closely of the author is a callout in the opening of its step and in the contents; its tests are folded
       // always, named on the line of the folded parts

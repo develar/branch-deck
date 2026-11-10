@@ -112,6 +112,16 @@ async function titleBarActions(window: Page): Promise<string[]> {
   )
 }
 
+/**
+ * Closes the review window `first` once the owner chip Design it chose is remembered for the repository (by the writer
+ * of the settings), and opens the review window of `branch`
+ */
+async function reopenOnDesign(page: Page, first: Page, testStore: { get: (key: string) => Promise<unknown> }, branch: string): Promise<Page> {
+  await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
+  await first.close()
+  return openLinkedSubWindow(page, await openReviewWindow(page, branch))
+}
+
 test.describe("Opening the review", () => {
   test("should open the review of a branch in its window from its row, its menu and its preview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")
@@ -636,12 +646,8 @@ test.describe("Branch review window", () => {
     await owner(first, "Design").click()
     await expect.poll(() => reviewedPaths(first)).toEqual(["ui/login.css"])
     await expect(fileHeader(first, "README.md")).toHaveCount(0)
-    // remembered for the repository by the writer of the settings
-    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
-    await first.close()
-
-    // the next review window opens with only its files shown
-    const second = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    // remembered for the repository by the writer of the settings; the next review window opens with only its files shown
+    const second = await reopenOnDesign(page, first, testStore, "login")
     await expect(owner(second, "Design")).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => reviewedPaths(second)).toEqual(["ui/login.css"])
     await expect(fileHeader(second, "README.md")).toHaveCount(0)
@@ -655,11 +661,8 @@ test.describe("Branch review window", () => {
     await syncAndWaitForBranches()
     const first = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
     await first.locator("[data-testid=branch-review-owner][data-owner='Design']").click()
-    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
-    await first.close()
-
     // auth has no file of Design: the window opens on All, which needs no chip here (one owner has every file)
-    const second = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
+    const second = await reopenOnDesign(page, first, testStore, "auth")
     await expect(second.getByTestId("branch-review-files")).toHaveText("Files1Auth Team")
     await expect(second.getByTestId("branch-review-owners")).toHaveCount(0)
     await expect(fileHeader(second, "auth/token.js")).toBeVisible()

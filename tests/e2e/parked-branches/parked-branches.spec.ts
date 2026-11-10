@@ -50,6 +50,12 @@ async function parkWithForm(page: Page, open: () => Promise<void>, note: string)
   await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
 }
 
+/** Parks lint from its menu, with no note: the Parked card shows, lint its one row */
+async function parkLint(page: Page): Promise<void> {
+  await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
+  expect(await parkedRows(page)).toEqual(["lint"])
+}
+
 test.describe("Parked branches", () => {
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("branch_filter")
@@ -245,8 +251,7 @@ test.describe("Parked branches", () => {
   })
 
   test("should park the selected branches dropped on a row of the Parked card at once with one Undo", async ({ page }) => {
-    await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
-    expect(await parkedRows(page)).toEqual(["lint"])
+    await parkLint(page)
 
     // two branches dropped on a row of the card: the card takes them, not the row; one park, one toast, one Undo
     await findBranchRow(page, "core").click({ modifiers: ["ControlOrMeta"] })
@@ -264,8 +269,7 @@ test.describe("Parked branches", () => {
 
   // the header of the card and the unpark apart from the park of a selection: one test of both took 30 s under load
   test("should park a branch dragged onto the header of the Parked card, and unpark a stack by its root, never by a branch parked with it", async ({ page }) => {
-    await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
-    expect(await parkedRows(page)).toEqual(["lint"])
+    await parkLint(page)
 
     // a plain click selects no branch: the drag carries core alone, onto the header of the card
     await findBranchRow(page, "core").click()
