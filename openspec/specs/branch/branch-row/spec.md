@@ -12,6 +12,7 @@ targets:
   - src/hooks/useLazyRoot.ts
   - src/lib/pointer-moves.ts
   - patches/@base-ui__react@1.9.0.patch
+  - src/components/ui/tooltip.tsx
   - src/hooks/useBranchContextActions.ts
   - src/hooks/useSourceMemo.ts
   - crates/domain-policy/src/actions.rs
@@ -1552,6 +1553,18 @@ tooltip, a hover card and a submenu alike.
 - **WHEN** a press of an item of a submenu (Copy Branch Name) closed the menus, and the pointer comes back over the item of the submenu (Copy) in the row menu opened again, before the closed submenu went
 - **THEN** the submenu opens after the delay of its hover
   [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should open the submenu of the row menu whose item the pointer came back to while the submenu a press closed still went`)
+
+### Requirement: Hover and click: A tooltip enabled under the pointer opens after its delay
+
+A tooltip disabled while it has nothing to say MUST open after the delay of its hover when it gets its words with the
+pointer that moved over its trigger resting on it, as for a pointer that came then; a trigger the pointer did not move
+over, which came under a still pointer, stays closed until the next move.
+
+#### Scenario: The description of Approve that came late
+- **WHEN** the pointer rests on Approve in a review window while the code-owner review of the pull request has not come, so Approve has no description, and the delay of its hover ran out
+- **AND** the review comes, the pointer still
+- **THEN** the description of Approve opens after the delay of its hover
+  [@test] tests/e2e/review-requests/review-requests.spec.ts (`should open the description of Approve that came while the pointer rested on it, after the delay of its hover`)
 
 ### Requirement: Hover and click: A control is the same control only by its identity
 

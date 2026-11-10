@@ -2,6 +2,7 @@ import { cloneElement, createContext, createElement, isValidElement, use, useEff
 import type { ReactElement, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
 import { mergeProps } from "@base-ui/react/merge-props"
+import { enterAndMove } from "@/lib/pointer-moves"
 
 /**
  * What the user did first on the plain trigger: the pointer came over it (there), or the focus came into it; and where
@@ -111,19 +112,15 @@ function triggerIn({ parent, next }: Intent): HTMLElement | null {
 }
 
 /**
- * The pointer as Base UI expects it on a trigger it just got: `mouseenter` on the element (its listener unblocks the
- * hover), then a `mousemove` that bubbles to React (its handler starts the delay, after which the popup opens). The
+ * The pointer as Base UI expects it on a trigger it just got (`enterAndMove`), where the plain trigger saw it. The
  * plain trigger and the one of the root are one control (`useControlRef`): the pointer moved over the trigger as it
  * moved over the plain one; for a trigger that came under a still pointer (WebKit tells its enter at once) it did not,
  * the open at the end of the delay is canceled, and the next move over the trigger opens it (`hoverOpensOnMove`)
  */
 function replayPointer(element: HTMLElement, intent: Intent) {
-  if (!element.isConnected) {
-    return
+  if (element.isConnected) {
+    enterAndMove(element, intent.x, intent.y)
   }
-  const init = { clientX: intent.x, clientY: intent.y, view: window }
-  element.dispatchEvent(new MouseEvent("mouseenter", init))
-  element.dispatchEvent(new MouseEvent("mousemove", { ...init, bubbles: true, cancelable: true }))
 }
 
 /**

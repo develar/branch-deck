@@ -1423,6 +1423,25 @@ test.describe("Owner part and Approve", () => {
     },
   )
 
+  test(
+    "should open the description of Approve that came while the pointer rested on it, after the delay of its hover",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+      await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["README.md", "auth/token.js", "ui/login.css", "ui/login.js"]) } })
+      // the code-owner review of #7 held: Approve has no description, its tooltip nothing to say when the delay of the
+      // hover runs out
+      await repo.holdRemoteAnswers({ hold: ["readiness"] })
+      const { window, review } = await openOwnedChanges(page)
+      await review.getByTestId("review-approve").hover()
+      await window.clock.fastForward(1000)
+      expect(await openTooltip(window).count()).toBe(0)
+      // the review comes, the pointer still: the description opens after the delay, as for a pointer that came now
+      await repo.holdRemoteAnswers({ release: ["readiness"] })
+      await expect(openTooltip(window)).toHaveText("Counts for Design · You opened 1 of its 4 files")
+    },
+  )
+
   test("should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one", async ({
     page,
     setupRepo,

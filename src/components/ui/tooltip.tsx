@@ -3,16 +3,17 @@
 // open while hovered and swallowed the click); `lazy` on `Tooltip`: the root mounts at the first hover or focus of its
 // trigger, a plain element until then (`useLazyRoot`), for the many tooltips of a table row; it closes when its view of
 // the main window hides (`useCloseWhenViewHides`), and its hover opens it only with a move of the pointer
-// (`hoverOpensOnMove`); `controlKey` on `Tooltip`, the trigger named as the control of its root (`useControlRef`)
+// (`hoverOpensOnMove`); `controlKey` on `Tooltip`, the trigger named as the control of its root (`useControlRef`); a
+// tooltip enabled with the pointer resting on its trigger opens after its delay (`hoverAgain`)
 "use client"
 
-import { use } from "react"
+import { use, useEffect, useRef } from "react"
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "cn"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 import { ControlKeyContext, useControlKey, useControlRef } from "@/hooks/useControlKey"
 import { childNodes, LazyRootContext, PlainTrigger, useLazyRoot } from "@/hooks/useLazyRoot"
-import { hoverOpensOnMove } from "@/lib/pointer-moves"
+import { hoverAgain, hoverOpensOnMove } from "@/lib/pointer-moves"
 
 function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
@@ -39,6 +40,7 @@ function Tooltip({
   const root = useLazyRoot(lazy, open === true || props.defaultOpen === true)
   const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
   const key = useControlKey(controlKey)
+  useHoverWhenEnabled(props.disabled === true, key)
   return (
     // every root sets the context, so a trigger in its content never reads the root of an outer tooltip
     <LazyRootContext value={lazy ? root : null}>
@@ -58,6 +60,23 @@ function Tooltip({
       </ControlKeyContext>
     </LazyRootContext>
   )
+}
+
+/**
+ * A disabled tooltip enabled with the pointer resting on its trigger (the description of Approve, known once the
+ * code-owner review of the pull request came): Base UI listens on the trigger only now, after the pointer came, so its
+ * hover is replayed (`hoverAgain`) and the tooltip opens after its delay, as for a pointer that came now. After this
+ * task: the root tells its trigger in a layout effect, which renders the trigger again and attaches its listeners in a
+ * commit of its own, before the task ends
+ */
+function useHoverWhenEnabled(disabled: boolean, key: string): void {
+  const wasDisabled = useRef(disabled)
+  useEffect(() => {
+    if (wasDisabled.current && !disabled) {
+      queueMicrotask(() => hoverAgain(key))
+    }
+    wasDisabled.current = disabled
+  }, [disabled, key])
 }
 
 function TooltipTrigger({ ref, ...props }: TooltipPrimitive.Trigger.Props) {

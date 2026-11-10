@@ -145,3 +145,7 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   it shows, a loaded machine ends an exit late. `patches/@base-ui__react@1.9.0.patch` leaves the timers to the trigger:
   an upgrade of Base UI ports it (its master cancels the pending open in the unmount of `useHoverPopupInteraction`), and
   the tests of "Hover back over a trigger whose popup closed" (`branch-row-layout.spec.ts`) fail without it.
+- **A disabled root does not hear the pointer that came**: Base UI listens on the trigger of a disabled tooltip only once
+  it is enabled, so a tooltip that got its words with the pointer resting on it (the description of Approve) opened
+  only at the next move. The tooltip replays the hover of its trigger as it is enabled (`hoverAgain`), for a pointer
+  that moved over it, never for content under a still pointer.

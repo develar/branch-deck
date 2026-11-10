@@ -39,8 +39,9 @@ let pointed = new WeakSet<Element>()
 let pointedKeys = new Set<string>()
 // the triggers whose open by the hover was canceled: the next move over one enters it (`hoverOpensOnMove`)
 const refused = new WeakSet<Element>()
-// the keys of the control each element is (`registerControl`)
+// the keys of the control each element is (`registerControl`), and the elements of each key (`hoverAgain`)
 const controlKeys = new WeakMap<Element, Set<string>>()
+const keyElements = new Map<string, Set<Element>>()
 
 /** Points `target` and the elements around it, with the keys of their controls; `event` the move that went there */
 function point(target: Element | null, event: MouseEvent): void {
@@ -105,9 +106,49 @@ export function registerControl(element: Element, key: string): () => void {
     controlKeys.set(element, keys)
   }
   keys.add(key)
+  let elements = keyElements.get(key)
+  if (elements === undefined) {
+    elements = new Set()
+    keyElements.set(key, elements)
+  }
+  elements.add(element)
   const named = keys
+  const of = elements
   return () => {
     named.delete(key)
+    of.delete(element)
+    if (of.size === 0 && keyElements.get(key) === of) {
+      keyElements.delete(key)
+    }
+  }
+}
+
+/**
+ * The pointer at (`x`, `y`) as Base UI expects it on a trigger that listens on it only now: `mouseenter` on the element
+ * (its listener unblocks the hover), then a `mousemove` that bubbles to React (its handler starts the delay, after which
+ * the popup opens)
+ */
+export function enterAndMove(element: Element, x: number, y: number): void {
+  const init = { clientX: x, clientY: y, view: window }
+  element.dispatchEvent(new MouseEvent("mouseenter", init))
+  element.dispatchEvent(new MouseEvent("mousemove", { ...init, bubbles: true, cancelable: true }))
+}
+
+/**
+ * The hover of the control `key` once more, for a root that listens on its trigger only now: a tooltip enabled as it got
+ * something to say, with the pointer that came while it had nothing resting on it. Each shown element of the control,
+ * which the pointer moved over and has not left, gets the pointer where it is (`enterAndMove`); a control the pointer
+ * did not move over gets nothing, as content under a still pointer opens nothing
+ */
+export function hoverAgain(key: string): void {
+  const at = last.mouse
+  if (at === null) {
+    return
+  }
+  for (const element of keyElements.get(key) ?? []) {
+    if (pointerMovedOver(element) && element.getClientRects().length > 0) {
+      enterAndMove(element, at.x, at.y)
+    }
   }
 }
 
