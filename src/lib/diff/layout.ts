@@ -108,9 +108,19 @@ export class DiffLayout {
    * openings of the steps of no card told after the last card; 0 for none
    */
   readonly epilogue: number
+  /**
+   * The empty space past the end of the document (the review windows, `view` of the constructor), as IntelliJ's editor
+   * scrolls past the end of a file: as much as the view needs to show its last stop at its top (`lastStopTop`); 0 for
+   * none, and where the last section is as high as the view
+   */
+  readonly pastEnd: number
   private readonly byKey: Map<string, number>
 
-  constructor(files: readonly LayoutFile[], metrics: LayoutMetrics, prologue = 0, epilogue = 0) {
+  /**
+   * `view`: the height of the view the document scrolls past its end for, so every stop of it reaches the top (the
+   * review windows); 0 for a document that ends at its end (a block of another scroller, a view of a file)
+   */
+  constructor(files: readonly LayoutFile[], metrics: LayoutMetrics, prologue = 0, epilogue = 0, view = 0) {
     this.files = files
     this.metrics = metrics
     this.prologue = metrics.cards === undefined ? 0 : prologue
@@ -125,15 +135,37 @@ export class DiffLayout {
       this.byKey.set(file.key, index)
       this.offsets[index + 1] = this.offsets[index]! + this.fileHeight(index) + gap + this.openingHeight(index + 1)
     })
+    this.pastEnd = view > 0 && files.length > 0 ? Math.max(view - (this.contentHeight - this.lastStopTop), 0) : 0
   }
 
-  /** The height of the document: the prologue, the files, the epilogue, the gaps between them and the space around them */
+  /**
+   * The height of the document: the prologue, the files, the epilogue, the gaps between them and the space around them,
+   * then the space past its end (`pastEnd`)
+   */
   get height(): number {
+    return this.contentHeight + this.pastEnd
+  }
+
+  /** The prologue, the files, the epilogue, the gaps between them and the space around them: the end of what shows */
+  get contentHeight(): number {
     const padding = this.metrics.cards?.padding ?? 0
     if (this.files.length === 0) {
       return this.prologue > 0 ? padding + this.prologue + padding : 0
     }
     return this.epilogue > 0 ? this.epilogueTop + this.epilogue + padding : this.offsets[this.files.length]! - (this.metrics.cards?.gap ?? 0) + padding
+  }
+
+  /**
+   * The lowest `scrollTop` a stop of the document needs to be at the top: the card of the last file (`cardTop`, which
+   * a change N shows in it never passes), else, below an epilogue, its end less a row, as the top of its last opening
+   * is at most
+   */
+  get lastStopTop(): number {
+    const last = this.files.length - 1
+    if (last < 0) {
+      return 0
+    }
+    return this.epilogue > 0 ? Math.max(this.epilogueTop + this.epilogue - this.metrics.rowHeight - this.stickyTop, 0) : this.cardTop(last)
   }
 
   /** The top of the epilogue: a gap below the last card */
@@ -237,8 +269,8 @@ export class DiffLayout {
 
   /**
    * The file a user's scroll to `scrollTop` shows, the one the tree and the map follow: the one at the top
-   * (`fileAtTop`), except at the end of the document, where the last file is in view entire and its header can never
-   * reach the top
+   * (`fileAtTop`), except at the end of a document that does not scroll past its end (`pastEnd`), where the last file is
+   * in view entire and its header can never reach the top; past the end it is the one at the top there too
    */
   fileShownAt(scrollTop: number, viewHeight: number): number {
     return this.files.length > 0 && scrollTop + viewHeight >= this.height - 1 ? this.files.length - 1 : this.fileAtTop(scrollTop)

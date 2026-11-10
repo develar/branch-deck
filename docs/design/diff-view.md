@@ -148,8 +148,9 @@ fold levels, which a section keeps by its own key (`sectionFoldKey`), its gaps b
 that shows its line (`sectionOf`), without a line its first open section; a click on a `note` row of a block opens the
 section that shows it; a key shows its section (`scrollToSection`), as a row of the tree of a concern does. The
 section at the top is reported by its key and its path (`onVisibleSectionChange`), so the tree selects the row of
-the file in the concern of the section. A section near the end, which a scroll to it cannot bring to the top, keeps
-the change cursor of N while it is on screen.
+the file in the concern of the section. In a view that ends at its end, a section near the end, which a scroll to it
+cannot bring to the top, keeps the change cursor of N while it is on screen; a review window scrolls past its end, so
+the section at the top is the one shown ("Past the end").
 
 The line indices are the engine's. A text that ends with a line end, and an empty text, end with an empty line that
 the engine counts (`emptyLastLine`). The row model leaves that line out when no block touches it, so a file shows no
@@ -260,8 +261,8 @@ and the opening of each step (below). Each item but those has a known height:
   (`DiffSection.before`, each opening an element `data-opening-step`): the layer is measured whole, and the view finds
   the opening at the top, and the one J shows, by the offsets of those elements (`visibleStop().step`). One told after
   the last card has its opening in the epilogue, a layer below the last card and a gap (`epilogue` of `DiffView`,
-  `DiffLayout.epilogue`), an opening of the last section to J, the tree and the bar; a scroll to it brings it as far up
-  as the end of the document lets it, and the line at the end of the last card names it by its step. A change of step is a wider break than a change of file, so its title
+  `DiffLayout.epilogue`), an opening of the last section to J, the tree and the bar; a scroll to it brings it to the
+  top, past the end of the document, and the line at the end of the last card names it by its step. A change of step is a wider break than a change of file, so its title
   outranks the name of a file (a coloured name in bold outweighed black words of the same size); a group alone is one
   muted line. The prologue of a review is its overview (`ReviewPrologue`). The header names the file alone: its order is
   always the chevron, the letter, the name, the path, then the actions (the mark of a story that names the section
@@ -298,6 +299,17 @@ and the opening of each step (below). Each item but those has a known height:
   its part at the top as it is asked (`visibleStop`): the stop it showed last, else, before a scroll or a choice
   reported one, the one at the top of the view as it stands, the prologue where a review opens, so the first J goes on
   from there.
+- **Past the end.** A review window scrolls past the end of its document, as IntelliJ's editor and diff viewer scroll
+  past the end of a file: empty canvas after the last card (`DiffLayout.pastEnd`, counted by `height`; `contentHeight`
+  is the end of what shows), as much as the view needs for its last stop to reach the top (`lastStopTop`: the card of
+  the last file, which a change N shows in it never passes; below an epilogue, its end less a row, as the top of its
+  last opening is at most), none where the last card is as high as the view. So J, K, N, P, a row and a place of the
+  map bring their section to the top, and the section at the top is the one the bar, the footer, the tree and the map
+  name: the rule that kept the section the view showed last while it was on screen holds only for a view that ends at
+  its end. The space is sized from the height of the view (a `ResizeObserver` on the scroller): a resize lays the
+  document out again, a scroll never. A diff that is a block of another scroller (the preview of a commit, the
+  conflict viewer: `scroll: "parent"`) and the view of a file outside the review end at their end: their scroller
+  holds other content, and a file shown at a declaration needs no stop past its end.
 
 **Measured: the prologue and the openings.** Every height is arithmetic but two kinds of blocks of words of a
 review: the prologue before the first section (`prologue` of `DiffView`) and the opening of each step (of a step of no

@@ -312,6 +312,27 @@ describe("DiffLayout of file cards", () => {
     expect(new DiffLayout(files, { rowHeight: 20, headerHeight: 36 }).footerHeight(0)).toBe(0)
   })
 
+  it("scrolls a review past its end by what its view needs for the card of the last file to reach the top, none where the last card fills the view", () => {
+    const short = buildFileRows(ONE_CHANGE, "unified")
+    const long = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const view = 400
+    const layout = new DiffLayout([file("a", long), file("b", short)], CARDS, 0, 0, view)
+    // scrolled to its end, the card of the last file is at the top, the space below it empty
+    expect(layout.pastEnd).toBeGreaterThan(0)
+    expect(layout.pastEnd).toBe(view - (layout.contentHeight - layout.cardTop(1)))
+    expect(layout.height - view).toBe(layout.cardTop(1))
+    expect(layout.fileAtTop(layout.height - view)).toBe(1)
+    expect(layout.fileShownAt(layout.height - view, view)).toBe(1)
+    // a last card as high as the view needs no space; a view that ends at its end has none
+    expect(new DiffLayout([file("b", short), file("a", long)], CARDS, 0, 0, view).pastEnd).toBe(0)
+    expect(new DiffLayout([file("a", long), file("b", short)], CARDS).pastEnd).toBe(0)
+    // below an epilogue its end less a row reaches the top, so the top of its last opening does
+    const ending = new DiffLayout([file("a", long), file("b", short)], CARDS, 0, 120, view)
+    expect(ending.height - view).toBe(ending.epilogueTop + 120 - 20 - 10)
+    // an overview alone: nothing to scroll to
+    expect(new DiffLayout([], CARDS, 200, 0, view).pastEnd).toBe(0)
+  })
+
   it("keeps a strip for the scrollbar of a file wider than its columns below its rows, above the line at the end, which the offsets count", () => {
     const rows = buildFileRows(ONE_CHANGE, "unified")
     const files = [file("wide", rows, { scrollbar: true, footer: true }), file("narrow", rows), file("collapsed", null, { scrollbar: true })]

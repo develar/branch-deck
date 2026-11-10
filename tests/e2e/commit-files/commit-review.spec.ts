@@ -342,8 +342,8 @@ simpleTest.describe("Commit review", () => {
       }
       await drag(10)
       await expect.poll(scrollTop).toBeCloseTo(start + 200 + 10 / scale, -1)
-      // to the end: the last file is in view entire, its header below the top, which it can never reach; the tree, the
-      // position and the map follow it, not the file whose header is at the top
+      // to the end: past the end of the document the last file is at the top, the space below it empty; the tree, the
+      // position and the map follow it
       await drag(1000)
       await expect.poll(scrollTop).toBe(await view.evaluate(element => element.scrollHeight - element.clientHeight))
       const fileAtTop = await view.evaluate(element => {
@@ -354,7 +354,7 @@ simpleTest.describe("Commit review", () => {
           .getAttribute("data-path")!
         return path.slice(path.lastIndexOf("/") + 1)
       })
-      expect(fileAtTop).not.toBe("README.md")
+      expect(fileAtTop).toBe("README.md")
       await expect(selectedFile(window)).toHaveAttribute("aria-label", "README.md")
       await expect(position).toHaveText("File 5 / 5")
       await expect(map).toHaveAttribute("data-current", "README.md")

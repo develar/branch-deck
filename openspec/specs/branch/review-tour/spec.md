@@ -2928,12 +2928,10 @@ overview move them, and a click shows the opening of the step (of the first one 
   [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following`)
 
 #### Scenario: The bar at the end of a document
-- **WHEN** J shows a section that the end of the document keeps from the top of the view, then the reader scrolls to
-  the end
-- **THEN** the bar, the footer and the tree name that section while the reader does not scroll, as the selection of a
-  scroll the review made does
-- **AND** once the reader scrolls to the end they name the last section, in view entire
-  [@test] tests/e2e/branch-review/review-parts.spec.ts (`should name one section in the bar, the footer and the tree at the end of the document: the one J showed until the reader scrolls, then the last one`)
+- **WHEN** J goes through the sections of a document shorter than the view below its first part, to the last
+- **THEN** each comes to the top, the diffs scrolling past their end, and the bar, the footer and the tree name it
+- **AND** a wheel to the end shows the last card at the top, the space past the end empty below it
+  [@test] tests/e2e/branch-review/review-parts.spec.ts (`should scroll past the end of a short document, so J brings each section to the top, the bar, the footer and the tree naming it, and a wheel to the end shows the space below the last card`)
 
 ### Requirement: In the Review Window: The bar names what is no step alone
 

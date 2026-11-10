@@ -1,6 +1,8 @@
 // @spec openspec/specs/branch/review-tour/spec.md
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `review_parts` template: the branch `parts`, one commit that adds `Loader.probe`, uses it in `Config.kt`, removes
 // `Loader.legacy` and adds an import; the story shows Loader.kt in three parts: the probe (step 1), the removal (Other
@@ -8,15 +10,19 @@ import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/revi
 
 const LOADER = "src/plugins/Loader.kt"
 
+/** The review window of the branch `parts` with the review plan on */
+async function openParts(page: Page, setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>): Promise<Page> {
+  turnOnReviewPlan(await setupRepo("review_parts"))
+  return openPlanWindow(page, syncAndWaitForBranches, "parts")
+}
+
 test.describe("Parts of a file", () => {
   test("should show a file in parts as a card each, its part and its own lines, the footer the part at the top as J walks them, its row the first part, and a fold the changes other parts show, which it opens", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRepo("review_parts")
-    turnOnReviewPlan(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+    const window = await openParts(page, setupRepo, syncAndWaitForBranches)
     const cards = window.locator(`[data-testid=diff-view-file][data-path="${LOADER}"]`)
     // each card its part and the lines of its own blocks: the probe added, the legacy count removed alone, the import
     await expect(cards.getByTestId("review-file-part")).toHaveText(["part 1 of 3+5 −0", "part 2 of 3+0 −4", "part 3 of 3+1 −0"])
@@ -61,9 +67,7 @@ test.describe("Parts of a file", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRepo("review_parts")
-    turnOnReviewPlan(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+    const window = await openParts(page, setupRepo, syncAndWaitForBranches)
     const { tree } = reviewSidebar(window)
     const bar = window.getByTestId("review-step-bar")
     const position = window.getByTestId("review-position")
@@ -101,9 +105,7 @@ test.describe("Parts of a file", () => {
     "should take a click on the lower half of the fold at the end of a card, the scrollbar of its long lines in a strip of its own below it",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupRepo("review_parts")
-      turnOnReviewPlan(repo)
-      const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+      const window = await openParts(page, setupRepo, syncAndWaitForBranches)
       // the old side narrower than the line of `load`: the first part has its scrollbar
       await window.setViewportSize({ width: 1100, height: 900 })
       const position = window.getByTestId("review-position")
@@ -126,9 +128,7 @@ test.describe("Parts of a file", () => {
   )
 
   test("should move the focus of the tree with the selection J and K move, so one row is marked", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("review_parts")
-    turnOnReviewPlan(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+    const window = await openParts(page, setupRepo, syncAndWaitForBranches)
     const { tree } = reviewSidebar(window)
     const selected = tree.getByRole("treeitem", { selected: true })
     const first = tree.getByRole("treeitem", { name: LOADER, exact: true })
@@ -151,48 +151,61 @@ test.describe("Parts of a file", () => {
     await expect(selected).toHaveCount(1)
   })
 
-  test("should name one section in the bar, the footer and the tree at the end of the document: the one J showed until the reader scrolls, then the last one", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
-    const repo = await setupRepo("review_parts")
-    turnOnReviewPlan(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
-    // a view taller than the end of the document below the first part: the second part cannot reach its top
-    await window.setViewportSize({ width: 1280, height: 1100 })
-    const { tree } = reviewSidebar(window)
-    const bar = window.getByTestId("review-step-bar")
-    const position = window.getByTestId("review-position")
-    const selected = tree.getByRole("treeitem", { selected: true })
-    const cards = window.locator(`[data-testid=diff-view-file][data-path="${LOADER}"]`)
-    await tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
-    await expect(bar).toHaveText("Step 1 / 1·probe")
+  test(
+    "should scroll past the end of a short document, so J brings each section to the top, the bar, the footer and the tree naming it, and a wheel to the end shows the space below the last card",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const window = await openParts(page, setupRepo, syncAndWaitForBranches)
+      // a view taller than all of the document below the first part
+      await window.setViewportSize({ width: 1280, height: 1100 })
+      const { tree } = reviewSidebar(window)
+      const view = window.getByTestId("diff-view")
+      const bar = window.getByTestId("review-step-bar")
+      const position = window.getByTestId("review-position")
+      const selected = tree.getByRole("treeitem", { selected: true })
+      const cards = window.locator(`[data-testid=diff-view-file][data-path="${LOADER}"]`)
+      // where a section stands below the top of the view, and how far that is from the top of a section, 10 px (the space
+      // above the first card), to a pixel of the engine's rounding
+      const below = async (element: typeof view) => (await element.boundingBox())!.y - (await view.boundingBox())!.y
+      const offTop = async (element: typeof view) => Math.abs((await below(element)) - 10)
+      await tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
+      await expect(bar).toHaveText("Step 1 / 1·probe")
+      await expect.poll(() => offTop(cards.nth(0))).toBeLessThanOrEqual(1)
 
-    // J to the second part: the end of the document leaves the first part at the top, the one J showed is named
-    await window.keyboard.press("j")
-    await window.keyboard.press("j")
-    await expect(position).toHaveText("File 2 / 2 · part 2 of 3")
-    await expect(bar).toHaveText("Other changes")
-    await expect(selected).toHaveAccessibleName("Loader.kt, also in Other changes")
-    await expect(cards.first()).toBeInViewport()
+      // J: the opening of Other changes, the second part and the imports, each at the top, named by all three
+      await window.keyboard.press("j")
+      await expect(position).toHaveText("File 2 / 2")
+      await expect.poll(() => offTop(window.getByTestId("diff-view-opening").filter({ hasText: "Other changes" }))).toBeLessThanOrEqual(1)
+      await window.keyboard.press("j")
+      await expect(position).toHaveText("File 2 / 2 · part 2 of 3")
+      await expect(bar).toHaveText("Other changes")
+      await expect(selected).toHaveAccessibleName("Loader.kt, also in Other changes")
+      await expect.poll(() => offTop(cards.nth(1))).toBeLessThanOrEqual(1)
+      await window.keyboard.press("j")
+      await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
+      await expect(bar).toHaveText("Imports only")
+      await expect(selected).toHaveAccessibleName(LOADER)
+      await expect.poll(() => offTop(cards.nth(2))).toBeLessThanOrEqual(1)
 
-    // the reader scrolls to the end: the last section, the imports, in all three
-    await window.getByTestId("diff-view").hover()
-    await window.mouse.wheel(0, -40)
-    await window.mouse.wheel(0, 100_000)
-    await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
-    await expect(bar).toHaveText("Imports only")
-    await expect(selected).toHaveAccessibleName(LOADER)
-  })
+      // the reader scrolls up, then to the end: the last card at the top again, the space past the end empty below it
+      await view.hover()
+      await window.mouse.wheel(0, -300)
+      await expect(position).not.toHaveText("File 2 / 2 · part 3 of 3")
+      await window.mouse.wheel(0, 100_000)
+      await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
+      await expect(bar).toHaveText("Imports only")
+      await expect.poll(() => offTop(cards.nth(2))).toBeLessThanOrEqual(1)
+      const viewBottom = (await view.boundingBox())!.height
+      const cardBottom = (await below(cards.nth(2))) + (await cards.nth(2).boundingBox())!.height
+      expect(viewBottom - cardBottom).toBeGreaterThan(300)
+    },
+  )
 
   test(
     "should show the opening of the first step on the first J of a review just opened on its overview",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const repo = await setupRepo("review_parts")
-      turnOnReviewPlan(repo)
-      const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+      const window = await openParts(page, setupRepo, syncAndWaitForBranches)
       const bar = window.getByTestId("review-step-bar")
       await expect(bar).toHaveText("Overview·1 step")
       // nothing scrolled the diffs nor chose a section: J goes on from the overview at their top

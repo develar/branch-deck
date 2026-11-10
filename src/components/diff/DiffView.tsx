@@ -520,6 +520,9 @@ export function DiffView({
   const [windowRange, setWindowRange] = useState<readonly [number, number]>([0, 0])
   const [metrics, setMetrics] = useState<ViewMetrics>(() => ({ rowHeight: 20, columnWidth: 7.8, text: { columnWidth: 7.8, tabSize: DIFF_TAB_SIZE, widthOf: () => 7.8 } }))
   const [viewWidth, setWidth] = useState(0)
+  // the height of the view, which the space past the end of the document is sized for (`DiffLayout.pastEnd`): a resize
+  // lays the document out again, a scroll never
+  const [viewHeight, setViewHeight] = useState(0)
   // the width of the rows: the view less the insets and the borders of the cards
   const width = cards ? Math.max(viewWidth - 2 * (CARD_INSET + CARD_BORDER), 0) : viewWidth
   const scroller = useRef<HTMLDivElement>(null)
@@ -648,8 +651,10 @@ export function DiffView({
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
         prologued ? (measured.get(PROLOGUE_KEY) ?? 0) : 0,
         epilogued ? (measured.get(EPILOGUE_KEY) ?? 0) : 0,
+        // the review windows scroll past the end, so J, K, N, P and a row bring any section to the top
+        mapped ? viewHeight : 0,
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers, scrollbars],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers, scrollbars, mapped, viewHeight],
   )
 
   // the sections as the map of the files shows them: where a step starts, which files the chip plays down
@@ -1080,10 +1085,11 @@ export function DiffView({
         }
       },
       onTopFile: (index, part) => {
-        // the section the view showed last (a file of the tree, N, J) stays the one shown while it is on screen: a
-        // section near the end, which a scroll to it cannot bring to the top, is not the one above it; the prologue
-        // at the top is the prologue
-        const cursor = changeCursor.current === null ? -1 : layout.indexOf(changeCursor.current.key)
+        // the section at the top, which a review window's scroll past the end brings any section to; of a view that ends
+        // at its end the section it showed last (a file of the tree, N, J) stays the one shown while it is on screen: a
+        // section near the end, which a scroll to it cannot bring to the top, is not the one above it; the prologue at
+        // the top is the prologue
+        const cursor = changeCursor.current === null || mapped ? -1 : layout.indexOf(changeCursor.current.key)
         const element = scroller.current
         const bottom = element === null ? index : layout.fileAt(element.scrollTop + element.clientHeight)
         const shown = part !== "prologue" && cursor >= index && cursor <= bottom ? cursor : index
@@ -1149,7 +1155,10 @@ export function DiffView({
     void document.fonts.load(ROWS_FONT).then(measure, measure)
     const resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
     resolution.addEventListener("change", measure)
-    const resize = new ResizeObserver(([entry]) => setWidth(entry?.contentRect.width ?? 0))
+    const resize = new ResizeObserver(([entry]) => {
+      setWidth(entry?.contentRect.width ?? 0)
+      setViewHeight(entry?.contentRect.height ?? 0)
+    })
     resize.observe(element)
     return () => {
       resolution.removeEventListener("change", measure)
