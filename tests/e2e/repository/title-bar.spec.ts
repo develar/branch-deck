@@ -321,6 +321,8 @@ test.describe("Title bar of a sub-window", () => {
     const details = getBranchDetailsRow(page, "bug-fix")
     await waitForConflictViewer(page, details)
     await details.getByTestId("conflicting-files").getByRole("button", { name: "Open in Window" }).click()
+    // the window opens as the page asks the desktop of the test server, after the click
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
     const [opened] = await getOpenedSubWindows(page)
     await useTitleBar(page, TITLE_BARS.macos)
     await page.setViewportSize({ width: 960, height: 400 })

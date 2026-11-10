@@ -118,9 +118,11 @@ export async function finishedSyncCount(page: Page): Promise<number> {
 
 /**
  * Wait for a sync that finishes after `finishedSyncCount` returned `previousCount`. Watching the button go disabled
- * and enabled again misses a sync that is over before the first check, which happens under parallel load.
+ * and enabled again misses a sync that is over before the first check, which happens under parallel load. The sync
+ * takes what the machine lets it (a reword and its sync past 10 s at load 160 on 18 cores, its patches coming all the
+ * while), so the wait is the test's, as that of an answer (`nextAnswer`), not a bound of its own
  */
-export async function waitForSyncComplete(page: Page, previousCount: number, timeout = 10000): Promise<void> {
+export async function waitForSyncComplete(page: Page, previousCount: number, timeout = 0): Promise<void> {
   const syncButton = page.locator('[data-testid="sync-button"]')
   await expect(syncButton).not.toHaveAttribute("data-sync-count", String(previousCount), { timeout })
   await expect(syncButton).toBeEnabled({ timeout })

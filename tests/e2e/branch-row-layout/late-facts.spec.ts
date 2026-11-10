@@ -14,7 +14,7 @@ import { availableReviewRequests, getYourTurnCard, reviewRequest } from "../help
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { pushedRemote } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
-import { animationsEnded, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
+import { animationsEnded, waitForStepFacts, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -67,6 +67,7 @@ test.describe("Late facts", () => {
 
     // the first start: every fact came, the view keeps its layout for the next one
     await expect(getYourTurnCard(page)).toBeVisible()
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
     await expect(findBranchRow(page, BRANCH).getByTestId("next-step-slot")).toHaveAttribute("data-step", "awaiting")
     const settled = await rowLayout(page)
     await waitForStorePersistence(page, "repositoryState", states =>
@@ -182,6 +183,7 @@ test.describe("Late facts", () => {
     const pushTrack = async () => (await trackBox(auth.locator("[data-track=push]"))).width
 
     // the first start: every fact came, the push of auth sends its children; the view keeps its layout
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
     await expect(push).toHaveAccessibleName("Push with Children (3 branches)")
     const settled = await pushTrack()
     await waitForStorePersistence(page, "repositoryState", states =>

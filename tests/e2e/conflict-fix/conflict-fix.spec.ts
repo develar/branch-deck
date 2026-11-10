@@ -5,6 +5,7 @@ import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBra
 import { availableRobots } from "../helpers/patronus-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { waitForConflictFixSearch } from "../helpers/wait-helpers"
 
 /** The fix of the conflict of ui, its row open, once the search found it */
 async function foundFix(page: Page): Promise<Locator> {
@@ -13,6 +14,7 @@ async function foundFix(page: Page): Promise<Locator> {
     await expandBranch(page, uiRow)
   }
   const fix = getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")
+  await waitForConflictFixSearch(fix)
   await expect(fix).toHaveAttribute("data-state", "found")
   return fix
 }
@@ -61,7 +63,9 @@ test.describe("Conflict fix", () => {
     await openContextMenu(page, uiRow)
     await clickContextMenuItem(page, "Fix Conflict…")
     await expect(uiRow).toHaveAttribute("data-state", "open")
-    await expect(getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")).toHaveAttribute("data-state", "found")
+    const fix = getBranchDetailsRow(page, "ui").getByTestId("conflict-fix")
+    await waitForConflictFixSearch(fix)
+    await expect(fix).toHaveAttribute("data-state", "found")
   })
 })
 

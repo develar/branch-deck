@@ -5,7 +5,7 @@ import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } f
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { enableAutoSyncOnFocus, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
-import { expectClosed } from "../helpers/wait-helpers"
+import { expectClosed, waitForConflictFixSearch } from "../helpers/wait-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
 const BRANCH = "JIRA-456"
@@ -211,6 +211,7 @@ testWithConflicts.describe("Branch preview of a conflicting branch", () => {
     await expect(notice).toContainText("“Implement secure password hashing” does not apply cleanly")
     // where the commits it misses are, and the fix below
     await expect(notice).toContainText("1 commit of feature-auth changed these files first, as did 1 unassigned commit")
+    await waitForConflictFixSearch(preview.getByTestId("conflict-fix"))
     await expect(preview.getByTestId("conflict-fix")).toHaveAttribute("data-state", "found")
     await expect(preview.getByTestId("branch-preview-commit").first()).toContainText("Merge conflict")
     // a branch with a conflict has nothing to push

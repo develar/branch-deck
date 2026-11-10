@@ -7,7 +7,17 @@ import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } f
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { MIN_WINDOW } from "../helpers/header-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, runAndWaitForSync, syncFromMenu, syncOnWindowFocus, waitForTauriListener } from "../helpers/sync-helpers"
+import {
+  emitTauriEvent,
+  enableAutoSyncOnFocus,
+  finishedSyncCount,
+  nextAnswer,
+  runAndWaitForAnswer,
+  runAndWaitForSync,
+  syncFromMenu,
+  syncOnWindowFocus,
+  waitForTauriListener,
+} from "../helpers/sync-helpers"
 import { holdCommand, holdRewrites, expectClosed } from "../helpers/wait-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
@@ -490,7 +500,7 @@ test.describe("Commit message", () => {
 
       // the commit is reworded in a terminal meanwhile, so it left the branch
       await repo.reword(hash!, `(${BRANCH}) ${PERF_SUBJECT} connections`)
-      await page.keyboard.press("ControlOrMeta+Enter")
+      await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("ControlOrMeta+Enter"))
 
       // the session brings its table to HEAD to find the commit, and finds it neither by its id nor by its key: the plan
       // of the reword changed, nothing was done
@@ -570,7 +580,7 @@ test.describe("Commit message", () => {
       const other = await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: SUBJECT }).getAttribute("data-row-id")
       await repo.reword(other!, `(${BRANCH}) ${SUBJECT} with backoff`)
 
-      await rewordToast(page, hash).getByRole("button", { name: "Undo" }).click()
+      await runAndWaitForAnswer(page, "execute", () => rewordToast(page, hash).getByRole("button", { name: "Undo" }).click())
       const refusal = page.locator("[data-slot=toast]").filter({ hasText: "Cannot undo the reword" })
       // stale for good: the words say so, not that a retry may help
       await expect(refusal).toContainText(/moved: HEAD is .*; it can't be undone any more/)
@@ -593,7 +603,9 @@ test.describe("Commit message", () => {
       const { calls, release } = await holdRewrites(page, "reword")
       await page.keyboard.press("ControlOrMeta+Enter")
       await expect.poll(() => calls.length).toBe(1)
+      const answered = nextAnswer(page, "execute")
       release()
+      await answered
 
       // the save is over (its toast would come before the edit ends); the message reached the backend unchanged
       await expect(editor).toHaveCount(0)

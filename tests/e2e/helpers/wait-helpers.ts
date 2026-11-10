@@ -327,6 +327,16 @@ export async function waitForTooltipChange(page: Page, fromText: string, toText:
 }
 
 /**
+ * Waits until the search for the fix of a shown conflict (`fix`, the callout `conflict-fix`) ended: its trial builds
+ * take what the machine lets them (past 5 s at load 160 on 18 cores), so the wait is the test's, and the caller checks
+ * its result ("found", "none", "error") once
+ */
+export async function waitForConflictFixSearch(fix: Locator): Promise<void> {
+  await expect(fix).toBeVisible()
+  await expect(fix).not.toHaveAttribute("data-state", "searching", { timeout: 0 })
+}
+
+/**
  * Wait for conflict viewer to load in branch details
  */
 export async function waitForConflictViewer(page: Page, branchDetailsRow: Locator, timeout = 10000): Promise<Locator> {
@@ -340,7 +350,7 @@ export async function waitForConflictViewer(page: Page, branchDetailsRow: Locato
   // the fix of a sync conflict is looked for when the conflict is shown: wait until the search ends, so the view stands
   const fix = branchDetailsRow.getByTestId("conflict-fix")
   if ((await fix.count()) > 0) {
-    await expect(fix.first()).not.toHaveAttribute("data-state", "searching", { timeout })
+    await waitForConflictFixSearch(fix.first())
   }
 
   return conflictingFiles

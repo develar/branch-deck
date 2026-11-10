@@ -1,6 +1,7 @@
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { waitForStepFacts } from "../helpers/wait-helpers"
 
 test.describe("Issue Navigation Links", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
@@ -161,7 +162,8 @@ test.describe("Issue Navigation Links", () => {
     await expect(page.locator('[data-testid="branch-row"][data-branch-name="ABC-123"]')).toBeVisible()
     await expect(page.locator('[data-testid="branch-row"][data-branch-name="JIRA-456"]')).toBeVisible()
 
-    // Capture snapshot of the entire branch card showing all branches with/without summaries
+    // Capture snapshot of the entire branch card showing all branches with/without summaries, once every step has its facts
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
     await captureHtmlSnapshot(branchCard, "issue-links-branch-names")
   })
 })
