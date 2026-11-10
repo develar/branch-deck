@@ -1,7 +1,7 @@
 # E2E Testing Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-28  
+**Updated:** 2026-11-10  
 **Tags:** [testing, playwright, mocking, snapshots]
 
 ## Problem
@@ -560,7 +560,9 @@ State isolation:
   an animation: the sheet stops the transitions of a toast that is not ending (`[data-slot="toast"]:not([data-ending-style])`),
   since a click on its close or its Undo waited for the slide to stop (0.75 s per click under load, s16-7). The exits
   still run as the user sees them, so a popup reopened while it closes stays tested; the reduced motion of the app is
-  a test's own (`page.emulateMedia({ reducedMotion })`)
+  a test's own (`page.emulateMedia({ reducedMotion })`). `E2E_EXIT_MS` (ms) lengthens every exit (`[data-closed]`,
+  `[data-ending-style]`) for a run that looks for a test that waits for one, which a loaded window that paints no frame
+  for seconds fails ([Writing E2E Tests → Pitfalls](../contributing/e2e-tests.md#pitfalls))
 - **Focus**: Base UI moves the focus into a dialog a frame after it opened (`requestAnimationFrame`, which the clock
   drives), often after the dialog's text came. A test that types into the dialog waits for `toBeFocused()` first and
   types with `page.keyboard`: `press` or `type` on an input without the focus focuses it with the caret at 0, and End

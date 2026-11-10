@@ -1,7 +1,7 @@
 # Writing E2E Tests
 
 **Status:** Active  
-**Updated:** 2026-11-07  
+**Updated:** 2026-11-10  
 **Tags:** [e2e, playwright, tests]
 
 ## Summary
@@ -76,6 +76,11 @@ rules in one line each and links here.
   pointer events" for the whole timeout is a popup the page left open, a bug of the page: stack-island.spec.ts waited
   30 s on Sync under the backdrop of a right-click menu whose focus the closing menu of a "⋯" had taken
   ([A stall under load](../design/e2e-testing.md#performance-considerations)).
+- **A wait for an exit hides under a quick machine**: an exit of 100 ms ends before an assertion's first retry, so a test
+  that waits for one passes here and fails on a loaded machine, whose window paints no frame for seconds.
+  `E2E_EXIT_MS=8000 pnpm e2e <spec>` lengthens every exit (`[data-closed]`, `[data-ending-style]`) past an assertion's
+  time: such a test fails at once, with a timeout of the removal, the focus or a strict locator (on 2026-11-10, 211 of
+  984 tests). Run it on a new test of a popup.
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start. A Base UI menu takes its focus a frame after it shows (`enqueueFocus`), and
   a closing one gives it back in a microtask after its popup goes: a key for an open menu waits for the focus in it

@@ -54,12 +54,16 @@ export const test = base.extend({
     // off. Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in
     // them, and the grown item left it (a submenu closed, a tooltip never opened); a click on a toast that slid in
     // (its close, its Undo) waited for the slide (a transition of 500 ms, not an animation). The exit still runs, as the
-    // user sees it: a popup reopened while it closes stays tested
-    await context.addInitScript(() => {
+    // user sees it: a popup reopened while it closes stays tested. `E2E_EXIT_MS` lengthens every exit to that many ms, as
+    // a loaded window that paints no frame for seconds does: a test that waits for an exit fails at once
+    await context.addInitScript(exitMs => {
       const sheet = new CSSStyleSheet()
-      sheet.replaceSync('[class*="animate-in"]:not([data-closed]) { animation: none !important; } [data-slot="toast"]:not([data-ending-style]) { transition: none !important; }')
+      const longExits = exitMs === null ? "" : ` [data-closed], [data-ending-style] { animation-duration: ${exitMs}ms !important; transition-duration: ${exitMs}ms !important; }`
+      sheet.replaceSync(
+        `[class*="animate-in"]:not([data-closed]) { animation: none !important; } [data-slot="toast"]:not([data-ending-style]) { transition: none !important; }${longExits}`,
+      )
       document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
-    })
+    }, process.env.E2E_EXIT_MS ?? null)
 
     // Set a fixed time for all tests to ensure consistent date/time display
     // Using Jan 2, 2024 10:00 AM UTC to match our test commits from Jan 1, 2024
