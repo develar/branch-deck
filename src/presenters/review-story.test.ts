@@ -16,6 +16,7 @@ import type {
   StepTests,
   ModuleShape,
 } from "@/lib/bindings"
+import { plainTitle } from "@/lib/commit"
 import { joinNames } from "@/lib/text"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
@@ -55,7 +56,7 @@ function story(
   })
   return {
     id: subject,
-    title: subject,
+    title: plainTitle(subject),
     body: { blocks, trailers: [], lead, summary: lead ? 0 : null, parts: bodyParts, code: [] },
     mentions: [],
     parts: bodyParts.map((part, index) => ({ ...part, told: told[index] ?? { kind: "commit" }, titled: index === titled, removals: [] })),
@@ -369,11 +370,11 @@ describe("the document of a review", () => {
       ]),
     ).toEqual([
       // the contents: the files of the tests of the change, the rest in its opening
-      [1, "the rule", paragraph("One rule decides."), null, ["Tested by RuleTest.kt"], null],
-      [2, "the paint", null, null, [], "No test of the change reaches paint create run open"],
-      [3, "the story", null, "Proven by restart.json", ["No test of the change reaches load"], null],
-      [4, "the try", null, "Nothing of it lands: a later commit took it out", [], null],
-      [5, "the wip", null, null, [], null],
+      [1, plainTitle("the rule"), paragraph("One rule decides."), null, ["Tested by RuleTest.kt"], null],
+      [2, plainTitle("the paint"), null, null, [], "No test of the change reaches paint create run open"],
+      [3, plainTitle("the story"), null, "Proven by restart.json", ["No test of the change reaches load"], null],
+      [4, plainTitle("the try"), null, "Nothing of it lands: a later commit took it out", [], null],
+      [5, plainTitle("the wip"), null, null, [], null],
     ])
     // the opening, a line each: the files of the tests of the change, each at its first test with its tests and their ways
     // in its hover; the code no test of the change reaches at the line of its name
@@ -532,7 +533,11 @@ describe("the document of a review", () => {
         ["Removes a test, shown in step 1", "h"],
       ],
     ])
-    expect(shown.shownElsewhere[0]!.names.places[0]).toEqual({ key: "u:hooks", label: "hooks", place: { path: "src/Manager.kt", side: "old", line: 3, name: "hooks" } })
+    expect(shown.shownElsewhere[0]!.names.places[0]).toEqual({
+      key: "u:hooks",
+      label: "hooks",
+      place: { path: "src/Manager.kt", side: "old", line: 3, name: "hooks", unit: "u:hooks" },
+    })
     // where the author asks the reviewer to decide, in the contents too: its question alone, the opening tells the rest
     expect(view.steps[0]!.lookClosely.map(({ part }) => [part.head?.block.type === "label" && part.head.block.text, part.blocks.map(it => it.block)])).toEqual([
       ["Look closely", [paragraph("Is a stored layout enough?")]],
@@ -582,8 +587,8 @@ describe("the document of a review", () => {
     )
     const view = presentPrologue(review, false)
     expect(view.steps.map(({ number, title }) => [number, title])).toEqual([
-      [1, "aFunction"],
-      [null, "Other changes"],
+      [1, plainTitle("aFunction")],
+      [null, plainTitle("Other changes")],
     ])
     expect(presentOpenings(review).get("rest")?.number).toBeNull()
   })
@@ -802,11 +807,11 @@ describe("the document of a review", () => {
       ),
     )
     const rule = openings.get("a")!
-    expect([rule.number, rule.title, rule.evidence, textOf(rule.story!).lead]).toEqual(["Step 1", "the rule", [], "One rule decides."])
+    expect([rule.number, rule.title, rule.evidence, textOf(rule.story!).lead]).toEqual(["Step 1", plainTitle("the rule"), [], "One rule decides."])
     // the other commits of the step, one form each: its role muted, its title, a story to open or none
     expect(rule.commits.map(it => [it.role, it.title, it.story === null ? null : textOf(it.story).lead])).toEqual([
-      ["Follows up", "the rule again", "Renamed it."],
-      ["Without a story", "wip", null],
+      ["Follows up", plainTitle("the rule again"), "Renamed it."],
+      ["Without a story", plainTitle("wip"), null],
     ])
     // a changed declaration is no new API
     expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleEdges.places.map(({ label, place }) => [label, place])]).toEqual([
@@ -825,7 +830,7 @@ describe("the document of a review", () => {
     )
     expect(contents.steps[0]!.facts.moduleEdges.places).toEqual([])
     const untold = openings.get("no-story")!
-    expect([untold.title, untold.story, untold.commits.map(it => it.title)]).toEqual(["Changes without a story", null, ["tidy"]])
+    expect([untold.title, untold.story, untold.commits.map(it => it.title)]).toEqual([plainTitle("Changes without a story"), null, [plainTitle("tidy")]])
   })
 
   it("tells each part of the body of one commit where Rust places it, the label of the title of a step not again, the lead and the rest in the overview", () => {
@@ -860,7 +865,7 @@ describe("the document of a review", () => {
     const concerns = [concern("c1", "allowed"), concern("c2", "paint")]
     // the first task titled by its label, which its opening then tells no more
     const steps = [
-      { ...step("c1", [commit("the open keeps the layout")], [["u:allowed", "src/a/Rule.kt"]]), concern: "c1", title: "The rule" },
+      { ...step("c1", [commit("the open keeps the layout")], [["u:allowed", "src/a/Rule.kt"]]), concern: "c1", title: plainTitle("The rule") },
       { ...step("c2", [commit("the open keeps the layout")], [["u:paint", "src/a/Frame.kt"]]), concern: "c2" },
     ]
     const whole = plan(steps, [one], {
@@ -869,14 +874,14 @@ describe("the document of a review", () => {
       steps: { source: { kind: "concerns", reason: "oneCommit" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
     })
     const openings = presentOpenings(whole)
-    expect([openings.get("c1")!.title, textOf(openings.get("c1")!.story!)]).toEqual(["The rule", { lead: null, shown: [["", "allowed decides."]], folded: [] }])
+    expect([openings.get("c1")!.title, textOf(openings.get("c1")!.story!)]).toEqual([plainTitle("The rule"), { lead: null, shown: [["", "allowed decides."]], folded: [] }])
     expect(textOf(openings.get("c2")!.story!)).toEqual({ lead: null, shown: [["The paint:", "paint comes first."]], folded: [] })
     // what joins the parts of a task, its names code in the line of the facts
     expect(openings.get("c1")!.evidence).toEqual([{ words: "Joined by the identifier", names: ["allowed"] }])
     // each part told at one place: the lead and what names nothing in the overview
     const prologue = presentPrologue(whole, false)
     expect(prologue.source).toBe("One commit: the steps are its tasks")
-    expect(prologue.untold?.subject).toBe("the open keeps the layout")
+    expect(prologue.untold?.subject).toEqual(plainTitle("the open keeps the layout"))
     expect(textOf(prologue.untold!.story)).toEqual({ lead: "The open keeps the stored layout.", shown: [["", "Names nothing."]], folded: [] })
   })
 
@@ -901,8 +906,8 @@ describe("the document of a review", () => {
     )
     const head = commit("a URL is one link")
     const steps = [
-      { ...step("m1", [head], [["u:edge", "src/Grid.kt"]]), title: "The marker comes from the emulator.", titleSource: "sentence" as const },
-      { ...step("m2", [head], [["u:edges", "src/Model.kt"]]), title: "Update.edges", titleSource: "name" as const },
+      { ...step("m1", [head], [["u:edge", "src/Grid.kt"]]), title: plainTitle("The marker comes from the emulator."), titleSource: "sentence" as const },
+      { ...step("m2", [head], [["u:edges", "src/Model.kt"]]), title: plainTitle("Update.edges"), titleSource: "name" as const },
     ]
     const whole = plan(steps, [one], {
       steps: { source: { kind: "message" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
@@ -911,25 +916,25 @@ describe("the document of a review", () => {
     // the first sentence titles the step: its paragraph is the lead of the opening, the title only for a screen reader
     const m1 = openings.get("m1")!
     expect([m1.title, m1.titleInBody, textOf(m1.story!)]).toEqual([
-      "The marker comes from the emulator.",
+      plainTitle("The marker comes from the emulator."),
       true,
       { lead: "The marker comes from the emulator. Only it knows the edge.", shown: [], folded: [] },
     ])
     // a title of a code name is code, above the paragraph and the list under it, the Look closely after them
     const m2 = openings.get("m2")!
-    expect([m2.title, m2.code, m2.titleInBody, m2.commits]).toEqual(["Update.edges", true, false, []])
+    expect([m2.title, m2.code, m2.titleInBody, m2.commits]).toEqual([plainTitle("Update.edges"), true, false, []])
     expect(textOf(m2.story!).shown.map(([head]) => head)).toEqual(["", "Look closely:"])
     // the overview: why the steps are what they are, their titles, the Look closely in the contents of its step
     const prologue = presentPrologue(whole, false)
     expect(prologue.source).toBe("One commit: the steps are the parts of its message")
     expect(prologue.steps.map(it => [it.title, it.code, it.lookClosely.length])).toEqual([
-      ["The marker comes from the emulator.", false, 0],
-      ["Update.edges", true, 1],
+      [plainTitle("The marker comes from the emulator."), false, 0],
+      [plainTitle("Update.edges"), true, 1],
     ])
     expect(textOf(prologue.untold!.story)).toEqual({ lead: "A TUI breaks a URL at the edge.", shown: [], folded: [] })
     // its one commit is the row of no step: the steps are its parts
     const places = placeCommits(steps, [{ commit: { id: "a URL is one link", subject: "a URL is one link" } }], "message")
-    expect([places.heads.size, places.steps.get("m1")?.map(it => it.title)]).toEqual([0, ["a URL is one link"]])
+    expect([places.heads.size, places.steps.get("m1")?.map(it => it.title)]).toEqual([0, [plainTitle("a URL is one link")]])
   })
 
   it("links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it", () => {
@@ -973,7 +978,11 @@ describe("the document of a review", () => {
     // that resolves nothing has no place
     const view = presentStory(rule, undefined, mentionWords(whole))
     expect(view.mentions.map(it => [it.text, it.description, it.place])).toEqual([
-      ["Manager.allowed", "New · Manager.kt:6 · in step 2", { path: "src/a/Manager.kt", side: "new", line: 6, name: "allowed" }],
+      [
+        "Manager.allowed",
+        "New · Manager.kt:6 · in step 2",
+        { path: "src/a/Manager.kt", side: "new", line: 6, name: "allowed", unit: "declaration:src/a/Manager.kt:a.Manager.allowed:" },
+      ],
       ["Layout", null, null],
       ["Frame.kt", "src/a/Frame.kt", { path: "src/a/Frame.kt", side: "new", line: null, name: null }],
     ])
@@ -984,7 +993,7 @@ describe("the document of a review", () => {
     expect(
       mentionWords({ units: [fresh] })({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read"),
     ).toEqual({
-      place: { path: "src/a/LayoutStore.kt", side: "new", line: 4, name: "read" },
+      place: { path: "src/a/LayoutStore.kt", side: "new", line: 4, name: "read", unit: "file:src/a/LayoutStore.kt" },
       description: "New file · LayoutStore.kt:4 · in step 5",
       // the card of its hover: what it is and where, never the name again; its step, which is not the one read
       card: { status: "New file", tone: "success", location: "LayoutStore.kt:4", step: "in step 5" },

@@ -18,10 +18,10 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitRow, CommitRowBadges } from "@/components/commit/CommitRow"
 import type { CommitRowFacts } from "@/components/commit/CommitRow"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
-import { CommitSubjectText } from "@/components/commit/CommitSubject"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { FileRowMark } from "@/components/files/FileRowMark"
+import { ReviewTitleText } from "@/components/review/ReviewTitleText"
 import { BreakableCode } from "@/components/shared/CodeText"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
@@ -875,7 +875,7 @@ function DirectoryRowContent({
         ) : path ? (
           <bdi dir="ltr">{name}</bdi>
         ) : node.commit !== undefined ? (
-          <CommitSubjectText subject={name} prefixClassName="font-mono font-normal text-muted-foreground" />
+          <ReviewTitleText title={node.commit.commit.title} />
         ) : (
           name
         )}

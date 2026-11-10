@@ -23,6 +23,7 @@ import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
+import { titleText } from "@/lib/commit"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { presentCardEnd } from "@/presenters/review-card-end"
@@ -209,7 +210,7 @@ export function CommitReviewCode({
                     path={path}
                     next={next}
                     owner={key === lastKey ? null : ownerLabel}
-                    step={ending === undefined ? null : `${ending.number} · ${ending.title}`}
+                    step={ending === undefined ? null : `${ending.number} · ${titleText(ending.title)}`}
                     onShow={showFromCardEnd}
                   />
                 )

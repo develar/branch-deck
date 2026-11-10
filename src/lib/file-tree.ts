@@ -1,4 +1,5 @@
 import type { CommitFile, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
+import { titleText } from "@/lib/commit"
 import type { FileActionTarget } from "@/lib/file-actions"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { formatAlsoIn, formatHome, formatHomeTag, OTHER_CHANGES } from "@/presenters/review-concerns"
@@ -380,7 +381,9 @@ export function buildReviewTree(
         ...(chapter.code && { code: true }),
         ...(chapter.heading.startsWith(lead) && chapter.heading !== lead && { lead }),
       }
-      nodes.push(head === undefined ? group : { ...group, commit: { kind: "commit", key, name: head.title, depth: 0, parentKey: undefined, commit: head, chapter: chapter.id } })
+      nodes.push(
+        head === undefined ? group : { ...group, commit: { kind: "commit", key, name: titleText(head.title), depth: 0, parentKey: undefined, commit: head, chapter: chapter.id } },
+      )
     }
   }
   const rest = chapters.find(chapter => chapter.rest)
@@ -395,7 +398,7 @@ export function buildReviewTree(
 
 /** The rows of `commits` in the group `parentKey` of the step `chapter` (null: Other commits) */
 function commitNodes(commits: readonly PlacedCommit<ReviewCommitItem>[], parentKey: string, chapter: string | null): FileTreeCommit[] {
-  return commits.map(commit => ({ kind: "commit", key: commitRowKey(parentKey, commit.id), name: commit.title, depth: 1, parentKey, commit, chapter }))
+  return commits.map(commit => ({ kind: "commit", key: commitRowKey(parentKey, commit.id), name: titleText(commit.title), depth: 1, parentKey, commit, chapter }))
 }
 
 /**

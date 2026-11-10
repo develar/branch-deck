@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, StepGroup } from "@/lib/bindings"
+import { plainTitle } from "@/lib/commit"
 import { headingText } from "@/lib/diff/rows"
 import {
   commitTitleOf,
@@ -46,9 +47,22 @@ function plan(steps: ReviewStep[], concerns: Concern[] = []): Pick<ReviewPlan, "
 }
 
 describe("review steps", () => {
+  it("keeps the prefix Rust split off the title of a commit apart, the label of the step the title as one line", () => {
+    const title = { prefix: "cleanup platform:", text: "JnaLoader adds System32 once" }
+    const [chapter] = presentChapters(plan([step("a", [{ id: "a", title, role: "starts" }], [["u:jna", "src/Jna.kt"]], {}, { title })]))
+    expect([chapter!.title, chapter!.label, chapter!.heading]).toEqual([
+      title,
+      "cleanup platform: JnaLoader adds System32 once",
+      "1 · cleanup platform: JnaLoader adds System32 once",
+    ])
+  })
+
   it("names a step by the title Rust gives it, in the case its author wrote it, a step of no story by what it is", () => {
     const chapters = presentChapters(
-      plan([step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], {}, { title: "the rule" }), step("no-story", [commit("wip", "noStory")], [["u:wip", "src/Wip.kt"]])]),
+      plan([
+        step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], {}, { title: plainTitle("the rule") }),
+        step("no-story", [commit("wip", "noStory")], [["u:wip", "src/Wip.kt"]]),
+      ]),
     )
     expect(chapters.map(chapter => [chapter.number, chapter.label, chapter.heading, chapter.reference, chapter.parts.length])).toEqual([
       [1, "the rule", "1 · the rule", "step 1", 1],
@@ -94,7 +108,7 @@ describe("review steps", () => {
     const two = presentChapters(
       plan(
         [
-          { ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c", title: "The proxy" },
+          { ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c", title: plainTitle("The proxy") },
           { ...step("t", [commit("one")], [["u:b", "b.json"]]), concern: "t" },
         ],
         [concern, theme],
@@ -131,7 +145,7 @@ describe("review steps", () => {
       ["isMacBinary", true],
     ])
 
-    const message = plan([step("message", [commit("one")], [], {}, { title: "a b c", titleSource: "name" })])
+    const message = plan([step("message", [commit("one")], [], {}, { title: plainTitle("a b c"), titleSource: "name" })])
     const messagePlan: Pick<ReviewPlan, "steps" | "concerns"> = { ...message, steps: { ...message.steps, source: { kind: "message" } } }
     expect(presentChapters(messagePlan)[0]?.code).toBe(false)
   })
@@ -166,7 +180,11 @@ describe("review steps", () => {
     const item = (id: string, subject: string) => ({ key: `key-${id}`, commit: { id, subject } })
     const items = [item("e5e5e5e5", "unrelated"), item("d4d4d4d4", "wip"), item("c3c3c3c3", "the rule again"), item("b2b2b2b2", "the paint"), item("a1a1a1a1", "the rule")]
     // Rust names a commit of a step by its title
-    const short = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), title: items.find(it => it.commit.id === id)?.commit.subject ?? id, role })
+    const short = (id: string, role: StepCommit["role"]): StepCommit => ({
+      id: id.slice(0, 4),
+      title: plainTitle(items.find(it => it.commit.id === id)?.commit.subject ?? id),
+      role,
+    })
     const told = placeCommits(
       [step("a1a1", [short("a1a1a1a1", "starts"), short("c3c3c3c3", "followsUp"), short("d4d4d4d4", "noStory")], []), step("b2b2", [short("b2b2b2b2", "starts")], [])],
       items,
@@ -192,8 +210,8 @@ describe("review steps", () => {
         step(
           "a1a1",
           [
-            { id: "a1a1", title: "the rule", role: "starts" },
-            { id: "c3c3", title: "the rule again", role: "followsUp" },
+            { id: "a1a1", title: plainTitle("the rule"), role: "starts" },
+            { id: "c3c3", title: plainTitle("the rule again"), role: "followsUp" },
           ],
           [],
         ),
@@ -201,9 +219,9 @@ describe("review steps", () => {
       [item("c3c3c3c3", "IJAI-1: the rule again"), item("a1a1a1a1", "IJAI-1 the rule"), item("e5e5e5e5", "IJAI-1 unrelated")],
     )
     expect([keyed.heads.get("a1a1")?.title, keyed.steps.get("a1a1")?.map(it => [it.title, it.subject]), keyed.other.map(it => it.title)]).toEqual([
-      "the rule",
-      [["the rule again", "IJAI-1: the rule again"]],
-      ["IJAI-1 unrelated"],
+      plainTitle("the rule"),
+      [[plainTitle("the rule again"), "IJAI-1: the rule again"]],
+      [plainTitle("IJAI-1 unrelated")],
     ])
     // the concerns list a commit in each concern of its lines, the most lines first: it is listed in the one that lists it
     // first, the first of equal ones; a commit of the step no item names keeps the step's id and subject
@@ -229,7 +247,7 @@ describe("review steps", () => {
     ])
     expect(concerns.other.map(it => it.id)).toEqual(["e5e5e5e5", "d4d4d4d4"])
     // a step of the concerns is no commit: each lists its commits, by their titles
-    expect([concerns.heads.size, concerns.steps.get("proxy")?.[0]?.title]).toEqual([0, "the paint"])
+    expect([concerns.heads.size, concerns.steps.get("proxy")?.[0]?.title]).toEqual([0, plainTitle("the paint")])
   })
 
   it("joins a declaration without a block of its own to the heading of the block Rust names, marked with its step where it is another's", () => {
@@ -313,13 +331,13 @@ describe("the units Rust joined in the steps of the concerns", () => {
 
 describe("withCommitTitles", () => {
   it("keeps the titles Rust gives the commits of every plan told, by a short id or a full one, and the same map when none is new", () => {
-    const first = withCommitTitles(new Map(), [reviewStep("a", [{ id: "1111111111", title: "open takes a mode", role: "starts" }], [])])
+    const first = withCommitTitles(new Map(), [reviewStep("a", [{ id: "1111111111", title: plainTitle("open takes a mode"), role: "starts" }], [])])
     expect(commitTitleOf(first, "1111111")).toBe("open takes a mode")
     // the plan of one commit alone keeps the titles of the others
-    const second = withCommitTitles(first, [reviewStep("b", [{ id: "2222222222", title: "the rule names its flag again", role: "starts" }], [])])
+    const second = withCommitTitles(first, [reviewStep("b", [{ id: "2222222222", title: plainTitle("the rule names its flag again"), role: "starts" }], [])])
     expect(commitTitleOf(second, "1111111111")).toBe("open takes a mode")
     expect(commitTitleOf(second, "2222222222")).toBe("the rule names its flag again")
-    expect(withCommitTitles(second, [reviewStep("b", [{ id: "2222222222", title: "the rule names its flag again", role: "starts" }], [])])).toBe(second)
+    expect(withCommitTitles(second, [reviewStep("b", [{ id: "2222222222", title: plainTitle("the rule names its flag again"), role: "starts" }], [])])).toBe(second)
     expect(commitTitleOf(second, "3333333")).toBeUndefined()
   })
 })

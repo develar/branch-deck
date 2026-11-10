@@ -7402,7 +7402,7 @@ export type ReviewStep = {
 	 *  step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
 	 *  changes without a story and a concern no section names, which the page names by its evidence
 	 */
-	title: string | null,
+	title: ReviewTitle | null,
 	/**  What gives it its title */
 	titleSource: TitleSource,
 	/**
@@ -7482,6 +7482,16 @@ export type ReviewTarget =
  *  each against its first parent
  */
 { kind: "commits"; ids: string[] };
+
+/**
+ *  A title as the review shows it (`ReviewStep::title`, `StepCommit::title`, `StoryCommit::title`): of a commit its
+ *  conventional prefix apart (`cleanup platform:`, `fix(vm):`, with its colon), which every place that names it sets
+ *  in the code font and dimmed, as the main window sets a subject, and the rest; a label, a sentence or a name has none
+ */
+export type ReviewTitle = {
+	prefix: string | null,
+	text: string,
+};
 
 /**  A change a reviewer reads once */
 export type ReviewUnit = {
@@ -8591,7 +8601,7 @@ export type StepCommit = {
 	 *  Its title (`commit_title`): its subject without the `(prefix)` that groups it and the issue key the brief names,
 	 *  in the case its author wrote it
 	 */
-	title: string,
+	title: ReviewTitle,
 	role: CommitRole,
 };
 
@@ -8890,7 +8900,7 @@ export type StoryCommit = {
 	 *  Its title (`steps::commit_title`): its subject without the `(prefix)` and the issue key the brief names, as its
 	 *  author wrote it
 	 */
-	title: string,
+	title: ReviewTitle,
 	body: CommitBody,
 	/**  The code names of its blocks, in the order of the body */
 	mentions: Mention[],

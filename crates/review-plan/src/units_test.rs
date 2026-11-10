@@ -150,6 +150,28 @@ fn a_block_belongs_to_the_declaration_of_most_of_its_lines() {
   assert_eq!(units(&plan), [(UnitKind::Added, Some("close"), vec![("src/a/Open.kt", vec![0])])]);
 }
 
+/// The declarations of one block that hold none of it follow the one that holds it in the order the source declares
+/// them, not by their names: the hunk names them so
+#[test]
+fn the_declarations_of_one_block_follow_in_the_order_of_their_lines() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Add open", "src/a/Open.kt", "package a\n\nfun open(x: Int): Int {\n  return x\n}\n");
+  let head = repo.create_commit(
+    "Add the constants",
+    "src/a/Open.kt",
+    "package a\n\nfun open(x: Int): Int {\n  return x\n}\n\nfun zeta(x: Int): Int {\n  return x\n}\nconst val MIDDLE = 2\nconst val ALPHA = 1\n",
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    units(&plan),
+    [
+      (UnitKind::Added, Some("zeta"), vec![("src/a/Open.kt", vec![0])]),
+      (UnitKind::Added, Some("MIDDLE"), vec![("src/a/Open.kt", vec![])]),
+      (UnitKind::Added, Some("ALPHA"), vec![("src/a/Open.kt", vec![])]),
+    ]
+  );
+}
+
 /// The files as `create_commit_with_files` takes them
 fn as_refs(files: &[(String, String)]) -> Vec<(&str, &str)> {
   files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect()

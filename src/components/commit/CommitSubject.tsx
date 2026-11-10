@@ -2,22 +2,34 @@ import type { HTMLAttributes } from "react"
 import { cn } from "cn"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { splitSubjectPrefix } from "@/lib/commit"
+import type { SplitSubject } from "@/lib/commit"
 
-/** The subject with issue links and its conventional-commit prefix dimmed (`prefixClassName`) */
-export function CommitSubjectText({ subject, prefixClassName }: { subject: string; prefixClassName: string }) {
-  const { prefix, text } = splitSubjectPrefix(subject)
+/** The prefix of a subject as every place sets it: in the code font at the size of the text, dimmed, of regular weight */
+const PREFIX_CLASS = "font-mono font-normal text-muted-foreground"
+
+/**
+ * A title with its conventional-commit prefix apart (`ReviewTitle` of Rust, or `splitSubjectPrefix`): the prefix dimmed
+ * (`prefixClassName`), then the text, with issue links unless `plain`: a title inside a button holds no link
+ * (docs/contributing/ux-writing.md), the button that opens its object is beside it
+ */
+export function TitleText({ title, prefixClassName = PREFIX_CLASS, plain = false }: { title: SplitSubject; prefixClassName?: string; plain?: boolean }) {
   return (
     <>
-      {prefix != null && (
+      {title.prefix != null && (
         <>
           <span data-slot="commit-subject-prefix" className={prefixClassName}>
-            {prefix}
+            {title.prefix}
           </span>{" "}
         </>
       )}
-      <LinkedText text={text} />
+      {plain ? title.text : <LinkedText text={title.text} />}
     </>
   )
+}
+
+/** The subject with issue links and its conventional-commit prefix dimmed (`prefixClassName`) */
+export function CommitSubjectText({ subject, prefixClassName }: { subject: string; prefixClassName: string }) {
+  return <TitleText title={splitSubjectPrefix(subject)} prefixClassName={prefixClassName} />
 }
 
 /**
@@ -30,7 +42,7 @@ export function CommitSubjectText({ subject, prefixClassName }: { subject: strin
 export function CommitSubject({ subject, clamp = true, className, ...props }: { subject: string; clamp?: boolean; className?: string } & HTMLAttributes<HTMLSpanElement>) {
   return (
     <span {...props} className={cn(clamp && "line-clamp-2", "text-sm text-pretty text-foreground", className)}>
-      <CommitSubjectText subject={subject} prefixClassName="font-mono font-normal text-muted-foreground" />
+      <CommitSubjectText subject={subject} prefixClassName={PREFIX_CLASS} />
     </span>
   )
 }

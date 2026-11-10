@@ -1,4 +1,5 @@
 import type { FileFacts, ModuleShape, ReviewPlan, ReviewStep, StepCommit, StepGroup, StepTests } from "@/lib/bindings"
+import { plainTitle } from "@/lib/commit"
 
 /** The facts of a file of the review plan at `path` in the module at `module`, nothing else known of it */
 export function fileFacts(path: string, module: number | null): FileFacts {
@@ -30,7 +31,7 @@ export function stepGroup(kind: StepGroup["kind"], module: number | null, [start
 
 /** A commit of a step by its title, which is its id too */
 export function stepCommit(title: string, role: StepCommit["role"] = "starts"): StepCommit {
-  return { id: title, title, role }
+  return { id: title, title: plainTitle(title), role }
 }
 
 /** A module of the review plan at `root`, changed, with no file counted */

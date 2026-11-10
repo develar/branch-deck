@@ -13,6 +13,7 @@ import type {
   ProseForm,
   ReviewPlan,
   ReviewStep,
+  ReviewTitle,
   ReviewUnit,
   StepSource,
   StepTest,
@@ -21,6 +22,7 @@ import type {
   TextRange,
   ModuleEntries,
 } from "@/lib/bindings"
+import { titleText } from "@/lib/commit"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import { cutList, joinNames } from "@/lib/text"
@@ -168,7 +170,7 @@ export function mentionWords(plan: Pick<ReviewPlan, "units">, current: number | 
     }
     const unit = units.get(target.unit)
     const { place, card } = plainWords(target)
-    return withDescription({ ...place, name: target.name }, { ...card, ...(unit === undefined ? {} : unitStatus(unit)), step: elsewhere(target.step) })
+    return withDescription({ ...place, name: target.name, unit: target.unit }, { ...card, ...(unit === undefined ? {} : unitStatus(unit)), step: elsewhere(target.step) })
   }
 }
 
@@ -555,7 +557,7 @@ function unitPlace(unit: ReviewUnit): FactPlace {
   return {
     key: unit.id,
     label: name,
-    place: unit.key === null ? fileTop(path) : { path, side: removed ? "old" : "new", line: unit.line, name },
+    place: unit.key === null ? fileTop(path) : { path, side: removed ? "old" : "new", line: unit.line, name, unit: unit.id },
   }
 }
 
@@ -574,15 +576,18 @@ function takenOutOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps">): StepFact
   if (title === undefined) {
     return null
   }
-  return { words: holder === undefined ? "a later commit" : `step ${place + 1}`, title, step: holder?.id ?? null }
+  return { words: holder === undefined ? "a later commit" : `step ${place + 1}`, title: titleText(title), step: holder?.id ?? null }
 }
 
 /** A step in the contents of the overview */
 export interface ContentsStep {
   readonly id: string
   readonly number: number | null
-  /** Its full title: the subject of the commit that starts it without the issue key, a concern by its name */
-  readonly title: string
+  /**
+   * Its full title (`Chapter.title`): the title Rust gives the commit that starts it, its prefix apart, a concern by its
+   * name
+   */
+  readonly title: ReviewTitle
   /** Its title is an identifier: set as code */
   readonly code: boolean
   /** The summary its commit's body opens with, with its code names; null without */
@@ -692,7 +697,7 @@ export interface PrologueView {
    * Of the steps of the concerns of one commit, its story told before the steps: the lead and what names nothing of a
    * step; null otherwise
    */
-  readonly untold: { readonly subject: string; readonly story: StoryView } | null
+  readonly untold: { readonly subject: ReviewTitle; readonly story: StoryView } | null
   /** The shape of the change, its contract in one line and the API it opens wider (`presentMap`) */
   readonly map: MapView
   /**
@@ -770,7 +775,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     return {
       id: step.id,
       number: chapter.rest ? null : chapter.number,
-      title: chapter.label,
+      title: chapter.title,
       code: chapter.code,
       lead: view?.lead == null ? null : { story: view, block: view.lead },
       facts: presentStepFacts(step, plan, "contents"),
@@ -988,8 +993,8 @@ export interface OpeningCommit {
   readonly id: string
   /** "Follows up", "Without a story": muted before its title */
   readonly role: string
-  /** Its title, as Rust gives it: its subject without the issue key */
-  readonly title: string
+  /** Its title, as Rust gives it: its subject without the issue key, its prefix apart */
+  readonly title: ReviewTitle
   /** Its story, which its disclosure opens; null for a commit of no story, which has no chevron */
   readonly story: StoryView | null
 }
@@ -999,8 +1004,8 @@ export interface OpeningView {
   readonly id: string
   /** "Step 2", null for "Other changes" */
   readonly number: string | null
-  /** Its full title, which wraps */
-  readonly title: string
+  /** Its full title, which wraps (`Chapter.title`) */
+  readonly title: ReviewTitle
   /** Its title is an identifier: set as code */
   readonly code: boolean
   /** Its title is the first sentence of the paragraph it tells, its lead here: no title line of its own (`Chapter.titleInBody`) */
@@ -1031,7 +1036,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
     plan.steps.steps.map((step, index): [string, OpeningView] => {
       // the names of a story told in this step: their step is said only when it is another
       const words = mentionWords(plan, index)
-      const commitOf = (id: string, title: string, role: CommitRole): OpeningCommit => {
+      const commitOf = (id: string, title: ReviewTitle, role: CommitRole): OpeningCommit => {
         const story = role === "noStory" ? undefined : storyOf(plan, id)
         return { id, role: role === "followsUp" ? "Follows up" : "Without a story", title, story: story === undefined ? null : presentStory(story, undefined, words) }
       }
@@ -1053,7 +1058,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
         {
           id: step.id,
           number: chapter.rest ? null : formatStepNumber(chapter.number),
-          title: chapter.label,
+          title: chapter.title,
           code: chapter.code,
           titleInBody: chapter.titleInBody && story?.lead != null,
           subjectBefore: byParts ? null : (story?.subjectBefore ?? null),

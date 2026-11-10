@@ -292,7 +292,8 @@ files.
 
 The units MUST come in the order of the files of the plan (`order`: a declaration before its uses, a test right after
 its subject), each unit at the first block it holds, a unit without a block right after the unit of the block that
-changed its lines; a repeated edit at the place of its first file.
+changed its lines, the units without a block of one block in the order of their lines; a repeated edit at the place
+of its first file.
 
 #### Scenario: A declaration before its use
 - **GIVEN** a file that declares a function and a file that uses it, both changed
@@ -303,6 +304,12 @@ changed its lines; a repeated edit at the place of its first file.
 #### Scenario: A unit without a block
 - **WHEN** a unit has no block
 - **THEN** it comes right after the unit of the block that changed its lines
+
+#### Scenario: The units without a block of one block
+- **WHEN** one block changes the lines of several declarations that hold none of it
+- **THEN** they follow the unit of the block in the order the source declares them, not by their names, so the
+  heading of the block names them so
+  [@test] crates/review-plan/src/units_test.rs (`the_declarations_of_one_block_follow_in_the_order_of_their_lines`)
 
 #### Scenario: A repeated edit
 - **WHEN** a repeated edit spans several files
@@ -415,12 +422,12 @@ MUST NOT change with it.
 
 ### Requirement: In `brd`: `brd review-plan` prints the units
 
-`brd review-plan` MUST print `units` (`"schema": 29`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
+`brd review-plan` MUST print `units` (`"schema": 30`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
 `test`, `line`, its `slices` and its `fingerprint`.
 
 #### Scenario: The units of a range
 - **WHEN** `brd review-plan` runs on a range
-- **THEN** it prints `units` (`"schema": 29`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
+- **THEN** it prints `units` (`"schema": 30`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
   `line`, its `slices` and its `fingerprint`
 - **AND** `kind` is `shape` with `changes`, `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles`
   with `directory`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, or `other` with `reason`

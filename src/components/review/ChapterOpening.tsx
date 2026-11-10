@@ -1,9 +1,9 @@
 import { Fragment } from "react"
 import { cn } from "cn"
 import { ContractList } from "@/components/review/ContractList"
+import { ReviewTitleText } from "@/components/review/ReviewTitleText"
 import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBody, SubjectBefore } from "@/components/review/StoryBody"
-import { BreakableCode } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
 import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { OpeningView } from "@/presenters/review-story"
@@ -46,7 +46,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           data-testid="review-opening-title"
           data-find-skip={opening.titleInBody ? "" : undefined}
         >
-          {opening.code ? <BreakableCode text={opening.title} humps /> : opening.title}
+          <ReviewTitleText title={opening.title} code={opening.code} />
         </span>
       </button>
       {opening.subjectBefore !== null && <SubjectBefore subject={opening.subjectBefore} />}
@@ -60,11 +60,18 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
                 <span className="flex min-w-0 items-baseline gap-1 pl-[1.125rem]">
                   <span className="shrink-0 text-muted-foreground">{commit.role}</span>
                   <span className="min-w-0" data-testid="review-opening-commit">
-                    {commit.title}
+                    <ReviewTitleText title={commit.title} />
                   </span>
                 </span>
               ) : (
-                <Disclosure prefix={commit.role} title={<span data-testid="review-opening-commit">{commit.title}</span>}>
+                <Disclosure
+                  prefix={commit.role}
+                  title={
+                    <span data-testid="review-opening-commit">
+                      <ReviewTitleText title={commit.title} />
+                    </span>
+                  }
+                >
                   <StoryBody story={commit.story} size="nested" />
                 </Disclosure>
               )}

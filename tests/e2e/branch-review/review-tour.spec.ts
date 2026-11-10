@@ -746,6 +746,76 @@ test.describe("Review tour", () => {
     await expect(window.locator("[data-story-block][data-highlight]")).toHaveText("Frame.paint asks Manager.passes for its count.")
   })
 
+  test("should set the prefix of a commit title apart, dimmed in the code font, in the tree, the contents, the opening and the bar alike", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_long_titles")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "long")
+    const { tree } = reviewSidebar(window)
+    const overview = window.getByTestId("review-overview")
+    const subject = "explain how the review opening prepares readers for careful review of changed source files"
+    const contents = overview.getByTestId("review-contents-step-title").first()
+    const opening = window.getByTestId("review-opening-title").first()
+    const bar = window.getByTestId("review-step-bar").getByTestId("review-step-title")
+    // Rust splits the prefix off the title: every place sets it in the code font, muted, then the text in the font of the
+    // text; the title of a button holds no link
+    const prefixed = async (title: Locator) => {
+      await expect(title).toHaveText(`fix(review): ${subject}`)
+      const prefix = title.locator("[data-slot=commit-subject-prefix]")
+      await expect(prefix).toHaveText("fix(review):")
+      expect(await prefix.evaluate(element => getComputedStyle(element).fontFamily)).toMatch(/Mono/)
+      expect(await prefix.evaluate(element => getComputedStyle(element).color)).toBe(
+        await window.getByTestId("review-step-position").evaluate(element => getComputedStyle(element).color),
+      )
+      expect(await title.evaluate(element => getComputedStyle(element).fontFamily)).not.toMatch(/Mono/)
+      await expect(title.getByRole("link")).toHaveCount(0)
+    }
+    await prefixed(tree.locator("[data-group=concern]").first())
+    await prefixed(contents)
+    // the contents show the step: its opening and the bar above the diffs name it alike
+    await contents.click()
+    await expect(window.getByTestId("review-step-position")).toHaveText(/^Step 1 \/ \d+$/)
+    await prefixed(opening)
+    await prefixed(bar)
+    await expect(window.getByRole("button", { name: `Step 1 · fix(review): ${subject}`, exact: true })).toBeVisible()
+  })
+
+  test("should show a named declaration in the section of its unit when its file is cut into two", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const { commitRow, column } = reviewSidebar(window)
+    const manager = (last: string, more: string) =>
+      `package a\n\nclass Manager {\n  fun open(): Int = 1\n\n  fun allowed(id: String): Boolean {\n    val a = id.isNotEmpty()\n    val b = id.length > 1\n    val c = id.length > 2\n    val d = id.length > 3\n    val e = id.length > 4\n    return ${last}\n  }\n${more}}\n`
+    const frame = (paint: string) =>
+      `package a\n\nclass Frame(val manager: Manager) {\n  fun show(): Int = if (manager.allowed("Project")) manager.open() else 0\n\n  fun paint(): Int = ${paint}\n}\n`
+    await repo.commit("(layout) the rule reads its flags", { "src/a/Manager.kt": manager("a", ""), "src/a/Frame.kt": frame("2") }, 1704124800)
+    await syncAndWaitForBranches()
+    await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
+    // the new count comes first and the frame that uses it right after: the manager is cut into two sections, the body
+    // of the rule in the second, whose name line the first shows too
+    await repo.commit(
+      "(layout) the rule checks the last flag\n\nThe frame paints by the passes of the manager. `Manager.allowed` asks the last flag now.",
+      { "src/a/Manager.kt": manager("e", "\n  fun passes(): Int = 3\n"), "src/a/Frame.kt": frame("manager.passes()") },
+      1704125400,
+    )
+    await syncAndWaitForBranches()
+    await column.filter({ hasText: "Since Your Review" }).click()
+    await commitRow("the rule checks the last flag").click()
+    await commitRow("the rule checks the last flag").press("Enter")
+    const cards = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]')
+    await expect(cards).toHaveCount(2)
+    const link = window.getByTestId("range-review-commit-header").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
+    await link.click()
+    // its name selected in the section that shows its change, not in the one that shows its line beside the new count
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
+    expect(await cards.nth(1).evaluate(card => card.contains(document.getSelection()?.anchorNode ?? null))).toBe(true)
+    await expect(cards.nth(1)).toContainText("allowed — body changed")
+  })
+
   test("should show every step and commit title of the tree whole at the default width, its files one line each", async ({ page, setupRepo, syncAndWaitForBranches }, testInfo) => {
     const repo = await setupRepo("review_long_titles")
     turnOnReviewPlan(repo)

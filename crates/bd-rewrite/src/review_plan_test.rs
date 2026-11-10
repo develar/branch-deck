@@ -209,7 +209,7 @@ fn prints_the_api_and_the_files_of_a_range() {
     (&story[0]["id"], &story[0]["title"], &story[0]["body"]["trailers"], &story[0]["parts"][0]["told"]),
     (
       &output["head"],
-      &json!("Change api"),
+      &json!({ "prefix": null, "text": "Change api" }),
       &json!(["Co-Authored-By: Jane <jane@example.com>"]),
       &json!({ "kind": "overview" })
     ),

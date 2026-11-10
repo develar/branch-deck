@@ -19,6 +19,7 @@ targets:
   - src/components/review/ContractList.tsx
   - crates/review-plan/src/groups.rs
   - src/components/review/ChapterOpening.tsx
+  - src/components/review/ReviewTitleText.tsx
   - src/components/review/GroupOpening.tsx
   - src/components/review/ContractParagraphView.tsx
   - src/components/shared/ReadingColumn.tsx
@@ -254,8 +255,8 @@ its title; its body is told once, in the story of the commits ([The Story of a C
 
 Rust MUST title every commit it names (`StepCommit.title`, `StoryCommit.title`) and a step of the commits by the
 commit that starts it (`ReviewStep.title`): its subject without the `(prefix)` and the issue key the brief names, in
-the case its author wrote it, never capitalised, so the tree, the contents, the opening, the bar and the card of one
-commit write it alike.
+the case its author wrote it, never capitalised, its conventional prefix apart (`ReviewTitle.prefix`), so the tree,
+the contents, the opening and the bar write it alike: the prefix dimmed in the code font, no link inside the button.
 
 #### Scenario: A subject of a prefix and the issue key of the brief
 - **WHEN** a subject has a `(prefix)` and the issue key the brief names, with a `:`, `,` or dash after it
@@ -267,9 +268,20 @@ commit write it alike.
 - **THEN** that key goes, the others kept: `IJAI-1184 IJAI-5640 Air records…` is `IJAI-1184 Air records…`
   [@test] crates/review-plan/src/steps_test.rs (`a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_case_of_its_author`)
 
+#### Scenario: A subject with a conventional prefix
+- **WHEN** what is left of a subject starts with a conventional prefix (`cleanup platform:`, `fix(vm)!:`) and text
+  after it
+- **THEN** Rust gives the prefix with its colon apart from the text; a prefix alone or a capitalised word before a
+  colon is no prefix
+- **AND** the tree, the contents, the opening and the bar of the step set the prefix dimmed in the code font and the
+  text in the font of the text, with no link
+  [@test] crates/review-plan/src/steps_test.rs (`a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_case_of_its_author`)
+  [@test] src/presenters/review-steps.test.ts (`keeps the prefix Rust split off the title of a commit apart, the label of the step the title as one line`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should set the prefix of a commit title apart, dimmed in the code font, in the tree, the contents, the opening and the bar alike`)
+
 #### Scenario: The title of a commit in `brd review-plan`
 - **WHEN** `brd review-plan` prints the story of a commit
-- **THEN** its title is the one Rust gives it (`StoryCommit.title`)
+- **THEN** its title is the one Rust gives it (`StoryCommit.title`), its `prefix` and its `text`
   [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Requirement: Steps of the Commits: The plan names what is reviewed
@@ -571,7 +583,7 @@ Every stop MUST be in one group, once.
 ### Requirement: Groups of a Step: Each group knows the tests that reach its code
 
 Each group MUST know the tests of the change that reach the code of its files and its code none reaches (`tested`, in
-the form of the tests of a step, `"schema": 29`), from the same answer of accio as its step; a declaration MUST be of
+the form of the tests of a step, `"schema": 30`), from the same answer of accio as its step; a declaration MUST be of
 the group of the first stop of its file outside the mechanical group.
 
 #### Scenario: A test of one group that reaches the code of another
@@ -1317,7 +1329,7 @@ Each quoted paragraph MUST carry its spans of code (`code`, of a row those of ea
 
 ### Requirement: In `brd`: `brd review-plan` prints the steps and the brief with no git process
 
-`brd review-plan` MUST print `steps` and `brief` (`"schema": 29`), the ids of the commits of the steps and of the
+`brd review-plan` MUST print `steps` and `brief` (`"schema": 30`), the ids of the commits of the steps and of the
 story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
 nothing), and run no git process for them.
 
@@ -2875,13 +2887,19 @@ The accessible name of a link of a name MUST be the name it shows, its descripti
 ### Requirement: Anchors: A click on a name shows its place as an entry of the overview does
 
 A click on a link of a name MUST show it as an entry of the overview does, its file selected, a declaration at the
-line of its name, the name Rust resolved (`MentionTarget.name`) selected, a file at its header.
+line of its name in the section of its unit (`ReviewPlace.unit`), never in another section of its file that shows
+that line, the name Rust resolved (`MentionTarget.name`) selected, a file at its header.
 
 #### Scenario: A click on a name of a declaration and of a file
 - **WHEN** the user clicks the link of a declaration
 - **THEN** its file is selected, the diffs at the line of its name, the name Rust resolved selected
 - **AND** the link of a file shows it at its header
   [@test] tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+
+#### Scenario: A name of a declaration whose file is cut into two sections
+- **WHEN** the review cuts the file of a declaration into two sections and the user clicks the link of its name
+- **THEN** the name is selected in the section that shows the change of its unit, not in the other that shows its line
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should show a named declaration in the section of its unit when its file is cut into two`)
 
 ### Requirement: Anchors: The header of a section a body names carries a mark of the story
 

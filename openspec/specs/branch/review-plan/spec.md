@@ -436,12 +436,12 @@ a range, or a range rev that names no commit, it MUST be `invalid_arguments` (ex
 
 `brd review-plan` MUST print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`, `commits`
 with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope` with `base`,
-`head` and `carried`), with `"schema": 29`, and its output MUST be in `brd schema`; the other outputs of `brd` keep
+`head` and `carried`), with `"schema": 30`, and its output MUST be in `brd schema`; the other outputs of `brd` keep
 `"schema": 2`.
 
 #### Scenario: The plan since the review
 - **WHEN** `brd review-plan` runs on a marked branch
-- **THEN** it prints the branch, `base`, `head` and the `interdiff` with `"schema": 29`
+- **THEN** it prints the branch, `base`, `head` and the `interdiff` with `"schema": 30`
   [@test] crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
 
 #### Scenario: The output is in the schema
@@ -1739,7 +1739,7 @@ hold it as content; `newDependencies` the entries its build files add that name 
 
 ### Requirement: Modules: A module the commits add knows what enters it
 
-A module the commits add MUST know what enters it (`entries`, `"schema": 29`): its declarations something outside it
+A module the commits add MUST know what enters it (`entries`, `"schema": 30`): its declarations something outside it
 uses, a class a plugin descriptor registers first (`registered`: the extension point and what it is registered for,
 the interface of a service), then those the code of other modules uses (`usedBy`, each file at its first use, a
 descriptor's own file aside); a use by the name alone or from test code MUST enter nothing.

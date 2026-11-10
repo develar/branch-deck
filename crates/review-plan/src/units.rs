@@ -17,8 +17,9 @@
 //!   `review_units` names the files whose commits change a test inside them too, for `untested`: by a unit that is
 //!   `test`, a block of a repeated edit inside test code, a new file that declares a test.
 //! - **A group** is one unit over its files: a kind of mechanical change, a repeated edit.
-//! - **The order**: the files in the order of the plan (`order`), each unit at its first block; a repeated edit at the
-//!   place of its first file; the mechanical units last.
+//! - **The order**: the files in the order of the plan (`order`), each unit at its first block, the declarations
+//!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
+//!   first file; the mechanical units last.
 //! - **Identity**: `id` names a unit within a plan; `fingerprint` names the change across plans, from the key, the
 //!   signature and the text of a declaration without whitespace on both sides, or the text of the blocks of a slice,
 //!   or the blobs of a file taken whole. Neither depends on the whitespace policy of the window.
@@ -470,7 +471,8 @@ pub(crate) fn review_units(
       },
     });
   }
-  placed.sort_by_key(|placed| placed.at);
+  // the declarations without a block that follow one block in the order of their lines, as the source declares them
+  placed.sort_by_key(|placed| (placed.at, placed.unit.line));
   let mut units: Vec<ReviewUnit> = placed.into_iter().map(|placed| placed.unit).collect();
   for (kind, mut slices) in mechanical {
     slices.sort_by_key(|slice| place.get(slice.path.as_str()).copied().unwrap_or(usize::MAX));

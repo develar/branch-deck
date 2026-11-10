@@ -56,6 +56,16 @@ export function splitSubjectPrefix(subject: string): SplitSubject {
   return match == null ? { prefix: null, text: subject } : { prefix: match[1]!, text: match[2]! }
 }
 
+/** A title as one line, its prefix before its text: what a hover, a screen reader and a search read */
+export function titleText(title: SplitSubject): string {
+  return title.prefix === null ? title.text : `${title.prefix} ${title.text}`
+}
+
+/** A title of no prefix: a label, a sentence, a name */
+export function plainTitle(text: string): SplitSubject {
+  return { prefix: null, text }
+}
+
 /** "1 commit", "3 commits" */
 export function formatCommitCount(count: number): string {
   return count === 1 ? "1 commit" : `${count} commits`

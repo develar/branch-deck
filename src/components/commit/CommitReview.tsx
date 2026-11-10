@@ -9,6 +9,7 @@ import type { CommitReviewCodeHandle, NextSection } from "@/components/diff/Comm
 import type { DiffSection, DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
 import type { FileTreeBadges, FileTreeCommitRows, FileTreeMarks, FileTreeProgress } from "@/components/files/FileTree"
+import { ReviewTitleText } from "@/components/review/ReviewTitleText"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
@@ -680,7 +681,7 @@ const NO_STEPS_WITHOUT_CARD: StepsWithoutCard = { before: new Map(), after: [] }
 /** The step the first section of a step starts, for the divider above its card: its id, which a click shows, and its words */
 function stepOf(section: NarrativeSection, chapterOf: ReadonlyMap<string, Chapter>): DiffSection["step"] {
   const chapter = section.concernHeading === null || section.concern === null ? undefined : chapterOf.get(section.concern)
-  return chapter === undefined ? null : { id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.label }
+  return chapter === undefined ? null : { id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.title }
 }
 
 /** The steps told without a card of their own (`stepsWithoutCard`) */
@@ -711,7 +712,7 @@ function stepsWithoutCard(chapters: readonly Chapter[], narrative: readonly Narr
       before.set(key, waiting)
       waiting = []
     } else if (key === undefined && !shown.has(chapter.id)) {
-      waiting.push({ id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.label })
+      waiting.push({ id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.title })
     }
   }
   return { before, after: waiting }
@@ -767,7 +768,18 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: He
 
 /** The diffs show `place` of a shown file: its line with its name selected, or its header without one */
 function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): void {
-  const line = place.line === null ? null : { path: place.path, side: place.side, line: place.line - 1, column: 0, endColumn: 0, ...(place.name !== null && { name: place.name }) }
+  const line =
+    place.line === null
+      ? null
+      : {
+          path: place.path,
+          side: place.side,
+          line: place.line - 1,
+          column: 0,
+          endColumn: 0,
+          ...(place.name !== null && { name: place.name }),
+          ...(place.unit !== undefined && { unit: place.unit }),
+        }
   if (line === null || code?.revealDeclaration(line, null) !== true) {
     code?.scrollToFile(place.path)
   }
@@ -959,6 +971,7 @@ function ReviewLayout({
             before: withoutCard.before.get(section.key),
             stepHeading: stepHeadingOf(section, chapterOf),
             story: marks.get(section.key) ?? [],
+            unitIds: section.unitIds,
           },
         },
       ]
@@ -1545,7 +1558,7 @@ function StepBar({
         ·
       </span>
       <span className={cn("min-w-0 truncate font-medium", !overview && chapter.code && "font-mono")} data-testid="review-step-title">
-        {overview ? formatStepCount(count) : chapter.label}
+        {overview ? formatStepCount(count) : <ReviewTitleText title={chapter.title} code={chapter.code} />}
       </span>
       {group !== null && (
         <span className="flex shrink-0 items-baseline gap-1.5 text-muted-foreground" data-testid="review-step-group">

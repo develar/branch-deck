@@ -1,6 +1,7 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile, Concern, ConcernName, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewCommit, ReviewUnit, StepCommit } from "@/lib/bindings"
+import { plainTitle } from "@/lib/commit"
 import { fileMenuItems } from "@/lib/file-actions"
 import {
   alsoRowKey,
@@ -371,7 +372,7 @@ describe("the concerns in the tree of a review", () => {
   // the commits of the range, newest first, with full ids; the plan names them short
   const item = (id: string, subject: string): ReviewCommitItem => ({ kind: "commit", key: id, commit: { id, subject } as ReviewCommit })
   const items = [item("d4d4d4d4", "bump the lock"), item("c3c3c3c3", "tidy App"), item("b2b2b2b2", "drop grep"), item("a1a1a1a1", "drop the proxy")]
-  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), title: items.find(it => it.key === id)!.commit.subject, role })
+  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), title: plainTitle(items.find(it => it.key === id)!.commit.subject), role })
   const steps = [
     { id: "p", concern: "p", commits: [commitOf("a1a1a1a1", "starts"), commitOf("b2b2b2b2", "noStory")] },
     { id: "g", concern: "g", commits: [commitOf("b2b2b2b2", "starts")] },
@@ -498,7 +499,7 @@ describe("the steps of the commits in the tree of a review", () => {
   // Rust titles a commit of a step by its subject without the issue key of the brief, in its author's case
   const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({
     id: id.slice(0, 4),
-    title: items.find(it => it.key === id)!.commit.subject.replace("IJAI-1 ", ""),
+    title: plainTitle(items.find(it => it.key === id)!.commit.subject.replace("IJAI-1 ", "")),
     role,
   })
   const steps = [
@@ -507,9 +508,9 @@ describe("the steps of the commits in the tree of a review", () => {
       [commitOf("a1a1a1a1", "starts"), commitOf("c3c3c3c3", "followsUp"), commitOf("d4d4d4d4", "noStory")],
       [["u:rule", "src/Rule.kt"]],
       {},
-      { title: "the rule" },
+      { title: plainTitle("the rule") },
     ),
-    reviewStep("b2b2", [commitOf("b2b2b2b2", "starts")], [["u:paint", "src/Paint.kt"]], {}, { title: "the paint" }),
+    reviewStep("b2b2", [commitOf("b2b2b2b2", "starts")], [["u:paint", "src/Paint.kt"]], {}, { title: plainTitle("the paint") }),
   ]
   const chapters = presentChapters({
     steps: { source: { kind: "commits" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
@@ -588,7 +589,7 @@ describe("the steps of the commits in the tree of a review", () => {
   it("names the step of the own row of a file shown in another step after its name", () => {
     // the paint changes the rule's file too, whose own row is in the first step: its row there says where it lives
     const shared = [
-      reviewStep("a1a1", [commitOf("a1a1a1a1", "starts")], [["u:rule", "src/Rule.kt"]], {}, { title: "the rule" }),
+      reviewStep("a1a1", [commitOf("a1a1a1a1", "starts")], [["u:rule", "src/Rule.kt"]], {}, { title: plainTitle("the rule") }),
       {
         ...reviewStep(
           "b2b2",
@@ -598,7 +599,7 @@ describe("the steps of the commits in the tree of a review", () => {
             ["u:rule2", "src/Rule.kt"],
           ],
           {},
-          { title: "the paint" },
+          { title: plainTitle("the paint") },
         ),
         elsewhere: ["src/Rule.kt"],
       },
@@ -671,7 +672,7 @@ describe("the groups of a large step in the tree of a review", () => {
   const step = (mechanical: readonly string[]) =>
     reviewStep(
       "media",
-      [{ id: "media", title: "play the media embeds", role: "starts" }],
+      [{ id: "media", title: plainTitle("play the media embeds"), role: "starts" }],
       [
         ["u:spec", paths.spec],
         ["u:bundle", paths.bundle],
@@ -687,7 +688,7 @@ describe("the groups of a large step in the tree of a review", () => {
       ],
       {},
       {
-        title: "play the media embeds",
+        title: plainTitle("play the media embeds"),
         groups: [
           stepGroup("contract", null, [0, 1, 1]),
           stepGroup("module", 1, [1, 4, 5]),
@@ -777,7 +778,13 @@ describe("the groups of a large step in the tree of a review", () => {
   })
 
   it("lists a file of a group whose own row is in another step as a row also in that group, by its directory too", () => {
-    const first = reviewStep("bundle", [{ id: "bundle", title: "name the texts", role: "starts" }], [["u:bundle", paths.bundle]], {}, { title: "name the texts" })
+    const first = reviewStep(
+      "bundle",
+      [{ id: "bundle", title: plainTitle("name the texts"), role: "starts" }],
+      [["u:bundle", paths.bundle]],
+      {},
+      { title: plainTitle("name the texts") },
+    )
     const large = { ...step([paths.build, paths.list]), elsewhere: [paths.bundle] }
     const tree = buildReviewTree(files, mechanical, presentChapters({ ...plan, steps: { ...plan.steps, steps: [first, large] } }))
     const gui = (tree[1] as FileTreeDirectory).children[1] as FileTreeDirectory

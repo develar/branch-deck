@@ -13,7 +13,7 @@ import { DiffFindBar } from "@/components/diff/DiffFindBar"
 import { useMeasuredHeights } from "@/components/diff/use-measured-heights"
 import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
-import type { BlobRequest, CommitFile, DeclarationSite } from "@/lib/bindings"
+import type { BlobRequest, CommitFile, DeclarationSite, ReviewTitle } from "@/lib/bindings"
 import { codeMenuItems } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
@@ -128,14 +128,14 @@ export interface DiffSection {
   readonly heading: string | null
   /**
    * The step of the review plan the section starts, on its first section: its id, and the words of the opening above
-   * its card, its number ("Step 2") and its title ("The open keeps a stored layout")
+   * its card, its number ("Step 2") and its title ("The open keeps a stored layout", `Chapter.title`)
    */
-  readonly step: { readonly id: string; readonly number: string; readonly title: string } | null
+  readonly step: { readonly id: string; readonly number: string; readonly title: ReviewTitle } | null
   /**
    * The steps of no card of their own told right before `step`, in their order: each its opening above the opening of
    * `step`, in the one layer of openings of the section (each element of it `data-opening-step` its id), J one stop each
    */
-  readonly before?: readonly { readonly id: string; readonly number: string; readonly title: string }[]
+  readonly before?: readonly { readonly id: string; readonly number: string; readonly title: ReviewTitle }[]
   /**
    * The opening of the group of a large step the section starts (`presentGroupOpenings`), by its key: above its card in
    * the layer of its openings, in place of the divider of `heading`
@@ -145,6 +145,8 @@ export interface DiffSection {
   readonly stepHeading: string | null
   /** The blocks of the stories that name the section (`storyMarks`): its header marks it, a click shows the block */
   readonly story?: readonly StoryMark[]
+  /** The units it shows (`NarrativeSection.unitIds`): a place of one of them is shown in it */
+  readonly unitIds?: ReadonlySet<string>
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -213,6 +215,8 @@ export interface DeclarationPlace {
   endColumn: number
   /** The name, when its columns are not known: the first whole word of it in the line is selected */
   name?: string
+  /** The unit of the review it is of (`ReviewPlace.unit`): shown in the section of that unit */
+  unit?: string
 }
 
 export interface DiffViewProps {
@@ -435,10 +439,10 @@ function showsLine(file: PreparedFile, side: number, line: number): boolean {
 }
 
 /**
- * The section of `files` that shows `path`: the one that shows its `line` of a side; without a line its first open
- * section (the change of its own before a group a section folds); else its first
+ * The section of `files` that shows `path`: the one of the unit of the place, else the one that shows its `line` of a
+ * side; without a line its first open section (the change of its own before a group a section folds); else its first
  */
-function sectionOf(files: readonly PreparedFile[], path: string, at?: { side: number; line: number }): number {
+function sectionOf(files: readonly PreparedFile[], path: string, at?: { side: number; line: number; unit?: string | undefined }): number {
   const first = files.findIndex(file => file.path === path)
   if (first < 0) {
     return first
@@ -446,6 +450,12 @@ function sectionOf(files: readonly PreparedFile[], path: string, at?: { side: nu
   if (at === undefined) {
     const open = files.findIndex(file => file.path === path && !file.collapsed)
     return open < 0 ? first : open
+  }
+  // the section of the unit the place is of: a line of its name another section of the file shows too is its there
+  const unit = at.unit
+  const own = unit === undefined ? -1 : files.findIndex(file => file.path === path && file.section?.unitIds?.has(unit) === true)
+  if (own >= 0) {
+    return own
   }
   const showing = files.findIndex(file => file.path === path && showsLine(file, at.side, at.line))
   return showing < 0 ? first : showing
@@ -1192,7 +1202,7 @@ export function DiffView({
   /** Shows a place of the view: its file open, its fold expanded, then (`revealTick`) scrolled to and selected */
   const revealPlace = (place: DeclarationPlace): boolean => {
     const side = place.side === "old" ? OLD : NEW
-    const index = sectionOf(prepared, place.path, { side, line: place.line })
+    const index = sectionOf(prepared, place.path, { side, line: place.line, unit: place.unit })
     const file = prepared[index]
     if (file === undefined) {
       return false
@@ -1280,7 +1290,7 @@ export function DiffView({
   useLayoutEffect(() => {
     const place = pendingReveal.current
     const side = place?.side === "old" ? OLD : NEW
-    const index = place === null ? -1 : sectionOf(prepared, place.path, { side, line: place.line })
+    const index = place === null ? -1 : sectionOf(prepared, place.path, { side, line: place.line, unit: place.unit })
     const rows = index < 0 ? null : layout.files[index]!.rows
     if (place === null || rows === null) {
       return

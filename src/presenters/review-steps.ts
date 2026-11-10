@@ -9,11 +9,13 @@ import type {
   ModuleShape,
   ReviewPlan,
   ReviewStep,
+  ReviewTitle,
   StepCommit,
   StepGroup,
   StepSource,
   StoryRef,
 } from "@/lib/bindings"
+import { plainTitle, titleText } from "@/lib/commit"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
@@ -68,7 +70,12 @@ export interface Chapter {
   readonly id: string
   /** Its place in the story, from 1 */
   readonly number: number
-  /** Its name in the tree and the "also in" of its rows: the subject of the commit that starts it, else its concern */
+  /**
+   * Its title as every place that names it sets it (`ReviewTitle`, `TitleText`): of a step of the commits the title Rust
+   * gives the commit that starts it, its conventional prefix apart; else its concern, a label, a sentence or a name
+   */
+  readonly title: ReviewTitle
+  /** `title` as one line: its name in the "also in" of its rows, a hover, a search */
   readonly label: string
   /** Its name at the head of its part of the story: "2 · The open asks the layout", a concern by its name */
   readonly heading: string
@@ -262,12 +269,14 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
     const concern = step.concern === null ? undefined : concerns.get(step.concern)
     if (concern !== undefined) {
       // the author's name of the task, the label of the section of the body told in it, else the name of its evidence
-      const label = step.title ?? formatConcernName(concern.name)
+      const title = step.title ?? plainTitle(formatConcernName(concern.name))
+      const label = titleText(title)
       const rest = concern.name.source === "rest"
       const told = !rest && plan.steps.told
       return {
         id: step.id,
         number,
+        title,
         label,
         // a step the overview tells by its number is that step everywhere: "2 · …" in the tree, "in step 2" after a row
         heading: told ? `${number} · ${label}` : label,
@@ -286,10 +295,12 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
     if (message) {
       // a part of the message of one commit: named as its author wrote it, by its label, its first sentence or its first
       // code name
-      const label = step.title ?? ""
+      const title = step.title ?? plainTitle("")
+      const label = titleText(title)
       return {
         id: step.id,
         number,
+        title,
         label,
         heading: plan.steps.told ? `${number} · ${label}` : label,
         reference: plan.steps.told ? `step ${number}` : label,
@@ -305,10 +316,12 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns"> & {
       }
     }
     // Rust titles a step by the commit that starts it, as its author wrote it
-    const label = step.id === NO_STORY ? WITHOUT_A_STORY : (step.title ?? headOf(step)?.title ?? "")
+    const title = step.id === NO_STORY ? plainTitle(WITHOUT_A_STORY) : (step.title ?? headOf(step)?.title ?? plainTitle(""))
+    const label = titleText(title)
     return {
       id: step.id,
       number,
+      title,
       label,
       heading: `${number} · ${label}`,
       reference: `step ${number}`,
@@ -387,8 +400,11 @@ export interface PlacedCommit<T> {
   readonly id: string
   /** Its whole subject, in the hover of its row */
   readonly subject: string
-  /** Its name on its row: the title Rust gives it (its subject without the issue key the brief names), else its subject */
-  readonly title: string
+  /**
+   * Its name on its row: the title Rust gives it (its subject without the issue key the brief names, its conventional
+   * prefix apart), else its subject
+   */
+  readonly title: ReviewTitle
   /** Its role in its step; null in Other commits */
   readonly role: CommitRole | null
   /** The commit of the range it is (`RangeReviewItem`); none when the range lists no such commit */
@@ -417,9 +433,10 @@ export interface CommitPlaces<T> {
 export function withCommitTitles(known: ReadonlyMap<string, string>, steps: readonly Pick<ReviewStep, "commits">[]): ReadonlyMap<string, string> {
   let titles: Map<string, string> | null = null
   for (const commit of steps.flatMap(step => step.commits)) {
-    if (known.get(commit.id) !== commit.title && titles?.get(commit.id) !== commit.title) {
+    const title = titleText(commit.title)
+    if (known.get(commit.id) !== title && titles?.get(commit.id) !== title) {
       titles ??= new Map(known)
-      titles.set(commit.id, commit.title)
+      titles.set(commit.id, title)
     }
   }
   return titles ?? known
@@ -480,7 +497,7 @@ export function placeCommits<T extends { readonly commit: { readonly id: string;
       const id = item?.commit.id ?? commit.id
       if (home.get(id)?.step === step.id && !listed.has(id)) {
         listed.add(id)
-        const it = { id, subject: item?.commit.subject ?? commit.title, title: commit.title, role: commit.role, item, order: orderOf(item) }
+        const it = { id, subject: item?.commit.subject ?? titleText(commit.title), title: commit.title, role: commit.role, item, order: orderOf(item) }
         if (ofCommits && commit.role === "starts" && !heads.has(step.id)) {
           heads.set(step.id, it)
         } else {
@@ -494,7 +511,7 @@ export function placeCommits<T extends { readonly commit: { readonly id: string;
   }
   const other = items
     .filter(item => !listed.has(item.commit.id))
-    .map(item => ({ id: item.commit.id, subject: item.commit.subject, title: item.commit.subject, role: null, item, order: orderOf(item) }))
+    .map(item => ({ id: item.commit.id, subject: item.commit.subject, title: plainTitle(item.commit.subject), role: null, item, order: orderOf(item) }))
   return { heads, steps: placed, other }
 }
 
@@ -511,6 +528,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
     return {
       id: concern.id,
       number: index + 1,
+      title: plainTitle(label),
       label,
       heading: label,
       reference: label,

@@ -8,6 +8,11 @@ export interface ReviewPlace {
   readonly side: "old" | "new"
   readonly line: number | null
   readonly name: string | null
+  /**
+   * The unit of the review it names (`ReviewUnit::id`): of a file cut into several sections the diffs show it in the
+   * section of that unit, never in one that shows its line beside another change
+   */
+  readonly unit?: string
 }
 
 /** A changed file at its header */

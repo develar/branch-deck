@@ -55,7 +55,7 @@ use crate::api::ApiChangeKind;
 use crate::concerns::compound;
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
-use crate::steps::{CommitRole, ModuleEdge, ReviewStep, StepStop, StepsInput, TitleSource, commit_title, split_message};
+use crate::steps::{CommitRole, ModuleEdge, ReviewStep, ReviewTitle, StepStop, StepsInput, TitleSource, commit_title, split_message};
 use crate::units::{ReviewUnit, UnitKind};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
 use serde::Serialize;
@@ -73,7 +73,7 @@ pub struct StoryCommit {
   pub id: String,
   /// Its title (`steps::commit_title`): its subject without the `(prefix)` and the issue key the brief names, as its
   /// author wrote it
-  pub title: String,
+  pub title: ReviewTitle,
   pub body: CommitBody,
   /// The code names of its blocks, in the order of the body
   pub mentions: Vec<Mention>,
@@ -777,7 +777,7 @@ pub(crate) fn add_story_titles(steps: &mut [ReviewStep], commits: &mut [StoryCom
     let StoryPlace::Step { step } = part.told else { continue };
     let Some(step) = steps.get_mut(step as usize) else { continue };
     if step.concern.is_some() && step.title.is_none() {
-      step.title = Some(title.clone());
+      step.title = Some(ReviewTitle::plain(title.clone()));
       step.title_source = TitleSource::Label;
       part.titled = true;
     }

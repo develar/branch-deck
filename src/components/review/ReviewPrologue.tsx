@@ -6,10 +6,12 @@ import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
+import { TitleText } from "@/components/commit/CommitSubject"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ContractList, FileButton } from "@/components/review/ContractList"
 import { MessageChangeView } from "@/components/review/MessageChangeView"
 import { ReviewMap } from "@/components/review/ReviewMap"
+import { ReviewTitleText } from "@/components/review/ReviewTitleText"
 import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
 import { UnbrokenApiList } from "@/components/review/UnbrokenApiList"
@@ -88,7 +90,9 @@ export function ReviewPrologue({
       {/* a commit shown alone shows its message in its heading */}
       {view !== null && commit === null && view.untold !== null && (
         <div className="flex flex-col gap-1.5" data-testid="review-overview-untold">
-          <span className="font-medium">{view.untold.subject}</span>
+          <span className="font-medium">
+            <TitleText title={view.untold.subject} />
+          </span>
           <StoryBody story={view.untold.story} />
         </div>
       )}
@@ -291,7 +295,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
           data-testid="review-contents-step-title"
           onClick={() => onShow?.()}
         >
-          {step.code ? <BreakableCode text={step.title} humps /> : step.title}
+          <ReviewTitleText title={step.title} code={step.code} />
         </button>
       </span>
       <div className="flex min-w-0 flex-col gap-1">

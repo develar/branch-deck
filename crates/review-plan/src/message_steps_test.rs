@@ -17,8 +17,19 @@ fn steps(plan: &ReviewPlan) -> Vec<StepWords> {
     .map(|step| {
       let mut files: Vec<String> = step.stops.iter().map(|stop| stop.path.rsplit('/').next().unwrap_or_default().to_string()).collect();
       files.dedup();
-      (step.title.clone(), step.title_source, files)
+      (step.title.as_ref().map(ToString::to_string), step.title_source, files)
     })
+    .collect()
+}
+
+/// The title of each of the first `count` steps of `plan`, its text, and what gives it
+fn titles(plan: &ReviewPlan, count: usize) -> Vec<(Option<&str>, TitleSource)> {
+  plan
+    .steps
+    .steps
+    .iter()
+    .take(count)
+    .map(|step| (step.title.as_ref().map(|title| title.text.as_str()), step.title_source))
     .collect()
 }
 
@@ -162,7 +173,7 @@ fn a_long_first_sentence_titles_its_step_by_the_first_name_it_resolves_and_a_lis
   let head = commit(&repo, &message);
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(plan.steps.source, StepSource::Message);
-  let titles: Vec<(Option<&str>, TitleSource)> = plan.steps.steps.iter().take(3).map(|step| (step.title.as_deref(), step.title_source)).collect();
+  let titles = titles(&plan, 3);
   assert_eq!(
     titles,
     [
@@ -187,7 +198,7 @@ fn a_table_tells_a_step_titled_by_the_first_name_it_resolves() {
   let head = commit(&repo, message);
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(plan.steps.source, StepSource::Message);
-  let titles: Vec<(Option<&str>, TitleSource)> = plan.steps.steps.iter().take(2).map(|step| (step.title.as_deref(), step.title_source)).collect();
+  let titles = titles(&plan, 2);
   assert_eq!(
     titles,
     [

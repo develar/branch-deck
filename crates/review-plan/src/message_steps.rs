@@ -28,7 +28,7 @@
 
 use crate::concerns::{Concern, ConcernName, unquoted};
 use crate::files::test_subject;
-use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, TitleSource, split_message, step_commit};
+use crate::steps::{CommitRole, ReviewStep, ReviewTitle, StepStop, StepsInput, TitleSource, split_message, step_commit};
 use crate::story::{Mention, MentionTarget, unit_mentions};
 use crate::units::digest;
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
@@ -117,7 +117,7 @@ pub(crate) fn message_steps(input: &StepsInput<'_>) -> Option<MessageSteps> {
     step.commits.clone_from(&starts);
     step.stops = places.iter().copied().map(stop).collect();
     if let Some((title, source)) = &tellings[telling].title {
-      step.title = Some(title.clone());
+      step.title = Some(ReviewTitle::plain(title.clone()));
       step.title_source = *source;
     }
     step_of.insert(telling, u32::try_from(steps.len()).unwrap_or(u32::MAX));

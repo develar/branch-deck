@@ -56,7 +56,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use sync_utils::commit_body::{commit_body, story_lines};
 use sync_utils::commit_subject::stripped_subject;
-use sync_utils::issue_pattern::leading_issue_keys;
+use sync_utils::issue_pattern::{leading_issue_keys, parse_semantic_prefix};
 use trial_check::diff_scan::CommitDiff;
 use trial_check::symbol_scan::SymbolInput;
 
@@ -146,6 +146,46 @@ pub enum TitleSource {
   Evidence,
 }
 
+/// A title as the review shows it (`ReviewStep::title`, `StepCommit::title`, `StoryCommit::title`): of a commit its
+/// conventional prefix apart (`cleanup platform:`, `fix(vm):`, with its colon), which every place that names it sets
+/// in the code font and dimmed, as the main window sets a subject, and the rest; a label, a sentence or a name has none
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewTitle {
+  pub prefix: Option<String>,
+  pub text: String,
+}
+
+impl ReviewTitle {
+  /// A title of no prefix: a label, a sentence, a name
+  pub(crate) fn plain(text: impl Into<String>) -> Self {
+    Self { prefix: None, text: text.into() }
+  }
+
+  /// The conventional prefix of `title` apart (`sync_utils::issue_pattern::parse_semantic_prefix`), when text follows it
+  fn of_subject(title: &str) -> Self {
+    match parse_semantic_prefix(title).filter(|parsed| !parsed.rest.is_empty()) {
+      Some(parsed) => Self {
+        prefix: Some(title[..title.len() - parsed.rest.len()].trim_end().to_string()),
+        text: parsed.rest.to_string(),
+      },
+      None => Self::plain(title),
+    }
+  }
+}
+
+/// The title as one line, its prefix before the rest: what a screen reader and `brd` read
+impl std::fmt::Display for ReviewTitle {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.prefix {
+      Some(prefix) => write!(f, "{prefix} {}", self.text),
+      None => f.write_str(&self.text),
+    }
+  }
+}
+
 /// Why the concerns are the steps
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -198,7 +238,7 @@ pub struct ReviewStep {
   /// (`commit_title`); of a step of the concerns of one commit, the label of the first labelled section of its body the
   /// step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
   /// changes without a story and a concern no section names, which the page names by its evidence
-  pub title: Option<String>,
+  pub title: Option<ReviewTitle>,
   /// What gives it its title
   pub title_source: TitleSource,
   /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
@@ -270,7 +310,7 @@ pub struct StepCommit {
   pub id: String,
   /// Its title (`commit_title`): its subject without the `(prefix)` that groups it and the issue key the brief names,
   /// in the case its author wrote it
-  pub title: String,
+  pub title: ReviewTitle,
   pub role: CommitRole,
 }
 
@@ -515,8 +555,13 @@ fn body_words(body: &str) -> usize {
 /// The title of a commit wherever the review names it (the row of its step, the opening, the contents, a card): its
 /// subject without the `(prefix)` that groups it and, before what is left, the issue key the brief names already, with
 /// a `:`, `,` or dash after it, also from among the keys the subject starts with (`IJAI-1184 IJAI-5640 Air …` keeps
-/// `IJAI-1184`); in the case its author wrote it, never capitalised. A subject of the key alone keeps it
-pub(crate) fn commit_title(subject: &str, issue: Option<&str>) -> String {
+/// `IJAI-1184`); in the case its author wrote it, never capitalised. A subject of the key alone keeps it. Its
+/// conventional prefix stands apart (`ReviewTitle::prefix`)
+pub(crate) fn commit_title(subject: &str, issue: Option<&str>) -> ReviewTitle {
+  ReviewTitle::of_subject(&commit_title_text(subject, issue))
+}
+
+fn commit_title_text(subject: &str, issue: Option<&str>) -> String {
   let stripped = stripped_subject(subject);
   let subject = stripped.trim();
   // the issue among the keys the subject starts with, not the first of them: it goes with the space after it

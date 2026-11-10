@@ -5,7 +5,7 @@ use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
 use crate::prose::{ProseChange, ProseForm, TextRange, utf16_slice};
 use crate::steps::{
-  CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ShownElsewhere, StepSource, StepStop, StepTest, TestWay, commit_title, join_units, tells_a_story,
+  CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ReviewTitle, ShownElsewhere, StepSource, StepStop, StepTest, TestWay, commit_title, join_units, tells_a_story,
 };
 use crate::test_support::{plan_of, plan_of_range, range};
 use crate::units::{ReviewUnit, UnitBlock, UnitKind, UnitSlice};
@@ -25,7 +25,7 @@ fn steps(plan: &ReviewPlan) -> Vec<StepWords> {
     .steps
     .iter()
     .map(|step| {
-      let commits = step.commits.iter().map(|commit| (commit.title.clone(), commit.role)).collect();
+      let commits = step.commits.iter().map(|commit| (commit.title.to_string(), commit.role)).collect();
       let stops = step
         .stops
         .iter()
@@ -101,7 +101,12 @@ fn the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote()
     ]
   );
   // the body of each commit once, in the story of the commits
-  let bodies: Vec<(&str, &[CommitBodyBlock])> = plan.steps.commits.iter().map(|commit| (commit.title.as_str(), commit.body.blocks.as_slice())).collect();
+  let bodies: Vec<(&str, &[CommitBodyBlock])> = plan
+    .steps
+    .commits
+    .iter()
+    .map(|commit| (commit.title.text.as_str(), commit.body.blocks.as_slice()))
+    .collect();
   assert_eq!(
     bodies,
     [
@@ -128,17 +133,30 @@ fn the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote()
 /// the step of a commit takes its title, the plan the short ids of a range
 #[test]
 fn a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_case_of_its_author() {
-  assert_eq!(commit_title("IJAI-1 the open asks the layout", Some("IJAI-1")), "the open asks the layout");
-  assert_eq!(commit_title("IJAI-1: The open asks", Some("IJAI-1")), "The open asks");
-  assert_eq!(commit_title("(layout) IJAI-1 — a splash shows", Some("IJAI-1")), "a splash shows");
-  assert_eq!(commit_title("IJAI-12 another issue", Some("IJAI-1")), "IJAI-12 another issue");
-  assert_eq!(commit_title("IJAI-1", Some("IJAI-1")), "IJAI-1");
+  assert_eq!(commit_title("IJAI-1 the open asks the layout", Some("IJAI-1")).to_string(), "the open asks the layout");
+  assert_eq!(commit_title("IJAI-1: The open asks", Some("IJAI-1")).to_string(), "The open asks");
+  assert_eq!(commit_title("(layout) IJAI-1 — a splash shows", Some("IJAI-1")).to_string(), "a splash shows");
+  assert_eq!(commit_title("IJAI-12 another issue", Some("IJAI-1")).to_string(), "IJAI-12 another issue");
+  assert_eq!(commit_title("IJAI-1", Some("IJAI-1")).to_string(), "IJAI-1");
   // of the keys a subject starts with, the issue of the brief goes, the others stay
   assert_eq!(
-    commit_title("IJAI-1184 IJAI-5640 Air records the links", Some("IJAI-5640")),
+    commit_title("IJAI-1184 IJAI-5640 Air records the links", Some("IJAI-5640")).to_string(),
     "IJAI-1184 Air records the links"
   );
-  assert_eq!(commit_title("the open asks", None), "the open asks");
+  assert_eq!(commit_title("the open asks", None).to_string(), "the open asks");
+  // the conventional prefix stands apart, with its colon, which the page sets dimmed in the code font; of a prefix alone,
+  // or a capitalised word before a colon, the title is plain
+  let title = |prefix: Option<&str>, text: &str| ReviewTitle {
+    prefix: prefix.map(str::to_string),
+    text: text.to_string(),
+  };
+  assert_eq!(
+    commit_title("cleanup platform: JnaLoader adds System32 once", None),
+    title(Some("cleanup platform:"), "JnaLoader adds System32 once")
+  );
+  assert_eq!(commit_title("(jna) IJAI-1 fix(vm)!: the loader", Some("IJAI-1")), title(Some("fix(vm)!:"), "the loader"));
+  assert_eq!(commit_title("fix:", None), title(None, "fix:"));
+  assert_eq!(commit_title("Note: the loader", None), title(None, "Note: the loader"));
 
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files("Add", &[("src/a/Api.kt", API), ("src/c/Other.kt", "package c\n\nfun other() = 1\n")]);
@@ -155,12 +173,17 @@ fn a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_c
   );
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(plan.brief.issue.as_deref(), Some("IJAI-1"));
-  let titles: Vec<(Option<&str>, &str)> = plan.steps.steps.iter().map(|step| (step.title.as_deref(), step.commits[0].title.as_str())).collect();
+  let titles: Vec<(Option<&str>, &str)> = plan
+    .steps
+    .steps
+    .iter()
+    .map(|step| (step.title.as_ref().map(|title| title.text.as_str()), step.commits[0].title.text.as_str()))
+    .collect();
   assert_eq!(
     titles,
     [(Some("open takes a mode"), "open takes a mode"), (Some("other counts twice"), "other counts twice")]
   );
-  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.title.as_str()).collect();
+  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.title.text.as_str()).collect();
   assert_eq!(told, ["open takes a mode", "other counts twice"]);
   assert_eq!(plan.title, format!("{}..{}", &base[..8], &head[..8]));
 }
@@ -197,7 +220,7 @@ fn a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines
   );
   assert_eq!(plan.steps.steps[1].id, "no-story");
   // a commit without a body has no story
-  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.title.as_str()).collect();
+  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.title.text.as_str()).collect();
   assert_eq!(told, ["Open takes a mode", "Open names its flags again"]);
 }
 
@@ -218,9 +241,9 @@ fn a_commit_that_removes_a_declaration_of_its_own_starts_its_step_though_it_rewr
   );
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(plan.steps.steps.len(), 2);
-  assert_eq!(plan.steps.steps[0].commits[0].title, "Open takes a mode");
+  assert_eq!(plan.steps.steps[0].commits[0].title.to_string(), "Open takes a mode");
   assert_eq!(plan.steps.steps[0].commits[0].role, CommitRole::Starts);
-  assert_eq!(plan.steps.steps[1].commits[0].title, "Close is no longer needed");
+  assert_eq!(plan.steps.steps[1].commits[0].title.to_string(), "Close is no longer needed");
   assert_eq!(plan.steps.steps[1].commits[0].role, CommitRole::Starts);
   let close = plan.units.iter().find(|unit| unit.name.as_deref() == Some("close")).unwrap();
   let joined = plan.steps.steps[0]

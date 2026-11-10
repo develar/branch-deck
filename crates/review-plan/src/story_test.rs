@@ -31,7 +31,7 @@ fn mentions(plan: &ReviewPlan, subject: &str) -> Vec<MentionWords> {
 }
 
 fn story<'a>(plan: &'a ReviewPlan, subject: &str) -> &'a StoryCommit {
-  plan.steps.commits.iter().find(|commit| commit.title == subject).unwrap()
+  plan.steps.commits.iter().find(|commit| commit.title.to_string() == subject).unwrap()
 }
 
 /// The facts of a step as a test reads them: its new API by key, its new links between modules by their files
@@ -219,7 +219,12 @@ fn the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_title
     ]
   );
   // each step is titled by the label of the section it tells, as the author named its task
-  let titles: Vec<(Option<&str>, TitleSource)> = plan.steps.steps.iter().map(|step| (step.title.as_deref(), step.title_source)).collect();
+  let titles: Vec<(Option<&str>, TitleSource)> = plan
+    .steps
+    .steps
+    .iter()
+    .map(|step| (step.title.as_ref().map(|title| title.text.as_str()), step.title_source))
+    .collect();
   assert_eq!(titles, [(Some("The scope"), TitleSource::Label), (Some("The clock"), TitleSource::Label)]);
   // a line marks the stops it names where it is told: the clock by the paragraph and the item of its step
   let marks: Vec<Vec<(u32, Option<u32>)>> = plan.steps.steps[1]
