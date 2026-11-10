@@ -2,8 +2,10 @@
 //! perf:table` (120 lone branches and three stacks of seven that fork, 141 rows, robots running on ten): the next step
 //! and the node of every subject, as a flush of the session derives them twice (the readiness it asks, then the patch),
 //! and the whole first patch of the view. Budgets of the derivation (docs/design/rendering-performance.md, B10 of
-//! docs/design/rust-domain-authority.md): the minimum of several runs decides each, so the preemption of a loaded
-//! machine doesn't; the times are printed.
+//! docs/design/rust-domain-authority.md): the CPU time of the test thread decides each, the least of several runs, in
+//! units of a reference work on that thread (`reference_work`). The derive runs on that thread alone (no pool, no task),
+//! a loaded machine adds preemptions to the wall time of a run, not CPU time to its thread, and a slower machine does
+//! the reference slower too, so neither fails a budget and a slower derive still does; the times are printed.
 
 use crate::action_view::{ActionSources, actions_of};
 use crate::branch_table::{BranchTable, RemoteFact, RemoteFacts};
@@ -22,15 +24,23 @@ use domain_types::stack::{BranchStack, StackBranchState, StackBranchUpdate};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, GroupedBranchInfo, SyncEvent};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use test_utils::cpu_time::thread_cpu_time;
 
-/// The derivations of all rows of one flush take at most this long, in a debug build
-const BUDGET: Duration = Duration::from_millis(20);
+/// The derivations of all rows of one flush take at most this many times the reference work (`reference_work`) on the
+/// same thread. On 2026-11-10 in a debug build on the developer Mac: 1.28–1.34 (about 2.5 ms), 1.23–1.70 for 180 copies,
+/// 60 at once at background priority; a derive of twice the CPU time 3.26–3.44
+const BUDGET: f64 = 2.2;
 /// The whole first patch of the view (every part derived and compared from nothing, and the view moved to it) takes at
-/// most this long: B10, 2 ms in a release build; 40 ms in a debug build, which takes about five times as long, with the
-/// margin `BUDGET` leaves a loaded machine
-const PATCH_BUDGET: Duration = if cfg!(debug_assertions) { Duration::from_millis(40) } else { Duration::from_millis(2) };
+/// most this many times the reference work: B10, 2 ms in a release build on the Mac Studio. On 2026-11-10 in a debug
+/// build on the developer Mac: 2.42–2.51 (about 4.5 ms), 2.20–3.17 for the 180 copies; a derive of twice the CPU time
+/// 5.97–6.10
+const PATCH_BUDGET: f64 = 4.0;
+/// The rounds of the samples of the derives; the median decides
 const RUNS: usize = 9;
+/// Each sample runs its derive until it used this much CPU time of the thread, and counts the runs: the clock of
+/// Windows counts whole ticks of about 15.6 ms, the one of macOS and Linux nanoseconds
+const SAMPLE: Duration = if cfg!(windows) { Duration::from_millis(100) } else { Duration::ZERO };
 
 pub(crate) fn at(seq: u32) -> Observation {
   Observation {
@@ -256,16 +266,58 @@ pub(crate) fn session() -> (TableState, FactStore) {
   (state, facts)
 }
 
-/// The least time `derive` took of `RUNS` runs
-fn least(mut derive: impl FnMut()) -> Duration {
-  (0..RUNS)
-    .map(|_| {
-      let start = Instant::now();
-      derive();
-      start.elapsed()
-    })
-    .min()
-    .unwrap_or_default()
+/// The CPU time of this thread of one run of `derive`, over runs of at least `SAMPLE`
+fn sample(derive: &mut dyn FnMut()) -> Duration {
+  let start = thread_cpu_time();
+  let mut runs = 0_u32;
+  loop {
+    derive();
+    runs += 1;
+    if thread_cpu_time().saturating_sub(start) >= SAMPLE {
+      break thread_cpu_time().saturating_sub(start) / runs;
+    }
+  }
+}
+
+/// What the derives took in units of the reference work
+struct Units {
+  flush: f64,
+  patch: f64,
+  /// The CPU time of the median round, for the line of the test
+  times: [Duration; 3],
+}
+
+/// The median over `RUNS` rounds of the CPU time of `flush` and of `patch`, each in units of the reference work of its
+/// round: a round is short, so the reference and the derives of one round mostly run on one core. A machine of two
+/// kinds of cores takes both about twice as long on the slower kind, and a round apart from the others changes no median
+fn units(flush: &mut dyn FnMut(), patch: &mut dyn FnMut()) -> Units {
+  let mut rounds: Vec<[Duration; 3]> = (0..RUNS).map(|_| [sample(&mut reference_work), sample(flush), sample(patch)]).collect();
+  let ratio = |round: &[Duration; 3], at: usize| round[at].as_secs_f64() / round[0].as_secs_f64();
+  let median = |rounds: &mut Vec<[Duration; 3]>, at: usize| {
+    rounds.sort_by(|a, b| ratio(a, at).total_cmp(&ratio(b, at)));
+    ratio(&rounds[RUNS / 2], at)
+  };
+  let flush_units = median(&mut rounds, 1);
+  let patch_units = median(&mut rounds, 2);
+  Units {
+    flush: flush_units,
+    patch: patch_units,
+    times: rounds[RUNS / 2],
+  }
+}
+
+/// The keys of `reference_work`
+const REFERENCE_KEYS: usize = 2_000;
+
+/// Work of a fixed size and of the kind a derive does, the unit of the budgets: branch names and commit ids as the keys
+/// and values of a map, its clone and the comparison of the two. A machine or a build that derives slower does this
+/// slower too, so a budget in this unit holds on every machine of the tests, and a slower derive fails it
+fn reference_work() {
+  let map: BTreeMap<String, Vec<String>> = (0..REFERENCE_KEYS)
+    .map(|key| (format!("user/virtual/branch-{key:05}"), (0..4).map(|commit| format!("{key:08x}{commit:032x}")).collect()))
+    .collect();
+  let copy = std::hint::black_box(&map).clone();
+  assert_eq!(std::hint::black_box(copy), map);
 }
 
 /// A flush derives the next step, the node and the actions of every row, the readiness it asks and the patch, within its
@@ -304,16 +356,24 @@ fn a_flush_derives_the_next_steps_of_the_141_rows_of_the_large_table_within_its_
     actions_of(&state, &facts, &sources)
   };
   assert!(actions(&steps).len() >= 141 + 3, "every row and every whole stack has its actions");
-  let flush = least(|| {
-    let _ = wanted_readiness(&state, &facts, "user", &demand);
-    let steps = next_steps_of(&state, &facts, &open, &landed);
-    let _ = actions(&steps);
-  });
-  let patch = least(|| {
-    let mut view = View::new(1);
-    let _ = view.diff(&state, &facts);
-  });
-  eprintln!("the next steps and the actions of 141 rows per flush: {flush:?} (budget {BUDGET:?}); the first patch of the view: {patch:?} (budget {PATCH_BUDGET:?})");
-  assert!(flush <= BUDGET, "the next steps of a flush took {flush:?}, over the budget of {BUDGET:?}");
-  assert!(patch <= PATCH_BUDGET, "the first patch of the view took {patch:?}, over the budget of {PATCH_BUDGET:?}");
+  let measured = units(
+    &mut || {
+      let _ = wanted_readiness(&state, &facts, "user", &demand);
+      let steps = next_steps_of(&state, &facts, &open, &landed);
+      let _ = actions(&steps);
+    },
+    &mut || {
+      let mut view = View::new(1);
+      let _ = view.diff(&state, &facts);
+    },
+  );
+  let (Units { flush, patch, .. }, [unit, flush_time, patch_time]) = (&measured, measured.times);
+  eprintln!(
+    "CPU time of the thread, the median of {RUNS} rounds: the next steps and the actions of 141 rows per flush {flush:.2} units (budget {BUDGET}); the first patch of the view {patch:.2} units (budget {PATCH_BUDGET}); a round of the patch: the reference work {unit:?}, the flush {flush_time:?}, the patch {patch_time:?}"
+  );
+  assert!(*flush <= BUDGET, "the next steps of a flush took {flush:.2} units, over the budget of {BUDGET}");
+  assert!(
+    *patch <= PATCH_BUDGET,
+    "the first patch of the view took {patch:.2} units, over the budget of {PATCH_BUDGET}"
+  );
 }

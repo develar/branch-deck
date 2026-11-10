@@ -37,6 +37,12 @@ tracing-subscriber.workspace = true
 # rights and without a `cmd /C mklink` process
 [target.'cfg(windows)'.dependencies]
 junction = "2.1.0"
+# the CPU time of a thread (`cpu_time`): GetThreadTimes
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+# the CPU time of a thread (`cpu_time`): clock_gettime of CLOCK_THREAD_CPUTIME_ID
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.191"
 
 [dev-dependencies]
 test-log = { workspace = true }

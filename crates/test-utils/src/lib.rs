@@ -1,6 +1,7 @@
 //! Shared test utilities for Branch Deck workspace
 
 pub mod captured_log;
+pub mod cpu_time;
 pub mod env_vars;
 pub mod fake_cli_tools;
 pub mod fake_executable;

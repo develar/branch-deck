@@ -355,10 +355,19 @@ and task and 41 % fewer bytes, and asks one command before its rows, the subscri
 What the page no longer derives the session derives on every patch, so its time is a budget too (B10 there, at most
 2 ms in a release build for the 141 rows): `derive_budget_test.rs` takes the least of nine runs of a flush (the
 readiness the session asks, the next step, the node and the actions of every row and whole stack) and of the whole
-first patch of the view (every part derived and compared from nothing), and asserts a flush within 20 ms and the first
-patch within 2 ms in a release build, 40 ms in a debug one (`PATCH_BUDGET`). In a release build on the Mac Studio,
-three runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and
-1.71 ms).
+first patch of the view (every part derived and compared from nothing). In a release build on the Mac Studio, three
+runs at a load of 3: 0.60–1.09 ms per flush and 1.70–2.14 ms for the whole first patch (medians 0.60 and 1.71 ms).
+The test measures the CPU time of its thread, on which the derive runs alone (`test_utils::cpu_time`; the CPU time of
+the process is the same to 0.01 %), in units of a fixed work of the same kind on that thread (a map of 2,000 branch
+names, its clone and their comparison), sampled in each of nine rounds right before the flush and the patch: a loaded
+machine adds preemptions to the wall time, not CPU time to the thread, a slower machine or build does the reference
+slower too, and a core of the slower kind takes a whole round, so the median of the rounds decides (a reference
+measured apart from the derives, on another kind of core, failed 44 of 120 throttled copies). It asserts a flush
+within 2.2 units and the first patch within 4 (`BUDGET`, `PATCH_BUDGET`): on the developer Mac in a debug build
+1.28–1.34 and 2.42–2.51, 1.23–1.70 and 2.20–3.17 for 180 copies 60 at once at background priority (where the wall
+time and its budget of 40 ms failed 79 of 80 copies), and a derive that takes twice its CPU time fails it (3.26–3.44
+for the flush, 5.97–6.10 for the patch). On Windows a sample runs its derive for 100 ms of CPU time, as
+`GetThreadTimes` counts ticks of 15.6 ms.
 
 The final measurements of the rework (s14, [Итог s14](rust-domain-authority.md#итог-s14)) ran the tree of s0a
 (`66938306`, the page that derived the table from `SyncEvent`s) and the tree of s14 in turn on the Mac Studio, two
