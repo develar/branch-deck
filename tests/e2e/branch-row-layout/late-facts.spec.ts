@@ -14,7 +14,7 @@ import { availableReviewRequests, getYourTurnCard, reviewRequest } from "../help
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { pushedRemote } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
-import { animationsEnded, waitForStorePersistence } from "../helpers/wait-helpers"
+import { animationsEnded, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -110,7 +110,7 @@ test.describe("Late facts", () => {
     await expect(first.getByTestId("branch-preview-pull-request-pending")).toHaveText("Checking GitHub for a pull request of ABC-123…")
     await expect(first.getByTestId("branch-preview-patronus-pending")).toHaveText("Asking Patronus for the Safe Push of ABC-123…")
     await page.keyboard.press("Escape")
-    await expect(first).toHaveCount(0)
+    await expectClosed(first)
 
     // the first push of a branch whose landing may push it: in its place, waiting for the answer that tells
     const unpushed = await openBranchPreview(page, "JIRA-456")
@@ -127,7 +127,7 @@ test.describe("Late facts", () => {
     await expect(push).toBeDisabled()
     expect(await boxOf(push)).toEqual(pushBox)
     await page.keyboard.press("Escape")
-    await expect(unpushed).toHaveCount(0)
+    await expectClosed(unpushed)
 
     // the answer of GitHub fills the place of its section
     const preview = await openBranchPreview(page, "ABC-123")

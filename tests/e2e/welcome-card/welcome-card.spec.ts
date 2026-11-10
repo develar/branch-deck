@@ -3,6 +3,7 @@ import { captureHtmlSnapshot, captureModalSnapshot } from "../helpers/aria-snaps
 import { openModal } from "../helpers/modal-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed } from "../helpers/wait-helpers"
 
 test.describe("Welcome Card", () => {
   test("shows the welcome card for new users, which asks for the repository first", async ({ page, setupRepo }) => {
@@ -42,13 +43,13 @@ test.describe("Welcome Card", () => {
     await page.getByRole("button", { name: "View guide" }).click()
     const guide = page.getByTestId("branch-prefix-help-dialog")
     await guide.getByRole("button", { name: "Open Settings" }).click()
-    await expect(guide).toBeHidden()
+    await expectClosed(guide)
     await expectSettingsOpened(page, { page: "branches", focus: "branchPrefix" })
 
     // the prefix of one repository: its page in Settings
     await page.getByRole("button", { name: "View guide" }).click()
     await guide.getByRole("button", { name: "Open Repository Settings" }).click()
-    await expect(guide).toBeHidden()
+    await expectClosed(guide)
     await expectSettingsOpened(page, { page: "branches", scope: "repository", focus: "branchPrefix" }, 2)
   })
 

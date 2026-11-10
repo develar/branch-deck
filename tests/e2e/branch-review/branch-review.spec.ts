@@ -20,7 +20,7 @@ import { clickContextMenuItem, openContextMenu } from "../helpers/selection-help
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommandCalls, recordCommand, recordRewrites } from "../helpers/wait-helpers"
+import { holdCommandCalls, recordCommand, recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -124,7 +124,7 @@ test.describe("Opening the review", () => {
     await page.keyboard.press("d")
     const byKey = await openedReview(page, 1)
     expect(byKey).toMatchObject({ title: "Review login", data: { chain: ["auth", "login"], focus: plain } })
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
 
     // Review Changes of the menu, the only review item
     await findBranchRow(page, "auth").click({ button: "right" })
@@ -138,12 +138,12 @@ test.describe("Opening the review", () => {
     await expect(preview.getByTestId("branch-preview-body")).toBeFocused()
     await page.keyboard.press("d")
     expect((await openedReview(page, 3)).data.focus).toEqual(plain)
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     await findBranchRow(page, "login").focus()
     await page.keyboard.press(" ")
     await preview.getByTestId("branch-preview-review").click()
     expect((await openedReview(page, 4)).title).toBe("Review login")
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
 
     // in the window P is the previous change, not a push: J moves to the next file, P back to the change of the first
     // once the diffs are read (before, N and P find no change)
@@ -172,7 +172,7 @@ test.describe("A commit of the branch preview", () => {
     expect(opened.data).toMatchObject({ chain: ["auth", "login"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
     expect(opened.title).toMatch(/^Review login · [0-9a-f]{8}$/)
     // the preview closes once the window opened
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     await openSubWindowPage(page, opened)
     await expect(page.getByTestId("range-review-commit-header")).toContainText("Add the login form")
   })
@@ -229,7 +229,7 @@ test.describe("The scopes of the stack", () => {
       const whole = window.getByTestId("branch-review-whole-stack")
       await expect(whole).toHaveAttribute("aria-disabled", "true")
       await whole.hover()
-      await expect(window.getByRole("tooltip")).toHaveText("The stack branch is not built yet: sync first")
+      await expect(openTooltip(window)).toHaveText("The stack branch is not built yet: sync first")
       // a press (forced: Playwright waits for an enabled element) opens no review and presses nothing; From Root after it
       // still changes the scope
       await whole.click({ force: true })
@@ -356,7 +356,7 @@ test.describe("The scopes of the stack", () => {
     const window = await openLinkedSubWindow(page, await openReviewWindow(page, "IJPL-257337"))
     const whole = window.getByTestId("branch-review-whole-stack")
     await whole.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3 commits, what the Safe Push of perf-part-2 lands")
+    await expect(openTooltip(window)).toHaveText("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3 commits, what the Safe Push of perf-part-2 lands")
     await whole.click()
     expect((await openedReview(window, 1)).data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], focus: { range: "all" } })
 
@@ -398,7 +398,7 @@ test.describe("Branch review window", () => {
     const group = window.getByTestId("branch-review-owner").filter({ hasText: "IJPL Code Platform" })
     await expect(group).toHaveText("IJPL Code Platform4")
     await group.hover()
-    await expect(window.getByRole("tooltip", { name: "Needs approval for a Safe Push" })).toBeVisible()
+    await expect(openTooltip(window, { name: "Needs approval for a Safe Push" })).toBeVisible()
   })
 
   test("should stay at the file on screen by its path when a sync moves the head while the chip of its group shows fewer files, until the check of the new head answers", async ({
@@ -744,7 +744,7 @@ test.describe("Branch review window", () => {
     // (P is the previous change in the review); then its whole menu
     await expect.poll(() => titleBarActions(window)).toEqual(["Open Pull Request #42", "Safe Push · 2", "Push Stack (2 branches)", "More actions for login"])
     await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).hover()
-    await expect(window.getByRole("tooltip", { name: "Pushes auth and login, parents first" })).toBeVisible()
+    await expect(openTooltip(window, { name: "Pushes auth and login, parents first" })).toBeVisible()
     await window.mouse.move(0, 0)
     const footer = window.getByTestId("review-window-footer")
     await expect(window.getByTestId("review-position")).toHaveText("All Changes · File 1 / 4")
@@ -763,7 +763,7 @@ test.describe("Branch review window", () => {
     const firstPush = actions.getByRole("button", { name: /^Push/ })
     await expect(firstPush).toBeDisabled()
     await firstPush.hover()
-    await expect(window.getByRole("tooltip", { name: 'Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone' })).toBeVisible()
+    await expect(openTooltip(window, { name: 'Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone' })).toBeVisible()
     expect(await windowRuns(window)).toEqual([])
   })
 
@@ -783,7 +783,7 @@ test.describe("Branch review window", () => {
     // the main window shows another repository: an action it runs at a row says that it switches back first
     await switchRepository(page, OTHER_REPOSITORY)
     await push.hover()
-    await expect(window.getByRole("tooltip").filter({ hasText: /^Switches the main window to / })).toBeVisible()
+    await expect(openTooltip(window).filter({ hasText: /^Switches the main window to / })).toBeVisible()
     await window.mouse.move(0, 0)
     // the push asks first at the row when it would drop remote commits: the main window runs it there, switched back,
     // the stack in one push
@@ -859,7 +859,7 @@ test.describe("Branch review window", () => {
     const dialog = createPullRequestDialog(reviewPage)
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add the token")
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
-    await expect(createPullRequestDialog(page)).toHaveCount(0)
+    await expectClosed(createPullRequestDialog(page))
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).not.toContain("set_focus")
 
     // the title takes the focus with the caret after its text, a frame after the open ("Focus" in docs/design/e2e-testing.md)
@@ -872,14 +872,14 @@ test.describe("Branch review window", () => {
 
     // Escape closes the dialog, not the window
     await reviewPage.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     expect(await windowCalls()).not.toContain("close")
 
     // the window creates it (the push, then the pull request: the answer first); the toast is in the window, which
     // opens the pull request
     await actions.getByRole("button", { name: "Create Pull Request…" }).click()
     await runAndWaitForAnswer(reviewPage, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     const toast = reviewPage.locator("[data-slot=toast]", { hasText: "Created pull request #77" })
     await expect(toast).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/virtual/auth", title: "Add the token" })])
@@ -925,7 +925,7 @@ test.describe("Branch review window", () => {
 
     // the dialog closes: the window shows the commit
     await reviewPage.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     await expect(reviewPage.getByTestId("range-review-commit-header")).toContainText("Add the login form")
   })
 
@@ -970,7 +970,7 @@ test.describe("Branch review window", () => {
     await window.getByRole("menuitem", { name: "Copy Commit Message" }).click()
     await expect.poll(() => readClipboard(window)).toBe("Add the login form")
     // the menu fades out: its items are there until it is gone, beside those of the next menu
-    await expect(window.getByRole("menu")).toHaveCount(0)
+    await expectClosed(window.getByRole("menu"))
 
     // "⋯" of the heading of the shown commit: Move to… opens the form of the row in the main window, at the commit. The
     // menu opened while the diffs of the commit load stays open as they come and the heading moves into the diffs
@@ -989,7 +989,7 @@ test.describe("Branch review window", () => {
     await expect(page.getByTestId("inline-branch-target")).toBeVisible()
     await expect(getBranchCommitRow(page, "login", "Add the login form")).toHaveAttribute("data-selected", "true")
     await page.keyboard.press("Escape")
-    await expect(window.getByRole("menu")).toHaveCount(0)
+    await expectClosed(window.getByRole("menu"))
 
     // Drop Commit…: the confirmation below the row in the main window, at the commit
     await older.click({ button: "right" })
@@ -1012,7 +1012,7 @@ test.describe("Branch review window", () => {
     await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(reviewPage)
     await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     // the popover of the row, in the main window, which comes to the front: without review, its profile to choose
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("data-decision", "choose")
@@ -1056,7 +1056,7 @@ test.describe("The robot in the title bar", () => {
       await popover.getByRole("button", { name: "Open in Patronus" }).click()
       await expect.poll(() => getOpenedUrls(window)).toEqual([robotUrl("running-robot")])
       await window.keyboard.press("Escape")
-      await expect(popover).toBeHidden()
+      await expectClosed(popover)
       // a click on the robot opens it too
       await chip.click()
       await expect.poll(() => getOpenedUrls(window)).toEqual([robotUrl("running-robot"), robotUrl("running-robot")])

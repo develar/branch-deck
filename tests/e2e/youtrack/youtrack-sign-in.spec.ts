@@ -1,7 +1,7 @@
 // @spec openspec/specs/repository/youtrack/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
-import { pendingCommands } from "../helpers/wait-helpers"
+import { pendingCommands, openTooltip } from "../helpers/wait-helpers"
 import { completeYouTrackSignIn, issueKeyLink, linkIssuesToYouTrack, openIssue, openYouTrackSettings, youTrackHost, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
 test.describe("YouTrack sign-in", () => {
@@ -73,7 +73,7 @@ test.describe("YouTrack sign-in", () => {
     await form.getByLabel("Token", { exact: true }).fill("perm-wrong")
     await expect(save).toBeDisabled()
     await save.hover()
-    await expect(settings.getByRole("tooltip")).toHaveText("The sign-in in the browser is starting: Cancel Sign-In to save a token instead")
+    await expect(openTooltip(settings)).toHaveText("The sign-in in the browser is starting: Cancel Sign-In to save a token instead")
     // the cancel the hover names is beside the starting sign-in, apart from the Cancel of the token form: it ends the
     // sign-in at once, the token typed stays, and Save Token goes
     const cancelStart = auth.getByRole("button", { name: "Cancel Sign-In" })

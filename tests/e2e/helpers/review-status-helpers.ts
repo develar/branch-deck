@@ -3,6 +3,7 @@ import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow, pushFromRowMenu } from "./branch-helpers"
 import { expectPushedToast } from "./push-helpers"
 import { runAndWaitForAnswer } from "./sync-helpers"
+import { expectClosed } from "./wait-helpers"
 
 /** The commit the review took (a robot's source, a pull request's head) that the local branch no longer is at */
 export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -18,7 +19,7 @@ export async function pushBranchFromRow(page: Page, branchName: string): Promise
   // a branch with a push button on the row shows the progress, then the result, in its description until Escape or a
   // click elsewhere; left open, it competes with the next hover of a review chip
   await page.keyboard.press("Escape")
-  await expect(page.getByTestId("push-description")).toBeHidden()
+  await expectClosed(page.getByTestId("push-description"))
   await page.mouse.move(0, 0)
 }
 
@@ -59,8 +60,12 @@ export function landingRow(popover: Locator, name: string): Locator {
   return popover.locator(`[data-testid="landing-row"][data-branch-name="${name}"]`)
 }
 
-/** Opens the preview of a branch with Space; its keys work once its body has the focus */
+/**
+ * Opens the preview of a branch with Space; its keys work once its body has the focus. A menu whose item opened a
+ * dialog closes as it does, and its keys stay its own until its exit ended: it is closed first
+ */
 export async function openBranchPreview(page: Page, branchName: string): Promise<Locator> {
+  await expectClosed(page.getByRole("menu"))
   await findBranchRow(page, branchName).hover()
   await page.keyboard.press("Space")
   const preview = page.getByTestId("branch-preview")
@@ -71,7 +76,7 @@ export async function openBranchPreview(page: Page, branchName: string): Promise
 /** Closes the preview with Space and opens the one of another branch */
 export async function switchBranchPreview(page: Page, preview: Locator, branchName: string): Promise<void> {
   await page.keyboard.press("Space")
-  await expect(preview).toHaveCount(0)
+  await expectClosed(preview)
   await findBranchRow(page, branchName).hover()
   await page.keyboard.press("Space")
   await expect(preview.getByRole("heading")).toHaveText(branchName)

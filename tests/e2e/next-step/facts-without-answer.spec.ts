@@ -11,6 +11,7 @@ import { hoverStatusChip, landingRow, openLandingOverview } from "../helpers/rev
 import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { oneCommitUnpushedRemote, pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -48,7 +49,7 @@ async function failPatronusRefresh(page: Page, repo: TestRepositoryBuilder): Pro
   await overview.getByTestId("patronus-refresh").click()
   await expect(overview.getByTestId("patronus-status-line")).toContainText("Patronus: ")
   await page.keyboard.press("Escape")
-  await expect(overview).toBeHidden()
+  await expectClosed(overview)
 }
 
 function slot(page: Page) {
@@ -85,9 +86,9 @@ async function expectMenuItemsDisabled(page: Page, branch: string, items: Array<
     await expect(item).toBeDisabled()
     await item.hover()
     // the open one: the pointer crossed the item above on its way, whose tooltip closes
-    await expect(page.getByRole("tooltip", { name: reason }).and(page.locator("[data-open]"))).toBeVisible()
+    await expect(openTooltip(page, { name: reason }).and(page.locator("[data-open]"))).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
   }
 }
 
@@ -107,12 +108,12 @@ async function expectRobotSurfacesWait(page: Page, branch: string, reason: strin
     await expect(robotRow.getByRole("button", { name: `Copy Prompt for Agent of ${branch}` })).toBeDisabled()
   }
   await page.mouse.move(0, 0)
-  await expect(overview).toBeHidden()
+  await expectClosed(overview)
   const details = await hoverStatusChip(page, findBranchRow(page, branch).getByTestId("patronus-chip"), "patronus-popover")
   await expect(details.getByTestId("patronus-problems-unknown")).toHaveText(reason)
   await expect(details.getByRole("button", { name: "Restart Safe Push" })).toBeDisabled()
   await page.mouse.move(0, 0)
-  await expect(details).toBeHidden()
+  await expectClosed(details)
 }
 
 /** Check Approvals Again of the row's "Patronus ›": GitHub is asked for the pull requests, then Patronus again */
@@ -120,7 +121,7 @@ async function checkApprovalsAgain(page: Page, branch = BRANCH): Promise<void> {
   await findBranchRow(page, branch).click({ button: "right" })
   await page.getByRole("menuitem", { name: "Patronus", exact: true }).hover()
   await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
-  await expect(page.getByRole("menu")).toHaveCount(0)
+  await expectClosed(page.getByRole("menu"))
 }
 
 /** S on the row says what the step waits for, as an `info` notice: no popover, no start */
@@ -130,7 +131,7 @@ async function expectNoticeOnS(page: Page, title: string, description: string): 
   const toast = page.locator("[data-slot=toast]", { hasText: title })
   await expect(toast).toHaveAttribute("data-type", "info")
   await expect(toast).toContainText(description)
-  await expect(safePushPopover(page)).toHaveCount(0)
+  await expectClosed(safePushPopover(page))
 }
 
 test.describe("Next step before the answers", () => {
@@ -163,7 +164,7 @@ test.describe("Next step before the answers", () => {
     const popover = await openSafePushWithKey(page, BRANCH)
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
     // no start before: the comment of the click is the first one
     expect(await gitHubRequests(repo, "POST", "issues", 1078, "comments")).toEqual([])
     await slotSafePush(page, BRANCH).click()
@@ -187,7 +188,7 @@ test.describe("Next step before the answers", () => {
     const create = page.getByRole("menu").getByRole("menuitem", { name: "Create Pull Request…" })
     await expect(create).toBeDisabled()
     await create.hover()
-    await expect(page.getByRole("tooltip", { name: "Waits for GitHub to list the pull requests" })).toBeVisible()
+    await expect(openTooltip(page, { name: "Waits for GitHub to list the pull requests" })).toBeVisible()
     await page.keyboard.press("Escape")
 
     // GitHub failed: the pull requests are unknown, the start counts no approval of one and says why
@@ -195,7 +196,7 @@ test.describe("Next step before the answers", () => {
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     await expect(slot(page).getByTestId("next-step")).toHaveCount(0)
     await slotSafePush(page, BRANCH).hover()
-    await expect(page.getByRole("tooltip", { name: "Lands" })).toHaveText(
+    await expect(openTooltip(page, { name: "Lands" })).toHaveText(
       `Lands ${BRANCH} into master once the checks pass · GitHub: offline: Patronus checks the approvals when the robot startsS`,
     )
     await expect(getLandingNode(findBranchRow(page, BRANCH))).toHaveAttribute("data-kind", "yourStep")
@@ -319,7 +320,7 @@ test.describe("Next step before the answers", () => {
     await page.getByRole("menu").getByRole("menuitem", { name: "Create Pull Request…" }).click()
     const dialog = createPullRequestDialog(page)
     await dialog.getByRole("button", { name: "Safe Push Without Review…" }).click()
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     await expect(safePushPopover(page)).toBeVisible()
     await expect(popoverStart(page)).toHaveText("Safe Push Without Review")
   })

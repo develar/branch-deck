@@ -18,7 +18,7 @@ import {
 } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { recordCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { recordCommand, routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The branch prefix as Settings… (⌘,) shows it on General; the header has no field of its own */
 async function expectSettingsPrefix(page: Page, prefix: string): Promise<void> {
@@ -345,7 +345,7 @@ test.describe("Deferred sync", () => {
     await expect(toast).toContainText("The branches sync once git finished it")
     // a precondition, not a failure: no error on Sync, the rows stay
     await expect(page.getByTestId("sync-button")).toBeEnabled()
-    await expect(page.getByTestId("sync-tooltip")).toHaveCount(0)
+    await expectClosed(page.getByTestId("sync-tooltip"))
     await expect(page.getByTestId("branch-row")).toHaveCount(rows)
   })
 })
@@ -453,7 +453,7 @@ test.describe("Sync on focus", () => {
     await expect(lastSync).toHaveText("Checked just now")
     await page.mouse.move(0, 0)
     await lastSync.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Nothing a sync reads changed since the last sync, 1 minute ago")
+    await expect(openTooltip(page)).toHaveText("Nothing a sync reads changed since the last sync, 1 minute ago")
     expect(await finishedSyncCount(page)).toBe(syncs)
 
     // a commit reworded in a terminal: the next focus syncs it

@@ -15,7 +15,7 @@ import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand, recordRewrites } from "../helpers/wait-helpers"
+import { recordCommand, recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -67,7 +67,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
 
     await repo.holdRepositoryLock(false)
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
   })
 
@@ -113,7 +113,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       }
       await expect(unstack).toBeFocused()
       await page.keyboard.press("Enter")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       // the spinner, then the wait with its Stop Waiting: one button through both, the focus on it
       await expect(more).toHaveAttribute("aria-busy", "true")
       await expect(more).not.toHaveAttribute("aria-disabled", "true")
@@ -125,7 +125,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       const stop = page.getByRole("menuitem", { name: "Stop Waiting" })
       await expect(stop).toBeVisible()
       await page.keyboard.press("Escape")
-      await expect(stop).toHaveCount(0)
+      await expectClosed(stop)
       await expect(more).toBeFocused()
       // Enter and Enter: Stop Waiting ends the wait with nothing changed, the focus on the "⋯" again
       await page.keyboard.press("Enter")
@@ -134,6 +134,8 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       await expect(page.getByText(/^Canceled unstacking oauth/)).toBeVisible()
       expect(cancels).toHaveLength(1)
       await expect(more).not.toHaveAttribute("aria-busy", "true")
+      // the menu gives the focus back as it unmounts, after its exit
+      await expectClosed(page.getByRole("menu"))
       await expect(more).toBeFocused()
     },
   )
@@ -151,7 +153,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
       const more = getMoreButton(findBranchRow(page, ISSUE))
       await expect(more).toHaveAttribute("aria-busy", "true")
       await more.hover()
-      await expect(page.getByRole("tooltip")).toHaveText(WAITING)
+      await expect(openTooltip(page)).toHaveText(WAITING)
       expect(moves).toHaveLength(1)
       const cancels = await recordCommand(page, "cancel_operation")
       await more.click()

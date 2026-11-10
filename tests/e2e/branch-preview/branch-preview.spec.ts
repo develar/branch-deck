@@ -5,6 +5,7 @@ import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } f
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { enableAutoSyncOnFocus, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
 const BRANCH = "JIRA-456"
@@ -47,7 +48,7 @@ test.describe("Branch preview", () => {
     await expect(position).toHaveText(`1 / ${BRANCH_COUNT}`)
 
     await page.keyboard.press("Space")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
   })
 
   test("should give the focus to the row of the branch it showed last, so D and Space go on from there", async ({ page }) => {
@@ -56,7 +57,7 @@ test.describe("Branch preview", () => {
     await expect(preview.getByRole("heading")).toHaveText(NEXT_BRANCH)
     // Escape: the row of the branch it showed, not of the one it was opened on
     await page.keyboard.press("Escape")
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     await expect(findBranchRow(page, NEXT_BRANCH)).toBeFocused()
     // the focused row is what D reviews, though the pointer is still over the first one
     await page.keyboard.press("d")
@@ -69,7 +70,7 @@ test.describe("Branch preview", () => {
     await expect(preview.getByRole("heading")).toHaveText(BRANCH)
     await page.keyboard.press("d")
     await expect.poll(async () => (await getOpenedSubWindows(page)).map(it => it.title)).toEqual([`Review ${NEXT_BRANCH}`, `Review ${BRANCH}`])
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     await expect(findBranchRow(page, BRANCH)).toBeFocused()
   })
 
@@ -92,7 +93,7 @@ test.describe("Branch preview", () => {
     await expect(preview.getByTestId("branch-preview-conflict")).toHaveCount(0)
 
     await page.keyboard.press("Escape")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
   })
 
   test("should show the issue of a prefix branch", async ({ page }) => {
@@ -111,7 +112,7 @@ test.describe("Branch preview", () => {
     const preview = getPreview(page)
     await expect(preview.getByRole("heading")).toHaveText(NEXT_BRANCH)
     await expectPreviewFocused(preview)
-    await expect(page.getByTestId("commit-preview")).toHaveCount(0)
+    await expectClosed(page.getByTestId("commit-preview"))
   })
 
   test("should leave Space to a commit list nested in the branch table", async ({ page }) => {
@@ -123,16 +124,16 @@ test.describe("Branch preview", () => {
     await page.keyboard.press("Space")
     const commitPreview = page.getByTestId("commit-preview")
     await expect(commitPreview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 perf db: increase pool size to 50")
-    await expect(getPreview(page)).toHaveCount(0)
+    await expectClosed(getPreview(page))
     await page.keyboard.press("Escape")
-    await expect(commitPreview).toHaveCount(0)
+    await expectClosed(commitPreview)
 
     // the focus in the commit list, the pointer away from every row: the last clicked commit
     await commitRow.getByText("increase pool size to 50").click()
     await page.mouse.move(0, 0)
     await page.keyboard.press("Space")
     await expect(commitPreview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 perf db: increase pool size to 50")
-    await expect(getPreview(page)).toHaveCount(0)
+    await expectClosed(getPreview(page))
   })
 
   test("should push the branch with P", async ({ page, issueLinksRepo }) => {
@@ -195,7 +196,7 @@ test.describe("Branch preview", () => {
     await repo.reword(hash!, "(feature-documentation) Update documentation")
     await syncOnWindowFocus(page)
 
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(findBranchRow(page, "feature-documentation")).toBeVisible()
   })
 })

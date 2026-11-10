@@ -7,7 +7,7 @@ import { availablePullRequests, pullRequest } from "../helpers/pull-request-help
 import { runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { recordRewrites } from "../helpers/wait-helpers"
+import { recordRewrites, expectClosed } from "../helpers/wait-helpers"
 
 /** Three hours before the fixed clock of the page */
 const THEIR_TIME = Date.parse("2024-01-02T07:00:00Z") / 1000
@@ -76,7 +76,7 @@ test.describe("Remote commits of others", () => {
 
     const picked = page.locator("[data-slot=toast]", { hasText: "Picked the remote commits of test-branch" })
     await expect(picked).toContainText("1 commit into test-branch · its push drops nothing now")
-    await expect(newsToast(page)).toHaveCount(0)
+    await expectClosed(newsToast(page))
     await expect(row).not.toContainText("1↓")
     await expect(row).toContainText("2")
 

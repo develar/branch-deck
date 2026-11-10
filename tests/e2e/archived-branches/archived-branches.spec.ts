@@ -9,7 +9,7 @@ import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { finishedSyncCount, runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
-import { holdCommand, recordCommand, recordRewrites, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, recordRewrites, waitForCollapsibleCardExpanded, expectClosed } from "../helpers/wait-helpers"
 
 // Basic foundation test for ArchivedBranchTableCard
 // Sets up a repo with archived branches and snapshots the card
@@ -58,7 +58,7 @@ test.describe("Archived Branches Table", () => {
     await help.click()
     await expect(card).toHaveAttribute("data-state", "closed")
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     // the empty end of the header row toggles too: one toggle button covers the row
     const header = card.locator("[data-slot=collapsible-trigger]")
     await expect(header).toHaveCount(1)

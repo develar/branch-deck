@@ -73,6 +73,17 @@ rules in one line each and links here.
 
 ## Pitfalls
 
+- **A popup closes by its state**: `expectClosed(popup)` of `tests/e2e/helpers/wait-helpers.ts`, never a wait for it to
+  leave the page. Base UI marks a closing popup `data-closed` (a toast `data-ending-style`) at once, keeps it mounted
+  while its exit animation runs, then unmounts it and gives the focus back; the exit ends only as the window paints, and
+  a loaded machine paints no frame of a window for seconds. `expectClosed` waits for that state, ends the exit as the
+  frames would (`finish()` of its animations) and asserts nothing of the popup shown, so a focus assertion after it
+  holds too. The open tooltip is `openTooltip(page, options)`: a closing one keeps its role, and a plain
+  `getByRole("tooltip")` finds it beside the new one. The `expect` of `fixtures/base-test.ts` refuses a removal
+  assertion (`toHaveCount(0)`, `toBeHidden()`, `not.toBeVisible()`, `not.toBeAttached()`) that starts on an element of
+  a popup whose exit runs, and names the exit in the error of one that timed out on it. The plain removal stays where
+  the removal is the effect (a row a sync deletes, an item gone from an open menu) and in a test of a popup reopened
+  during its exit, which ends the exit itself.
 - **One `pnpm e2e` per checkout**, even on two ports: a global setup that finds the frontend changed runs `pnpm build`,
   which empties `dist/` under the other run (timeouts in page setup, not test failures).
 - **`CI=1` does not speed up E2E**: it means 1 worker, 2 retries and no reuse of a running server
@@ -84,10 +95,10 @@ rules in one line each and links here.
   30 s on Sync under the backdrop of a right-click menu whose focus the closing menu of a "⋯" had taken
   ([A stall under load](../design/e2e-testing.md#performance-considerations)).
 - **A wait for an exit hides under a quick machine**: an exit of 100 ms ends before an assertion's first retry, so a test
-  that waits for one passes here and fails on a loaded machine, whose window paints no frame for seconds.
-  `E2E_EXIT_MS=8000 pnpm e2e <spec>` lengthens every exit (`[data-closed]`, `[data-ending-style]`) past an assertion's
-  time: such a test fails at once, with a timeout of the removal, the focus or a strict locator (on 2026-11-10, 211 of
-  984 tests). Run it on a new test of a popup.
+  that waits for one passes here and fails on a loaded machine. `E2E_EXIT_MS=8000 pnpm e2e <spec>` lengthens every exit
+  (`[data-closed]`, `[data-ending-style]`) past an assertion's time: such a test fails at once, with the guard of
+  `expect` or a timeout of the removal, the focus or a strict locator (on 2026-11-10, 211 of 984 tests before the fix).
+  Run it on a new test of a popup.
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
   caret at 0 and the text lands at the start. A Base UI menu takes its focus a frame after it shows (`enqueueFocus`), and
   a closing one gives it back in a microtask after its popup goes: a key for an open menu waits for the focus in it

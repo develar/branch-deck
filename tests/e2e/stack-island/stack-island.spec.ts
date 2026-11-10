@@ -23,7 +23,7 @@ import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -204,7 +204,7 @@ test.describe("Stack island", () => {
     await push.hover()
     await expect(page.getByTestId("stack-island-push-description")).toContainText("A Safe Push of runtime is running: it lands 2 commits of air with it")
     await page.mouse.move(0, 0)
-    await expect(page.getByTestId("stack-island-push-description")).toBeHidden()
+    await expectClosed(page.getByTestId("stack-island-push-description"))
     await expect(air.getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveCount(0)
     // side-fix is built on bazel, which runtime lands: no restart, which would land bazel a second time; its Safe Push
     // waits for that robot
@@ -387,7 +387,7 @@ test.describe("Stack island", () => {
     const safePush = headerSlot.getByTestId("safe-push-button")
     await expect(safePush).toHaveText("Safe Push · 7")
     await safePush.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(lands)
+    await expect(openTooltip(page)).toHaveText(lands)
     // it lands more than a row: the click opens the popover
     await safePush.click()
     await expectWholeStackPopoverAt(popover, headerSlot)
@@ -410,7 +410,7 @@ test.describe("Stack island", () => {
     await runAndWaitForAnswer(page, "execute", () => held.release())
     await expectPatronusStarts(repo, [safePushOfAir])
     expect(await remotePushes(repo)).toEqual([["stack:air"]])
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
     await closeRefusal(page)
   })
 
@@ -436,7 +436,7 @@ test.describe("Stack island", () => {
     await expectWholeStackPopoverAt(popover, headerSlot)
     await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
     await expectPatronusStarts(repo, [safePushOfAir])
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
     await closeRefusal(page)
 
     // S on the focused header: the same popover, Enter starts it
@@ -483,7 +483,7 @@ test.describe("Stack island", () => {
     await expect(popover).toHaveAttribute("aria-label", "Safe Push of deploy")
     await expectPopoverAtSlot(popover, findBranchRow(page, "deploy").getByTestId("next-step-slot"))
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // Review Whole Stack: the review window of its stack branch, every branch of the stack
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
@@ -509,7 +509,7 @@ test.describe("Stack island", () => {
     await expect(safePush).toHaveText("Safe Push · 6")
     await expect(safePush).toHaveAttribute("aria-disabled", "true")
     await safePush.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(conflict)
+    await expect(openTooltip(page)).toHaveText(conflict)
 
     // the menu says the same of both starts, and offers the piece of the main line
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
@@ -517,8 +517,8 @@ test.describe("Stack island", () => {
     await expect(menu.getByRole("menuitem", { name: "Safe Push Whole Stack" })).toHaveAttribute("aria-disabled", "true")
     await expect(menu.getByRole("menuitem", { name: "Dry Run Whole Stack" })).toHaveAttribute("aria-disabled", "true")
     // the button's description, which says the same, fades out first (and so does the one of "⋯")
-    const conflictTooltip = page.getByRole("tooltip", { name: conflict })
-    await expect(conflictTooltip).toHaveCount(0)
+    const conflictTooltip = openTooltip(page, { name: conflict })
+    await expectClosed(conflictTooltip)
     await menu.getByRole("menuitem", { name: "Safe Push Whole Stack" }).hover()
     await expect(conflictTooltip).toHaveText(conflict)
     await menu.getByRole("menuitem", { name: "Safe Push deploy" }).click()
@@ -526,7 +526,7 @@ test.describe("Stack island", () => {
     await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands deploy with air, bazel, bridge and runtime, which it is built on: 5 branches · 5 commits into master.")
     await expectPopoverAtSlot(popover, headerSlot)
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // S on the header says why it can't start, and lands it in pieces from the notice: the main line first
     await air.getByRole("button", { name: /^air Stack · 6 branches/ }).focus()

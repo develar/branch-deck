@@ -13,7 +13,7 @@ import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
 import type { RemoteCommit, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
-import { recordCommand } from "../helpers/wait-helpers"
+import { recordCommand, expectClosed } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; JIRA-456 has 3 commits, ABC-123 4, the others 1
 
@@ -143,7 +143,7 @@ test.describe("Force push", () => {
 
     // the push drops the 3 commits: the toast opens the confirm of the row's push button
     await toast.getByRole("button", { name: "Force Push Branch" }).click()
-    await expect(toast).toHaveCount(0)
+    await expectClosed(toast)
     expect(await remotePushes(issueLinksRepo)).toEqual([])
     await confirmForcePush(page, "Force Push Branch (3)")
 

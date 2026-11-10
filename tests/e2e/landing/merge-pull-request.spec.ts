@@ -12,7 +12,7 @@ import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { waitForStepFacts } from "../helpers/wait-helpers"
+import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a merge
 // of the pull request on GitHub (`branchdeck.landing=pull-request`, `origin` pushing to acme/monorepo), which allows
@@ -99,9 +99,12 @@ function mergeStep(page: Page): Locator {
   return findBranchRow(page, BRANCH).getByTestId("safe-push-button")
 }
 
-/** The toast of the merge or the auto-merge of #7, by its title */
+/**
+ * The toast of the merge or the auto-merge of #7, by its title: the one shown, not the toast of the merge running that
+ * it replaced, which keeps the words while its slide out ends (as the window paints)
+ */
 function mergeToast(page: Page, title: string): Locator {
-  return page.locator("[data-slot=toast]", { hasText: title })
+  return page.locator("[data-slot=toast]:not([data-ending-style])", { hasText: title })
 }
 
 /**
@@ -251,13 +254,13 @@ test.describe("Merge #7", () => {
     await expect(step).toHaveText("Create Pull Request…")
     await findBranchRow(page, BRANCH).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Merge" }).hover()
-    await expect(page.getByRole("tooltip")).toHaveText("#7 was merged into user-name/virtual/core, not master: create a pull request into master to land it")
+    await expect(openTooltip(page)).toHaveText("#7 was merged into user-name/virtual/core, not master: create a pull request into master to land it")
     await page.keyboard.press("Escape")
 
     await step.click()
     const dialog = createPullRequestDialog(page)
     await dialog.getByTestId("create-pull-request-submit").click()
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual([
       "POST",
       "/repos/acme/monorepo/pulls",

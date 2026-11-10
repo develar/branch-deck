@@ -10,7 +10,7 @@ import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { recordCommand } from "../helpers/wait-helpers"
+import { recordCommand, expectClosed } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, ABC-123 and JIRA-456 among them; `behind_upstream`: master is behind origin/master
 
@@ -34,7 +34,7 @@ testWithIssueLinks.describe("Command palette", () => {
     await expect(palette(page).getByRole("option", { name: "Go to ABC-123" })).toBeVisible()
 
     await page.keyboard.press("Escape")
-    await expect(palette(page)).toHaveCount(0)
+    await expectClosed(palette(page))
     await expect(row).toBeFocused()
   })
 
@@ -61,7 +61,9 @@ testWithIssueLinks.describe("Command palette", () => {
 
     await openPalette(page)
     const count = (await getOpenedSubWindows(page)).length
+    // the palette runs the command it was given once its exit ended
     await palette(page).getByRole("option", { name: "Activity Window" }).click()
+    await expectClosed(palette(page))
     expect((await expectActivityOpened(page, count)).data.kind).toBeNull()
     // the log shows in one place
     await expect(activityPanel(page)).toHaveCount(0)
@@ -142,6 +144,7 @@ testWithIssueLinks.describe("Command palette", () => {
     await runByKeyboard(page, "getting", "Getting Started")
     await openPalette(page)
     await palette(page).getByRole("option", { name: "GitHub Repository" }).click()
+    await expectClosed(palette(page))
     await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/develar/branch-deck#getting-started", "https://github.com/develar/branch-deck"])
   })
 
@@ -155,6 +158,7 @@ testWithIssueLinks.describe("Command palette", () => {
 
     await openPalette(page)
     await palette(page).getByRole("option", { name: "Install Agent CLI…" }).click()
+    await expectClosed(palette(page))
     await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
   })
 })
@@ -180,7 +184,7 @@ test.describe("Command palette of a stack", () => {
       await expect(first).toHaveAttribute("data-highlighted", "")
       await expect(palette(page).getByRole("option", { name: "Push session Only" })).toBeVisible()
       await page.keyboard.press("Enter")
-      await expect(palette(page)).toHaveCount(0)
+      await expectClosed(palette(page))
       await expect(session).toBeFocused()
       await expect(session).toHaveAttribute("data-selected", "true")
 
@@ -189,6 +193,8 @@ test.describe("Command palette of a stack", () => {
       await search(page).fill("push")
       await expect(first).toHaveText(/^Push Stack/)
       await page.keyboard.press("Escape")
+      // the focus goes back as the palette unmounts, after its exit
+      await expectClosed(palette(page))
       await expect(session).toBeFocused()
 
       // in a collapsed stack: the reveal expands it, then the row takes the focus; docs at hand names session in Stack On
@@ -201,7 +207,7 @@ test.describe("Command palette of a stack", () => {
       await expect(first).toHaveText(/^Go to session$/)
       await expect(palette(page).getByRole("option", { name: "Stack On › session" })).toBeVisible()
       await page.keyboard.press("Enter")
-      await expect(palette(page)).toHaveCount(0)
+      await expectClosed(palette(page))
       await expect(session).toBeFocused()
       await expect(session).toHaveAttribute("data-selected", "true")
       expect(executes).toEqual([])

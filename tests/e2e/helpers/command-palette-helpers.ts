@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
 import { emitTauriEvent, waitForTauriListener } from "./sync-helpers"
+import { expectClosed } from "./wait-helpers"
 
 /** The command palette of the main window (⌘K) */
 export function palette(page: Page) {
@@ -23,5 +24,5 @@ export async function runByKeyboard(page: Page, text: string, label: string): Pr
   await search(page).fill(text)
   await expect(palette(page).getByRole("option").first()).toHaveText(new RegExp(`^${label.replace(/[.*+?^$()[\]{}|\\]/g, "\\$&")}`))
   await page.keyboard.press("Enter")
-  await expect(palette(page)).toHaveCount(0)
+  await expectClosed(palette(page))
 }

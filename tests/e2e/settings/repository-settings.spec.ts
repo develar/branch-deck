@@ -8,7 +8,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
-import { holdNextAnswer, recordCommand, routeCommandError } from "../helpers/wait-helpers"
+import { holdNextAnswer, recordCommand, routeCommandError, openTooltip } from "../helpers/wait-helpers"
 
 /** The repository's name, as the page and its errors say it */
 function nameOf(path: string): string {
@@ -76,7 +76,7 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     // Reset removes the line of .git/config: On, the default; the main window syncs again
     const reset = symbols.getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to On, the default")
+    await expect(openTooltip(window)).toHaveText("Removes it from .git/config: back to On, the default")
     syncs = await finishedSyncCount(page)
     await reset.click()
     await expect(on).toHaveAttribute("aria-pressed", "true")
@@ -278,7 +278,7 @@ test.describe("Settings → Branches and Landing, the tab of a repository", () =
     await expect(source(window, "branchPrefix")).toHaveText(ownLine(repo.path))
     const reset = prefix.getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to jane, the default")
+    await expect(openTooltip(window)).toHaveText("Removes it from .git/config: back to jane, the default")
     await reset.click()
     await expect(reset).toHaveCount(0)
     await expect(field).toHaveValue("")
@@ -392,7 +392,7 @@ test.describe("Settings → Branches, a switch of every repository", () => {
     // Reset removes it from .git/config: the global value applies again
     const reset = source.getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Off, from all repositories")
+    await expect(openTooltip(window)).toHaveText("Removes it from .git/config: back to Off, from all repositories")
     await reset.click()
     await expect(source).toHaveCount(0)
     await expect(toggle).not.toBeChecked()

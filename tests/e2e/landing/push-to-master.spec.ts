@@ -12,7 +12,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { emitTauriEvent, nextAnswer, runAndWaitForAnswer, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { waitForStepFacts } from "../helpers/wait-helpers"
+import { waitForStepFacts, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches off Space, none pushed; JIRA-456 has 3 commits. The repository lands by a push
 // of the copy into master (`branchdeck.landing=push`), its GitHub the fake one of acme/monorepo with no pull request
@@ -155,7 +155,7 @@ test.describe("Push to master", () => {
     const copy = await repo.revision(virtualBranch(BRANCH))
     const preview = await openBranchPreview(page, BRANCH)
     await page.keyboard.press("s")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await confirmAndExpectLanded(page, repo, safePushPopover(page), copy)
   })
 
@@ -311,7 +311,7 @@ test.describe("Push to master", () => {
     await expect(step).toHaveText("Push to master")
     await expect(step).toBeDisabled()
     await step.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("You have no write access to acme/monorepo: someone who has lands it into master")
+    await expect(openTooltip(page)).toHaveText("You have no write access to acme/monorepo: someone who has lands it into master")
     // the menu says the same
     await findBranchRow(page, BRANCH).click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Push to master" })).toBeDisabled()

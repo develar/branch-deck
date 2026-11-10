@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
 
@@ -8,11 +9,78 @@ import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
  */
 const POLL_INTERVALS = [50]
 
+/** Whether `value` is a locator, whose assertions retry against the page */
+function isLocator(value: unknown): value is Locator {
+  return typeof value === "object" && value !== null && typeof (value as Locator).evaluateAll === "function" && typeof (value as Locator).count === "function"
+}
+
 /**
- * Playwright's `expect` whose `poll` asks every `POLL_INTERVALS` unless the call names its own intervals: the one
- * `expect` of the specs (`test-fixtures.ts`) and the helpers
+ * Whether an element of `locator` lies in a popup of a portal whose exit runs: Base UI marks a closing popup
+ * `data-closed` (a toast `data-ending-style`) and unmounts it once its exit animation finished, which happens only as the
+ * window paints
+ */
+async function exiting(locator: Locator): Promise<boolean> {
+  return locator
+    .evaluateAll(nodes =>
+      nodes.some(node => {
+        const closing = node.closest("[data-base-ui-portal] :is([data-closed], [data-ending-style])")
+        return (
+          closing !== null &&
+          closing.getAnimations({ subtree: true }).some(animation => animation.playState === "running" && animation.effect?.getComputedTiming().iterations !== Infinity)
+        )
+      }),
+    )
+    .catch(() => false)
+}
+
+const EXIT_WAIT =
+  "waits for the exit animation of a closing popup to unmount it: the exit ends only as the window paints, and a loaded machine paints no frame of a window for seconds. Assert the close with expectClosed (tests/e2e/helpers/wait-helpers.ts)"
+
+/**
+ * The matchers of `expect(locator)` whose removal assertions (`toHaveCount(0)`, `toBeHidden()`, `not.toBeVisible()`,
+ * `not.toBeAttached()`) refuse an element in a popup whose exit runs as they start, and say so when they time out on one
+ */
+function refusingExitWaits<T extends object>(matchers: T, locator: Locator, negated: boolean): T {
+  return new Proxy(matchers, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver) as unknown
+      if (property === "not" && !negated && typeof value === "object" && value !== null) {
+        return refusingExitWaits(value, locator, true)
+      }
+      const removal = negated ? property === "toBeVisible" || property === "toBeAttached" : property === "toHaveCount" || property === "toBeHidden"
+      if (!removal || typeof value !== "function") {
+        return value
+      }
+      return async (...args: unknown[]) => {
+        if (property === "toHaveCount" && args[0] !== 0) {
+          return value.apply(target, args)
+        }
+        if (await exiting(locator)) {
+          throw new Error(`${String(locator)} ${EXIT_WAIT}`)
+        }
+        try {
+          return await value.apply(target, args)
+        } catch (error) {
+          if (error instanceof Error && (await exiting(locator))) {
+            error.message = `${error.message}\n\nThe assertion ${EXIT_WAIT}`
+          }
+          throw error
+        }
+      }
+    },
+  })
+}
+
+/**
+ * Playwright's `expect` whose `poll` asks every `POLL_INTERVALS` unless the call names its own intervals, and whose
+ * removal assertions of a locator refuse to wait for the exit of a closing popup (`refusingExitWaits`): the one `expect`
+ * of the specs (`test-fixtures.ts`) and the helpers
  */
 export const expect = new Proxy(playwrightExpect, {
+  apply(target, thisArgument, args: Parameters<typeof playwrightExpect>) {
+    const matchers = Reflect.apply(target, thisArgument, args) as object
+    return isLocator(args[0]) ? refusingExitWaits(matchers, args[0], false) : matchers
+  },
   get(target, property, receiver) {
     if (property !== "poll") {
       return Reflect.get(target, property, receiver)

@@ -6,6 +6,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm, testInputAutoFocus } from "../helpers/inline-form-helpers"
 import { selectCommit, clickGroupIntoBranchButton, multiSelectCommit, shiftSelectCommit, selectAllCommits, openContextMenu, getSelectedCommits } from "../helpers/selection-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 
 baseTest.describe("Unassigned Commits Feature", () => {
   testWithConflicts.describe("Missing Commits Detection", () => {
@@ -135,7 +136,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
       // Move mouse away to hide popover
       await page.mouse.move(0, 0)
-      await expect(popover).not.toBeVisible()
+      await expectClosed(popover)
 
       // Initial state - no commits selected
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-no-selection")
@@ -209,7 +210,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
 
       // Escape closes the menu and keeps the selection
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       await expect(page.getByTestId("selection-actions")).toHaveText(/2 selected/)
     })
 
@@ -226,7 +227,7 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // opening the menu does not change the selection
       await expect(unselectedRow).toHaveAttribute("data-selected", "false")
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       await expect(page.getByTestId("selection-actions")).toHaveText(/2 selected/)
     })
   })

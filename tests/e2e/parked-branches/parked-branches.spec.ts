@@ -5,7 +5,7 @@ import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRows, getMo
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { dropAt, dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { recordRewrites } from "../helpers/wait-helpers"
+import { recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own;
 // neither Patronus nor GitHub, so every branch the remote lacks is the user's move, its push
@@ -81,7 +81,7 @@ test.describe("Parked branches", () => {
     const push = page.getByRole("menuitem", { name: /^Push/ }).first()
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Parked: Unpark it to push")
+    await expect(openTooltip(page)).toHaveText("Parked: Unpark it to push")
     await page.keyboard.press("Escape")
     // nor of a part of it: the push arrow of its commit and the commit's menu say the same
     await expandBranch(page, row)
@@ -90,12 +90,12 @@ test.describe("Parked branches", () => {
     await expect(page.getByTestId("push-up-to-reason")).toHaveText("Parked: Unpark it to push")
     await expect(page.getByTestId("push-up-to-button")).toHaveCount(0)
     await page.keyboard.press("Escape")
-    await expect(page.getByTestId("push-up-to")).toHaveCount(0)
+    await expectClosed(page.getByTestId("push-up-to"))
     await commit.click({ button: "right" })
     const pushUpTo = page.getByRole("menuitem", { name: "Push Up to Here" })
     await expect(pushUpTo).toHaveAttribute("aria-disabled", "true")
     await pushUpTo.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Parked: Unpark it to push")
+    await expect(openTooltip(page)).toHaveText("Parked: Unpark it to push")
     await page.keyboard.press("Escape")
     await collapseBranch(page, row)
 
@@ -137,7 +137,7 @@ test.describe("Parked branches", () => {
     await getBranchCommitRows(page, "web").first().getByTestId("commit-push-mark").click()
     await expect(page.getByTestId("push-up-to-reason")).toHaveText("Built on parked core: Unpark core to push")
     await page.getByTestId("push-up-to").getByRole("button", { name: "Show core" }).click()
-    await expect(page.getByTestId("push-up-to")).toHaveCount(0)
+    await expectClosed(page.getByTestId("push-up-to"))
     await verifyBranchState(findBranchRow(page, "core"), "open")
 
     // the note of the parked root
@@ -151,7 +151,7 @@ test.describe("Parked branches", () => {
     // a branch parked with it keeps its own summary; the hover of its status tells the note
     await expect(findBranchRow(page, "api").getByTestId("parked-status")).toHaveText("Parked with core")
     await findBranchRow(page, "api").getByTestId("parked-status").hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Parked with core, kept local: later")
+    await expect(openTooltip(page)).toHaveText("Parked with core, kept local: later")
 
     // Unpark Branch puts the stack back into the table
     await findBranchRow(page, "core").click({ button: "right" })
@@ -189,7 +189,7 @@ test.describe("Parked branches", () => {
     // never the repository the window shows now
     await expect.poll(() => undos.map(undo => undo.repositoryPath)).toEqual([repositoryPath])
     // it undid: the toast closed, without an error
-    await expect(toast(page, "Parked docs")).toHaveCount(0)
+    await expectClosed(toast(page, "Parked docs"))
     await expect(toast(page, /^Cannot undo/)).toHaveCount(0)
 
     // back in it, docs is a branch to land again

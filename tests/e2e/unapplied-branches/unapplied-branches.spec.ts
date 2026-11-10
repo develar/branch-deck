@@ -10,7 +10,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
+import { recordCommand, recordRewrites, routeCommandError, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own,
 // each with a file of its own
@@ -149,8 +149,10 @@ test.describe("Unapplied branches", () => {
     const safePush = page.getByRole("menuitem", { name: "Safe Push" })
     await expect(safePush).toHaveAttribute("aria-disabled", "true")
     await safePush.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Not in master: Reapply it to land it")
+    await expect(openTooltip(page)).toHaveText("Not in master: Reapply it to land it")
     await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
+    // the click closed the menu: its items stay in the page until its exit ended, beside those of the next menu
+    await expectClosed(page.getByRole("menu"))
     await expect(toast(page, "Pushed branch docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
     await expectPushedToRemote(repo, ["unapplied:docs"])
     expect(await remotePushes(repo)).toEqual([["unapplied:docs"]])
@@ -164,6 +166,7 @@ test.describe("Unapplied branches", () => {
     await row.getByRole("button", { name: "More actions for docs" }).click()
     await expect(page.getByRole("menuitem", { name: "Push Branch", exact: true })).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
     // its remote branch set back to master in a terminal: the next sync finds its commit to push
     await repo.pushInTerminal(branchOf("unapplied:docs"), { revision: "origin/master" })
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
@@ -315,7 +318,7 @@ test.describe("Unapplied branches", () => {
     // D: the review of the kept branch, the preview closes once the window opened
     await page.keyboard.press("d")
     expect((await openedReview(page, 1)).data).toMatchObject({ kind: "branch", chain: ["docs"], kept: { kind: "unapplied", name: "user-name/unapplied/docs" } })
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     // the review button of a commit: the review at that commit
     await unappliedRow(page, "docs").focus()
     await page.keyboard.press(" ")

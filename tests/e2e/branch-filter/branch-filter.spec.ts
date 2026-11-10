@@ -9,7 +9,7 @@ import { landingRow, openLandingOverview } from "../helpers/review-status-helper
 import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { waitForStepFacts } from "../helpers/wait-helpers"
+import { waitForStepFacts, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own
 const ROW_ORDER = ["deps", "lint", "search", "IJPL-102", "IJPL-101", "ci", "docs", "core", "cli", "api", "web"]
@@ -202,7 +202,7 @@ test.describe("Branch filter", () => {
     const push = page.getByRole("menuitem", { name: /^Push Branch ?P?$/ })
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")
+    await expect(openTooltip(page).filter({ hasText: "up to date" })).toHaveText("The remote branch is up to date")
   })
 
   test("should walk the branch rows with the arrows and preview the focused one with Space", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -219,7 +219,7 @@ test.describe("Branch filter", () => {
     const preview = page.getByTestId("branch-preview")
     await expect(preview.getByRole("heading")).toHaveText("search")
     await page.keyboard.press("Escape")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
 
     // → expands, ← collapses, ← again goes to the branch the row is built on
     await focusRow(page, "api")
@@ -290,7 +290,7 @@ test.describe("Branch filter", () => {
     await expect(findBranchRow(page, "api")).toHaveCount(0)
     // the chip tells the key
     await chip(page, "yourMove").hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "Go to the next one" })).toBeVisible()
+    await expect(openTooltip(page).filter({ hasText: "Go to the next one" })).toBeVisible()
 
     // from anywhere in the window: the first fix, then the next one, in its collapsed stack
     await page.mouse.click(5, 300)
@@ -343,7 +343,7 @@ test.describe("Branch filter", () => {
     await focusRow(page, "web")
     await page.keyboard.press("s")
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of web" })).toHaveAttribute("data-type", "info")
-    await expect(safePushPopover(page)).toHaveCount(0)
+    await expectClosed(safePushPopover(page))
 
     // S never starts by itself: the popover, its start focused once it can run, which Enter presses; S of a step still
     // checking says what it waits for, so the test presses it once the step is known, as the user can
@@ -358,7 +358,7 @@ test.describe("Branch filter", () => {
     await expect(chip(page, "yourMove")).toHaveText("Your Move7")
     await expect(chip(page, "landing")).toHaveText("Landing3")
     await page.keyboard.press("Enter")
-    await expect(safePushPopover(page)).toHaveCount(0)
+    await expectClosed(safePushPopover(page))
     // the start is the move: lint lands from its push on, before its robot exists
     await held.arrived()
     await expect(slotSafePush(page, "lint")).toHaveAccessibleName(/^Pushing \d+%$/)

@@ -10,7 +10,7 @@ import { getEmittedEvents, getOpenedSubWindows, getSubWindowReadyOpen, openLinke
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls, windowTheme } from "../helpers/title-bar-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
+import { routeCommand, expectClosed } from "../helpers/wait-helpers"
 
 const WINDOW_SIZE = { width: 880, height: 640 }
 
@@ -341,7 +341,7 @@ test.describe("Settings window", () => {
     await expect(whitespace).toHaveText("Trim Whitespace")
     // a radio item keeps the menu open; Escape closes the menu only, not the window
     await window.keyboard.press("Escape")
-    await expect(window.getByRole("menu")).toHaveCount(0)
+    await expectClosed(window.getByRole("menu"))
     await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified", whitespacePolicy: "trim" })
 
     const ligatures = window.getByTestId("setting-ligatures")

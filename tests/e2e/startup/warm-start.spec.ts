@@ -11,7 +11,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { emitTauriEvent, finishedSyncCount } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdCommand, recordRewrites, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, recordRewrites, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
 /** The rows came with the subscription the window made holding the seed and its channel, nothing else asked before them */
 async function expectRowsWithTheSubscriptionAlone(page: Page): Promise<void> {
@@ -126,7 +126,7 @@ test.describe("The warm start", () => {
     await releaseTheFirstSync(page, repo)
     await expect(close).toBeEnabled()
     await close.click()
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     const confirm = page.locator('tr[data-branch-of="docs"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
     await expect(confirm).toContainText("Close pull request #12")
   })
@@ -161,7 +161,7 @@ test.describe("The warm start", () => {
     await expect(unstack).toHaveAttribute("aria-disabled", "true")
     await expect(unstack).toContainText("Unstacking oauth after the sync…")
     await page.keyboard.press("Escape")
-    await expect(palette(page)).toHaveCount(0)
+    await expectClosed(palette(page))
 
     await releaseTheSyncOfTheUnstack(page, repo)
     await expect(more).not.toHaveAttribute("aria-busy")

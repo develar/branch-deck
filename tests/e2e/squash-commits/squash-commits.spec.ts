@@ -4,6 +4,7 @@ import { expect, test, testWithUnassigned } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit, shiftSelectCommit } from "../helpers/selection-helpers"
 import { syncFromMenu } from "../helpers/sync-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -40,7 +41,7 @@ test.describe("Squash commits", () => {
     await expect(dialog).toContainText("The first line is the subject")
 
     await page.keyboard.press("ControlOrMeta+Enter")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     await expect(page.getByText("Squashed 2 commits")).toBeVisible()
     await verifyCommitCount(issueRow, 2)
     await expect(getBranchCommitRow(page, ISSUE, "Add tokens")).toHaveCount(0)
@@ -103,7 +104,7 @@ test.describe("Squash commits", () => {
     await expect(dialog.getByTestId("commit-prefix-change")).toHaveText("Squashing moves the commit to the branch parser")
 
     await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     await verifyCommitCount(issueRow, 3)
   })
 })
@@ -121,7 +122,7 @@ testWithUnassigned("should squash unassigned commits with the S key", async ({ p
   await editor.fill("Add user authentication\n\nWith the login validation")
   await dialog.getByRole("button", { name: /Squash/ }).click()
 
-  await expect(dialog).toBeHidden()
+  await expectClosed(dialog)
   await expect(getUnassignedCommitRow(page, "Fix login validation bug")).toHaveCount(0)
   await expect(getUnassignedCommitRow(page, "Add user authentication")).toBeVisible()
   await expect(page.getByTestId("unassigned-commits-section").locator("[data-row-id]")).toHaveCount(1)

@@ -31,7 +31,7 @@ import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { emitTauriEvent, pressSyncHeld, releaseHeldSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand } from "../helpers/wait-helpers"
+import { recordCommand, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const APPROVED = pullRequest("JIRA-456", 760, {
@@ -148,7 +148,7 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
     // the popover would cover the next rows
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
 
     // the click opens the pull request and leaves the hover open; the row does not toggle
     await clickStatusChipAfterHover(page, getChip(page, "ABC-123"), "pull-request-popover")
@@ -233,7 +233,7 @@ test.describe("Pull request chip", () => {
     await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
     await expect(dialog).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     expect(await remotePushes(repo)).toEqual([])
 
     // the dialog pushes it on Create: the row offers no push of its own, the menu does; the footer of the preview keeps
@@ -247,30 +247,30 @@ test.describe("Pull request chip", () => {
     await expect(page.getByTestId("push-description")).toContainText('Create Pull Request… pushes feature-auth first: "⋯" pushes it alone')
     await page.mouse.move(0, 0)
     await page.keyboard.press("Escape")
-    await expect(firstPreview).toHaveCount(0)
+    await expectClosed(firstPreview)
     await pushFromRowMenu(page, "feature-auth")
     const toast = pushedToast(page, "feature-auth")
     await toast.getByRole("button", { name: "Create Pull Request…" }).click()
     await expect(dialog).toBeVisible()
     // the action opened a dialog: its toast closed, never left over the footer of the dialog
-    await expect(toast).toHaveCount(0)
+    await expectClosed(toast)
     // the baseline `origin/master` is `master` on the remote
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("feature-auth → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue(AUTH_TITLE)
     await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue(AUTH_BODY)
     expect(texts.at(-1)).toEqual({ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master", stackAncestors: [] })
     await page.keyboard.press("Escape")
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
 
     // the preview offers it where "Open Pull Request" would be, and closes for the dialog; Space would press the
     // focused push button
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     const preview = await openBranchPreview(page, "feature-auth")
     await preview.getByRole("button", { name: "Create Pull Request…" }).click()
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(dialog).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
 
     await row.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
@@ -301,7 +301,7 @@ test.describe("Pull request chip", () => {
     await expect(dialog.getByTestId("create-pull-request-assign")).toBeChecked()
 
     await title.press("ControlOrMeta+Enter")
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     expect(runs).toEqual([
       expect.objectContaining({
         // the repository only: Rust resolves the prefix of its branches, the head and the base
@@ -383,7 +383,7 @@ test.describe("Pull request chip", () => {
     // the mirror copied the branch; the stranger lost the access the search saw
     await repo.setPullRequests(ALL)
     await dialog.getByTestId("create-pull-request-submit").click()
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })
     await expect(toast.locator("[data-slot=toast-icon] .lucide-triangle-alert")).toBeVisible()
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
@@ -401,7 +401,7 @@ test.describe("Pull request chip", () => {
     const submit = dialog.getByTestId("create-pull-request-submit")
     await expect(submit).toBeDisabled()
     await submit.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Enter a title")
+    await expect(openTooltip(page)).toHaveText("Enter a title")
     await title.fill("Add auth")
     await expect(submit).toBeEnabled()
 
@@ -416,9 +416,9 @@ test.describe("Pull request chip", () => {
     await expect(onGitHub).toBeDisabled()
     // the tooltip of Create, under the pointer since, closes first: both say the same
     await page.mouse.move(0, 0)
-    await expect(page.getByRole("tooltip")).toHaveCount(0)
+    await expectClosed(openTooltip(page))
     await onGitHub.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("feature-auth already has pull request #905")
+    await expect(openTooltip(page)).toHaveText("feature-auth already has pull request #905")
     await dialog.getByTestId("create-pull-request-exists").getByRole("button", { name: "Open Pull Request" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest("feature-auth", 905).url])
   })
@@ -473,11 +473,13 @@ test.describe("Request Review without Patronus", () => {
     // the right-click: the popover at the row; no code owner without Patronus, the search finds whom to ask
     await row.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    // the click closed the menu: its items stay in the page until its exit ended, beside those of the next menu
+    await expectClosed(page.getByRole("menu"))
     await expect(popover).toContainText("Request a review on #761")
     await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
     await expectPopoverAtSlot(popover, row)
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // the row's "⋯": the same popover, which asks GitHub, the branch pushed first so the reviewer sees its commits
     await row.getByRole("button", { name: "More actions for ABC-123" }).click()
@@ -487,13 +489,13 @@ test.describe("Request Review without Patronus", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #761" })).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 761, "requested_reviewers")).toEqual([{ reviewers: ["carol"] }])
     expect(await remotePushes(repo)).toEqual([["ABC-123"]])
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // the preview's "⋯": the preview closes, the popover opens at the row
     const preview = await openBranchPreview(page, "ABC-123")
     await preview.getByRole("button", { name: "More actions for ABC-123" }).click()
     await page.getByRole("menuitem", { name: "Request Review…" }).click()
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(popover).toContainText("Request a review on #761")
     await expectPopoverAtSlot(popover, row)
   })

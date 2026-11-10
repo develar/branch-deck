@@ -6,7 +6,7 @@ import { openLandingOverview } from "../helpers/review-status-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
-import { pendingCommands } from "../helpers/wait-helpers"
+import { pendingCommands, expectClosed } from "../helpers/wait-helpers"
 
 /** The OAuth app of the build in these tests: the test server's build has none until a test names it */
 const CLIENT_ID = "client-1"
@@ -51,7 +51,7 @@ test.describe("GitHub sign-in", () => {
     expect(await repo.getGitHubSignIn()).toMatchObject({ pending: false })
     // the overview the hint was in closes: the chip of the row
     await page.keyboard.press("Escape")
-    await expect(overview).toBeHidden()
+    await expectClosed(overview)
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(1)
   })
 

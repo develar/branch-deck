@@ -6,6 +6,7 @@ import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, pressSyncHeld, releaseHeldSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 import type { YouTrackFixture } from "../helpers/youtrack-helpers"
 import { issueKeyLink, linkIssuesToYouTrack, openIssue, openYouTrackSettings, resolvedIssue, youTrackUrlOf } from "../helpers/youtrack-helpers"
 
@@ -48,7 +49,7 @@ test.describe("YouTrack issue popover", () => {
     await expect(page.getByTestId("issue-popover")).toHaveAttribute("data-issue-key", "JIRA-456")
     await expect(page.getByTestId("issue-popover")).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(page.getByTestId("issue-popover")).toHaveCount(0)
+    await expectClosed(page.getByTestId("issue-popover"))
 
     // the toast of the issue: its Undo says in place that the issue is open again
     const held = await holdToast(toast)
@@ -72,7 +73,7 @@ test.describe("YouTrack issue popover", () => {
     await waitForTauriListener(page, "show_landing")
     await emitTauriEvent(page, "show_landing")
     await expect(page.getByTestId("landing-view")).toBeVisible()
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
     // ⌘1: the link shows it again on hover
     await emitTauriEvent(page, "show_branches")
     await page.mouse.move(640, 700)
@@ -91,7 +92,7 @@ test.describe("YouTrack issue popover", () => {
       // JIRA-456 above it expanded and collapsed: the link comes under the pointer, and the delay of the hover runs out
       await bringUnderStillPointer(page, link, findBranchRow(page, "JIRA-456"))
       await page.clock.fastForward(1000)
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
       // the pointer comes over it
       await page.mouse.move(640, 700)
       await link.hover()
@@ -110,7 +111,7 @@ test.describe("YouTrack issue popover", () => {
     await expect(link).toBeFocused()
     await expect(page.getByTestId("issue-popover")).toHaveAttribute("data-issue-key", "ABC-123")
     await page.keyboard.press("Escape")
-    await expect(page.getByTestId("issue-popover")).toHaveCount(0)
+    await expectClosed(page.getByTestId("issue-popover"))
 
     // the menu does not know the issue is resolved: the backend refuses to turn a Duplicate into Fixed
     await page.locator('[data-testid="branch-row"][data-branch-name="ABC-123"]').click({ button: "right" })
@@ -140,7 +141,7 @@ test.describe("YouTrack issue popover", () => {
     await expect(popover.getByTestId("issue-action-open-in-youtrack")).toBeVisible()
     await expect(popover.getByTestId("issue-action-mark-fixed")).toHaveCount(0)
     await page.mouse.move(0, 0)
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // the Hub ended the sign-in: the access token expired and the refresh token is no longer known
     await repo.setYouTrack({ signedIn: "expired" })
@@ -192,10 +193,10 @@ test.describe("YouTrack issue popover", () => {
     // Escape closes the popover only, then the preview
     await popover.hover()
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
     await expect(preview).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
   })
 
   test("should say a failed read of the sign-in with Retry, never signed out for the session, and show the issues once a read answers", async ({

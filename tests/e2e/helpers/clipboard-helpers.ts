@@ -1,6 +1,7 @@
 import type { Page, BrowserContext, Locator } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
 import { captureFloatingElementSnapshot } from "./aria-snapshot-helpers"
+import { expectClosed } from "./wait-helpers"
 
 /**
  * Setup clipboard permissions for the test context; WebKit (the benchmarks, `pnpm perf:diff --project=webkit`) has no
@@ -57,7 +58,7 @@ export async function testCopyButton(
   await button.hover()
 
   // Wait for tooltip to appear
-  const originalTooltip = page.locator(`[role="tooltip"]:has-text("${originalTooltipText}")`)
+  const originalTooltip = page.locator(`[role="tooltip"][data-open]:has-text("${originalTooltipText}")`)
   await expect(originalTooltip).toBeVisible()
 
   // Capture initial state snapshot if requested
@@ -71,11 +72,11 @@ export async function testCopyButton(
   await button.click()
 
   // Wait for tooltip to change to "Copied"
-  const copiedTooltip = page.locator('[role="tooltip"]:has-text("Copied")')
+  const copiedTooltip = page.locator('[role="tooltip"][data-open]:has-text("Copied")')
   await expect(copiedTooltip).toBeVisible()
 
   // Verify the original tooltip is no longer visible
-  await expect(originalTooltip).not.toBeVisible()
+  await expectClosed(originalTooltip)
 
   // Capture copied state snapshot if requested
   if (options?.captureSnapshots) {

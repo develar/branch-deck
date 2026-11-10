@@ -14,6 +14,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
+import { openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the pull requests of others review them as the branches of others
 const ASKED = reviewRequest("ABC-123", 101, 30, { title: "Rework the session store" })
@@ -96,7 +97,7 @@ test.describe("Reviews view", () => {
     await expect(entryRow(page, "team", 201).getByTestId("review-request-age")).toHaveText("waiting 2 days")
     await expect(entryRow(page, "team", 201).getByTestId("review-request-age")).not.toHaveAttribute("data-move")
     await entryRow(page, "team", 201).getByTestId("review-request-meta").hover()
-    await expect(page.getByRole("tooltip")).toHaveText("2 files · +12 −3")
+    await expect(openTooltip(page)).toHaveText("2 files · +12 −3")
     // the approval of an earlier commit that GitHub no longer counts: the user's move, the only row that stands out
     await expect(entryRow(page, "reviewed", 202).getByTestId("review-entry-mark")).toHaveAttribute("data-mark", "move")
     await expect(entryRow(page, "reviewed", 202).getByRole("img", { name: "Your move: new commits since your review" })).toBeVisible()

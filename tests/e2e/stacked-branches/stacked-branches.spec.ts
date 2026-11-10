@@ -65,7 +65,7 @@ import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSy
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
-import { holdCommand, recordCommand, recordRewrites, routeCommandError, waitForStepFacts, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, recordCommand, recordRewrites, routeCommandError, waitForStepFacts, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/acme/monorepo/compare"
 
@@ -269,7 +269,7 @@ test.describe("Stacked branches", () => {
     // the click closed its tooltip, the next hover opens it
     await page.mouse.move(0, 0)
     await chip.hover()
-    await expect(page.getByRole("tooltip")).toContainText("Stack of auth · 4 branches · 4 commits · 3 your step")
+    await expect(openTooltip(page)).toContainText("Stack of auth · 4 branches · 4 commits · 3 your step")
     await expect(findBranchRow(page, "auth").getByTestId("lane-collapsed")).toBeVisible()
     // the header still has the whole stack, one row of its 4 branches
     await expect(landingRow(await openLandingOverview(page), "auth")).toContainText("4 branches")
@@ -374,7 +374,7 @@ test.describe("Stacked branches", () => {
       await expect(loginRow.getByTestId("lane-ring")).toBeVisible()
       await expect(loginRow.getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
       await loginRow.getByTestId("row-status-mark").hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "Blocked" })).toHaveText("Blocked: parent auth has a merge conflict")
+      await expect(openTooltip(page).filter({ hasText: "Blocked" })).toHaveText("Blocked: parent auth has a merge conflict")
       await page.mouse.move(0, 0)
       await loginRow.getByTestId("lane-node-target").hover()
       const node = page.getByTestId("lane-node-details")
@@ -724,7 +724,7 @@ test.describe("Stacked branches", () => {
     await dialog.getByTestId("create-pull-request-on-github").click()
     const body = "Built+on+auth%2C+then+login%3A+their+commits+are+in+this+pull+request+too.%0A%0A**auth**%0A-+Add+auth+module%0A%0A**login**%0A-+Add+login+form"
     await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/master...user-name/virtual/oauth?expand=1&title=Add+OAuth+provider&body=${body}&assignees=user-name`])
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
 
     // the root's pull request goes into master too, and holds only its own commits
     await openContextMenu(page, findBranchRow(page, "auth"))
@@ -819,7 +819,7 @@ test.describe("Stacked branches", () => {
     const item = page.getByRole("menuitem", { name: "Push with Children", exact: true })
     await expect(item).toHaveAttribute("aria-disabled", "true")
     await item.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "on the remote" })).toHaveText(
+    await expect(openTooltip(page).filter({ hasText: "on the remote" })).toHaveText(
       "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack",
     )
     // the root row has nothing left to push: its push leaves
@@ -918,7 +918,7 @@ test.describe("Stacked branches", () => {
     await expect(description).toContainText("Pushes 3 branches, parents first:")
     await expect.poll(pushed).toEqual(["session", "login", "oauth"])
     await page.keyboard.press("Escape")
-    await expect(description).toBeHidden()
+    await expectClosed(description)
 
     // a sync runs: the menu keeps the item enabled, and the push waits for the sync
     const releaseSync = await holdCommand(page, "sync")
@@ -986,7 +986,7 @@ test.describe("Stacked branches", () => {
     const disabled = page.getByRole("menuitem", { name: "Push with Children", exact: true })
     await expect(disabled).toHaveAttribute("aria-disabled", "true")
     await disabled.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "Nothing to push" })).toHaveText("Nothing to push: the stack is on the remote")
+    await expect(openTooltip(page).filter({ hasText: "Nothing to push" })).toHaveText("Nothing to push: the stack is on the remote")
     await page.keyboard.press("Escape")
 
     // the remote of the stack branch lacks its newest commit, the branches stay as they are on the remote
@@ -997,7 +997,7 @@ test.describe("Stacked branches", () => {
     const item = page.getByRole("menuitem", { name: "Push with Children (the whole stack branch)" })
     await expect(item).toBeEnabled()
     await item.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "Also pushes" })).toHaveText("Also pushes the whole stack branch user-name/stack/auth, the head of #12")
+    await expect(openTooltip(page).filter({ hasText: "Also pushes" })).toHaveText("Also pushes the whole stack branch user-name/stack/auth, the head of #12")
     await runAndWaitForAnswer(page, "execute", () => item.click())
     expect((await remotePushes(repo)).at(-1)).toEqual(["stack:auth"])
     await expectPushedToRemote(repo, [stackBranchOf("auth")])
@@ -1123,7 +1123,7 @@ test.describe("Stacked branches", () => {
      */
     async function startWholeAuthStack(page: Page, start: Locator, repo: TestRepositoryBuilder): Promise<void> {
       await start.hover()
-      await expect(page.getByRole("tooltip")).toHaveText(WHOLE_AUTH_STACK)
+      await expect(openTooltip(page)).toHaveText(WHOLE_AUTH_STACK)
       await start.click()
       await expectWholeAuthStackPopover(page)
       const before = (await repo.getPatronusLog()).starts
@@ -1178,7 +1178,7 @@ test.describe("Stacked branches", () => {
       await openWholeStack()
       const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await item.hover()
-      await expect(page.getByRole("tooltip")).toHaveText(WHOLE_AUTH_STACK)
+      await expect(openTooltip(page)).toHaveText(WHOLE_AUTH_STACK)
       await item.click()
       const start = rootSlot.getByTestId("safe-push-button")
       await expect(start).toHaveText("Checking…")
@@ -1270,10 +1270,10 @@ test.describe("Stacked branches", () => {
       const waiting = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await expect(waiting).toHaveAttribute("aria-disabled", "true")
       await waiting.hover()
-      await expect(page.getByRole("tooltip")).toHaveText("Waits for Patronus to check the approvals")
+      await expect(openTooltip(page)).toHaveText("Waits for Patronus to check the approvals")
       await page.keyboard.press("Escape")
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       await repo.holdRemoteAnswers({ release: ["readiness"] })
       // the row of the root asks Patronus for the whole stack, before any surface of it asks (the menu asks nothing)
       await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.branches.includes("stack:auth"))).toBe(true)
@@ -1284,7 +1284,7 @@ test.describe("Stacked branches", () => {
       const safePush = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await expect(safePush).toHaveAttribute("aria-disabled", "true")
       await safePush.hover()
-      await expect(page.getByRole("tooltip")).toHaveText(missing)
+      await expect(openTooltip(page)).toHaveText(missing)
       await page.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
       const dialog = createPullRequestDialog(page)
       await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole auth stack → master")
@@ -1334,7 +1334,7 @@ test.describe("Stacked branches", () => {
       const slot = slotSafePush(page, "oauth")
       await expect(slot).toHaveText("Safe Push · 3")
       await slot.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "Lands oauth" })).toContainText("Lands oauth with the 2 branches it is built on into master in one Safe Push")
+      await expect(openTooltip(page).filter({ hasText: "Lands oauth" })).toContainText("Lands oauth with the 2 branches it is built on into master in one Safe Push")
       // a stack always says what lands first: the click opens the popover at the slot
       await slot.click()
       const popover = await expectPopoverOf(page, "oauth")
@@ -1408,13 +1408,13 @@ test.describe("Stacked branches", () => {
       // the footer of the preview, which closes for the popover of the row; the stack is pushed first, in one push
       let preview = await openBranchPreview(page, "oauth")
       await preview.getByRole("button", { name: /Safe Push · 3/ }).click()
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
       await startWithEnter()
       expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
       // S in the preview
       preview = await openBranchPreview(page, "oauth")
       await page.keyboard.press("s")
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
       await startWithEnter()
       expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
     })
@@ -1501,7 +1501,7 @@ test.describe("Stacked branches", () => {
       const item = page.getByRole("menuitem", { name: /^Safe Push · 3/ })
       await expect(item).toHaveAttribute("aria-disabled", "true")
       await item.hover()
-      await expect(page.locator("[data-slot=tooltip-content]", { hasText: reason })).toBeVisible()
+      await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: reason })).toBeVisible()
       await closeMenus(page)
 
       // S says why the Safe Push waits, and opens nothing
@@ -1510,10 +1510,10 @@ test.describe("Stacked branches", () => {
       await findBranchRow(page, "oauth").focus()
       await page.keyboard.press("s")
       await expect(refusal).toHaveText(reason)
-      await expect(safePushPopover(page)).toHaveCount(0)
+      await expectClosed(safePushPopover(page))
       // Base UI hides the close button from the accessibility tree
       await notice.locator("[data-slot=toast-close]").click()
-      await expect(notice).toHaveCount(0)
+      await expectClosed(notice)
 
       // a dry run pushes nothing into master: it runs, with what oauth is built on
       await openContextMenu(page, findBranchRow(page, "oauth"))
@@ -1532,7 +1532,7 @@ test.describe("Stacked branches", () => {
       await findBranchRow(page, "oauth").focus()
       await page.keyboard.press("s")
       await expect(refusal).toHaveText("A Dry Run of the last commit is running")
-      await expect(safePushPopover(page)).toHaveCount(0)
+      await expectClosed(safePushPopover(page))
     })
 
     test("should say which branches a running Safe Push lands, and not start them on their own", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1545,7 +1545,7 @@ test.describe("Stacked branches", () => {
       const label = findBranchRow(page, "login").getByTestId("landing-span")
       await expect(label).toHaveText("lands with oauth")
       await label.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "lands this branch" })).toHaveText("A Safe Push of oauth lands this branch with it")
+      await expect(openTooltip(page).filter({ hasText: "lands this branch" })).toHaveText("A Safe Push of oauth lands this branch with it")
       await page.mouse.move(0, 0)
       await expect(findBranchRow(page, "session").getByTestId("landing-span")).toHaveCount(0)
       await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
@@ -1577,14 +1577,14 @@ test.describe("Stacked branches", () => {
         await expect(item).toHaveAttribute("aria-disabled", "true")
         await item.hover()
         // the description of the item before may still be fading out
-        await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText(reason)
+        await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText(reason)
       }
       await page.keyboard.press("Escape")
       // S says it too, and opens nothing
       await loginRow.focus()
       await page.keyboard.press("s")
       await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push of login" }).locator("[data-slot=toast-description]")).toHaveText(reason)
-      await expect(safePushPopover(page)).toHaveCount(0)
+      await expectClosed(safePushPopover(page))
       // a dry run pushes nothing into master, but its push of auth would go into what the Safe Push of oauth lands and
       // fail it at the end: it waits too, and says why
       await openContextMenu(page, findBranchRow(page, "auth"))
@@ -1593,7 +1593,7 @@ test.describe("Stacked branches", () => {
       const dryRun = page.getByRole("menuitem", { name: "Dry Run" })
       await expect(dryRun).toHaveAttribute("aria-disabled", "true")
       await dryRun.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
+      await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
     })
 
     test("should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1615,7 +1615,7 @@ test.describe("Stacked branches", () => {
       const push = page.getByRole("menuitem", { name: /^Push Branch P$/ })
       await expect(push).toHaveAttribute("aria-disabled", "true")
       await push.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
+      await expect(openTooltip(page).filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
       await page.keyboard.press("Escape")
       const docsRow = findBranchRow(page, "docs")
       await expect(docsRow.getByTestId("landing-span")).toHaveCount(0)
@@ -1701,7 +1701,7 @@ test.describe("Stacked branches", () => {
       const footer = preview.getByTestId("safe-push-button")
       await expect(footer).toHaveAttribute("aria-disabled", "true")
       await footer.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
+      await expect(openTooltip(page).filter({ hasText: reason })).toHaveText(reason)
     })
 
     test("should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left", async ({
@@ -1808,7 +1808,7 @@ test.describe("Stacked branches", () => {
       await authRow.click({ button: "right" })
       await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of oauth is running: it lands 1 commit of auth with it"]])
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
 
       // it merged: auth is in master, nothing of it is left to restart
       await mergeRunningRobots(page, repo, [running], 1704142800, [failed])
@@ -1817,13 +1817,13 @@ test.describe("Stacked branches", () => {
       await authRow.click({ button: "right" })
       await expectDisabledItems(page, [["Restart Safe Push", reason]])
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       // the details of its robot in the preview say it too
       const preview = await openBranchPreview(page, "auth")
       const restart = preview.getByTestId("branch-preview-patronus").getByRole("button", { name: "Restart Safe Push" })
       await expect(restart).toHaveAttribute("aria-disabled", "true")
       await restart.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
+      await expect(openTooltip(page).filter({ hasText: reason })).toHaveText(reason)
       await restart.click({ force: true })
       expect((await repo.getPatronusLog()).restarts).toEqual([])
     })
@@ -1843,7 +1843,7 @@ test.describe("Stacked branches", () => {
       await authRow.click({ button: "right" })
       await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).not.toHaveAttribute("aria-disabled", "true")
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
 
       // it merged: auth and login are in master, oauth is its robot's; session, built on auth, has its own work
       await mergeRunningRobot(page, repo, running)
@@ -1856,19 +1856,19 @@ test.describe("Stacked branches", () => {
         await findBranchRow(page, name).click({ button: "right" })
         await expectDisabledItems(page, [["Create Pull Request…", reason]])
         await page.keyboard.press("Escape")
-        await expect(page.getByRole("menu")).toHaveCount(0)
+        await expectClosed(page.getByRole("menu"))
       }
       // the footer of the preview says it too, and its click opens no dialog
       let preview = await openBranchPreview(page, "auth")
       const create = preview.getByRole("button", { name: "Create Pull Request…" })
       await expect(create).toHaveAttribute("aria-disabled", "true")
       await create.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
+      await expect(openTooltip(page).filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
       await create.click({ force: true })
       await expect(preview).toBeVisible()
-      await expect(createPullRequestDialog(page)).toHaveCount(0)
+      await expectClosed(createPullRequestDialog(page))
       await page.keyboard.press("Escape")
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
       // and the title bar of its review window
       const count = (await getOpenedSubWindows(page)).length
       await openContextMenu(page, authRow)
@@ -1878,7 +1878,7 @@ test.describe("Stacked branches", () => {
       const reviewCreate = reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" })
       await expect(reviewCreate).toHaveAttribute("aria-disabled", "true")
       await reviewCreate.hover()
-      await expect(reviewPage.getByRole("tooltip").filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
+      await expect(openTooltip(reviewPage).filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
       await page.bringToFront()
 
       // session lands without auth: its pull request opens from the same footer

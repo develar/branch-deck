@@ -41,7 +41,7 @@ import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
-import { waitForStepFacts } from "../helpers/wait-helpers"
+import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -296,12 +296,14 @@ test.describe("Whole stack", () => {
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("air, with the 6 branches built on it")
     await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue(/^The whole air stack in one Safe Push into master: 7 branches · 14 commits\./)
     await page.keyboard.press("Escape")
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     expect(await pushedBranches(repo)).toEqual([])
 
     // the root's menu: the same action under "Whole Stack"; Create pushes the stack branch alone, then creates it
     await openWholeStackSubmenu(page, "air")
     await page.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
+    // the click closed the menus: their items stay in the page until their exit ended, beside those of the next menu
+    await expectClosed(page.getByRole("menu"))
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("air, with the 6 branches built on it")
     const submit = dialog.getByTestId("create-pull-request-submit")
@@ -315,13 +317,14 @@ test.describe("Whole stack", () => {
     // it pushed the stack branch alone
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await pushedBranches(repo)).toEqual([stackBranchOf("air")])
-    await expect(dialog).toHaveCount(0)
+    await expectClosed(dialog)
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Created pull request #12" })).toContainText("Whole air stack → master")
 
     // now the stack has it: "Open Pull Request #12" in both menus
     await openIslandMenu(page, "air")
     await page.getByRole("menuitem", { name: "Open Pull Request #12" }).click()
     await expect.poll(() => getOpenedUrls(page)).toEqual([created.url])
+    await expectClosed(page.getByRole("menu"))
     await openWholeStackSubmenu(page, "air")
     await page.getByRole("menuitem", { name: "Open Pull Request #12" }).click()
     await expect.poll(() => getOpenedUrls(page)).toEqual([created.url, created.url])
@@ -385,7 +388,7 @@ test.describe("Whole stack", () => {
     const restart = page.getByRole("menuitem", { name: "Restart Safe Push" })
     await restart.hover()
     // the tooltip of "⋯" may still be fading out: the item's by its text
-    await expect(page.getByRole("tooltip", { name: "Pushes the whole air stack and starts it again on the pushed commit" })).toBeVisible()
+    await expect(openTooltip(page, { name: "Pushes the whole air stack and starts it again on the pushed commit" })).toBeVisible()
     await restart.click()
     await held.arrived()
     await expect(push).toHaveAccessibleName(/^Pushing the whole stack \d+%$/)
@@ -490,21 +493,21 @@ test.describe("Whole stack", () => {
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     await expectPopoverAtSlot(popover, rootSlot)
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
     expect(await reviewRequestsOf12(repo)).toEqual([])
 
     // a menu is built on open: with the readiness known, the item's hover says whom it asks and why, and it asks him
     await openWholeStackSubmenu(page, "auth")
     const item = page.getByRole("menuitem", { name: "Request Review…" })
     await item.hover()
-    await expect(page.getByRole("tooltip", { name: ask })).toBeVisible()
+    await expect(openTooltip(page, { name: ask })).toBeVisible()
     await item.click()
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     await expectPopoverAtSlot(popover, rootSlot)
     await runAndWaitForAnswer(page, "execute", () => popover.getByTestId("request-review-submit").click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
     expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["ikorennoy"] }])
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
   })
 
   // a test of its own: with the request above, the surfaces of one small stack ran near the timeout under load
@@ -523,14 +526,14 @@ test.describe("Whole stack", () => {
     await expect(popover).toContainText("Request a review on #12")
     await expectPopoverAtSlot(popover, rootSlot)
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // "⋯" of the root's preview: the preview closes, the popover opens at the root's row
     const preview = await openBranchPreview(page, "auth")
     await preview.getByRole("button", { name: "More actions for auth" }).click()
     await openSubmenu(page, "Whole Stack")
     await page.getByRole("menuitem", { name: "Request Review…" }).click()
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(popover).toHaveCount(1)
     await expect(popover).toContainText("Request a review on #12")
     await expectPopoverAtSlot(popover, rootSlot)
@@ -578,7 +581,7 @@ test.describe("Whole stack", () => {
     await expect(popover).toContainText("Request a review on #12")
     await expectPopoverAtSlot(popover, headerSlot)
     await page.keyboard.press("Escape")
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
 
     // "Whole Stack ›" of the root's menu: the same popover at the header, none at the root's row
     await openWholeStackSubmenu(page, "air")
@@ -651,7 +654,7 @@ test.describe("Whole stack", () => {
     await requestReviewFromSearch(page, popover, "ca", /carol/)
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #12" })).toBeVisible()
     expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["carol"] }])
-    await expect(popover).toHaveCount(0)
+    await expectClosed(popover)
   })
 
   test("should ask for a review of the pull request of the whole stack without Patronus from the island's ⋯, the popover at the header", async ({
@@ -842,7 +845,7 @@ test.describe("Whole stack", () => {
     await expect(window.getByRole("menuitem")).toHaveText(["Safe Push Whole Stack", "Dry Run Whole Stack", "Create Pull Request of the Stack…", "Push with Children (7 branches)"])
     await window.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
     await expect(createPullRequestDialog(window).getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
-    await expect(createPullRequestDialog(page)).toHaveCount(0)
+    await expectClosed(createPullRequestDialog(page))
   })
 
   test("should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -857,7 +860,7 @@ test.describe("Whole stack", () => {
     const dialog = createPullRequestDialog(window)
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("air, with the 6 branches built on it")
-    await expect(createPullRequestDialog(page)).toHaveCount(0)
+    await expectClosed(createPullRequestDialog(page))
 
     // Create: the window pushes the stack branch alone and creates it (the answer of its run first); the toast is there
     await runAndWaitForAnswer(window, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
@@ -887,7 +890,7 @@ test.describe("Whole stack", () => {
     const push = page.getByRole("menuitem", { name: /^Push/ }).first()
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it")
+    await expect(openTooltip(page)).toHaveText("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it")
     await page.keyboard.press("Escape")
 
     // the robots indicator names it as the whole stack
@@ -1045,7 +1048,7 @@ test.describe("Whole stack", () => {
     const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
     await expect(item).not.toHaveAttribute("aria-disabled", "true")
     await item.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: rest })).toHaveText(rest)
+    await expect(openTooltip(page).filter({ hasText: rest })).toHaveText(rest)
     // its popover says the same, and its start lands the rest from the stack branch
     await item.click()
     const popover = safePushPopover(page)
@@ -1072,7 +1075,7 @@ test.describe("Whole stack", () => {
     const landed = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
     await expect(landed).toHaveAttribute("aria-disabled", "true")
     await landed.hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
+    await expect(openTooltip(page).filter({ hasText: reason })).toHaveText(reason)
     await expect(page.getByRole("menuitem", { name: "Dry Run Whole Stack" })).toHaveAttribute("aria-disabled", "true")
   })
 
@@ -1096,13 +1099,13 @@ test.describe("Whole stack", () => {
     await openIslandMenu(page, "air")
     await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of deploy is running: wait until it merges"]])
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
     // while they run, the failed robot is finished history: the landing overview tells it in the line of the last day
     const running = await openLandingOverview(page)
     await expect(running.getByTestId("landing-finished")).toContainText("the whole air stack failed")
     await expect(restartInOverview(running)).toHaveCount(0)
     await page.mouse.move(0, 0)
-    await expect(page.getByTestId("landing-popover")).toBeHidden()
+    await expectClosed(page.getByTestId("landing-popover"))
 
     // both merged: nothing of the stack is left to restart, with or without a push of its stack branch
     await mergeRunningRobots(page, repo, [deploy, sideTest], 1704142800, [failed])
@@ -1112,13 +1115,13 @@ test.describe("Whole stack", () => {
     await openIslandMenu(page, "air")
     await expectDisabledItems(page, [["Restart Safe Push", reason]])
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
     // "Whole Stack ›" of the root's menu
     await openWholeStackSubmenu(page, "air")
     await expectDisabledItems(page, [["Restart Safe Push", reason]])
     await page.keyboard.press("Escape")
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
     // the header offers no step, and the landing overview has the stack in master, its failed robot no move any more
     await expect(island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
     const overview = await openLandingOverview(page)
@@ -1156,7 +1159,7 @@ test.describe("Whole stack", () => {
     const notice = preview.getByTestId("orphaned-stack-pull-request")
     await expect(notice).toContainText("#12 no longer matches the auth stack: login landed.")
     await notice.getByRole("button", { name: "Close Pull Request #12…" }).click()
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     const confirm = page.locator('tr[data-branch-of="auth"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
     await expect(confirm).toContainText("Close pull request #12")
     await page.keyboard.press("Escape")

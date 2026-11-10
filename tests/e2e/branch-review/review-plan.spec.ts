@@ -18,7 +18,7 @@ import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
-import { holdCommandCalls } from "../helpers/wait-helpers"
+import { holdCommandCalls, expectClosed } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template (src/Store.kt with the top-level `helper`, the commit of `nav`), then the branch
 // `plan` of a terminal: `helper` takes a scale (a changed declaration that src/Base.kt and others use), then
@@ -156,18 +156,10 @@ async function showHelperUseOutside(window: Page, helper: Locator): Promise<Loca
 }
 
 /** The card of the one mark of a row: the pointer leaves the card open before, then moves onto the mark of `row` */
-/**
- * The card of a mark while it is open: a closed one is closed at once, as the user sees it, while its exit runs, which
- * ends only as the page paints (a loaded machine may paint no frame of the window for seconds)
- */
-function openCard(window: Page): Locator {
-  return window.locator("[data-testid=file-facts-card][data-open]")
-}
-
 async function openFactsCard(window: Page, row: Locator): Promise<Locator> {
   const card = window.getByTestId("file-facts-card")
   await window.mouse.move(0, 0)
-  await expect(card).toHaveCount(0)
+  await expectClosed(card)
   await row.getByTestId("file-row-mark").hover()
   await expect(card).toBeVisible()
   return card
@@ -482,7 +474,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(cache).toHaveAttribute("aria-selected", "false")
       await linked.click()
       await expect(cache).toHaveAttribute("aria-selected", "true")
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
       // the selected row shows its muted mark with no pointer over it
       await window.mouse.move(0, 0)
       await expect(cache.getByTestId("file-row-mark")).toHaveCSS("opacity", "1")
@@ -522,7 +514,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(link).toBeFocused()
       await expect(footer).not.toContainText("Details")
       await window.keyboard.press("Escape")
-      await expect(openCard(window)).toHaveCount(0)
+      await expectClosed(card)
       await expect(reader).toBeFocused()
       await expect(footer).toContainText("Details")
 
@@ -532,7 +524,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(cache).toHaveAttribute("aria-selected", "false")
       await window.keyboard.press("Enter")
       await expect(cache).toHaveAttribute("aria-selected", "true")
-      await expect(openCard(window)).toHaveCount(0)
+      await expectClosed(card)
       await expect(reader).toBeFocused()
       await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
     },
@@ -556,7 +548,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(card.getByTestId("file-facts-breaks")).toHaveText("breaks 3 · 3 uses left outside the change")
       await expect(card).toBeFocused()
       await window.keyboard.press("Escape")
-      await expect(openCard(window)).toHaveCount(0)
+      await expectClosed(card)
       await expect(store).toBeFocused()
       expect(await windowCalls(window)).not.toContain("close")
     },
@@ -588,7 +580,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(store).toBeFocused()
       // Escape closes the hovered card alone, the window stays
       await window.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await expect(store).toBeFocused()
       expect(await windowCalls(window)).not.toContain("close")
 
@@ -598,7 +590,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(card).toBeFocused()
       await store.getByTestId("file-row-mark").hover()
       await window.mouse.move(0, 0)
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await expect(store).toBeFocused()
       expect(await windowCalls(window)).not.toContain("close")
     },

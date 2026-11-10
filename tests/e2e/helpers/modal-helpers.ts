@@ -1,5 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
+import { expectClosed } from "./wait-helpers"
 
 /**
  * Open a modal by clicking a trigger element
@@ -21,7 +22,7 @@ export async function openModal(page: Page, triggerSelector: string | Locator): 
 export async function closeModalWithEscape(page: Page): Promise<void> {
   await page.keyboard.press("Escape")
   const modal = page.getByRole("dialog")
-  await expect(modal).not.toBeVisible()
+  await expectClosed(modal)
 }
 
 /**
@@ -36,7 +37,7 @@ export async function closeModalWithButton(page: Page): Promise<void> {
 
   await closeButton.click()
   const modal = page.getByRole("dialog")
-  await expect(modal).not.toBeVisible()
+  await expectClosed(modal)
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
+import { expectClosed } from "./wait-helpers"
 
 export function getCommitPreview(page: Page): Locator {
   return page.getByTestId("commit-preview")
@@ -38,5 +39,5 @@ export async function chooseWhitespace(page: Page, scope: Locator, label: string
   await page.getByRole("menuitemradio", { name: label, exact: true }).click()
   // a radio item keeps its menu open: Escape closes it, not the preview or the window
   await page.keyboard.press("Escape")
-  await expect(page.getByRole("menu")).toHaveCount(0)
+  await expectClosed(page.getByRole("menu"))
 }

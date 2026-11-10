@@ -5,6 +5,7 @@ import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-he
 import { dropOn, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed } from "../helpers/wait-helpers"
 
 test.describe("Combine branches", () => {
   let repo: TestRepositoryBuilder
@@ -125,7 +126,7 @@ test.describe("Combine branches", () => {
     // the key the menu item shows works on the focused row
     await expect(page.getByRole("menuitem", { name: "Move to…" }).locator("[data-slot=kbd]")).toHaveText("M")
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
 
     await row.focus()
     await page.keyboard.press("m")

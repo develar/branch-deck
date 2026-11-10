@@ -5,6 +5,7 @@ import { branchTree, expandBranch, findBranchRow, getBranchCommitRow, getUnassig
 import { editCommitMessage } from "../helpers/preview-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
+import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 function popover(page: Page): Locator {
   return page.getByTestId("squash-fixups-popover")
@@ -34,7 +35,7 @@ test.describe("Squash fixups", () => {
     const fixup = fixupRow(getBranchCommitRow(page, "auth", "Add login form"), page)
     await fixup.getByTestId("fixup-marker").hover()
     // the "Collapse" tooltip of the expand button may still be closing
-    await expect(page.getByRole("tooltip").filter({ hasText: "Squashes into" })).toHaveText("Squashes into “Add login form”")
+    await expect(openTooltip(page).filter({ hasText: "Squashes into" })).toHaveText("Squashes into “Add login form”")
     await page.mouse.move(0, 0)
     const orphan = getBranchCommitRow(page, "auth", "Drop the session cookie")
     await expect(orphan.getByTestId("fixup-marker")).toHaveAttribute("data-target", "none")
@@ -42,19 +43,19 @@ test.describe("Squash fixups", () => {
     // the badge names what its press does, and the press neither selects nor collapses the row
     const badge = authRow.getByRole("button", { name: "1 fixup" })
     await badge.hover()
-    const badgeTooltip = page.getByRole("tooltip").filter({ hasText: /^Squash 1 Fixup…$/ })
+    const badgeTooltip = openTooltip(page).filter({ hasText: /^Squash 1 Fixup…$/ })
     await expect(badgeTooltip).toBeVisible()
     await badge.click()
     const confirm = popover(page)
     await expect(confirm.getByTestId("squash-fixups-groups").locator("li")).toHaveText(["Add login formfixup!Add login form"])
-    await expect(badgeTooltip).toHaveCount(0)
+    await expectClosed(badgeTooltip)
     await expect(authRow).toHaveAttribute("data-state", "open")
     await expect(authRow).toHaveAttribute("data-selected", "false")
     await expect(confirm.getByTestId("squash-fixups-orphans")).toContainText("Won't be squashed: no target in this range")
     await expect(confirm.getByTestId("squash-fixups-orphans")).toContainText("fixup!Drop the session cookie")
     await confirm.getByTestId("squash-fixups-confirm").click()
 
-    await expect(confirm).toBeHidden()
+    await expectClosed(confirm)
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
     await verifyCommitCount(authRow, 2)
     await expect(authRow.getByTestId("branch-fixup-count")).toHaveCount(0)
@@ -80,7 +81,7 @@ test.describe("Squash fixups", () => {
     await expect(confirm.getByTestId("squash-fixups-groups").locator("li")).toHaveText(["Write the guidesquash!Write the guide"])
     await expect(docsRow).not.toHaveAttribute("data-state", "open")
     await confirm.getByTestId("squash-fixups-confirm").click()
-    await expect(confirm).toBeHidden()
+    await expectClosed(confirm)
     // the `squash!` was an unassigned commit; its body joins the message of the target
     await expect(unassignedRows(page)).toHaveCount(2)
     await expect(getUnassignedCommitRow(page, "Write the guide")).toHaveCount(0)

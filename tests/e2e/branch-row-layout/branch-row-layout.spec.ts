@@ -23,6 +23,7 @@ import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-h
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, pushedRemote, runAndWaitForSync, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 test.describe("Branch Row Layout and Copy Functionality", () => {
   let repo: TestRepositoryBuilder
@@ -131,7 +132,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
       await openContextMenu(page, branchRow)
       await expect(page.getByRole("menu")).toBeVisible()
       await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       return page.evaluate(() => (window as unknown as { __closingAnimations: string[] }).__closingAnimations)
     }
 
@@ -181,7 +182,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible()
     await openSubmenu(page, "Copy")
     await testContextMenuCopy(page, "Copy Branch Name", "test-branch")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
     await verifyBranchState(branchRow, "closed")
   })
 
@@ -215,7 +216,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
       await page.keyboard.press("ArrowDown")
       await expect(rowMenu.getByRole("menuitem").first(), `gesture ${gesture + 1}`).toBeFocused()
       await page.keyboard.press("Escape")
-      await expect(rowMenu).toHaveCount(0)
+      await expectClosed(rowMenu)
     }
   })
 
@@ -225,7 +226,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
 
     // the status text mounts its tooltip under the pointer: one hover opens it
     await branchRow.getByTestId("branch-status").hover()
-    await expect(page.getByRole("tooltip")).toContainText("the push creates it")
+    await expect(openTooltip(page)).toContainText("the push creates it")
 
     // "⋯" mounts its menu with the focus and keeps the focus: Enter opens the menu
     await getMoreButton(branchRow).focus()
@@ -275,7 +276,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(move).toBeVisible()
     await expect(move.locator("kbd")).toHaveCount(0)
     await page.getByRole("menuitem", { name: "Rename…" }).click()
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(page.getByTestId("inline-rename-input")).toBeVisible()
   })
 
@@ -321,7 +322,7 @@ test.describe("Status of a pushed branch", () => {
     const preview = await openBranchPreview(page, "test-branch")
     await expect(preview.getByTestId("branch-preview-status")).toHaveText("up to date")
     await page.keyboard.press("Space")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(getBranchCells(row).status.getByTestId("branch-status")).toHaveCount(0)
     await expect(row.getByTestId("branch-status-dot")).toHaveCount(0)
     await expectNothingToPush(row)
@@ -347,23 +348,23 @@ test.describe("Hover over rows that move", () => {
       const description = page.getByTestId("push-description")
       // the trigger of the tooltip of auth's status: the text with its dot
       const status = findBranchRow(page, "auth").locator("[data-slot=tooltip-trigger]", { has: page.getByTestId("branch-status") })
-      const tooltip = page.getByRole("tooltip").filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
+      const tooltip = openTooltip(page).filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
 
       // the delay of the hover runs out with the pointer still: the description, whose Enter pushed, stays closed
       const point = await bringTriggerUnderStillPointer(page, push)
       await page.clock.fastForward(1000)
-      await expect(description).toHaveCount(0)
+      await expectClosed(description)
       // a move of a pixel over the button opens it after the delay
       await page.mouse.move(point.x + 1, point.y)
       await page.clock.fastForward(1000)
       await expect(description).toContainText("Push session Only")
       await page.mouse.move(640, 700)
-      await expect(description).toHaveCount(0)
+      await expectClosed(description)
 
       // the same for the tooltip of a status
       const at = await bringTriggerUnderStillPointer(page, status)
       await page.clock.fastForward(1000)
-      await expect(tooltip).toHaveCount(0)
+      await expectClosed(tooltip)
       await page.mouse.move(at.x + 1, at.y)
       await page.clock.fastForward(1000)
       await expect(tooltip).toBeVisible()
@@ -381,7 +382,7 @@ test.describe("Hover over rows that move", () => {
       const auth = findBranchRow(page, "auth")
       const badge = auth.getByTestId("branch-fixup-count")
       const chip = auth.getByTestId("stack-chip")
-      const tooltip = page.getByRole("tooltip")
+      const tooltip = openTooltip(page)
       await expect(badge).toBeVisible()
       // the pointer over the start of the badge, in the cell the chip shares with it
       const box = (await badge.boundingBox())!
@@ -399,7 +400,7 @@ test.describe("Hover over rows that move", () => {
       // its root mounted at the pointer over it: another control than the badge, its tooltip stays closed
       await expect(chip).toHaveAttribute("id", /^base-ui-/)
       await page.clock.fastForward(1000)
-      await expect(tooltip).toHaveCount(0)
+      await expectClosed(tooltip)
       // a move of a pixel over the chip opens it after the delay
       await page.mouse.move(point.x + 1, point.y)
       await page.clock.fastForward(1000)
@@ -435,7 +436,7 @@ test.describe("Hover over rows that move", () => {
       // the item knows the pointer is over it, and the delay of its submenu runs out: the submenu stays closed
       await expect(copy).toHaveAttribute("data-highlighted", "")
       await page.clock.fastForward(1000)
-      await expect(submenu).toHaveCount(0)
+      await expectClosed(submenu)
       // a move of a pixel over Copy opens it after the delay
       await page.mouse.move(point.x + 1, point.y)
       await page.clock.fastForward(1000)

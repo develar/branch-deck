@@ -31,6 +31,43 @@ export async function animationsEnded(elements: Locator): Promise<void> {
   )
 }
 
+/** A popup as it closes: Base UI marks it `data-closed` at once (a toast `data-ending-style`), while its exit runs */
+const CLOSING = "[data-closed], [data-ending-style]"
+
+/**
+ * `popup` (a dialog, a menu, a popover, a card, a tooltip, a toast, or what lies in one) closed, as the user sees it.
+ * Base UI marks a closing popup `data-closed` at once, keeps it mounted while its exit animation runs, then unmounts it
+ * and gives the focus back. The exit ends only as the window paints, and a loaded machine paints no frame of a window
+ * for seconds: a wait for the popup to leave the page timed out after it had closed. So this waits for the state the
+ * close set (each element of `popup` closing or not shown; none: closed), then ends the exit as the frames would
+ * (`finish()` of its animations, which needs no frame; again on each try, as a closing toast starts the slide of its
+ * neighbours) until nothing of it shows: the popup is unmounted and the focus back by then. Not in a test of a popup
+ * reopened during its exit, which needs the exit running
+ */
+export async function expectClosed(popup: Locator): Promise<void> {
+  await expect
+    .poll(() => popup.evaluateAll((nodes, closing) => nodes.every(node => node.closest(closing) !== null || !node.checkVisibility()), CLOSING), {
+      message: `${String(popup)} closes`,
+    })
+    .toBe(true)
+  await expect
+    .poll(
+      () =>
+        popup.evaluateAll((nodes, closing) => {
+          for (const node of nodes) {
+            for (const animation of node.closest(closing)?.getAnimations({ subtree: true }) ?? []) {
+              if (animation.effect?.getComputedTiming().iterations !== Infinity) {
+                animation.finish()
+              }
+            }
+          }
+          return nodes.filter(node => node.checkVisibility()).length
+        }, CLOSING),
+      { message: `${String(popup)} ends its exit` },
+    )
+    .toBe(0)
+}
+
 /**
  * Resolves once a rendering update of the page delivered its `ResizeObserver` reports of what changed before the call: a
  * frame runs its animation frame callbacks before its layout and its reports, so the second callback is after them. A
@@ -271,7 +308,7 @@ export async function waitForBranchDetailsExpanded(page: Page, branchName: strin
  * Wait for tooltip to appear with specific text
  */
 export async function waitForTooltip(page: Page, text: string, timeout = 5000): Promise<Locator> {
-  const tooltip = page.locator(`[role="tooltip"]:has-text("${text}")`)
+  const tooltip = page.locator(`[role="tooltip"][data-open]:has-text("${text}")`)
   await expect(tooltip).toBeVisible({ timeout })
   return tooltip
 }
@@ -281,11 +318,11 @@ export async function waitForTooltip(page: Page, text: string, timeout = 5000): 
  */
 export async function waitForTooltipChange(page: Page, fromText: string, toText: string, timeout = 5000): Promise<void> {
   // Wait for original tooltip to disappear
-  const originalTooltip = page.locator(`[role="tooltip"]:has-text("${fromText}")`)
+  const originalTooltip = page.locator(`[role="tooltip"][data-open]:has-text("${fromText}")`)
   await expect(originalTooltip).not.toBeVisible({ timeout })
 
   // Wait for new tooltip to appear
-  const newTooltip = page.locator(`[role="tooltip"]:has-text("${toText}")`)
+  const newTooltip = page.locator(`[role="tooltip"][data-open]:has-text("${toText}")`)
   await expect(newTooltip).toBeVisible({ timeout })
 }
 
@@ -395,4 +432,13 @@ export async function holdIntent(page: Page, kind: string): Promise<{ calls: Rec
     await route.fallback()
   })
   return { calls, send: async (...events) => sendProgress(page, await channel, events), release }
+}
+
+/**
+ * The open tooltip of `page`, by its role (`options` of `getByRole`): a tooltip that closes keeps its role while its exit
+ * runs, which ends only as the window paints, so under load a plain `getByRole("tooltip")` finds the tooltip of the hover
+ * before beside the new one (a strict mode violation), and a check that no tooltip shows waits for that exit
+ */
+export function openTooltip(page: Page, options?: Parameters<Page["getByRole"]>[1]): Locator {
+  return page.getByRole("tooltip", options).and(page.locator("[data-open]"))
 }

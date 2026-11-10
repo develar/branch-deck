@@ -7,7 +7,7 @@ import { getDockCalls } from "../helpers/header-helpers"
 import { dropAt, startDrag } from "../helpers/selection-helpers"
 import { emitTauriEvent, finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError } from "../helpers/wait-helpers"
+import { animationsEnded, holdIntent, recordCommand, recordRewrites, routeCommandError, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // The `behind_upstream`, `update_conflict` and `update_blocked` templates: `master` tracks `origin/master` of an upstream
 // at `.git/upstream.git` that changed line 2 of src/app.txt (by Dana Lee, authored 2024-01-01, landed 2024-01-02) and
@@ -47,7 +47,7 @@ async function expectParkWaiting(page: Page, text: string | RegExp): Promise<voi
   await more.hover()
   // the tooltip by its words: one hovered just before (Update's) is still mounted for its exit transition, while this one
   // opens at once, its group warm
-  await expect(page.getByRole("tooltip", { name: text })).toHaveText(text)
+  await expect(openTooltip(page, { name: text })).toHaveText(text)
 }
 
 /** The agent releases the repository lock: the update and the park waiting in the session both run, none refused */
@@ -405,7 +405,7 @@ test.describe("Update Project", () => {
     expect(prompt).not.toContain("git stash push")
 
     await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     // nothing changed
     await verifyCommitCount(findBranchRow(page, "feature-auth"), 2)
     await expect(button).toHaveAttribute("data-status", "conflict")

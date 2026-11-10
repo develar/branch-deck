@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expectSettingsOpened, openSettingsWindow, recordWrites } from "../helpers/settings-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
-import { routeCommand } from "../helpers/wait-helpers"
+import { routeCommand, openTooltip } from "../helpers/wait-helpers"
 
 /** The repository's name, as the page says it */
 function nameOf(path: string): string {
@@ -55,7 +55,7 @@ test.describe("Settings → Agents", () => {
     // Reset: back to the value of every repository
     const reset = window.getByTestId("setting-agentSubjectBranch-source").getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to On, the default")
+    await expect(openTooltip(window)).toHaveText("Removes it from .git/config: back to On, the default")
     await reset.click()
     await expect(window.getByTestId("setting-agentSubjectBranch-source")).toHaveCount(0)
     await expect(subjects.getByRole("switch")).toBeChecked()

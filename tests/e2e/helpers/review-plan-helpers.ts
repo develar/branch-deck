@@ -5,6 +5,7 @@ import { expect } from "../fixtures/test-fixtures"
 import { openReviewWindow } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
+import { expectClosed } from "./wait-helpers"
 
 /*
  * The review window of a branch with the review plan on (openspec/specs/branch/review-plan/spec.md, openspec/specs/branch/review-tour/spec.md):
@@ -104,12 +105,12 @@ export async function expectHeadingCard(window: Page, header: Locator, told: str
   await expect(card).toBeVisible()
   await expect(card).toContainText(told)
   await window.mouse.move(0, 0)
-  await expect(card).toHaveCount(0)
+  await expectClosed(card)
   await header.focus()
   await window.keyboard.press("i")
   await expect(card).toBeFocused()
   await window.keyboard.press("Escape")
-  await expect(card).toHaveCount(0)
+  await expectClosed(card)
   await expect(header).toBeFocused()
   await expect(window.getByTestId("commit-review")).toBeVisible()
 }

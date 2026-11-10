@@ -560,9 +560,16 @@ State isolation:
   an animation: the sheet stops the transitions of a toast that is not ending (`[data-slot="toast"]:not([data-ending-style])`),
   since a click on its close or its Undo waited for the slide to stop (0.75 s per click under load, s16-7). The exits
   still run as the user sees them, so a popup reopened while it closes stays tested; the reduced motion of the app is
-  a test's own (`page.emulateMedia({ reducedMotion })`). `E2E_EXIT_MS` (ms) lengthens every exit (`[data-closed]`,
-  `[data-ending-style]`) for a run that looks for a test that waits for one, which a loaded window that paints no frame
-  for seconds fails ([Writing E2E Tests → Pitfalls](../contributing/e2e-tests.md#pitfalls))
+  a test's own (`page.emulateMedia({ reducedMotion })`). An exit ends only as the window paints, and under load (the
+  Studio at 80-450) the window painted no frame for seconds: a test that waited for a closed popup to leave the page,
+  for the focus Base UI gives back as it unmounts, or for one tooltip while the one before still faded out, timed out
+  after the popup had closed. A test asserts a close by its state, `expectClosed` of `wait-helpers.ts` (`data-closed`
+  or `data-ending-style`, the exit then ended with `finish()` of its animations, which needs no frame), and reads the
+  open tooltip, `openTooltip`. The `expect` of `base-test.ts` (a `Proxy` of Playwright's) refuses a removal assertion
+  of a locator (`toHaveCount(0)`, `toBeHidden()`, `not.toBeVisible()`, `not.toBeAttached()`) that starts on an element
+  of a popup of a portal whose exit runs, and names that exit in the error of one that timed out; `E2E_EXIT_MS` (ms)
+  lengthens every exit (`[data-closed]`, `[data-ending-style]`) for a run that looks for a test that waits for one
+  ([Writing E2E Tests → Pitfalls](../contributing/e2e-tests.md#pitfalls))
 - **Focus**: Base UI moves the focus into a dialog a frame after it opened (`requestAnimationFrame`, which the clock
   drives), often after the dialog's text came. A test that types into the dialog waits for `toBeFocused()` first and
   types with `page.keyboard`: `press` or `type` on an input without the focus focuses it with the caret at 0, and End
@@ -581,7 +588,8 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   canonical name and its own classes, without paths and SVG presentation attributes. No icon name index is needed.
 - **Transition settling**: before capturing, the helper waits until no element has `data-starting-style`/`data-ending-style`,
   no closed Base UI popup is still mounted in a portal, and no finite animation is running. Base UI keeps closing popups and
-  outgoing tab panels mounted until their exit transition ends, so it waits for those of a tab switch too. It also
+  outgoing tab panels mounted until their exit transition ends, so it waits for those of a tab switch too. Each try
+  ends the exits of the closing popups of a portal (`finish()`), which end only as the window paints otherwise. It also
   waits until no commit list (`table`, the `ol` of the branch preview) is `aria-busy`: a list is busy while the file
   counts of its meta lines are read ([Commit Files](../../openspec/specs/commit/commit-files/spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
@@ -966,9 +974,9 @@ branch at the commit it was pushed up to.
   test polls answers from memory (the log of a fake, the page), and under load a poll saw the push arrive at the
   remote up to a second after it did (`holdRemotePushes().arrived`: 1.7 → 1.3 s). A poll that reads the page reads
   what it compares at once: `expectPopoverAtSlot` asks for both boxes together (one round trip of 100-250 ms under
-  load, not two: 0.56 → 0.36 s), and `closeToast` polls the count of the toast it closed (its exit is 500 ms; the
-  backoff of `toHaveCount` saw it gone 350 ms later: with the slide in off, 1.6 → 1.1 s per toast). A poll never waits
-  for what an operation writes at the remote or a fake: the test waits for the answer of the operation, then reads once
+  load, not two: 0.56 → 0.36 s), and `closeToast` asserts the close by the state of the toast (`expectClosed`: its
+  slide out of 500 ms ends only as the window paints, and a poll of its count waited for it). A poll never waits for
+  what an operation writes at the remote or a fake: the test waits for the answer of the operation, then reads once
   (`e2e-remote-poll` of `pnpm lint:arch`, [Writing E2E Tests](../contributing/e2e-tests.md#rules))
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,

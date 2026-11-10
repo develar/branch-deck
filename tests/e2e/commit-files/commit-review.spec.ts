@@ -20,7 +20,7 @@ import {
 } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
-import { holdCommand, waitForStorePersistence } from "../helpers/wait-helpers"
+import { holdCommand, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
 const SUBJECT = "a prompt that waits for its turn keeps the session row running"
@@ -181,7 +181,7 @@ simpleTest.describe("Commit review", () => {
     const preview = await openTreePreview(page)
     await page.keyboard.press("d")
     // D in the preview: the review in its window, at the first file; the preview closes
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     const opened = await openedReview(page, 1)
     expect(opened.title).toMatch(/^Review session · [0-9a-f]{8}$/)
     expect(opened.data).toMatchObject({ chain: ["session"], focus: { range: "own", path: null } })
@@ -526,14 +526,14 @@ simpleTest.describe("Commit review", () => {
     }
     await expect(preview.getByRole("treeitem", { name: "RowMapperTest.kt" })).toBeFocused()
     await page.keyboard.press("Enter")
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     const atFile = await openedReview(page, 1)
     expect(atFile.data.focus.path).toBe("plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt")
 
     // the footer button: the first file
     await openCommitPreview(page, getBranchCommitRow(page, "session", SUBJECT))
     await preview.getByTestId("commit-review-toggle").click()
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     expect((await openedReview(page, 2)).data.focus.path).toBeNull()
 
     const window = await showReviewWindow(page, atFile)
@@ -719,7 +719,7 @@ testWithIssueLinks("should review a commit of a row in its window with D and wit
   const byKey = await openedReview(page, 1)
   expect(byKey.title).toMatch(/^Review JIRA-456 · [0-9a-f]{8}$/)
   const commitId = focusedCommit(byKey)
-  await expect(preview).toBeHidden()
+  await expectClosed(preview)
 
   // Review Changes, the only review item of the row's menu, first
   await row.click({ button: "right" })
@@ -727,7 +727,7 @@ testWithIssueLinks("should review a commit of a row in its window with D and wit
   await expect(page.getByRole("menuitem", { name: "Open in Window" })).toHaveCount(0)
   await page.getByRole("menuitem", { name: "Review Changes" }).click()
   expect((await openedReview(page, 2)).data.focus).toMatchObject({ commitId, path: null })
-  await expect(page.getByRole("menu")).toBeHidden()
+  await expectClosed(page.getByRole("menu"))
 
   // an open menu keeps its keys: D reviews nothing; right after Escape, D reviews the row
   await row.click({ button: "right" })
@@ -740,7 +740,7 @@ testWithIssueLinks("should review a commit of a row in its window with D and wit
   await openedReview(page, 3)
   // the D under the open menu opened none: the third open is the one after Escape
   expect(await getOpenedSubWindows(page)).toHaveLength(3)
-  await expect(preview).toBeHidden()
+  await expectClosed(preview)
 })
 
 testWithIssueLinks("should give the focus to the list after the preview, its keys going on from the commit it showed last", async ({ page }) => {
@@ -758,7 +758,7 @@ testWithIssueLinks("should give the focus to the list after the preview, its key
   // D: the window of the commit shown; the list has the focus again
   await page.keyboard.press("d")
   const shown = focusedCommit(await openedReview(page, 1))
-  await expect(preview).toBeHidden()
+  await expectClosed(preview)
   await expect(first.locator("xpath=ancestor::table[1]")).toBeFocused()
   // D and Space act on that commit, not on the clicked one
   await page.keyboard.press("d")

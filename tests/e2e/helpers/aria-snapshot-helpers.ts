@@ -20,11 +20,20 @@ export async function captureAriaSnapshot(element: Locator, snapshotName: string
  * A closed `hidden="until-found"` panel keeps its starting style for native find; that marker is not a transition.
  * A commit list is `aria-busy` until the file counts of its meta lines are read. Only a popup counts as closing: a
  * collapsed accordion or collapsible inside an open dialog (the files of the commit preview) is `data-closed` for good.
+ * The exit of a closing popup ends only as the window paints, which a loaded machine does not for seconds: each try
+ * ends it as the frames would (`finish()` of its animations), so Base UI unmounts it
  */
 export async function waitForTransitionsSettled(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       const closingPopup = "[data-base-ui-portal] :is([role=dialog], [role=alertdialog], [role=tooltip], [role=menu], [role=listbox])[data-closed]"
+      for (const popup of document.querySelectorAll(`${closingPopup}, [data-base-ui-portal] [data-ending-style]`)) {
+        for (const animation of popup.getAnimations({ subtree: true })) {
+          if (animation.effect?.getComputedTiming().iterations !== Infinity) {
+            animation.finish()
+          }
+        }
+      }
       const activeStartingStyle = '[data-starting-style]:not([hidden="until-found"])'
       if (document.querySelector(`${activeStartingStyle}, [data-ending-style], ${closingPopup}, table[aria-busy=true], ol[aria-busy=true]`)) {
         return false

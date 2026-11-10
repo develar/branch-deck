@@ -23,7 +23,7 @@ import {
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
-import { recordCommand } from "../helpers/wait-helpers"
+import { recordCommand, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -152,7 +152,7 @@ test.describe("Patronus chip", () => {
     await popover.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([RUNNING.url])
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
 
     // the click opens the robot and leaves the hover open; the row does not toggle
     await clickStatusChipAfterHover(page, getChip(page, "ABC-123"), "patronus-popover")
@@ -174,7 +174,7 @@ test.describe("Patronus chip", () => {
     await expect(details.getByRole("button", { name: "Restart Safe Push", exact: true })).toHaveAttribute("data-action", "push-and-restart-robot")
     await expect(details.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
     await page.keyboard.press("Escape")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
 
     // pushed since the robot started: a restart takes the pushed commit
     await pushBranchFromRow(page, "feature-api")
@@ -220,7 +220,7 @@ test.describe("Patronus chip", () => {
     await expect(page.getByRole("menu")).toBeVisible()
     expect(withoutAppTimers(await settledInvokes(page))).toEqual({})
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await expectClosed(page.getByRole("menu"))
 
     // the popover tells the session what it shows, once, and the session reads the details
     await resetIpc(page)
@@ -278,7 +278,7 @@ baseTest.describe("Patronus robot timing", () => {
     await repo.advanceBackendClock(61_000)
     await expect.poll(async () => (await repo.getPatronusLog()).detailCalls).toBe(2)
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     await page.mouse.move(0, 0)
 
     // closed: the estimate from history again, the session dropped them and asks nothing more
@@ -326,20 +326,20 @@ baseTest.describe("Patronus robot timing", () => {
     await expect(popover.getByTestId("patronus-profile-name")).toHaveText("Large Scale Change")
     await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~1 h 50 min · about 1 h 32 min left$/)
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     await page.mouse.move(0, 0)
     popover = await hoverChip(page, "ABC-123")
     // the rough estimate names the push mode: the median of all five
     await expect(popover.getByTestId("patronus-started")).toContainText("usually ~1 h 50 min for Safe Push")
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
 
     // the robots of the landing overview name the profile too, on hover of the time
     await page.getByTestId("landing-indicator").hover()
     const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-state")).toHaveText("18m · ~1h 32m")
     await row.getByTestId("robots-row-state").hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Safe Push · Large Scale Change")
+    await expect(openTooltip(page)).toHaveText("Safe Push · Large Scale Change")
     // no list and no poll for the estimates, only the details that were open
     expect(await repo.getPatronusLog()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
   })
@@ -412,7 +412,7 @@ test.describe("Patronus merge", () => {
     await toast.getByRole("button", { name: "Update Project" }).click()
     await expect.poll(() => updates().length).toBe(1)
     expect(updates()[0]).toMatchObject({ intent: { kind: "updateProject", fetch: true } })
-    await expect(toast).toHaveCount(0)
+    await expectClosed(toast)
   })
 })
 

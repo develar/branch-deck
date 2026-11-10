@@ -5,6 +5,7 @@ import { availablePullRequests } from "../helpers/pull-request-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
+import { openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template, off Space: unset, its route is the pull request; JIRA-456 has 3 commits
 
@@ -56,7 +57,7 @@ test.describe("Settings → Landing", () => {
     // Reset: the value goes from .git/config, the default again, and the row has no push into master
     const reset = route.getByRole("button", { name: "Reset" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Pull Request, the default off Space")
+    await expect(openTooltip(window)).toHaveText("Removes it from .git/config: back to Pull Request, the default off Space")
     syncs = await finishedSyncCount(page)
     await reset.click()
     await expect(group.getByRole("button", { name: "Pull Request" })).toHaveAttribute("aria-pressed", "true")

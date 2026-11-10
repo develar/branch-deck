@@ -14,7 +14,7 @@ import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
-import { holdCommand, holdIntent } from "../helpers/wait-helpers"
+import { holdCommand, holdIntent, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // The `behind_upstream` template: the header has every control, the Update button (a clean update) and the outgoing
 // indicator (feature-auth is not pushed).
@@ -98,14 +98,14 @@ test.describe("Header", () => {
 
     // with a tooltip delay of 0, a tooltip of the selector would open before the one of Sync is gone
     await page.getByTestId("browse-repository-button").hover()
-    await expect(page.getByRole("tooltip")).toHaveCount(0)
+    await expectClosed(openTooltip(page))
   })
 
   test("should open Settings from the button after Sync, its tooltip naming the key", async ({ page }) => {
     const button = header(page).getByRole("button", { name: "Settings", exact: true })
     await page.mouse.move(0, 0)
     await button.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(/^Settings(⌘,|Ctrl\+,)$/)
+    await expect(openTooltip(page)).toHaveText(/^Settings(⌘,|Ctrl\+,)$/)
     await button.click()
     await expectSettingsOpened(page, {})
   })
@@ -176,7 +176,7 @@ test.describe("Repository selector", () => {
     // the path of the template is longer than the room: the trigger cuts it, its tooltip says it whole
     await page.mouse.move(0, 0)
     await trigger.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(repo.path)
+    await expect(openTooltip(page)).toHaveText(repo.path)
   })
 })
 

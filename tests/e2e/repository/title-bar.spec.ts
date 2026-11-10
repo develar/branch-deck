@@ -10,7 +10,7 @@ import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-he
 import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { waitForConflictViewer } from "../helpers/wait-helpers"
+import { waitForConflictViewer, expectClosed } from "../helpers/wait-helpers"
 
 /**
  * The empty part of the main window's row, between the repository and the actions: it drags the window. An answer of
@@ -244,7 +244,7 @@ test.describe("Title bar of a sub-window", () => {
     await buttons.first().click()
     await expect(window.getByTestId("review-request-changes-form")).toBeVisible()
     await window.keyboard.press("Escape")
-    await expect(window.getByTestId("review-request-changes-form")).toBeHidden()
+    await expectClosed(window.getByTestId("review-request-changes-form"))
 
     // the view of the diffs comes with the changes, at the end of the tabs, never in the row
     await review.getByTestId("review-dialog-review").click()
@@ -464,7 +464,7 @@ test.describe("Check for Updates", () => {
     const available = toast("Update available")
     await expect(available).toContainText("Version 1.2.3 is ready to install.")
     await available.getByRole("button", { name: "Install and Restart" }).click()
-    await expect(available).toHaveCount(0)
+    await expectClosed(available)
     await expect(toast("Cannot install the update")).toContainText("The E2E test server has no updater")
   })
 })

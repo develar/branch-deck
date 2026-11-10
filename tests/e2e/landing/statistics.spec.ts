@@ -9,7 +9,7 @@ import { openLandingOverview } from "../helpers/review-status-helpers"
 import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { HistoryRobotFixture, TestRepositoryBuilder } from "../helpers/test-repository"
 import { openMainMenuView, TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
-import { recordCommand, waitForStorePersistence } from "../helpers/wait-helpers"
+import { recordCommand, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 const HOUR = 3600
 const DAY = 86_400
@@ -174,7 +174,7 @@ test.describe("Landing view", () => {
     // Show Statistics of the landing overview
     const popover = await openLandingOverview(page)
     await popover.getByRole("button", { name: "Show Statistics" }).click()
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     await expectStatisticsShown(page)
 
     // the switcher by its keys: an arrow moves the focus, Enter shows the focused view
@@ -205,6 +205,8 @@ test.describe("Landing view", () => {
     await search.fill("abc-1")
     await expect(page.getByTestId("command-palette").getByRole("option").first()).toHaveText(/^Go to ABC-123/)
     await page.keyboard.press("Enter")
+    // the palette gives the focus away as it unmounts, after its exit
+    await expectClosed(page.getByTestId("command-palette"))
     await expect(findBranchRow(page, "ABC-123")).toBeFocused()
     await expect(landingView(page)).toBeHidden()
 
@@ -214,6 +216,8 @@ test.describe("Landing view", () => {
     await search.fill("landing")
     await expect(page.getByTestId("command-palette").getByRole("option").first()).toHaveText(/^Landing/)
     await page.keyboard.press("Enter")
+    // the palette runs the command it was given once its exit ended
+    await expectClosed(page.getByTestId("command-palette"))
     await expectStatisticsShown(page)
   })
 
@@ -229,7 +233,7 @@ test.describe("Landing view", () => {
       const push = getPushButton(session)
       const status = findBranchRow(page, "auth").getByTestId("branch-status")
       // the tooltip of auth's status (the focused switcher has its own)
-      const tooltip = page.getByRole("tooltip").filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
+      const tooltip = openTooltip(page).filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
       const description = page.getByTestId("push-description")
       const heading = landingView(page).getByRole("heading", { level: 1 })
       // the pointer over the canvas, below the tables
@@ -257,13 +261,13 @@ test.describe("Landing view", () => {
       await pointAtCanvas()
       await emitTauriEvent(page, "show_branches")
       await expect(push).toBeFocused()
-      await expect(tooltip).toHaveCount(0)
+      await expectClosed(tooltip)
       expect(executes).toEqual([])
       // the hover opens it again
       await status.hover()
       await expect(tooltip).toBeVisible()
       await pointAtCanvas()
-      await expect(tooltip).toHaveCount(0)
+      await expectClosed(tooltip)
 
       // ⌘3 and ⌘1, the focus on the switcher: the push button takes no focus back, and the status opens no tooltip with
       // the pointer elsewhere, which no move closed (the show ran their first focus and hover again)
@@ -273,15 +277,15 @@ test.describe("Landing view", () => {
       await expect(switcher).toBeFocused()
       await push.hover()
       await expect(description).toContainText("Push session Only")
-      await expect(tooltip).toHaveCount(0)
+      await expectClosed(tooltip)
       await pointAtCanvas()
-      await expect(description).toHaveCount(0)
+      await expectClosed(description)
 
       // the description of the push, a hover card
       await push.hover()
       await expect(description).toContainText("Push session Only")
       await switchAndBack()
-      await expect(description).toHaveCount(0)
+      await expectClosed(description)
       await push.hover()
       await expect(description).toBeVisible()
 
@@ -289,11 +293,11 @@ test.describe("Landing view", () => {
       await getMoreButton(session).click()
       await expect(page.getByRole("menu")).toBeVisible()
       await switchAndBack()
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       await session.click({ button: "right" })
       await expect(page.getByRole("menu")).toBeVisible()
       await switchAndBack()
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await expectClosed(page.getByRole("menu"))
       expect(executes).toEqual([])
     },
   )

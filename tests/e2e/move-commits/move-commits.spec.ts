@@ -19,7 +19,7 @@ import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu } fro
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
-import { recordRewrites } from "../helpers/wait-helpers"
+import { recordRewrites, expectClosed } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -75,7 +75,7 @@ async function pressUndoThatWaits(page: Page, moved: Locator, undos: RewriteCall
 async function expectUndoneOnce(page: Page, moved: Locator, undos: RewriteCall[]): Promise<void> {
   await verifyCommitCount(findBranchRow(page, "docs"), 1)
   await verifyCommitCount(findBranchRow(page, ISSUE), 3)
-  await expect(moved).toHaveCount(0)
+  await expectClosed(moved)
   expect(undos).toHaveLength(1)
 }
 
@@ -227,7 +227,7 @@ test.describe("Move commits", () => {
     await expect(inlineBranchCreator.getPortal(page)).toHaveCount(0)
     await expect(dialog.getByTestId("squash-message-editor")).toBeFocused()
     await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     await expect(actions).toContainText("2 selected")
 
     // "m" typed into the name of the form is a letter of the name

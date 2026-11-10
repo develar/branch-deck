@@ -10,6 +10,7 @@ import { THEME_ITEM, commitTwoTasks, cutTreeTitles, expectHeadingCard, openPlanW
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The card right below the opening of the step of `heading`: the space between them and the file of the card */
 function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null }> {
@@ -624,7 +625,7 @@ test.describe("Review tour", () => {
       // the focus from the keyboard opens it too, above the header of its section, or under it at the top of the diffs,
       // never over it; it is read, not entered (Enter shows the story, whose names are links), and Escape closes it
       await window.mouse.move(0, 0)
-      await expect(tip).toHaveCount(0)
+      await expectClosed(tip)
       await mark.focus()
       await window.keyboard.press("Shift+Tab")
       await window.keyboard.press("Tab")
@@ -637,7 +638,7 @@ test.describe("Review tour", () => {
       }
       await expect.poll(clearsHeader).toBe(true)
       await window.keyboard.press("Escape")
-      await expect(tip).toHaveCount(0)
+      await expectClosed(tip)
       await expect(window.getByTestId("commit-review")).toBeVisible()
       // a click shows the opening of its step, the paragraph outlined
       await window.mouse.move(0, 0)
@@ -907,12 +908,12 @@ test.describe("Review tour", () => {
     await commitRow("the rule names its flag again").getByTestId("commit-row-mark").hover()
     await expect(card.getByTestId("commit-message-body")).toHaveText("The review asked for the name of the flag to say what it holds.")
     await window.mouse.move(0, 0)
-    await expect(card).toHaveCount(0)
+    await expectClosed(card)
     // the hover of its subject opens it too
     await commitRow("the rule names its flag again").getByTestId("review-commit-subject").hover()
     await expect(card.getByTestId("commit-message-body")).toHaveText("The review asked for the name of the flag to say what it holds.")
     await window.mouse.move(0, 0)
-    await expect(card).toHaveCount(0)
+    await expectClosed(card)
     // the card of the row of a step opens beside the tree at the line of that row, the rows around it in view
     const stepMark = commitRow("2 · the open keeps a stored layout").getByTestId("commit-row-mark")
     await stepMark.hover()
@@ -926,12 +927,12 @@ test.describe("Review tour", () => {
     }
     await expect.poll(atTheLine).toBe(true)
     await window.mouse.move(0, 0)
-    await expect(card).toHaveCount(0)
+    await expectClosed(card)
     await commitRow("the rule names its flag again").focus()
     await window.keyboard.press("i")
     await expect(card).toBeFocused()
     await window.keyboard.press("Escape")
-    await expect(card).toHaveCount(0)
+    await expectClosed(card)
     await expect(commitRow("the rule names its flag again")).toBeFocused()
     // the row of a step of the commits is its commit: I opens the card of that commit
     await commitRow("2 · the open keeps a stored layout").focus()
@@ -939,7 +940,7 @@ test.describe("Review tour", () => {
     await expect(card).toBeFocused()
     await expect(card.getByTestId("commit-message-body")).toContainText("The product decision is to keep the layout of the user.")
     await window.keyboard.press("Escape")
-    await expect(card).toHaveCount(0)
+    await expectClosed(card)
     await expect(commitRow("2 · the open keeps a stored layout")).toBeFocused()
   })
 
@@ -1299,7 +1300,7 @@ test.describe("Review tour", () => {
     await expect(moreFiles).toHaveText("and 2 more")
     await captureHtmlSnapshot(contract, "review-brief-substitutions")
     await moreFiles.hover()
-    const tooltip = window.getByRole("tooltip")
+    const tooltip = openTooltip(window)
     await expect(tooltip).toContainText("spec/terminal.spec.md")
     await expect(tooltip).toContainText("docs/agent-guide.md")
 
@@ -1328,7 +1329,7 @@ test.describe("Review tour", () => {
     await expect(quiet).toHaveAttribute("data-change", "substituted")
     const quietWord = quiet.getByTestId("review-brief-substitution-word")
     await quietWord.hover()
-    await expect(window.getByRole("tooltip").filter({ hasText: "was bd" })).toHaveText("was bd")
+    await expect(openTooltip(window).filter({ hasText: "was bd" })).toHaveText("was bd")
 
     const mixed = commands.getByTestId("review-brief-paragraph").filter({ hasText: "Verify the status." })
     const chip = mixed.getByTestId("review-brief-code-chip")
@@ -1344,7 +1345,7 @@ test.describe("Review tour", () => {
     const expand = code.getByRole("button", { name: "Show the whole paragraph" })
     await expect(expand).toHaveText(/⋯ \d+ more lines/)
     await expand.hover()
-    await expect(window.getByRole("tooltip").filter({ hasText: "Show the whole paragraph" })).toHaveText("Show the whole paragraph")
+    await expect(openTooltip(window).filter({ hasText: "Show the whole paragraph" })).toHaveText("Show the whole paragraph")
     await expand.click()
     await expect(code).toContainText("printf 'complete'")
   })

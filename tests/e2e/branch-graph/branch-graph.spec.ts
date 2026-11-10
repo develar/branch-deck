@@ -5,6 +5,7 @@ import { findBranchRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { DAY_ROBOTS, availableRobots, setupRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 
 test.describe("Branch graph", () => {
   test("should give every branch of a table without stacks its node, and keep the push on the dot of the status", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -92,7 +93,7 @@ test.describe("Branch graph", () => {
     await expect(row).toHaveAttribute("data-state", "open")
     // the hover closes when the pointer leaves: the click did not pin it
     await page.mouse.move(0, 0)
-    await expect(details).toHaveCount(0)
+    await expectClosed(details)
     // nor does a click half a second after the hover opened close it
     await target.hover()
     await expect(details).toBeVisible()

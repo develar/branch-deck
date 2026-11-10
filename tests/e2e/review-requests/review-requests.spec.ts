@@ -27,6 +27,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches; the requests review them as the branches of others
 const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store", checksState: "failing" })
@@ -197,6 +198,8 @@ test.describe("Your Turn card", () => {
     // no Patronus in the repository: no Approve and Safe Push…
     await expect(menu.getByRole("menuitem")).toHaveText(["Review↵", "Approve…", "Request Changes…", "Open Pull RequestO", "Copy Pull Request Link", "Copy Branch Name"])
     await page.keyboard.press("Escape")
+    // the menu gives the focus back as it unmounts, after its exit
+    await expectClosed(menu)
     await expect(getReviewRow(page, 102)).toBeFocused()
     // Enter: the review window of the row; the main window keeps the focus on the row
     await page.keyboard.press("Enter")
@@ -409,7 +412,7 @@ test.describe("Review window", () => {
     await commits.first().click()
     const changes = review.getByTestId("commit-review")
     await expect(changes).toBeVisible()
-    await expect(reviewPage.getByTestId("commit-preview")).toHaveCount(0)
+    await expectClosed(reviewPage.getByTestId("commit-preview"))
     const header = review.getByTestId("range-review-commit-header")
     if (subjects.length > 1) {
       // the column beside the diffs, the commit chosen; ⌥↓ the next one
@@ -671,12 +674,12 @@ test.describe("Review window", () => {
       await railRow.getByTestId("review-commit-subject").hover()
       await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
       await window.mouse.move(0, 0)
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await railRow.focus()
       await window.keyboard.press("i")
       await expect(card).toBeFocused()
       await window.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await expect(railRow).toBeFocused()
 
       await railRow.click()
@@ -688,13 +691,13 @@ test.describe("Review window", () => {
       await column.filter({ hasText: title }).getByText(title, { exact: true }).hover()
       await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
       await window.mouse.move(0, 0)
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       const listbox = window.getByTestId("range-review-commits")
       await listbox.focus()
       await window.keyboard.press("i")
       await expect(card).toBeFocused()
       await window.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await expect(listbox).toBeFocused()
     },
   )
@@ -839,7 +842,7 @@ test.describe("Review window", () => {
     // Escape closes the form (Base UI prevents it), not the window, and keeps the draft; the focus stays in the review,
     // whose keys work again
     await reviewPage.keyboard.press("Escape")
-    await expect(form).toBeHidden()
+    await expectClosed(form)
     expect(await windowCalls(reviewPage)).not.toContain("close")
     await expect(review.getByTestId("review-request-changes")).toBeFocused()
     // another request and back: the draft is the pull request's
@@ -859,7 +862,7 @@ test.describe("Review window", () => {
     // reopened while the last form still closes, the comment has the focus all the same
     await expect(comment).toBeFocused()
     await reviewPage.keyboard.press("Control+Enter")
-    await expect(form).toBeHidden()
+    await expectClosed(form)
     await expect(reviewToast(reviewPage, "Requested changes on #101")).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([
       { event: "REQUEST_CHANGES", commit_id: expect.stringMatching(/^[0-9a-f]{40}$/), body: "a d o r: sort by the snapshot" },
@@ -898,7 +901,7 @@ test.describe("Review window", () => {
     const rowSafePush = page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })
     await expect(rowSafePush).toHaveAttribute("aria-disabled", "true")
     await rowSafePush.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("#103 merges into release/253: Patronus would merge it there, not into master")
+    await expect(openTooltip(page)).toHaveText("#103 merges into release/253: Patronus would merge it there, not into master")
     await page.keyboard.press("Escape")
     await getReviewRow(page, 101).click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })).not.toHaveAttribute("aria-disabled", "true")
@@ -932,7 +935,7 @@ test.describe("Review window", () => {
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
     expect(await gitHubRequests(repo, "GET", "pulls", 101)).toHaveLength(1)
     expect(await gitHubRequests(repo, "POST", "issues", 101, "comments")).toEqual([{ body: "/patronus merge" }])
-    await expect(form).toBeHidden()
+    await expectClosed(form)
     // approved: the Safe Push alone is left, the primary now
     await expect(safePush).toHaveText("Safe Push…M")
     await expect(safePush).toHaveAttribute("data-variant", "default")
@@ -1142,7 +1145,7 @@ test.describe("Owner chips", () => {
     await expect(ownerChip(window, "Design")).toHaveAttribute("data-yours", "")
     await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
     await ownerChip(window, "Auth Team").hover()
-    await expect(window.getByRole("tooltip", { name: "Approved" })).toBeVisible()
+    await expect(openTooltip(window, { name: "Approved" })).toBeVisible()
     // nothing remembered: the window opens on Design and shows only its file
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
     await expect(diffHeader(window, "ui/login.css")).toBeVisible()
@@ -1355,11 +1358,11 @@ async function pressFileKey(window: Page, key: "j" | "k", position: string): Pro
 /** The description of Approve, by its hover */
 async function approveDescription(window: Page, review: ReturnType<Page["getByTestId"]>): Promise<string> {
   await review.getByTestId("review-approve").hover()
-  const tooltip = window.getByRole("tooltip")
+  const tooltip = openTooltip(window)
   await expect(tooltip).toBeVisible()
   const text = (await tooltip.textContent()) ?? ""
   await window.mouse.move(0, 0)
-  await expect(tooltip).toBeHidden()
+  await expectClosed(tooltip)
   return text
 }
 
@@ -1391,7 +1394,7 @@ test.describe("Owner part and Approve", () => {
       const form = window.getByTestId("review-safe-push-form")
       await expect(form.getByTestId("review-safe-push-scope")).toHaveText("Counts for Design · You opened 2 of its 2 files")
       await window.keyboard.press("Escape")
-      await expect(form).toBeHidden()
+      await expectClosed(form)
 
       // information only: Approve submits
       await pressDecisionKey(window, review, "a")
@@ -1493,7 +1496,7 @@ test.describe("Owner part and Approve", () => {
     await expect(form).toBeVisible()
     await expect(form.getByTestId("review-safe-push-scope")).toHaveCount(0)
     await window.keyboard.press("Escape")
-    await expect(form).toBeHidden()
+    await expectClosed(form)
   })
 })
 

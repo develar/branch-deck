@@ -8,7 +8,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/bran
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
-import { holdCommandCalls, holdNextAnswer, recordCommand } from "../helpers/wait-helpers"
+import { holdCommandCalls, holdNextAnswer, recordCommand, expectClosed } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template: Uses.kt calls `store.add` of an untyped receiver (an `add` in Store.kt and in
 // Queue.kt) and `helper`, declared at the end of Store.kt, which its change at the top leaves in a fold
@@ -139,7 +139,7 @@ test.describe("Go to Declaration", () => {
     const chooser = page.getByRole("listbox", { name: "Declarations of add" })
     await expect(chooser.getByRole("option")).toHaveText(["Queue.addsrc/Queue.kt:2", "Store.addsrc/Store.kt:33"])
     await chooser.getByRole("option", { name: /Store\.add/ }).click()
-    await expect(chooser).toBeHidden()
+    await expectClosed(chooser)
     await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "add", path: "src/Store.kt" })
 
     // the item of the menu of the code, Enter on the first declaration
@@ -269,7 +269,7 @@ test.describe("Go to Declaration", () => {
     await expect.poll(() => cancels.length).toBe(2)
     usages.release()
     await answered(page)
-    await expect(page.getByTestId("symbol-chooser")).toBeHidden()
+    await expectClosed(page.getByTestId("symbol-chooser"))
 
     // the canceled answers opened nothing: the next jump opens one file, and one Back returns to the review
     await goToOutsider()
@@ -309,20 +309,20 @@ test.describe("Find Usages", () => {
     await expect(chooser).toContainText("1 name-only match was omitted because it was not linked to this declaration")
     await expect(usages.getByRole("group", { name: "Outside the review" })).toContainText("src/Base.kt:1")
     await usages.getByRole("option", { name: /src\/Store\.kt/ }).click()
-    await expect(chooser).toBeHidden()
+    await expectClosed(chooser)
     // Back: the name the list was asked for
     await expectHelperShownAndBack(code)
     // Escape closes the list and gives the focus back to the view: ⌥F7 opens it again
     await page.keyboard.press("Alt+F7")
     await expect(usages).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(chooser).toBeHidden()
+    await expectClosed(chooser)
     await page.keyboard.press("Alt+F7")
     await expect(usages).toBeVisible()
     await page.keyboard.press("Escape")
     // closed before the menu opens the next one: the close gives the focus back to the view, also after the next list
     // took it when its exit ends late (under load)
-    await expect(chooser).toBeHidden()
+    await expectClosed(chooser)
 
     // the item of the menu of the code; ↓ to the usage outside the review, Enter opens its file
     const again = await pointOf(code, "src/Uses.kt", "helper")
@@ -361,6 +361,6 @@ test.describe("Find Usages", () => {
     const code = await openNavigationReview(page)
     await findUsagesOf(code, "src/Store.kt", "version")
     await expect(page.getByText("No usages of version found")).toBeVisible()
-    await expect(page.getByTestId("symbol-chooser")).toBeHidden()
+    await expectClosed(page.getByTestId("symbol-chooser"))
   })
 })

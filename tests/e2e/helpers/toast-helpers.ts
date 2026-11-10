@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test"
-import { expect } from "../fixtures/base-test"
+import { expectClosed } from "./wait-helpers"
 
 /**
  * Closes `toast` with its close button, as the user does with a toast read, and waits until it is gone. The toasts lie
@@ -9,8 +9,8 @@ import { expect } from "../fixtures/base-test"
 export async function closeToast(toast: Locator): Promise<void> {
   // Base UI hides the close button from the accessibility tree
   await toast.locator("[data-slot=toast-close]").click()
-  // its exit slides for 500 ms: a poll sees it gone at once, the backoff of `toHaveCount` only 350 ms later
-  await expect.poll(() => toast.count()).toBe(0)
+  // its exit slides for 500 ms, which ends only as the window paints: closed by its state, the slide ended for it
+  await expectClosed(toast)
 }
 
 let held = 0

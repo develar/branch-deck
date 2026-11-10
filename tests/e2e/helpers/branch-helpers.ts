@@ -1,7 +1,7 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
 import type { TestRepositoryBuilder } from "./test-repository"
-import { waitForStepFacts } from "./wait-helpers"
+import { waitForStepFacts, openTooltip } from "./wait-helpers"
 
 /**
  * Find a branch row by branch name
@@ -26,7 +26,7 @@ export async function restOnBranchRow(page: Page, branchName: string): Promise<v
   const row = findBranchRow(page, branchName)
   await row.hover()
   await row.getByRole("button", { name: `More actions for ${branchName}` }).hover()
-  await expect(page.getByRole("tooltip", { name: "More actions", exact: true })).toBeVisible()
+  await expect(openTooltip(page, { name: "More actions", exact: true })).toBeVisible()
 }
 
 /** `name@depth` of the branch rows in display order */

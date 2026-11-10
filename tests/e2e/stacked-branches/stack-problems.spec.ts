@@ -6,7 +6,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { expectDisabledItems } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { holdRewrites } from "../helpers/wait-helpers"
+import { holdRewrites, expectClosed } from "../helpers/wait-helpers"
 
 /** The branch row above `name` one level up, the parent the table shows it under; null for a root */
 async function shownParent(page: Page, name: string): Promise<string | null> {
@@ -145,7 +145,7 @@ test.describe("Stack problems", () => {
     await expect(alert).toContainText("Commits declare different parents")
     await expect(preview.getByText("Sync failed")).toHaveCount(0)
     await runAndWaitForSync(page, () => alert.getByRole("button", { name: "Unstack" }).click())
-    await expect(preview).toBeHidden()
+    await expectClosed(preview)
     await expect.poll(() => shownParent(page, "publish-viewer")).toBeNull()
   })
 })

@@ -24,6 +24,7 @@ import { expectPushedToRemote, pushedToast, pushedBranches } from "../helpers/pu
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { holdToast } from "../helpers/toast-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 
 const NOW = ROBOTS_NOW
 const { running: RUNNING, failed: FAILED, merged: MERGED } = DAY_ROBOTS
@@ -67,13 +68,13 @@ test.describe("Landing overview", () => {
 
     // a branch name shows its row
     await running.getByRole("button", { name: "JIRA-456", exact: true }).click()
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     await verifyBranchState(findBranchRow(page, "JIRA-456"), "open")
     await page.mouse.move(0, 0)
 
     // Activity has the history of the robots: Show in Activity opens its side panel at its Robots
     await (await openLandingOverview(page)).getByTestId("landing-finished").getByRole("button", { name: "Show in Activity" }).click()
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     await expect(
       activityPanel(page)
         .getByTestId("activity-filter")
@@ -172,7 +173,7 @@ test.describe("Landing overview", () => {
     await expect(running.getByTestId("robots-row-failed")).toHaveText("Failed: Bazel Community Build Aggregator")
     await expect(running.getByTestId("robot-progress")).toHaveAttribute("data-failing", "true")
     await page.keyboard.press("Escape")
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
 
     // no use waiting for it: the toast cancels it, and says so in place, the toast of the robot
     const held = await holdToast(toast)
@@ -198,7 +199,7 @@ test.describe("Landing overview", () => {
     const docs = landingRow(popover, "docs")
     await expect(docs).toHaveAttribute("data-kind", "ready")
     await runAndWaitForAnswer(page, "execute", () => docs.getByTestId("next-step").click())
-    await expect(popover).toBeHidden()
+    await expectClosed(popover)
     await expectPatronusStarts(repo, [startRequest("docs")])
     // it pushed docs alone, before the start
     await expectPushedToRemote(repo, ["docs"])

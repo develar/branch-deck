@@ -6,7 +6,7 @@ import { openBranchPreview } from "./review-status-helpers"
 import { closeMenus, openSubmenu } from "./selection-helpers"
 import { runAndWaitForAnswer } from "./sync-helpers"
 import { closeToast } from "./toast-helpers"
-import { animationsEnded, recordCommand, waitForStepFacts } from "./wait-helpers"
+import { animationsEnded, expectClosed, recordCommand, waitForStepFacts, openTooltip } from "./wait-helpers"
 
 /** The merge profiles of master without any: a start runs the default checks */
 export const DEFAULT_CHECKS_ONLY: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
@@ -119,7 +119,7 @@ export async function expectLandedActions(page: Page, branchName: string, reason
   await row.focus()
   await page.keyboard.press("s")
   await expect(page.locator("[data-slot=toast]", { hasText: `Safe Push of ${branchName}` }).locator("[data-slot=toast-description]")).toHaveText(reason)
-  await expect(safePushPopover(page)).toHaveCount(0)
+  await expectClosed(safePushPopover(page))
 }
 
 /**
@@ -132,7 +132,7 @@ export async function expectDisabledItems(page: Page, items: readonly (readonly 
     await expect(item).toHaveAttribute("aria-disabled", "true")
     await item.hover()
     // the description of the item before may still be fading out
-    await expect(page.getByRole("tooltip").filter({ hasText: expected }).last()).toHaveText(expected)
+    await expect(openTooltip(page).filter({ hasText: expected }).last()).toHaveText(expected)
   }
 }
 
@@ -143,7 +143,7 @@ export async function expectDisabledItems(page: Page, items: readonly (readonly 
 export async function startFromPreviewFooter(page: Page, branchName: string, label: string): Promise<void> {
   const preview = await openBranchPreview(page, branchName)
   await preview.getByRole("button", { name: `S ${label}` }).click()
-  await expect(preview).toHaveCount(0)
+  await expectClosed(preview)
 }
 
 /**

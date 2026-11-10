@@ -8,7 +8,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { MIN_WINDOW } from "../helpers/header-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, runAndWaitForSync, syncFromMenu, syncOnWindowFocus, waitForTauriListener } from "../helpers/sync-helpers"
-import { holdCommand, holdRewrites } from "../helpers/wait-helpers"
+import { holdCommand, holdRewrites, expectClosed } from "../helpers/wait-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
 const BRANCH = "JIRA-456"
@@ -97,7 +97,7 @@ test.describe("Commit message", () => {
     await expect(body.getByText("Co-Authored-By: Jane Doe <jane@example.com>")).toBeVisible()
 
     await page.keyboard.press("Escape")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
   })
 
   test("should open the preview of the hovered commit with Space and step through the list with the arrows", async ({ page }) => {
@@ -124,7 +124,7 @@ test.describe("Commit message", () => {
     await expect(position).toHaveText("1 / 3")
 
     await page.keyboard.press("Space")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
   })
 
   test("should open the preview of the last clicked unassigned row with Space and keep the selection", async ({ page }) => {
@@ -141,7 +141,7 @@ test.describe("Commit message", () => {
 
     await page.keyboard.press("ArrowDown")
     await page.keyboard.press("Escape")
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(unassignedRow).toHaveAttribute("data-selected", "true")
     await expect(page.getByTestId("selection-actions")).toContainText("1 selected")
   })
@@ -158,7 +158,7 @@ test.describe("Commit message", () => {
     await input.fill("")
     await page.keyboard.type("hot fix")
     await expect(input).toHaveValue("hot fix")
-    await expect(getPreview(page)).toHaveCount(0)
+    await expectClosed(getPreview(page))
   })
 
   test("should leave Space to a button focused from the keyboard", async ({ page }) => {
@@ -175,7 +175,7 @@ test.describe("Commit message", () => {
 
     await page.keyboard.press("Space")
     await verifyBranchState(branchRow, "closed")
-    await expect(getPreview(page)).toHaveCount(0)
+    await expectClosed(getPreview(page))
   })
 
   test("should keep the preview on its commit across a sync", async ({ page }) => {
@@ -217,7 +217,7 @@ test.describe("Commit message", () => {
         "The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.",
       )
       await page.mouse.move(0, 0)
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
 
       // the hover of the subject opens it too, after a longer rest; the menu of the commit at the end of the meta line of
       // the card; the pointer leaving the subject closes it
@@ -225,7 +225,7 @@ test.describe("Commit message", () => {
       await expect(card).toBeVisible()
       await expect(card.getByTestId("commit-header-meta").getByRole("button", { name: /^More actions for / })).toBeVisible()
       await page.mouse.move(0, 0)
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       // the pointer that moves from the subject onto the mark keeps the card the subject opened: the time stands still
       // past the close of the subject (150 ms) and before the mark could open it again (300 ms)
       await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000)
@@ -237,7 +237,7 @@ test.describe("Commit message", () => {
       await expect(card).toBeVisible()
       await page.clock.resume()
       await page.mouse.move(0, 0)
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
 
       // I on the row Space would preview (the last clicked one) opens the card with the focus in it; Escape closes the
       // card alone and gives the focus back to the list, whose keys go on from that row
@@ -247,7 +247,7 @@ test.describe("Commit message", () => {
       await expect(card).toBeFocused()
       await expect(card.getByTestId("commit-message-body").locator("ul > li")).toHaveCount(3)
       await page.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await expect(table).toBeFocused()
       await expect(commitRow).toHaveAttribute("data-selected", "true")
 
@@ -255,14 +255,14 @@ test.describe("Commit message", () => {
       await toggle.hover()
       await expect(card).toBeVisible()
       await page.keyboard.press("Escape")
-      await expect(card).toHaveCount(0)
+      await expectClosed(card)
       await expect(commitRow).toHaveAttribute("data-selected", "true")
       await page.keyboard.press(" ")
       const preview = getPreview(page)
       await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${SUBJECT}`)
       await expectPreviewFocused(preview)
       await page.keyboard.press("Escape")
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
 
       // the window keeps one card: the hover of a mark in another list closes the card I opened in this one
       await page.mouse.move(0, 0)
@@ -271,7 +271,8 @@ test.describe("Commit message", () => {
       await expect(card.getByText(SUBJECT, { exact: true })).toBeVisible()
       await page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" }).getByTestId("commit-row-mark").hover()
       await expect(card.getByText("Emergency fix for CRITICAL-111", { exact: true })).toBeVisible()
-      await expect(card).toHaveCount(1)
+      // one card open: the one it replaced closes, its exit running until the window paints
+      await expect(card.and(page.locator("[data-open]"))).toHaveCount(1)
     },
   )
 
@@ -375,7 +376,7 @@ test.describe("Commit message", () => {
     const newHash = await repo.reword(hash!, "Emergency fix for CRITICAL-111\n\nSkip the cache warm-up until CRITICAL-112 is fixed upstream.")
     await syncOnWindowFocus(page)
 
-    await expect(preview).toHaveCount(0)
+    await expectClosed(preview)
     await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
     // the preview of the reworded commit shows the new body
     await unassignedRow.getByTestId("commit-row-mark").click()
@@ -465,7 +466,7 @@ test.describe("Commit message", () => {
       await preview.getByRole("button", { name: /^More actions for / }).click()
       await page.getByRole("menuitem", { name: "Move to…" }).click()
       // a form of the row: the preview closes for it
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
       await expect(page.getByTestId("inline-branch-target")).toBeVisible()
     })
 
@@ -479,7 +480,7 @@ test.describe("Commit message", () => {
       await expectPreviewFocused(preview)
 
       await page.keyboard.press("Escape")
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
     })
 
     test("should save nothing when the commit changed meanwhile, say so, and close the preview of the commit that is gone", async ({ page, issueLinksRepo: repo }) => {
@@ -496,7 +497,7 @@ test.describe("Commit message", () => {
       await expect(page.getByText("Cannot edit the commit message")).toBeVisible()
       await expect(page.getByText(/is no commit ahead of the baseline any more\); nothing was done/)).toBeVisible()
       // the table shows the commit as the terminal left it; the preview of the one that is gone closed
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
       await expect(
         getBranchDetailsRow(page, BRANCH)
           .locator("tr")
@@ -536,7 +537,7 @@ test.describe("Commit message", () => {
       await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
       await expect(perfRow(page)).toHaveAttribute("data-row-id", hash)
       await expect(perfRow(page, REWORDED)).toHaveCount(0)
-      await expect(toast).toHaveCount(0)
+      await expectClosed(toast)
     })
 
     test("should undo a reword from Activity", async ({ page }) => {
@@ -559,7 +560,7 @@ test.describe("Commit message", () => {
       await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${PERF_SUBJECT}`)
       await expect(perfRow(page)).toHaveAttribute("data-row-id", hash)
       // the Undo of the toast went with it
-      await expect(rewordToast(page, hash)).toHaveCount(0)
+      await expectClosed(rewordToast(page, hash))
     })
 
     test("should refuse to undo a reword after the branch moved", async ({ page, issueLinksRepo: repo }) => {
@@ -633,7 +634,7 @@ test.describe("Commit message", () => {
 
       await runAndWaitForSync(page, () => preview.getByRole("button", { name: /Save/ }).click())
       // the commit left the branch list, so its preview closes
-      await expect(preview).toHaveCount(0)
+      await expectClosed(preview)
       await expect(page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: PERF_SUBJECT })).toBeVisible()
     })
   })
@@ -658,7 +659,7 @@ test.describe("Commit message", () => {
     // near the start: the middle of the text is the CRITICAL-112 link
     await body.locator("p").click({ position: { x: 4, y: 4 } })
     await page.keyboard.press("Escape")
-    await expect(body).toHaveCount(0)
+    await expectClosed(body)
     await expect(unassignedRow).toHaveAttribute("data-selected", "false")
     await expect(page.getByTestId("selection-actions")).toHaveCount(0)
 

@@ -8,6 +8,7 @@ import { GITHUB_REPOSITORY, getOpenedUrls } from "../helpers/pull-request-helper
 import { expectPushedToRemote, pushedBranches } from "../helpers/push-helpers"
 import { safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
+import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
 /** The Safe Push of `branch` that an agent's `brd safe-push` runs */
 function safePushOf(branch: string): Intent {
@@ -30,13 +31,13 @@ test.describe("Operations of another process of the repository", () => {
     await expect(slot).toHaveText("bd: Safe Push of JIRA-456…")
     await expect(slot).toHaveAttribute("aria-busy", "true")
     await slot.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(`\`bd\` (pid ${agent!.pid}) runs the Safe Push of JIRA-456, which holds what it needs until it ends`)
+    await expect(openTooltip(page)).toHaveText(`\`bd\` (pid ${agent!.pid}) runs the Safe Push of JIRA-456, which holds what it needs until it ends`)
 
     // S says why it can't start, and opens no popover
     await findBranchRow(page, "JIRA-456").focus()
     await page.keyboard.press("s")
     await expect(toastWith(page, "Safe Push of JIRA-456 can't start")).toContainText(`\`bd\` (pid ${agent!.pid}) runs the Safe Push of JIRA-456`)
-    await expect(safePushPopover(page)).toHaveCount(0)
+    await expectClosed(safePushPopover(page))
 
     // a push of the branch needs what bd holds: its item says so before Rust is asked, and P says it in an info toast;
     // another branch pushes
@@ -102,7 +103,7 @@ test.describe("Operations of another process of the repository", () => {
     await row.getByTestId("open-unknown-start").click()
     await expect.poll(() => getOpenedUrls(page)).toEqual(["https://patronus.test/"])
     await slot.hover()
-    await expect(page.getByRole("tooltip")).toHaveText(
+    await expect(openTooltip(page)).toHaveText(
       "Cannot tell whether the Safe Push of JIRA-456 started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start; Patronus may still run it",
     )
 
@@ -110,7 +111,7 @@ test.describe("Operations of another process of the repository", () => {
     await row.focus()
     await page.keyboard.press("s")
     await expect(toastWith(page, "Safe Push of JIRA-456 can't start")).toContainText("Cannot tell whether the Safe Push of JIRA-456 started")
-    await expect(safePushPopover(page)).toHaveCount(0)
+    await expectClosed(safePushPopover(page))
 
     // Forget This Start lets it go: nothing is asked of Patronus, and the toast says it may still run it
     await runAndWaitForAnswer(page, "execute", () => row.getByTestId("forget-start").click())

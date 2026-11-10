@@ -1,6 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
-import { animationsEnded } from "./wait-helpers"
+import { animationsEnded, expectClosed } from "./wait-helpers"
 
 /**
  * Select a single commit
@@ -66,19 +66,21 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
 export async function openSubmenu(page: Page, name: string): Promise<void> {
   const trigger = page.getByRole("menuitem", { name, exact: true })
   // a menu zooms in as it opens: the item would move away under a pointer put on it meanwhile, its leave canceling the
-  // open; the hover that follows into the submenu waits for it likewise
+  // open; the hover that follows into the submenu waits for it likewise. Only the open menus: the exit of a closing one
+  // ends only as the window paints, which a loaded machine does not for seconds
+  const open = page.getByRole("menu").and(page.locator(":not([data-closed])"))
   await expect(trigger).toBeVisible()
-  await animationsEnded(page.getByRole("menu"))
+  await animationsEnded(open)
   await trigger.hover()
   await expect(trigger).toHaveAttribute("aria-expanded", "true")
-  await animationsEnded(page.getByRole("menu"))
+  await animationsEnded(open)
 }
 
 /** Closes the open menu with its open submenu by Escape, as the user does: each Escape closes one level */
 export async function closeMenus(page: Page): Promise<void> {
   await page.keyboard.press("Escape")
   await page.keyboard.press("Escape")
-  await expect(page.getByRole("menu")).toHaveCount(0)
+  await expectClosed(page.getByRole("menu"))
 }
 
 /**

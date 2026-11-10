@@ -20,7 +20,7 @@ import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { waitForStorePersistence } from "../helpers/wait-helpers"
+import { waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
 // origin/master, the update rebases cleanly / conflicts in src/app.txt. `landed_upstream`: a robot pushed feature-auth
@@ -116,7 +116,7 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(dialog.getByTestId("squash-message-editor")).toBeFocused()
     // a rewrite shows its result with the sync it starts
     await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
     await verifyCommitCount(row, 3)
 
     // the Undo of the window is run by the main window, the panel's there itself; both are the toast's: it undoes once
@@ -134,7 +134,8 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
     await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
     await verifyCommitCount(row, 4)
-    await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0)
+    // the toast of the squash closed with its Undo
+    await expectClosed(page.getByRole("button", { name: "Undo" }))
   }
 
   testWithIssueLinks("should offer the Undo of a squash while the toast's lasts, in the window", async ({ page }) => {
@@ -381,7 +382,7 @@ test.describe("Activity of updates", () => {
     const dialog = page.getByTestId("update-blocked-dialog")
     await expect(dialog).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(dialog).toBeHidden()
+    await expectClosed(dialog)
 
     const window = await openActivityWindow(page)
     const entry = activityEntry(window, "Didn't update master")
