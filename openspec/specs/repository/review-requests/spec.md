@@ -20,7 +20,7 @@ targets:
   - crates/sync-core/src/remote_command.rs
   - crates/git-ops/src/commit_files.rs
   - crates/git-executor/src/git_command_executor.rs
-  - crates/git-executor/src/process_tree.rs
+  - crates/sync-utils/src/process_tree.rs
   - crates/test-server/src/review_fixtures.rs
   - crates/app-api/src/reads/diffs.rs
   - crates/app-api/src/remote/pull_requests.rs
