@@ -229,7 +229,7 @@ test.describe("Command palette of a stack", () => {
         .getByRole("option", { name: /^Unstack from login/ }),
     ).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(palette(page)).toHaveCount(0)
+    await expectClosed(palette(page))
 
     // the menu of the same row, open while a sync from the app's menu changes the stores it reads: it follows the sync
     // with its items, and the window keeps its rows (the palette read that menu again with every change, beside it)
