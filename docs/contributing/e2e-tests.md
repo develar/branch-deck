@@ -115,6 +115,12 @@ rules in one line each and links here.
   after the window opened may never see the call a test waits for (1 run in 12 of `review-plan.spec.ts`). Hold it on
   the context before the window opens (`holdCommandCalls(page, command, { scope: "context" })`) and wait for a held
   call that asks for what the test holds unpainted, never for a call that may already have gone out.
+- **A move of the session clock after a call the fake counted** comes before the answer ended in the session: a fake
+  counts a call as it answers, the session applies the answer seconds later under load and counts the age of the list
+  from that end, past the move, or takes the focus of the move into the list in flight. One move and one focus then ask
+  nothing (`review-requests.spec.ts`, 2 of 40 under load): move and focus until the state shows
+  (`focusPastReviewRequestsAge`). Likewise a toast or a row after an operation is checked once it answered
+  (`runAndWaitForAnswer(page, "execute", …)` before `expectPushedToast`).
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
