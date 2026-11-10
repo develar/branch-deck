@@ -62,7 +62,8 @@ pub struct ShrinkParams<'a> {
   pub home: Option<&'a Path>,
   /// The volume whose free space the shrink raises: the pool directory of the get
   pub volume: &'a Path,
-  /// The free bytes at which it stops: the minimum and its margin (`lease::shrink_target`)
+  /// The free bytes at which it stops, also within the delete of a slot: the minimum and its margin
+  /// (`lease::shrink_target`)
   pub target: u64,
   /// The free bytes of the volume of a path (`free_space::available_bytes`; a test tells a volume of its own)
   pub available: &'a AvailableBytes<'a>,
@@ -111,7 +112,9 @@ impl ShrunkSlot {
 /// Clean the free slots of every pool of this machine (the pool of `params.repository` and each pool under
 /// `~/.branch-deck/pool`) on the volume of `params.volume` (`free_space::Volume`) by their own clean rules with keep 0
 /// and age 0, in the order of `shrink_order`, until the volume has `params.target` free: before each slot one `statfs`,
-/// so the shrink stops at the first slot past it. A free slot on another volume frees nothing on this one and is no
+/// so the shrink stops at the first slot past it. The delete of a slot asks one `statfs` every few hundred entries and
+/// stops once the volume has it too, the rest left in the trash (`Trash::empty_until`): a slot of idea-1 is 1.4 million
+/// files, minutes to delete, and the volume that has the target needs none of them. A free slot on another volume frees nothing on this one and is no
 /// candidate. A free slot with a process in it stays (`busy`), as `brd lease clean` skips it; one without rules or whose
 /// rules can't be read frees nothing and is passed over; one leased meanwhile is passed over. A failed rule never stops
 /// the others
@@ -133,6 +136,8 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
     ..Shrunk::default()
   };
   let volume = Volume::of(params.volume);
+  // a delete under way stops at the target too: the rest waits in the trash
+  let enough = || (params.available)(params.volume).is_some_and(|available| available >= params.target);
   let present = |slot: &Slot| slot.lease.is_none() && Path::new(&slot.path).is_dir() && volume.holds(Path::new(&slot.path));
   for (_, store) in &pools {
     for slot in store.slots.iter().filter(|slot| present(slot)) {
@@ -179,8 +184,8 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
     let trash = Trash::new(&pool.trash_dir());
     let mut cleaned = apply_clean_rules(git_executor, &slot.path, &rules, CleanMode::Trash(&trash));
     release_marker(&pool, params.lock_timeout, &slot.path, &marker.id);
-    // the slot is free again: its delete keeps no get waiting
-    let trash_left = trash.empty(&mut cleaned);
+    // the slot is free again: its delete keeps no get waiting, and stops once the volume has the minimum
+    let (trash_left, complete) = trash.empty_until(&mut cleaned, &enough);
     let cleaned_slot = ShrunkSlot {
       name: slot.name.clone(),
       path: slot.path.clone(),
@@ -188,8 +193,11 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
       cleaned,
       trash_left,
     };
-    debug!(slot = %slot.path, freed = cleaned_slot.freed_bytes(), "the build output of a free slot is deleted");
+    debug!(slot = %slot.path, freed = cleaned_slot.freed_bytes(), complete, "the build output of a free slot is deleted");
     shrunk.slots.push(cleaned_slot);
+    if !complete {
+      break;
+    }
   }
   shrunk
 }

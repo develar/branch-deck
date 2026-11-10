@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{DirtyCheck, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
+use crate::lease::{DirtyCheck, GetStep, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -181,4 +181,32 @@ fn a_commit_during_the_check_stops_the_takeover() {
   assert_eq!(slot.lease.as_ref().map(|lease| (lease.id.as_str(), lease.taking_over.is_none())), Some(("get", true)));
   let reclaimed = slot.reclaimed.unwrap();
   assert_eq!((reclaimed.lease_id.as_str(), reclaimed.by_lease_id.as_deref()), ("idle", Some("get")));
+}
+
+/// The wait for the shrink or the eviction of another get names the holder, how long it holds the lock, and the free
+/// space of the volume against the minimum, so a wait of minutes reads as disk pressure, never as a hang
+#[test]
+fn the_wait_for_the_shrink_of_another_names_the_holder_its_time_and_the_free_space() {
+  let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() - 600;
+  let holder = history_rewrite::repository_lock::LockHolder {
+    command: "brd lease get --holder win-native -C ~/projects/idea-1".to_string(),
+    pid: 4242,
+    process_started: None,
+    since,
+    subject: None,
+  };
+  let step = GetStep::WaitForPressure {
+    holder,
+    free: Some(195 << 30),
+    minimum: 200 << 30,
+  };
+  let words = step.to_string();
+  assert!(
+    words.starts_with("waiting for the shrink or the eviction of another get, `brd lease get --holder win-native -C ~/projects/idea-1` (pid 4242, for 10 min"),
+    "{words}"
+  );
+  assert!(
+    words.ends_with("the volume at 195.0 GiB of the 200.0 GiB this get needs: the free space is measured again after it, or once it has the minimum"),
+    "{words}"
+  );
 }

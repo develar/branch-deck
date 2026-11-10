@@ -1,4 +1,4 @@
-use crate::trim::{parse_max_slots, remove_all, slot_dir};
+use crate::trim::{parse_max_slots, remove_all, remove_all_until, slot_dir};
 use std::path::Path;
 
 #[test]
@@ -39,6 +39,24 @@ fn every_path_is_deleted_side_by_side_and_its_bytes_counted() {
   assert!(all.iter().all(|path| !path.exists()));
   // a path that is gone frees nothing
   assert_eq!(remove_all(&[dir.path().join("gone").as_path()]).into_iter().map(Result::unwrap).collect::<Vec<_>>(), [0]);
+}
+
+/// A delete of the eviction that the volume needs no more stops before it begins (the volume got the minimum since the
+/// last slot) and deletes nothing; one never stopped deletes everything
+#[test]
+fn a_delete_side_by_side_stops_when_its_stop_holds_and_leaves_the_paths() {
+  let dir = tempfile::tempdir().unwrap();
+  let path = dir.path().join("slot");
+  for child in 0..20 {
+    std::fs::create_dir_all(path.join(child.to_string())).unwrap();
+    std::fs::write(path.join(child.to_string()).join("file"), vec![1u8; 8192]).unwrap();
+  }
+  let (results, complete) = remove_all_until(&[path.as_path()], &|| true);
+  assert_eq!((results.into_iter().map(Result::unwrap).collect::<Vec<_>>(), complete), (vec![0], false));
+  assert_eq!(std::fs::read_dir(&path).unwrap().count(), 20);
+  let (results, complete) = remove_all_until(&[path.as_path()], &|| false);
+  assert!(complete && results[0].as_ref().is_ok_and(|freed| *freed >= 20 * 8192), "{results:?}");
+  assert!(!path.exists());
 }
 
 #[test]

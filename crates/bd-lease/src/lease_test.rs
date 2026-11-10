@@ -1427,15 +1427,22 @@ impl ShrinkFixture {
 
   /// `brd lease get` on `volume`, each step told to `progress`
   fn get_reporting(&self, volume: Volume, progress: &(dyn Fn(GetStep) + Sync)) -> anyhow::Result<lease_pool::lease::LeaseGot> {
-    let environment = self.fixture.environment(self.fixture.repo.path());
-    let context = LeaseContext::resolve(&environment, None).map_err(|error| anyhow::anyhow!("{}", error.message))?;
+    // what the shrink or the eviction moved into the trash still takes its space, as on a volume, until it is deleted
+    let trash = self.fixture.repo.path().join(".git/branch-deck/trash");
     let space = |_: &Path| {
-      let gone = |path: fn(&str) -> PathBuf| self.slots.iter().filter(|slot| !path(slot).exists()).count() as u64;
+      let gone = |path: fn(&str) -> PathBuf, in_trash: &str| (self.slots.iter().filter(|slot| !path(slot).exists()).count() as u64).saturating_sub(files_named(&trash, in_trash));
       Some(lease_pool::free_space::VolumeSpace {
-        available: (volume.base + volume.per_unit * gone(Self::unit) + volume.per_slot * gone(|slot| PathBuf::from(slot))) * GIB,
+        available: (volume.base + volume.per_unit * gone(Self::unit, "dep") + volume.per_slot * gone(|slot| PathBuf::from(slot), ".branchdeck.toml")) * GIB,
         total: VOLUME_BYTES,
       })
     };
+    self.get_on(&space, progress)
+  }
+
+  /// `brd lease get` on the volume `space` tells, each step told to `progress`
+  fn get_on(&self, space: &lease_pool::free_space::SpaceOf<'_>, progress: &(dyn Fn(GetStep) + Sync)) -> anyhow::Result<lease_pool::lease::LeaseGot> {
+    let environment = self.fixture.environment(self.fixture.repo.path());
+    let context = LeaseContext::resolve(&environment, None).map_err(|error| anyhow::anyhow!("{}", error.message))?;
     lease_pool::lease::lease_get_core(
       &context.git,
       &lease_pool::lease::LeaseGetParams {
@@ -1448,7 +1455,7 @@ impl ShrinkFixture {
         bazel: None,
         lock_timeout: context.lock_timeout,
         progress: Some(progress),
-        space: Some(&space),
+        space: Some(space),
       },
     )
   }
@@ -1578,6 +1585,71 @@ fn a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules()
   assert!(shrunk["freed_bytes"].as_u64().is_some_and(|freed| freed >= UNIT_BYTES as u64), "{output}");
 }
 
+/// The files below `dir` whose name `counted` admits, none when it is gone
+fn files_below_matching(dir: &Path, counted: &dyn Fn(&std::ffi::OsStr) -> bool) -> u64 {
+  std::fs::read_dir(dir).map_or(0, |entries| {
+    entries
+      .flatten()
+      .map(|entry| {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+          files_below_matching(&entry.path(), counted)
+        } else {
+          u64::from(counted(&entry.file_name()))
+        }
+      })
+      .sum()
+  })
+}
+
+/// The files named `name` below `dir`
+fn files_named(dir: &Path, name: &str) -> u64 {
+  files_below_matching(dir, &|file| file == name)
+}
+
+/// The files below `dir`
+fn files_below(dir: &Path) -> u64 {
+  files_below_matching(dir, &|_| true)
+}
+
+/// The delete of the shrink stops once the volume has the minimum and its margin, inside the build output of a slot of
+/// many files (a slot of idea-1 is 1.4 million, minutes to delete): the rest waits in the trash for the next get below
+/// the minimum (`left-…`), no other slot is cleaned, and the get leases at once
+#[test_log::test]
+fn a_shrink_stops_inside_the_delete_of_a_slot_once_the_volume_has_the_target() {
+  let shrink = ShrinkFixture::new();
+  let [first, second, third] = &shrink.slots;
+  // the unit of the first slot, 1,000 files more
+  let unit_dir = ShrinkFixture::unit(first).parent().unwrap().to_path_buf();
+  for file in 0..1000 {
+    std::fs::write(unit_dir.join(format!("f{file}")), "x").unwrap();
+  }
+  let output = files_below(&unit_dir);
+  let trash = shrink.fixture.repo.path().join(".git/branch-deck/trash");
+  // 99 GiB, and 1 GiB more for each 30 files of it deleted: the 110 of the minimum and its margin once 330 are gone
+  let space = |_: &Path| {
+    let deleted = output - files_below(&unit_dir) - files_below(&trash);
+    Some(lease_pool::free_space::VolumeSpace {
+      available: 99 * GIB + deleted * GIB / 30,
+      total: VOLUME_BYTES,
+    })
+  };
+  let got = shrink.get_on(&space, &|_| {}).unwrap();
+  assert_eq!(shrunk_paths(&got), std::slice::from_ref(first));
+  assert_eq!(shrink.units(), [false, true, true]);
+  assert_eq!(got.slot.path, *third);
+  assert!(got.free_bytes.is_some_and(|free| (110 * GIB..117 * GIB).contains(&free)), "{:?}", got.free_bytes);
+  // asked once every 256 entries: stopped at the first ask past the 330 files, the rest left to a sweep
+  let left: Vec<String> = std::fs::read_dir(&trash)
+    .unwrap()
+    .flatten()
+    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+    .collect();
+  assert!(left.len() == 1 && left[0].starts_with("left-"), "{left:?}");
+  let kept = files_below(&trash);
+  assert!((output - 512..=output - 330).contains(&kept), "{kept} of {output}");
+  assert!(ShrinkFixture::unit(second).exists());
+}
+
 /// A shrink stops at the first slot past the minimum and its margin: the others keep their build output
 #[test_log::test]
 fn a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot() {
@@ -1611,8 +1683,8 @@ fn behind_held_turn(shrink: &ShrinkFixture, volume: Volume, release: Release, ho
       // dropped with the get: a get that never waits ends the test's wait with an error
       let waiting = std::sync::Mutex::new(waiting);
       shrink.get_reporting(volume, &|step| {
-        if let GetStep::WaitForPressure { pid, .. } = step {
-          waiting.lock().unwrap().send(pid).unwrap();
+        if let GetStep::WaitForPressure { holder, .. } = step {
+          waiting.lock().unwrap().send(holder.pid).unwrap();
         }
       })
     });

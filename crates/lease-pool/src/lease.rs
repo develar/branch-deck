@@ -63,6 +63,9 @@ const WORKTREES_LOCK_FILE: &str = "worktrees.lock";
 const CLONES_LOCK_FILE: &str = "clones.lock";
 /// How often a get that waits for the clones lock tells the same holder again (`GetStep::WaitForClone`)
 const CLONE_WAIT_TICK: Duration = Duration::from_mins(1);
+
+/// How often a get that waits for the shrink or the eviction of another tells its wait again (`GetStep::WaitForPressure`)
+const PRESSURE_WAIT_TICK: Duration = Duration::from_mins(1);
 /// The file at the root of the source that names the ignored files a get copies into the slot
 pub const WORKTREE_INCLUDE: &str = ".worktreeinclude";
 
@@ -920,8 +923,16 @@ pub enum GetStep {
   /// time (`trim::evict_core`), without the clones lock
   Evict,
   /// The shrink or the eviction waits for the one of another get of the machine (`shrink::lock_pressure`), told when
-  /// its holder changes; after its turn, or once the volume has the minimum, the get measures again
-  WaitForPressure { pid: u32, command: String },
+  /// its holder changes and once a minute, with how long that one holds it and the free space of the volume now, so a
+  /// wait of minutes reads as the deletes of disk pressure, never as a hang; after its turn, or once the volume has the
+  /// minimum, the get measures again
+  WaitForPressure {
+    holder: LockHolder,
+    /// The free bytes of the volume now, `None` where the system does not tell them
+    free: Option<u64>,
+    /// The free bytes the get needs: `branchdeck.leaseMinFree`
+    minimum: u64,
+  },
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -965,10 +976,14 @@ impl fmt::Display for GetStep {
       Self::Evict => f.write_str(
         "deleting free slots below `branchdeck.leaseMaxSlots` of the pools of this machine, returned longest ago first, with their Bazel output bases: the free space is below the minimum after the shrink",
       ),
-      Self::WaitForPressure { pid, command } => write!(
-        f,
-        "waiting for the shrink or the eviction of another get ({command}, pid {pid}): the free space is measured again after it, or once it has the minimum"
-      ),
+      Self::WaitForPressure { holder, free, minimum } => {
+        let free = free.map_or_else(|| "an unknown free space".to_string(), describe_size);
+        write!(
+          f,
+          "waiting for the shrink or the eviction of another get, {holder}, the volume at {free} of the {} this get needs: the free space is measured again after it, or once it has the minimum",
+          describe_size(*minimum)
+        )
+      }
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
       Self::Clone { template, slot } => write!(f, "cloning {template} into {slot}"),
@@ -1661,13 +1676,15 @@ enum PressureTurn {
 /// needs no more than the minimum goes on as soon as it is there, not when the whole shrink or eviction of the other
 /// ended. The wait is told once per holder (`GetStep::WaitForPressure`)
 fn pressure_turn(params: &LeaseGetParams<'_>, pool: &Pool, (pool_dir, min_free): (&Path, u64), report: &dyn Fn(GetStep)) -> PressureTurn {
-  let mut told = None;
+  // the holder told last, and when
+  let mut told: Option<(u32, Instant)> = None;
   let mut on_holder = |holder: &LockHolder| {
-    if told != Some(holder.pid) {
-      told = Some(holder.pid);
+    if told.is_none_or(|(pid, at)| pid != holder.pid || at.elapsed() >= PRESSURE_WAIT_TICK) {
+      told = Some((holder.pid, Instant::now()));
       report(GetStep::WaitForPressure {
-        pid: holder.pid,
-        command: holder.command.clone(),
+        holder: holder.clone(),
+        free: params.available(pool_dir),
+        minimum: min_free,
       });
     }
   };

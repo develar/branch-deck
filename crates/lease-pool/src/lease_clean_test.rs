@@ -1,5 +1,5 @@
 use crate::lease::Pool;
-use crate::lease_clean::{CleanMode, CleanRule, Trash, apply_clean_rules, describe_size, parse_clean_rules};
+use crate::lease_clean::{CleanMode, CleanRule, Removed, Trash, apply_clean_rules, describe_size, holds_gone_runs, parse_clean_rules, remove_measured_until};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -154,6 +154,65 @@ fn a_second_delete_of_a_path_is_reported() {
 }
 
 /// The free space a message names is in GiB
+/// A delete that may stop asks before its first entry and then once every 256: stopped at its second ask, it deleted 256
+/// entries and leaves the rest where it was; asked to go on, it deletes the rest
+#[test]
+fn a_delete_stops_at_the_ask_its_stop_holds_and_leaves_the_rest() {
+  let dir = tempfile::tempdir().unwrap();
+  let tree = dir.path().join("target");
+  std::fs::create_dir_all(&tree).unwrap();
+  for file in 0..600 {
+    std::fs::write(tree.join(file.to_string()), "x").unwrap();
+  }
+  let asks = std::cell::Cell::new(0);
+  let stop = || {
+    asks.set(asks.get() + 1);
+    asks.get() == 2
+  };
+  let removed = remove_measured_until(&tree, &stop).unwrap();
+  assert!(!removed.complete && removed.freed > 0, "{removed:?}");
+  // the directory is the first entry, then 255 files before the second ask
+  assert_eq!(std::fs::read_dir(&tree).unwrap().count(), 600 - 255);
+  assert!(remove_measured_until(&tree, &|| false).unwrap().complete);
+  assert!(!tree.exists());
+  assert_eq!(remove_measured_until(&tree, &|| false).unwrap(), Removed { freed: 0, complete: true });
+}
+
+/// A trash whose delete stopped is left to the sweep of any run (`left-…`), which a get below the minimum finds and
+/// deletes before it shrinks anything
+#[test]
+fn a_trash_whose_delete_stopped_is_left_to_the_next_sweep() {
+  let dir = tempfile::tempdir().unwrap();
+  let root = dir.path().join("trash");
+  let output = dir.path().join("target");
+  std::fs::create_dir_all(&output).unwrap();
+  for file in 0..300 {
+    std::fs::write(output.join(file.to_string()), "x").unwrap();
+  }
+  let trash = Trash::new(&root);
+  let moved = trash.move_in(&output).unwrap();
+  let mut cleaned = vec![crate::lease_clean::Cleaned {
+    rule: "cargo target".to_string(),
+    freed_bytes: 0,
+    elapsed: Duration::ZERO,
+    error: None,
+    trashed: vec![moved],
+  }];
+  assert!(!holds_gone_runs(&root));
+  let (left, complete) = trash.empty_until(&mut cleaned, &|| true);
+  assert_eq!((left, complete), (Vec::<String>::new(), false));
+  // what the delete left is in a directory any run sweeps
+  let names: Vec<String> = std::fs::read_dir(&root)
+    .unwrap()
+    .flatten()
+    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+    .collect();
+  assert!(names.len() == 1 && names[0].starts_with("left-"), "{names:?}");
+  assert!(holds_gone_runs(&root));
+  Trash::new(&root).sweep();
+  assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+}
+
 #[test]
 fn a_free_space_is_named_in_gib() {
   assert_eq!(describe_size(200 << 30), "200.0 GiB");

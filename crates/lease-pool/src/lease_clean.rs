@@ -656,24 +656,57 @@ fn trash_left_path(path: &Path, error: &std::io::Error) -> String {
 /// refuses the walk of it and the removal of what is in it: it is widened before the walk goes into it (`widen_dir`),
 /// which no directory that stays ever sees
 pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
+  remove_measured_until(path, &|| false).map(|removed| removed.freed)
+}
+
+/// What a delete that may stop did (`remove_measured_until`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Removed {
+  /// The bytes on disk it freed
+  pub freed: u64,
+  /// It deleted all of the path; false: `stop` held first, and the rest stays where it was
+  pub complete: bool,
+}
+
+/// How many entries a delete that may stop removes between two asks of its `stop` (`remove_measured_until`): one
+/// `statfs` a time, a few thousand a second against the 3,000 entries a second one thread deletes under load
+const STOP_EVERY: u32 = 256;
+
+/// `remove_measured`, which asks `stop` before its first entry and then once every `STOP_EVERY` entries, and leaves what
+/// it has not deleted yet where it is once `stop` holds: the delete of the shrink or the eviction of a get stops as soon
+/// as the volume has its minimum, as a slot of idea-1 is 1.4 million files and takes minutes, every get behind it
+/// waiting
+pub fn remove_measured_until(path: &Path, stop: &dyn Fn() -> bool) -> std::io::Result<Removed> {
+  remove_counted(path, stop, &mut 0)
+}
+
+fn remove_counted(path: &Path, stop: &dyn Fn() -> bool, seen: &mut u32) -> std::io::Result<Removed> {
+  if seen.is_multiple_of(STOP_EVERY) && stop() {
+    return Ok(Removed { freed: 0, complete: false });
+  }
+  *seen = seen.wrapping_add(1);
   let metadata = match path.symlink_metadata() {
     Ok(metadata) => metadata,
-    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Removed { freed: 0, complete: true }),
     Err(error) => return Err(removal_error(path, error)),
   };
   let own = allocated(&metadata);
   if !metadata.is_dir() {
     fs_retry::remove_entry(path, &metadata.file_type()).map_err(|error| removal_error(path, error))?;
-    return Ok(own);
+    return Ok(Removed { freed: own, complete: true });
   }
   widen_dir(path, &metadata);
   let mut freed = own;
   for entry in std::fs::read_dir(path).map_err(|error| removal_error(path, error))? {
     let entry = entry.map_err(|error| removal_error(path, error))?;
-    freed += remove_measured(&entry.path())?;
+    let removed = remove_counted(&entry.path(), stop, seen)?;
+    freed += removed.freed;
+    if !removed.complete {
+      return Ok(Removed { freed, complete: false });
+    }
   }
   fs_retry::remove_dir(path).map_err(|error| removal_error(path, error))?;
-  Ok(freed)
+  Ok(Removed { freed, complete: true })
 }
 
 /// Give the owner of the directory `path`, which is to be deleted, the rights to read, write and search it, the ones a
@@ -745,11 +778,22 @@ impl Trash {
   /// the directories of runs whose process is gone. A path that can't be deleted stays in the
   /// trash and is named in the error of its rule, and in the paths returned
   pub fn empty(&self, cleaned: &mut [Cleaned]) -> Vec<String> {
+    self.empty_until(cleaned, &|| false).0
+  }
+
+  /// `empty`, which stops once `stop` holds (`remove_measured_until`): the rest of the trash of this run is left to the
+  /// sweep of a later run (`abandon`), and so are the directories of the runs that are gone. Whether it deleted all
+  pub fn empty_until(&self, cleaned: &mut [Cleaned], stop: &dyn Fn() -> bool) -> (Vec<String>, bool) {
     let mut left = Vec::new();
     for rule in cleaned.iter_mut() {
       for path in std::mem::take(&mut rule.trashed) {
-        match remove_measured(&path) {
-          Ok(freed) => rule.freed_bytes += freed,
+        match remove_measured_until(&path, stop) {
+          Ok(Removed { freed, complete: true }) => rule.freed_bytes += freed,
+          Ok(Removed { freed, complete: false }) => {
+            rule.freed_bytes += freed;
+            self.abandon();
+            return (left, false);
+          }
           Err(error) => {
             rule.error.get_or_insert_with(|| format!("cannot delete {} in the trash: {error}", path.display()));
             left.push(trash_left_path(&path, &error));
@@ -768,7 +812,21 @@ impl Trash {
       let _ = fs_retry::remove_dir(&self.dir);
     }
     self.sweep();
-    left
+    (left, true)
+  }
+
+  /// Leave what is in the trash of this run to the sweep of any run (`sweep`, `holds_gone_runs`), as if this run were
+  /// gone: its directory is renamed `left-…`, an instant move. A delete that stopped once the volume had its minimum
+  /// leaves the rest there, which the next get below the minimum deletes first, outside the lock of the shrink
+  pub(crate) fn abandon(&self) {
+    if let Some(name) = self.dir.file_name() {
+      let left = self.root.join(format!("{LEFT_PREFIX}{}", name.to_string_lossy()));
+      if let Err(error) = fs_retry::rename(&self.dir, &left)
+        && error.kind() != std::io::ErrorKind::NotFound
+      {
+        warn!(trash = %self.dir.display(), error = %error, "cannot leave the rest of a trash to a later sweep");
+      }
+    }
   }
 
   /// Delete the trash directories of runs whose process is gone (killed by a timeout before it emptied its trash, or a
@@ -793,8 +851,15 @@ pub(crate) fn holds_gone_runs(root: &Path) -> bool {
   std::fs::read_dir(root).is_ok_and(|entries| entries.flatten().any(|entry| of_gone_run(&entry.file_name().to_string_lossy())))
 }
 
-/// Whether the trash directory `name` (`<pid>-<start>-<uuid>`) is of a run whose process is gone
+/// The start of the name of a trash directory its run left to the sweep of any run (`Trash::abandon`)
+const LEFT_PREFIX: &str = "left-";
+
+/// Whether the trash directory `name` (`<pid>-<start>-<uuid>`) is of a run whose process is gone, or one its run left
+/// (`left-…`, `Trash::abandon`)
 fn of_gone_run(name: &str) -> bool {
+  if name.starts_with(LEFT_PREFIX) {
+    return true;
+  }
   let mut parts = name.splitn(3, '-');
   let (Some(pid), Some(started)) = (parts.next().and_then(|pid| pid.parse().ok()), parts.next().and_then(|started| started.parse().ok())) else {
     return false;

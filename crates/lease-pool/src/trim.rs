@@ -20,7 +20,7 @@ use crate::free_space::{AvailableBytes, Volume};
 use crate::lease::{
   Lease, LeaseState, LeaseStore, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
 };
-use crate::lease_clean::{Trash, remove_measured};
+use crate::lease_clean::{Trash, remove_measured, remove_measured_until};
 use crate::output_bases::{OutputBase, orphans, output_bases, output_user_roots};
 use crate::shrink::{next_free, shrink_order};
 use anyhow::{Result, anyhow};
@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
@@ -382,6 +382,7 @@ pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -
   });
   // the report of each pool, made as its first slot goes
   let mut reports: Vec<Option<TrimmedPool>> = stores.iter().map(|_| None).collect();
+  let enough = || (params.available)(params.volume).is_some_and(|available| available >= params.target);
   for (index, slot) in order {
     if (params.available)(params.volume).is_none_or(|available| available >= params.target) {
       break;
@@ -411,12 +412,21 @@ pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -
     match removal.remove(git_executor, slot) {
       Removal::Removed(mut removed, moved) => {
         let paths: Vec<&Path> = moved.iter().map(|(path, _)| path.as_path()).collect();
-        for ((path, what), result) in moved.iter().zip(remove_all(&paths)) {
+        // the delete stops once the volume has the minimum: the rest of the slot waits in the trash
+        let (results, complete) = remove_all_until(&paths, &enough);
+        for ((path, what), result) in moved.iter().zip(results) {
           removed.record(what, path, result);
         }
-        let _ = fs_retry::remove_dir(trash.dir());
-        debug!(slot = %removed.path, freed = removed.freed_bytes(), "a free slot below the limit is deleted");
+        if complete {
+          let _ = fs_retry::remove_dir(trash.dir());
+        } else {
+          trash.abandon();
+        }
+        debug!(slot = %removed.path, freed = removed.freed_bytes(), complete, "a free slot below the limit is deleted");
         report.removed.push(*removed);
+        if !complete {
+          break;
+        }
       }
       Removal::Skipped(skipped) => report.skipped.push(*skipped),
       Removal::Passed => {}
@@ -678,6 +688,19 @@ fn drop_slot(pool: &Pool, timeout: Duration, path: &str, marker_id: &str) -> Res
 /// Delete each of `paths` with what is below it, by `DELETE_WORKERS` threads that take the entries right in each path
 /// one by one, then the paths themselves: the bytes on disk each freed, or why it could not be deleted
 pub(crate) fn remove_all(paths: &[&Path]) -> Vec<std::io::Result<u64>> {
+  remove_all_until(paths, &|| false).0
+}
+
+/// How long the thread that waits for the deletes of `remove_all_until` waits between two asks of its `stop`
+const STOP_POLL: Duration = Duration::from_millis(50);
+
+/// `remove_all`, which asks `stop` before the deletes, then every `STOP_POLL` while they run (on the thread that calls it,
+/// as `stop` is a `statfs` of a volume a test may tell) and, once it holds, lets every delete stop at its next ask
+/// (`remove_measured_until`): what is not deleted yet stays where it was. Whether everything was deleted
+pub(crate) fn remove_all_until(paths: &[&Path], stop: &dyn Fn() -> bool) -> (Vec<std::io::Result<u64>>, bool) {
+  if stop() {
+    return (paths.iter().map(|_| Ok(0)).collect(), false);
+  }
   // the entries right in each path, with the index of the path
   let mut entries: Vec<(usize, PathBuf)> = Vec::new();
   for (index, path) in paths.iter().enumerate() {
@@ -688,34 +711,59 @@ pub(crate) fn remove_all(paths: &[&Path]) -> Vec<std::io::Result<u64>> {
   let freed: Vec<AtomicU64> = paths.iter().map(|_| AtomicU64::new(0)).collect();
   let errors: Mutex<BTreeMap<usize, std::io::Error>> = Mutex::default();
   let next = AtomicUsize::new(0);
+  let stopped = AtomicBool::new(false);
+  let workers = DELETE_WORKERS.min(entries.len());
+  let running = AtomicUsize::new(workers);
   std::thread::scope(|scope| {
-    for _ in 0..DELETE_WORKERS.min(entries.len()) {
-      scope.spawn(in_current_span(|| {
-        while let Some((index, entry)) = entries.get(next.fetch_add(1, Ordering::Relaxed)) {
-          match remove_measured(entry) {
-            Ok(bytes) => {
-              freed[*index].fetch_add(bytes, Ordering::Relaxed);
+    let waiter = std::thread::current();
+    let (stopped, running, next, entries, freed, errors) = (&stopped, &running, &next, &entries, &freed, &errors);
+    for _ in 0..workers {
+      let waiter = waiter.clone();
+      scope.spawn(in_current_span(move || {
+        let halt = || stopped.load(Ordering::Relaxed);
+        while !halt()
+          && let Some((index, entry)) = entries.get(next.fetch_add(1, Ordering::Relaxed))
+        {
+          match remove_measured_until(entry, &halt) {
+            Ok(removed) => {
+              freed[*index].fetch_add(removed.freed, Ordering::Relaxed);
             }
             Err(error) => {
               errors.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(*index).or_insert(error);
             }
           }
         }
+        if running.fetch_sub(1, Ordering::AcqRel) == 1 {
+          waiter.unpark();
+        }
       }));
     }
+    while running.load(Ordering::Acquire) > 0 {
+      if stop() {
+        stopped.store(true, Ordering::Relaxed);
+        break;
+      }
+      std::thread::park_timeout(STOP_POLL);
+    }
   });
+  let complete = !stopped.load(Ordering::Relaxed);
   let mut errors = errors.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-  paths
+  let results = paths
     .iter()
     .enumerate()
     .map(|(index, path)| {
       if let Some(error) = errors.remove(&index) {
         return Err(error);
       }
+      let deleted = freed[index].load(Ordering::Relaxed);
+      if !complete {
+        return Ok(deleted);
+      }
       let own = remove_measured(path)?;
-      Ok(freed[index].load(Ordering::Relaxed) + own)
+      Ok(deleted + own)
     })
-    .collect()
+    .collect();
+  (results, complete)
 }
 
 #[cfg(test)]
