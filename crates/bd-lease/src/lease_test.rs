@@ -1590,19 +1590,60 @@ fn a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot() {
 }
 
 /// The shrink and the eviction of the gets of the machine take turns (`lock_pressure`): a get below the minimum that
-/// waits for the shrink of another tells the wait, measures after its turn, finds the volume past the target that one
-/// left, and cleans nothing
+/// waits for the shrink of another tells the wait, measures once the volume has the minimum (in its wait, or after its
+/// turn), finds the target that one left, and cleans nothing
 #[test_log::test]
 fn a_get_that_waited_for_the_shrink_of_another_cleans_nothing_once_the_volume_has_the_target() {
   let shrink = ShrinkFixture::new();
   let environment = shrink.fixture.environment(shrink.fixture.repo.path());
   let pool = lease_pool::lease::Pool::new(&shrink.fixture.repo.path().join(".git"));
-  let held = lease_pool::shrink::lock_pressure(environment.home.as_deref(), &pool, Duration::from_secs(10), &mut |_| {}).unwrap();
+  let held = lease_pool::shrink::lock_pressure(environment.home.as_deref(), &pool, Duration::from_secs(10), &mut |_| {}, &|| false).unwrap();
   let (waiting, waits) = std::sync::mpsc::channel();
   let shrink = &shrink;
   let got = std::thread::scope(|scope| {
     let get = scope.spawn(move || {
       // dropped with the get: a get that never waits ends the test's wait with an error
+      let waiting = std::sync::Mutex::new(waiting);
+      shrink.get_reporting(
+        Volume {
+          base: 88,
+          per_unit: 11,
+          per_slot: 0,
+        },
+        &|step| {
+          if let GetStep::WaitForPressure { pid, .. } = step {
+            waiting.lock().unwrap().send(pid).unwrap();
+          }
+        },
+      )
+    });
+    assert_eq!(waits.recv().unwrap(), std::process::id());
+    // what the shrink of the get that holds the turn deletes: 99 GiB after the first slot, below the minimum of 100,
+    // then 110, the minimum and its margin; the get measures once it has the minimum, in its wait or after its turn
+    for slot in &shrink.slots[..2] {
+      std::fs::remove_file(ShrinkFixture::unit(slot)).unwrap();
+    }
+    drop(held);
+    get.join().unwrap().unwrap()
+  });
+  assert_eq!(shrunk_paths(&got), Vec::<String>::new());
+  assert_eq!(shrink.units(), [false, false, true]);
+  assert_eq!((&got.slot.path, got.free_bytes), (&shrink.slots[2], Some(110 * GIB)));
+}
+
+/// A get below the minimum that waits for the shrink of another stops waiting once the volume has the minimum (the
+/// holder frees it slot by slot, and a slot of idea-1 takes minutes to delete): it cleans nothing and leases while the
+/// other still holds the lock, which the test releases only after the get answered
+#[test_log::test]
+fn a_get_that_waits_for_the_shrink_of_another_goes_on_once_the_volume_has_the_minimum_before_the_turn() {
+  let shrink = ShrinkFixture::new();
+  let environment = shrink.fixture.environment(shrink.fixture.repo.path());
+  let pool = lease_pool::lease::Pool::new(&shrink.fixture.repo.path().join(".git"));
+  let held = lease_pool::shrink::lock_pressure(environment.home.as_deref(), &pool, Duration::from_secs(10), &mut |_| {}, &|| false).unwrap();
+  let (waiting, waits) = std::sync::mpsc::channel();
+  let shrink = &shrink;
+  let got = std::thread::scope(|scope| {
+    let get = scope.spawn(move || {
       let waiting = std::sync::Mutex::new(waiting);
       shrink.get_reporting(
         Volume {
@@ -1618,16 +1659,15 @@ fn a_get_that_waited_for_the_shrink_of_another_cleans_nothing_once_the_volume_ha
       )
     });
     assert_eq!(waits.recv().unwrap(), std::process::id());
-    // what the shrink of the get that holds the turn deletes: 111 GiB, past the 110 of the minimum and its margin
-    for slot in &shrink.slots[..2] {
-      std::fs::remove_file(ShrinkFixture::unit(slot)).unwrap();
-    }
-    drop(held);
+    // the first slot the holder deletes: 105 GiB, the minimum of 100, short of the 110 of its margin
+    std::fs::remove_file(ShrinkFixture::unit(&shrink.slots[0])).unwrap();
+    // the get answers with the lock still held: joined before the release
     get.join().unwrap().unwrap()
   });
+  drop(held);
   assert_eq!(shrunk_paths(&got), Vec::<String>::new());
-  assert_eq!(shrink.units(), [false, false, true]);
-  assert_eq!((&got.slot.path, got.free_bytes), (&shrink.slots[2], Some(111 * GIB)));
+  assert_eq!(shrink.units(), [false, true, true]);
+  assert_eq!((&got.slot.path, got.free_bytes), (&shrink.slots[2], Some(105 * GIB)));
 }
 
 /// The paths of the slots the eviction of a get deleted, in its order

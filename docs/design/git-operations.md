@@ -2067,7 +2067,11 @@ and the pool locks of the slots they mark under it.
    deletes nothing for nothing. A slot with a process in it stays. The shrink and the eviction of every get of the
    machine run under one lock, `~/.branch-deck/pressure.lock`: each measures only before its own next slot, so the
    gets of a `brd-host` fill below the minimum, threads side by side, cleaned or deleted up to one slot more each than
-   the volume needed; a get that waited measures first and usually finds the volume past its target. After each slot one
+   the volume needed; a get that waited measures first and usually finds the volume past its target. The lock covers
+   only the shrink and the eviction, never the checkout or the clone of the get, but they delete: a slot of idea-1 is
+   1.4 million files, and its delete took minutes at load 100 (2026-11-10: a get of branch-deck waited over 10 minutes
+   behind the eviction of a get of idea-1). So a get that waits for it measures at each poll of the wait (one
+   `statfs`) and goes on without its turn once the volume has its minimum, which the holder frees slot by slot. After each slot one
    `statfs`; the shrink stops at the minimum and a tenth of it, a margin that keeps the next gets, whose leases build,
    from cleaning one more slot each, smaller than a whole slot, which would clean two where one lifts the volume over
    the minimum. The trim comes first: the slots past the limit go anyway, and a clean of them would be work for

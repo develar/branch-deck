@@ -920,7 +920,7 @@ pub enum GetStep {
   /// time (`trim::evict_core`), without the clones lock
   Evict,
   /// The shrink or the eviction waits for the one of another get of the machine (`shrink::lock_pressure`), told when
-  /// its holder changes; after its turn the get measures again
+  /// its holder changes; after its turn, or once the volume has the minimum, the get measures again
   WaitForPressure { pid: u32, command: String },
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
@@ -967,7 +967,7 @@ impl fmt::Display for GetStep {
       ),
       Self::WaitForPressure { pid, command } => write!(
         f,
-        "waiting for the shrink or the eviction of another get ({command}, pid {pid}): the free space is measured again after it"
+        "waiting for the shrink or the eviction of another get ({command}, pid {pid}): the free space is measured again after it, or once it has the minimum"
       ),
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
@@ -1552,13 +1552,16 @@ impl Relief {
       FreeSpace::Trim => self.trimmed = Some(trim_for_get(git_executor, params, report)),
       FreeSpace::Shrink => {
         report(GetStep::Shrink);
-        let _pressure = pressure_turn(params, pool, report);
-        self.shrunk = Some(shrink_for_get(git_executor, params, (pool_dir, min_free)));
+        // the volume got its minimum while the get waited: measured again, nothing to shrink
+        if let PressureTurn::Taken(_pressure) = pressure_turn(params, pool, (pool_dir, min_free), report) {
+          self.shrunk = Some(shrink_for_get(git_executor, params, (pool_dir, min_free)));
+        }
       }
       FreeSpace::Evict => {
         report(GetStep::Evict);
-        let _pressure = pressure_turn(params, pool, report);
-        self.evicted = Some(evict_for_get(git_executor, params, (pool_dir, min_free)));
+        if let PressureTurn::Taken(_pressure) = pressure_turn(params, pool, (pool_dir, min_free), report) {
+          self.evicted = Some(evict_for_get(git_executor, params, (pool_dir, min_free)));
+        }
       }
     }
   }
@@ -1641,11 +1644,23 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
   }))
 }
 
+/// The turn of a get at the shrink and the eviction of the machine (`pressure_turn`)
+enum PressureTurn {
+  /// Its turn, the lock held while the guard lives; `None`: a lock that can't be taken, and the get goes on without it,
+  /// as the gets did before the lock
+  Taken(Option<RepositoryLock>),
+  /// The volume got the minimum while the get waited, from the deletes of the get whose turn it was: the get needs no
+  /// turn and measures again
+  Enough,
+}
+
 /// The turn of the get at the shrink and the eviction of the machine (`shrink::lock_pressure`), which the core measures
-/// after first: a get that waited for one beside it usually finds the volume above its target and deletes nothing. A
-/// lock that can't be taken leaves the get to go on without it, as the gets did before the lock. The wait is told once
-/// per holder (`GetStep::WaitForPressure`)
-fn pressure_turn(params: &LeaseGetParams<'_>, pool: &Pool, report: &dyn Fn(GetStep)) -> Option<RepositoryLock> {
+/// after first: a get that waited for one beside it usually finds the volume above its target and deletes nothing. The
+/// wait ends without the turn once the volume of `pool_dir` has `min_free` (one `statfs` a poll of the wait): the
+/// holder frees the volume slot by slot, and the delete of a slot of a large repository takes minutes, so a get that
+/// needs no more than the minimum goes on as soon as it is there, not when the whole shrink or eviction of the other
+/// ended. The wait is told once per holder (`GetStep::WaitForPressure`)
+fn pressure_turn(params: &LeaseGetParams<'_>, pool: &Pool, (pool_dir, min_free): (&Path, u64), report: &dyn Fn(GetStep)) -> PressureTurn {
   let mut told = None;
   let mut on_holder = |holder: &LockHolder| {
     if told != Some(holder.pid) {
@@ -1656,9 +1671,15 @@ fn pressure_turn(params: &LeaseGetParams<'_>, pool: &Pool, report: &dyn Fn(GetSt
       });
     }
   };
-  lock_pressure(params.home, pool, params.lock_timeout, &mut on_holder)
-    .inspect_err(|error| warn!(error = %format!("{error:#}"), "cannot take the lock of the shrink and the eviction of the machine"))
-    .ok()
+  let enough = || params.available(pool_dir).is_some_and(|available| available >= min_free);
+  match lock_pressure(params.home, pool, params.lock_timeout, &mut on_holder, &enough) {
+    Ok(lock) => PressureTurn::Taken(Some(lock)),
+    Err(error) if error.downcast_ref::<LockWaitCanceled>().is_some() => PressureTurn::Enough,
+    Err(error) => {
+      warn!(error = %format!("{error:#}"), "cannot take the lock of the shrink and the eviction of the machine");
+      PressureTurn::Taken(None)
+    }
+  }
 }
 
 /// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs` (`LeaseGetParams::space`),

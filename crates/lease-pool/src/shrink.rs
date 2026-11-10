@@ -13,7 +13,10 @@
 //!
 //! The shrink and the eviction (`trim::evict_core`) of a get run under one lock of the machine (`lock_pressure`): each
 //! measures only before its own next slot, so N gets below the minimum at once, as the threads of a `brd-host` fill
-//! start, cleaned or deleted up to N - 1 slots more than the volume needed.
+//! start, cleaned or deleted up to N - 1 slots more than the volume needed. The turn of a get ends its wait once the
+//! volume has the minimum (`canceled`, one `statfs` a poll): the slots the holder deletes free it as they go, and a
+//! holder that deletes a slot of idea-1 (1.4 million files, minutes under load) keeps no get of another repository
+//! that needs nothing more behind it.
 
 use crate::free_space::{AvailableBytes, Volume};
 use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, release_marker};
@@ -37,11 +40,12 @@ const PRESSURE_LOCK_FILE: &str = "pressure.lock";
 /// the pools the shrink and the eviction walk, else (no home) beside the state of `pool`. The wait lasts while the
 /// record of the holder names a live process (`lock_file_while_held`), as the shrink of another get takes minutes; one
 /// no record names a live holder of refuses after `unknown_timeout`. The threads of one process take it in turn too.
-/// `on_holder` hears the holder while the wait lasts
-pub fn lock_pressure(home: Option<&Path>, pool: &Pool, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder)) -> Result<RepositoryLock> {
+/// `on_holder` hears the holder while the wait lasts; the wait ends with `LockWaitCanceled` once `canceled` holds (a
+/// get: the volume has its minimum, `lease::pressure_turn`)
+pub fn lock_pressure(home: Option<&Path>, pool: &Pool, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
   let dir = home.map_or_else(|| pool.state_dir().to_path_buf(), |home| home.join(".branch-deck"));
   std::fs::create_dir_all(&dir).with_context(|| format!("Cannot create {}", dir.display()))?;
-  lock_file_while_held(dir.join(PRESSURE_LOCK_FILE), unknown_timeout, on_holder, &|| false)
+  lock_file_while_held(dir.join(PRESSURE_LOCK_FILE), unknown_timeout, on_holder, canceled)
 }
 
 /// The parameters of every cargo rule of a shrink: no unit of a free slot is kept, whatever its age
