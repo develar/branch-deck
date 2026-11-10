@@ -1,11 +1,12 @@
 use crate::child_process::{ChildPriority, ChildProcessError, ToolDir, ToolLookup, find_executable, find_tool_in, run_child, run_child_lines, windowless_command_at};
 #[cfg(unix)]
 use crate::process_scan::is_running;
+use crate::process_scan::{is_running as process_is_running, process_started};
 use std::process::{Child, Command, Stdio};
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use test_utils::fake_executable::fake_executable;
+use test_utils::fake_executable::{fake_executable, shell_path};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -44,6 +45,35 @@ fn kills_the_child_after_the_timeout() {
   let result = run_child(&mut hang, None, Duration::from_millis(300), &|| false);
   assert!(matches!(result, Err(ChildProcessError::TimedOut)), "{result:?}");
   assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
+}
+
+/// A kill ends the processes the child started too: its grandchild, which would sleep two minutes, ends within moments.
+/// The child is killed once its grandchild is known, with its start
+#[test]
+fn a_killed_child_leaves_no_process_it_started() {
+  let dir = tempfile::tempdir().unwrap();
+  let pid_file = dir.path().join("grandchild-pid");
+  // the pid of the background subshell, as the system names it: on Windows the sh of Git keeps a pid of its own
+  let pid_of_last = if cfg!(windows) { "cat /proc/$!/winpid" } else { "echo $!" };
+  let child = fake(&dir, &format!("(sleep 120; :) &\n{pid_of_last} > '{}'\nsleep 120", shell_path(&pid_file)));
+  let grandchild = std::cell::Cell::new(None);
+  let known = || {
+    if grandchild.get().is_none()
+      && let Some(pid) = std::fs::read_to_string(&pid_file).ok().and_then(|text| text.trim().parse::<u32>().ok())
+    {
+      grandchild.set(Some((pid, process_started(pid))));
+    }
+    grandchild.get().is_some()
+  };
+  let result = run_child(&mut Command::new(child), None, TIMEOUT, &known);
+  assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
+  let (pid, started) = grandchild.get().expect("the grandchild");
+  assert!(started.is_some(), "the grandchild runs when it is known");
+  let deadline = Instant::now() + Duration::from_mins(1);
+  while process_is_running(pid, started) {
+    assert!(Instant::now() < deadline, "the grandchild {pid} survived the kill of its parent");
+    std::thread::sleep(Duration::from_millis(5));
+  }
 }
 
 #[test]

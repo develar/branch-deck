@@ -18,7 +18,6 @@ pub mod git_command_executor;
 pub mod git_info;
 pub mod interactive_command;
 pub mod process_stats;
-mod process_tree;
 
 #[cfg(test)]
 mod cli_name_scan_test;

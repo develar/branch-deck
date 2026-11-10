@@ -10,7 +10,6 @@
 
 use crate::git_command_executor::{Spawned, decode};
 use crate::process_stats::ProcessStats;
-use crate::process_tree::ProcessTree;
 use anyhow::{Result, anyhow, bail};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin};
@@ -18,6 +17,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use sync_utils::process_tree::ProcessTree;
 
 /// How long a dropped process gets to exit after its stdin closes, and again after SIGTERM
 const EXIT_GRACE: Duration = Duration::from_secs(5);

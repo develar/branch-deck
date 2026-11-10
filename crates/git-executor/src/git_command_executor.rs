@@ -1,7 +1,6 @@
 use crate::git_info::{GitInfo, GitNotFound};
 use crate::interactive_command::InteractiveCommand;
 use crate::process_stats::ProcessStats;
-use crate::process_tree::ProcessTree;
 use anyhow::{Result, anyhow};
 use std::any::Any;
 use std::io::{Read, Write};
@@ -11,6 +10,7 @@ use std::sync::mpsc::{RecvTimeoutError, SyncSender};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use sync_utils::child_process::windowless_command;
+use sync_utils::process_tree::ProcessTree;
 use tracing::instrument;
 
 /// Environment set for every git invocation: never prompt (there is no terminal to answer), never take optional locks

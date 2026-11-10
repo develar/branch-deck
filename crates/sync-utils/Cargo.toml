@@ -26,7 +26,7 @@ libc = "0.2.191"
 # snapshot of the process list, `CreateToolhelp32Snapshot`) and the sharing errors that a rename or a removal waits out
 # (`fs_retry`), the console of the process, without which a child gets no window (`child_process::windowless_command`)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 # the tests of a single flight (`single_flight_test.rs`): the crate itself needs no runtime

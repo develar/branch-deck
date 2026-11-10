@@ -30,6 +30,7 @@ pub mod operation_tally;
 pub mod paths;
 pub mod private_file;
 pub mod process_scan;
+pub mod process_tree;
 pub mod secret_store;
 pub mod single_flight;
 pub mod size;

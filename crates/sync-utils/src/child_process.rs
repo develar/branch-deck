@@ -2,6 +2,7 @@
 //! a timeout (none for `run_child_until_superseded`) or as soon as the caller no longer wants the answer; a child of work
 //! done ahead of a need runs below the app (`ChildPriority::Background`).
 
+use crate::process_tree::ProcessTree;
 use crate::span::in_current_span;
 use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
@@ -122,7 +123,8 @@ fn has_console() -> bool {
 }
 
 /// Runs `command` with `stdin` (None = no input), reading stdout and stderr while it runs, so a full pipe never blocks the
-/// child. The child is killed after `timeout`, and within one poll interval after `is_superseded` turns true.
+/// child. The child is killed after `timeout`, and within one poll interval after `is_superseded` turns true, with the
+/// processes it started (`process_tree`).
 pub fn run_child(command: &mut Command, stdin: Option<Vec<u8>>, timeout: Duration, is_superseded: &dyn Fn() -> bool) -> Result<ChildOutput, ChildProcessError> {
   run_until(command, stdin, Some(Instant::now() + timeout), is_superseded)
 }
@@ -140,6 +142,7 @@ fn run_until(command: &mut Command, stdin: Option<Vec<u8>>, deadline: Option<Ins
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
   let mut child = start_child(command)?;
+  let tree = ProcessTree::of(&child);
   // a writer thread: a child that answers before it reads all of its input must not deadlock us
   if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
     std::thread::spawn(in_current_span(move || {
@@ -161,8 +164,8 @@ fn run_until(command: &mut Command, stdin: Option<Vec<u8>>, deadline: Option<Ins
       }
       Err(e) => ChildProcessError::Wait(e),
     };
-    // the readers are left behind: a grandchild may still hold the pipes open
-    let _ = child.kill();
+    // the readers are left behind: a process that left the tree may still hold the pipes open
+    tree.kill(&mut child);
     let _ = child.wait();
     return Err(stop);
   };

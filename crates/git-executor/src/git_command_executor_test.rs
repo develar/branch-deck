@@ -363,15 +363,17 @@ fn a_cancelled_git_is_killed() {
   assert_returned_while_stderr_held(&dir);
 }
 
-/// On Windows `git` is mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the real git as its child:
-/// a stop ends the launcher, the git and the shell of the alias (`process_tree.rs`), not the launcher alone
-#[cfg(windows)]
+/// A stop ends git and every process it started (`sync_utils::process_tree`): the shell of an alias, an ssh or a credential
+/// helper, not git alone. On Windows `git` is mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the
+/// real git as its child, and the job ends the launcher, the git and the shell; on Unix the shell is a child of git
 #[test]
 fn a_stopped_git_ends_every_process_it_started() {
   let dir = tempfile::tempdir().unwrap();
-  // the shell writes its Windows pid, then adds a line to `beats` every 50 ms, for 120 s at least; it is canceled at its
-  // first line, when the test knows the shell and its start
-  let script = "cat /proc/$$/winpid > winpid; i=0; while [ $i -lt 2400 ]; do echo $i >> beats; printf 'beat\\n' >&2; sleep 0.05; i=$((i+1)); done";
+  // the shell writes its pid (on Windows its pid of the system, not the one of the sh of Git), then adds a line to `beats`
+  // every 50 ms, for 120 s at least; it is canceled at its first line, when the test knows the shell and its start
+  let pid_of_shell = if cfg!(windows) { "cat /proc/$$/winpid" } else { "echo $$" };
+  let script = format!("{pid_of_shell} > winpid; i=0; while [ $i -lt 2400 ]; do echo $i >> beats; printf 'beat\\n' >&2; sleep 0.05; i=$((i+1)); done");
+  let script = script.as_str();
   let shell = Cell::new(None);
   let stop = ProgressStop {
     idle_timeout: None,

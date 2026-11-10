@@ -441,11 +441,15 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
 stdout and stderr are read by threads that send their events to the calling thread (a bounded queue, so a slow
 `stream` handler holds git back instead of filling the memory); a timeout or a `ProgressStop` (an idle timeout, a
 cancel) makes the run poll and kill git, the error a `StoppedCommand`, and after git exits the rest of its pipes is
-awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. On Windows a kill ends
-the job object that git was put into when it started (`crates/git-executor/src/process_tree.rs`): `git` on `PATH` is
-mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the
-launcher alone would leave that git running with its ssh or helper, its lock files and our inherited pipe handles. A
-git that exits by itself ends nothing of its job. Each run is one tracing span (`git`, with the command, the exit code
+awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. A kill ends git and
+every process it started (`crates/sync-utils/src/process_tree.rs`, as `sync_utils::child_process::run_child` does for
+its child): an ssh of a remote that does not answer reads no end of its pipes and would run on after git. On Windows
+the kill ends the job object that git was put into when it started: `git` on `PATH` is mostly the launcher of Git for
+Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the launcher alone would leave that
+git running with its ssh or helper, its lock files and our inherited pipe handles. On Unix the kill takes the processes
+below git by their parent pids, read just before its `SIGKILL`, and kills each that still has its start time; git stays
+in the process group of the caller, so the passphrase prompt of an ssh in a terminal still reads it. A git that exits
+by itself ends nothing. Each run is one tracing span (`git`, with the command, the exit code
 and the time), and a guard kills a git that still runs and counts the process however the run ends: a handler error, a
 stop or a `Break`. Text is decoded with `String::from_utf8`, lossily only when it is not UTF-8; stderr is read as bytes
 and decoded lossily, the interactive one too. Three shorthands stay for the common one-liners: `execute_command` is

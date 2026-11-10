@@ -293,19 +293,33 @@ const SSH_STARTED: &str = "ssh-started";
 /// The file with the pid of the ssh of `hanging_fixture`
 const SSH_PID: &str = "ssh-pid";
 
-/// The directory of the ssh of `hanging_fixture`, which ends that ssh with the test: the kill of a fetch ends its git,
-/// and a real ssh ends then too, as its input closes, where the fake would sleep on for two minutes
+/// The directory of the ssh of `hanging_fixture`. A stop of the fetch ends its git and the ssh of git with it
+/// (`sync_utils::process_tree`); the drop ends an ssh that a failed test left, which would sleep on for two minutes
 struct HangingSsh(tempfile::TempDir);
 
 impl HangingSsh {
   fn path(&self) -> &Path {
     self.0.path()
   }
+
+  fn pid(&self) -> Option<u32> {
+    std::fs::read_to_string(self.path().join(SSH_PID)).ok().and_then(|pid| pid.trim().parse().ok())
+  }
+
+  /// The ssh ends with the git that the stop killed: it never ends by itself before two minutes
+  fn assert_ended_with_git(&self) {
+    let pid = self.pid().expect("the pid of the ssh");
+    let deadline = Instant::now() + Duration::from_mins(1);
+    while sync_utils::process_scan::is_running(pid, None) {
+      assert!(Instant::now() < deadline, "the ssh {pid} of the stopped git runs on");
+      std::thread::sleep(Duration::from_millis(5));
+    }
+  }
 }
 
 impl Drop for HangingSsh {
   fn drop(&mut self) {
-    if let Some(pid) = std::fs::read_to_string(self.path().join(SSH_PID)).ok().and_then(|pid| pid.trim().parse().ok()) {
+    if let Some(pid) = self.pid() {
       let _ = sync_utils::process_scan::terminate(pid);
     }
   }
@@ -317,7 +331,9 @@ fn hanging_fixture() -> (Fixture, HangingSsh) {
   let fixture = fixture();
   let dir = tempfile::tempdir().unwrap();
   let (started, pid) = (shell_path(&dir.path().join(SSH_STARTED)), shell_path(&dir.path().join(SSH_PID)));
-  let ssh = fake_executable(dir.path(), "ssh", &format!("echo $$ > '{pid}'\n: > '{started}'\nexec sleep 120"));
+  // its pid of the system: on Windows the sh of Git keeps a pid of its own
+  let pid_of_shell = if cfg!(windows) { "cat /proc/$$/winpid" } else { "echo $$" };
+  let ssh = fake_executable(dir.path(), "ssh", &format!("{pid_of_shell} > '{pid}'\n: > '{started}'\nexec sleep 120"));
   fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
   (fixture, HangingSsh(dir))
@@ -333,11 +349,12 @@ fn a_cancel_kills_the_fetch() {
   let error = result.unwrap_err();
   assert_eq!(error.downcast_ref::<StoppedCommand>(), Some(&StoppedCommand::Cancelled), "{error:#}");
   assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
+  dir.assert_ended_with_git();
 }
 
 #[test]
 fn a_stalled_fetch_is_killed() {
-  let (fixture, _dir) = hanging_fixture();
+  let (fixture, dir) = hanging_fixture();
   let stop = ProgressStop {
     idle_timeout: Some(Duration::from_millis(300)),
     is_cancelled: &|| false,
@@ -348,6 +365,7 @@ fn a_stalled_fetch_is_killed() {
     Some(&StoppedCommand::Stalled(Duration::from_millis(300))),
     "{error:#}"
   );
+  dir.assert_ended_with_git();
 }
 
 #[test]

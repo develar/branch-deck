@@ -362,6 +362,26 @@ pub fn host_name() -> &'static str {
   HOST.get_or_init(|| gethostname::gethostname().to_string_lossy().into_owned())
 }
 
+/// The processes below `pid`, which started at `started`, each with its start: the children by their parent pid, their
+/// children, and so on. A process counts as a child only when it started after its parent, so a pid that the system gave
+/// again to an older process ends no chain. Empty where the system tells no process list (Windows: a job holds the
+/// processes of a child there, `process_tree`)
+pub fn descendants(pid: u32, started: u64) -> Vec<(u32, u64)> {
+  let Some(processes) = platform::processes() else { return Vec::new() };
+  let mut found: Vec<(u32, u64)> = Vec::new();
+  let mut parents = vec![(pid, started)];
+  while let Some((parent, parent_started)) = parents.pop() {
+    for process in &processes {
+      let Some(process_started) = process.started else { continue };
+      if process.parent == parent && process.pid != parent && process_started >= parent_started && !found.iter().any(|(seen, _)| *seen == process.pid) {
+        found.push((process.pid, process_started));
+        parents.push((process.pid, process_started));
+      }
+    }
+  }
+  found
+}
+
 /// Ask the process `pid` to exit with SIGTERM; false when the signal could not be sent (gone, another user's, no
 /// signals on this platform)
 #[cfg_attr(
