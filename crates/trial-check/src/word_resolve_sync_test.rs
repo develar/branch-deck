@@ -6,54 +6,14 @@ use crate::check::{CheckOutcome, check_plan};
 use domain_types::conflict::{ResolvedFileSummary, WordResolutionSummary};
 use domain_types::{BranchError, BranchSyncStatus, CommitSyncStatus, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::word_resolve::RESOLVE_VERSION;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::TestRepo;
-use test_utils::sync_fixtures::TestReporter;
+use test_utils::sync_fixtures::{TestReporter, WORD_CONFLICT_TIME as TIME, commit_files, repo_with_a_word_conflict, repo_with_word_changes as repo_with, with_resolve_version};
 
 const PREFIX: &str = "test";
-/// The time of the commits: two repositories made alike have the same commit ids
-const TIME: i64 = 1_700_000_000;
-
-/// The baseline (`origin/master`) has `files`; alpha changes them by `alpha`, then beta by `beta`. Beta is copied onto
-/// the baseline without alpha, so git conflicts wherever beta changes a line alpha changed
-fn repo_with(files: &[(&str, &str)], alpha: &[(&str, &str)], beta: &[(&str, &str)]) -> TestRepo {
-  let repo = TestRepo::new();
-  for (index, (path, content)) in files.iter().enumerate() {
-    repo.create_commit_with_timestamp(&format!("Add {path}"), path, content, Some(TIME + i64::try_from(index).unwrap()));
-  }
-  repo.git(&["remote", "add", "origin", "."]);
-  let initial = repo.head();
-  repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
-  commit_files(&repo, "(alpha) Change the call", alpha, TIME + 100);
-  commit_files(&repo, "(beta) Change the call again", beta, TIME + 200);
-  repo
-}
-
-fn commit_files(repo: &TestRepo, message: &str, files: &[(&str, &str)], time: i64) -> String {
-  for (path, content) in files {
-    std::fs::write(repo.path().join(path), content).unwrap();
-  }
-  let date = format!("{time} +0000");
-  repo
-    .git_executor()
-    .cmd(&["commit", "-qam", message], repo.path_str())
-    .env(&[("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
-    .text()
-    .unwrap();
-  repo.head()
-}
-
-/// alpha changes the first argument, beta the third: one conflict of git that the words resolve
-fn repo_with_a_word_conflict() -> TestRepo {
-  repo_with(
-    &[("Call.kt", "call(a, b, c)\nend\n")],
-    &[("Call.kt", "call(A, b, c)\nend\n")],
-    &[("Call.kt", "call(A, b, C)\nend\n")],
-  )
-}
-
 async fn sync_events_with(git: &GitCommandExecutor, repo: &TestRepo, object_cache: ObjectCache) -> Vec<SyncEvent> {
   let progress = TestReporter::new();
   let options = SyncOptions {
@@ -286,4 +246,90 @@ async fn the_shared_chain_ref_of_an_interrupted_older_sync_blocks_no_sync_and_is
   assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call(&repo)))]);
   // the ref of a running writer of another process stays
   assert_eq!(repo.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/tmp/"]), young);
+}
+
+/// A copy that the resolve by words of `version` wrote of the commit `original`: `copy` on the branch of beta, its
+/// mapping note in the words of that resolve
+fn older_copy(repo: &TestRepo, original: &str, copy: &str, version: u32) {
+  repo.git(&["update-ref", BETA, copy]);
+  with_resolve_version(repo, original, version, Some(copy));
+}
+
+/// A commit with the parent, the message and the author of the copy of beta and `path` holding `content`: a copy that
+/// another resolve wrote otherwise
+fn copy_with(repo: &TestRepo, path: &str, content: &str) -> String {
+  let branch = repo.git(&["symbolic-ref", "--short", "HEAD"]);
+  repo.git(&["checkout", "-q", "--detach", "refs/remotes/origin/master"]);
+  let copy = commit_files(repo, "Change the call again", &[(path, content)], TIME + 200);
+  repo.git(&["checkout", "-q", &branch]);
+  copy
+}
+
+/// The resolve version of the mapping note of `original`, and the copy it names
+fn noted(repo: &TestRepo, original: &str) -> (u32, String) {
+  let note = repo.git(&["notes", "show", original]);
+  let version = git_ops::notes::mapped_resolution(&note).expect("a resolve line").version;
+  (version, git_ops::notes::mapped_commit_id(&note).expect("a mapping line").to_string())
+}
+
+/// A copy that an older resolve wrote with the bytes this resolve gives keeps its commit, and its note takes this resolve:
+/// the next sync checks it no more (`process_budget_test::a_copy_of_an_older_resolve_is_checked_once` of sync-core)
+#[tokio::test]
+async fn a_copy_of_an_older_resolve_with_the_same_bytes_keeps_its_commit_and_takes_this_resolve() {
+  let repo = repo_with_a_word_conflict();
+  sync_events(&repo).await;
+  let (original, tip) = (repo.head(), repo.rev_parse(BETA).unwrap());
+  older_copy(&repo, &original, &tip, 1);
+  let events = sync_events(&repo).await;
+  assert_eq!(repo.rev_parse(BETA).unwrap(), tip);
+  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Unchanged, Some(resolved_call(&repo)))]);
+  assert_eq!(noted(&repo, &original), (RESOLVE_VERSION, tip));
+}
+
+/// A copy that an older resolve wrote with other bytes is copied again, as a copy whose commit changed; the same copy
+/// noted by this resolve is taken as it is
+#[tokio::test]
+async fn a_copy_of_an_older_resolve_with_other_bytes_is_copied_again() {
+  let repo = repo_with_a_word_conflict();
+  sync_events(&repo).await;
+  let (original, tip) = (repo.head(), repo.rev_parse(BETA).unwrap());
+  let other = copy_with(&repo, "Call.kt", "call(A, B, C)\nend\n");
+  older_copy(&repo, &original, &other, RESOLVE_VERSION);
+  sync_events(&repo).await;
+  assert_eq!(repo.rev_parse(BETA).unwrap(), other, "a copy of this resolve is taken as it is");
+
+  older_copy(&repo, &original, &other, 1);
+  let events = sync_events(&repo).await;
+  assert_eq!(repo.rev_parse(BETA).unwrap(), tip, "the copy this resolve writes");
+  assert_eq!(file(&repo, BETA, "Call.kt"), "call(a, b, C)\nend");
+  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call(&repo)))]);
+  assert_eq!(noted(&repo, &original), (RESOLVE_VERSION, tip));
+}
+
+/// A copy that an older resolve wrote of a conflict that this resolve leaves is the conflict of git: a blank line at the
+/// end of the baseline and a line that beta adds there, which an older merge took for two insertions
+/// (`word_resolve_test::two_insertions_at_the_end_of_a_file_stay_the_conflict_of_git` of git-ops); the same copy noted
+/// by this resolve is taken as it is
+#[tokio::test]
+async fn a_copy_of_an_older_resolve_that_this_resolve_leaves_is_the_conflict_of_git() {
+  let repo = repo_with(&[("end.txt", "x\n\n")], &[("end.txt", "x\n")], &[("end.txt", "x\ny\n")]);
+  let original = repo.head();
+  assert!(has_conflict(&sync_events(&repo).await), "this resolve leaves the conflict to git");
+  let copy = copy_with(&repo, "end.txt", "x\ny\n\n");
+  let tree = |rev: String| repo.rev_parse(&format!("{rev}^{{tree}}")).unwrap();
+  let note = |version: u32| {
+    format!(
+      "v-commit-v1:{copy}\nv-commit-source-v1:{} {}\nv-commit-resolved-v1:{version} 1 1",
+      tree(format!("{original}~1")),
+      tree(original.clone())
+    )
+  };
+  repo.git(&["update-ref", BETA, &copy]);
+  repo.git(&["notes", "add", "-f", "-m", &note(RESOLVE_VERSION), &original]);
+  let events = sync_events(&repo).await;
+  assert!(!has_conflict(&events), "a copy of this resolve is taken as it is");
+  assert_eq!(repo.rev_parse(BETA).unwrap(), copy);
+
+  repo.git(&["notes", "add", "-f", "-m", &note(1), &original]);
+  assert!(has_conflict(&sync_events(&repo).await));
 }

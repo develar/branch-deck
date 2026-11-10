@@ -35,8 +35,8 @@ use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
-use test_utils::process_budget::{FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, repo_on_origin};
-use test_utils::sync_fixtures::TestReporter;
+use test_utils::process_budget::{FIRST_SYNC, alpha_and_beta_on_origin, assert_processes, assert_signed_commits, counting, empty_cache, repo_on_origin, with_added_processes};
+use test_utils::sync_fixtures::{TestReporter, repo_with_a_word_conflict, with_resolve_version};
 
 const PREFIX: &str = "test";
 
@@ -206,6 +206,37 @@ const UNCHANGED_SYNC: [(&str, u32); 8] = [
   ("rev-parse", 1),
   ("symbolic-ref", 1),
 ];
+
+/// A copy that an older resolve by words wrote is checked once by its tree: its merge (the chain's `merge-tree` and the
+/// merge with the messages of its conflict), the resolve (`check-attr`, `cat-file`) and its note, which takes this
+/// resolve (`show-ref`, `var`, `fast-import`, `notes`), as a commit that conflicts and resolves costs. Once its note
+/// names this resolve, a sync runs the processes of an unchanged one
+#[tokio::test]
+async fn a_copy_of_an_older_resolve_is_checked_once() {
+  let repo = repo_with_a_word_conflict();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  with_resolve_version(&repo, &repo.head(), 1, None);
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(
+    &git,
+    &with_added_processes(
+      &UNCHANGED_SYNC,
+      &[
+        ("cat-file", 1),
+        ("check-attr", 1),
+        ("fast-import", 1),
+        ("merge-tree", 2),
+        ("notes", 1),
+        ("show-ref", 1),
+        ("var", 1),
+      ],
+    ),
+  );
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(&git, &UNCHANGED_SYNC);
+}
 
 /// `repo` with a branch whose commit changes a file another branch adds: `delta` conflicts at every sync
 fn repo_with_a_conflict() -> TestRepo {

@@ -275,6 +275,10 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         resolved: commit.mapped_resolution.as_ref().map(|resolved| summary_of_note(resolved, commit, new_parent_oid)),
       }
     };
+    // a copy that an older resolve by words wrote is checked once by its tree, as a note without a source is: the same
+    // tree keeps the copy and gives its note this resolve, so the next sync takes it as it is; another tree, or a
+    // conflict that this resolve leaves, copies it again. A newer resolve's copy is taken as it is
+    let older_resolve = commit.mapped_resolution.is_some_and(|resolved| resolved.version < RESOLVE_VERSION);
     match &commit.mapped_source {
       _ if !same_metadata(virtual_commit, commit, &commit_message) => {
         warn!(original_id = %commit.id, mapped_id = %mapped_id, "mapping note is stale: the message or the author changed since the commit was copied");
@@ -285,17 +289,13 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
       Some(recorded) if *recorded != source => {
         warn!(original_id = %commit.id, mapped_id = %mapped_id, "mapping note is stale: the commit changed since it was copied");
       }
-      Some(_) if !verify_notes => {
+      Some(_) if !verify_notes && !older_resolve => {
         debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
         return Ok(reused(None));
       }
-      Some(recorded) if *recorded == source && commit.mapped_resolution.is_some_and(|resolved| resolved.version != RESOLVE_VERSION) => {
-        // another resolve may resolve otherwise: the copy holds while its inputs do, and changes only with them
-        debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing a copy that another resolve by words wrote");
-        return Ok(reused(None));
-      }
       recorded => {
-        // a note without a source, or one not trusted: the mapped commit must have the tree a copy would get
+        // a note without a source, one not trusted, or one of an older resolve: the mapped commit must have the tree a
+        // copy would get
         let copy = copied_tree()?;
         if copy.tree == virtual_commit.tree {
           debug!(original_id = %commit.id, mapped_id = %mapped_id, "the mapped commit is a copy of this commit");

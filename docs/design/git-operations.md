@@ -3000,11 +3000,17 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
 - **A resolve by words is in the note.** A copy whose conflict of git resolved by words has a third line,
   `v-commit-resolved-v1:<resolve version> <conflicts> <files>` (`mapped_resolution`); the reuse gives the commit row
   its counts, and `mapping_lines` copies it with the other two. With `branchdeck.resolveByWords` off, such a note is
-  stale, so the commit is copied again and gets the conflict of git. A note of another resolve version is taken as it
-  is while its source holds, also with `verify_mapping_notes`: the copy changes only with its inputs, not with an
-  upgrade of the engine.
-- **Older notes are checked by the tree.** A note without the source line, written before it, or any note with
-  `SyncOptions::verify_mapping_notes` (`brd --no-cache`), is checked against the copy itself: the copy's tree must be
+  stale, so the commit is copied again and gets the conflict of git. A note of an older resolve version
+  (`RESOLVE_VERSION`) is checked once by the tree, as an older note is (below): a copy with the tree this resolve gives
+  keeps its commit, no new copy and no push, and its note takes this version, so the next sync takes it as it is;
+  another tree copies the commit again, and a conflict that this resolve leaves is the conflict of git. The check costs
+  what a commit that conflicts and resolves costs, once: the merge with the messages of its conflict, one `check-attr`
+  and one `cat-file`, its note in the notes `fast-import` of the sync
+  (`process_budget_test::a_copy_of_an_older_resolve_is_checked_once`). A note of a newer version, written by a newer
+  binary on the same repository, is taken as it is.
+- **Older notes are checked by the tree.** A note without the source line, written before it, a note of an older
+  resolve version, or any note with `SyncOptions::verify_mapping_notes` (`brd --no-cache`), is checked against the
+  copy itself: the copy's tree must be
   the tree a copy would get (the original's tree on the same parent tree, else the merge the copy runs). A match keeps
   the copy and writes the note with its source, so an older copy (another committer date, from before the
   deterministic dates) is not replaced and its branch doesn't move; the cost is one merge per commit, once. A re-copy
