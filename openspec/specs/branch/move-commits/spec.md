@@ -1138,7 +1138,7 @@ pointer shows no drop there (`data-drop-target="refused"`), and a row or a card 
 - **WHEN** a dragged branch can't be parked now
 - **THEN** the park target says why instead of its label ("Cannot park docs: A Safe Push of docs is running…")
 - **AND** the pointer shows no drop there (`data-drop-target="refused"`), and a row or a card that refuses is not highlighted
-  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park the selected branches dropped on a row or the header of the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
+  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the header of the Parked card, and unpark a stack by its root, never by a branch parked with it`)
 
 #### Scenario: A stack that would be a cycle
 - **WHEN** a dragged branch would be stacked on a branch stacked on it

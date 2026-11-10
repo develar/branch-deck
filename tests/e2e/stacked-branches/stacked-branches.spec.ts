@@ -731,7 +731,7 @@ test.describe("Stacked branches", () => {
     await clickContextMenuItem(page, "Create Pull Request…")
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("auth → master")
     await expect(dialog.getByTestId("create-pull-request-includes")).toHaveCount(0)
-    await dialog.getByTestId("create-pull-request-submit").click()
+    await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" }).locator("[data-slot=toast-description]")).toHaveText("auth → master · assigned to you")
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
       ["POST", repoPath("pulls"), expect.objectContaining({ head: "user-name/virtual/auth", base: "master" })],
@@ -952,7 +952,7 @@ test.describe("Stacked branches", () => {
     await expect(button).toHaveAttribute("aria-busy", "true")
     await expect(button).toHaveText(/with children/, { useInnerText: true })
     expect((await boxOf(track)).width).toBe(width)
-    await held.release()
+    await runAndWaitForAnswer(page, "execute", () => held.release())
     await expect(page.locator("[data-slot=toast]", { hasText: "Pushed branches session, login and oauth" })).toBeVisible()
     expect(await remotePushes(repo)).toEqual([["auth"], ["login", "oauth", "session"], ["login", "oauth", "session"]])
   })
@@ -1207,7 +1207,7 @@ test.describe("Stacked branches", () => {
       // the root's own step again
       await expect(start).toHaveText("Safe Push")
       await expect(start).not.toHaveAttribute("aria-busy", "true")
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
       await closeRefusal(page)
 
       // Dry Run Whole Stack: the same robot checks it, the popover at the root's row too
@@ -1319,7 +1319,7 @@ test.describe("Stacked branches", () => {
           repo,
           Array.from({ length: starts }, () => startRequest("oauth")),
         )
-        await expect(popover).toHaveCount(0)
+        await expectClosed(popover)
         await closeRefusal(page)
       }
       return { repo, startWithEnter }
@@ -1372,14 +1372,19 @@ test.describe("Stacked branches", () => {
 
     // two tests of two starts each, not one of four: each start is seconds of push, gate and robot under load
     // (docs/design/e2e-testing.md, "A test of many starts")
-    test("should land a stacked branch with what it is built on from S and the review window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should land a stacked branch with what it is built on from S", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const { repo, startWithEnter } = await setupOauthStarts(page, setupRepo, syncAndWaitForBranches)
-      const oauthRow = findBranchRow(page, "oauth")
 
       // S on the focused row: the stack is pushed first, in one push
       await openSafePushWithKey(page, "oauth")
       await startWithEnter()
       expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
+    })
+
+    // the start of the review window apart from S: one test of both took 30 s under load
+    test("should land a stacked branch with what it is built on from the review window, at the row of the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const { repo, startWithEnter } = await setupOauthStarts(page, setupRepo, syncAndWaitForBranches)
+      const oauthRow = findBranchRow(page, "oauth")
 
       // the review window of oauth asks the main window, which opens the popover of the row
       const count = (await getOpenedSubWindows(page)).length
@@ -1394,7 +1399,7 @@ test.describe("Stacked branches", () => {
       await expect(safePushPopover(page)).toBeVisible()
       await page.bringToFront()
       await startWithEnter()
-      // the stack is on the remote now: no start pushed again
+      // the stack is pushed first, in one push
       expect(await remotePushes(repo)).toEqual([["auth", "login", "oauth"]])
     })
 
@@ -1428,7 +1433,7 @@ test.describe("Stacked branches", () => {
       await expect(popover.getByTestId("safe-push-lands")).toHaveText("Lands login with auth, which it is built on: 2 branches · 2 commits into master.")
       await expect(popover.getByTestId("safe-push-children")).toHaveText("oauth is built on login: it stays, and after the merge the next sync builds it on master.")
       await page.keyboard.press("Escape")
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
       // the root lands alone; what is built on it stays (S: a click on a lone branch with nothing to say starts at once)
       const root = await openSafePushWithKey(page, "auth")
       await expect(root).toHaveAttribute("aria-label", "Safe Push of auth")
@@ -1453,7 +1458,7 @@ test.describe("Stacked branches", () => {
       let popover = await expectPopoverOf(page, "oauth")
       await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #8: Patronus reports there and closes it once merged.")
       await page.keyboard.press("Escape")
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
 
       // an older Branch Deck moved #8 onto the branch of login meanwhile: the next step says so once GitHub lists it
       await repo.setPullRequests(availablePullRequests(pullRequest("oauth", 8, { baseRefName: "user-name/virtual/login" })))
@@ -1478,7 +1483,7 @@ test.describe("Stacked branches", () => {
       )
       await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #8: Patronus reports there and closes it once merged.")
       await page.keyboard.press("Escape")
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
 
       // the retarget of the slot (its own test in next-step.spec.ts)
       await runAndWaitForAnswer(page, "execute", () => retarget.click())
@@ -1641,13 +1646,13 @@ test.describe("Stacked branches", () => {
       await clickContextMenuItem(page, "Create Pull Request…")
       const dialog = createPullRequestDialog(page)
       await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("docs → master")
-      await dialog.getByTestId("create-pull-request-submit").click()
+      await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
       await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #901" })).toBeVisible()
       expect(await remotePushes(repo)).toEqual([["docs"], ["docs"], ["docs"]])
       expect(await gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/virtual/docs", base: "master" })])
     })
 
-    test("should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    test("should say which branches a merged Safe Push landed until the update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
       await syncAndWaitForBranches()
       await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
@@ -1689,7 +1694,18 @@ test.describe("Stacked branches", () => {
       await expect(page.getByTestId("landed-with-popover")).toContainText("In master with the Safe Push of oauth · the update removes the local copies")
       await chip.click()
       await expect.poll(() => getOpenedUrls(page)).toContain(started.url)
-      await page.mouse.move(0, 0)
+    })
+
+    // the actions of the landed branches apart from the start and the merge: one test of both took 30 s under load
+    test("should offer no Safe Push or push of the branches a merged Safe Push landed, the menus, S and the preview saying why", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      const running = robot("oauth", "oauth-robot")
+      const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
+      await mergeRunningRobot(page, repo, running)
+      await expect(findBranchRow(page, "login").getByTestId("landed-with")).toHaveText("Landed with oauth")
 
       // no Safe Push, no Dry Run, no push of commits that landed in the menu, each saying why; S says it too
       const reason = "Landed in master with oauth"
@@ -1908,7 +1924,7 @@ test.describe("Stacked branches", () => {
       expect((await repo.getPatronusLog()).starts).toEqual([])
       await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
       await expectPatronusStarts(repo, [startRequest("oauth")])
-      await expect(popover).toHaveCount(0)
+      await expectClosed(popover)
       // only oauth lands, so only oauth is pushed
       expect(await remotePushes(repo)).toEqual([["oauth"]])
       // the toast of the start can cancel it

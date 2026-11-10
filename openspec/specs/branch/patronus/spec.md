@@ -2727,7 +2727,7 @@ and the review window.
 - **WHEN** the user starts a stacked branch from the "⋯" of its row, Safe Push With Profile… of its menu, S, the review
   window or the footer of its preview
 - **THEN** the start of that branch is asked, its popover at its row
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S and the review window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S`, `should land a stacked branch with what it is built on from the review window, at the row of the main window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`)
 
 ### Requirement: Starting a Safe Push or a Dry Run: The header of a stack island starts the whole stack
 
@@ -3346,7 +3346,7 @@ shows it too. The branch the robot ran on landed too: it MUST keep its robot chi
 - **AND** the chip's hover says "In master with the
   Safe Push of oauth · the update removes the local copies" and when it merged, a click opens the robot in Patronus
   [@test] src/lib/patronus.test.ts (`names who landed a branch in its row: a branch built on it, the whole stack, its own robot with the work left`)
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`)
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`)
 
 #### Scenario: The view names the landing
@@ -3379,7 +3379,7 @@ The branches a merged robot landed MUST offer no Safe Push and no Dry Run
 #### Scenario: The branches the whole stack landed
 - **WHEN** the whole stack merged
 - **THEN** its branches offer no Safe Push, Dry Run or push, each saying why, the hover of their chip saying so
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`, `should offer no Safe Push or push of the branches a merged Safe Push landed, the menus, S and the preview saying why`)
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
 
 ### Requirement: Merged: The Landed chip takes the place once the baseline has the commits

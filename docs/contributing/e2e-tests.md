@@ -37,7 +37,9 @@ rules in one line each and links here.
   row `syncAndWaitForBranches` returns at, and after a resize once `resizeReportsDelivered`. A chain of commands gets a
   wait per step, each of which takes seconds under load: a rewrite and its sync `runAndWaitForSync`, Update Project
   `runAndWaitForUpdate`, a start `runAndWaitForAnswer(page, "execute", …)` (the end of its stream), the facts of a next step
-  `waitForStepFacts`, any other step `nextAnswer(page, command)` before the assertion that reads its answer. The press
+  `waitForStepFacts`, any other step `nextAnswer(page, command)` before the assertion that reads its answer (a start
+  that a review window asks for runs in the main window, `askReviewRun`: its answer is the main page's; a review
+  window opens on the answers of its plan and its diffs, `openPlanWindow`). The press
   goes into the wait (`runAndWaitForAnswer(page, command, () => button.click())`) or comes after `nextAnswer`: a wait
   that starts after the press misses a quick answer and holds the test until its timeout. What an operation wrote (the
   remote's branches, a start, a restart, a cancel or a GitHub write at a fake) is read once after its answer, never
@@ -54,7 +56,10 @@ rules in one line each and links here.
   start of a robot or a push 1-5 s; a test of every surface of one start gives each a few starts, and the next surfaces
   are tests of their own. A test that takes more than 20 s on the Studio beside 40 `yes` workers is split; the step
   profile of the run says where its time went (`node scripts/e2e-steps.mjs <part of its title> [--kinds]`,
-  [A test of many starts](../design/e2e-testing.md#performance-considerations)).
+  [A test of many starts](../design/e2e-testing.md#performance-considerations)). What is not the subject costs no
+  start: a commit the window needs goes in before the sync that opens it, a second recent project before the first
+  sync (`addRecentProject` reloads the page), and the boxes of one measurement are asked at once (`Promise.all`), each
+  a quarter of a second under load; a sweep of widths is two tests of half the widths (`title-bar.spec.ts`).
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command

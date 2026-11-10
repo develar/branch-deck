@@ -1505,7 +1505,7 @@ the open names (Review Changes of a group of the Safe Push popover) wins.
 - **GIVEN** a chip chosen last in a review window of the repository
 - **WHEN** the window opens on changes where it marks at least one file
 - **THEN** it opens on that chip, and on All where it marks none
-  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should open on the owner chip last chosen in a review window of the repository where it marks files, else on All`)
+  [@test] tests/e2e/branch-review/branch-review.spec.ts (`should open on the owner chip last chosen in a review window of the repository where it marks files`, `should open on All where the owner chip last chosen marks no file`)
   [@test] src/lib/review-owners.test.ts (`opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All`)
 
 #### Scenario: A chip the open names

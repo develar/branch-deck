@@ -626,12 +626,7 @@ test.describe("Branch review window", () => {
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 
-  test("should open on the owner chip last chosen in a review window of the repository where it marks files, else on All", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-    testStore,
-  }) => {
+  test("should open on the owner chip last chosen in a review window of the repository where it marks files", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     const owner = (window: Page, name: string) => window.locator(`[data-testid=branch-review-owner][data-owner='${name}']`)
@@ -651,13 +646,23 @@ test.describe("Branch review window", () => {
     await expect.poll(() => reviewedPaths(second)).toEqual(["ui/login.css"])
     await expect(fileHeader(second, "README.md")).toHaveCount(0)
     await expect(fileHeader(second, "ui/login.css")).toBeVisible()
-    await second.close()
+  })
+
+  // the window of changes the remembered chip marks no file of, apart from the windows it opens: one test of the three
+  // windows took 30 s under load
+  test("should open on All where the owner chip last chosen marks no file", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const first = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    await first.locator("[data-testid=branch-review-owner][data-owner='Design']").click()
+    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
+    await first.close()
 
     // auth has no file of Design: the window opens on All, which needs no chip here (one owner has every file)
-    const third = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
-    await expect(third.getByTestId("branch-review-files")).toHaveText("Files1Auth Team")
-    await expect(third.getByTestId("branch-review-owners")).toHaveCount(0)
-    await expect(fileHeader(third, "auth/token.js")).toBeVisible()
+    const second = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
+    await expect(second.getByTestId("branch-review-files")).toHaveText("Files1Auth Team")
+    await expect(second.getByTestId("branch-review-owners")).toHaveCount(0)
+    await expect(fileHeader(second, "auth/token.js")).toBeVisible()
   })
 
   test("should save the diff view the window chooses through the writer of the backend", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {

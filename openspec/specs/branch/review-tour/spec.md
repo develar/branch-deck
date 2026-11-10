@@ -1784,7 +1784,7 @@ the bar and the hover of the map of the files naming it without a number too.
 - **WHEN** the overview lists the steps
 - **THEN** each shows its number and its full title, wrapping, never cut, then the lead of its body
 - **AND** a click on it shows its opening
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should show the Look closely of a step as a callout, and open a part folded under it from the mark of its section, its block outlined once`)
   [@test] src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
 
 #### Scenario: Other changes
@@ -2035,7 +2035,7 @@ callout, no trailer.
 - **THEN** it tells the body of the commit that starts it in `text-md`, its lead a step larger (`text-base`)
 - **AND** its labels are the captions of their blocks, code and measurements in the monospace font
 - **AND** a "Look closely:" section is an info callout, and no trailer is shown
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should show the Look closely of a step as a callout, and open a part folded under it from the mark of its section, its block outlined once`)
   [@test] src/presenters/review-story.test.ts (`opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 
 ### Requirement: In the Review Window: An opening shows what the body changed since the review
@@ -2099,7 +2099,7 @@ of the change reaches, each at its declaration, the name selected, nothing of co
 - **THEN** the files of the tests of the change show their tests in the hover with their way ("Tested by ManagerTest.kt"; "opens: calls open", "opens: reaches open through the test code", "opens: reaches open end to end")
 - **AND** its code no test reaches shows each name at its declaration, selected ("No test of the change reaches show")
 - **AND** code accio did not walk every way of is not named
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following`)
   [@test] src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
 
 ### Requirement: In the Review Window: The facts of an opening name what its step proves and adds
@@ -2925,7 +2925,7 @@ overview move them, and a click shows the opening of the step (of the first one 
 - **WHEN** the diffs scroll, or J, K, a row of the tree or a step of the overview move them
 - **THEN** the bar follows, naming the step of the section at the top, "Overview · 4 steps" while the overview is at the top
 - **AND** a click on the bar shows the opening of the step, of the first one from the overview
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following`)
 
 #### Scenario: The bar at the end of a document
 - **WHEN** J shows a section that the end of the document keeps from the top of the view, then the reader scrolls to
@@ -2960,7 +2960,7 @@ opening of the first step too.
 - **WHEN** the user presses J from the overview and on
 - **THEN** J shows the opening of the first step, then its card, then the next card or the opening of the next step
 - **AND** K goes the same way back, from the opening of the first step to the overview
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following`)
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 
 #### Scenario: The first J of a review just opened
@@ -2977,7 +2977,7 @@ keeps the selection. A row of a file of the tree MUST show its card, the opening
 - **WHEN** an opening is at the top
 - **THEN** the tree selects the row of its step, and while a card is at the top the row of its file
 - **AND** the overview keeps the selection
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following`)
 
 #### Scenario: A row of a file
 - **WHEN** the user chooses a row of a file in the tree
@@ -3077,7 +3077,7 @@ colour fading, never a ring like the focus; a label or a heading too). The tint 
 - **WHEN** the user clicks a story mark
 - **THEN** the first line that names the section shows where it is told, the opening of its step at the top
 - **AND** a fold that held it opens, and its block is tinted for a moment
-  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should show the Look closely of a step as a callout, and open a part folded under it from the mark of its section, its block outlined once`)
 
 #### Scenario: A story that shows later
 - **WHEN** the story shows later: the commit shown alone, the whole story again, the files a search hid

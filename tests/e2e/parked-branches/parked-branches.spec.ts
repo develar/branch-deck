@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/parked-branches/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRows, getMoreButton, verifyBranchState } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRows, getMoreButton, verifyBranchState } from "../helpers/branch-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { dropAt, dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
@@ -76,6 +76,31 @@ test.describe("Parked branches", () => {
     await expect(yourMove).toHaveText(`Your Move${BRANCH_COUNT - 1}`)
     await expect(moves).toHaveText(String(movesBefore - 1))
 
+    // F2 steps through the moves and never stops at it
+    await page.mouse.click(5, 300)
+    const focused: string[] = []
+    for (let i = 0; i < BRANCH_COUNT - 1; i++) {
+      await page.keyboard.press("F2")
+      // the focused row, read once it has the focus
+      focused.push((await page.locator("tr[data-testid=branch-row]:focus").getAttribute("data-branch-name")) ?? "")
+    }
+    expect(new Set(focused).size).toBe(BRANCH_COUNT - 1)
+    expect(focused).not.toContain("docs")
+
+    // Undo of the toast unparks it
+    await runAndWaitForSync(page, () => toast(page, "Parked docs").getByRole("button", { name: "Undo" }).click())
+    await expect(parkedCard(page)).toHaveCount(0)
+    await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
+    await expect(yourMove).toHaveText(`Your Move${BRANCH_COUNT}`)
+    await expect(findBranchRow(page, "docs").getByTestId("lane-node")).not.toHaveAttribute("data-kind", "parked")
+  })
+
+  // the pushes of a parked branch apart from its park and its moves: one test of both took 30 s under load
+  test("should offer no push of a parked branch, nor of a part of it, each saying why", async ({ page }) => {
+    await parkWithForm(page, () => findBranchRow(page, "docs").click({ button: "right" }), "waits for the fix of IJPL-1")
+    const row = findBranchRow(page, "docs")
+    await expect(row.getByTestId("parked-status")).toHaveText("Parked")
+
     // no push of it: the menu says why
     await row.click({ button: "right" })
     const push = page.getByRole("menuitem", { name: /^Push/ }).first()
@@ -83,6 +108,7 @@ test.describe("Parked branches", () => {
     await push.hover()
     await expect(openTooltip(page)).toHaveText("Parked: Unpark it to push")
     await page.keyboard.press("Escape")
+    await expectClosed(page.getByRole("menu"))
     // nor of a part of it: the push arrow of its commit and the commit's menu say the same
     await expandBranch(page, row)
     const commit = getBranchCommitRows(page, "docs").first()
@@ -96,26 +122,6 @@ test.describe("Parked branches", () => {
     await expect(pushUpTo).toHaveAttribute("aria-disabled", "true")
     await pushUpTo.hover()
     await expect(openTooltip(page)).toHaveText("Parked: Unpark it to push")
-    await page.keyboard.press("Escape")
-    await collapseBranch(page, row)
-
-    // F2 steps through the moves and never stops at it
-    await page.mouse.click(5, 300)
-    const focused: string[] = []
-    for (let i = 0; i < BRANCH_COUNT - 1; i++) {
-      await page.keyboard.press("F2")
-      await expect(page.locator("tr[data-testid=branch-row]:focus")).toHaveCount(1)
-      focused.push((await page.locator("tr[data-testid=branch-row]:focus").getAttribute("data-branch-name")) ?? "")
-    }
-    expect(new Set(focused).size).toBe(BRANCH_COUNT - 1)
-    expect(focused).not.toContain("docs")
-
-    // Undo of the toast unparks it
-    await runAndWaitForSync(page, () => toast(page, "Parked docs").getByRole("button", { name: "Undo" }).click())
-    await expect(parkedCard(page)).toHaveCount(0)
-    await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
-    await expect(yourMove).toHaveText(`Your Move${BRANCH_COUNT}`)
-    await expect(findBranchRow(page, "docs").getByTestId("lane-node")).not.toHaveAttribute("data-kind", "parked")
   })
 
   test("should park a stack root with the branches built on it, edit its note and unpark it from the menus", async ({ page }) => {
@@ -238,9 +244,7 @@ test.describe("Parked branches", () => {
     await expect(parkedCard(page)).toHaveCount(0)
   })
 
-  test("should park the selected branches dropped on a row or the header of the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it", async ({
-    page,
-  }) => {
+  test("should park the selected branches dropped on a row of the Parked card at once with one Undo", async ({ page }) => {
     await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
     expect(await parkedRows(page)).toEqual(["lint"])
 
@@ -255,6 +259,12 @@ test.describe("Parked branches", () => {
     expect((await parkedRows(page)).toSorted()).toEqual(["api", "cli", "core", "docs", "lint", "web"])
     const parkedBoth = toast(page, "Parked ").filter({ hasText: "core" }).filter({ hasText: "docs" })
     await runAndWaitForSync(page, () => parkedBoth.getByRole("button", { name: "Undo" }).click())
+    expect(await parkedRows(page)).toEqual(["lint"])
+  })
+
+  // the header of the card and the unpark apart from the park of a selection: one test of both took 30 s under load
+  test("should park a branch dragged onto the header of the Parked card, and unpark a stack by its root, never by a branch parked with it", async ({ page }) => {
+    await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
     expect(await parkedRows(page)).toEqual(["lint"])
 
     // a plain click selects no branch: the drag carries core alone, onto the header of the card

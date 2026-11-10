@@ -30,29 +30,42 @@ async function addNeed(page: Page, branchName: string, needed: string) {
 
 test.describe("Declared needs", () => {
   // the focus of the form and the submenu: WebKit too
-  test("should declare from the menu what lands before a branch, name it on the row, and take it back", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test(
+    "should declare from the menu what lands before a branch, name it on the row, and undo the declaration",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRepo("issue_links", { patronus: availableRobots() })
+      await syncAndWaitForBranches()
+      await expect(step(page, "JIRA-456")).toHaveAttribute("data-step", /./)
+      await expect(step(page, "JIRA-456")).not.toHaveAttribute("data-step", "needsBranch")
+
+      await addNeed(page, "JIRA-456", "feature-auth")
+      const declared = page.locator("[data-slot=toast]", { hasText: "Declared that feature-auth lands before JIRA-456" })
+      await expect(declared).toBeVisible()
+      await runAndWaitForSync(page, () => declared.getByRole("button", { name: "Undo" }).click())
+      await expect(step(page, "JIRA-456")).not.toHaveAttribute("data-step", "needsBranch")
+
+      await addNeed(page, "JIRA-456", "feature-auth")
+      // known as soon as the sync read the store
+      await expect(step(page, "JIRA-456")).toHaveAttribute("data-step", "needsBranch")
+      const button = step(page, "JIRA-456").getByTestId("next-step")
+      await expect(button).toHaveText("Needs feature-auth")
+      await button.hover()
+      await expect(page.getByTestId("next-step-hover")).toHaveText(
+        "You declared that feature-auth lands before JIRA-456: it is not in master yet, so a start of JIRA-456 lands them out of order.",
+      )
+      // the branch it needs needs nothing
+      await expect(step(page, "feature-auth")).not.toHaveAttribute("data-step", "needsBranch")
+    },
+  )
+
+  // the removal of the needs apart from their declaration: one test of both, six rewrites, took 30 s under load
+  test("should take back a declared need from the menu, one of two from its submenu", { tag: "@webkit" }, async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    await expect(step(page, "JIRA-456")).toHaveAttribute("data-step", /./)
-    await expect(step(page, "JIRA-456")).not.toHaveAttribute("data-step", "needsBranch")
-
     await addNeed(page, "JIRA-456", "feature-auth")
-    const declared = page.locator("[data-slot=toast]", { hasText: "Declared that feature-auth lands before JIRA-456" })
-    await expect(declared).toBeVisible()
-    await runAndWaitForSync(page, () => declared.getByRole("button", { name: "Undo" }).click())
-    await expect(step(page, "JIRA-456")).not.toHaveAttribute("data-step", "needsBranch")
-
-    await addNeed(page, "JIRA-456", "feature-auth")
-    // known as soon as the sync read the store
-    await expect(step(page, "JIRA-456")).toHaveAttribute("data-step", "needsBranch")
     const button = step(page, "JIRA-456").getByTestId("next-step")
     await expect(button).toHaveText("Needs feature-auth")
-    await button.hover()
-    await expect(page.getByTestId("next-step-hover")).toHaveText(
-      "You declared that feature-auth lands before JIRA-456: it is not in master yet, so a start of JIRA-456 lands them out of order.",
-    )
-    // the branch it needs needs nothing
-    await expect(step(page, "feature-auth")).not.toHaveAttribute("data-step", "needsBranch")
 
     // a second need: Remove Need is a submenu of both
     await addNeed(page, "JIRA-456", "feature-api")

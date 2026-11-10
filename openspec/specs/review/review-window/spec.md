@@ -272,7 +272,7 @@ in the repository of the review whatever the main window shows (`getSelectedProj
 #### Scenario: The actions of a kept branch
 - **WHEN** the window reviews an unapplied branch
 - **THEN** its title bar and "⋯" hold the actions of the kept branch from the window's own session
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
 
 ### Requirement: Actions: The window runs each action itself but a form under a row
 
@@ -489,7 +489,7 @@ titled "Review docs").
 #### Scenario: The menu and the focused row of an unapplied branch
 - **WHEN** the user chooses "Review Changes" in the menu of an unapplied row, or presses D on its focused row
 - **THEN** the review window of the kept branch opens, titled "Review docs"
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should open the review of an unapplied branch from its menu, from D on its row and from D on a commit of it`)
 
 #### Scenario: The menu and the focused row of an archived branch
 - **WHEN** the user chooses "Review Changes" in the menu of an archived row, or presses D on its focused row
@@ -510,7 +510,7 @@ baseline.
 - **WHEN** the review window of an unapplied branch opens
 - **THEN** it shows one part of its own commits, the stack bar saying "Unapplied on 1a2b3c4d"
 - **AND** its diff is against that commit, not against today's baseline
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
 
 ### Requirement: Kept branches: D on a commit of the expanded row opens the review at it
 
@@ -519,7 +519,7 @@ D on a commit of the expanded row of a kept branch MUST open the same review at 
 #### Scenario: D on a commit of an unapplied branch
 - **WHEN** the user presses D on a commit of the expanded row of an unapplied branch
 - **THEN** the review of the branch opens at the commit, titled "Review docs · 1a2b3c4d"
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should open the review of an unapplied branch from its menu, from D on its row and from D on a commit of it`)
 
 #### Scenario: D on a commit of an archived branch
 - **WHEN** the user presses D on a commit of the expanded row of an archived branch
@@ -536,7 +536,7 @@ typed delete at the row); an archived branch has only its "⋯" (its delete, the
 - **WHEN** the window reviews an unapplied branch
 - **THEN** its title bar holds Reapply and its push, its "⋯" the rest of its menu
 - **AND** Reapply runs in the window
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
 
 #### Scenario: An archived branch
 - **WHEN** the window reviews an archived branch
@@ -599,7 +599,7 @@ it itself, the kept branch into its history).
 #### Scenario: Reapply from the window
 - **WHEN** the user runs Reapply from the title bar of the window, and a sync builds the branch
 - **THEN** the window opens the review of the branch it is again itself, the kept branch into its history
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
 
 ### Requirement: Kept branches: After a delete the review keeps what it read
 

@@ -380,18 +380,30 @@ test.describe("Settings window", () => {
     const window = await openTallestSettings(page, repo)
     // Windows: the title bar on Appearance, no Dock badge
     await expectEveryPageFits(window, PAGES)
-    for (const id of ["general", "appearance", "diffs", "notifications", "tools"]) {
-      await window.getByTestId(`settings-tab-${id}`).click()
-      await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
+  })
+
+  // the snapshots of the tallest states apart from their sizes: one test of both took 30 s under load
+  test("should show every page of the window in its tallest state", async ({ page }) => {
+    const window = await openTallestSettings(page, repo)
+    // the statuses of the tools come after the window: the dot of Tools, a step to do, is in every snapshot
+    await expect(settingsTab(window, "Tools").getByTestId("setup-dot")).toBeVisible()
+    for (const name of ["General", "Appearance", "Diffs", "Notifications", "Tools"]) {
+      await settingsTab(window, name).click()
+      await expectTallestState(window, name, "all")
+      await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}`)
     }
     // Accounts without the GitHub sign-in, whose code counts down
-    await window.getByTestId("settings-tab-accounts").click()
+    await settingsTab(window, "Accounts").click()
     await captureHtmlSnapshot(window.locator('[data-settings-focus="account-youtrack"]'), "settings-accounts-youtrack")
-    for (const id of ["branches", "landing", "agents"]) {
-      await window.getByTestId(`settings-tab-${id}`).click()
+    for (const name of ["Branches", "Landing", "Agents"]) {
+      await settingsTab(window, name).click()
+      // each scope tab reached from the other, as the user switches them
+      await window.getByTestId("settings-scope-repository").click()
       for (const scope of ["all", "repository"]) {
         await window.getByTestId(`settings-scope-${scope}`).click()
-        await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}-${scope}`)
+        await expect(window.getByTestId(`settings-scope-${scope}`)).toHaveAttribute("aria-selected", "true")
+        await expectTallestState(window, name, scope)
+        await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${name.toLowerCase()}-${scope}`)
       }
     }
   })

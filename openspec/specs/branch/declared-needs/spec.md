@@ -548,7 +548,7 @@ Push popover, which says it and starts anyway.
 - **THEN** it names the branch it needs ("Needs docs"), its hover the reason
 - **AND** a click opens the Safe Push popover, which says it and starts anyway
   [@test] src/presenters/next-step.test.ts (`row 1′: names the branch the user declared lands first, opens the Safe Push, and unstacks a branch that inherits the need`)
-  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
+  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and undo the declaration`)
 
 ### Requirement: The app: The click of an inherited need runs the unstack
 
@@ -584,7 +584,7 @@ The branch menu (right-click and "⋯") MUST offer "Add Need…" beside "Park Br
 - **THEN** it offers "Add Need…" beside "Park Branch…"
 - **AND** of a branch without commits it is disabled
   [@test] crates/domain-policy/src/actions_test.rs (`a_need_is_added_to_a_branch_with_commits_and_removed_while_one_is_declared`)
-  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
+  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and undo the declaration`, `should take back a declared need from the menu, one of two from its submenu`)
 
 ### Requirement: The app: Add Need opens a form under the row
 
@@ -595,7 +595,7 @@ or companion:branch"), the other branches of the table as chips.
 - **WHEN** the user chooses "Add Need…" of `auth`
 - **THEN** a form under the row says "What lands before auth", its field focused ("A branch of this repository, or companion:branch")
 - **AND** the other branches of the table are chips
-  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
+  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and undo the declaration`)
 
 ### Requirement: The app: Enter or Add Need writes the need
 
@@ -606,7 +606,7 @@ docs lands before auth" with Undo, the store back as it was.
 - **WHEN** the user presses Enter or Add Need in the form
 - **THEN** the rewrite `need` runs, queued as every rewrite, then the sync
 - **AND** the toast "Declared that docs lands before auth" offers Undo, which puts the store back as it was
-  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
+  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and undo the declaration`)
 
 ### Requirement: The app: A refusal of the core keeps the form
 
@@ -627,7 +627,7 @@ them, each the rewrite `unneed`.
 - **THEN** it offers "Remove Need: docs" for one, a submenu "Remove Need ›" of them for two or more
 - **AND** each runs the rewrite `unneed`
   [@test] crates/domain-policy/src/actions_test.rs (`a_need_is_added_to_a_branch_with_commits_and_removed_while_one_is_declared`)
-  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should declare from the menu what lands before a branch, name it on the row, and take it back`)
+  [@test] tests/e2e/declared-needs/declared-needs.spec.ts (`should take back a declared need from the menu, one of two from its submenu`)
 
 ### Requirement: The app: Rust decides both actions over the needs of the branch
 

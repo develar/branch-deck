@@ -679,19 +679,19 @@ minimum, beside the traffic lights, between ☰ and the window buttons, or under
 - **WHEN** the window is any width from 960px up
 - **THEN** the controls of the toolbar stay apart on one line
   [@test] tests/e2e/repository/title-bar.spec.ts (`should start the toolbar after the traffic lights of an overlay title bar, and not in fullscreen`)
-  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width, the names of the views where the repository keeps its room`)
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar beside the traffic lights on one line at every width above 1200px, the names of the views where the repository keeps its room`)
 
 #### Scenario: Between the main menu and the window buttons
 - **GIVEN** a custom title bar, of GNOME's buttons or of Windows
 - **WHEN** the window is any width from 960px up
 - **THEN** the controls stay apart on one line between ☰ and the window buttons
-  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar between the main menu and the window buttons on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width, the names of the views where the repository keeps its room`)
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar between the main menu and the window buttons on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar between the main menu and the window buttons on one line at every width above 1200px, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width above 1200px, the names of the views where the repository keeps its room`)
 
 #### Scenario: Under the system title bar
 - **GIVEN** the system title bar
 - **WHEN** the window is any width from 960px up
 - **THEN** the controls stay apart on one line
-  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar under the system title bar on one line at every width, the names of the views where the repository keeps its room`)
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar under the system title bar on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar under the system title bar on one line at every width above 1200px, the names of the views where the repository keeps its room`)
 
 #### Scenario: The minimum window width
 - **WHEN** the window is at its 960px minimum
@@ -711,7 +711,7 @@ selector down to its minimum; the actions, the time of the last sync among them,
 - **AND** the names of the views and the count go together where that room is below `@md`
 - **AND** the selector then gives way down to its minimum, while the actions keep their place
 - **AND** so ☰ and the window buttons of a custom title bar take their room first
-  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width, the names of the views where the repository keeps its room`, `should keep the toolbar under the system title bar on one line at every width, the names of the views where the repository keeps its room`)
+  [@test] tests/e2e/repository/title-bar.spec.ts (`should keep the toolbar beside the traffic lights on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar beside the traffic lights on one line at every width above 1200px, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar between the main menu and the window buttons on one line at every width above 1200px, the names of the views where the repository keeps its room`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar between the main menu and the window buttons of Windows on one line at every width above 1200px, the names of the views where the repository keeps its room`, `should keep the toolbar under the system title bar on one line at every width up to 1200px, the names of the views gone at the minimum`, `should keep the toolbar under the system title bar on one line at every width above 1200px, the names of the views where the repository keeps its room`)
 
 ### Requirement: Every platform: The repository selector keeps its path and width
 

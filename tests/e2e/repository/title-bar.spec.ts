@@ -33,22 +33,30 @@ async function enterFullscreen(page: Page): Promise<void> {
   await emitTauriEvent(page, "tauri://resize", { width: MIN_WINDOW.width, height: MIN_WINDOW.height })
 }
 
+/** The widths of the sweep: from the minimum width to 1440px by 8px, its two halves apart at 1200px, each its own test */
+const WIDTHS = { narrow: { from: MIN_WINDOW.width, to: 1200 }, wide: { from: 1208, to: 1440 } } as const
+
 /**
- * Widens the window from its minimum width to 1440px: at each width the toolbar keeps its controls on its one line,
- * apart. The names of the views and the count of the branches give way at the minimum width and show at the widest, so
- * the sweep saw them come
+ * Widens the window through one half of the sweep: at each width the toolbar keeps its controls on its one line, apart.
+ * The names of the views and the count of the branches give way at the minimum width, where the narrow half starts, and
+ * show at the widest, where the wide half ends, so the two halves saw them come
  */
-async function expectToolbarOnOneLineAtEveryWidth(page: Page): Promise<void> {
+async function expectToolbarOnOneLineAtEveryWidth(page: Page, half: keyof typeof WIDTHS): Promise<void> {
   const names = page.getByTestId("main-view-branches").getByText("Branches")
   const count = page.getByTestId("branch-count")
-  await expect(names).toBeHidden()
-  await expect(count).toBeHidden()
-  for (let width = MIN_WINDOW.width; width <= 1440; width += 8) {
+  const { from, to } = WIDTHS[half]
+  if (half === "narrow") {
+    await expect(names).toBeHidden()
+    await expect(count).toBeHidden()
+  }
+  for (let width = from; width <= to; width += 8) {
     await page.setViewportSize({ width, height: MIN_WINDOW.height })
     expect(await headerLineProblems(page, HEADER_ROW), `at ${width}px`).toEqual([])
   }
-  await expect(names).toBeVisible()
-  await expect(count).toBeVisible()
+  if (half === "wide") {
+    await expect(names).toBeVisible()
+    await expect(count).toBeVisible()
+  }
 }
 
 /** The review window of `login`, opened by Review Changes of its menu, shown in the page */
@@ -113,7 +121,7 @@ test.describe("Title bar", () => {
     expect(await windowCalls(page)).toEqual(["minimize", "toggle_maximize", "toggle_maximize", "close"])
   })
 
-  test("should keep the toolbar beside the traffic lights on one line at every width, the names of the views where the repository keeps its room", async ({
+  test("should keep the toolbar beside the traffic lights on one line at every width up to 1200px, the names of the views gone at the minimum", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -121,10 +129,21 @@ test.describe("Title bar", () => {
     await useTitleBar(page, TITLE_BARS.macos)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await expectToolbarOnOneLineAtEveryWidth(page)
+    await expectToolbarOnOneLineAtEveryWidth(page, "narrow")
   })
 
-  test("should keep the toolbar between the main menu and the window buttons on one line at every width, the names of the views where the repository keeps its room", async ({
+  test("should keep the toolbar beside the traffic lights on one line at every width above 1200px, the names of the views where the repository keeps its room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await useTitleBar(page, TITLE_BARS.macos)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await expectToolbarOnOneLineAtEveryWidth(page, "wide")
+  })
+
+  test("should keep the toolbar between the main menu and the window buttons on one line at every width up to 1200px, the names of the views gone at the minimum", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -133,10 +152,22 @@ test.describe("Title bar", () => {
     await useTitleBar(page, TITLE_BARS.gnome)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await expectToolbarOnOneLineAtEveryWidth(page)
+    await expectToolbarOnOneLineAtEveryWidth(page, "narrow")
   })
 
-  test("should keep the toolbar between the main menu and the window buttons of Windows on one line at every width, the names of the views where the repository keeps its room", async ({
+  test("should keep the toolbar between the main menu and the window buttons on one line at every width above 1200px, the names of the views where the repository keeps its room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // GNOME's buttons take the most of the row of a custom title bar
+    await useTitleBar(page, TITLE_BARS.gnome)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await expectToolbarOnOneLineAtEveryWidth(page, "wide")
+  })
+
+  test("should keep the toolbar between the main menu and the window buttons of Windows on one line at every width up to 1200px, the names of the views gone at the minimum", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -144,10 +175,21 @@ test.describe("Title bar", () => {
     await useTitleBar(page, TITLE_BARS.windows)
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await expectToolbarOnOneLineAtEveryWidth(page)
+    await expectToolbarOnOneLineAtEveryWidth(page, "narrow")
   })
 
-  test("should keep the toolbar under the system title bar on one line at every width, the names of the views where the repository keeps its room", async ({
+  test("should keep the toolbar between the main menu and the window buttons of Windows on one line at every width above 1200px, the names of the views where the repository keeps its room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await useTitleBar(page, TITLE_BARS.windows)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await expectToolbarOnOneLineAtEveryWidth(page, "wide")
+  })
+
+  test("should keep the toolbar under the system title bar on one line at every width up to 1200px, the names of the views gone at the minimum", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -155,7 +197,18 @@ test.describe("Title bar", () => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
     await expect(header(page)).toHaveAttribute("data-title-bar", "native")
-    await expectToolbarOnOneLineAtEveryWidth(page)
+    await expectToolbarOnOneLineAtEveryWidth(page, "narrow")
+  })
+
+  test("should keep the toolbar under the system title bar on one line at every width above 1200px, the names of the views where the repository keeps its room", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await expect(header(page)).toHaveAttribute("data-title-bar", "native")
+    await expectToolbarOnOneLineAtEveryWidth(page, "wide")
   })
 
   test("should keep the native title bar where the page doesn't draw one", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -389,7 +442,7 @@ test.describe("Main menu", () => {
     await page.keyboard.press("ArrowRight")
     await expect(page.getByRole("menuitem", { name: /Zoom In/ })).toBeVisible()
     await page.keyboard.press("Escape")
-    await expect(menu).toHaveCount(0)
+    await expectClosed(menu)
     await expect(button).toBeVisible()
     await expect(header(page).getByRole("combobox").first()).toBeVisible()
   })

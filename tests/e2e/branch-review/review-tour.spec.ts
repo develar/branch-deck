@@ -260,6 +260,25 @@ test.describe("Review tour", () => {
         .poll(async () => (await reviewedPaths(window)).slice(0, 6))
         .toEqual(["src/a/Manager.kt", "src/a/Frame.kt", "src/b/Welcome.kt", "test/a/ManagerTest.kt", "src/a/Frame.kt", "spec/window.spec.md"])
       await window.setViewportSize(viewport)
+    },
+  )
+
+  // the ways through the steps apart from what the overview and the openings show: one test of both took 30 s under load
+  test(
+    "should go through the steps from the overview, by J and K and by the title of an opening, the bar and the tree following",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_tour")
+      turnOnReviewPlan(repo)
+      writeTestIndex(repo.path)
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+      const overview = window.getByTestId("review-overview")
+      const bar = window.getByTestId("review-step-bar")
+      const step = (number: number) => overview.getByTestId("review-contents-step").nth(number - 1)
+      const tree = window.getByRole("tree", { name: "Changed files" })
+      const firstStep = tree.getByRole("treeitem", { name: "1 · the manager drops the hooks nothing sets", exact: true })
+      const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
+      await expect(bar).toHaveText("Overview·4 steps")
 
       // a step of the contents shows its opening at the top: the bar names it on one line, the tree selects the step
       await step(3).getByTestId("review-contents-step-title").click()
@@ -646,6 +665,18 @@ test.describe("Review tour", () => {
       await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
       await expect(opening.locator("[data-story-block][data-highlight]")).toContainText("One rule decides now")
       await expect(window.locator("[data-story-block][data-highlight]")).toHaveCount(1)
+    },
+  )
+
+  // the Look closely and the folded parts of a body apart from its links: one test of both took 30 s under load
+  test(
+    "should show the Look closely of a step as a callout, and open a part folded under it from the mark of its section, its block outlined once",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      turnOnReviewPlan(await setupRepo("review_tour"))
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+      const tree = window.getByRole("tree", { name: "Changed files" })
+      const bar = window.getByTestId("review-step-bar")
 
       // the Look closely of the author is a callout in the opening of its step and in the contents; its tests are folded
       // always, named on the line of the folded parts
@@ -787,14 +818,14 @@ test.describe("Review tour", () => {
   test("should show a named declaration in the section of its unit when its file is cut into two", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("review_tour")
     turnOnReviewPlan(repo)
-    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
-    const { commitRow, column } = reviewSidebar(window)
     const manager = (last: string, more: string) =>
       `package a\n\nclass Manager {\n  fun open(): Int = 1\n\n  fun allowed(id: String): Boolean {\n    val a = id.isNotEmpty()\n    val b = id.length > 1\n    val c = id.length > 2\n    val d = id.length > 3\n    val e = id.length > 4\n    return ${last}\n  }\n${more}}\n`
     const frame = (paint: string) =>
       `package a\n\nclass Frame(val manager: Manager) {\n  fun show(): Int = if (manager.allowed("Project")) manager.open() else 0\n\n  fun paint(): Int = ${paint}\n}\n`
+    // the first version before the window opens: its sync is the window's
     await repo.commit("(layout) the rule reads its flags", { "src/a/Manager.kt": manager("a", ""), "src/a/Frame.kt": frame("2") }, 1704124800)
-    await syncAndWaitForBranches()
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const { commitRow, column } = reviewSidebar(window)
     await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
     // the new count comes first and the frame that uses it right after: the manager is cut into two sections, the body
     // of the rule in the second, whose name line the first shows too

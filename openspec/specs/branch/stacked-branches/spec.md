@@ -1488,7 +1488,7 @@ the root's.
 #### Scenario: From S and the review window
 - **WHEN** the user presses S on the row, or starts it in the review window
 - **THEN** the branch's own start is asked, never the root's
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on from S and the review window`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on from S`, `should land a stacked branch with what it is built on from the review window, at the row of the main window`)
 
 #### Scenario: From the preview
 - **WHEN** the user starts it from the footer of its preview, or presses S in it
@@ -1576,7 +1576,7 @@ no Safe Push, no Dry Run and no push, nor does the branch it ran on ("Merged").
 - **WHEN** the robot of `oauth` merged, and the update has not archived its branches yet
 - **THEN** the rows of the ancestors it landed say "Landed with oauth" and offer no Safe Push, no Dry Run and no push
 - **AND** the row of `oauth` says "Merged" and offers none of them either
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`, `should offer no Safe Push or push of the branches a merged Safe Push landed, the menus, S and the preview saying why`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 
 #### Scenario: The robot of the whole stack merged
 - **WHEN** the robot of the whole stack of `auth` merged, and the update has not archived its branches yet
@@ -1592,7 +1592,7 @@ A branch built on a landed ancestor MUST land without it ("Safe Push" where it w
 - **GIVEN** a branch built on an ancestor a merged Safe Push landed
 - **WHEN** its row shows
 - **THEN** its button says "Safe Push" where it was "Safe Push · 2"
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`)
 
 ### Requirement: Pull requests: A new commit of a landed ancestor is the only work left
 

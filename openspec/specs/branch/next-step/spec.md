@@ -259,7 +259,7 @@ landing by `brd`).
 - **WHEN** a Safe Push merged that ran on the branch itself, on a branch built on it that carried it as an ancestor, or on the stack branch of a stack (the Safe Push of the whole stack)
 - **THEN** the branch, the ancestor and every branch of that stack are in row 1
   [@test] crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update`)
   [@test] tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`)
 
 #### Scenario: A robot first seen merged
@@ -569,7 +569,7 @@ name the branch by `NextStepFacts.subject`, the branch's name.
 #### Scenario: Every surface of the row starts its own Safe Push
 - **WHEN** the user starts the Safe Push of a stacked branch from "⋯", Safe Push With Profile… of its menu, S, the review window, or the footer of its preview and S in it
 - **THEN** its own start runs, its popover at its own row
-  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S and the review window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`)
+  [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S`, `should land a stacked branch with what it is built on from the review window, at the row of the main window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`)
 
 #### Scenario: The header of a stack island
 - **WHEN** a stack island shows its header
@@ -1010,7 +1010,7 @@ them again (`askRobotProblemsAgain`).
 - **WHEN** the problems of a failed robot are still to come, or Patronus didn't give them
 - **THEN** the restart and the prompts are disabled, the details of its chip saying "Waits for Patronus to tell why the Safe Push failed" or "Patronus didn't tell why the Safe Push failed (…): Check Approvals Again asks again"
 - **AND** the landing overview shows the branch waiting with its step while they are to come, never a robot to fix by a restart
-  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer`)
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed`, `should say a failed answer of why a Safe Push failed, its restart disabled until Check Approvals Again asks again`)
 
 #### Scenario: Check Approvals Again asks for them again
 - **WHEN** the user runs Check Approvals Again

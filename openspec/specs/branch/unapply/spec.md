@@ -399,7 +399,7 @@ same transaction; author kept, committer the current user. The next sync builds 
 - **WHEN** the user chooses Reapply in the menu of an unapplied row
 - **THEN** the branch's own commits are back on top of HEAD, the files following, and the unapplied branch is deleted
 - **AND** the branch is back in the table
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from its right-click menu, the branch back in the table, and take it back with Undo`, `should reapply an unapplied branch from the ⋯ of its row, the branch back in the table`)
 
 #### Scenario: The next sync builds the branch again
 - **WHEN** the next sync runs after a reapply
@@ -460,7 +460,7 @@ again; the token `reapply:<previous head>..<new head>:<tip>:<unapplied branch>`;
 - **WHEN** the user chooses Undo in the toast "Reapplied ‹branch›"
 - **THEN** HEAD and the files move back and the unapplied branch is there again
   [@test] crates/sync-core/src/reapply_branch_test.rs (`the_undo_of_a_reapply_takes_the_commits_out_again_and_keeps_the_unapplied_branch`)
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from its right-click menu, the branch back in the table, and take it back with Undo`)
 
 #### Scenario: The token of a reapply
 - **WHEN** a reapply succeeds

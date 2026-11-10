@@ -611,7 +611,7 @@ and so MUST Push Up to Here of its commits, their push arrow and their menu
 - **GIVEN** a parked branch, or one parked with its parent
 - **WHEN** the user opens its menu, the push arrow of one of its commits, or the menu of the commit
 - **THEN** the push and Push Up to Here are disabled with the same reason
-  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
+  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should offer no push of a parked branch, nor of a part of it, each saying why`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
 
 ### Requirement: The app: Push with Children leaves the parked children out
 
@@ -781,7 +781,7 @@ docs", whose Undo takes back every line.
 - **WHEN** the user drags selected branches onto a row or the header of the Parked card, open or collapsed
 - **THEN** they are parked at once in one write of the store and one toast "Parked core and docs"
 - **AND** its Undo takes back every line
-  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park the selected branches dropped on a row or the header of the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
+  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park the selected branches dropped on a row of the Parked card at once with one Undo`, `should park a branch dragged onto the header of the Parked card, and unpark a stack by its root, never by a branch parked with it`)
   [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park an unselected branch dropped on the collapsed Parked card and keep the selection, and park and unpark the selection with its buttons, of both kinds by the part each takes`)
 
 ### Requirement: The app: Parked branches dropped on the unpark zone are unparked at once
@@ -803,7 +803,7 @@ A branch parked with its parent MUST be unparked only with it: dragged alone, th
 - **WHEN** the user drags the branch parked with it alone onto the unpark zone
 - **THEN** the zone refuses it and says why
 - **AND** the root dragged there unparks its stack
-  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park the selected branches dropped on a row or the header of the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
+  [@test] tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the header of the Parked card, and unpark a stack by its root, never by a branch parked with it`)
   [@test] src/lib/branch-drop.test.ts (`unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land`)
 
 ### Requirement: The app: A drag of both kinds parks and unparks each on its own zone

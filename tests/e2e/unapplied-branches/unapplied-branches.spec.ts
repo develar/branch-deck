@@ -6,6 +6,7 @@ import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/bran
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
 import { branchOf, expectPushedToRemote, remotePushes } from "../helpers/push-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
+import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -59,6 +60,14 @@ async function unapplyFromMenu(page: Page, name: string): Promise<void> {
   await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
   await expect(unappliedRow(page, name)).toBeVisible()
   await closeToast(toast(page, `Unapplied ${name}`))
+}
+
+/** The `count`-th review window the page opened, once it opened that many: a review of the kept branch */
+async function openedKeptReview(page: Page, count: number): Promise<OpenedSubWindow<BranchReviewWindowData>> {
+  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
+  const window = (await getOpenedSubWindows<BranchReviewWindowData>(page))[count - 1]!
+  expect(window).toMatchObject({ windowId: "review", url: "/review" })
+  return window
 }
 
 test.describe("Unapplied branches", () => {
@@ -196,10 +205,9 @@ test.describe("Unapplied branches", () => {
     await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
   })
 
-  test("should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo", async ({ page }) => {
+  test("should reapply an unapplied branch from its right-click menu, the branch back in the table, and take it back with Undo", async ({ page }) => {
     await unapplyFromMenu(page, "docs")
 
-    // the right-click menu
     await unappliedRow(page, "docs").click({ button: "right" })
     await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
     const reapplied = toast(page, "Reapplied docs")
@@ -212,36 +220,33 @@ test.describe("Unapplied branches", () => {
     await runAndWaitForSync(page, () => reapplied.getByRole("button", { name: "Undo" }).click())
     await expect(unappliedRow(page, "docs")).toBeVisible()
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
+  })
 
-    // the "⋯" menu
+  test("should reapply an unapplied branch from the ⋯ of its row, the branch back in the table", async ({ page }) => {
+    await unapplyFromMenu(page, "docs")
     const row = unappliedRow(page, "docs")
     await row.hover()
     await row.getByRole("button", { name: "More actions for docs" }).click()
     await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
     await expect(findBranchRow(page, "docs")).toHaveCount(1)
+    await expect(unappliedCard(page)).toHaveCount(0)
   })
 
-  test("should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions", async ({ page }) => {
+  test("should open the review of an unapplied branch from its menu, from D on its row and from D on a commit of it", async ({ page }) => {
     await unapplyFromMenu(page, "docs")
     const kept = { kind: "unapplied", name: "user-name/unapplied/docs" }
-    const opened = async (count: number) => {
-      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-      const window = (await getOpenedSubWindows<BranchReviewWindowData>(page))[count - 1]!
-      expect(window).toMatchObject({ windowId: "review", url: "/review" })
-      return window
-    }
 
     // Review Changes, the first item of its menu
     await unappliedRow(page, "docs").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    const fromMenu = await opened(1)
+    const fromMenu = await openedKeptReview(page, 1)
     expect(fromMenu.title).toBe("Review docs")
     expect(fromMenu.data).toMatchObject({ chain: ["docs"], kept, focus: { commitId: null } })
 
     // D on its focused row
     await unappliedRow(page, "docs").focus()
     await page.keyboard.press("d")
-    expect((await opened(2)).data).toMatchObject({ kept, focus: { commitId: null } })
+    expect((await openedKeptReview(page, 2)).data).toMatchObject({ kept, focus: { commitId: null } })
 
     // D on a commit of its expanded row: the review of the branch at the commit
     await unappliedRow(page, "docs").click()
@@ -249,9 +254,16 @@ test.describe("Unapplied branches", () => {
     const commit = unappliedCard(page).locator("tr[data-row-id]:not([data-branch-name])").filter({ hasText: "Document the API" })
     await commit.hover()
     await page.keyboard.press("d")
-    const atCommit = await opened(3)
+    const atCommit = await openedKeptReview(page, 3)
     expect(atCommit.title).toMatch(/^Review docs · [0-9a-f]{8}$/)
     expect(atCommit.data).toMatchObject({ kept, focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
+  })
+
+  test("should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again", async ({ page }) => {
+    await unapplyFromMenu(page, "docs")
+    await unappliedRow(page, "docs").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    const fromMenu = await openedKeptReview(page, 1)
 
     // the window: its own commits on the commit it left from; its title bar Reapply and its push, its "⋯" the rest of
     // its menu, the actions of its own session

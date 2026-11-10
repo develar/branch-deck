@@ -104,7 +104,8 @@ async function expectUndoTakenBack({ toast, entry }: UndoSurfaces): Promise<void
 
 /** How far the top of `element` is below the top of `anchor` */
 async function offsetBelow(element: Locator, anchor: Locator): Promise<number> {
-  const [elementBox, anchorBox] = [await element.boundingBox(), await anchor.boundingBox()]
+  // both asked at once: one round trip to the page, which under load answers each in a quarter of a second
+  const [elementBox, anchorBox] = await Promise.all([element.boundingBox(), anchor.boundingBox()])
   expect(elementBox).not.toBeNull()
   expect(anchorBox).not.toBeNull()
   return elementBox!.y - anchorBox!.y
@@ -164,7 +165,7 @@ test.describe("Move commits", () => {
     const issueRowBox = await issueRow.boundingBox()
     expect(await offsetBelow(tokens!, issueRow)).toBeLessThan(issueRowBox!.height + 8)
     // from the row of the branch and the top of the card: a scroll moves them alike
-    const offsets = async () => [await offsetBelow(lexer!, issueRow), await offsetBelow(parser!, issueRow), await offsetBelow(unassignedCommit, unassignedCard)]
+    const offsets = () => Promise.all([offsetBelow(lexer!, issueRow), offsetBelow(parser!, issueRow), offsetBelow(unassignedCommit, unassignedCard)])
     const idle = await offsets()
 
     // the actions on the meta line of the row clicked last, the lead of the selection
@@ -350,7 +351,7 @@ test.describe("Move commits", () => {
     await verifyCommitCount(findBranchRow(page, "docs"), 2)
 
     // the holder is done: the park runs, then the undo, which closes the toast
-    await repo.holdRepositoryLock(false)
+    await runAndWaitForSync(page, () => repo.holdRepositoryLock(false))
     await expect(page.locator("[data-slot=toast]", { hasText: "Parked ABC-123" })).toBeVisible()
     await expectUndoneOnce(page, moved, undos)
   })

@@ -351,11 +351,7 @@ test.describe("Next step before the answers", () => {
     await expect(slotSafePush(page, BRANCH)).toBeEnabled()
   })
 
-  test("should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed, and say a failed answer", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
+  test("should restart a failed Safe Push and copy its prompt only once Patronus tells why it failed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const failed = "ABC-123"
     const repo = await setupRepo("issue_links", { patronus: availableRobots(robot(failed, "failed-robot", { status: "failure", finishTime: 1704142800 })) })
     // the CI failed it, not the approvals
@@ -373,6 +369,29 @@ test.describe("Next step before the answers", () => {
     await expectMenuItemsDisabled(page, failed, unknownFailure, "Waits for Patronus to tell why the Safe Push failed")
     await expectRobotSurfacesWait(page, failed, "Waits for Patronus to tell why the Safe Push failed", "checking")
 
+    // Patronus tells it: the restart and the prompt act
+    await repo.holdRemoteAnswers({ release: ["robotProblems"] })
+    await expect(failedSlot).toHaveAttribute("data-step", "restart")
+    await findBranchRow(page, failed).click({ button: "right" })
+    await page.getByRole("menu").getByRole("menuitem", { name: "Copy Prompt for Agent" }).click()
+    await expect.poll(() => readClipboard(page)).toContain(`Safe Push of \`${failed}\` into \`master\` failed`)
+    await runAndWaitForAnswer(page, "execute", () => step.click())
+    expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
+  })
+
+  // the failed answer apart from the one to come: one test of both took 30 s under load
+  test("should say a failed answer of why a Safe Push failed, its restart disabled until Check Approvals Again asks again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const failed = "ABC-123"
+    const repo = await setupRepo("issue_links", { patronus: availableRobots(robot(failed, "failed-robot", { status: "failure", finishTime: 1704142800 })) })
+    // the CI failed it, not the approvals
+    await repo.setPatronusDetails({ ...failedFastTests("failed-robot"), problems: { "failed-robot": [] } })
+    await repo.holdRemoteAnswers({ hold: ["robotProblems"] })
+    await syncAndWaitForBranches()
+    const failedSlot = findBranchRow(page, failed).getByTestId("next-step-slot")
+    const step = failedSlot.getByTestId("next-step")
+    const unknownFailure = [{ name: "Restart Safe Push" }, { name: "Copy Prompt for Agent" }]
+    await expectHeld(repo, "robotProblems")
+
     // Patronus fails to tell it: the restart stays disabled, with the failure and the way to ask again
     await repo.holdRemoteAnswers({ fail: ["robotProblems"], release: ["robotProblems"] })
     const failure = /^Patronus didn't tell why the Safe Push failed \(.+\): Check Approvals Again asks again$/
@@ -383,14 +402,10 @@ test.describe("Next step before the answers", () => {
     await expectMenuItemsDisabled(page, failed, unknownFailure, failure)
     await expectRobotSurfacesWait(page, failed, failure, "robot")
 
-    // asked again, Patronus tells it: the restart and the prompt act
+    // asked again, Patronus tells it: the restart acts
     await repo.holdRemoteAnswers({ release: ["robotProblems"] })
     await checkApprovalsAgain(page, failed)
     await expect(failedSlot).toHaveAttribute("data-step", "restart")
-    await findBranchRow(page, failed).click({ button: "right" })
-    await page.getByRole("menu").getByRole("menuitem", { name: "Copy Prompt for Agent" }).click()
-    await expect.poll(() => readClipboard(page)).toContain(`Safe Push of \`${failed}\` into \`master\` failed`)
-    await runAndWaitForAnswer(page, "execute", () => step.click())
-    expect((await repo.getPatronusLog()).restarts).toEqual(["failed-robot"])
+    await expect(step).toBeEnabled()
   })
 })
