@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use trial_check::symbol_dependencies::declaration_checks::ParameterForm;
+use trial_check::symbol_dependencies::declaration_checks::{ParameterForm, ShownType};
 
 /// An index of usages by place (`DeclarationAt::argument`: `<path>:<line>`, `<revision>:<path>:<line>`): a place it does
 /// not know has none; it keeps every query, its places and its revision
@@ -493,6 +493,7 @@ fn parameter(name: &str, type_text: &str, optional: bool) -> ParameterForm {
   ParameterForm {
     name: name.to_string(),
     type_text: type_text.to_string(),
+    shown_type: ShownType(None),
     optional,
     vararg: false,
   }

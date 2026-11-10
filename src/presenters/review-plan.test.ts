@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, DependencyChange, FileFacts, FileLink, Interdiff, PairedCommit, Usages } from "@/lib/bindings"
+import type { ApiChange, DependencyChange, FileFacts, FileLink, Interdiff, PairedCommit, ShownForm, ShownParameter, Usages } from "@/lib/bindings"
+import type { FormLine } from "@/presenters/review-plan"
 import {
   formatDependencyChange,
   formatMarkedReviewed,
@@ -12,9 +13,10 @@ import {
   presentBreakage,
   presentDependencyBadge,
   presentFileBadges,
+  presentForm,
   presentRowFacts,
 } from "@/presenters/review-plan"
-import { fileFacts } from "@/test-support/review-step"
+import { fileFacts, shownForm as shown } from "@/test-support/review-step"
 
 function paired(state: PairedCommit["state"], id: string): PairedCommit {
   return { id: state === "dropped" ? null : id, reviewedId: state === "added" ? null : `r${id}`, subject: `subject ${id}`, state, changes: null, messageChange: null }
@@ -22,6 +24,11 @@ function paired(state: PairedCommit["state"], id: string): PairedCommit {
 
 function change(patch: Partial<ApiChange>): ApiChange {
   return { path: "src/Store.kt", line: 34, name: "helper", key: "helper", kind: "changed", widened: false, changes: [], before: null, after: null, usages: null, ...patch }
+}
+
+/** The lines of a form of one line and no mark, as the card shows it */
+function plain(text: string): FormLine[] {
+  return [{ parts: [{ text, mark: null }], mark: null }]
 }
 
 function usages(inside: number, outside: number): Usages {
@@ -75,7 +82,7 @@ describe("the possible breakage of the overview", () => {
     expect(formatOutsideUses(usages(1, 2), false)).toBe("2 uses left outside")
     expect(formatOutsideUses(usages(0, 1), false)).toBe("1 use left outside")
     expect(formatOutsideUses({ ...usages(0, 100), complete: false, unbroken: false }, false)).toBe("At least 100 uses left outside")
-    expect(formatOutsideUses({ ...usages(3, 0), complete: false, unbroken: false }, false)).toBe("No use left outside found, the search stopped early")
+    expect(formatOutsideUses({ ...usages(3, 0), complete: false, unbroken: false }, false)).toBe("No use found outside the change; the search stopped early")
     expect(formatOutsideUses(null, false)).toBe("The uses are unknown")
     expect(formatOutsideUses(null, true)).toBe("Finding the uses…")
   })
@@ -89,7 +96,7 @@ describe("the possible breakage of the overview", () => {
           key: "a.open",
           path: "src/a/Api.kt",
           line: 3,
-          before: "fun open(path: String)",
+          before: shown("fun open(path: String)"),
           usages: {
             inside: 0,
             outside: 7,
@@ -102,8 +109,8 @@ describe("the possible breakage of the overview", () => {
         }),
         change({
           changes: ["parameters", "reach"],
-          before: "fun helper(value: Int)",
-          after: "fun helper(value: Int, scale: Int)",
+          before: shown("fun helper(value: Int)"),
+          after: shown("fun helper(value: Int, scale: Int)"),
           usages: {
             ...usages(1, 2),
             outsideSites: [
@@ -112,7 +119,7 @@ describe("the possible breakage of the overview", () => {
             ],
           },
         }),
-        change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: "class Cache" }),
+        change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: shown("class Cache") }),
       ],
       false,
       "breaks",
@@ -128,7 +135,7 @@ describe("the possible breakage of the overview", () => {
         tone: "destructive",
         location: "src/a/Api.kt:3",
         changed: null,
-        before: "fun open(path: String)",
+        before: plain("fun open(path: String)"),
         after: null,
         outside: "7 uses left outside",
         inside: null,
@@ -151,8 +158,8 @@ describe("the possible breakage of the overview", () => {
         tone: "warning",
         location: "src/Store.kt:34",
         changed: "parameters and visibility changed",
-        before: "fun helper(value: Int)",
-        after: "fun helper(value: Int, scale: Int)",
+        before: plain("fun helper(value: Int)"),
+        after: plain("fun helper(value: Int, scale: Int)"),
         outside: "2 uses left outside",
         inside: "1 use updated in this change",
         stillBound: null,
@@ -164,6 +171,56 @@ describe("the possible breakage of the overview", () => {
         moreSites: null,
       },
     ])
+  })
+
+  it("parts a form as Rust marked it: an added or removed parameter whole, of a changed type the type alone, an overload only one side has its whole line, a name bound to its type", () => {
+    // a no-break space binds a name to its type: a wrap falls between the parameters or inside a type
+    const nb = "\u00a0"
+    const parameter = (lead: string, shownType: string, trail: string, mark: ShownParameter["mark"] = null): ShownParameter => ({ lead, shownType, trail, mark })
+    const after: ShownForm = {
+      lines: [
+        {
+          head: "PluginClassLoader(",
+          parameters: [
+            parameter("parents: ", "Array<PluginModuleDescriptor>", ""),
+            parameter("prefix: ", "String", " = …", "typeChanged"),
+            parameter("libDirectories: ", "List<Path>", ""),
+            parameter("jnaModule: ", "PluginModuleDescriptor?", "", "added"),
+          ],
+          tail: ")",
+          mark: null,
+        },
+        { head: "private PluginClassLoader(", parameters: [parameter("", "String...", " names")], tail: ")", mark: "added" },
+      ],
+    }
+    expect(presentForm(after)).toEqual([
+      {
+        parts: [
+          { text: `PluginClassLoader(parents:${nb}Array<PluginModuleDescriptor>, prefix:${nb}`, mark: null },
+          { text: "String", mark: "typeChanged" },
+          { text: `${nb}=${nb}…, libDirectories:${nb}List<Path>, `, mark: null },
+          { text: `jnaModule:${nb}PluginModuleDescriptor?`, mark: "added" },
+          { text: ")", mark: null },
+        ],
+        mark: null,
+      },
+      { parts: [{ text: `private PluginClassLoader(String...${nb}names)`, mark: null }], mark: "added" },
+    ])
+    const removed = presentForm({ lines: [{ head: "fun open(", parameters: [parameter("path: ", "Path", "", "removed")], tail: "): Int", mark: null }] })
+    expect(removed).toEqual([
+      {
+        parts: [
+          { text: "fun open(", mark: null },
+          { text: `path:${nb}Path`, mark: "removed" },
+          { text: "): Int", mark: null },
+        ],
+        mark: null,
+      },
+    ])
+    // the entry of a change carries both sides parted; a removal only its form before
+    const entries = presentBreakage([change({ changes: ["constructors"], before: shown("PluginClassLoader()"), after, usages: { ...usages(0, 1) } })], false, "breaks").entries
+    expect(entries[0]?.before).toEqual(plain("PluginClassLoader()"))
+    expect(entries[0]?.after).toEqual(presentForm(after))
   })
 
   it("folds only the API none of whose uses left outside breaks, and keeps an unknown, incomplete or by-name count listed, also at 0", () => {
@@ -180,7 +237,7 @@ describe("the possible breakage of the overview", () => {
     )
     expect(entries.map(entry => [entry.name, entry.outside, entry.byName])).toEqual([
       ["unknown", "The uses are unknown", null],
-      ["constructor", "No use left outside found, the search stopped early", null],
+      ["constructor", "No use found outside the change; the search stopped early", null],
       ["isEmpty", "0 uses left outside", "3 matches by name only, not checked"],
     ])
     expect(unbroken?.label).toBe("2 API changes, no use left outside breaks")
@@ -197,15 +254,15 @@ describe("the possible breakage of the overview", () => {
       key: "mediaDuration",
       kind: "added",
       widened: true,
-      before: "internal fun mediaDuration(millis: Long): String",
-      after: "fun mediaDuration(millis: Long): String",
+      before: shown("internal fun mediaDuration(millis: Long): String"),
+      after: shown("fun mediaDuration(millis: Long): String"),
     })
-    const added = change({ name: "Cache", key: "Cache", kind: "added", after: "Cache()" })
+    const added = change({ name: "Cache", key: "Cache", kind: "added", after: shown("Cache()") })
     const { entries, unbroken } = presentBreakage([widened, added, change({ name: "open", key: "open", usages: usages(2, 0) })], false, "noUseBreaks")
     expect(entries).toEqual([])
     expect(unbroken?.label).toBe("No use left outside breaks · 2 API changes")
     expect(unbroken?.entries.map(entry => [entry.kind, entry.tone, entry.name, entry.before, entry.after])).toEqual([
-      ["Opens wider", "secondary", "mediaDuration", "internal fun mediaDuration(millis: Long): String", "fun mediaDuration(millis: Long): String"],
+      ["Opens wider", "secondary", "mediaDuration", plain("internal fun mediaDuration(millis: Long): String"), plain("fun mediaDuration(millis: Long): String")],
       ["Changed", "warning", "open", null, null],
     ])
     // the uses of another entry unknown: it is listed, the widening still folded, never a safe verdict

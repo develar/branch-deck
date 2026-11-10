@@ -126,6 +126,12 @@ pub(crate) fn constructors_of(summary: &FileSummary, name: &str) -> Option<Vec<S
   Some(constructors.iter().map(|it| constructor_text(summary, it)).collect())
 }
 
+/// The types of the parameters of the function `name` as its source writes them (`Parameter::shown_type`), `-` for none
+pub(crate) fn shown_types(summary: &FileSummary, name: &str) -> Vec<String> {
+  let signature = declaration(summary, name).signature.as_ref().unwrap_or_else(|| panic!("no signature of {name}"));
+  signature.parameters.iter().map(|it| it.shown_type.clone().unwrap_or_else(|| "-".to_string())).collect()
+}
+
 /// The supertypes of the type `name` as dotted paths
 pub(crate) fn supertypes_of(summary: &FileSummary, name: &str) -> Vec<String> {
   declaration(summary, name).supertypes.iter().map(|it| path_text(summary, it)).collect()

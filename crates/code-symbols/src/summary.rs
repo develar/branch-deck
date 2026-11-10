@@ -342,6 +342,11 @@ pub struct Parameter {
   pub name: u32,
   /// `None` when a type parameter is in the type: it matches any type
   pub type_ref: Option<TypeRef>,
+  /// The type as the source writes it, for a review to show (`psi_tree::written_type`): its type arguments, `?`, a
+  /// function type, Java's `[]` and `...`, without annotations, each run of whitespace one space (`Map<K, V>?`,
+  /// `suspend (Int) -> Unit`, `String...`), also with a type parameter in it. Never compared: a type is the same by
+  /// `type_ref`, so a type written in other words changes no form. Kotlin and Java only; `None` without a type
+  pub shown_type: Option<String>,
   /// It has a default value (Kotlin `= …`)
   pub optional: bool,
   /// Kotlin `vararg`, Java `…`
@@ -359,6 +364,19 @@ pub struct TypeRef {
   /// The dimensions of the array the parameter is on the JVM: one per Java `[]`, and one for a vararg (`int...`, Kotlin
   /// `vararg`); those of a type argument are not counted
   pub arrays: u8,
+}
+
+impl Signature {
+  /// Whether a call binds both alike: the same names, types, defaults and varargs, however the types are written
+  /// (`Parameter::shown_type`)
+  pub fn same_binding(&self, other: &Self) -> bool {
+    self.parameters.len() == other.parameters.len()
+      && self
+        .parameters
+        .iter()
+        .zip(&other.parameters)
+        .all(|(a, b)| (a.name, &a.type_ref, a.optional, a.vararg) == (b.name, &b.type_ref, b.optional, b.vararg))
+  }
 }
 
 impl FileSummary {

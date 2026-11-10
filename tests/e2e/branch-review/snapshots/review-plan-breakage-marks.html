@@ -1,0 +1,251 @@
+<div class="flex flex-col gap-1.5" data-testid="review-plan-breakage">
+  <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-warning">
+    <span class="truncate">
+      Possible Breakage
+    </span>
+    <span class="tabular-nums">
+      3
+    </span>
+  </div>
+  <ul aria-label="Possible breakage" class="flex flex-col gap-1.5">
+    <li class="flex min-w-0 flex-col gap-0.5" data-name="Store" data-path="src/Store.kt" data-testid="review-plan-breakage-entry">
+      <div class="flex min-w-0 items-baseline gap-2">
+        <span class="group/badge inline-flex h-5 w-fit items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20 shrink-0" data-slot="badge" data-variant="warning">
+          Changed
+        </span>
+        <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="src/Store.kt" data-slot="tooltip-trigger" data-testid="review-plan-breakage-file" id="base-ui-[ID]" type="button">
+          <code class="font-mono [overflow-wrap:anywhere]">
+            Store
+          </code>
+        </button>
+      </div>
+      <div class="min-w-0 overflow-hidden text-xs text-muted-foreground" data-testid="review-plan-entry-facts">
+        <div class="-ml-3 flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+          <span class="flex items-baseline gap-x-1.5 min-w-0 shrink">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span class="min-w-0 truncate" dir="rtl" title="src/Store.kt:1">
+              <bdi dir="ltr">
+                src/Store.kt:1
+              </bdi>
+            </span>
+          </span>
+          <span class="flex shrink-0 items-baseline gap-x-1.5">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span data-testid="review-plan-changed">
+              constructors changed
+            </span>
+          </span>
+          <span class="flex shrink-0 items-baseline gap-x-1.5">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span class="text-warning tabular-nums" data-testid="review-plan-outside">
+              The uses are unknown
+            </span>
+          </span>
+        </div>
+      </div>
+      <code class="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid="review-plan-before">
+        <span aria-hidden="true" class="shrink-0">
+          −
+        </span>
+        <span class="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+          <span class="text-destructive line-through decoration-destructive/60 self-start" data-mark="removed" data-testid="review-plan-form-line">
+            <span class="sr-only">
+              removed:
+            </span>
+            <span>
+              Store()
+            </span>
+          </span>
+        </span>
+      </code>
+      <code class="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid="review-plan-after">
+        <span aria-hidden="true" class="shrink-0">
+          +
+        </span>
+        <span class="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+          <span class="rounded-xs bg-success/15 text-foreground ring-1 ring-success/15 self-start" data-mark="added" data-testid="review-plan-form-line">
+            <span class="sr-only">
+              added:
+            </span>
+            <span>
+              Store(path: String)
+            </span>
+          </span>
+          <span class="rounded-xs bg-success/15 text-foreground ring-1 ring-success/15 self-start" data-mark="added" data-testid="review-plan-form-line">
+            <span class="sr-only">
+              added:
+            </span>
+            <span>
+              Store(path: String, size: Int)
+            </span>
+          </span>
+        </span>
+      </code>
+    </li>
+    <li class="flex min-w-0 flex-col gap-0.5" data-name="add" data-path="src/Store.kt" data-testid="review-plan-breakage-entry">
+      <div class="flex min-w-0 items-baseline gap-2">
+        <span class="group/badge inline-flex h-5 w-fit items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20 shrink-0" data-slot="badge" data-variant="warning">
+          Changed
+        </span>
+        <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="src/Store.kt" data-slot="tooltip-trigger" data-testid="review-plan-breakage-file" id="base-ui-[ID]" type="button">
+          <code class="font-mono [overflow-wrap:anywhere]">
+            add
+          </code>
+        </button>
+      </div>
+      <div class="min-w-0 overflow-hidden text-xs text-muted-foreground" data-testid="review-plan-entry-facts">
+        <div class="-ml-3 flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+          <span class="flex items-baseline gap-x-1.5 min-w-0 shrink">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span class="min-w-0 truncate" dir="rtl" title="src/Store.kt:34">
+              <bdi dir="ltr">
+                src/Store.kt:34
+              </bdi>
+            </span>
+          </span>
+          <span class="flex shrink-0 items-baseline gap-x-1.5">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span data-testid="review-plan-changed">
+              parameters changed
+            </span>
+          </span>
+          <span class="flex shrink-0 items-baseline gap-x-1.5">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span class="text-warning tabular-nums" data-testid="review-plan-outside">
+              The uses are unknown
+            </span>
+          </span>
+        </div>
+      </div>
+      <code class="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid="review-plan-before">
+        <span aria-hidden="true" class="shrink-0">
+          −
+        </span>
+        <span class="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+          <span class="self-start" data-testid="review-plan-form-line">
+            <span>
+              fun add(value:
+            </span>
+            <span class="rounded-xs bg-warning/10 text-warning" data-mark="typeChanged" data-testid="review-plan-form-mark">
+              <span class="sr-only">
+                type changed
+              </span>
+              Int
+            </span>
+            <span>
+              )
+            </span>
+          </span>
+        </span>
+      </code>
+      <code class="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid="review-plan-after">
+        <span aria-hidden="true" class="shrink-0">
+          +
+        </span>
+        <span class="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+          <span class="self-start" data-testid="review-plan-form-line">
+            <span>
+              fun add(value:
+            </span>
+            <span class="rounded-xs bg-warning/10 text-warning" data-mark="typeChanged" data-testid="review-plan-form-mark">
+              <span class="sr-only">
+                type changed
+              </span>
+              Long
+            </span>
+            <span>
+              )
+            </span>
+          </span>
+        </span>
+      </code>
+    </li>
+    <li class="flex min-w-0 flex-col gap-0.5" data-name="helper" data-path="src/Store.kt" data-testid="review-plan-breakage-entry">
+      <div class="flex min-w-0 items-baseline gap-2">
+        <span class="group/badge inline-flex h-5 w-fit items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:bd-focus has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-warning/10 text-warning [a]:hover:bg-warning/20 shrink-0" data-slot="badge" data-variant="warning">
+          Changed
+        </span>
+        <button class="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline" data-base-ui-tooltip-trigger="" data-path="src/Store.kt" data-slot="tooltip-trigger" data-testid="review-plan-breakage-file" id="base-ui-[ID]" type="button">
+          <code class="font-mono [overflow-wrap:anywhere]">
+            helper
+          </code>
+        </button>
+      </div>
+      <div class="min-w-0 overflow-hidden text-xs text-muted-foreground" data-testid="review-plan-entry-facts">
+        <div class="-ml-3 flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+          <span class="flex items-baseline gap-x-1.5 min-w-0 shrink">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span class="min-w-0 truncate" dir="rtl" title="src/Store.kt:37">
+              <bdi dir="ltr">
+                src/Store.kt:37
+              </bdi>
+            </span>
+          </span>
+          <span class="flex shrink-0 items-baseline gap-x-1.5">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span data-testid="review-plan-changed">
+              parameters changed
+            </span>
+          </span>
+          <span class="flex shrink-0 items-baseline gap-x-1.5">
+            <span aria-hidden="true" class="w-1.5 shrink-0 text-center">
+              ·
+            </span>
+            <span class="text-warning tabular-nums" data-testid="review-plan-outside">
+              The uses are unknown
+            </span>
+          </span>
+        </div>
+      </div>
+      <code class="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid="review-plan-before">
+        <span aria-hidden="true" class="shrink-0">
+          −
+        </span>
+        <span class="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+          <span class="self-start" data-testid="review-plan-form-line">
+            <span>
+              fun helper(
+            </span>
+            <span class="text-destructive line-through decoration-destructive/60" data-mark="removed" data-testid="review-plan-form-mark">
+              <span class="sr-only">
+                removed
+              </span>
+              value: Int
+            </span>
+            <span>
+              )
+            </span>
+          </span>
+        </span>
+      </code>
+      <code class="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid="review-plan-after">
+        <span aria-hidden="true" class="shrink-0">
+          +
+        </span>
+        <span class="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+          <span class="self-start" data-testid="review-plan-form-line">
+            <span>
+              fun helper()
+            </span>
+          </span>
+        </span>
+      </code>
+    </li>
+  </ul>
+</div>

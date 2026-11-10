@@ -19,6 +19,7 @@
 //!   a `for` and the parameter of a `catch` have no type.
 
 use crate::jvm::{Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
+use crate::psi_tree::written_type;
 use crate::psi_walk::{Span, WalkCore, Walker, has_error_in};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{TEST_ANNOTATIONS, Typed};
@@ -405,7 +406,7 @@ impl<'t> Walk<'t> {
     let compact = psi::method::is_compact_constructor(tree, id);
     let declared = if compact { header.clone() } else { Some(self.signature(id)) };
     if let Some(signature) = declared {
-      let canonical = compact || header.is_some_and(|header| header == signature && signature.parameters.iter().all(|it| it.type_ref.is_some()));
+      let canonical = compact || header.is_some_and(|header| header.same_binding(&signature) && signature.parameters.iter().all(|it| it.type_ref.is_some()));
       let reach = self.reach_of(psi::get_modifier_list(tree, id), true, false);
       if !self.core.bindings.is_local()
         && let Some(decl) = self.core.classes.innermost()
@@ -700,9 +701,14 @@ impl<'t> Walk<'t> {
       let arrays = ty.map_or(0, |it| psi::type_element::calculate_type(tree, it).array_dimensions) + after_name;
       let arrays = u8::try_from(arrays).unwrap_or(u8::MAX);
       let type_ref = ty.and_then(|it| self.type_ref(it, arrays, &type_parameters));
+      // `int x[]` writes its dimensions after the name
+      let shown_type = ty
+        .and_then(|it| written_type(tree, it, |node| self.kind(node) == Some(N::ANNOTATION)))
+        .map(|shown| format!("{shown}{}", "[]".repeat(after_name as usize)));
       parameters.push(Parameter {
         name: self.core.out.intern(name),
         type_ref,
+        shown_type,
         optional: false,
         vararg,
       });

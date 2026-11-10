@@ -803,11 +803,11 @@ export type ApiChange = {
 	changes: FormChange[],
 	/**
 	 *  Its form before the commits, of a change, a removal or a widening: the header with the parameters after the name,
-	 *  or the constructors of a type
+	 *  or the constructors of a type, a line each; of a change what it removed or changed in it (`shown::mark_changes`)
 	 */
-	before: string | null,
-	/**  Its form after the commits, of a change or an addition */
-	after: string | null,
+	before: ShownForm | null,
+	/**  Its form after the commits, of a change or an addition; of a change what it added or changed in it */
+	after: ShownForm | null,
 	/**
 	 *  Of a removal or a change: its usages at the head (`fan_in`); `None` when not answered (no accio, no index, a
 	 *  failed query, no declaration accio finds at its place)
@@ -3418,6 +3418,15 @@ export type FormChange =
 "constructors" | 
 /**  What Java sees otherwise: static or not, `@JvmStatic`, `@JvmField`, `@JvmName` */
 "jvm";
+
+/**  What a change did to a parameter, or to a whole line of a form */
+export type FormMark = 
+/**  Only the form after the change has it */
+"added" | 
+/**  Only the form before the change has it */
+"removed" | 
+/**  Both have it, of another type or no longer a vararg (or one now) */
+"typeChanged";
 
 /**  The declarations a name may mean, the most likely first */
 export type FoundDeclarations = {
@@ -8144,6 +8153,35 @@ export type ShownElsewhere = {
 	unit: string,
 	/**  The step whose stop shows it, by its place in `ReviewSteps::steps` */
 	step: number,
+};
+
+/**  A form of an API entry as code reads: a line per constructor of a type, else one */
+export type ShownForm = {
+	lines: ShownLine[],
+};
+
+/**  A line of a form: what stands before its parameters, the parameters, what stands after them */
+export type ShownLine = {
+	/**  Up to the first parameter: `internal Event(`, `fun open(`; the whole line of a form without parameters */
+	head: string,
+	/**  `, ` apart */
+	parameters: ShownParameter[],
+	/**  After the last parameter: `)`, `): Int` */
+	tail: string,
+	/**  Of a change: the line has no pair on the other side, an overload added or removed */
+	mark: FormMark | null,
+};
+
+/**  A parameter of a line: its type as the source writes it and what stands around it */
+export type ShownParameter = {
+	/**  Before its type: Kotlin's `vararg names: `; empty in Java */
+	lead: string,
+	/**  Its type as the source writes it (`List<Path>`, `String...`); empty where none is shown */
+	shownType: string,
+	/**  After its type: Java's ` names`, Kotlin's ` = …` of a default */
+	trail: string,
+	/**  Of a change: what changed in it */
+	mark: FormMark | null,
 };
 
 /**  A value of each of the three sides of a merge */

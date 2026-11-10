@@ -23,10 +23,11 @@ import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useHeadingCard } from "@/hooks/useHeadingCard"
 import { useRowCardHover } from "@/hooks/useRowCardHover"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
-import type { ReviewCommit } from "@/lib/bindings"
+import type { FormMark, ReviewCommit } from "@/lib/bindings"
 import { toCardCommit } from "@/lib/commit"
 import type { ReviewPlanState } from "@/lib/review-plan-answer"
-import type { BreakageEntry } from "@/presenters/review-plan"
+import type { BreakageEntry, FormLine } from "@/presenters/review-plan"
+import { FORM_MARK_WORDS } from "@/presenters/review-plan"
 import type { ContentsStep, PrologueView, StoryView } from "@/presenters/review-story"
 import { presentPrologue } from "@/presenters/review-story"
 import { getYouTrackKeyOfIssue, loadIssue, useIssueEntry } from "@/stores/youtrack-issues"
@@ -317,10 +318,11 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
 }
 
 /**
- * A removed or changed API: its kind and its whole name, which shows its declaration; under it its file and line, the
- * parts that changed and the uses left outside; its forms before and after, wrapping, a line per constructor; then the
- * uses left outside, a line each (its file name and line, its directory muted, opening its file at the head of the
- * review), and the counts of the rest. Every line ends at the edge of the column
+ * A removed or changed API: its kind and its whole name, which shows its declaration; under it its file and line (a long
+ * path losing its start), the parts that changed and the uses left outside, each `·` bound to the part after it so that
+ * a wrap never leaves one at the end of a line; its forms before and after, wrapping, a line per constructor, what the
+ * change did marked; then the uses left outside, a line each (its file name and line, its directory muted, opening its
+ * file at the head of the review), and the counts of the rest. Every line ends at the edge of the column
  */
 function BreakageItem({ entry }: { entry: BreakageEntry }) {
   const navigator = useSelectReviewFile()
@@ -337,23 +339,25 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
           </code>
         </FileButton>
       </div>
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">
-        <span className="min-w-0 truncate" title={entry.location} dir="rtl">
-          <bdi dir="ltr">{entry.location}</bdi>
-        </span>
+      <DottedParts className="text-xs text-muted-foreground" testId="review-plan-entry-facts">
+        <DottedPart className="min-w-0 shrink">
+          <span className="min-w-0 truncate" title={entry.location} dir="rtl">
+            <bdi dir="ltr">{entry.location}</bdi>
+          </span>
+        </DottedPart>
         {entry.changed !== null && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="shrink-0">{entry.changed}</span>
-          </>
+          <DottedPart>
+            <span data-testid="review-plan-changed">{entry.changed}</span>
+          </DottedPart>
         )}
-        <span aria-hidden="true">·</span>
-        <span className="shrink-0 text-warning tabular-nums" data-testid="review-plan-outside">
-          {entry.outside}
-        </span>
-      </div>
-      {entry.before !== null && <EntryForm sign="−" form={entry.before} testId="review-plan-before" />}
-      {entry.after !== null && <EntryForm sign="+" form={entry.after} testId="review-plan-after" />}
+        <DottedPart>
+          <span className="text-warning tabular-nums" data-testid="review-plan-outside">
+            {entry.outside}
+          </span>
+        </DottedPart>
+      </DottedParts>
+      {entry.before !== null && <EntryForm sign="−" lines={entry.before} testId="review-plan-before" />}
+      {entry.after !== null && <EntryForm sign="+" lines={entry.after} testId="review-plan-after" />}
       {(entry.sites.length > 0 || counts.length > 0) && (
         <div className="flex min-w-0 flex-col pl-3 text-xs text-muted-foreground" data-testid="review-plan-sites">
           {entry.sites.map(site => (
@@ -377,14 +381,11 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
           ))}
           {counts.length > 0 && (
             // the counts of the rest apart as the line of a list: "+4 more · 2 uses updated in this change"
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
-              {counts.map((part, index) => (
-                <span key={part} className="flex items-baseline gap-x-1.5">
-                  {index > 0 && <span aria-hidden="true">·</span>}
-                  {part}
-                </span>
+            <DottedParts>
+              {counts.map(part => (
+                <DottedPart key={part}>{part}</DottedPart>
               ))}
-            </span>
+            </DottedParts>
           )}
         </div>
       )}
@@ -392,14 +393,71 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
   )
 }
 
-/** A form of an entry before (−) or after (+): code that wraps at its spaces, a line per constructor, the sign hanging */
-function EntryForm({ sign, form, testId }: { sign: string; form: string; testId: string }) {
+/**
+ * The parts of a line apart by `·`, wrapping as the parts of a list: each part after its `·` (`DottedPart`), the row of
+ * them a `·` and its gap wider than the line to its left, there clipped, so the `·` of the part that begins a line is out
+ * of sight and none ends one
+ */
+function DottedParts({ className, testId, children }: { className?: string; testId?: string; children: ReactNode }) {
+  return (
+    <div className={cn("min-w-0 overflow-hidden", className)} data-testid={testId}>
+      <div className="-ml-3 flex min-w-0 flex-wrap items-baseline gap-x-1.5">{children}</div>
+    </div>
+  )
+}
+
+/** A part of `DottedParts` after its `·`, which is as wide as the margin the row is clipped by (`-ml-3`: `w-1.5` and the gap) */
+function DottedPart({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <span className={cn("flex shrink-0 items-baseline gap-x-1.5", className)}>
+      <span aria-hidden="true" className="w-1.5 shrink-0 text-center">
+        ·
+      </span>
+      {children}
+    </span>
+  )
+}
+
+/** The look of what a change did: an addition tinted, a removal struck through, a changed type in the warning tone */
+const FORM_MARK_CLASSES: Record<FormMark, string> = {
+  added: "rounded-xs bg-success/15 text-foreground ring-1 ring-success/15",
+  removed: "text-destructive line-through decoration-destructive/60",
+  typeChanged: "rounded-xs bg-warning/10 text-warning",
+}
+
+/**
+ * A form of an entry before (−) or after (+): code that wraps at its spaces, a name on the line of its type (its space a
+ * no-break one, `presentForm`), a line per constructor, the sign hanging; the rest muted, what the change did marked
+ * (`FORM_MARK_CLASSES`) and named for a screen reader before it ("added")
+ */
+function EntryForm({ sign, lines, testId }: { sign: string; lines: readonly FormLine[]; testId: string }) {
   return (
     <code className="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid={testId}>
       <span aria-hidden="true" className="shrink-0">
         {sign}
       </span>
-      <span className="min-w-0 [overflow-wrap:anywhere] whitespace-pre-line">{form}</span>
+      <span className="flex min-w-0 flex-col [overflow-wrap:anywhere]">
+        {lines.map((line, lineIndex) => (
+          <span
+            key={`${lineIndex}`}
+            className={cn(line.mark !== null && FORM_MARK_CLASSES[line.mark], "self-start")}
+            data-mark={line.mark ?? undefined}
+            data-testid="review-plan-form-line"
+          >
+            {line.mark !== null && <span className="sr-only">{FORM_MARK_WORDS[line.mark]}: </span>}
+            {line.parts.map((part, partIndex) =>
+              part.mark === null ? (
+                <span key={`${partIndex}`}>{part.text}</span>
+              ) : (
+                <span key={`${partIndex}`} className={FORM_MARK_CLASSES[part.mark]} data-mark={part.mark} data-testid="review-plan-form-mark">
+                  <span className="sr-only">{FORM_MARK_WORDS[part.mark]} </span>
+                  {part.text}
+                </span>
+              ),
+            )}
+          </span>
+        ))}
+      </span>
     </code>
   )
 }

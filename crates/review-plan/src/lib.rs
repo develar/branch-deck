@@ -4,6 +4,7 @@
 //!   (`git_ops::reviewed_refs`), which a later review compares the branch with
 //! - `interdiff`: the commits of a branch paired with those of its reviewed pair, and the range of the ones added on top
 //! - `api`: the public declarations the reviewed commits add, remove or change in form
+//! - `shown`: their forms as the card shows them, and what a change did to each parameter
 //! - `fan_in`: the usages of the removed and changed ones at the head, from accio, updated in this change or left
 //!   outside
 //! - `pair`: the blocks of each changed file from before the commits to after them, as the diffs show the range, and
@@ -48,6 +49,7 @@ pub mod order;
 pub mod pair;
 pub mod prose;
 pub mod registrations;
+pub mod shown;
 pub mod steps;
 pub mod story;
 pub mod texts;
@@ -668,6 +670,8 @@ mod order_test;
 mod prose_test;
 #[cfg(test)]
 mod registrations_test;
+#[cfg(test)]
+mod shown_test;
 #[cfg(test)]
 mod steps_test;
 #[cfg(test)]

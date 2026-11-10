@@ -29,7 +29,7 @@
 
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
 use crate::kotlin::parse;
-use crate::psi_tree::error_bytes;
+use crate::psi_tree::{error_bytes, written_type};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
 use kotlin_syntax::psi;
@@ -1222,13 +1222,17 @@ impl<'t> Walk<'t> {
     let tree = self.tree;
     let name = self.name_text(id)?;
     let vararg = psi::kt_parameter_is_var_arg(tree, id);
-    let type_ref = psi::get_type_reference(tree, id).and_then(|it| {
+    let type_reference = psi::get_type_reference(tree, id);
+    let type_ref = type_reference.and_then(|it| {
       let nullable = psi::kt_type_reference_get_type_element(tree, it).is_some_and(|element| self.is(element, N::NULLABLE_TYPE));
       self.type_ref(it, nullable, u8::from(vararg), type_parameters)
     });
+    // the annotations of a type are none of it, its `suspend` is
+    let shown_type = type_reference.and_then(|it| written_type(tree, it, |node| matches!(tree.node_kind(node), Some(N::ANNOTATION_ENTRY | N::ANNOTATION))));
     Some(Parameter {
       name: self.out.intern(name),
       type_ref,
+      shown_type,
       optional: self.child_token(id, K::EQ).is_some(),
       vararg,
     })

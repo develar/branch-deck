@@ -1,10 +1,9 @@
-use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, Usages, shown_constructors};
+use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, FormChange, Usages};
 use crate::fan_in_test::{Counts, by_name, outside, typed};
 use crate::interdiff::PairState;
+use crate::shown::{FormMark, ShownForm};
 use crate::test_support::{PREFIX, branch, mark, plan_of, range};
 use crate::{PlanSources, ReviewPlan, resolve_subject, review_plan_of};
-use code_symbols::language::Language;
-use code_symbols::summary::Reach;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
@@ -32,7 +31,12 @@ class AddedType(val name: String)
 ";
 
 /// An entry of the card: its kind, name, path, line, the parts that changed, the headers before and after
-type Row<'a> = (ApiChangeKind, &'a str, &'a str, u32, Vec<FormChange>, Option<&'a str>, Option<&'a str>);
+type Row<'a> = (ApiChangeKind, &'a str, &'a str, u32, Vec<FormChange>, Option<String>, Option<String>);
+
+/// A form as its text, a line each (`ShownForm::text`)
+fn shown_text(text: &str) -> String {
+  text.to_string()
+}
 
 fn rows(api: &[ApiChange]) -> Vec<Row<'_>> {
   api
@@ -44,8 +48,8 @@ fn rows(api: &[ApiChange]) -> Vec<Row<'_>> {
         change.path.as_str(),
         change.line,
         change.changes.clone(),
-        change.before.as_deref(),
-        change.after.as_deref(),
+        change.before.as_ref().map(ShownForm::text),
+        change.after.as_ref().map(ShownForm::text),
       )
     })
     .collect()
@@ -69,15 +73,23 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
   assert_eq!(
     rows(&plan.api),
     [
-      (ApiChangeKind::Removed, "removedCall", path, 3, vec![], Some("fun removedCall(x: Int): Int"), None),
+      (
+        ApiChangeKind::Removed,
+        "removedCall",
+        path,
+        3,
+        vec![],
+        Some(shown_text("fun removedCall(x: Int): Int")),
+        None
+      ),
       (
         ApiChangeKind::Changed,
         "changedCall",
         path,
         3,
         vec![FormChange::Parameters],
-        Some("fun changedCall(x: Int): Int"),
-        Some("fun changedCall(x: Int, y: Int): Int")
+        Some(shown_text("fun changedCall(x: Int): Int")),
+        Some(shown_text("fun changedCall(x: Int, y: Int): Int"))
       ),
       (
         ApiChangeKind::Changed,
@@ -85,11 +97,11 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
         path,
         4,
         vec![FormChange::Reach],
-        Some("fun narrowedCall(): Int"),
-        Some("internal fun narrowedCall(): Int")
+        Some(shown_text("fun narrowedCall(): Int")),
+        Some(shown_text("internal fun narrowedCall(): Int"))
       ),
       // its constructor's property is the type's entry
-      (ApiChangeKind::Added, "AddedType", path, 8, vec![], None, Some("AddedType(name: String)")),
+      (ApiChangeKind::Added, "AddedType", path, 8, vec![], None, Some(shown_text("AddedType(name: String)"))),
     ]
   );
   assert_eq!(plan.api[0].key, "a.removedCall");
@@ -197,15 +209,23 @@ fn a_widening_alone_is_an_addition_that_breaks_nothing() {
   assert_eq!(
     rows(&plan.api),
     [
-      (ApiChangeKind::Added, "tick", clock, 4, vec![], Some("long tick()"), Some("public long tick()")),
+      (
+        ApiChangeKind::Added,
+        "tick",
+        clock,
+        4,
+        vec![],
+        Some(shown_text("long tick()")),
+        Some(shown_text("public long tick()"))
+      ),
       (
         ApiChangeKind::Added,
         "mediaDuration",
         media,
         5,
         vec![],
-        Some("internal fun mediaDuration(millis: Long): String"),
-        Some("fun mediaDuration(millis: Long): String")
+        Some(shown_text("internal fun mediaDuration(millis: Long): String")),
+        Some(shown_text("fun mediaDuration(millis: Long): String"))
       ),
       (
         ApiChangeKind::Added,
@@ -213,8 +233,8 @@ fn a_widening_alone_is_an_addition_that_breaks_nothing() {
         media,
         7,
         vec![],
-        Some("private fun isNightlyBuild(): Boolean"),
-        Some("fun isNightlyBuild(): Boolean")
+        Some(shown_text("private fun isNightlyBuild(): Boolean")),
+        Some(shown_text("fun isNightlyBuild(): Boolean"))
       ),
       (
         ApiChangeKind::Added,
@@ -222,8 +242,8 @@ fn a_widening_alone_is_an_addition_that_breaks_nothing() {
         lib,
         1,
         vec![],
-        Some("pub(crate) fn open() -> u8"),
-        Some("pub fn open() -> u8")
+        Some(shown_text("pub(crate) fn open() -> u8")),
+        Some(shown_text("pub fn open() -> u8"))
       ),
     ]
   );
@@ -265,8 +285,8 @@ fn a_widening_of_an_open_member_stays_a_change() {
         base_class,
         4,
         vec![FormChange::Reach],
-        Some("int size()"),
-        Some("public int size()")
+        Some(shown_text("int size()")),
+        Some(shown_text("public int size()"))
       ),
       (
         ApiChangeKind::Changed,
@@ -274,10 +294,18 @@ fn a_widening_of_an_open_member_stays_a_change() {
         player,
         4,
         vec![FormChange::Reach],
-        Some("internal fun play(): Int"),
-        Some("fun play(): Int")
+        Some(shown_text("internal fun play(): Int")),
+        Some(shown_text("fun play(): Int"))
       ),
-      (ApiChangeKind::Added, "stop", player, 6, vec![], Some("internal fun stop(): Int"), Some("fun stop(): Int")),
+      (
+        ApiChangeKind::Added,
+        "stop",
+        player,
+        6,
+        vec![],
+        Some(shown_text("internal fun stop(): Int")),
+        Some(shown_text("fun stop(): Int"))
+      ),
     ]
   );
   let widened: Vec<(&str, bool)> = plan.api.iter().map(|change| (change.name.as_str(), change.widened)).collect();
@@ -407,15 +435,15 @@ fn a_public_declaration_of_a_short_name_is_listed() {
   assert_eq!(
     rows(&plan.api),
     [
-      (ApiChangeKind::Removed, "id", path, 4, vec![], Some("fun id(): Int"), None),
+      (ApiChangeKind::Removed, "id", path, 4, vec![], Some(shown_text("fun id(): Int")), None),
       (
         ApiChangeKind::Changed,
         "of",
         path,
         3,
         vec![FormChange::Parameters],
-        Some("fun of(x: Int): Int"),
-        Some("fun of(x: Int, y: Int): Int")
+        Some(shown_text("fun of(x: Int): Int")),
+        Some(shown_text("fun of(x: Int, y: Int): Int"))
       ),
     ]
   );
@@ -452,7 +480,17 @@ fn removed(plan: &ReviewPlan) -> Vec<Row<'_>> {
 #[test]
 fn a_removal_after_a_rename_names_the_path_its_line_is_of() {
   let without_removed = MOVED.replace("fun removedCall(x: Int): Int = x + 3\n", "");
-  let row = |path: &'static str| (ApiChangeKind::Removed, "removedCall", path, 5, vec![], Some("fun removedCall(x: Int): Int"), None);
+  let row = |path: &'static str| {
+    (
+      ApiChangeKind::Removed,
+      "removedCall",
+      path,
+      5,
+      vec![],
+      Some(shown_text("fun removedCall(x: Int): Int")),
+      None,
+    )
+  };
 
   let repo = TestRepo::new();
   let base = repo.create_commit("Add api", "src/a/Old.kt", MOVED);
@@ -901,11 +939,11 @@ fn a_promoted_declaration_is_new_api() {
         path,
         11,
         vec![FormChange::Parameters],
-        Some("fun narrowed(x: Int): Int"),
-        Some("fun narrowed(x: Int, y: Int): Int")
+        Some(shown_text("fun narrowed(x: Int): Int")),
+        Some(shown_text("fun narrowed(x: Int, y: Int): Int"))
       ),
-      (ApiChangeKind::Added, "promoted", path, 5, vec![], None, Some("fun promoted(x: Int): Int")),
-      (ApiChangeKind::Added, "Registry", registry, 3, vec![], None, Some("Registry()")),
+      (ApiChangeKind::Added, "promoted", path, 5, vec![], None, Some(shown_text("fun promoted(x: Int): Int"))),
+      (ApiChangeKind::Added, "Registry", registry, 3, vec![], None, Some(shown_text("Registry()"))),
     ]
   );
 }
@@ -964,33 +1002,73 @@ fn a_rust_header_reads_as_code() {
   assert_eq!(form("function both ( a : A & B ) : void"), "function both(a: A & B): void", "an operator after an operand");
 }
 
-/// The constructors of a type read as calls of it, a line each, each after the reach a call of it has (the narrower of
-/// its own and its type's) as the language writes it: Kotlin `private` and `internal`, Java's package none and `public`
-/// only where a reach changed; a parameter by its name and type, a default as `= …`, a vararg after `vararg`; a type of
-/// several names (its structure gone) no type at all, never `List/Window`; never the name of a `Reach`
+/// A form shows each type as its source writes it, generic arguments and `?` kept, and a change marks what it did to each
+/// parameter: the constructor of `PluginClassLoader` that gained `jnaModule` (idea-1 d4913cec04b2a), a function whose
+/// parameter changed its type. A type written in other words changes no form, so it has no entry
 #[test]
-fn a_form_of_constructors_and_parameters_reads_as_code() {
-  let (kotlin, java) = (Some(Language::Kotlin), Some(Language::Java));
-  assert_eq!(
-    shown_constructors(
-      "Event",
-      "Public(text:String,styles:List/StyleRange,start:Long,ends:List/Long=);Container()",
-      Reach::Public,
-      kotlin,
-      false
-    ),
-    "Event(text: String, styles, start: Long, ends = …)\nprivate Event()"
+fn a_form_shows_the_types_as_written_and_a_change_marks_its_parameters() {
+  let repo = TestRepo::new();
+  let loader = |extra: &str, spacing: &str| {
+    format!(
+      "package a\n\nclass PluginClassLoader(classPath: ClassPath, private val parents: Array<PluginModuleDescriptor>, packagePrefix: String?, private val libDirectories: List<Path>{extra}) {{\n  fun load(map: Map<String,{spacing}List<Path>>, count: Int) {{}}\n}}\n"
+    )
+  };
+  let base = repo.create_commit("Add loader", "src/a/Loader.kt", &loader("", ""));
+  let spaced = repo.create_commit("Space the types", "src/a/Loader.kt", &loader("", " "));
+  let plan = plan_of(&repo, None, &range(&repo, &base, &spaced)).unwrap();
+  assert_eq!(rows(&plan.api), [], "a type written in other words");
+
+  let head = repo.create_commit(
+    "Load JNA",
+    "src/a/Loader.kt",
+    &loader(", private val jnaModule: PluginModuleDescriptor?", " ").replace("count: Int", "count: Long"),
   );
-  assert_eq!(shown_constructors("Port", "Module(value:Int?)", Reach::Public, kotlin, false), "internal Port(value: Int?)");
-  // an internal type: its public constructor is called only in its module
-  assert_eq!(shown_constructors("Port", "Public(value:Int?)", Reach::Module, kotlin, false), "internal Port(value: Int?)");
+  let plan = plan_of(&repo, None, &range(&repo, &spaced, &head)).unwrap();
+  let path = "src/a/Loader.kt";
   assert_eq!(
-    shown_constructors("Port", "Module();Public(value:int)", Reach::Public, java, false),
-    "Port()\nPort(value: int)"
+    rows(&plan.api),
+    [
+      (
+        ApiChangeKind::Changed,
+        "PluginClassLoader",
+        path,
+        3,
+        vec![FormChange::Constructors],
+        Some(shown_text(
+          "PluginClassLoader(classPath: ClassPath, parents: Array<PluginModuleDescriptor>, packagePrefix: String?, libDirectories: List<Path>)"
+        )),
+        Some(shown_text(
+          "PluginClassLoader(classPath: ClassPath, parents: Array<PluginModuleDescriptor>, packagePrefix: String?, libDirectories: List<Path>, jnaModule: PluginModuleDescriptor?)"
+        ))
+      ),
+      (
+        ApiChangeKind::Changed,
+        "load",
+        path,
+        4,
+        vec![FormChange::Parameters],
+        Some(shown_text("fun load(map: Map<String, List<Path>>, count: Int)")),
+        Some(shown_text("fun load(map: Map<String, List<Path>>, count: Long)"))
+      ),
+    ]
   );
+  let marked = |form: &ShownForm| -> Vec<(String, FormMark)> {
+    form
+      .lines
+      .iter()
+      .flat_map(|line| &line.parameters)
+      .filter_map(|parameter| parameter.mark.map(|mark| (parameter.text(), mark)))
+      .collect()
+  };
+  let constructor = &plan.api[0];
+  assert_eq!(marked(constructor.before.as_ref().unwrap()), []);
   assert_eq!(
-    shown_constructors("Port", "Module();Public(value:int)", Reach::Public, java, true),
-    "Port()\npublic Port(value: int)"
+    marked(constructor.after.as_ref().unwrap()),
+    [("jnaModule: PluginModuleDescriptor?".to_string(), FormMark::Added)]
   );
-  assert_eq!(crate::api::shown_parameters("items:String[]*,handler:String/Int/Unit"), "vararg items: String[], handler");
+  let load = &plan.api[1];
+  assert_eq!(marked(load.before.as_ref().unwrap()), [("count: Int".to_string(), FormMark::TypeChanged)]);
+  assert_eq!(marked(load.after.as_ref().unwrap()), [("count: Long".to_string(), FormMark::TypeChanged)]);
+  let line = &load.after.as_ref().unwrap().lines[0];
+  assert_eq!((line.head.as_str(), line.tail.as_str()), ("fun load(", ")"));
 }

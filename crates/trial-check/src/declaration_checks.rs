@@ -250,28 +250,47 @@ fn changed_form(before: &Site<'_>, after: &Site<'_>) -> bool {
     || (a.reach, a.member, a.overridable, a.jvm_static, a.jvm_field, a.jvm_name) != (b.reach, b.member, b.overridable, b.jvm_static, b.jvm_field, b.jvm_name)
 }
 
-/// The constructors of a type as a use of them sees them: the parameters and the reach of each, in order
-fn constructor_forms(site: &Site<'_>) -> Option<Vec<String>> {
+/// The constructors of a type as a use of them sees them: the parameters and the reach of each, in the order of their
+/// keys (`ConstructorForm::key`)
+fn constructor_forms(site: &Site<'_>) -> Option<Vec<ConstructorForm>> {
   let summary = site.ctx.summary;
   site.declaration.constructors.as_ref().map(|constructors| {
-    let mut forms: Vec<String> = constructors
+    let mut forms: Vec<ConstructorForm> = constructors
       .iter()
-      .map(|constructor| {
-        let parameters: Vec<String> = parameter_forms(summary, &constructor.signature).iter().map(ParameterForm::shown).collect();
-        format!("{:?}({})", constructor.reach, parameters.join(","))
+      .map(|constructor| ConstructorForm {
+        reach: constructor.reach,
+        parameters: parameter_forms(summary, &constructor.signature),
       })
       .collect();
-    forms.sort();
+    forms.sort_by_cached_key(ConstructorForm::key);
     forms
   })
+}
+
+/// A constructor of a type, as a call of it sees it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstructorForm {
+  /// Its own reach, as of a member of the type
+  pub reach: Reach,
+  pub parameters: Vec<ParameterForm>,
+}
+
+impl ConstructorForm {
+  /// `Reach(name:Type,…)`: what tells two constructors apart, of the comparison alone
+  pub fn key(&self) -> String {
+    format!("{:?}({})", self.reach, parameters_key(&self.parameters))
+  }
 }
 
 /// A parameter of a function or a constructor, as a call binds it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParameterForm {
   pub name: String,
-  /// Its type: the names `/` apart, `[]` per array dimension, `?` when nullable; empty where none is written
+  /// Its type: the names `/` apart, `[]` per array dimension, `?` when nullable; empty where none is written. What two
+  /// forms compare
   pub type_text: String,
+  /// Its type as the source writes it, for a review to show
+  pub shown_type: ShownType,
   /// It has a default
   pub optional: bool,
   pub vararg: bool,
@@ -279,7 +298,7 @@ pub struct ParameterForm {
 
 impl ParameterForm {
   /// `name:Type?`, `=` for a default and `*` for a vararg
-  fn shown(&self) -> String {
+  fn key(&self) -> String {
     format!(
       "{}:{}{}{}",
       self.name,
@@ -289,6 +308,26 @@ impl ParameterForm {
     )
   }
 }
+
+/// The parameters as a call sees them, `,` apart (`ParameterForm::key`): what tells two lists apart, of the comparison
+/// alone
+pub fn parameters_key(parameters: &[ParameterForm]) -> String {
+  parameters.iter().map(ParameterForm::key).collect::<Vec<_>>().join(",")
+}
+
+/// The type of a parameter as its source writes it (`Parameter::shown_type`: `List<Path>`, `String...`), `None` where
+/// the summary has none. Only shown: it equals any other, so a form compares by `ParameterForm::type_text` alone and a
+/// type written in other words (`Map<K,V>` for `Map<K, V>`) changes no form
+#[derive(Debug, Clone, Default)]
+pub struct ShownType(pub Option<String>);
+
+impl PartialEq for ShownType {
+  fn eq(&self, _: &Self) -> bool {
+    true
+  }
+}
+
+impl Eq for ShownType {}
 
 /// The parameters of `signature`, in order
 fn parameter_forms(summary: &FileSummary, signature: &Signature) -> Vec<ParameterForm> {
@@ -306,6 +345,7 @@ fn parameter_forms(summary: &FileSummary, signature: &Signature) -> Vec<Paramete
           if type_ref.nullable { "?" } else { "" }
         )
       }),
+      shown_type: ShownType(parameter.shown_type.clone()),
       optional: parameter.optional,
       vararg: parameter.vararg,
     })
@@ -367,16 +407,15 @@ pub enum Surface {
 pub struct Form {
   /// `Declaration::header`: the tokens before the body, without the parameters a signature holds
   pub header: Option<String>,
-  /// The parameters of a JVM function as a call sees them, `,` apart: `name:Type?` with `[]` per array dimension, `=`
-  /// for a default and `*` for a vararg; `None` where the header holds them
-  pub parameters: Option<String>,
+  /// The parameters of a JVM function as a call sees them, in order; `None` where the header holds them
+  pub parameters: Option<Vec<ParameterForm>>,
   pub reach: Reach,
   /// A subtype may override it (`open`)
   pub overridable: bool,
   /// What Java sees of it otherwise: the member kind, `@JvmStatic`, `@JvmField`, `@JvmName`
   pub jvm: String,
-  /// The constructors of a type (`constructor_forms`), `;` apart
-  pub constructors: Option<String>,
+  /// The constructors of a type (`constructor_forms`)
+  pub constructors: Option<Vec<ConstructorForm>>,
 }
 
 /// The declarations a commit's change of a file touches: on each side, every declaration of a name declared on the
@@ -440,9 +479,7 @@ pub fn surface_of(summary: &FileSummary, declaration: &Declaration, public: bool
 fn form_of(site: &Site<'_>) -> Form {
   let declaration = site.declaration;
   let summary = site.ctx.summary;
-  let parameters = site
-    .signature()
-    .map(|signature| parameter_forms(summary, signature).iter().map(ParameterForm::shown).collect::<Vec<_>>().join(","));
+  let parameters = site.signature().map(|signature| parameter_forms(summary, signature));
   let constructors = if declaration.kind == DeclKind::Type { constructor_forms(site) } else { None };
   Form {
     header: declaration.header.clone(),
@@ -450,7 +487,7 @@ fn form_of(site: &Site<'_>) -> Form {
     reach: declaration.reach,
     overridable: declaration.overridable,
     jvm: format!("{:?} {} {} {}", declaration.member, declaration.jvm_static, declaration.jvm_field, declaration.jvm_name),
-    constructors: constructors.map(|forms| forms.join(";")),
+    constructors,
   }
 }
 
@@ -521,7 +558,7 @@ pub fn spanned_declarations(input: &SymbolInput, path: &str, blob: &str) -> Opti
     .filter(|declaration| declaration.kind != DeclKind::Binding && !declaration.in_error && !local(declaration))
     .map(|declaration| {
       let form = declaration_form(&ctx, declaration);
-      let signature = form.form.parameters.clone().or_else(|| form.form.header.clone()).unwrap_or_default();
+      let signature = form.form.parameters.as_deref().map(parameters_key).or_else(|| form.form.header.clone()).unwrap_or_default();
       SpannedDeclaration {
         start_line: declaration.start_line,
         end_line: declaration.end_line,

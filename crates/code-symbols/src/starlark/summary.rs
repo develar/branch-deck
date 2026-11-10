@@ -241,6 +241,7 @@ impl<'t> Walk<'t> {
       parameters.push(Parameter {
         name,
         type_ref: None,
+        shown_type: None,
         optional,
         vararg,
       });

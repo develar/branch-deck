@@ -9,6 +9,7 @@ import type {
   FileFacts,
   FileLink,
   FormChange,
+  FormMark,
   GeneratedBy,
   Interdiff,
   LinkState,
@@ -17,6 +18,7 @@ import type {
   PairState,
   RepeatedEditGroup,
   ReviewPlan,
+  ShownForm,
   Usages,
 } from "@/lib/bindings"
 // The words of the review plan of a review window (openspec/specs/branch/review-plan/spec.md, Status: Experimental): the states
@@ -115,9 +117,9 @@ function formatCalls(count: number): string {
 }
 
 /**
- * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use left outside found, the search
- * stopped early" of an incomplete count of none (the index answers at most 100 hits a declaration: a lower bound, never
- * safe), "The uses are unknown" without a count, "Finding the uses…" while Rust asks the index (`pending`)
+ * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use found outside the change; the
+ * search stopped early" of an incomplete count of none (the index answers at most 100 hits a declaration: a lower bound,
+ * never safe), "The uses are unknown" without a count, "Finding the uses…" while Rust asks the index (`pending`)
  */
 export function formatOutsideUses(usages: Usages | null, pending: boolean): string {
   if (usages === null) {
@@ -126,7 +128,74 @@ export function formatOutsideUses(usages: Usages | null, pending: boolean): stri
   if (usages.complete) {
     return `${formatUses(usages.outside)} left outside`
   }
-  return usages.outside === 0 ? "No use left outside found, the search stopped early" : `At least ${formatUses(usages.outside)} left outside`
+  return usages.outside === 0 ? "No use found outside the change; the search stopped early" : `At least ${formatUses(usages.outside)} left outside`
+}
+
+/** A run of code of a line of a form, with what the change did to it */
+export interface FormPart {
+  readonly text: string
+  /** A parameter added or removed whole, the type of one whose type changed; null for the rest */
+  readonly mark: FormMark | null
+}
+
+/** A line of a form: a call of its type, or the header with its parameters */
+export interface FormLine {
+  readonly parts: readonly FormPart[]
+  /** The whole line: an overload only this side has; null otherwise */
+  readonly mark: FormMark | null
+}
+
+/** The words of a mark for a screen reader, read before the code it marks */
+export const FORM_MARK_WORDS: Record<FormMark, string> = {
+  added: "added",
+  removed: "removed",
+  typeChanged: "type changed",
+}
+
+/**
+ * The spaces of a parameter around its type (`name: `, ` = …`, Java's ` names`) as no-break spaces: a form wraps
+ * between its parameters or inside a type (`Map<String, List<Path>>`), never between a name and its type
+ */
+function bound(text: string): string {
+  return text.replaceAll(" ", " ")
+}
+
+/**
+ * The lines of a form as Rust shows them (`ShownForm`), each a run of parts: what Rust marks of a parameter apart (an
+ * added or removed one whole, of a changed type the type alone), the unmarked code between them joined; a parameter's
+ * name stays on the line of its type (`bound`)
+ */
+export function presentForm(form: ShownForm): FormLine[] {
+  return form.lines.map(line => {
+    const parts: FormPart[] = []
+    const push = (text: string, mark: FormMark | null) => {
+      if (text === "") {
+        return
+      }
+      const last = parts.at(-1)
+      if (last !== undefined && last.mark === null && mark === null) {
+        parts[parts.length - 1] = { text: last.text + text, mark: null }
+      } else {
+        parts.push({ text, mark })
+      }
+    }
+    push(line.head, null)
+    line.parameters.forEach((parameter, index) => {
+      if (index > 0) {
+        push(", ", null)
+      }
+      const [lead, trail] = [bound(parameter.lead), bound(parameter.trail)]
+      if (parameter.mark === "typeChanged") {
+        push(lead, null)
+        push(parameter.shownType, "typeChanged")
+        push(trail, null)
+      } else {
+        push(`${lead}${parameter.shownType}${trail}`, parameter.mark)
+      }
+    })
+    push(line.tail, null)
+    return { parts, mark: line.mark }
+  })
 }
 
 /** An API the commits remove or change, as the card words it */
@@ -144,9 +213,9 @@ export interface BreakageEntry {
   readonly location: string
   /** "parameters and visibility changed": the parts of the form that changed, of a change */
   readonly changed: string | null
-  /** The forms before and after, each on lines of its own: a type a line per constructor */
-  readonly before: string | null
-  readonly after: string | null
+  /** The forms before and after, each on lines of its own: a type a line per constructor; what the change did marked */
+  readonly before: readonly FormLine[] | null
+  readonly after: readonly FormLine[] | null
   /** "3 uses left outside" (`formatOutsideUses`) */
   readonly outside: string
   /** "2 uses updated in this change"; null for none or an unknown count */
@@ -187,8 +256,8 @@ function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
     tone: change.widened ? "secondary" : change.kind === "removed" ? "destructive" : "warning",
     location: `${change.path}:${change.line}`,
     changed: change.changes.length === 0 ? null : `${joinNames(change.changes.map(it => FORM_WORDS[it]))} changed`,
-    before: change.before,
-    after: change.kind === "removed" ? null : change.after,
+    before: change.before === null ? null : presentForm(change.before),
+    after: change.kind === "removed" || change.after === null ? null : presentForm(change.after),
     outside: formatOutsideUses(usages, pending),
     inside: usages === null || usages.inside === 0 ? null : `${formatUses(usages.inside)} updated in this change`,
     stillBound: usages === null || usages.stillBound === 0 ? null : `${formatCalls(usages.stillBound)} left outside still ${usages.stillBound === 1 ? "fits" : "fit"} the new form`,
@@ -368,7 +437,7 @@ function breaksBadge(file: FileFacts): FileBadges["breaks"] {
   if (file.breaks === 0) {
     return { label: "breaks ?", title: "The uses left outside the change are unknown, or the search stopped early", tone: "muted" }
   }
-  return { label: `breaks ${file.breaks}+`, title: `At least ${formatUses(file.breaks)} left outside the change: the search stopped early`, tone: "warning" }
+  return { label: `breaks ${file.breaks}+`, title: `At least ${formatUses(file.breaks)} left outside the change; the search stopped early`, tone: "warning" }
 }
 
 /** The badges of each file row, by its path; a file with none is not listed */

@@ -1,6 +1,6 @@
 use crate::language::Language;
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach};
-use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, signatures, summarize, summary_of, supertypes_of};
+use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, shown_types, signatures, summarize, summary_of, supertypes_of};
 
 #[test]
 fn a_method_a_test_framework_runs_is_a_test() {
@@ -215,6 +215,23 @@ fn a_signature_has_the_parameter_types() {
   assert_eq!(signatures(&summary, "fill"), ["Overrides (grid: int[][], rows: String[])"], "also after the name");
   assert_eq!(signatures(&summary, "create"), ["Overrides (ids: List/String)"]);
   assert_eq!(signatures(&summary, "x"), ["Point -"], "a record component is a field");
+}
+
+/// A parameter's type as the source writes it, for a review to show: its type arguments, `[]` also after the name, `...`
+/// of a vararg, a wildcard, a type parameter too; no annotation, a run of whitespace one space, none inside brackets
+#[test]
+fn a_parameter_shows_its_type_as_written() {
+  let summary = summarize(
+    Language::Java,
+    b"class Shown {
+  <T> void show(final @NotNull Map< String,
+      List<? extends T> > map, String[] names, int grid[][], T value, java.util.List<@Nls String> ids, String... rest) {}
+}",
+  );
+  assert_eq!(
+    shown_types(&summary, "show"),
+    ["Map<String, List<? extends T>>", "String[]", "int[][]", "T", "java.util.List<String>", "String..."]
+  );
 }
 
 #[test]

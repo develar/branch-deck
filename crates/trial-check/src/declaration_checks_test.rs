@@ -1,9 +1,10 @@
-use super::{Surface, reaches_out, surface_of};
+use super::{ConstructorForm, DeclarationForm, ParameterForm, ShownType, Surface, reaches_out, spanned_declarations, surface_of};
 use crate::check::{CheckOutcome, CheckReport, CheckSession};
 use crate::dangling_references::{DanglingKind, DanglingReference, DeclaredIn};
+use crate::symbol_scan::SymbolInput;
 use code_symbols::extract::summarize;
 use code_symbols::language::Language;
-use code_symbols::summary::DeclKind;
+use code_symbols::summary::{DeclKind, Reach};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -675,4 +676,59 @@ fn a_rust_public_inline_module_is_not_test_code() {
     surfaces(Language::Rust, source),
     expected(&[("codec", false, Api), ("decode", false, Api), ("tests", true, None), ("t", true, None)])
   );
+}
+
+/// The forms of the declarations of a Kotlin `source`, by name
+fn forms(source: &str) -> Vec<DeclarationForm> {
+  let mut input = SymbolInput::default();
+  input
+    .summaries
+    .insert("blob".to_string(), std::sync::Arc::new(summarize(Language::Kotlin, "a/Loader.kt", source.as_bytes())));
+  spanned_declarations(&input, "a/Loader.kt", "blob")
+    .unwrap()
+    .declarations
+    .into_iter()
+    .map(|it| it.form)
+    .collect()
+}
+
+fn parameter(name: &str, type_text: &str, shown_type: &str) -> ParameterForm {
+  ParameterForm {
+    name: name.to_string(),
+    type_text: type_text.to_string(),
+    shown_type: ShownType(Some(shown_type.to_string())),
+    optional: false,
+    vararg: false,
+  }
+}
+
+/// A parameter of a form is its name, its type as the names that compare (`List/Path`) and its type as the source writes
+/// it, for a review to show (`List<Path>`): a type written in other words changes no form, other type arguments do
+#[test]
+fn a_parameter_of_a_form_compares_by_its_type_and_shows_it_as_written() {
+  let loader = |types: &str| format!("package a\n\nclass Loader(dirs: {types}, module: Descriptor?) {{\n  fun load(map: {types}) {{}}\n}}\n");
+  let before = forms(&loader("Map<String,List<Path>>"));
+  let constructors = before[0].form.constructors.clone().unwrap();
+  assert_eq!(
+    constructors,
+    [ConstructorForm {
+      reach: Reach::Public,
+      parameters: vec![
+        parameter("dirs", "Map/String/List/Path", "Map<String,List<Path>>"),
+        parameter("module", "Descriptor?", "Descriptor?")
+      ],
+    }]
+  );
+  assert_eq!(constructors[0].parameters[0].shown_type.0.as_deref(), Some("Map<String,List<Path>>"));
+  assert_eq!(before[1].form.parameters.as_ref().unwrap()[0].shown_type.0.as_deref(), Some("Map<String,List<Path>>"));
+  assert_eq!(constructors[0].key(), "Public(dirs:Map/String/List/Path,module:Descriptor?)", "the key the review compares");
+
+  let spaced = forms(&loader("Map<String, List<Path>>"));
+  assert_eq!(
+    spaced[0].form.constructors.as_ref().unwrap()[0].parameters[0].shown_type.0.as_deref(),
+    Some("Map<String, List<Path>>")
+  );
+  assert_eq!(spaced[0].form, before[0].form, "a type written in other words");
+  assert_eq!(spaced[1].form, before[1].form);
+  assert_ne!(forms(&loader("Map<String, List<String>>"))[0].form, before[0].form, "other type arguments");
 }

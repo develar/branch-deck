@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, ContractEntry, DependencyChange, Registration, UiText } from "@/lib/bindings"
 import { MAP_ROWS, presentMap, specName } from "@/presenters/review-map"
-import { fileFacts as file, moduleShape, reviewPlan, reviewStep } from "@/test-support/review-step"
+import { fileFacts as file, moduleShape, reviewPlan, reviewStep, shownForm } from "@/test-support/review-step"
 
 function entry(path: string, kind: ContractEntry["kind"], rules: number | null = null): ContractEntry {
   return {
@@ -25,8 +25,8 @@ const widened: ApiChange = {
   kind: "added",
   widened: true,
   changes: ["reach"],
-  before: "private fun isNightly(): Boolean",
-  after: "fun isNightly(): Boolean",
+  before: shownForm("private fun isNightly(): Boolean"),
+  after: shownForm("fun isNightly(): Boolean"),
   usages: null,
 }
 

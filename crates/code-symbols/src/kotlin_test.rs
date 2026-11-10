@@ -1,7 +1,9 @@
 use crate::language::Language;
 use crate::summary::{Argument, DeclKind, ImportTarget, MemberKind, Reach, Role, Shape, TypeRef};
 use crate::summary_text::reference_text;
-use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, lines_of, modalities, refs, signatures, summarize, summary_of, supertypes_of};
+use crate::test_support::{
+  NONE, bare_refs, constructors_of, declaration, declarations_of, lines_of, modalities, refs, shown_types, signatures, summarize, summary_of, supertypes_of,
+};
 
 #[test]
 fn declarations() {
@@ -165,6 +167,44 @@ fn an_override_is_a_reference_per_supertype() {
   );
   assert_eq!(declarations_of(&summary, "toString"), ["Function toString in Nested"]);
   assert_eq!(refs(&summary, "toString"), NONE, "a class without supertypes");
+}
+
+/// A parameter's type as the source writes it, for a review to show: its type arguments, `?`, a function type with its
+/// `suspend` and the names of its parameters, a type parameter too; no annotation, a run of whitespace one space, none
+/// inside brackets; a vararg its element type, as written
+#[test]
+fn a_parameter_shows_its_type_as_written() {
+  let summary = summarize(
+    Language::Kotlin,
+    b"fun <T> show(
+  libDirectories: List<Path>,
+  parents: Array<PluginModuleDescriptor>,
+  jnaModule: PluginModuleDescriptor?,
+  map: Map< String,
+    @Nls List<T>? >,
+  handler: suspend (index: Int) -> Unit,
+  receiver: (String.(Int) -> Unit)?,
+  vararg names: String,
+  value: T,
+  @Suppress(\"x\") annotated: @Nls String = \"\",
+  any,
+) {}",
+  );
+  assert_eq!(
+    shown_types(&summary, "show"),
+    [
+      "List<Path>",
+      "Array<PluginModuleDescriptor>",
+      "PluginModuleDescriptor?",
+      "Map<String, List<T>?>",
+      "suspend (index: Int) -> Unit",
+      "(String.(Int) -> Unit)?",
+      "String",
+      "T",
+      "String",
+      "-"
+    ]
+  );
 }
 
 #[test]

@@ -14,7 +14,7 @@ use crate::summary::FileSummary;
 use crate::summary_builder::empty_summary;
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 28;
+pub const RULES_VERSION: u32 = 29;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed

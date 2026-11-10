@@ -917,6 +917,7 @@ impl<'t> Walk<'t> {
       parameters.push(Parameter {
         name: self.core.out.intern(name),
         type_ref,
+        shown_type: None,
         optional: sg::parameter::default(tree, parameter).is_some(),
         vararg: sg::has_modifier(tree, parameter, T::ParamsKeyword),
       });

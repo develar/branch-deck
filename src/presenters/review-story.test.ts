@@ -23,7 +23,7 @@ import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentGroupOpenings, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { ContractFile, ContractParagraph, FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
-import { fileFacts, moduleShape, reviewPlan, reviewStep, stepCommit, stepGroup } from "@/test-support/review-step"
+import { fileFacts, moduleShape, reviewPlan, reviewStep, shownForm, stepCommit, stepGroup } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -452,7 +452,7 @@ describe("the document of a review", () => {
       "Cache",
     ])
     // a declaration opened wider is no new API: it opens wider, at its declaration, and breaks no use
-    const widened = { ...added("mediaDuration"), widened: true, before: "internal fun mediaDuration(millis: Long): String" }
+    const widened = { ...added("mediaDuration"), widened: true, before: shownForm("internal fun mediaDuration(millis: Long): String") }
     const widening = { ...rule, newApi: [widened.key, "a.Cache"] }
     const wider = presentStepFacts(widening, { ...plan([widening], []), api: [widened, added("Cache")] })
     expect([wider.newApi.places.map(it => it.label), wider.opensWider.places]).toEqual([
@@ -795,7 +795,18 @@ describe("the document of a review", () => {
         {
           brief: { issue: "IJAI-1", substitutions: [], contract: [] },
           api: [
-            { path: "src/a/Cache.kt", line: 3, name: "Cache", key: "a.Cache", kind: "added", widened: false, changes: [], before: null, after: "class Cache", usages: null },
+            {
+              path: "src/a/Cache.kt",
+              line: 3,
+              name: "Cache",
+              key: "a.Cache",
+              kind: "added",
+              widened: false,
+              changes: [],
+              before: null,
+              after: shownForm("class Cache"),
+              usages: null,
+            },
             { path: "src/a/Store.kt", line: 4, name: "Store", key: "a.Store", kind: "changed", widened: false, changes: [], before: null, after: null, usages: null },
           ],
           links: [

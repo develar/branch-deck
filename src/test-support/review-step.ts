@@ -1,5 +1,10 @@
-import type { FileFacts, ModuleShape, ReviewPlan, ReviewStep, StepCommit, StepGroup, StepTests } from "@/lib/bindings"
+import type { FileFacts, ModuleShape, ReviewPlan, ReviewStep, ShownForm, StepCommit, StepGroup, StepTests } from "@/lib/bindings"
 import { plainTitle } from "@/lib/commit"
+
+/** A form of an API entry of one line and no parameters, as Rust shows a header without them */
+export function shownForm(text: string): ShownForm {
+  return { lines: [{ head: text, parameters: [], tail: "", mark: null }] }
+}
 
 /** The facts of a file of the review plan at `path` in the module at `module`, nothing else known of it */
 export function fileFacts(path: string, module: number | null): FileFacts {

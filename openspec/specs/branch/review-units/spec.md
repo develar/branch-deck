@@ -422,12 +422,12 @@ MUST NOT change with it.
 
 ### Requirement: In `brd`: `brd review-plan` prints the units
 
-`brd review-plan` MUST print `units` (`"schema": 30`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
+`brd review-plan` MUST print `units` (`"schema": 31`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
 `test`, `line`, its `slices` and its `fingerprint`.
 
 #### Scenario: The units of a range
 - **WHEN** `brd review-plan` runs on a range
-- **THEN** it prints `units` (`"schema": 30`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
+- **THEN** it prints `units` (`"schema": 31`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
   `line`, its `slices` and its `fingerprint`
 - **AND** `kind` is `shape` with `changes`, `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles`
   with `directory`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, or `other` with `reason`

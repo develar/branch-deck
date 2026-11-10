@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 30` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 31` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -54,7 +54,9 @@
 //! version 29 the `entries` of a module the change adds: its declarations something outside it uses, from accio
 //! (`accio surface`);
 //! version 30 the `title` of a step, of a commit of a step and of a story as `{prefix, text}`: the conventional prefix
-//! of a commit's subject apart (`cleanup platform:`), `null` without one
+//! of a commit's subject apart (`cleanup platform:`), `null` without one;
+//! version 31 the forms `before` and `after` of the `api` with each parameter type as the source writes it
+//! (`List<Path>`, `String?`, `suspend (Int) -> Unit`), a Java parameter as Java writes it (`String... names`)
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -73,6 +75,7 @@ use review_plan::interdiff::{Interdiff, MessageChange, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
 use review_plan::modules::ModuleShape;
 use review_plan::registrations::Registration;
+use review_plan::shown::ShownForm;
 use review_plan::steps::ReviewSteps;
 use review_plan::texts::UiText;
 use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
@@ -82,7 +85,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `brd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 30;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 31;
 
 /// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -267,7 +270,8 @@ pub struct ApiChangeOutput {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub changes: Vec<FormChange>,
   /// The form before the commits as code reads (the header with the parameters after the name, a type by its
-  /// constructors, the reach as the language writes it), of a change, a removal or a widening
+  /// constructors a line each, each parameter type as the source writes it, the reach as the language writes it), of
+  /// a change, a removal or a widening
   pub before: Option<String>,
   /// The form after the commits, of a change or an addition
   pub after: Option<String>,
@@ -579,8 +583,8 @@ fn api_output(change: ApiChange) -> ApiChangeOutput {
     kind: change.kind,
     widened: change.widened,
     changes: change.changes,
-    before: change.before,
-    after: change.after,
+    before: change.before.as_ref().map(ShownForm::text),
+    after: change.after.as_ref().map(ShownForm::text),
     usages: change.usages.map(|usages| UsagesOutput {
       inside: usages.inside,
       outside: usages.outside,

@@ -332,6 +332,18 @@ the review.
    usages and the tests (JetBrains/accio#539). The plan pairs the two sides by what identifies each registration to the
    platform and keeps accio's answer for every class it names, a class the head lacks included; without an index the
    registrations still show with their classes unknown, without accio there are none, never a guess.
+24. **A form says what the change did** (2026-11-10). On idea-1 `jna-one-copy` (d4913cec04b2a) the entry of
+   `PluginClassLoader` read `PluginClassLoader(classPath: ClassPath, parents, pluginDescriptor: PluginDescriptor, …,
+   libDirectories)`: a summary kept a type only as its last names (`List/Path`), so a generic type showed none, and the
+   reader compared two lines of seven parameters to find `jnaModule`. A parameter keeps its type as the source writes
+   it, for showing only: the forms still compare by the names, so a type written in other words is no change. The forms
+   are structures and a change marks each parameter `added`, `removed` or `typeChanged`: a Kotlin one by its name, as a
+   call may name it, a Java one by its place, as a call binds it, overloads by the most parameters they keep and one
+   without a pair whole; the card tints them, says them to a screen reader and keeps a name on the line of its type.
+   The text costs one rebuild of the summaries (`RULES_VERSION` 29), measured under a load of 28 to 59: the 12 blobs of
+   that review (0.27 MiB) parse in 21 to 32 ms, lost in the noise of a 0.2 to 0.6 s plan; the 2707 blobs of a sync of
+   217 commits of idea-1 (52 MiB) in 0.14 to 0.30 s, plus up to 1.2 s of blob reads, beside a graph of 1 to 9 s. So
+   the summary keeps the text: a byte range into the blob would need the same rebuild.
 
 ## Review Rounds
 
@@ -356,6 +368,7 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 | 2026-11-06 | the same | the proof of a step was the tests of the repository within 3 calls: the joiner's 97 tests of the change, 23 of them end to end, were not seen past the depth | reachability shown as the proof of a step | the step asks accio with the test files of the change given, at any depth, each test with its way; untouched tests and the depth went (decision 16, this change) |
 | 2026-11-08 | idea-1 IJAI-5083, pull request #1512, 2 commits, 141 files, in the app through Peekaboo | eight screens of prose before the first diff; the new module `view.gui.media` (69 files) visible only as a line of `bazel-generated-file-list.txt` and a badge in "Build files (11)"; step 1 a flat list of 125 names; 38 pairs of files as "New links between modules"; two widenings as Possible Breakage, their forms alike; "Adds window, windows, `…`" of test names; the description flattened; two application services and a registry key nowhere | full detail at the top; the shape and the plugging in of a change no fact of the plan | the map, the modules at the head reviewed, the groups of a large step, the module edges, widenings as additions, the Markdown body, the registrations from accio (decisions 18–23, this round) |
 | 2026-11-08 | idea-1 IJAI-5083, pull request #1512, 2 commits, 141 files | What Changes was a wall of text: the front matter of a spec (`---`, `targets:`, `- ../../path.kt`) quoted as a rule, its `---` visible; a map of the specs that own a topic, a table of a doc with one added row, quoted as one paragraph of pipes; a line `refs: flow:x, spec:y, flag:z` quoted whole for one added reference; whole paragraphs where one sentence changed | metadata and tables read as prose; a whole paragraph shown for one sentence of it | the front matter no part of a block, a thematic break and a line of metadata no paragraph, a table a paragraph per row under its header (none of a doc), the filter of prose for every kind of file, the excerpt of every changed paragraph of two sentences or more ([Review Tour → Brief](../../openspec/specs/branch/review-tour/spec.md#brief), this change) |
+| 2026-11-10 | idea-1 `jna-one-copy`, 2 commits, in the app | Possible Breakage showed the constructor of `PluginClassLoader` without its generic types (`parents`, `libDirectories`) and nothing marked of the added `jnaModule`; a name wrapped apart from its type; the line of its place left a `·` at its end; "No use left outside found, the search stopped early" | a type kept only by its names; a diff of two long lines left to the reader | the types as written, a mark per parameter, each `·` bound to the part after it (decision 24, this change) |
 
 ## Measurements
 

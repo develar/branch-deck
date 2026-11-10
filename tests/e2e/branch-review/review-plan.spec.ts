@@ -211,6 +211,10 @@ test.describe("The review plan in the branch review", () => {
     await expect(helper.getByTestId("review-plan-before")).toContainText("value: Int")
     await expect(helper.getByTestId("review-plan-before")).not.toContainText("scale")
     await expect(helper.getByTestId("review-plan-after")).toContainText("scale: Int")
+    // what the change added marked, named for a screen reader; the rest unmarked
+    await expect(helper.getByTestId("review-plan-after").getByTestId("review-plan-form-mark")).toHaveText("added scale: Int")
+    await expect(helper.getByTestId("review-plan-after").getByTestId("review-plan-form-mark")).toHaveAttribute("data-mark", "added")
+    await expect(helper.getByTestId("review-plan-before").getByTestId("review-plan-form-mark")).toHaveCount(0)
     // a line each: its file name and line, its directory after it, the whole path in its hover
     await expect(helper.getByTestId("review-plan-site")).toHaveText(["Base.kt:1src", "Uses.kt:4src", "App.kt:9src/main"])
     await expect
@@ -334,6 +338,68 @@ test.describe("The review plan in the branch review", () => {
     // a use left outside: its file at the head over the changes, the name selected
     await showHelperUseOutside(window, helper)
     await expect(review.getByTestId("commit-review")).toBeVisible()
+  })
+
+  test("should mark in the forms of an entry what the change did: a removed parameter struck through, a changed type, an overload only one side has", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    turnOnReviewPlan(repo)
+    // `helper` loses its parameter, `Store.add` takes a Long, `Store` gets two constructors for the one it had
+    const store = storeText("fun helper() = 0")
+      .replace("class Store {", "class Store(path: String) {\n  constructor(path: String, size: Int) : this(path)")
+      .replace("fun add(value: Int)", "fun add(value: Long)")
+    await repo.commit("(plan) open the store by its path", { "src/Store.kt": store }, 1704121200)
+    // the uses are unknown: every entry stays under Possible Breakage
+    writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ error: "no index of the repository" }))
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+
+    const breakage = window.getByTestId("review-overview").getByTestId("review-plan-breakage")
+    const entry = (name: string) => breakage.locator(`[data-testid="review-plan-breakage-entry"][data-name="${name}"]`)
+    const marks = (form: Locator) => form.getByTestId("review-plan-form-mark")
+
+    const helper = entry("helper")
+    await expect(helper.getByTestId("review-plan-changed")).toHaveText("parameters changed")
+    await expect(marks(helper.getByTestId("review-plan-before"))).toHaveText("removed value: Int")
+    await expect(marks(helper.getByTestId("review-plan-before"))).toHaveCSS("text-decoration-line", "line-through")
+    await expect(helper.getByTestId("review-plan-after")).toHaveText("+fun helper()")
+    await expect(marks(helper.getByTestId("review-plan-after"))).toHaveCount(0)
+
+    // of a changed type the type alone
+    const add = entry("add")
+    await expect(marks(add.getByTestId("review-plan-before"))).toHaveText("type changed Int")
+    await expect(marks(add.getByTestId("review-plan-after"))).toHaveText("type changed Long")
+    await expect(marks(add.getByTestId("review-plan-after"))).toHaveAttribute("data-mark", "typeChanged")
+
+    // no constructor after keeps a parameter of the one before: each line marked whole, a line each
+    const type = entry("Store")
+    await expect(type.getByTestId("review-plan-changed")).toHaveText("constructors changed")
+    const lines = (form: Locator) => form.getByTestId("review-plan-form-line")
+    await expect(lines(type.getByTestId("review-plan-before"))).toHaveText(["removed: Store()"])
+    await expect(lines(type.getByTestId("review-plan-before"))).toHaveAttribute("data-mark", "removed")
+    await expect(lines(type.getByTestId("review-plan-after"))).toHaveText(["added: Store(path: String)", "added: Store(path: String, size: Int)"])
+    await expect.poll(() => lines(type.getByTestId("review-plan-after")).evaluateAll(rows => rows.map(row => row.getAttribute("data-mark")))).toEqual(["added", "added"])
+    // the uses answered, so the snapshot holds the final words, never "Finding the uses…"
+    await expect(breakage.getByTestId("review-plan-outside")).toHaveText(["The uses are unknown", "The uses are unknown", "The uses are unknown"])
+    await captureHtmlSnapshot(breakage, "review-plan-breakage-marks")
+
+    // its place, the parts that changed and its uses apart by `·`: the `·` of each part that begins a line is out of
+    // sight, left of the box that clips the line, and every other one shows; on one line, then wrapped in a narrow window
+    const dots = () =>
+      type.getByTestId("review-plan-entry-facts").evaluate(box => {
+        const left = box.getBoundingClientRect().left
+        const parts = [...box.querySelectorAll('[aria-hidden="true"]')].map(dot => ({
+          hidden: dot.getBoundingClientRect().right <= left,
+          top: (dot.parentElement ?? dot).getBoundingClientRect().top,
+        }))
+        const begins = parts.map((part, index) => index === 0 || part.top > (parts[index - 1]?.top ?? 0) + 1)
+        return { lines: begins.filter(Boolean).length, hiddenWhereALineBegins: parts.every((part, index) => part.hidden === begins[index]) }
+      })
+    await expect.poll(dots).toEqual({ lines: 1, hiddenWhereALineBegins: true })
+    await window.setViewportSize({ width: 560, height: 900 })
+    await expect.poll(dots).toEqual({ lines: 3, hiddenWhereALineBegins: true })
   })
 
   test("should keep an API whose uses are unknown under Possible breakage, and say once above the map why accio did not answer", async ({
