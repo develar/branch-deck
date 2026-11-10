@@ -1,7 +1,10 @@
-use crate::{check_old_layout, check_open_spec, check_requirement_groups, check_spec_anchors, check_spec_targets, check_test_links, heading_anchors, openspec_validate};
+use crate::{
+  check_old_layout, check_open_spec, check_requirement_groups, check_spec_anchors, check_spec_targets, check_test_links, heading_anchors, openspec_validate, tracked_files,
+};
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::path::Path;
+use test_utils::git_test_utils::TestRepo;
 
 /// A repository of `files` (path → text) in a temporary directory, removed when it drops
 fn repository_of(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -333,6 +336,15 @@ fn no_spec_lies_under_spec_and_no_file_names_one_by_its_old_path_a_fixture_of_an
       format!("docs/design/a.md:2: names {old}, a spec of the old layout: openspec/specs/<area>/<name>/spec.md"),
     ]
   );
+}
+
+/// The old layout check reads the files of the index: those of every directory, an untracked one aside
+#[test]
+fn the_tracked_files_are_those_git_tracks_in_every_directory_an_untracked_one_aside() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("files", &[("README.md", ""), ("docs/design/a.md", "")]);
+  std::fs::write(repo.path().join("untracked.md"), "").expect("its text");
+  assert_eq!(tracked_files(repo.path()), ["README.md", "docs/design/a.md"]);
 }
 
 #[test]

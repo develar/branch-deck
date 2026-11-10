@@ -6817,10 +6817,14 @@ dependencies = [
 name = "spec-links"
 version = "0.1.0"
 dependencies = [
+ "git-executor",
+ "git-ops",
  "regex",
  "serde_json",
  "spec-syntax",
+ "sync-utils",
  "tempfile",
+ "test-utils",
  "unicode-properties",
 ]
 

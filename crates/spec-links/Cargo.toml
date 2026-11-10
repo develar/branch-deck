@@ -11,6 +11,11 @@ name = "spec-links"
 path = "src/main.rs"
 
 [dependencies]
+# the tracked files of the old layout check (`git_ops::lease_slot::tracked_under`), git through the executor
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops" }
+# `openspec validate` without a console window on Windows (`child_process::windowless_command`)
+sync-utils = { path = "../sync-utils" }
 # a link's path by the rule of its file's format (`spec_syntax::resolve`) and a glob of the files checked
 # (`spec_syntax::glob_matches`): psi-syntax's reader of the specs, which the review and accio read them with too
 spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "c7aff9dfd2272eccbd0e57ebce2e0f542e13f647" }
@@ -21,6 +26,8 @@ unicode-properties = { version = "0.1.4", default-features = false, features = [
 
 [dev-dependencies]
 tempfile.workspace = true
+# the repository of the test of the tracked files (`TestRepo`)
+test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true

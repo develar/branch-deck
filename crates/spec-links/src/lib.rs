@@ -18,12 +18,14 @@
 //! A renamed, moved or deleted test or file fails here, not in a reader. Every path is one from the root with `/` on
 //! every platform, as the links, the targets and the `//!` headers name a file.
 
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::lease_slot::tracked_under;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
-use std::process::Command;
 use std::sync::LazyLock;
+use sync_utils::child_process::windowless_command;
 
 /// The rules of the domain, each a `//!` header naming its spec
 const RULES: &str = "crates/domain-policy/src/*.rs";
@@ -480,16 +482,13 @@ pub fn check_requirement_groups(root: &Path) -> Vec<String> {
   problems
 }
 
-/// The tracked files of the repository at `root`, by their paths from it
+/// The tracked files of the repository at `root`, by their paths from it: one `ls-files -z` of `.` through the executor
+/// (`git_ops::lease_slot::tracked_under`); none where git does not run there
 fn tracked_files(root: &Path) -> Vec<String> {
-  let Ok(output) = Command::new("git").args(["ls-files", "-z"]).current_dir(root).output() else {
+  let Some(root) = root.to_str() else {
     return Vec::new();
   };
-  String::from_utf8_lossy(&output.stdout)
-    .split('\0')
-    .filter(|path| !path.is_empty())
-    .map(str::to_string)
-    .collect()
+  tracked_under(&GitCommandExecutor::new(), root, &["."]).unwrap_or_default()
 }
 
 /// The first path of a spec of the old layout in `text` and the byte it starts at: one from the root or after `../`,
@@ -564,7 +563,7 @@ pub fn openspec_validate(root: &Path, args: &[&str]) -> Result<Value, String> {
   // reads no `/` and no `..` of a path
   let repository = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap_or_else(|| Path::new("."));
   let binary = repository.join("node_modules").join(".bin").join(if windows { "openspec.cmd" } else { "openspec" });
-  let output = Command::new(&binary)
+  let output = windowless_command(&binary)
     .arg("validate")
     .args(args)
     .args(["--strict", "--json", "--no-interactive"])
