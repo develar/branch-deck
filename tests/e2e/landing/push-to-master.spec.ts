@@ -38,6 +38,14 @@ function pushStep(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("safe-push-button")
 }
 
+/**
+ * Enter on the focused start of the popover, and the answer of the landing it starts (`execute`): the push, the update
+ * that follows it and its sync are one operation, which takes seconds under load; the page then only shows what it did
+ */
+async function pushAndWait(page: Page): Promise<void> {
+  await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
+}
+
 /** The toast of a push into master, by its title */
 function pushToast(page: Page, title: string): Locator {
   return page.locator("[data-slot=toast]", { hasText: title })
@@ -54,8 +62,8 @@ async function confirmAndExpectLanded(page: Page, repo: TestRepositoryBuilder, p
   await expect(popover.getByTestId("safe-push-dry-run")).toHaveCount(0)
   await expect(popoverStart(page)).toHaveText("Push to master")
   await expect(popoverStart(page)).toBeFocused()
-  await page.keyboard.press("Enter")
-  await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+  await pushAndWait(page)
+  expect((await repo.getRemoteBranches())["master"]).toBe(copy)
   const toast = pushToast(page, `Pushed ${BRANCH} into master · 3 commits`)
   await expect(toast).toBeVisible()
   // the update that follows it, in place: the originals of the copy left the branch, its row with them
@@ -165,8 +173,8 @@ test.describe("Push to master", () => {
     await expect(popover.getByTestId("safe-push-lands")).toHaveText(/^Pushes 7 branches · 14 commits into master in one push: /)
     await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText("Pushes its stack branch user-name/stack/air.")
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
-    await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+    await pushAndWait(page)
+    expect((await repo.getRemoteBranches())["master"]).toBe(copy)
     await expect(page.locator("[data-slot=toast]", { hasText: "Pushed the whole air stack into master · 14 commits" })).toBeVisible()
     // the update dropped the originals: the island and its branches are gone
     await expect(findBranchRow(page, "air")).toHaveCount(0)
@@ -183,8 +191,8 @@ test.describe("Push to master", () => {
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popover.getByTestId("safe-push-lands")).toHaveText(/^Pushes 4 branches · 4 commits into master in one push: /)
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
-    await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+    await pushAndWait(page)
+    expect((await repo.getRemoteBranches())["master"]).toBe(copy)
     await expect(findBranchRow(page, "auth")).toHaveCount(0)
     await expect(findBranchRow(page, "docs")).toBeVisible()
   })
@@ -211,8 +219,8 @@ test.describe("Push to master", () => {
     const popover = safePushPopover(page)
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
-    await expect.poll(async () => (await repo.getRemoteBranches())["master"]).toBe(copy)
+    await pushAndWait(page)
+    expect((await repo.getRemoteBranches())["master"]).toBe(copy)
     // the session told what the push landed before its update dropped the branches: each close with its comment
     const landed = `Landed in master as ${copy.slice(0, 7)} with the push of user-name/virtual/login`
     await expect
@@ -237,7 +245,7 @@ test.describe("Push to master", () => {
     await pushStep(page, BRANCH).click()
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
+    await pushAndWait(page)
     const notice = page.locator("[data-slot=toast]", { hasText: `master moved: ${BRANCH} is rebuilt on the new commits` })
     // the update that follows builds the copy anew on their commit: the step offers its push again
     await expect(notice).toContainText("Updated master")
@@ -276,7 +284,7 @@ test.describe("Push to master", () => {
     const before = (await repo.getRemoteBranches())["master"]
     await pushStep(page, BRANCH).click()
     await expect(popoverStart(page)).toBeFocused()
-    await page.keyboard.press("Enter")
+    await pushAndWait(page)
     const refusal = page.locator("[data-slot=toast]", { hasText: `Cannot push ${BRANCH} into master` })
     await expect(refusal).toContainText("The server refused the push into master: [remote rejected] (pre-receive hook declined). remote: master is protected")
     expect((await repo.getRemoteBranches())["master"]).toBe(before)
