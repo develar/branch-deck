@@ -176,13 +176,16 @@ overrides:
   '@ts-morph/common>minimatch': ^11.0.1
   vite@*: npm:@voidzero-dev/vite-plus-core@1.5.0
 
+patchedDependencies:
+  '@base-ui/react@1.9.0': 140996b6b8defaf3e124e819be545f5da6509d0022b9ef687b06bc8d5eef34e4
+
 importers:
 
   .:
     dependencies:
       '@base-ui/react':
         specifier: 1.9.0
-        version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        version: 1.9.0(patch_hash=140996b6b8defaf3e124e819be545f5da6509d0022b9ef687b06bc8d5eef34e4)(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@fontsource-variable/jetbrains-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -3590,7 +3593,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@base-ui/react@1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@base-ui/react@1.9.0(patch_hash=140996b6b8defaf3e124e819be545f5da6509d0022b9ef687b06bc8d5eef34e4)(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@babel/runtime': 8.0.7
       '@base-ui/utils': 0.5.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)

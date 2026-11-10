@@ -138,3 +138,10 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   Stop Waiting a sibling in a wrapper that is there without it too; a new element loses the focus as well, and the
   keys with it. Its E2E test brings a trigger under the pointer with `bringUnderStillPointer` and runs the delay with
   `page.clock.fastForward`.
+- **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
+  hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
+  the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the
+  popup took with it as it went, and the popup opened only at the next move; a hidden view keeps a closed popup until
+  it shows, a loaded machine ends an exit late. `patches/@base-ui__react@1.9.0.patch` leaves the timers to the trigger:
+  an upgrade of Base UI ports it (its master cancels the pending open in the unmount of `useHoverPopupInteraction`), and
+  the tests of "Hover back over a trigger whose popup closed" (`branch-row-layout.spec.ts`) fail without it.

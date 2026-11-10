@@ -21,7 +21,7 @@ import { boxOf } from "../helpers/header-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, pushedRemote, runAndWaitForSync, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, pushedRemote, runAndWaitForSync, waitForBranchSyncComplete, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -441,6 +441,98 @@ test.describe("Hover over rows that move", () => {
       await page.mouse.move(point.x + 1, point.y)
       await page.clock.fastForward(1000)
       await expect(submenu).toBeVisible()
+    },
+  )
+})
+
+test.describe("Hover back over a trigger whose popup closed", () => {
+  /**
+   * Stands the page's time still, after a jump past the warm phase of the tooltips (an open at once): a closed popup
+   * ends its exit at a frame (`requestAnimationFrame`), which a loaded machine paints late, so it stays meanwhile
+   */
+  async function standStill(page: Page): Promise<void> {
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000)
+  }
+
+  /**
+   * The frames run, the delay of the trigger's hover (100 ms of a submenu, 300 of a tooltip or a hover card) still to
+   * come: the closed `popup` ends its exit and goes. Then the delay runs out, and the time runs again
+   */
+  async function goesThenDelayRunsOut(page: Page, popup: Locator): Promise<void> {
+    await page.clock.runFor(50)
+    await expectClosed(popup)
+    await page.clock.runFor(1000)
+    await page.clock.resume()
+  }
+
+  test(
+    "should open the tooltip and the hover card whose trigger the pointer came back to while the popup the hidden view closed still went",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // auth and session stacked, neither pushed: auth's status has its tooltip, session's push its description
+      await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const status = findBranchRow(page, "auth").getByTestId("branch-status")
+      const tooltip = page.getByRole("tooltip").filter({ hasText: "The branch isn't on the remote yet: the push creates it." })
+      const push = getPushButton(findBranchRow(page, "session"))
+      const description = page.getByTestId("push-description")
+      const landing = page.getByTestId("landing-view")
+      const open = page.locator("[data-open]")
+      const closed = page.locator("[data-closed]")
+      // ⌘3 with the popup open, the pointer to the canvas, ⌘1: the view closed the popup as it hid
+      // (`useCloseWhenViewHides`), and the trigger heard no pointer leave it; the closed popup stays until the view shows
+      const hideAndShow = async () => {
+        await emitTauriEvent(page, "show_landing")
+        await expect(landing).toBeVisible()
+        await page.mouse.move(640, 700)
+        await standStill(page)
+        await emitTauriEvent(page, "show_branches")
+        await expect(landing).toBeHidden()
+      }
+      await waitForTauriListener(page, "show_landing")
+
+      // the pointer back over the status before the closed tooltip went: the tooltip opens after the delay of its hover
+      // (Base UI 1.9 cleared the delay as the closed tooltip went, and only the next move opened it: the patch of
+      // `pnpm-workspace.yaml`)
+      await status.hover()
+      await expect(tooltip.and(open)).toBeVisible()
+      await hideAndShow()
+      await status.hover()
+      await goesThenDelayRunsOut(page, tooltip.and(closed))
+      await expect(tooltip.and(open)).toBeVisible()
+      await page.mouse.move(640, 700)
+      await expectClosed(tooltip)
+
+      // the same for the description of the push, a hover card
+      await push.hover()
+      await expect(description.and(open)).toContainText("Push session Only")
+      await hideAndShow()
+      await push.hover()
+      await goesThenDelayRunsOut(page, description.and(closed))
+      await expect(description.and(open)).toContainText("Push session Only")
+    },
+  )
+
+  test(
+    "should open the submenu of the row menu whose item the pointer came back to while the submenu a press closed still went",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRepo("stacked_branches")
+      await syncAndWaitForBranches()
+      const docs = findBranchRow(page, "docs")
+      const submenu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: /^Copy Branch Name/ }) })
+      const closed = submenu.and(page.locator("[data-closed]"))
+      await openContextMenu(page, docs)
+      await openSubmenu(page, "Copy")
+      // Copy Branch Name closes both menus (its copy: "should copy branch name via context menu"); the row menu again, the
+      // pointer back over Copy before the closed submenu went: the submenu opens after the delay of its hover
+      await standStill(page)
+      await page.getByRole("menuitem", { name: /^Copy Branch Name/ }).click()
+      await expect(closed).toBeAttached()
+      await openContextMenu(page, docs)
+      await page.getByRole("menuitem", { name: "Copy", exact: true }).hover()
+      await goesThenDelayRunsOut(page, closed)
+      await expect(submenu.and(page.locator("[data-open]"))).toBeVisible()
     },
   )
 })

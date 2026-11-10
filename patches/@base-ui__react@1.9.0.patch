@@ -1,0 +1,75 @@
+diff --git a/floating-ui-react/hooks/useHoverFloatingInteraction.js b/floating-ui-react/hooks/useHoverFloatingInteraction.js
+index 82b9c1fd40ca2e21814de831eb0e6ebb51649db0..22313fcd4e23eb7c3b94f846a832c49ff03bd48f 100644
+--- a/floating-ui-react/hooks/useHoverFloatingInteraction.js
++++ b/floating-ui-react/hooks/useHoverFloatingInteraction.js
+@@ -38,7 +38,8 @@ function useHoverFloatingInteraction(store, parameters = {}) {
+   } = store.context;
+   const tree = (0, _FloatingTree.useFloatingTree)();
+   const parentId = (0, _FloatingTree.useFloatingParentNodeId)();
+-  const instance = (0, _useHoverInteractionSharedState.useHoverInteractionSharedState)(store);
++  // Branch Deck: the popup leaves the timers of its trigger's hover to the trigger (useHoverInteractionSharedState)
++  const instance = (0, _useHoverInteractionSharedState.useHoverInteractionSharedState)(store, false);
+   const childClosedTimeout = (0, _useTimeout.useTimeout)();
+   const isClickLikeOpenEvent = (0, _useStableCallback.useStableCallback)(() => {
+     return (0, _useHoverShared.isClickLikeOpenEvent)(dataRef.current.openEvent?.type, instance.interactedInside);
+diff --git a/floating-ui-react/hooks/useHoverFloatingInteraction.mjs b/floating-ui-react/hooks/useHoverFloatingInteraction.mjs
+index 1a843b2e164a1592c12a13975a1273499abce2bf..4443b260a2187282557ca6e79b9f623b0755848d 100644
+--- a/floating-ui-react/hooks/useHoverFloatingInteraction.mjs
++++ b/floating-ui-react/hooks/useHoverFloatingInteraction.mjs
+@@ -32,7 +32,8 @@ export function useHoverFloatingInteraction(store, parameters = {}) {
+   } = store.context;
+   const tree = useFloatingTree();
+   const parentId = useFloatingParentNodeId();
+-  const instance = useHoverInteractionSharedState(store);
++  // Branch Deck: the popup leaves the timers of its trigger's hover to the trigger (useHoverInteractionSharedState)
++  const instance = useHoverInteractionSharedState(store, false);
+   const childClosedTimeout = useTimeout();
+   const isClickLikeOpenEvent = useStableCallback(() => {
+     return isClickLikeOpenEventShared(dataRef.current.openEvent?.type, instance.interactedInside);
+diff --git a/floating-ui-react/hooks/useHoverInteractionSharedState.js b/floating-ui-react/hooks/useHoverInteractionSharedState.js
+index 32bc1256e55cb111e1b0996a3bbfaecd52ef1dac..bbfd5967b952344bf217b375a4e927a3f61805a4 100644
+--- a/floating-ui-react/hooks/useHoverInteractionSharedState.js
++++ b/floating-ui-react/hooks/useHoverInteractionSharedState.js
+@@ -80,12 +80,16 @@ function applySafePolygonPointerEventsMutation(instance, options) {
+   referenceElement.style.pointerEvents = 'auto';
+   floatingElement.style.pointerEvents = 'auto';
+ }
+-function useHoverInteractionSharedState(store) {
++// Branch Deck (patches/@base-ui__react@1.9.0.patch): only a trigger clears the timers of its hover as it unmounts. A
++// popup that unmounted at the end of its exit cleared the open delay that the pointer back over its trigger had just
++// started, and the popup opened only at the next move.
++const KEEP_TIMERS = () => undefined;
++function useHoverInteractionSharedState(store, ownsTimers = true) {
+   const data = store.context.dataRef.current;
+   const instance = (0, _useRefWithInit.useRefWithInit)(() => data.hoverInteractionState ?? HoverInteraction.create()).current;
+   if (!data.hoverInteractionState) {
+     data.hoverInteractionState = instance;
+   }
+-  (0, _useOnMount.useOnMount)(data.hoverInteractionState.disposeEffect);
++  (0, _useOnMount.useOnMount)(ownsTimers ? data.hoverInteractionState.disposeEffect : KEEP_TIMERS);
+   return data.hoverInteractionState;
+ }
+\ No newline at end of file
+diff --git a/floating-ui-react/hooks/useHoverInteractionSharedState.mjs b/floating-ui-react/hooks/useHoverInteractionSharedState.mjs
+index 21df34aa63dd82e50a3f946ab9e6c3a2e6bccbe4..fba176f69569a626418a7ccb05add4e95eac3656 100644
+--- a/floating-ui-react/hooks/useHoverInteractionSharedState.mjs
++++ b/floating-ui-react/hooks/useHoverInteractionSharedState.mjs
+@@ -66,12 +66,16 @@ export function applySafePolygonPointerEventsMutation(instance, options) {
+   referenceElement.style.pointerEvents = 'auto';
+   floatingElement.style.pointerEvents = 'auto';
+ }
+-export function useHoverInteractionSharedState(store) {
++// Branch Deck (patches/@base-ui__react@1.9.0.patch): only a trigger clears the timers of its hover as it unmounts. A
++// popup that unmounted at the end of its exit cleared the open delay that the pointer back over its trigger had just
++// started, and the popup opened only at the next move.
++const KEEP_TIMERS = () => undefined;
++export function useHoverInteractionSharedState(store, ownsTimers = true) {
+   const data = store.context.dataRef.current;
+   const instance = useRefWithInit(() => data.hoverInteractionState ?? HoverInteraction.create()).current;
+   if (!data.hoverInteractionState) {
+     data.hoverInteractionState = instance;
+   }
+-  useOnMount(data.hoverInteractionState.disposeEffect);
++  useOnMount(ownsTimers ? data.hoverInteractionState.disposeEffect : KEEP_TIMERS);
+   return data.hoverInteractionState;
+ }
