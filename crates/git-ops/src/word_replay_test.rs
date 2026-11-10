@@ -71,7 +71,7 @@ fn a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it()
   assert_eq!(repo.git(&["log", "-1", format, &resolved_id]), repo.git(&["log", "-1", format, &local[1]]));
   assert_eq!(
     resolve_note(&replay.resolved[0]),
-    format!("branch-deck resolve\ncommit: {}\nresolved-by-words: 2 1\nwords\tf.txt\n", local[1])
+    format!("branch-deck resolve\ncommit: {}\nresolved-by-words: 3 1\nwords\tf.txt\n", local[1])
   );
   assert_eq!(temp_refs(&repo), "");
 }

@@ -35,7 +35,7 @@ use tracing::{debug, instrument};
 
 /// The version of the resolve by words: bump it when the merge, the resolve or the composition can give another result,
 /// so that no remembered resolution of the old way is taken
-pub const RESOLVE_VERSION: u32 = 2;
+pub const RESOLVE_VERSION: u32 = 3;
 
 /// The attribute that names the merge driver of a path (`gitattributes`, "Performing a three-way merge")
 const MERGE_ATTRIBUTE: &str = "merge";

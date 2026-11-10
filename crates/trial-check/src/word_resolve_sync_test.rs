@@ -129,7 +129,7 @@ async fn a_conflict_that_its_words_resolve_is_copied_with_the_author_and_the_mes
   );
   // the fact is in the mapping note of the original, not in the commit
   let note = repo.git(&["notes", "show", &original]);
-  assert!(note.contains("v-commit-resolved-v1:2 1 1"), "{note}");
+  assert!(note.contains("v-commit-resolved-v1:3 1 1"), "{note}");
 }
 
 #[tokio::test]

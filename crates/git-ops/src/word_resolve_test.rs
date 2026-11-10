@@ -235,6 +235,17 @@ fn the_mode_that_one_side_changes_is_kept() {
   assert_eq!(resolution.tree, tree_from_git(&repo, &merge.tree, &[("100755", "run.sh", b"echo A b C\n")]));
 }
 
+/// A conflict whose words leave nothing of the file resolves to the empty file: ours drops the final line end, theirs
+/// the last line (`apply_test::a_resolve_that_leaves_nothing_is_the_empty_text` of text-diff)
+#[test]
+fn a_conflict_its_words_resolve_to_nothing_gives_the_empty_file() {
+  let repo = TestRepo::new();
+  let (tree, outcome) = resolve(&repo, &[("end.txt", "}\n"), ("kept.txt", "kept\n")], &[("end.txt", "}")], &[("end.txt", "")]);
+  let resolution = resolved(outcome);
+  assert_eq!((resolution.files[0].path.as_str(), resolution.files[0].content.as_slice()), ("end.txt", &b""[..]));
+  assert_eq!(resolution.tree, tree_from_git(&repo, &tree, &[("100644", "end.txt", b"")]));
+}
+
 /// Two insertions at the end of a file, which git conflicts on, stay the conflict of git: the merge pairs the empty line
 /// after the final line end of the base only with its like, so the blank line of one side and the line of the other are
 /// one conflict, never two insertions on two sides of that line (`text_diff::last_line`)
@@ -276,14 +287,7 @@ fn the_end_of_a_file_merges_as_git_merge_file_merges_it() {
   ];
   let directory = tempfile::tempdir().unwrap();
   for (ours, base, theirs) in cases {
-    for (name, text) in [("ours", ours), ("base", base), ("theirs", theirs)] {
-      std::fs::write(directory.path().join(name), text).unwrap();
-    }
-    let git = git_command()
-      .current_dir(directory.path())
-      .args(["merge-file", "-p", "ours", "base", "theirs"])
-      .output()
-      .unwrap();
+    let git = git_merge_file(directory.path(), ours, base, theirs);
     let merge = merge_texts(ours, base, theirs, WhitespacePolicy::Default, &DiffBudget::NONE);
     let case = format!("ours {ours:?}, base {base:?}, theirs {theirs:?}");
     assert_eq!(merge.conflicts > 0, git.status.code() != Some(0), "{case}");
@@ -296,4 +300,36 @@ fn the_end_of_a_file_merges_as_git_merge_file_merges_it() {
       );
     }
   }
+}
+
+/// `git merge-file -p` of the three texts in `directory`: its exit code is the number of conflicts
+fn git_merge_file(directory: &std::path::Path, ours: &str, base: &str, theirs: &str) -> std::process::Output {
+  for (name, text) in [("ours", ours), ("base", base), ("theirs", theirs)] {
+    std::fs::write(directory.join(name), text).unwrap();
+  }
+  git_command().current_dir(directory).args(["merge-file", "-p", "ours", "base", "theirs"]).output().unwrap()
+}
+
+/// A side merged again with the result of a resolve by words can conflict, and git conflicts on it too: the words
+/// resolve a final line end removed on one side and the last line replaced on the other, a conflict of git, and the
+/// replacement merged again with that result is one conflict of the last line for git as for the engine. Why
+/// `apply_test::an_exact_result_has_the_lines_of_a_merge` of text-diff does not ask a merge again to resolve
+#[test]
+fn a_side_merged_again_with_the_result_conflicts_in_git_too() {
+  let directory = tempfile::tempdir().unwrap();
+  let (ours, base, theirs) = ("}", "}\n", "a\nb\n");
+  assert_eq!(git_merge_file(directory.path(), ours, base, theirs).status.code(), Some(1));
+  let merge = merge_texts(ours, base, theirs, WhitespacePolicy::Default, &DiffBudget::NONE);
+  let composed = compose_merge(ours.as_bytes(), base.as_bytes(), theirs.as_bytes(), &merge);
+  assert_eq!(
+    (merge.unresolved, String::from_utf8(composed.bytes).unwrap(), composed.exact),
+    (0, "a\nb".to_string(), true)
+  );
+
+  let again = git_merge_file(directory.path(), theirs, base, "a\nb");
+  assert_eq!(
+    (again.status.code(), String::from_utf8(again.stdout).unwrap()),
+    (Some(1), "a\n<<<<<<< ours\nb\n=======\nb\n>>>>>>> theirs\n".to_string())
+  );
+  assert_eq!(merge_texts(theirs, base, "a\nb", WhitespacePolicy::Default, &DiffBudget::NONE).unresolved, 1);
 }

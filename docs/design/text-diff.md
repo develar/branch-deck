@@ -186,9 +186,13 @@ from it.
   own end, and the lines of `resolvedText` take the one end of the lines of their block. The result is `exact` when
   every block resolves and no line end is lost: the merge takes lines that differ only in their ends as equal, so a
   side that ends such a line otherwise, or a resolved block whose lines end in more than one way, makes it inexact. A
-  block that reaches the end of the base decides how the line before it ends, as in `apply_blocks`. Property tests
-  check that a change of one side gives that side, and that each side merges with an exact result without a
-  conflict.
+  block that reaches the end of the base decides how the line before it ends, as in `apply_blocks`; a resolve by
+  words that leaves nothing at the end is inexact, as the end of the line before it is not known, unless no line is
+  before it: then the result is the empty text. Property tests check that a change of one side gives that side, and
+  that a merge that resolves, without a `\r`, is exact. They do not ask a side merged again with the result to give
+  the result, or to resolve: the side and the result each align with the base on their own, so the same change can
+  stand in other blocks (a repeated line matched elsewhere, a change joined with its neighbour), and `git merge-file`
+  conflicts on such a merge too (`word_resolve_test` of git-ops).
 - **Proof.** The tests of `LineComparisonMergeUtilTest`, `CharComparisonMergeUtilTest`, `WordMergeComparisonUtilTest`
   and `MergeResolveUtilTest` are ported as they are. The merge parts of `ComparisonUtilAutoTest` are property tests on
   three generated texts (the source passes the base as the right text too), and they also take the type of each block.

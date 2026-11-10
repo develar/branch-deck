@@ -152,6 +152,16 @@ fn the_changes_of_both_sides_apply_to_the_base() {
   assert_eq!(composed("a\nb\n", "a\nb", "A\nb"), ("A\nb\n".to_string(), true));
 }
 
+/// A resolve by words that leaves nothing of the texts is the empty text, exact: no line is before it whose end it
+/// would decide. One side removed the final line end, the other the last line (`an_exact_result_has_the_lines_of_a_merge`)
+#[test]
+fn a_resolve_that_leaves_nothing_is_the_empty_text() {
+  assert_eq!(composed("}", "}\n", ""), (String::new(), true));
+  assert_eq!(composed("", "}\n", "}"), (String::new(), true));
+  // with a line before it, the end of that line is not known
+  assert_eq!(composed("x\n}", "x\n}\n", "x\n").1, false);
+}
+
 #[test]
 fn a_conflict_that_does_not_resolve_keeps_its_base_and_is_not_exact() {
   assert_eq!(composed("x\nA\n", "x\na\n", "x\nB\n"), ("x\na\n".to_string(), false));
@@ -169,6 +179,18 @@ fn the_lines_keep_the_ends_of_the_texts() {
   // a resolve by words over lines that end in more than one way keeps its base and is not exact either
   let base = "a b\r\nc d\n";
   assert_eq!(composed("A b\r\nC d\n", base, "a b\r\nc D\n"), (base.to_string(), false));
+}
+
+/// A side merged again with the result of its merge can conflict, as in git: the words resolve the conflict of a final
+/// line end removed on one side and the last line replaced on the other, and the replacement merged again with that
+/// result is one conflict of the last line, which `git merge-file` sees in both merges
+/// (`word_resolve_test::a_side_merged_again_with_the_result_conflicts_in_git_too` of git-ops). The shrunk case of
+/// `an_exact_result_has_the_lines_of_a_merge`, which asked a merge again to resolve
+#[test]
+fn a_side_merged_again_with_the_result_can_conflict_as_in_git() {
+  assert_eq!(composed("}", "}\n", "a\nb\n"), ("a\nb".to_string(), true));
+  let again = merge_texts("a\nb\n", "}\n", "a\nb", WhitespacePolicy::Default, &DiffBudget::NONE);
+  assert_eq!((again.conflicts, again.unresolved), (1, 1));
 }
 
 fn merge_text() -> impl Strategy<Value = String> {
@@ -202,14 +224,12 @@ proptest! {
     let merge = merge_texts(&left, &base, &right, WhitespacePolicy::Default, &DiffBudget::NONE);
     let composed = compose_merge(left.as_bytes(), base.as_bytes(), right.as_bytes(), &merge);
     assert_eq!(composed.exact && merge.unresolved > 0, false);
+    // no side merged again with the result needs to give the result, or to resolve: the side and the result each
+    // align with the base on their own, so the same change can stand in other blocks (a repeated line matched
+    // elsewhere, a change joined with its neighbour, a final line end dropped beside it), and `git merge-file`
+    // conflicts on such a merge too (`a_side_merged_again_with_the_result_can_conflict_as_in_git`)
     if merge.unresolved == 0 && !left.contains('\r') && !base.contains('\r') && !right.contains('\r') {
       assert!(composed.exact, "{left:?} {base:?} {right:?}");
-      // each side merged with the result gives the result: nothing of a side is lost
-      let result = String::from_utf8(composed.bytes).unwrap();
-      for side in [&left, &right] {
-        let again = merge_texts(side, &base, &result, WhitespacePolicy::Default, &DiffBudget::NONE);
-        assert_eq!(again.unresolved, 0, "{side:?} {base:?} {result:?}");
-      }
     }
   }
 }

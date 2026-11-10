@@ -203,8 +203,9 @@ pub fn compose_merge<'a>(left: &'a [u8], base: &'a [u8], right: &'a [u8], merge:
           continue;
         };
         if at_end {
-          if text.is_empty() {
-            // nothing is left of the end of the texts: which line ends the result is not known
+          if text.is_empty() && !result.is_empty() {
+            // nothing is left of the end of the texts: which line ends the result is not known. Without a line before
+            // the block, the result is empty
             exact = false;
           }
           // the line before the block ends as in the sides

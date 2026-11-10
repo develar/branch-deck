@@ -341,7 +341,7 @@ fn the_check_of_an_update_runs_before_the_lock() {
     commands.iter().any(|(_, args)| subcommand(args) == "fast-import"),
     "the notes after the lock: {commands:#?}"
   );
-  assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("resolved-by-words: 2 1"));
+  assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("resolved-by-words: 3 1"));
 }
 
 /// `brd update --no-fetch` in `clone`, a clean rebase: the replay runs before the lock, and under it only the witness, the
