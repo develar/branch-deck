@@ -15,22 +15,23 @@ function isLocator(value: unknown): value is Locator {
 }
 
 /**
- * Whether an element of `locator` lies in a popup of a portal whose exit runs: Base UI marks a closing popup
- * `data-closed` (a toast `data-ending-style`) and unmounts it once its exit animation finished, which happens only as the
- * window paints
+ * How many elements `locator` finds, and whether one of them lies in a popup of a portal whose exit runs: Base UI marks
+ * a closing popup `data-closed` (a toast `data-ending-style`) and unmounts it once its exit animation finished, which
+ * happens only as the window paints. Null when the page cannot answer (closed, navigating)
  */
-async function exiting(locator: Locator): Promise<boolean> {
+async function exitState(locator: Locator): Promise<{ count: number; exiting: boolean } | null> {
   return locator
-    .evaluateAll(nodes =>
-      nodes.some(node => {
+    .evaluateAll(nodes => ({
+      count: nodes.length,
+      exiting: nodes.some(node => {
         const closing = node.closest("[data-base-ui-portal] :is([data-closed], [data-ending-style])")
         return (
           closing !== null &&
           closing.getAnimations({ subtree: true }).some(animation => animation.playState === "running" && animation.effect?.getComputedTiming().iterations !== Infinity)
         )
       }),
-    )
-    .catch(() => false)
+    }))
+    .catch(() => null)
 }
 
 const EXIT_WAIT =
@@ -55,13 +56,19 @@ function refusingExitWaits<T extends object>(matchers: T, locator: Locator, nega
         if (property === "toHaveCount" && args[0] !== 0) {
           return value.apply(target, args)
         }
-        if (await exiting(locator)) {
+        const state = await exitState(locator)
+        // nothing matches: every removal assertion holds, and the look that checks the exit answered it in one round
+        // trip, as the matcher alone would (a check before each matcher cost 4% of the test time of a run under load)
+        if (state?.count === 0) {
+          return undefined
+        }
+        if (state?.exiting === true) {
           throw new Error(`${String(locator)} ${EXIT_WAIT}`)
         }
         try {
           return await value.apply(target, args)
         } catch (error) {
-          if (error instanceof Error && (await exiting(locator))) {
+          if (error instanceof Error && (await exitState(locator))?.exiting === true) {
             error.message = `${error.message}\n\nThe assertion ${EXIT_WAIT}`
           }
           throw error

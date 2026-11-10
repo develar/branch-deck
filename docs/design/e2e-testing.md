@@ -567,7 +567,9 @@ State isolation:
   or `data-ending-style`, the exit then ended with `finish()` of its animations, which needs no frame), and reads the
   open tooltip, `openTooltip`. The `expect` of `base-test.ts` (a `Proxy` of Playwright's) refuses a removal assertion
   of a locator (`toHaveCount(0)`, `toBeHidden()`, `not.toBeVisible()`, `not.toBeAttached()`) that starts on an element
-  of a popup of a portal whose exit runs, and names that exit in the error of one that timed out; `E2E_EXIT_MS` (ms)
+  of a popup of a portal whose exit runs, and names that exit in the error of one that timed out; its look at the
+  elements answers an assertion that finds none at once, so the guard costs no round trip of its own (a look before
+  each matcher took 4% of the test time of a run at load 316); `E2E_EXIT_MS` (ms)
   lengthens every exit (`[data-closed]`, `[data-ending-style]`) for a run that looks for a test that waits for one
   ([Writing E2E Tests → Pitfalls](../contributing/e2e-tests.md#pitfalls))
 - **Focus**: Base UI moves the focus into a dialog a frame after it opened (`requestAnimationFrame`, which the clock
