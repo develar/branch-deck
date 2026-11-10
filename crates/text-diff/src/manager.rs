@@ -43,6 +43,14 @@ pub fn merge_lines(text1: &Utf16Text, text2: &Utf16Text, text3: &Utf16Text, poli
   by_line::merge(&line_texts1, &line_texts2, &line_texts3, policy, deadline)
 }
 
+/// As `merge_lines`, the empty last line of each text paired only with the empty last line of the base
+/// (`by_line::merge_whole_texts`), as git merges: what the merge of the views and the resolve by words take. Branch
+/// Deck's own
+pub fn merge_content_lines(text1: &Utf16Text, text2: &Utf16Text, text3: &Utf16Text, policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  let (line_texts1, line_texts2, line_texts3) = (all_line_contents(text1), all_line_contents(text2), all_line_contents(text3));
+  by_line::merge_whole_texts(&line_texts1, &line_texts2, &line_texts3, policy, deadline)
+}
+
 /// `merge_lines` of the lines of `boundary_range` only, in the lines of the whole texts
 pub fn merge_lines_within_range(
   text1: &Utf16Text,
@@ -467,7 +475,7 @@ fn all_line_contents(text: &Utf16Text) -> Vec<&[u16]> {
   get_line_contents(0, text.line_offsets().line_count(), text)
 }
 
-fn get_line_contents(start: usize, end: usize, text: &Utf16Text) -> Vec<&[u16]> {
+pub(crate) fn get_line_contents(start: usize, end: usize, text: &Utf16Text) -> Vec<&[u16]> {
   let line_offsets = text.line_offsets();
   (start..end).map(|line| &text.units()[line_offsets.line_start(line)..line_offsets.line_end(line)]).collect()
 }

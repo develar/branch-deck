@@ -199,6 +199,39 @@ fn a_block_is_ignored_where_its_changed_sides_are_equal_ignoring_whitespace() {
   assert!(merge(left, base, right).blocks.iter().all(|block| !block.ignored));
 }
 
+/// The empty last line of a text (after a final line end, or the one line of an empty text) pairs only with the empty
+/// last line of the base, as git merges: two insertions at the end of a file are one conflict, never two insertions on
+/// two sides of that line; the conflicts are those of `git merge-file`
+/// (`word_resolve_test::the_end_of_a_file_merges_as_git_merge_file_merges_it` of git-ops)
+#[test]
+fn the_empty_last_line_pairs_only_with_the_empty_last_line_of_the_base() {
+  let conflict = |lines: [u32; 6]| vec![(lines, MergeBlockKind::Conflict, None)];
+  // a blank line on one side and a line on the other, with any line end, and from an empty base
+  assert_eq!(shape(&merge("x\n\n", "x\n", "x\ny\n")), conflict([1, 2, 1, 1, 1, 2]));
+  assert_eq!(shape(&merge("x\ny\n", "x\n", "x\n\n")), conflict([1, 2, 1, 1, 1, 2]));
+  assert_eq!(shape(&merge("x\r\n\r\n", "x\r\n", "x\r\ny\r\n")), conflict([1, 2, 1, 1, 1, 2]));
+  assert_eq!(shape(&merge("\n", "", "x\n")), conflict([0, 1, 0, 0, 0, 1]));
+  // a blank line removed on one side, a line added after it on the other
+  assert_eq!(shape(&merge("x\n", "x\n\n", "x\n\nz\n")), conflict([1, 1, 1, 2, 1, 3]));
+  // a side without the final line end: its change is the end of the base's last line
+  assert_eq!(shape(&merge("x", "x\n", "x\ny\n")), conflict([1, 1, 1, 2, 1, 3]));
+  assert_eq!(shape(&merge("a\nb\n\n", "a\nb\n", "a\nb")), conflict([2, 4, 2, 3, 2, 2]));
+  // an insertion at the end beside a change elsewhere: before the empty last line, no conflict
+  let result = merge("A\nb\nc\n", "a\nb\nc\n", "a\nb\nc\n\nd\n");
+  assert_eq!(
+    shape(&result),
+    vec![
+      ([0, 1, 0, 1, 0, 1], MergeBlockKind::Modified, Some(MergeResolution::Default)),
+      ([3, 3, 3, 3, 3, 5], MergeBlockKind::Inserted, Some(MergeResolution::Default)),
+    ]
+  );
+  // the same blank line on both sides
+  assert_eq!(
+    shape(&merge("x\n\n", "x\n", "x\n\n")),
+    vec![([1, 2, 1, 1, 1, 2], MergeBlockKind::Inserted, Some(MergeResolution::Default))]
+  );
+}
+
 #[test]
 fn the_line_ends_and_the_final_newline_of_the_sides_are_named() {
   let result = merge("a\r\nb\r\n", "a\nb\n", "a\nb");
@@ -308,6 +341,24 @@ fn check(texts: [&str; 3], policy: WhitespacePolicy, result: &TextMerge) {
       }
     }
     position = bounds.map(|(_, end)| end);
+  }
+  let tail = counts[1] - position[1];
+  assert_eq!([counts[0] - position[0], counts[2] - position[2]], [tail, tail], "{:?}", result.blocks);
+  // the lines outside the blocks pair in order: the empty last line of a text pairs only with the empty last line of
+  // the base
+  let empty = [result.empty_last_line.left, result.empty_last_line.base, result.empty_last_line.right];
+  let is_empty_last = |side: usize, line: usize| empty[side] && line + 1 == counts[side];
+  let bounds = result.blocks.iter().map(|block| {
+    let start = [block.left_start, block.base_start, block.right_start].map(|line| line as usize);
+    (start, [block.left_end, block.base_end, block.right_end].map(|line| line as usize))
+  });
+  let mut start = [0usize; 3];
+  for (block_start, block_end) in bounds.chain([(counts, counts)]) {
+    for offset in 0..block_start[1] - start[1] {
+      let last = [0, 1, 2].map(|side| is_empty_last(side, start[side] + offset));
+      assert_eq!(last, [last[1]; 3], "{:?}: line {} of the base", result.blocks, start[1] + offset);
+    }
+    start = block_end;
   }
   let conflicts = result.blocks.iter().filter(|block| block.kind == MergeBlockKind::Conflict).count();
   let unresolved = result

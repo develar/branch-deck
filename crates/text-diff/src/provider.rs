@@ -5,11 +5,12 @@
 //! The comparison of a two-side diff view: the blocks of changed lines and the changes inside them, under the
 //! whitespace option and the highlight option of the view.
 
+use crate::by_line;
 use crate::cancellation::{Deadline, DiffTooBig};
 use crate::fragments::LineFragment;
-use crate::line_offsets::LineOffsets;
+use crate::last_line::{content_lines, with_empty_last_lines};
 use crate::manager::{
-  compare_lines_in_range, compare_lines_inner_in_range, compare_lines_inner_with, create_inner_fragments, create_line_fragment, do_squash, process_adjoining, process_blocks,
+  compare_lines_inner_in_range, compare_lines_inner_with, convert_into_line_fragments, create_inner_fragments, do_squash, get_line_contents, process_adjoining, process_blocks,
   trimmed_run,
 };
 use crate::policy::{ComparisonPolicy, HighlightPolicy, InnerFragmentsPolicy, WhitespacePolicy};
@@ -105,12 +106,10 @@ pub fn compare_for_view(text1: &Utf16Text, text2: &Utf16Text, policy: Whitespace
   Ok(result)
 }
 
-/// Compares two texts by line without the empty last line of each (`content_lines`), then the changed blocks as
-/// `fragments_policy` asks. Branch Deck's own: IntelliJ compares every line of a document, the empty line after a final
-/// line end too, so that line can pair with a blank line of the other text. `"x\n"` to `"x\n\n"` then adds the new empty
-/// last line, which does not count, instead of the blank line, and a file counts a line fewer than git does, which has
-/// no such line. Here the two empty last lines pair with each other, and when only one text has one, it is the change of
-/// the final line end: a block of its own, or the end of the block that reaches the ends of both compared parts.
+/// Compares two texts by line without the empty last line of each, which pairs only with its like
+/// (`last_line::with_empty_last_lines`), then the changed blocks as `fragments_policy` asks. Branch Deck's own: IntelliJ
+/// compares every line of a document, so the empty last line of one text can pair with a blank line of the other, and a
+/// file counts a line fewer than git does
 fn compare_content_lines(
   text1: &Utf16Text,
   text2: &Utf16Text,
@@ -119,26 +118,13 @@ fn compare_content_lines(
   deadline: &Deadline,
 ) -> Result<Vec<LineFragment>, DiffTooBig> {
   let (offsets1, offsets2) = (text1.line_offsets(), text2.line_offsets());
-  let (content1, content2) = (content_lines(offsets1), content_lines(offsets2));
-  let mut fragments = compare_lines_in_range(Range::new(0, content1, 0, content2), text1, text2, policy, deadline)?;
-  let (lines1, lines2) = (offsets1.line_count(), offsets2.line_count());
-  if lines1 - content1 != lines2 - content2 {
-    match fragments.last_mut() {
-      Some(last) if last.end_line1 == content1 && last.end_line2 == content2 => {
-        *last = create_line_fragment(Range::new(last.start_line1, lines1, last.start_line2, lines2), offsets1, offsets2);
-      }
-      _ => fragments.push(create_line_fragment(Range::new(content1, lines1, content2, lines2), offsets1, offsets2)),
-    }
-  }
+  let lines1 = get_line_contents(0, content_lines(offsets1), text1);
+  let lines2 = get_line_contents(0, content_lines(offsets2), text2);
+  let (length1, length2) = (offsets1.line_count(), offsets2.line_count());
+  let iterable = with_empty_last_lines(&by_line::compare(&lines1, &lines2, policy, deadline)?, length1, length2);
+  let fragments = convert_into_line_fragments(Range::new(0, length1, 0, length2), offsets1, offsets2, &iterable);
   if fragments_policy == InnerFragmentsPolicy::None {
     return Ok(fragments);
   }
   create_inner_fragments(&fragments, text1.units(), text2.units(), policy, fragments_policy, deadline)
-}
-
-/// The number of lines of a text without its empty last line: the line after a final line end, or the one line of an
-/// empty text
-fn content_lines(offsets: &LineOffsets) -> usize {
-  let last = offsets.line_count() - 1;
-  if offsets.line_start(last) == offsets.line_end(last) { last } else { last + 1 }
 }

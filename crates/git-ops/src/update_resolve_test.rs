@@ -354,7 +354,7 @@ fn an_update_whose_every_conflict_resolves_by_words_applies_without_a_session() 
   assert_eq!(std::fs::read_to_string(clone.path().join("f.txt")).unwrap(), "ALPHA beta GAMMA\n");
   assert_eq!(
     resolve_note(&clone, &clone.head()),
-    format!("branch-deck resolve\ncommit: {local}\nresolved-by-words: 1 1\nwords\tf.txt")
+    format!("branch-deck resolve\ncommit: {local}\nresolved-by-words: 2 1\nwords\tf.txt")
   );
   assert_eq!(clone.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "");
 }
@@ -413,7 +413,7 @@ fn a_later_round_that_its_words_resolve_resolves_in_the_continue_and_the_finish_
   assert_eq!(std::fs::read_to_string(clone.path().join("f.txt")).unwrap(), "ALPHA beta GAMMA\n");
   let note = resolve_note(&clone, &resolved);
   assert!(note.contains("\nround: 2\n"), "{note}");
-  assert!(note.ends_with(&format!("commit: {}\nresolved-by-words: 1 1\nwords\tf.txt", words.commit)), "{note}");
+  assert!(note.ends_with(&format!("commit: {}\nresolved-by-words: 2 1\nwords\tf.txt", words.commit)), "{note}");
 }
 
 #[cfg(any(unix, windows))]

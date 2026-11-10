@@ -11,6 +11,7 @@ use crate::comparison_merge_util::{build_merge, build_simple};
 use crate::comparison_util::{hash_code, is_equals, unimportant_line_char_count};
 use crate::iterables::diff_iterable::DiffIterable;
 use crate::iterables::diff_iterable_util::{ExpandChangeBuilder, create, diff, fair};
+use crate::last_line::with_empty_last_lines;
 use crate::merge_range::MergeRange;
 use crate::policy::ComparisonPolicy;
 use crate::trim_util::{expand, is_space_enter_or_tab};
@@ -33,6 +34,28 @@ pub fn compare_three(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], po
 pub fn merge(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
   deadline.check_canceled()?;
   do_compare_three(&get_lines(lines1, policy), &get_lines(lines2, policy), &get_lines(lines3, policy), policy, deadline, true)
+}
+
+/// As `merge`, of the lines of three whole texts, the empty last line of each left out of its comparison with the base
+/// and paired only with the empty last line of the base (`last_line::with_empty_last_lines`). Branch Deck's own: the
+/// source pairs it with a blank line of the other text too, so two insertions at the end of a file can stand on two
+/// sides of the empty last line of the base and merge without the conflict that git sees
+pub fn merge_whole_texts(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  deadline.check_canceled()?;
+  let [lines1, lines2, lines3] = [lines1, lines2, lines3].map(|lines| get_lines(lines, policy));
+  let compare = |base: &[Line<'_>], side: &[Line<'_>]| -> Result<DiffIterable, DiffTooBig> {
+    let changes = compare_with_base(&base[..content_count(base)], &side[..content_count(side)], deadline)?;
+    Ok(with_empty_last_lines(&changes, base.len(), side.len()))
+  };
+  let iterable1 = compare(&lines2, &lines1)?;
+  let iterable2 = compare(&lines2, &lines3)?;
+  Ok(build_merge_ranges(&lines1, &lines2, &lines3, policy, true, &iterable1, &iterable2))
+}
+
+/// The number of the lines of a whole text without its empty last line: its last line is empty only when the text ends
+/// with a line end or is empty
+fn content_count(lines: &[Line<'_>]) -> usize {
+  lines.len() - usize::from(lines.last().is_some_and(|line| line.content.is_empty()))
 }
 
 /// The merge ranges of a part of the texts, shifted to the lines of the whole texts
@@ -85,25 +108,38 @@ pub(crate) fn do_compare_three(
 ) -> Result<Vec<MergeRange>, DiffTooBig> {
   deadline.check_canceled()?;
 
-  let iw_lines1 = convert_mode(lines1, ComparisonPolicy::IgnoreWhitespaces);
-  let iw_lines2 = convert_mode(lines2, ComparisonPolicy::IgnoreWhitespaces);
-  let iw_lines3 = convert_mode(lines3, ComparisonPolicy::IgnoreWhitespaces);
+  let iterable1 = compare_with_base(lines2, lines1, deadline)?;
+  let iterable2 = compare_with_base(lines2, lines3, deadline)?;
+  Ok(build_merge_ranges(lines1, lines2, lines3, policy, keep_ignored_changes, &iterable1, &iterable2))
+}
 
-  let iw_changes1 = compare_smart(&iw_lines2, &iw_lines1, deadline)?;
-  let iw_changes1 = optimize_line_chunks(lines2, lines1, &iw_changes1);
-  let iterable1 = correct_changes_second_step(lines2, lines1, &iw_changes1);
+/// The comparison of the base with a side, each of a three-way comparison: ignoring whitespace, then corrected under the
+/// policy of the lines
+fn compare_with_base(base: &[Line<'_>], side: &[Line<'_>], deadline: &Deadline) -> Result<DiffIterable, DiffTooBig> {
+  let iw_base = convert_mode(base, ComparisonPolicy::IgnoreWhitespaces);
+  let iw_side = convert_mode(side, ComparisonPolicy::IgnoreWhitespaces);
+  let iw_changes = compare_smart(&iw_base, &iw_side, deadline)?;
+  let iw_changes = optimize_line_chunks(base, side, &iw_changes);
+  Ok(correct_changes_second_step(base, side, &iw_changes))
+}
 
-  let iw_changes2 = compare_smart(&iw_lines2, &iw_lines3, deadline)?;
-  let iw_changes2 = optimize_line_chunks(lines2, lines3, &iw_changes2);
-  let iterable2 = correct_changes_second_step(lines2, lines3, &iw_changes2);
-
-  Ok(if keep_ignored_changes && policy != ComparisonPolicy::Default {
-    build_merge(&iterable1, &iterable2, &|index1, index2, index3| {
+/// The merge ranges of the comparisons of the base with the left side (`iterable1`) and with the right one
+fn build_merge_ranges(
+  lines1: &[Line<'_>],
+  lines2: &[Line<'_>],
+  lines3: &[Line<'_>],
+  policy: ComparisonPolicy,
+  keep_ignored_changes: bool,
+  iterable1: &DiffIterable,
+  iterable2: &DiffIterable,
+) -> Vec<MergeRange> {
+  if keep_ignored_changes && policy != ComparisonPolicy::Default {
+    build_merge(iterable1, iterable2, &|index1, index2, index3| {
       equals_default_policy(lines1, lines2, lines3, index1, index2, index3)
     })
   } else {
-    build_simple(&iterable1, &iterable2)
-  })
+    build_simple(iterable1, iterable2)
+  }
 }
 
 fn equals_default_policy(lines1: &[Line<'_>], lines2: &[Line<'_>], lines3: &[Line<'_>], index1: usize, index2: usize, index3: usize) -> bool {

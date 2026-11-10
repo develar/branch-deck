@@ -18,6 +18,7 @@ pub mod comparison_util;
 pub mod fragments;
 pub mod inline;
 pub mod iterables;
+pub mod last_line;
 pub mod lcs;
 pub mod line_fragment_splitter;
 pub mod line_offsets;

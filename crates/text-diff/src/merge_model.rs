@@ -8,7 +8,7 @@
 use crate::by_word;
 use crate::cancellation::Deadline;
 use crate::comparison_util::is_equal_texts;
-use crate::manager::merge_lines;
+use crate::manager::merge_content_lines;
 use crate::merge_conflict_type::{MergeConflictKind, MergeConflictType, ResolutionStrategy};
 use crate::merge_range::{MergeRange, ThreeSide};
 use crate::merge_range_util::{compare_line_merge_contents, get_merge_type, lines_content};
@@ -123,7 +123,7 @@ pub fn merge_texts(left: &str, base: &str, right: &str, policy: WhitespacePolicy
     .all(|(text, source)| text.len() <= MAX_INNER_BYTES && source.line_count() <= MAX_INNER_LINES);
   let mut inner = budget.inner.filter(|_| fits);
 
-  let ranges = merge_lines(texts[0], texts[1], texts[2], comparison_policy, &budget.lines).unwrap_or_else(|_| {
+  let ranges = merge_content_lines(texts[0], texts[1], texts[2], comparison_policy, &budget.lines).unwrap_or_else(|_| {
     inner = None;
     whole_texts(&sources)
   });

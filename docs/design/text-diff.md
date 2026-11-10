@@ -76,6 +76,7 @@ flowchart TD
 | `manager.rs` | `diff-impl/.../comparison/ComparisonManagerImpl.java`, the two-way half |
 | `provider.rs` | `diff-impl/.../tools/util/text/TwosideTextDiffProviderBase.java`, `SimpleTextDiffProvider.java` |
 | `text.rs` | Branch Deck's own: `Utf16Text`, the UTF-16 code units of a text and its lines |
+| `last_line.rs` | Branch Deck's own: the empty last line of a text, paired only with its like (Key Decision 8) |
 | `merge_range.rs` | `util/MergeRange.kt`, `util/ThreeSide.kt`, `fragments/MergeLineFragment*.kt`, `MergeWordFragment*.kt` |
 | `comparison_merge_util.rs` | `diff/comparison/ComparisonMergeUtil.kt` |
 | `merge_conflict_type.rs` | `diff/util/MergeConflictType.kt`, `MergeConflictResolutionStrategy.kt` |
@@ -149,6 +150,8 @@ from it.
 - **Merge.** `manager::merge_lines` is the same, but under `Trim` and `Ignore` a run of lines that differs only in what
   the policy ignores stays a block of its own (`build_merge`), outside the conflicts, as the merge view of IntelliJ
   shows it. `merge_lines_within_range` merges a part of the texts, `merge_lines_additions` the lines two texts share.
+  `merge_content_lines` merges three whole texts with the empty last line of each paired only with that of the base
+  (`by_line::merge_whole_texts`, Key Decision 8): what `merge_texts` takes.
 - **Words.** `by_word::compare_three` gives the word blocks inside a block of lines, in offsets of the three texts,
   with the whitespace correctors of the merge.
 - **Types.** `merge_range_util::get_line_merge_type` gives the `MergeConflictType` of a block: inserted, deleted,
@@ -166,7 +169,8 @@ from it.
   each side. `conflicts` and `unresolved` count the conflicts; `conflicts > 0` with `unresolved == 0` is a conflict of
   git that its words resolve. `lineEnds` and `finalNewline` name the sides when they differ. `budget.inner` bounds the
   words and the resolves of a file (after it, `lineLevelOnly` and no resolve by words), `budget.lines` the line merge
-  (after it, one block). A property test checks that the blocks partition the three texts.
+  (after it, one block). A property test checks that the blocks partition the three texts, and that the
+  empty last line of a text outside the blocks pairs only with the empty last line of the base.
 - **Ignored blocks of a merge.** IntelliJ's merge viewer drops no block under any policy. It offers `Default`, `Trim`
   and `Ignore`, and `IgnoreBlankLines` merges here as `Ignore`, with nothing cut off. Every block is a change that a
   side applies and the navigation stops at. The merge keeps a block equal under the policy, so that a side can still
@@ -233,17 +237,19 @@ not squashed) and `ByChar`.
 7. **Decision**: Well-maintained crates replace the infrastructure of the source. The algorithm code stays a port.
    **Rationale**: Less code to keep, and each crate is tested by many more users. See "Dependencies".
 
-8. **Decision**: The comparison of a view (`provider::compare_for_view`) leaves the empty last line of each text out of
-   the comparison of lines: the line after a final line end, and the one line of an empty text. The two pair with each
-   other; when only one text has one, it is the change of the final line end, a block of its own or the end of the
-   block that reaches the ends of both texts.
+8. **Decision**: The comparison of a view (`provider::compare_for_view`) and the merge (`merge_texts`) leave the empty
+   last line of each text out of the comparison of lines: the line after a final line end, and the one line of an
+   empty text (`last_line.rs`). Two empty last lines pair with each other; when only one text of a pair has one, it is
+   the change of the final line end, a change of its own or the end of the change that reaches the ends of both texts.
+   The merge does so in each comparison of a side with the base, and joins the two as the source does.
    **Rationale**: IntelliJ compares every line of a document, and that line is one of them, so it can pair with a blank
-   line of the other text: `"x\n"` to `"x\n\n"` then adds the new empty last line, which does not count, instead of the
-   blank line, and a class that grows by a blank line and a declaration after its brace counts a line fewer than git.
-   Git has no such line. The ported functions of `manager.rs` keep the lines of the source, and so do their tests and
-   the merge (`merge_texts`), which counts no lines: there the pairing can put an insertion at the end of a side after
-   the empty last line of the base instead of before it, so a blank line that one side adds at the end and a line that
-   the other adds there merge without a conflict, as in IntelliJ.
+   line of the other text, and git has no such line. In a diff, `"x\n"` to `"x\n\n"` then adds the new empty last
+   line, which does not count, instead of the blank line: an added file with a blank line counted a line fewer than
+   git. In a merge, an insertion at the end of a side then stands after the empty last line of the base instead of
+   before it: a blank line that one side adds at the end and a line that the other adds there merged without a
+   conflict, where `git merge-file` stops, and the resolve by words committed it. Now the conflicts at the end of a file
+   are git's, and a clean merge there is git's result (`word_resolve_test` of git-ops runs `git merge-file` on the
+   cases). The ported functions of `manager.rs` keep the lines of the source, and so do their tests.
 
 ### Dependencies
 

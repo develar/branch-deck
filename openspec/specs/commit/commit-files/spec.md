@@ -39,6 +39,7 @@ targets:
   - crates/file-diffs/src/model.rs
   - crates/text-diff/src/model.rs
   - crates/text-diff/src/provider.rs
+  - crates/text-diff/src/last_line.rs
   - crates/object-cache/src/file_diff.rs
   - crates/app-api/src/reads/blobs.rs
   - crates/test-utils/src/repo_template.rs

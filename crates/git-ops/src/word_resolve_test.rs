@@ -6,6 +6,10 @@ use crate::word_resolve::{NotResolved, WordResolveOutcome, resolve_by_words};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::{TestRepo, git_command};
+use text_diff::apply::compose_merge;
+use text_diff::merge_model::merge_texts;
+use text_diff::model::DiffBudget;
+use text_diff::policy::WhitespacePolicy;
 
 /// The merge of theirs onto ours with the base, as `merge-tree --write-tree -z` gives it; it must conflict
 fn merge_tree(repo: &TestRepo, base: &str, ours: &str, theirs: &str) -> MergeTreeOutput {
@@ -229,4 +233,67 @@ fn the_mode_that_one_side_changes_is_kept() {
   let resolution = resolved(resolve_merge(&repo, &merge));
   assert_eq!(resolution.files[0].mode, "100755");
   assert_eq!(resolution.tree, tree_from_git(&repo, &merge.tree, &[("100755", "run.sh", b"echo A b C\n")]));
+}
+
+/// Two insertions at the end of a file, which git conflicts on, stay the conflict of git: the merge pairs the empty line
+/// after the final line end of the base only with its like, so the blank line of one side and the line of the other are
+/// one conflict, never two insertions on two sides of that line (`text_diff::last_line`)
+#[test]
+fn two_insertions_at_the_end_of_a_file_stay_the_conflict_of_git() {
+  for (base, ours, theirs) in [
+    ("x\n", "x\n\n", "x\ny\n"),
+    ("x\n", "x\ny\n", "x\n\n"),
+    ("x\r\n", "x\r\n\r\n", "x\r\ny\r\n"),
+    ("", "\n", "x\n"),
+  ] {
+    let repo = TestRepo::new();
+    let (_, outcome) = resolve(&repo, &[("end.txt", base), ("kept.txt", "kept\n")], &[("end.txt", ours)], &[("end.txt", theirs)]);
+    assert_eq!(reason(&outcome), Some(NotResolved::Unresolved), "{base:?}, ours {ours:?}, theirs {theirs:?}");
+  }
+}
+
+/// The ends of three texts merge as `git merge-file` merges them: a conflict where git sees one, else git's result,
+/// with LF and CRLF, a side without a final line end and an empty base
+#[test]
+fn the_end_of_a_file_merges_as_git_merge_file_merges_it() {
+  // (ours, base, theirs), the order of `git merge-file`
+  let cases = [
+    ("x\n\n", "x\n", "x\ny\n"),
+    ("x\ny\n", "x\n", "x\n\n"),
+    ("x\r\n\r\n", "x\r\n", "x\r\ny\r\n"),
+    ("x\n", "x\n\n", "x\n\nz\n"),
+    ("x\n\nz\n", "x\n\n", "x\n"),
+    ("x", "x\n", "x\ny\n"),
+    ("x\n\n", "x", "x\ny"),
+    ("a\nb", "a\nb\n", "a\nB\n"),
+    ("a\nb\n\n", "a\nb\n", "a\nb"),
+    ("\n", "", "x\n"),
+    ("a\n", "", "b\n"),
+    ("A\nb\nc\n", "a\nb\nc\n", "a\nb\nc\n\nd\n"),
+    ("A\nb\n", "a\nb\n", "a\nb\n\n"),
+    ("x\n\n", "x\n", "x\n\n"),
+    ("A\r\nb\r\n", "a\r\nb\r\n", "a\r\nb\r\n\r\n"),
+  ];
+  let directory = tempfile::tempdir().unwrap();
+  for (ours, base, theirs) in cases {
+    for (name, text) in [("ours", ours), ("base", base), ("theirs", theirs)] {
+      std::fs::write(directory.path().join(name), text).unwrap();
+    }
+    let git = git_command()
+      .current_dir(directory.path())
+      .args(["merge-file", "-p", "ours", "base", "theirs"])
+      .output()
+      .unwrap();
+    let merge = merge_texts(ours, base, theirs, WhitespacePolicy::Default, &DiffBudget::NONE);
+    let case = format!("ours {ours:?}, base {base:?}, theirs {theirs:?}");
+    assert_eq!(merge.conflicts > 0, git.status.code() != Some(0), "{case}");
+    if git.status.success() {
+      let composed = compose_merge(ours.as_bytes(), base.as_bytes(), theirs.as_bytes(), &merge);
+      assert_eq!(
+        (String::from_utf8(composed.bytes).unwrap(), composed.exact),
+        (String::from_utf8(git.stdout).unwrap(), true),
+        "{case}"
+      );
+    }
+  }
 }
