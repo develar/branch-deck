@@ -21,7 +21,7 @@ import { boxOf } from "../helpers/header-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, pushedRemote, runAndWaitForSync, waitForBranchSyncComplete, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, pushedRemote, runAndWaitForSync, syncFromMenu, waitForBranchSyncComplete, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -565,4 +565,31 @@ test.describe("The room of the branch view", () => {
       await expect(push).toHaveText(/^\s*3\s*with children\s*$/, { useInnerText: true })
     },
   )
+})
+
+test.describe("A branch menu that changes while it shows", () => {
+  // the `issue_links` template: JIRA-456 of three commits, none pushed
+  test("should keep its open submenu under the pointer when a sync puts a group above it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    await openContextMenu(page, findBranchRow(page, "JIRA-456"))
+    await openSubmenu(page, "Copy")
+    const copy = page.getByRole("menuitem", { name: "Copy", exact: true })
+    const copyName = page.getByRole("menuitem", { name: "Copy Branch Name" })
+    const fix = page.getByRole("menuitem", { name: "Fix Conflict…" })
+    // the pointer on the items of Copy, as on its way to a click; no conflict yet
+    await copyName.hover()
+    await expect(copyName).toHaveAttribute("data-highlighted")
+    await expect(fix).toHaveCount(0)
+
+    // behind the app's back: a commit of JIRA-456 that needs a commit of another branch, so the next sync builds the
+    // branch with a conflict, and its menu leads with the fix
+    await repo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n" }, 1704182400)
+    await repo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
+    await syncFromMenu(page)
+    await expect(fix).toBeVisible()
+    // the group of Copy is below the fix now, its submenu with it: still open under the pointer, and its item copies
+    await expect(copy).toHaveAttribute("aria-expanded", "true")
+    await testContextMenuCopy(page, "Copy Branch Name", "JIRA-456")
+  })
 })

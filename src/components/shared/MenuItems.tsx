@@ -25,20 +25,36 @@ export interface MenuComponents {
   CheckboxItem?: ComponentType<{ checked: boolean; disabled?: boolean; closeOnClick?: boolean; onCheckedChange: () => void; children?: ReactNode }>
 }
 
-/** Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. */
+/**
+ * Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. A group is
+ * known by its item that opens a submenu, else by its first item (`groupKey`), never by its place: a change of a store
+ * while the menu shows (a sync that finds a conflict leads with "Fix Conflict…") moves the groups after it, and a group
+ * known by its place would mount again, its open submenu closed under the pointer, its item gone from under a click.
+ */
 export function MenuItems({ groups, components }: { groups: MenuItemGroups; components: MenuComponents }) {
   const { Group, Separator } = components
   const nonEmpty = groups.filter(group => group.length > 0)
   return nonEmpty.map((group, groupIndex) => (
-    <Fragment key={groupIndex}>
+    <Fragment key={groupKey(group)}>
       {groupIndex > 0 && <Separator />}
       <Group>
         {group.map(item => (
-          <MenuEntry key={item.id ?? item.label} item={item} components={components} />
+          <MenuEntry key={itemKey(item)} item={item} components={components} />
         ))}
       </Group>
     </Fragment>
   ))
+}
+
+/** The key of a group of a menu: its item that opens a submenu (what may be open), else its first item */
+function groupKey(group: readonly MenuItem[]): string {
+  const item = group.find(entry => entry.children !== undefined) ?? group[0]
+  return item === undefined ? "" : itemKey(item)
+}
+
+/** The key of an item among its siblings */
+function itemKey(item: MenuItem): string {
+  return item.id ?? item.label
 }
 
 function MenuEntry({ item, components }: { item: MenuItem; components: MenuComponents }) {
@@ -62,7 +78,7 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
         </SubTrigger>
         <SubContent>
           {item.children.map(child => (
-            <MenuEntry key={child.id ?? child.label} item={child} components={components} />
+            <MenuEntry key={itemKey(child)} item={child} components={components} />
           ))}
         </SubContent>
       </Sub>
