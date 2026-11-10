@@ -37,7 +37,7 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 import { useBranchSync, useFoundCommits, useParkedTableRows } from "@/stores/branch-sync"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { useInlineRowAction } from "@/stores/inline-row-action"
-import { useLandingSpans } from "@/stores/patronus"
+import { useFailingLandings, useLandingSpans } from "@/stores/patronus"
 import { getFullBranchName, useSelectedRepositoryState } from "@/stores/repository"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
@@ -83,7 +83,8 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
   // the lane segments a running Safe Push lands, from the root of its stack down to its branch
   const spans = useLandingSpans()
   const laneRows = useMemo(() => rows.flatMap(row => (row.kind === "branch" ? [row] : [])), [rows])
-  const landing = useMemo(() => landingSegments(laneRows, spans), [laneRows, spans])
+  const failingLandings = useFailingLandings()
+  const landing = useMemo(() => landingSegments(laneRows, spans, failingLandings), [laneRows, spans, failingLandings])
   // the highlighted path to the root of the hovered or focused branch is laid out over the rows before they paint
   useLayoutEffect(() => setStackPathRows(laneRows), [laneRows])
   const pathPointer = useStackPathPointer()

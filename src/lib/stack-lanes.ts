@@ -163,6 +163,8 @@ export interface LaneSegments {
   readonly down: boolean
   /** The lanes that pass the row on the way from a branch of the path to the next one, ascending */
   readonly through: readonly number[]
+  /** A landing span whose robot will fail: drawn `destructive`, as its ring */
+  readonly failing?: true
 }
 
 export interface LaneSegmentRow {
@@ -175,7 +177,7 @@ export interface LaneSegmentRow {
 const internedSegments = new Map<string, LaneSegments>()
 
 function internSegments(highlight: LaneSegments): LaneSegments {
-  const key = `${Number(highlight.up)}${Number(highlight.fork)}${Number(highlight.down)}:${highlight.through.join(",")}`
+  const key = `${Number(highlight.up)}${Number(highlight.fork)}${Number(highlight.down)}${Number(highlight.failing === true)}:${highlight.through.join(",")}`
   let known = internedSegments.get(key)
   if (known === undefined) {
     known = highlight
@@ -189,6 +191,7 @@ interface SegmentParts {
   fork: boolean
   down: boolean
   through: Set<number>
+  failing: boolean
 }
 
 /**
@@ -196,9 +199,16 @@ interface SegmentParts {
  * curve), each branch of the path's line down, and its lane through the rows between it and the next branch of the
  * path (the side branches drawn between them). The parent of a row is the nearest row above on its lane (`up`) or on
  * the lane it forks from: the stack graph is depth-first, and the lanes between belong to the side branches. A path
- * stops where the graph doesn't connect its branches.
+ * stops where the graph doesn't connect its branches. `failing` marks every row it reaches.
  */
-function walkUp(rows: readonly LaneSegmentRow[], indexOf: ReadonlyMap<string, number>, tip: string, continues: (parent: string) => boolean, parts: Map<number, SegmentParts>) {
+function walkUp(
+  rows: readonly LaneSegmentRow[],
+  indexOf: ReadonlyMap<string, number>,
+  tip: string,
+  continues: (parent: string) => boolean,
+  parts: Map<number, SegmentParts>,
+  failing = false,
+) {
   const parentIndex = (index: number): number | null => {
     const lanes = rows[index]!.lanes
     const lane = lanes === null ? null : lanes.up ? lanes.lane : lanes.forkFrom
@@ -215,9 +225,10 @@ function walkUp(rows: readonly LaneSegmentRow[], indexOf: ReadonlyMap<string, nu
   const partsOf = (index: number) => {
     let it = parts.get(index)
     if (it === undefined) {
-      it = { up: false, fork: false, down: false, through: new Set() }
+      it = { up: false, fork: false, down: false, through: new Set(), failing: false }
       parts.set(index, it)
     }
+    it.failing ||= failing
     return it
   }
   let child = indexOf.get(tip)
@@ -246,23 +257,25 @@ function walkUp(rows: readonly LaneSegmentRow[], indexOf: ReadonlyMap<string, nu
 function segmentsOf(rows: readonly LaneSegmentRow[], parts: ReadonlyMap<number, SegmentParts>): Map<string, LaneSegments> {
   const result = new Map<string, LaneSegments>()
   for (const [index, it] of parts) {
-    result.set(rows[index]!.name, internSegments({ up: it.up, fork: it.fork, down: it.down, through: [...it.through].sort((a, b) => a - b) }))
+    const segments: LaneSegments = { up: it.up, fork: it.fork, down: it.down, through: [...it.through].sort((a, b) => a - b) }
+    result.set(rows[index]!.name, internSegments(it.failing ? { ...segments, failing: true } : segments))
   }
   return result
 }
 
 /**
  * The lane segments from the root of a landing span down to the branch whose running robot lands it (`useLandingSpan`:
- * ancestor → K), per row in table order (`walkUp`, while the parent belongs to the span)
+ * ancestor → K), per row in table order (`walkUp`, while the parent belongs to the span); `failing` the branches K whose
+ * robot will fail (`useFailingLandings`), their segments `failing`. A row two spans meet in is failing with either.
  */
-export function landingSegments(rows: readonly LaneSegmentRow[], spans: ReadonlyMap<string, string>): Map<string, LaneSegments> {
+export function landingSegments(rows: readonly LaneSegmentRow[], spans: ReadonlyMap<string, string>, failing: ReadonlySet<string> = new Set()): Map<string, LaneSegments> {
   if (spans.size === 0) {
     return new Map()
   }
   const indexOf = new Map(rows.map((row, index) => [row.name, index]))
   const parts = new Map<number, SegmentParts>()
   for (const landing of new Set(spans.values())) {
-    walkUp(rows, indexOf, landing, parent => spans.get(parent) === landing, parts)
+    walkUp(rows, indexOf, landing, parent => spans.get(parent) === landing, parts, failing.has(landing))
   }
   return segmentsOf(rows, parts)
 }

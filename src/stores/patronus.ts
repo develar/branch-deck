@@ -366,6 +366,25 @@ export function useLandingSpans(): ReadonlyMap<string, string> {
   return useMemo(() => new Map(key === "" ? [] : key.split("\n").map(line => line.split("\t") as [string, string])), [key])
 }
 
+/**
+ * The branches of `useLandingSpans` whose running robot will fail (a required check failed): the graph draws their spans
+ * `destructive`, as the ring (`landingSegments`); renders again only when the set changes
+ */
+export function useFailingLandings(): ReadonlySet<string> {
+  const key = useRepositoryKey()
+  const line = useStore(patronusStore, state => {
+    const repository = state.repositories[key]
+    const failing = new Set<string>()
+    for (const span of factsOf(repository).spans.values()) {
+      if (span.wholeStack !== true && span.robot.status === "running" && repository?.failing[span.robot.id] === true) {
+        failing.add(span.branch)
+      }
+    }
+    return [...failing].sort().join("\n")
+  })
+  return useMemo(() => new Set(line === "" ? [] : line.split("\n")), [line])
+}
+
 /** Non-hook variant of `useLandingSpan`, for menus built on open */
 export function getLandingSpan(branchName: string): LandingDescendant | null {
   return currentFacts().spans.get(branchName) ?? null

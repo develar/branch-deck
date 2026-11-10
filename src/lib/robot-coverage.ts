@@ -48,10 +48,11 @@ export function branchCoverageOf(map: RobotCommitMap, branchName: string): Reado
 /** How a commit row draws the robot on the rail of its branch (`bd-lane-rail`) */
 export interface RobotRailMark {
   /**
-   * `tip`: the newest commit the robot took, below a commit it lacks, a dot in the colour of the robot; `uncovered`: a
-   * commit added or changed since the robot started, a hollow `warning` dot; null: the plain dot
+   * `tip`: the newest commit the robot took, below a commit it lacks; `covered`: another commit it took; both a dot in
+   * the colour of its line. `uncovered`: a commit added or changed since the robot started, a hollow `warning` dot;
+   * null: the plain dot of a commit whose state is not known
    */
-  readonly dot: "tip" | "uncovered" | null
+  readonly dot: "tip" | "covered" | "uncovered" | null
   /** Why the robot lacks the commit: the row says it in its marker; null for a commit it took or one not known */
   readonly change: "added" | "changed" | null
   /** The line of the robot from the dot up to the top of the rail: the first row, which the robot covers */
@@ -60,7 +61,8 @@ export interface RobotRailMark {
   readonly down: boolean
 }
 
-function isCovered(coverage: RobotCoverage, hash: string): boolean {
+/** The robot took the commit `hash` (as it is, or rebased) */
+export function robotCovers(coverage: RobotCoverage, hash: string): boolean {
   if (coverage === "all") {
     return true
   }
@@ -78,23 +80,23 @@ function changeOf(coverage: RobotCoverage, hash: string): "added" | "changed" | 
 
 /**
  * The marks of the rows of a commit list in the order it shows them (`newestFirst`, else oldest first): the line of the
- * robot runs over the commits it covers, in its colour as the landing span, and stops at the newest one; the commits
- * added or changed since it started have hollow `warning` dots on the plain line. Rows whose state is not known keep
- * the plain dot.
+ * robot runs over the commits it covers, their dots in its colour as the landing span, and stops at the newest one;
+ * the commits added or changed since it started have hollow `warning` dots on the plain line. Rows whose state is not
+ * known keep the plain dot.
  */
 export function robotRailMarks(hashes: readonly string[], coverage: RobotCoverage, newestFirst: boolean): ReadonlyMap<string, RobotRailMark> {
   const marks = new Map<string, RobotRailMark>()
   hashes.forEach((hash, index) => {
-    const covered = isCovered(coverage, hash)
+    const covered = robotCovers(coverage, hash)
     const change = changeOf(coverage, hash)
     const newer = hashes[newestFirst ? index - 1 : index + 1]
     const tip = covered && newer !== undefined && changeOf(coverage, newer) !== null
     const next = hashes[index + 1]
     marks.set(hash, {
-      dot: tip ? "tip" : change === null ? null : "uncovered",
+      dot: tip ? "tip" : covered ? "covered" : change === null ? null : "uncovered",
       change,
       up: covered && index === 0,
-      down: covered && next !== undefined && isCovered(coverage, next),
+      down: covered && next !== undefined && robotCovers(coverage, next),
     })
   })
   return marks

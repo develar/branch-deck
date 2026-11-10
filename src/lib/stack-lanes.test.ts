@@ -144,6 +144,22 @@ describe("landingSegments", () => {
     expect(landingSegments(rows, new Map()).size).toBe(0)
   })
 
+  it("marks the span of a robot that will fail, the lanes passing the rows between too, and leaves the others", () => {
+    const rows = stackRows(STACK)
+    const spans = new Map([
+      ["auth", "oauth"],
+      ["login", "oauth"],
+    ])
+    expect(Object.fromEntries(landingSegments(rows, spans, new Set(["oauth"])))).toEqual({
+      oauth: { up: true, fork: false, down: false, through: [], failing: true },
+      login: { up: true, fork: false, down: true, through: [], failing: true },
+      session: { up: false, fork: false, down: false, through: [0], failing: true },
+      auth: { up: false, fork: false, down: true, through: [], failing: true },
+    })
+    // a robot that will fail elsewhere leaves this span primary
+    expect(landingSegments(rows, spans, new Set(["docs"])).get("auth")).toEqual({ up: false, fork: false, down: true, through: [] })
+  })
+
   it("runs the highlighted lanes on below a row, its own while its line goes down", () => {
     const [auth, session] = stackRows(STACK)
     const lanes = landingSegments(

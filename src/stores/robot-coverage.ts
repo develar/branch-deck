@@ -3,13 +3,14 @@ import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { PatronusRobot, RobotCommitMap, RobotCommitState } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { getCommitHash } from "@/lib/commit"
 import type { LandingDescendant } from "@/lib/patronus"
 import type { RobotCoverage } from "@/lib/robot-coverage"
-import { branchCoverageOf, robotCoverageNeed } from "@/lib/robot-coverage"
+import { branchCoverageOf, robotCoverageNeed, robotCovers } from "@/lib/robot-coverage"
 import { robotAncestors } from "@/lib/robot-prompt-copy"
 import type { BranchSyncState, RemoteStatus } from "@/stores/branch-sync"
 import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
-import { currentKey, getBranchRobot, getLandingSpan, patronusRequest, patronusStore, useBranchRobot, useLandingSpan } from "@/stores/patronus"
+import { currentKey, getBranchRobot, getLandingSpan, patronusRequest, patronusStore, useBranchRobot, useLandingSpan, useRobotFailing } from "@/stores/patronus"
 
 /**
  * By `coverageKey`, the commit map of a running robot (`get_robot_commit_map`), asked once the branch it tests changed
@@ -100,6 +101,37 @@ export function useCoveringRobot(branchName: string): PatronusRobot | null {
   const own = useBranchRobot(branchName)
   const span = useLandingSpan(branchName)
   return useBranchSync(state => coveringRobotIn(own, span, state, branchName)?.robot ?? null)
+}
+
+/**
+ * Whether the running robot that tests the commits of the branch will fail (a required check failed): its line and its
+ * dots on the rail are `destructive`, as its ring
+ */
+export function useRobotLineFailing(branchName: string): boolean {
+  return useRobotFailing(useCoveringRobot(branchName)?.id)
+}
+
+/** The tone of the line of a running robot: `failing` for one that will fail, `destructive` as its ring */
+export type RobotLineTone = "running" | "failing"
+
+/**
+ * The line of the robot from the node of the branch down to its expanded commits: the robot that tests them covers the
+ * first row of the rail (the one `robotRailMarks` runs its line up from), so its line starts at the node, not at the
+ * bottom of the branch row. Its tone, or null while no robot covers that row. The list is `newestFirst`, else oldest
+ * first.
+ */
+export function useRobotLineIntoRail(branchName: string, newestFirst: boolean): RobotLineTone | null {
+  const coverage = useRobotCoverage(branchName)
+  const first = useBranchSync(state => {
+    const commits = state.branches[branchName]?.commits ?? []
+    const commit = newestFirst ? commits[0] : commits.at(-1)
+    return commit === undefined ? "" : getCommitHash(commit)
+  })
+  const failing = useRobotLineFailing(branchName)
+  if (coverage === null || first === "" || !robotCovers(coverage, first)) {
+    return null
+  }
+  return failing ? "failing" : "running"
 }
 
 /** The requests asked and not answered yet, by `coverageKey` */

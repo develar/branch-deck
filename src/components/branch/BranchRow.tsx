@@ -235,6 +235,7 @@ export const BranchRow = memo(function BranchRow({
               collapsedBelow={stackCollapsed && !commitsOnLane}
               ring={robotRuns}
               highlight={landing}
+              commitsBelow={commitsOnLane}
             />
           }
           issueKey={showIssueKey ? branch.issueKey : null}

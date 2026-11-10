@@ -73,6 +73,23 @@
   --bd-lane-dot: color-mix(in oklab, var(--muted-foreground) 70%, var(--card));
   /* the path from the root of a stack to the hovered or focused branch (`stack-view.ts`), under a robot's span */
   --bd-lane-path: color-mix(in oklab, var(--foreground) 70%, var(--card));
+  /*
+   * The line of a running robot, its span in the graph and its dots on the rail: primary as its ring, destructive for
+   * one that will fail (`bd-robot-failing`)
+   */
+  --bd-robot-line: var(--color-primary);
+}
+
+@utility bd-robot-failing {
+  --bd-robot-line: var(--color-destructive);
+}
+
+/*
+ * The lines of a branch row stop at the edge of its node (`--bd-node-lane`), or of the ring of its robot, `--bd-node-cut`
+ * from its centre: a mask in the units of the page, as the SVG of the lines stretches over the row
+ */
+@utility bd-node-cut {
+  mask-image: radial-gradient(circle at calc((var(--bd-node-lane) + 0.5) * var(--bd-lane-width)) 50%, transparent var(--bd-node-cut), #000 calc(var(--bd-node-cut) + 0.5px));
 }
 
 /*
@@ -138,7 +155,8 @@
     background: var(--bd-lane-dot);
   }
 
-  .bd-lane-rail[data-lane-end] tr[data-row-id]:last-child:not(.bd-lane-rail td tr) > td::after {
+  /* the line of the robot takes its place on a last row it covers: one pseudo-element for both */
+  .bd-lane-rail[data-lane-end] tr[data-row-id]:last-child:not([data-robot-line], .bd-lane-rail td tr) > td::after {
     content: "";
     position: absolute;
     top: -100000px;
@@ -149,8 +167,9 @@
   }
 
   /*
-   * The running robot that tests the branch (`robotRailMarks`): its line in the colour of the landing span over the
-   * commits it covers, up to the top of the rail from the first row and down to the next dot, above the plain line
+   * The running robot that tests the branch (`robotRailMarks`): its line in the colour of the landing span
+   * (`--bd-robot-line`) over the commits it covers, up to the top of the rail from the first row and down to the next
+   * dot, above the plain line
    */
   .bd-lane-rail tr[data-robot-line]:not(.bd-lane-rail td tr) > td::after {
     content: "";
@@ -160,7 +179,7 @@
     bottom: calc(100% - 1rem);
     left: calc(var(--bd-rail-dot-x) - 0.75px);
     width: 1.5px;
-    background: var(--color-primary);
+    background: var(--bd-robot-line);
   }
 
   .bd-lane-rail tr:is([data-robot-line="up"], [data-robot-line="both"]):not(.bd-lane-rail td tr) > td::after {
@@ -171,13 +190,13 @@
     bottom: calc(-1rem - 1px);
   }
 
-  /* the newest commit the robot took, below the ones it lacks; a commit it lacks is hollow, on the plain line */
+  /* a commit the robot took is in the colour of its line; a commit it lacks is hollow, on the plain line */
   .bd-lane-rail tr[data-robot-dot]:not(.bd-lane-rail td tr) > td::before {
     z-index: 2;
   }
 
-  .bd-lane-rail tr[data-robot-dot="tip"]:not(.bd-lane-rail td tr) > td::before {
-    background: var(--color-primary);
+  .bd-lane-rail tr:is([data-robot-dot="tip"], [data-robot-dot="covered"]):not(.bd-lane-rail td tr) > td::before {
+    background: var(--bd-robot-line);
   }
 
   .bd-lane-rail tr[data-robot-dot="uncovered"]:not(.bd-lane-rail td tr) > td::before {

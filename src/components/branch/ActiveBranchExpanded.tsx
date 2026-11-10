@@ -21,7 +21,7 @@ import { pushUpToCommitsIn } from "@/presenters/push"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranch, useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useRobotCoverage } from "@/stores/robot-coverage"
+import { useRobotCoverage, useRobotLineFailing } from "@/stores/robot-coverage"
 import { usePushUpToCommits } from "@/stores/stack-view"
 
 export interface ActiveBranchExpandedProps {
@@ -89,17 +89,20 @@ interface CommitRailProps {
 /**
  * The commits of an expanded branch, their subjects at the branch name, on the lane of the branch: a dot per commit
  * (`bd-lane-rail` in index.css), beside the lanes that run on below the row; the lane of the branch runs on into its
- * children, or ends at the last commit; a family member keeps its guide beside them.
+ * children, or ends at the last commit; a family member keeps its guide beside them. The line and the dots of the
+ * running robot that tests the commits are `destructive` while it will fail (`data-robot-failing`), as its ring.
  */
 function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
+  const failing = useRobotLineFailing(name)
   return (
     <>
       <LanesBelow name={name} lanes={lanes} commitsBelow={false} landing={landing} />
       {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
       <div
-        className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}
+        className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", failing && "bd-robot-failing", laneContentInsetClass(familyIndent))}
         style={{ "--bd-rail-lane": lanes.lane } as CSSProperties}
         data-lane-end={lanes.down ? undefined : ""}
+        data-robot-failing={failing || undefined}
       >
         <div className="flex flex-col gap-2 pr-6" data-testid="commit-rail">
           {children}

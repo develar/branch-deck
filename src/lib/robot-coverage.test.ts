@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { RobotCommitMap, RobotCommitState } from "@/lib/bindings"
-import { branchCoverageOf, robotCoverageNeed, robotRailMarks } from "@/lib/robot-coverage"
+import { branchCoverageOf, robotCoverageNeed, robotCovers, robotRailMarks } from "@/lib/robot-coverage"
 import { testRobot } from "@/lib/test-robot"
 import { PUSH, testRemoteStatus } from "@/stores/test-branch"
 
@@ -57,20 +57,32 @@ describe("robotRailMarks", () => {
     expect(marks.get("c4")).toEqual({ dot: "uncovered", change: "added", up: false, down: false })
     expect(marks.get("c3")).toEqual({ dot: "uncovered", change: "changed", up: false, down: false })
     expect(marks.get("c2")).toEqual({ dot: "tip", change: null, up: false, down: true })
-    expect(marks.get("c1")).toEqual({ dot: null, change: null, up: false, down: false })
+    expect(marks.get("c1")).toEqual({ dot: "covered", change: null, up: false, down: false })
   })
 
   it("draws the line from the top of the rail down to the last dot while the robot covers every commit", () => {
     const marks = robotRailMarks(["c2", "c1"], "all", true)
-    expect(marks.get("c2")).toEqual({ dot: null, change: null, up: true, down: true })
-    expect(marks.get("c1")).toEqual({ dot: null, change: null, up: false, down: false })
+    expect(marks.get("c2")).toEqual({ dot: "covered", change: null, up: true, down: true })
+    expect(marks.get("c1")).toEqual({ dot: "covered", change: null, up: false, down: false })
   })
 
   it("finds the newest covered commit below the added ones also in a list that is oldest first", () => {
     const marks = robotRailMarks(["c1", "c2", "c3"], states({ c1: "tested", c2: "tested", c3: "added" }), false)
-    expect(marks.get("c1")).toEqual({ dot: null, change: null, up: true, down: true })
+    expect(marks.get("c1")).toEqual({ dot: "covered", change: null, up: true, down: true })
     expect(marks.get("c2")).toEqual({ dot: "tip", change: null, up: false, down: false })
     expect(marks.get("c3")).toEqual({ dot: "uncovered", change: "added", up: false, down: false })
+  })
+
+  it("gives the dots of the commits the robot took the colour of its line, and starts no line above a first row it lacks", () => {
+    // newest first: the robot lacks the newest commit, took the two below it, and the oldest is not known
+    const marks = robotRailMarks(["c4", "c3", "c2", "c1"], states({ c4: "changed", c3: "tested", c2: "rebased" }), true)
+    expect([...marks.values()].map(it => it.dot)).toEqual(["uncovered", "tip", "covered", null])
+    // the first row is not covered: the line of the robot starts below it, not at the top of the rail
+    expect(marks.get("c4")!.up).toBe(false)
+    expect([...marks.values()].some(it => it.up)).toBe(false)
+    expect(robotCovers(states({ c3: "tested", c2: "rebased", c1: "added" }), "c3")).toBe(true)
+    expect(robotCovers(states({ c3: "tested", c2: "rebased", c1: "added" }), "c1")).toBe(false)
+    expect(robotCovers("all", "c1")).toBe(true)
   })
 
   it("keeps the plain dot for a commit whose state is not known", () => {
