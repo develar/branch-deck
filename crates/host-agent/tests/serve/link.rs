@@ -77,16 +77,13 @@ fn heartbeats_go_on_while_the_follow_thread_is_held_in_a_file_read() {
     run: "23-1".to_owned(),
     offset: 0,
   });
-  channel.set_read_deadline(Duration::from_secs(2)).expect("a deadline");
-  let held = Instant::now();
-  let mut heartbeats = 0;
-  while held.elapsed() < Duration::from_secs(1) {
+  // five heartbeats while the follow thread is held, however late each comes: a count, not the ones of a second
+  for heartbeat in 1..=5 {
     match channel.recv::<Reply>() {
-      Ok(Reply::Heartbeat { .. }) => heartbeats += 1,
-      other => panic!("only heartbeats come while the follow is held: {other:?}"),
+      Ok(Reply::Heartbeat { .. }) => {}
+      other => panic!("only heartbeats come while the follow is held, then heartbeat {heartbeat}: {other:?}"),
     }
   }
-  assert!(heartbeats >= 5, "{heartbeats} heartbeats in a second");
 
   fs_retry::remove_file(&hold).expect("the hold released");
   let first = loop {

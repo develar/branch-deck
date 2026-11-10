@@ -1,10 +1,14 @@
 //! The lend of a host slot and the git of the host: the keeper fills and gives back the slots, a failed lend and a git
 //! below its floor refuse the run, and a run and a `Have` wait while another process upgrades git. A test writes the
-//! lend table under its lock, as another process of the host would
+//! lend table under its lock, or fills the slots, as another process of the host would. A test of a backoff waits for
+//! the round of the keeper that holds the fill or the relief back (`BD_HOST_TEST_KEEPER_ROUNDS`), never for a time
 
 use super::{ALL_PHASES, Agent, World, events, eventually, write_script};
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::revs::repository_dirs;
 use history_rewrite::repository_lock::lock_file;
 use host_link::proto::{Reply, Request, Stream};
+use lease_pool::host_slots::{HostSlotsParams, fill};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::fs;
@@ -14,7 +18,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sync_utils::fs_retry;
 use sync_utils::process_scan::process_started;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, append_config};
 
 /// The line of a run that waits for an upgrade of git
 const GIT_WAIT_LINE: &str = "brd-host: waiting for the upgrade of git on the host: `brew upgrade git` runs once no host slot is lent";
@@ -82,6 +86,22 @@ impl Agent<'_> {
 }
 
 impl World {
+  /// Leases the host slots of `repo` in the pool of the home of the agent, with the git config of that home
+  fn fill(&self, repo: &TestRepo) {
+    let git = GitCommandExecutor::new()
+      .with_env("GIT_CONFIG_GLOBAL", &self.home.path().join(".gitconfig").to_string_lossy())
+      .with_env("GIT_CONFIG_NOSYSTEM", "1");
+    let dirs = repository_dirs(&git, repo.path_str()).expect("the directories").expect("a repository");
+    let params = HostSlotsParams {
+      repository: &dirs,
+      home: Some(self.home.path()),
+      lock_timeout: Duration::from_mins(1),
+      server_timeout: Duration::from_mins(1),
+    };
+    let filled = fill(&git, &params, None).expect("the fill");
+    assert_eq!(filled.len(), 1, "{}", repo.path().display());
+  }
+
   /// Writes the repository list of the agent, so the keeper keeps those repositories from the start of `serve`
   fn remember(&self, repos: &[&Path]) {
     let text: String = repos.iter().flat_map(|repo| [repo.display().to_string(), "\n".to_owned()]).collect();
@@ -116,57 +136,59 @@ fn a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git() {
 /// Below `branchdeck.leaseMinFree` the keeper raises the free space itself, as a get would, and writes what it did: the
 /// steps of the pools once per volume, the idle host slots of each repository after them, so two repositories on one
 /// volume make one round with a line each. A volume still below the minimum after every step waits 15 min for the next
-/// round
+/// round.
+///
+/// The minimums come before `serve` starts: a round that read the minimum of one repository and not yet the one of the
+/// other would relieve only one and make the other wait those 15 min. A get refuses below the minimum, so the test fills
+/// the slots before, as another process of the host would, and `serve` keeps both repositories of the repository list
+/// from its first round
 #[test]
 fn the_keeper_keeps_the_minimum_free_space_once_per_volume_and_waits_after_a_relief_that_left_it_low() {
   let world = World::new(1, &[]);
   let other = TestRepo::new();
   other.create_commit_with_files("first", &[("a.txt", "a\n")]);
-  other.git(&["config", "branchdeck.hostSlots", "1"]);
-  world.remember(&[world.repo.path(), other.path()]);
-  let agent = world.serve_with(&[("BD_HOST_TEST_KEEPER_MS", "100")]);
-  eventually("the keeper fills the slots", || {
-    agent.slot_states(world.repo.path()) == ["idle"] && agent.slot_states(other.path()) == ["idle"]
+  append_config(other.path(), &[("branchdeck.hostSlots", "1")]);
+  thread::scope(|scope| {
+    for repo in [&world.repo, &other] {
+      scope.spawn(|| world.fill(repo));
+    }
   });
-
   for repo in [&world.repo, &other] {
-    repo.git(&["config", "branchdeck.leaseMinFree", "1P"]);
+    append_config(repo.path(), &[("branchdeck.leaseMinFree", "1P")]);
   }
-  let relieved = || world.serve_log().lines().filter(|logged| logged.contains("the volume of the pools of ")).count();
-  eventually("the relief of both repositories", || relieved() >= 2);
-  assert!(
-    world
-      .serve_log()
-      .contains("less than `branchdeck.leaseMinFree` 1048576.0 GiB: the idle host slots, used longest ago first, freed 1 ")
-      && world.serve_log().contains(", still less than the minimum; the next relief in 15 min"),
-    "{}",
-    world.serve_log()
-  );
-  thread::sleep(Duration::from_secs(1));
+  world.remember(&[world.repo.path(), other.path()]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_KEEPER_MS", "100"), ("BD_HOST_TEST_KEEPER_ROUNDS", "1")]);
+  eventually("a round that holds the next relief back", || world.serve_log().contains(", the relief waits"));
+  let log = world.serve_log();
   assert_eq!(
-    relieved(),
+    log.lines().filter(|logged| logged.contains("the volume of the pools of ")).count(),
     2,
-    "one round, a line per repository; the keeper ticked every 100 ms, but a relief that left the volume low waits: {}",
-    world.serve_log()
+    "one round, a line per repository; the next relief waits: {log}"
+  );
+  assert!(
+    log.contains("less than `branchdeck.leaseMinFree` 1048576.0 GiB: the idle host slots, used longest ago first, freed 1 ")
+      && log.contains(", still less than the minimum; the next relief in 15 min"),
+    "{log}"
   );
   assert_eq!(agent.slot_states(world.repo.path()), ["idle"], "a host slot is a lease: cleaned, never trimmed");
 }
 
 /// The keeper fills the slots of a repository of the repository list without a run, and gives back the slot of a lend
-/// whose process is gone. A failed fill of another repository waits 1 min before the next one, while the keeper goes on
+/// whose process is gone. A failed fill of another repository waits 1 min before the next one, while the keeper goes on:
+/// a round after the give-back holds that fill back
 #[test]
 fn the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill() {
   let world = World::new(1, &[]);
   let broken = TestRepo::new();
   broken.create_commit_with_files("first", &[("a.txt", "a\n")]);
-  broken.git(&["config", "branchdeck.hostSlots", "many"]);
+  append_config(broken.path(), &[("branchdeck.hostSlots", "many")]);
   world.remember(&[world.repo.path(), broken.path()]);
-  let agent = world.serve_with(&[("BD_HOST_TEST_KEEPER_MS", "100")]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_KEEPER_MS", "100"), ("BD_HOST_TEST_KEEPER_ROUNDS", "1")]);
 
   eventually("the keeper fills the slot", || agent.slot_states(world.repo.path()) == ["idle"]);
   let failed_fill = format!("cannot add the host slots of {}: ", broken.path().display());
   let failed = || world.serve_log().matches(&failed_fill).count();
-  eventually("the failed fill", || failed() == 1);
+  eventually("the failed fill", || failed() >= 1);
   assert!(world.serve_log().contains("; again in 1 min"), "{}", world.serve_log());
 
   // the slot is lent to a process that is gone
@@ -180,7 +202,11 @@ fn the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill() {
   eventually("the keeper gives the abandoned slot back", || {
     world.serve_log().contains(&gave_back) && agent.slot_states(world.repo.path()) == ["idle"]
   });
-  thread::sleep(Duration::from_secs(1));
+  let held_back = format!("the fill of {} waits", broken.path().display());
+  eventually("a round after the give-back that holds the failed fill back", || {
+    let log = world.serve_log();
+    log.find(&gave_back).is_some_and(|at| log[at..].contains(&held_back))
+  });
   assert_eq!(failed(), 1, "the keeper ticked every 100 ms, but a failed fill waits 1 min: {}", world.serve_log());
 }
 

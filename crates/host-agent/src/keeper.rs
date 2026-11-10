@@ -9,7 +9,8 @@
 //! a volume below its minimum 15 minutes.
 //! The repositories start from the
 //! repository list and the runs on disk, so a restart of `serve` keeps them. A change of the outcome of the git is one
-//! line of the log
+//! line of the log. With `tuning::keeper_rounds` each round is a line too, with what it did about each fill and the
+//! relief (`Turn`): a test waits for the round that held a fill or the relief back, not for a time in which none came
 
 use crate::home::Home;
 use crate::log::log;
@@ -50,6 +51,38 @@ struct Relief {
   not_before: Option<Instant>,
 }
 
+/// What a round did about a fill or the relief
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Turn {
+  /// It started one on a thread of its own
+  Starts,
+  /// The one that an earlier round started still runs
+  Runs,
+  /// It waits for its backoff
+  Waits,
+}
+
+impl Turn {
+  /// The turn of a fill or of the relief: it runs, it waits until `not_before`, else it starts
+  fn of(running: bool, not_before: Option<Instant>) -> Self {
+    if running {
+      Self::Runs
+    } else if not_before.is_some_and(|not_before| Instant::now() < not_before) {
+      Self::Waits
+    } else {
+      Self::Starts
+    }
+  }
+
+  const fn word(self) -> &'static str {
+    match self {
+      Self::Starts => "starts",
+      Self::Runs => "runs",
+      Self::Waits => "waits",
+    }
+  }
+}
+
 /// Starts the keeper of `home`; the sender wakes it for a repository
 pub(crate) fn start(home: Home) -> mpsc::Sender<PathBuf> {
   let (wake, woken) = mpsc::channel::<PathBuf>();
@@ -68,19 +101,24 @@ fn keep(home: &Home, woken: &mpsc::Receiver<PathBuf>) {
   let fills: Arc<Mutex<HashMap<PathBuf, Fill>>> = Arc::default();
   let relief: Arc<Mutex<Relief>> = Arc::default();
   let mut said: HashMap<PathBuf, String> = HashMap::new();
-  loop {
+  let rounds = tuning::keeper_rounds();
+  for round in 1_u64.. {
     let mut opened = Vec::new();
+    let mut turns = Vec::new();
     for path in &repos {
       match Repository::open(home, path.clone()) {
         Ok(repo) => {
           ensure_git(&repo, &mut said);
           opened.push(repo.clone());
-          tend(repo, &fills);
+          turns.push(format!("the fill of {} {}", path.display(), tend(repo, &fills).word()));
         }
         Err(refusal) => note(&mut said, path, format!("cannot keep the host slots of {}: {refusal}", path.display())),
       }
     }
-    relieve(opened, &relief);
+    turns.push(format!("the relief {}", relieve(opened, &relief).word()));
+    if rounds {
+      log(&format!("the keeper round {round}: {}", turns.join(", ")));
+    }
     match woken.recv_timeout(tuning::keeper_tick()) {
       Ok(repo) => {
         repos.insert(repo);
@@ -116,8 +154,8 @@ fn ensure_git(repo: &Repository, said: &mut HashMap<PathBuf, String>) {
   note(said, &repo.path, line);
 }
 
-/// One tick of one repository: the reclaim on this thread, the fill on a thread of its own
-fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
+/// One tick of one repository: the reclaim on this thread, the fill on a thread of its own when one is due
+fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) -> Turn {
   match reclaim_all(&repo.git, &repo.params()) {
     Ok(reclaimed) => {
       for done in reclaimed.reclaimed {
@@ -136,8 +174,9 @@ fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
   {
     let mut fills = fills.lock().unwrap_or_else(PoisonError::into_inner);
     let fill = fills.entry(repo.path.clone()).or_default();
-    if fill.running || fill.not_before.is_some_and(|not_before| Instant::now() < not_before) {
-      return;
+    let turn = Turn::of(fill.running, fill.not_before);
+    if turn != Turn::Starts {
+      return turn;
     }
     fill.running = true;
   }
@@ -168,16 +207,18 @@ fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
       }
     }
   }));
+  Turn::Starts
 }
 
 /// The relief of one tick, when due and none runs: on a thread of its own, the repositories `repos` one after the other
 /// in one round (`ReliefRound`), so each volume is measured and relieved once, by the first repository on it. A relief
 /// that leaves a volume below its minimum, or fails, makes the next one wait `RELIEF_BACKOFF`
-fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) {
+fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) -> Turn {
   {
     let mut relief = relief.lock().unwrap_or_else(PoisonError::into_inner);
-    if relief.running || relief.not_before.is_some_and(|not_before| Instant::now() < not_before) {
-      return;
+    let turn = Turn::of(relief.running, relief.not_before);
+    if turn != Turn::Starts {
+      return turn;
     }
     relief.running = true;
   }
@@ -207,6 +248,7 @@ fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) {
     relief.running = false;
     relief.not_before = low.then(|| Instant::now() + RELIEF_BACKOFF);
   }));
+  Turn::Starts
 }
 
 /// The line of a relief below the minimum free space of the volume of `repo`: what each step deleted, and whether the

@@ -88,6 +88,12 @@ pub(crate) fn keeper_tick() -> Duration {
   from_env("BD_HOST_TEST_KEEPER_MS", Duration::from_secs(60))
 }
 
+/// Whether the keeper logs a line per round with what it did about each fill and the relief: `BD_HOST_TEST_KEEPER_ROUNDS`.
+/// A test of a backoff waits for the round that held a fill or the relief back
+pub(crate) fn keeper_rounds() -> bool {
+  std::env::var_os("BD_HOST_TEST_KEEPER_ROUNDS").is_some()
+}
+
 fn from_env(name: &str, default: Duration) -> Duration {
   std::env::var(name).ok().and_then(|value| value.parse().ok()).map_or(default, Duration::from_millis)
 }

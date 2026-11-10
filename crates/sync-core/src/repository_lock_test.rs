@@ -526,12 +526,13 @@ fn the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed
   drop(held);
 }
 
-/// The app's waiter of a test: the holders it heard, a Stop Waiting that `stop` sets, and a short bound for a holder no
-/// record names
+/// The app's waiter of a test: the holders it heard, a Stop Waiting that `stop` sets, the looks of the wait at the lock
+/// (each asks `canceled`), and a short bound for a holder no record names
 #[derive(Default)]
 struct TestWaiter {
   told: std::sync::Mutex<Vec<Option<u32>>>,
   stop: std::sync::atomic::AtomicBool,
+  looks: std::sync::atomic::AtomicUsize,
 }
 
 impl LockWaiter for TestWaiter {
@@ -540,6 +541,7 @@ impl LockWaiter for TestWaiter {
   }
 
   fn canceled(&self) -> bool {
+    self.looks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     self.stop.load(std::sync::atomic::Ordering::Relaxed)
   }
 
@@ -581,9 +583,16 @@ fn a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after(
   let squashed = std::thread::scope(|scope| {
     let squash = scope.spawn(|| squash_commits_core(git, &params, &options));
     waiter.wait_told();
-    // past the bound for a holder no record names: the named one keeps it waiting, nothing is written meanwhile. The
-    // bound runs on the system clock of the wait, which takes no other, so the test lets it pass
-    std::thread::sleep(Duration::from_millis(300));
+    // past the bound for a holder no record names: the named one keeps it waiting, nothing is written meanwhile. The wait
+    // sleeps 50 ms between two looks at the lock, so its fourth look from here comes after three sleeps, past the bound of
+    // 100 ms by its own clock: a wait that ended at the bound would have ended before it
+    let looked = waiter.looks.load(std::sync::atomic::Ordering::SeqCst);
+    let started = Instant::now();
+    while waiter.looks.load(std::sync::atomic::Ordering::SeqCst) < looked + 4 {
+      assert!(!squash.is_finished(), "the wait ended while a live holder held the lock");
+      assert!(started.elapsed() < Duration::from_mins(1), "the wait stopped looking at the lock");
+      std::thread::sleep(Duration::from_millis(10));
+    }
     assert!(!squash.is_finished());
     assert_eq!(repo.head(), before);
     drop(held);

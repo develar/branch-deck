@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
-use test_utils::git_test_utils::{TestRepo, git_command};
+use test_utils::git_test_utils::{TestRepo, append_config, git_command};
 
 /// The agent binary of the process tests
 const AGENT_BINARY: &str = env!("CARGO_BIN_EXE_host-agent-test");
@@ -71,7 +71,7 @@ impl World {
     let mut all = vec![(".gitignore", "out/\n")];
     all.extend_from_slice(files);
     repo.create_commit_with_files("first", &all);
-    repo.git(&["config", "branchdeck.hostSlots", &slots.to_string()]);
+    append_config(repo.path(), &[("branchdeck.hostSlots", &slots.to_string())]);
     let client = Identity::generate().expect("the client identity");
     let mut allow = AllowList::default();
     allow.add(client.fingerprint(), "test").expect("a name");
@@ -530,7 +530,13 @@ fn two_runs_of_one_affinity_run_in_parallel_and_a_third_waits_for_a_slot() {
   // the supervisors lend in the order that they start, which is not the order of the starts
   let running = || fs::read_dir(&marks).map_or(0, Iterator::count);
   eventually("two runs run at once", || running() == 2);
-  thread::sleep(Duration::from_millis(500));
+  eventually("the third run waits in the queue of the host slots", || {
+    let table = agent.slots();
+    let lent = table["slots"]
+      .as_array()
+      .is_some_and(|slots| slots.len() == 2 && slots.iter().all(|slot| slot["state"]["kind"] == "lent"));
+    lent && table["queue"].as_array().map(Vec::len) == Some(1)
+  });
   assert_eq!(running(), 2, "the third run waits for a slot");
   fs::write(&gate, "").expect("the gate opens");
   for run in ["4-1", "4-2", "4-3"] {
