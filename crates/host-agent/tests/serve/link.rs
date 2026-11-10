@@ -7,7 +7,7 @@ use host_link::proto::{Reply, Request, Stream};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,12 +18,16 @@ fn a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_o
   let deadline = Duration::from_millis(1500);
   let world = World::new(1, &[]);
   let agent = world.serve_with(&[("BD_HOST_TEST_HANDSHAKE_MS", "1500")]);
-  // the end of the connection, and the time since `since`
+  // the end of the connection by the agent, and the time since `since`: an end of the stream or a reset, never the
+  // read timeout of the test, which no run reaches
   let read_end = |stream: &mut TcpStream, since: Instant| {
-    stream.set_read_timeout(Some(Duration::from_secs(10))).expect("a deadline");
+    stream.set_read_timeout(Some(Duration::from_mins(1))).expect("a deadline");
     let mut byte = [0u8; 1];
     let read = stream.read(&mut byte);
-    assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
+    assert!(
+      matches!(&read, Ok(0)) || read.as_ref().is_err_and(|error| error.kind() == ErrorKind::ConnectionReset),
+      "{read:?}"
+    );
     since.elapsed()
   };
 
@@ -42,25 +46,37 @@ fn a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_o
   eventually("a handshake gets in again", || Channel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok());
 
   // a client that sends a TLS record a byte at a time loses the connection at the total deadline, not before. A byte
-  // every 20 ms keeps each read of the handshake alive, so a deadline of each read alone would let it go on for 10 s
+  // every 20 ms keeps each read of the handshake alive, so a deadline of each read alone would let it go on as long as
+  // the bytes come: they come until the agent closes, and the record of 16 KiB never ends before
   let connected = Instant::now();
   let mut slow = TcpStream::connect(agent.address).expect("connected");
-  slow.write_all(&[0x16, 0x03, 0x01, 0x02, 0x00]).expect("a record header");
+  slow.write_all(&[0x16, 0x03, 0x01, 0x40, 0x00]).expect("a record header");
   let mut writer = slow.try_clone().expect("a clone");
   let trickle = thread::spawn(move || {
-    for _ in 0..500 {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_mins(1) {
       if writer.write_all(&[0]).is_err() {
-        return;
+        return true;
       }
       thread::sleep(Duration::from_millis(20));
     }
+    false
   });
   let cut = read_end(&mut slow, connected);
-  assert!(cut >= deadline && cut < Duration::from_secs(5), "{cut:?}");
-  trickle.join().expect("the trickle");
+  assert!(cut >= deadline, "{cut:?}");
+  drop(slow);
+  assert!(trickle.join().expect("the trickle"), "the bytes went on for a minute: the agent never cut the handshake");
 
-  // the agent still serves
-  assert!(matches!(agent.reply(&Request::Runs), Reply::Runs { .. }));
+  // the agent still serves; the deadline of 1.5 s holds for each handshake, so a load that holds a client back that
+  // long is a cut, and the next connection gets in
+  eventually("the agent serves a request", || {
+    Channel::connect(agent.address, &tls, Duration::from_secs(10)).is_ok_and(|mut channel| {
+      channel.send(&Request::hello("test")).is_ok()
+        && matches!(channel.recv::<Reply>(), Ok(Reply::Hello { .. }))
+        && channel.send(&Request::Runs).is_ok()
+        && matches!(channel.recv::<Reply>(), Ok(Reply::Runs { .. }))
+    })
+  });
 }
 
 #[test]

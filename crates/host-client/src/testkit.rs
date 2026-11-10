@@ -16,19 +16,21 @@ use std::time::Duration;
 use sync_utils::span::in_current_span;
 use test_utils::git_test_utils::TestRepo;
 
-/// Short deadlines, so a test of a lost link ends in seconds
-pub(crate) const FAST: Timing = Timing {
-  connect: Duration::from_secs(2),
-  resolve: Duration::from_secs(2),
-  read: Duration::from_secs(2),
-  reconnect_for: Duration::from_secs(3),
+/// The timing of the tests: deadlines that no run reaches, and short paces. A deadline that ran out under load turned a
+/// slow reply of a fake into a lost link, so only a test whose subject is a deadline sets its own (a lost link, a
+/// silent agent, the end of an upgrade)
+pub(crate) const UNHURRIED: Timing = Timing {
+  connect: Duration::from_mins(1),
+  resolve: Duration::from_mins(1),
+  read: Duration::from_mins(1),
+  reconnect_for: Duration::from_mins(1),
   first_backoff: Duration::from_millis(10),
   max_backoff: Duration::from_millis(50),
-  agent_start: Duration::from_secs(1),
+  agent_start: Duration::from_mins(1),
   keepalive: Duration::from_millis(50),
-  upgrade: Duration::from_millis(500),
+  upgrade: Duration::from_mins(1),
   interrupt_poll: Duration::from_millis(10),
-  cancel_for: Duration::from_secs(3),
+  cancel_for: Duration::from_mins(1),
   cancel_grace: Duration::from_millis(500),
 };
 
@@ -260,7 +262,7 @@ impl Setup {
 
   /// A client of the setup with the short deadlines
   pub(crate) fn client<'a>(&self, processes: &'a dyn Processes, say: &'a (dyn Fn(&str) + Sync), presses: &'a (dyn Fn() -> u32 + Sync)) -> Client<'a> {
-    Client::new(self.config.clone(), build(), processes, say, presses).with_timing(FAST)
+    Client::new(self.config.clone(), build(), processes, say, presses).with_timing(UNHURRIED)
   }
 }
 

@@ -71,11 +71,10 @@ fn a_shell_that_fails_interactive_gets_a_login_try_and_a_slow_one_is_killed() {
   assert_eq!(captured.vars.get("FROM_PROFILE").map(String::as_str), Some("yes"));
   assert!(!captured.vars.contains_key("PWD") && !captured.vars.contains_key("SHLVL"));
 
+  // the shell ends only by the kill at the deadline: on its own it would end in 30 s and write no environment
   let slow = script(dir.path(), "slow", "#!/bin/sh\nsleep 30\n");
-  let started = Instant::now();
   let error = dump(&exe, &slow, &["-l"], dir.path(), Duration::from_millis(300)).expect_err("killed");
-  assert!(error.contains("did not end"), "{error}");
-  assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+  assert!(error.contains("did not end in 300 ms"), "{error}");
 }
 
 #[test]

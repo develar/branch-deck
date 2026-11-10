@@ -18,7 +18,7 @@ use crate::files::{open_private, private_dir, try_flock, try_flock_shared, write
 use crate::home::Home;
 use crate::run::epoch_ms;
 use crate::setup::{PlistValues, launchctl, service};
-use crate::{child, sys};
+use crate::{child, sys, tuning};
 use host_link::digest::{Sha256, sha256_file};
 use host_link::proto::{LAUNCHD_LABEL, SCHEMA_VERSION, VersionLine, feature};
 use host_link::refusal::{Code, Refusal};
@@ -36,9 +36,6 @@ use std::time::{Duration, Instant, SystemTime};
 use sync_utils::child_process::windowless_command;
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
-
-/// The deadline of the `version` call of a binary
-const SELF_CHECK: Duration = Duration::from_secs(10);
 
 /// How often the watchdog reads the listening file
 const WATCH_EVERY: Duration = Duration::from_millis(200);
@@ -235,7 +232,7 @@ impl Drop for Staged {
 /// Runs `<binary> <args>` under the deadline of a check, and answers its JSON line
 fn version_line(binary: &Path, args: &[&OsStr]) -> Result<VersionLine, Refusal> {
   let shown = format!("{} {}", binary.display(), args.iter().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>().join(" "));
-  let output = child::run(binary, args, SELF_CHECK).map_err(|error| Refusal::new(Code::BadBinary, format!("the binary does not run here: {error}")))?;
+  let output = child::run(binary, args, tuning::self_check()).map_err(|error| Refusal::new(Code::BadBinary, format!("the binary does not run here: {error}")))?;
   if !output.status.success() {
     return Err(Refusal::new(Code::BadBinary, format!("`{shown}` failed: {} ({})", output.diagnostic(), output.status)));
   }

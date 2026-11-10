@@ -185,10 +185,10 @@ fn start_spec(setup: &Setup) -> RunSpec {
     .unwrap()
 }
 
-/// Waits until `flag` is set, up to 5 s, as a command of the host that waits for an event
+/// Waits until `flag` is set, as a command of the host that waits for an event, up to a minute, which no run reaches
 fn wait_for(flag: &AtomicBool) {
   let started = Instant::now();
-  while !flag.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(5) {
+  while !flag.load(Ordering::SeqCst) && started.elapsed() < Duration::from_mins(1) {
     thread::sleep(Duration::from_millis(20));
   }
 }
@@ -225,13 +225,13 @@ fn send_kind(channel: &mut Channel, path: &str, bytes: &[u8], kind: FileKind) {
 }
 
 /// Raises the Ctrl+C count to `presses` once the agent got a request of the kind `after`, as a person who presses
-/// after the start. The thread gives up after 5 s
+/// after the start. The thread gives up after a minute, which no run reaches
 fn press_after(setup: &Setup, after: &'static str, presses: u32) -> (Arc<AtomicU32>, thread::JoinHandle<()>) {
   let count = Arc::new(AtomicU32::new(0));
   let (pressed, agent) = (Arc::clone(&count), setup.agent.requests_handle());
   let watcher = thread::spawn(move || {
     let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(5) {
+    while started.elapsed() < Duration::from_mins(1) {
       if agent.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|request| kind(request) == after) {
         pressed.store(presses, Ordering::SeqCst);
         return;
@@ -262,7 +262,7 @@ fn a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order() {
         output(channel, Stream::Stderr, "progress", 30);
         let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 15_000 });
         output(channel, Stream::Stdout, "the digest", 60);
-        // A long command: it ends after the base came, or after 5 s
+        // A long command: it ends after the base came
         wait_for(&based);
         let _ = channel.send(&Reply::Phases {
           phases: vec![step("slot", 0), step("command", 25_100)],
@@ -394,17 +394,21 @@ fn the_working_tree_ships_as_one_commit_and_the_same_tree_sends_no_pack() {
 }
 
 /// `--head` refuses a checkout with local changes. The refusal closes the `Have` that goes on meanwhile, so it comes at
-/// once even from a host that does not answer, and nothing starts
+/// once even from a host that does not answer, and nothing starts. The host answers no request until the test ends: a
+/// refusal that waited for the `Have` would be `timed_out`
 #[test]
 fn head_refuses_a_checkout_with_local_changes() {
   let Commits { repo, .. } = two_commits();
   std::fs::write(repo.path().join("a.txt"), "a\nchanged\n").unwrap();
-  let setup = Setup::on(repo, Hello::default(), |_, _| thread::sleep(Duration::from_secs(10)));
-  let started = Instant::now();
+  let ended = Arc::new(AtomicBool::new(false));
+  let setup = Setup::on(repo, Hello::default(), {
+    let ended = Arc::clone(&ended);
+    move |_, _| wait_for(&ended)
+  });
   let failure = run_in(&setup, &|_| {}, &calm, &[], RunOptions::default()).unwrap_err();
-  assert_eq!((failure.refusal.code, failure.exit), (Code::LocalChanges, Exit::NotRun));
+  ended.store(true, Ordering::SeqCst);
+  assert_eq!((failure.refusal.code, failure.exit), (Code::LocalChanges, Exit::NotRun), "{}", failure.refusal.message);
   assert!(failure.refusal.message.contains(" M a.txt"), "{}", failure.refusal.message);
-  assert!(started.elapsed() < Duration::from_secs(8), "the refusal waited for the host: {:?}", started.elapsed());
   assert!(kinds(&setup).iter().all(|kind| *kind == "have"), "{:?}", kinds(&setup));
 }
 
@@ -585,7 +589,7 @@ fn an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75() {
   let say = |line: &str| said.push(line);
   let timing = Timing {
     reconnect_for: Duration::from_millis(300),
-    ..crate::testkit::FAST
+    ..crate::testkit::UNHURRIED
   };
   let failure = run_timed(&setup, &say, timing).unwrap_err();
   assert_eq!((failure.refusal.code, failure.exit), (Code::TimedOut, Exit::Refused), "{}", failure.refusal.message);
@@ -622,7 +626,7 @@ fn a_silent_agent_times_out_after_the_reconnect_window() {
   let timing = Timing {
     read: Duration::from_millis(250),
     reconnect_for: Duration::from_millis(500),
-    ..crate::testkit::FAST
+    ..crate::testkit::UNHURRIED
   };
   let failure = run_timed(&setup, &|_| {}, timing).unwrap_err();
   ended.store(true, Ordering::SeqCst);
@@ -818,7 +822,8 @@ fn ctrl_c_before_the_start_reaches_no_host() {
   assert_eq!(kinds(&setup), ["have"]);
 }
 
-/// Ctrl+C while the pack builds cancels the run on the host, and the output follows up to its end
+/// Ctrl+C while the pack builds cancels the run on the host, and the output follows up to its end. The build holds two
+/// minutes unless Ctrl+C stops it, so a run that ends within a minute, which no stopped build reaches, was stopped
 #[test]
 fn ctrl_c_during_the_build_of_the_pack_cancels_the_run_on_the_host() {
   let Commits { repo, first, .. } = two_commits();
@@ -826,11 +831,11 @@ fn ctrl_c_during_the_build_of_the_pack_cancels_the_run_on_the_host() {
   let (count, watcher) = press_after(&setup, "pack", 1);
   let presses = || count.load(Ordering::SeqCst);
   let started = Instant::now();
-  let outcome = run_holding(&setup, &|_| {}, &presses, &[], RunOptions::default(), Duration::from_secs(5)).unwrap();
+  let outcome = run_holding(&setup, &|_| {}, &presses, &[], RunOptions::default(), Duration::from_mins(2)).unwrap();
   watcher.join().unwrap();
   assert_eq!(outcome.code, 130, "the run ends with the code of the host");
   assert!(cancelled.load(Ordering::SeqCst));
-  assert!(started.elapsed() < Duration::from_secs(5), "the build was not stopped: {:?}", started.elapsed());
+  assert!(started.elapsed() < Duration::from_mins(1), "the build was not stopped: {:?}", started.elapsed());
 }
 
 /// The host takes the slot while git builds the pack, and empty chunks keep the connection of the pack alive
@@ -1069,7 +1074,7 @@ fn heartbeats_keep_a_waiting_request_alive() {
   let processes = FakeProcesses::default();
   let timing = Timing {
     read: Duration::from_millis(300),
-    ..crate::testkit::FAST
+    ..crate::testkit::UNHURRIED
   };
   assert_eq!(setup.client(&processes, &|_| {}, &calm).with_timing(timing).runs(ALIAS).unwrap().len(), 0);
 }
@@ -1084,21 +1089,25 @@ fn two_commits_with_a_base() -> Commits {
 }
 
 /// Ctrl+C after the end of the run closes the connection of the base sync, also while the host indexes the base, and
-/// says no warning
+/// says no warning. The host indexes until the client closes, for up to two minutes: its heartbeats end by a failed
+/// send, so the client closed the connection and did not wait for the index
 #[test]
 fn ctrl_c_stops_the_base_sync_while_the_host_indexes_it() {
   let Commits { repo, first, .. } = two_commits_with_a_base();
   let indexing = Arc::new(AtomicBool::new(false));
+  let closed = Arc::new(AtomicBool::new(false));
   let (setup, _) = agent(repo, known(vec![first]), {
-    let indexing = Arc::clone(&indexing);
+    let (indexing, closed) = (Arc::clone(&indexing), Arc::clone(&closed));
     move |request, channel| match request {
       Request::Pack { target: PackTarget::Base(_), .. } => {
         let _ = channel.recv_stream(&mut Vec::new());
         indexing.store(true, Ordering::SeqCst);
-        for _ in 0..50 {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_mins(2) {
           thread::sleep(Duration::from_millis(200));
           if channel.send(&Reply::Heartbeat { elapsed_ms: 200 }).is_err() {
-            break;
+            closed.store(true, Ordering::SeqCst);
+            return true;
           }
         }
         let _ = channel.send(&Reply::Packed);
@@ -1114,9 +1123,9 @@ fn ctrl_c_stops_the_base_sync_while_the_host_indexes_it() {
   let presses = || u32::from(indexing.load(Ordering::SeqCst));
   let said = Said::default();
   let say = |line: &str| said.push(line);
-  let started = Instant::now();
   assert_eq!(run_in(&setup, &say, &presses, &[], RunOptions::default()).unwrap().code, 0);
-  assert!(started.elapsed() < Duration::from_secs(8), "the sync held the end: {:?}", started.elapsed());
+  wait_for(&closed);
+  assert!(closed.load(Ordering::SeqCst), "the sync held the end: the host indexed to its end");
   assert!(!said.lines().iter().any(|line| line.contains("warning")), "{:#?}", said.lines());
 }
 
@@ -1208,7 +1217,7 @@ fn a_slow_agent_reader_takes_a_large_pack() {
   });
   let timing = Timing {
     connect: Duration::from_millis(200),
-    ..crate::testkit::FAST
+    ..crate::testkit::UNHURRIED
   };
   let outcome = run_timed(&setup, &|_| {}, timing).unwrap();
   assert_eq!(outcome.code, 0);
@@ -1243,7 +1252,7 @@ fn a_failed_cancel_connects_again() {
     move |request, channel| match request {
       Request::Follow { .. } => {
         let started = Instant::now();
-        while cancels.load(Ordering::SeqCst) < 2 && started.elapsed() < Duration::from_secs(5) {
+        while cancels.load(Ordering::SeqCst) < 2 && started.elapsed() < Duration::from_mins(1) {
           thread::sleep(Duration::from_millis(100));
           let _ = channel.send(&Reply::Heartbeat { elapsed_ms: 100 });
         }

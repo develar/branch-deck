@@ -116,7 +116,7 @@ fn a_run_is_alive_while_its_lock_is_held_and_a_lost_run_ends_once() {
   // a fork of another test thread shares the open lock file until its exec, so the lock can stay for a moment.
   let dropped = std::time::Instant::now();
   while run.is_alive() {
-    assert!(dropped.elapsed() < Duration::from_secs(5), "the run stays alive after the drop of its lock");
+    assert!(dropped.elapsed() < Duration::from_mins(1), "the run stays alive after the drop of its lock");
     std::thread::sleep(Duration::from_millis(5));
   }
   assert!(run.end_if_lost());

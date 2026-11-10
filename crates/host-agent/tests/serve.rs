@@ -561,6 +561,7 @@ fn a_cancel_in_the_queue_of_the_host_slots_ends_the_run_before_its_command() {
   assert!(!ran.exists(), "the command never ran");
   fs::write(&gate, "").expect("the gate opens");
   assert_eq!(agent.follow("5-1").end, Reply::Exit { code: 0 });
-  let table = agent.slots();
-  assert_eq!(table["queue"].as_array().map(Vec::len), Some(0), "the cancel left the queue: {table}");
+  // the give-back of the cancelled run takes its ticket out of the queue after its `exit.json`, in its supervisor, so
+  // the end of the follow does not wait for it
+  eventually("the cancel left the queue", || agent.slots()["queue"].as_array().map(Vec::len) == Some(0));
 }

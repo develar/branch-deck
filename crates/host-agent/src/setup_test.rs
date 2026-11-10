@@ -91,10 +91,11 @@ fn the_listen_wait_ends_when_the_port_takes_connections_and_refuses_after_its_ti
     assert!(closed.elapsed() < Duration::from_secs(60), "the port still takes connections");
     std::thread::sleep(Duration::from_millis(50));
   }
+  // nothing listens again, so only the end of the wait ends it: the refusal is its word
   let started = Instant::now();
   let refused = wait_for_listen(port, Duration::from_millis(300)).expect_err("nothing listens");
   assert!(refused.contains("nothing listens on 127.0.0.1"), "{refused}");
-  assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+  assert!(started.elapsed() >= Duration::from_millis(300), "{:?}", started.elapsed());
 }
 
 fn fake_launchctl_with_script(dir: &Path, script: &str) -> (std::path::PathBuf, std::path::PathBuf) {

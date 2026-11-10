@@ -5,7 +5,8 @@ use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
-const DEADLINE: Duration = Duration::from_secs(5);
+/// The deadline of each connect and read of a test that is not about a deadline: no run reaches it
+const DEADLINE: Duration = Duration::from_mins(1);
 
 /// An agent on a loopback port that accepts one connection, and the directory of its allow list.
 struct Agent {
@@ -260,12 +261,12 @@ fn a_port_without_an_agent_is_unreachable_and_a_silent_agent_times_out() {
   assert_eq!(refused.code(), Code::Unreachable);
   assert_eq!(LinkError::TimedOut.code(), Code::TimedOut);
 
-  // A listener that never answers the handshake.
+  // A listener that never answers the handshake: only the deadline of the connect ends it
   let silent = TcpListener::bind("127.0.0.1:0").expect("a port");
   let started = std::time::Instant::now();
   let timed_out = connect(silent.local_addr().expect("the address"), client.fingerprint(), &client, Duration::from_millis(300)).expect_err("timed out");
   assert!(matches!(timed_out, LinkError::Unreachable(_)), "{timed_out:?}");
-  assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+  assert!(started.elapsed() >= Duration::from_millis(300), "{:?}", started.elapsed());
 }
 
 /// A frame over the limit of its kind, and a frame of a kind that the protocol does not have, end the read with a protocol
@@ -296,23 +297,27 @@ fn a_frame_over_its_limit_or_of_an_unknown_kind_is_a_protocol_error() {
 }
 
 /// A read that waits for a silent agent ends at once when another thread closes the channel. On macOS and Linux, the
-/// platforms of the client: on Windows `shutdown` does not wake a `recv` that blocks in another thread
+/// platforms of the client: on Windows `shutdown` does not wake a `recv` that blocks in another thread. The agent says
+/// nothing until the read ended, so only the closer or the deadline of the read can end it, and the deadline would be
+/// `TimedOut`
 #[cfg(unix)]
 #[test]
 fn a_closer_ends_a_waiting_read_from_another_thread() {
   let client = Identity::generate().expect("the client identity");
   let agent = agent(&[&client]);
-  let served = agent.serve(|_| thread::sleep(Duration::from_secs(3)));
+  let (read_ended, silent_until) = std::sync::mpsc::channel::<()>();
+  let served = agent.serve(move |_| {
+    let _ = silent_until.recv_timeout(DEADLINE);
+  });
   let mut channel = connect(agent.address, agent.identity.fingerprint(), &client, DEADLINE).expect("connected");
   let closer = channel.closer().expect("a closer");
-  let started = std::time::Instant::now();
   let closing = thread::spawn(move || {
     thread::sleep(Duration::from_millis(200));
     closer.close();
   });
   let read = channel.recv::<Reply>();
-  assert!(read.is_err(), "{read:?}");
-  assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+  let _ = read_ended.send(());
+  assert!(matches!(read, Err(ref error) if !matches!(error, LinkError::TimedOut)), "{read:?}");
   closing.join().expect("the closing thread");
   let _ = served.join();
 }

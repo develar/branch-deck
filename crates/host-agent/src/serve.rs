@@ -150,16 +150,18 @@ pub fn spawn_on_loopback(mut command: std::process::Command, port: u16, args: &[
 }
 
 /// The environment of a process test of `serve`: no login shell and no power assertions of the developer, a keeper
-/// that wakes every 500 ms, the git of the developer as the git of the host, so no Homebrew runs, and a deadline of a
-/// handshake that no loaded run reaches: the 3 s of a host cut the handshakes of a client process that a loaded test
-/// run held back, and the test of that deadline sets its own
-pub const PROCESS_TEST_ENV: [(&str, &str); 6] = [
+/// that wakes every 500 ms, the git of the developer as the git of the host, so no Homebrew runs, and deadlines of a
+/// handshake and of the check of a staged binary that no loaded run reaches: the 3 s of a host cut the handshakes of a
+/// client process that a loaded test run held back, the 10 s the check of a debug build, and the test of the
+/// handshake deadline sets its own
+pub const PROCESS_TEST_ENV: [(&str, &str); 7] = [
   ("GIT_CONFIG_NOSYSTEM", "1"),
   ("BD_HOST_TEST_SHELL", "none"),
   ("BD_HOST_TEST_CAFFEINATE", "none"),
   ("BD_HOST_TEST_KEEPER_MS", "500"),
   ("BD_TEST_HOST_MIN_VERSION", "2.0.0"),
   ("BD_HOST_TEST_HANDSHAKE_MS", "60000"),
+  ("BD_HOST_TEST_SELF_CHECK_MS", "60000"),
 ];
 
 /// Listens on `bind:port` and serves each connection. Prints one JSON line with the address and the fingerprint on `out`

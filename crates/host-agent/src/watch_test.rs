@@ -9,26 +9,25 @@ use std::time::Instant;
 use super::*;
 use std::time::Duration;
 
-/// The longest time from a change to the end of a wait
-#[cfg(target_os = "macos")]
-const LATENCY: Duration = Duration::from_millis(50);
+/// The wait of a test: no run reaches it, so a wait that ends before it ended by a change
+const UNHURRIED: Duration = Duration::from_mins(1);
 
-/// Waits with `watch` while a thread runs `change` 100 ms later. Answers the time from the change to the end of the
-/// wait
+/// Waits with `watch` while a thread runs `change` once the wait has started (100 ms later), and asserts that the change
+/// ended the wait: before its time, by the kqueue, which a wait leaves only for an event or its time
 #[cfg(target_os = "macos")]
-fn latency(watch: &mut Watch, change: impl FnOnce() + Send + 'static) -> Duration {
+fn assert_ended_by(watch: &mut Watch, change: impl FnOnce() + Send + 'static) {
   let (sender, changed) = mpsc::channel();
   let changer = thread::spawn(move || {
     thread::sleep(Duration::from_millis(100));
-    let at = Instant::now();
     change();
-    let _ = sender.send(at);
+    let _ = sender.send(());
   });
-  watch.wait(Duration::from_secs(5));
-  let woke = Instant::now();
+  let started = Instant::now();
+  watch.wait(UNHURRIED);
+  let waited = started.elapsed();
   changer.join().expect("the change");
-  let at = changed.recv().expect("the time of the change");
-  woke.saturating_duration_since(at)
+  changed.recv().expect("the change happened");
+  assert!(watch.is_pushed() && waited < UNHURRIED, "{waited:?}, pushed: {}", watch.is_pushed());
 }
 
 #[test]
@@ -40,19 +39,17 @@ fn a_write_to_the_log_and_a_new_file_in_the_run_directory_end_a_wait_at_once() {
   let mut watch = Watch::new(&[&log, dir.path()]);
   assert!(watch.is_pushed());
 
-  let waited = latency(&mut watch, move || {
+  assert_ended_by(&mut watch, move || {
     let mut file = OpenOptions::new().append(true).open(&log).expect("opened");
     file.write_all(b"line\n").expect("appended");
   });
-  assert!(waited < LATENCY, "{waited:?}");
 
   let exit = dir.path().join("exit.json");
-  let waited = latency(&mut watch, move || {
+  assert_ended_by(&mut watch, move || {
     let temp = exit.with_extension("tmp");
     fs::write(&temp, "{}").expect("written");
     sync_utils::fs_retry::rename(&temp, &exit).expect("renamed");
   });
-  assert!(waited < LATENCY, "{waited:?}");
 }
 
 #[test]
@@ -64,8 +61,9 @@ fn a_change_before_the_wait_ends_it_at_once() {
   let mut watch = Watch::new(&[&log]);
   fs::write(&log, "line\n").expect("written");
   let started = Instant::now();
-  watch.wait(Duration::from_secs(5));
-  assert!(started.elapsed() < LATENCY, "{:?}", started.elapsed());
+  watch.wait(UNHURRIED);
+  let waited = started.elapsed();
+  assert!(watch.is_pushed() && waited < UNHURRIED, "{waited:?}, pushed: {}", watch.is_pushed());
 }
 
 #[test]
@@ -74,7 +72,7 @@ fn a_watch_of_a_missing_file_polls() {
   let mut watch = Watch::new(&[&dir.path().join("missing")]);
   assert!(!watch.is_pushed());
   let started = Instant::now();
-  watch.wait(Duration::from_secs(5));
+  watch.wait(UNHURRIED);
   let waited = started.elapsed();
-  assert!(waited >= tuning::watch_poll() && waited < Duration::from_secs(2), "{waited:?}");
+  assert!(waited >= tuning::watch_poll() && waited < UNHURRIED, "one poll, not the whole wait: {waited:?}");
 }

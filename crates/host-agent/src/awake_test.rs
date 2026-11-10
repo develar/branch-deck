@@ -14,9 +14,9 @@ fn fake(dir: &Path, log: &Path) -> OsString {
   script.into_os_string()
 }
 
-/// The lines of `log` once it has `count` of them
+/// The lines of `log` once it has `count` of them, or after a minute, which no run reaches
 fn lines(log: &Path, count: usize) -> Vec<String> {
-  let deadline = Instant::now() + Duration::from_secs(10);
+  let deadline = Instant::now() + Duration::from_mins(1);
   loop {
     let text = fs::read_to_string(log).unwrap_or_default();
     let lines: Vec<String> = text.lines().map(str::to_owned).collect();

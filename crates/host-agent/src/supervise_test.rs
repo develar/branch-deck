@@ -1,6 +1,7 @@
 use super::*;
 use crate::run::Runs;
 use pretty_assertions::assert_eq;
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::process::Command;
 use sync_utils::fs_retry;
@@ -120,10 +121,14 @@ fn the_pack_wait_ends_at_once_for_a_present_commit_at_its_deadline_at_a_stall_or
     wait_for_pack(&run, repo.path(), &spec_of(commit), limits, stop, &mut |line| said.push(line.to_owned()), &has(repo.path()))
   };
 
-  // a commit that the host has already needs no pack.
-  let started = Instant::now();
-  assert!(wait(&present, limits(30_000, 30_000), &|| false).expect("no refusal"));
-  assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+  // a commit that the host has already needs no pack: the wait answers before its first look, which would stop it
+  let looked = Cell::new(false);
+  let stop = || {
+    looked.set(true);
+    true
+  };
+  assert!(wait(&present, limits(30_000, 30_000), &stop).expect("no refusal"));
+  assert!(!looked.get(), "the wait looked for a pack of a commit that the host has");
 
   for (limits, failure) in [
     (limits(300, 30_000), "did not come in 0.3 s"),
@@ -139,33 +144,43 @@ fn the_pack_wait_ends_at_once_for_a_present_commit_at_its_deadline_at_a_stall_or
 }
 
 /// The chunks of a pack keep the wait alive past its stall time, and the mark of the landed pack ends it. A commit that
-/// landed without its mark ends it at the stall too
+/// landed without its mark ends it at the stall too.
+///
+/// The client of the pack answers at the looks of the wait (`stop`, asked before each look at the chunks), as the
+/// chunks of a client that keeps up: a thread that noted a chunk every 100 ms lost to the stall of 500 ms whenever the
+/// load held it back that long. Only a wait held back between its `stop` and its look at the chunks can still miss
+/// one, so the stall is 1 s, as the floor of the pack test of `serve`, and the wait lasts twice it
 #[test]
 fn the_chunks_of_a_pack_keep_the_wait_alive_and_its_mark_ends_it() {
   let (dir, repo, later, object, hidden) = repo_with_a_travelling_commit();
   let (run, _lock) = Runs::new(dir.path().join("runs")).create(&spec_of(&later)).expect("a run");
   let mut said = Vec::new();
   let started = Instant::now();
-  let waited = thread::scope(|scope| {
-    scope.spawn(|| {
-      while started.elapsed() < Duration::from_millis(1500) {
-        run.note_pack_progress().expect("a chunk noted");
-        thread::sleep(Duration::from_millis(100));
-      }
+  // a chunk at a look 100 ms or more after the last one: a chunk at every look would wake the wait at once again
+  let noted = Cell::new(started);
+  let client = || {
+    if started.elapsed() >= Duration::from_secs(2) {
+      // the last chunk and the mark: this look sees the chunk, the next one the mark
+      run.note_pack_progress().expect("the last chunk");
       run.mark_packed().expect("the pack landed");
-    });
-    wait_for_pack(
-      &run,
-      repo.path(),
-      &spec_of(&later),
-      limits(30_000, 500),
-      &|| false,
-      &mut |line| said.push(line.to_owned()),
-      &has(repo.path()),
-    )
-  });
+    } else if noted.get().elapsed() >= Duration::from_millis(100) {
+      run.note_pack_progress().expect("a chunk noted");
+      noted.set(Instant::now());
+    }
+    false
+  };
+  run.note_pack_progress().expect("the first chunk");
+  let waited = wait_for_pack(
+    &run,
+    repo.path(),
+    &spec_of(&later),
+    limits(30_000, 1000),
+    &client,
+    &mut |line| said.push(line.to_owned()),
+    &has(repo.path()),
+  );
   assert!(waited.expect("no refusal"));
-  assert!(started.elapsed() >= Duration::from_millis(1500), "{:?}", started.elapsed());
+  assert!(started.elapsed() >= Duration::from_secs(2), "{:?}", started.elapsed());
   assert_eq!(said, vec![format!("waiting for the pack of {later}")]);
 
   let (other, _lock) = Runs::new(dir.path().join("runs"))
@@ -174,11 +189,15 @@ fn the_chunks_of_a_pack_keep_the_wait_alive_and_its_mark_ends_it() {
       ..spec_of(&later)
     })
     .expect("another run");
-  let restore = thread::spawn(move || {
-    thread::sleep(Duration::from_millis(100));
-    fs_retry::rename(&hidden, &object).expect("the object back");
-  });
-  let waited = wait_for_pack(&other, repo.path(), &spec_of(&later), limits(30_000, 400), &|| false, &mut |_| {}, &has(repo.path()));
-  restore.join().expect("the restore");
+  // the commit lands at the first look of the wait, before its stall, and no mark comes
+  let restored = Cell::new(false);
+  let land = || {
+    if !restored.replace(true) {
+      fs_retry::rename(&hidden, &object).expect("the object back");
+    }
+    false
+  };
+  let waited = wait_for_pack(&other, repo.path(), &spec_of(&later), limits(30_000, 400), &land, &mut |_| {}, &has(repo.path()));
+  assert!(restored.get(), "the wait never looked");
   assert!(waited.expect("the commit came without a mark"));
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::Timing;
 use crate::testkit::{FakeProcesses, Hello, Said, Setup, calm};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -103,7 +104,16 @@ fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
 fn the_previous_build_that_answers_at_the_end_is_a_rollback() {
   let setup = upgradable(false);
   let binary = binary_file(&setup, MACHO_ARM64);
-  let refusal = setup.client(&FakeProcesses::default(), &|_| {}, &calm).upgrade(&request(&binary)).unwrap_err();
+  // the end of the wait for the new build is the subject
+  let timing = Timing {
+    upgrade: Duration::from_millis(500),
+    ..crate::testkit::UNHURRIED
+  };
+  let refusal = setup
+    .client(&FakeProcesses::default(), &|_| {}, &calm)
+    .with_timing(timing)
+    .upgrade(&request(&binary))
+    .unwrap_err();
   assert_eq!(refusal.code, Code::RolledBack);
   assert!(refusal.message.contains(&OLD[..12]), "{}", refusal.message);
   assert!(refusal.message.contains("~/.cache/brd-host/upgrade.json on studio"), "{}", refusal.message);

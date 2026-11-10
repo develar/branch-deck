@@ -1,5 +1,5 @@
 use super::*;
-use crate::testkit::{ALIAS, FAST, Hello, Setup, host_file};
+use crate::testkit::{ALIAS, Hello, Setup, UNHURRIED, host_file};
 use host_link::identity::Identity;
 use pretty_assertions::assert_eq;
 use std::net::TcpListener;
@@ -14,7 +14,7 @@ fn dead_address() -> SocketAddr {
 }
 
 fn open(setup: &Setup) -> Host {
-  Host::open(&setup.config, ALIAS, "0.37.0", FAST).unwrap()
+  Host::open(&setup.config, ALIAS, "0.37.0", UNHURRIED).unwrap()
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn an_agent_that_does_not_allow_this_client_is_untrusted() {
   let setup = Setup::new(runs_reply);
   let stranger = Config::new(setup.dir.path().join("stranger"));
   stranger.write_host(&host_file(&setup.agent, vec![setup.agent.address])).unwrap();
-  let refusal = Host::open(&stranger, ALIAS, "0.37.0", FAST).unwrap().connect().unwrap_err();
+  let refusal = Host::open(&stranger, ALIAS, "0.37.0", UNHURRIED).unwrap().connect().unwrap_err();
   assert_eq!(refusal.code, Code::Untrusted, "{}", refusal.message);
 }
 
