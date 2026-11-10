@@ -614,11 +614,24 @@ export function DiffView({
   const divides = cards && renderDivider !== undefined
   const prologued = cards && prologue !== undefined && prologue !== null
   const epilogued = cards && epilogue !== undefined && epilogue !== null
+  // the files with a side wider than its column: their sticky scrollbar takes a strip of its own below their rows
+  // (`LayoutFile.scrollbar`); one string, so a text that changes no width lays out nothing again
+  const scrollbarKey =
+    softWraps || width === 0
+      ? ""
+      : prepared
+          .map(file =>
+            layoutRowsOf(file) !== null && scrollerWidths(file, sideWidthsOf(file, texts, metrics.columnWidth), codeWidthsOf(file, width, metrics.columnWidth, split)) !== null
+              ? "1"
+              : "0",
+          )
+          .join("")
+  const scrollbars = useMemo(() => Array.from(scrollbarKey, flag => flag === "1"), [scrollbarKey])
   const layout = useMemo(
     () =>
       new DiffLayout(
         prepared.map((file, index) => {
-          const rows = file.collapsed || file.rows === null || file.rows.rowCount === 0 ? null : file.rows
+          const rows = layoutRowsOf(file)
           return {
             key: file.key,
             rows,
@@ -627,13 +640,14 @@ export function DiffView({
             opening: opens && (file.section?.step != null || file.section?.group != null) ? (measured.get(file.key) ?? OPENING_ESTIMATE) : undefined,
             divider: divides && file.section?.heading != null && file.section.group == null,
             footer: footers && endsWithFooter(rows, index === prepared.length - 1),
+            scrollbar: scrollbars[index] === true,
           }
         }),
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
         prologued ? (measured.get(PROLOGUE_KEY) ?? 0) : 0,
         epilogued ? (measured.get(EPILOGUE_KEY) ?? 0) : 0,
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers, scrollbars],
   )
 
   // the sections as the map of the files shows them: where a step starts, which files the chip plays down
@@ -1438,10 +1452,6 @@ export function DiffView({
   const sections = prepared.slice(first, last + 1).map((file, offset) => {
     const index = first + offset
     const rows = layout.files[index]!.rows
-    const widthOf = (id: string | null) => {
-      const text = blobText(texts, id)
-      return id === null || text === null ? 0 : (maxColumns(getLineTable(id, text), DIFF_TAB_SIZE) + 2) * metrics.columnWidth
-    }
     return (
       <FileSection
         key={file.key}
@@ -1453,15 +1463,15 @@ export function DiffView({
         top={layout.offsets[index]!}
         dividerHeight={layout.files[index]!.opening === undefined ? layout.openingHeight(index) : 0}
         footer={layout.files[index]!.footer === true}
+        scrollbar={layout.scrollbarHeight(index) > 0}
         height={layout.fileHeight(index)}
         rowsHeight={layout.rowsHeight(index)}
         card={cards}
         rowHeight={metrics.rowHeight}
         columnWidth={metrics.columnWidth}
-        softWraps={softWraps}
         width={width}
         split={split}
-        sideWidths={file.ids.map(widthOf).join(" ")}
+        sideWidths={sideWidthsOf(file, texts, metrics.columnWidth).join(" ")}
         painter={painter}
         renderHeader={renderHeader}
         renderDivider={renderDivider}
@@ -1674,13 +1684,14 @@ interface FileSectionProps {
   dividerHeight: number
   /** The card ends with a line below its rows (`LayoutFile.footer`), one row high */
   footer: boolean
+  /** A side of its rows is wider than its column: the strip of their scrollbars below the rows (`LayoutFile.scrollbar`) */
+  scrollbar: boolean
   height: number
   rowsHeight: number
   /** The file is a card: a border, rounded corners, its header the top of the card */
   card: boolean
   rowHeight: number
   columnWidth: number
-  softWraps: boolean
   width: number
   /** The share of the old side in Split */
   split: number
@@ -1734,12 +1745,12 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     top,
     dividerHeight,
     footer,
+    scrollbar,
     height,
     rowsHeight,
     card,
     rowHeight,
     columnWidth,
-    softWraps,
     width,
     split,
     sideWidths,
@@ -1805,7 +1816,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
                 }
               }}
             />
-            {!softWraps && (
+            {scrollbar && (
               <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth, split)} />
             )}
           </>
@@ -1822,24 +1833,57 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
   )
 })
 
-/** The sticky scrollbar of each column whose widest line is wider than it */
+/**
+ * The sticky scrollbar of each column whose widest line is wider than it, in the strip the layout keeps for them below
+ * the rows (`LayoutFile.scrollbar`): at the end of the file they lie under the last row, never over it
+ */
 function HorizontalBars({ file, sideWidths, columnWidth, codeWidths }: { file: PreparedFile; sideWidths: readonly number[]; columnWidth: number; codeWidths: readonly number[] }) {
   const columns = file.cells?.columns ?? []
   const sideBySide = columns.length > 1
-  // one column shows the line of either side
-  const widths = sideBySide ? columns.map(side => sideWidths[side] ?? 0) : [Math.max(0, ...sideWidths)]
-  if (columns.length === 0 || widths.every((contentWidth, index) => contentWidth <= codeWidths[columns[index]!]!)) {
-    return null
-  }
+  const widths = scrollerWidths(file, sideWidths, codeWidths)
   return (
-    <div className="dv-hscrolls">
-      {columns.map((side, index) => (
-        <div key={side} className="dv-hscroll" data-side={side}>
-          <div style={{ width: widths[index]! + file.gutterColumns * columnWidth * (sideBySide ? 1 : (file.cells?.numbers.length ?? 2)), height: 1 }} />
-        </div>
-      ))}
+    <div className="dv-hscrolls" data-testid="diff-view-scrollbars">
+      {widths !== null &&
+        columns.map((side, index) => (
+          <div key={side} className="dv-hscroll" data-side={side}>
+            <div style={{ width: widths[index]! + file.gutterColumns * columnWidth * (sideBySide ? 1 : (file.cells?.numbers.length ?? 2)), height: 1 }} />
+          </div>
+        ))}
     </div>
   )
+}
+
+/** The rows a file lays out: none while it is collapsed or shows none */
+function layoutRowsOf(file: PreparedFile): FileRows | null {
+  return file.collapsed || file.rows === null || file.rows.rowCount === 0 ? null : file.rows
+}
+
+/**
+ * The widest line of each text in columns, by its blob id: a file keeps the strip of its scrollbar once its text left
+ * the window of the view, so the layout does not change as the view scrolls
+ */
+const widestColumns = new Map<string, number>()
+
+/** The width of the widest line of the text of each side in CSS px, two columns of padding with it; 0 while it is unread */
+function sideWidthsOf(file: PreparedFile, texts: ReadonlyMap<string, BlobTextEntry>, columnWidth: number): number[] {
+  return file.ids.map(id => {
+    if (id === null) {
+      return 0
+    }
+    const text = blobText(texts, id)
+    if (text !== null) {
+      widestColumns.set(id, maxColumns(getLineTable(id, text), DIFF_TAB_SIZE))
+    }
+    const columns = widestColumns.get(id)
+    return columns === undefined ? 0 : (columns + 2) * columnWidth
+  })
+}
+
+/** The width of the scroller of each column (one column shows the line of either side); null when every line fits */
+function scrollerWidths(file: PreparedFile, sideWidths: readonly number[], codeWidths: readonly number[]): number[] | null {
+  const columns = file.cells?.columns ?? []
+  const widths = columns.length > 1 ? columns.map(side => sideWidths[side] ?? 0) : [Math.max(0, ...sideWidths)]
+  return columns.length === 0 || widths.every((contentWidth, index) => contentWidth <= codeWidths[columns[index]!]!) ? null : widths
 }
 
 /** The blob ids of the texts the files that show rows paint and read */

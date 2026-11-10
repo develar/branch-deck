@@ -54,7 +54,15 @@ export interface LayoutFile {
    * end of the review; absent, none
    */
   footer?: boolean
+  /**
+   * A side of its rows is wider than its column: the sticky horizontal scrollbar takes a strip of its own below the
+   * rows (`SCROLLBAR_HEIGHT`), so at the end of the file it lies under the last row, never over it; absent, none
+   */
+  scrollbar?: boolean
 }
+
+/** The strip of the sticky horizontal scrollbar of a file below its rows (`LayoutFile.scrollbar`, `.dv-hscrolls`) */
+export const SCROLLBAR_HEIGHT = 10
 
 /** A card of more rows than this ends with a line naming the next section (`LayoutFile.footer`) */
 export const FOOTER_MIN_ROWS = 30
@@ -155,9 +163,18 @@ export class DiffLayout {
     return this.offsets[file]! - this.openingHeight(file)
   }
 
-  /** The header, the notice and the rows of a file, the line at the end of its card and the bottom border of the card */
+  /**
+   * The header, the notice and the rows of a file, the strip of its scrollbar, the line at the end of its card and the
+   * bottom border of the card
+   */
   fileHeight(file: number): number {
-    return this.rowsOffset(file) + this.rowsHeight(file) + this.footerHeight(file) + (this.metrics.cards?.borderBottom ?? 0)
+    return this.rowsOffset(file) + this.rowsHeight(file) + this.scrollbarHeight(file) + this.footerHeight(file) + (this.metrics.cards?.borderBottom ?? 0)
+  }
+
+  /** The strip of the horizontal scrollbar of a file below its rows: 0 without one, and without rows */
+  scrollbarHeight(file: number): number {
+    const { scrollbar, rows } = this.files[file]!
+    return scrollbar === true && rows !== null ? SCROLLBAR_HEIGHT : 0
   }
 
   /** The line at the end of the card of a file, below its rows: one row high; 0 without one, and without cards */

@@ -96,4 +96,32 @@ test.describe("Parts of a file", () => {
     await expect(position).toHaveText("File 2 / 2")
     await expect(window.getByTestId("review-concern-heading").filter({ hasText: "Other changes" })).toBeInViewport()
   })
+
+  test(
+    "should take a click on the lower half of the fold at the end of a card, the scrollbar of its long lines in a strip of its own below it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_parts")
+      turnOnReviewPlan(repo)
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "parts")
+      // the old side narrower than the line of `load`: the first part has its scrollbar
+      await window.setViewportSize({ width: 1100, height: 900 })
+      const position = window.getByTestId("review-position")
+      await reviewSidebar(window).tree.getByRole("treeitem", { name: LOADER, exact: true }).click()
+      await expect(position).toHaveText("Step 1 · File 2 / 2 · part 1 of 3")
+      const card = window.locator(`[data-testid=diff-view-file][data-path="${LOADER}"]`).first()
+      const scrollbars = card.getByTestId("diff-view-scrollbars")
+      await expect(scrollbars).toBeVisible()
+
+      // the fold is the last row of the card: the scrollbars stand below it, so its lower half takes the click
+      const place = card.getByTestId("diff-fold-elsewhere")
+      await place.scrollIntoViewIfNeeded()
+      const box = (await place.boundingBox())!
+      expect((await scrollbars.boundingBox())!.y).toBeGreaterThanOrEqual(box.y + box.height)
+      await place.click({ position: { x: box.width / 2, y: box.height * 0.85 } })
+      // the removal of the second part is shown, under the opening of Other changes
+      await expect(position).toHaveText("File 2 / 2")
+      await expect(window.getByTestId("review-step-bar")).toHaveText("Other changes")
+    },
+  )
 })

@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { DiffLayout, endsWithFooter, EPILOGUE_KEY, FOOTER_MIN_ROWS, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, EPILOGUE_KEY, FOOTER_MIN_ROWS, PROLOGUE_KEY, SCROLLBAR_HEIGHT, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutFile } from "@/lib/diff/layout"
 import { rowHeightOf } from "@/lib/diff/metrics"
 import { buildFileRows, EXPANDED, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
@@ -310,5 +310,18 @@ describe("DiffLayout of file cards", () => {
     expect([anchor.key, layout.scrollTopOf(anchor)]).toEqual(["1", layout.rowTop(0, long.rowCount) + 5])
     // no line without cards
     expect(new DiffLayout(files, { rowHeight: 20, headerHeight: 36 }).footerHeight(0)).toBe(0)
+  })
+
+  it("keeps a strip for the scrollbar of a file wider than its columns below its rows, above the line at the end, which the offsets count", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified")
+    const files = [file("wide", rows, { scrollbar: true, footer: true }), file("narrow", rows), file("collapsed", null, { scrollbar: true })]
+    const layout = new DiffLayout(files, CARDS)
+    // the strip under the last row, so the scrollbar never lies over it; a collapsed file shows no rows and no bar
+    expect([layout.scrollbarHeight(0), layout.scrollbarHeight(1), layout.scrollbarHeight(2)]).toEqual([SCROLLBAR_HEIGHT, 0, 0])
+    expect(layout.fileHeight(0)).toBe(48 + rows.rowCount * 20 + SCROLLBAR_HEIGHT + 20 + 1)
+    expect(layout.fileHeight(1)).toBe(48 + rows.rowCount * 20 + 1)
+    expect(layout.offsets[1]).toBe(10 + layout.fileHeight(0) + 10)
+    // the rows keep their places: the strip is after the last of them
+    expect(layout.rowTop(0, rows.rowCount - 1)).toBe(10 + 48 + (rows.rowCount - 1) * 20)
   })
 })

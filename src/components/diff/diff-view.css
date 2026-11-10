@@ -163,7 +163,7 @@
  * The line at the end of a long card and of the last one (`LayoutFile.footer`): one row high, the band of the header,
  * so the card ends as it starts, the ring of the card above it (none under a fold, which draws its own line), its words
  * at the right in the size of the header's notices. Not selectable: a copy of the selection of the code never takes
- * it. After the horizontal scrollbars in the section, so they stick to the bottom of the rows
+ * it. After the strip of the horizontal scrollbars in the section, which stick to the bottom of the rows
  */
 .dv-footer {
   display: flex;
@@ -680,20 +680,23 @@
   user-select: none;
 }
 
-/* the scrollbars of the sides, sticky at the bottom of the viewport while their file is in view */
+/*
+ * The scrollbars of the sides, sticky at the bottom of the viewport while their file is in view, in a strip of their
+ * own below the rows (`SCROLLBAR_HEIGHT`, `LayoutFile.scrollbar`): at the end of the file they lie under the last row,
+ * so a control of that row takes a click anywhere on it
+ */
 .dv-hscrolls {
   position: sticky;
   bottom: 0;
   z-index: 1;
   display: flex;
-  height: 0;
+  height: 10px;
   pointer-events: none;
 }
 
 .dv-hscroll {
   flex: 1 1 0;
   height: 10px;
-  margin-top: -10px;
   overflow-x: auto;
   overflow-y: hidden;
   pointer-events: auto;

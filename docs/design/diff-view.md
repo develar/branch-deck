@@ -287,7 +287,8 @@ and the opening of each step (below). Each item but those has a known height:
   it is out of the tab order.
 - The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` (`offsets[i]`, the top of its card) is the
   space above the cards, the prologue and a gap after it, the heights of the files before it, a gap after each and the
-  openings and dividers (`openingHeight`). A file is `header + notice + rows + footer + bottom border`. An opening or a
+  openings and dividers (`openingHeight`). A file is `header + notice + rows + scrollbar + footer + bottom border`, the
+  strip of the scrollbar where a side is wider than its column ("Horizontal scroll with soft wraps off"). An opening or a
   divider belongs to the file below it: its section starts there (`sectionStart`), `fileAt` in it is that file, and
   `fileTop` counts it, so a scroll to a step shows its opening; a y in the gap is the file above. `cardTop` is the
   scroll that has the card at the top and its opening above the view: the least top of a change N shows, of a hit of
@@ -444,7 +445,12 @@ side and per file cannot work: its scrollbar would be at the end of the file, an
 
 So each file keeps a horizontal offset per side:
 - A thin native scroller per side is sticky at the bottom of the viewport, inside the section of its file. Its width
-  is the widest line of the side, from the line table. It shows only when the side is wider than its column.
+  is the widest line of the side, from the line table. It shows only when the side is wider than its column, in a
+  strip of 10 px of its own below the rows (`LayoutFile.scrollbar`, `SCROLLBAR_HEIGHT`): at the end of the file it
+  lies under the last row, so a fold there takes a click anywhere on it (laid over the row, it took the lower half of
+  the row). The strip is the one height of the layout that the width and the texts decide: a file has it once its
+  text was read, and keeps it while the text leaves the window of the view (`widestColumns`), so a scroll lays
+  nothing out again; a change of the width or of the split may add or take it.
 - The code cells of a side move by `transform: translateX(calc(-1px * var(--scroll-old)))`. One write of the custom
   property on the section moves every row of the side. The gutter does not move, as in IntelliJ.
 - A wheel or a trackpad gesture with a horizontal delta over the code of a side moves its scroller. Shift with the
