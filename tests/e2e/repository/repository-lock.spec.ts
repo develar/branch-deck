@@ -214,7 +214,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
     await expect(page.getByTestId("push-description").getByTestId("push-progress")).toContainText(WAITING)
     expect(await remotePushes(repo)).toEqual([])
 
-    await repo.holdRepositoryLock(false)
+    await runAndWaitForAnswer(page, "execute", () => repo.holdRepositoryLock(false))
     await expectPushedToast(page, "JIRA-456")
     expect(await remotePushes(repo)).toEqual([["JIRA-456"]])
     await expectNothingToPush(row)

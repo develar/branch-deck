@@ -11,6 +11,7 @@ import {
   finishedSyncCount,
   focusWindow,
   focusWindowRefused,
+  runAndWaitForAnswer,
   syncBranches,
   syncOnWindowFocus,
   viewEpoch,
@@ -467,7 +468,7 @@ test.describe("Sync on focus", () => {
     // the upstream of the template is a bare repository: the push is real and moves the remote branch a sync reads
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await pushFromRowMenu(page, "feature-auth")
+    await runAndWaitForAnswer(page, "execute", () => pushFromRowMenu(page, "feature-auth"))
     await expectPushedToast(page, "feature-auth")
     const syncs = await finishedSyncCount(page)
 

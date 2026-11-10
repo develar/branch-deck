@@ -4,7 +4,17 @@ import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/branch-helpers"
-import { confirmForcePush, expectPushedToast, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
+import {
+  confirmForcePush,
+  expectPushedToast,
+  expectPushedToRemote,
+  holdRemotePushes,
+  openPushedToast,
+  pushedBefore,
+  pushedToast,
+  remotePushes,
+  virtualBranch,
+} from "../helpers/push-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
@@ -244,7 +254,8 @@ test.describe("Push button", () => {
     await expect.poll(() => pushes.length).toBe(1)
     expect(await remotePushes(issueLinksRepo)).toEqual([])
 
-    await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
+    // the push runs once the sync ended: its answer, then its toast
+    await runAndWaitForAnswer(page, "execute", () => issueLinksRepo.holdRemoteAnswers({ release: ["sync"] }))
     await expectPushedToast(page, "JIRA-456")
     // one push, over the tip the sync brought: the remote took the branch once
     expect(pushes).toEqual([expect.objectContaining({ intent: expect.objectContaining({ kind: "push", subject: { kind: "branch", name: "JIRA-456" } }) })])
@@ -293,7 +304,7 @@ test.describe("Push button", () => {
     await expect(running).toBeVisible()
     await closeToast(running)
 
-    await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
+    await runAndWaitForAnswer(page, "execute", () => issueLinksRepo.holdRemoteAnswers({ release: ["sync"] }))
     await expectPushedToast(page, "JIRA-456")
     expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
     expect(pushes).toHaveLength(1)
@@ -334,11 +345,11 @@ test.describe("Push button", () => {
 
   test("should describe a disabled push on hover", async ({ page }) => {
     const row = findBranchRow(page, "JIRA-456")
-    await getPushButton(row).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(row).click())
     await expectPushedToast(page, "JIRA-456")
     await expectNothingToPush(row)
     // read: closed, it would cover the button of the preview
-    await closeToast(pushedToast(page, "JIRA-456"))
+    await closeToast(await holdToast(openPushedToast(page, "JIRA-456")))
 
     // the preview keeps the labelled button: disabled, it says why on hover
     const preview = await openBranchPreview(page, "JIRA-456")
@@ -381,7 +392,7 @@ test.describe("Push size", () => {
     await field.fill("off")
     await field.press("Enter")
     await expect(field).toHaveValue("off")
-    await push.click()
+    await runAndWaitForAnswer(page, "execute", () => push.click())
     await expectPushedToast(page, "feature-auth")
   })
 })

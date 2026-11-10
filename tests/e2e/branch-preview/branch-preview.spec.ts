@@ -4,7 +4,7 @@ import { testWithConflicts, testWithIssueLinks as test, expect } from "../fixtur
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { enableAutoSyncOnFocus, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
+import { enableAutoSyncOnFocus, runAndWaitForAnswer, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { expectClosed, waitForConflictFixSearch } from "../helpers/wait-helpers"
 
 // the `issue_links` template: JIRA-456 is the newest branch, its newest commit has a body
@@ -141,7 +141,7 @@ test.describe("Branch preview", () => {
     const pushButton = preview.getByRole("button", { name: /Push Branch \(\d+\)/ })
     await expect(pushButton).toBeEnabled()
 
-    await page.keyboard.press("p")
+    await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("p"))
     await expectPushedToast(page, BRANCH)
     expect(await remotePushes(issueLinksRepo)).toEqual([[BRANCH]])
     await expect(preview.getByTestId("branch-preview-status")).toHaveText("up to date")

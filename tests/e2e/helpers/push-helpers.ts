@@ -157,9 +157,23 @@ export function pushedToast(page: Page, branchName: string): Locator {
   return page.locator("[data-slot=toast]").filter({ has: page.locator("[data-slot=toast-title]", { hasText: new RegExp(`^(Force p|P)ushed branch ${name}$`) }) })
 }
 
-/** Waits for the toast of a push of `branchName`; with `description`, its detail ("3 commits · created the remote branch") */
+/**
+ * The open toast of a push of `branchName` (`pushedToast`): a toast of its event that timed out while the push ran on
+ * stays in its exit (`data-ending-style`) until the page paints, which a loaded machine may not do for seconds, and the
+ * answer of the push shows a new one beside it, the toast the user reads
+ */
+export function openPushedToast(page: Page, branchName: string): Locator {
+  return pushedToast(page, branchName).and(page.locator(":not([data-ending-style])"))
+}
+
+/**
+ * The open toast of a push of `branchName` (`openPushedToast`), checked once the push answered: run what starts the push
+ * (a click, a key, the release of what held it) in `runAndWaitForAnswer(page, "execute", …)` first, as a push takes
+ * seconds under load, more than the 5 s of this check. With `description`, its detail ("3 commits · created the remote
+ * branch")
+ */
 export async function expectPushedToast(page: Page, branchName: string, description?: string): Promise<void> {
-  const toast = pushedToast(page, branchName)
+  const toast = openPushedToast(page, branchName)
   await expect(toast).toBeVisible()
   if (description !== undefined) {
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(description)

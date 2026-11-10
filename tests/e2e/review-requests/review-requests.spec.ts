@@ -14,6 +14,7 @@ import { THEME_ITEM, commitTwoTasks, expectHeadingCard, turnOnReviewPlan } from 
 import {
   NOW,
   availableReviewRequests,
+  focusPastReviewRequestsAge,
   getReviewRow,
   getYourTurnCard,
   openRequestReview,
@@ -106,16 +107,14 @@ test.describe("Your Turn card", () => {
     await syncAndWaitForBranches()
     await expect(getYourTurnCard(page)).toHaveCount(0)
 
-    // a rejected token: no poll, the next focus asks again
+    // a rejected token: no poll, a focus two minutes after the answer asks again; GitHub lists nothing, so no card
     await repo.setReviewRequests(availableReviewRequests([]))
-    await repo.advanceBackendClock(121_000)
-    await emitTauriEvent(page, "tauri://focus")
-    await expect.poll(() => repo.getReviewRequestCalls()).toBe(2)
+    await focusPastReviewRequestsAge(page, repo, async () => (await repo.getReviewRequestCalls()) >= 2)
     await expect(getYourTurnCard(page)).toHaveCount(0)
 
+    // a request: the card shows with it, once a focus asked it
     await repo.setReviewRequests(availableReviewRequests([OLD]))
-    await repo.advanceBackendClock(121_000)
-    await emitTauriEvent(page, "tauri://focus")
+    await focusPastReviewRequestsAge(page, repo, () => getReviewRow(page, 101).isVisible())
     await expect(getReviewRow(page, 101)).toBeVisible()
   })
 

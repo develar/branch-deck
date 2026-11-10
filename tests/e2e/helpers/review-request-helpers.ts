@@ -5,6 +5,8 @@ import { expect } from "../fixtures/base-test"
 import { openedReview } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
+import { focusWindow } from "./sync-helpers"
+import type { TestRepositoryBuilder } from "./test-repository"
 import { sendProgress } from "./wait-helpers"
 
 /**
@@ -146,4 +148,37 @@ export async function routeReviewFetch(page: Page, answer: { progress: number[];
     await route.fallback()
   })
   return calls
+}
+
+/**
+ * Moves the clock of the session of `repo` past the age at which a focus asks the review requests again (two minutes
+ * after the last answer, `FOCUS_REFRESH_AGE` of `domain_policy::refresh`) and gives the window the focus, until `done`
+ * holds, however long the test lets it take. One move and one focus ask nothing when the list before them has not
+ * ended in the session yet: a list in flight takes the focus in, and a list that ends after the move counts its two
+ * minutes from the time it ended, past the move. The fake GitHub counts a call as it answers, before the session applies
+ * the answer, and under load the apply comes seconds later. So the clock moves again only while no list was asked since
+ * its last move; once one was, its answer is awaited
+ */
+export async function focusPastReviewRequestsAge(page: Page, repo: TestRepositoryBuilder, done: () => Promise<boolean>): Promise<void> {
+  // the calls of the fake at the last move, before the first none
+  let calls: number | null = null
+  await expect
+    .poll(
+      async () => {
+        if (await done()) {
+          return true
+        }
+        const now = await repo.getReviewRequestCalls()
+        if (calls !== null && now > calls) {
+          return false
+        }
+        calls = now
+        await repo.advanceBackendClock(121_000)
+        // the session took the focus in: a loaded server answers it late, and the next move waits for it
+        await focusWindow(page)
+        return done()
+      },
+      { timeout: 0 },
+    )
+    .toBe(true)
 }

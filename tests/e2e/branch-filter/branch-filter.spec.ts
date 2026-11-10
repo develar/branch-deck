@@ -171,7 +171,7 @@ test.describe("Branch filter", () => {
     await expect(getPushButton(findBranchRow(page, "docs"))).toHaveAttribute("aria-busy", "true")
     await expect(chip(page, "yourMove")).toHaveText("Your Move10")
     await expect(chip(page, "waiting")).toHaveText("Waiting1")
-    await held.release()
+    await runAndWaitForAnswer(page, "execute", () => held.release())
     await expectPushedToast(page, "docs")
     expect(await remotePushes(repo)).toEqual([["docs"]])
     await expect(chip(page, "yourMove")).toHaveText("Your Move10")
@@ -194,7 +194,7 @@ test.describe("Branch filter", () => {
 
     await row.click({ button: "right" })
     await expect(create.locator("[data-slot=kbd]")).toHaveText("P")
-    await create.click()
+    await runAndWaitForAnswer(page, "execute", () => create.click())
     await expectPushedToast(page, "docs")
     expect(await remotePushes(repo)).toEqual([["docs"]])
 

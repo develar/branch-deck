@@ -12,7 +12,7 @@ import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_H
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, runAndWaitForAnswer, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { holdCommand, holdIntent, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -196,7 +196,7 @@ test.describe("Header beside the traffic lights", () => {
 
     // the first entry: the push of feature-auth, which the main window reads once its journal changed
     const read = nextAnswer(page, "read_activity")
-    await pushFromRowMenu(page, "feature-auth")
+    await runAndWaitForAnswer(page, "execute", () => pushFromRowMenu(page, "feature-auth"))
     await expectPushedToast(page, "feature-auth")
     await read
     expect(await headerBoxes(page, HEADER_CONTROLS)).toEqual(before)

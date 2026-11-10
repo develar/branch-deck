@@ -912,7 +912,7 @@ test.describe("Stacked branches", () => {
     await syncAndWaitForBranches()
     const auth = findBranchRow(page, "auth")
     const button = getPushButton(auth)
-    await button.click()
+    await runAndWaitForAnswer(page, "execute", () => button.click())
     await expectPushedToast(page, "auth", "1 commit · created the remote branch")
     expect(await remotePushes(repo)).toEqual([["auth"]])
     // auth is on the remote, its children are not: its push is Push with Children, the commits they send and the words
@@ -1065,8 +1065,8 @@ test.describe("Stacked branches", () => {
     await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Copy Retarget Command" })).toHaveCount(0)
     await closeMenus(page)
-    await getPushButton(findBranchRow(page, "session")).click()
-    await expect(pushedToast(page, "session").locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch")
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "session")).click())
+    await expectPushedToast(page, "session", "1 commit · created the remote branch")
     expect(gitHubWrites(await repo.getGitHubLog())).toEqual(retargets)
   })
 

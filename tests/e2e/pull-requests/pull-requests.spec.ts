@@ -29,7 +29,7 @@ import {
 } from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
-import { emitTauriEvent, pressSyncHeld, releaseHeldSync } from "../helpers/sync-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -544,7 +544,7 @@ baseTest.describe("Pull requests without GitHub", () => {
   baseTest("should keep a pushed branch on the way to master while its pull request waits for its author", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("simple", { pullRequests: availablePullRequests(pullRequest("test-branch", 800, { reviewDecision: "changesRequested" })) })
     await syncAndWaitForBranches()
-    await getPushButton(findBranchRow(page, "test-branch")).click()
+    await runAndWaitForAnswer(page, "execute", () => getPushButton(findBranchRow(page, "test-branch")).click())
     await expectPushedToast(page, "test-branch")
 
     // pushed is not landed: the changes requested are the move
