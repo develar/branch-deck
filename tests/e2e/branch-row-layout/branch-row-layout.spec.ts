@@ -568,28 +568,79 @@ test.describe("The room of the branch view", () => {
 })
 
 test.describe("A branch menu that changes while it shows", () => {
-  // the `issue_links` template: JIRA-456 of three commits, none pushed
-  test("should keep its open submenu under the pointer when a sync puts a group above it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("issue_links")
-    await syncAndWaitForBranches()
+  /** The menu of JIRA-456 (`issue_links`: three commits, none pushed) with "Copy ›" open, the pointer on Copy; no conflict yet */
+  async function openCopy(page: Page) {
     await openContextMenu(page, findBranchRow(page, "JIRA-456"))
     await openSubmenu(page, "Copy")
     const copy = page.getByRole("menuitem", { name: "Copy", exact: true })
-    const copyName = page.getByRole("menuitem", { name: "Copy Branch Name" })
     const fix = page.getByRole("menuitem", { name: "Fix Conflict…" })
-    // the pointer on the items of Copy, as on its way to a click; no conflict yet
-    await copyName.hover()
-    await expect(copyName).toHaveAttribute("data-highlighted")
     await expect(fix).toHaveCount(0)
+    return { copy, copyName: page.getByRole("menuitem", { name: "Copy Branch Name" }), fix }
+  }
 
-    // behind the app's back: a commit of JIRA-456 that needs a commit of another branch, so the next sync builds the
-    // branch with a conflict, and its menu leads with the fix
+  /**
+   * Behind the app's back, a commit of JIRA-456 that needs a commit of another branch, then the sync from the menu: it
+   * builds the branch with a conflict, and the menu leads with "Fix Conflict…", the group of Copy below it
+   */
+  async function syncAConflict(page: Page, repo: TestRepositoryBuilder, fix: Locator): Promise<void> {
     await repo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n" }, 1704182400)
     await repo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
     await syncFromMenu(page)
     await expect(fix).toBeVisible()
+  }
+
+  test("should keep its open submenu under the pointer when a sync puts a group above it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("issue_links")
+    await syncAndWaitForBranches()
+    const { copy, copyName, fix } = await openCopy(page)
+    // the pointer on the items of Copy, as on its way to a click
+    await copyName.hover()
+    await expect(copyName).toHaveAttribute("data-highlighted")
+
+    await syncAConflict(page, repo, fix)
     // the group of Copy is below the fix now, its submenu with it: still open under the pointer, and its item copies
     await expect(copy).toHaveAttribute("aria-expanded", "true")
     await testContextMenuCopy(page, "Copy Branch Name", "JIRA-456")
   })
+
+  /**
+   * "Copy ›" open with the pointer resting on Copy, then the sync of a conflict: Copy goes down with its group from
+   * under the pointer, which rests on the item now there. The browser tells Copy that the pointer left and that item that
+   * it came, at the same position; the submenu stays open. Returns where the pointer rests
+   */
+  async function moveCopyFromUnderThePointer(page: Page, repo: TestRepositoryBuilder) {
+    const { copy, copyName, fix } = await openCopy(page)
+    const box = await boxOf(copy)
+    await syncAConflict(page, repo, fix)
+    await expect.poll(() => copy.evaluate(element => element.matches(":hover"))).toBe(false)
+    await expect(copy).toHaveAttribute("aria-expanded", "true")
+    return { copy, copyName, point: { x: box.x + box.width / 2, y: box.y + box.height / 2 } }
+  }
+
+  test(
+    "should keep its open submenu when a sync moves its item from under a still pointer, until the pointer moves away",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("issue_links")
+      await syncAndWaitForBranches()
+      const { copy, point } = await moveCopyFromUnderThePointer(page, repo)
+      // a move away from the submenu, over the item now under the pointer: the pointer left Copy, the submenu closes
+      await page.mouse.move(point.x - 20, point.y)
+      await expect(copy).toHaveAttribute("aria-expanded", "false")
+    },
+  )
+
+  test(
+    "should keep its open submenu when a sync moves its item from under a still pointer, and a move into it",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("issue_links")
+      await syncAndWaitForBranches()
+      const { copy, copyName } = await moveCopyFromUnderThePointer(page, repo)
+      // the move into the submenu keeps it, and its item takes the pointer
+      await copyName.hover()
+      await expect(copyName).toHaveAttribute("data-highlighted")
+      await expect(copy).toHaveAttribute("aria-expanded", "true")
+    },
+  )
 })

@@ -154,7 +154,9 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   of a component that renders its root anew. Better keep the element: one tree in every state of a control, its
   Stop Waiting a sibling in a wrapper that is there without it too; a new element loses the focus as well, and the
   keys with it. Its E2E test brings a trigger under the pointer with `bringUnderStillPointer` and runs the delay with
-  `page.clock.fastForward`.
+  `page.clock.fastForward`. The other way round, Chromium and WebKit tell the trigger that moved from under a still
+  pointer that the pointer left it: an open submenu stays open until the next move (`hoverClosesOnMove`), which gives the
+  trigger the leave as a move, and Base UI closes the submenu only for a move away from it.
 - **A popup that goes took the hover of its trigger** (Base UI 1.9): each popup part shares the timers of its trigger's
   hover (`useHoverInteractionSharedState`) and cleared them as it unmounted at the end of its exit. The pointer back over
   the trigger of a popup closed otherwise than by its hover (its view hid, a press of an item) started a delay that the

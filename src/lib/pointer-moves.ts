@@ -39,6 +39,9 @@ let pointed = new WeakSet<Element>()
 let pointedKeys = new Set<string>()
 // the triggers whose open by the hover was canceled: the next move over one enters it (`hoverOpensOnMove`)
 const refused = new WeakSet<Element>()
+// the triggers whose close by the hover was canceled: the next move leaves each, unless it is over it
+// (`hoverClosesOnMove`)
+const kept = new Set<Element>()
 // the keys of the control each element is (`registerControl`), and the elements of each key (`hoverAgain`)
 const controlKeys = new WeakMap<Element, Set<string>>()
 const keyElements = new Map<string, Set<Element>>()
@@ -91,6 +94,28 @@ function track(event: Event): void {
       point(target, event)
     } else if (event.relatedTarget instanceof Element) {
       point(event.relatedTarget, event)
+    }
+  }
+  // the last event of a move: what it pointed is known
+  if (moving && event.type === "mousemove" && kept.size > 0) {
+    leaveKept(event)
+  }
+}
+
+/**
+ * The kept triggers the move went past get the leave of the pointer, at its position and as an event of the move, so
+ * Base UI decides by the pointer that moved (the safe polygon of a submenu: toward the submenu it stays, away it
+ * closes); a kept trigger the pointer came back over keeps its popup as it is
+ */
+function leaveKept(move: MouseEvent): void {
+  const triggers = [...kept]
+  kept.clear()
+  for (const trigger of triggers) {
+    if (trigger.isConnected && !pointerMovedOver(trigger)) {
+      const relatedTarget = move.target instanceof Element ? move.target : null
+      const leave = new MouseEvent("mouseleave", { clientX: move.clientX, clientY: move.clientY, relatedTarget, view: window })
+      moves.add(leave)
+      trigger.dispatchEvent(leave)
     }
   }
 }
@@ -192,6 +217,25 @@ interface OpenChangeDetails {
   readonly event: Event
   readonly trigger: Element | undefined
   cancel: () => void
+}
+
+/**
+ * The `onOpenChange` of a submenu: a close by the hover that no move of the pointer brought is canceled, so content that
+ * moved the trigger of an open submenu from under a still pointer closes nothing (a group that came above it: the
+ * browser tells the trigger that the pointer left, and the item now there that it came, at the same position, the
+ * safe polygon of Base UI closes on that leave). The next move leaves the trigger (`leaveKept`), unless it is over it
+ */
+export function hoverClosesOnMove<Details extends OpenChangeDetails>(onOpenChange?: (open: boolean, details: Details) => void): (open: boolean, details: Details) => void {
+  return (open, details) => {
+    // as `pointerMoved`: a close of Base UI may come without its event
+    const event: Event | undefined = details.event
+    if (!open && details.reason === "trigger-hover" && event?.isTrusted === true && !moving && !moves.has(event) && event.target instanceof Element) {
+      details.cancel()
+      kept.add(event.target)
+      return
+    }
+    onOpenChange?.(open, details)
+  }
 }
 
 /**

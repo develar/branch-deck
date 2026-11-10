@@ -1,5 +1,6 @@
 // local customisation: `ContextMenu` closes when its view of the main window hides (`useCloseWhenViewHides`); the hover
-// of a submenu opens it only with a move of the pointer (`hoverOpensOnMove`)
+// of a submenu opens it only with a move of the pointer (`hoverOpensOnMove`), and its trigger moved from under a still
+// pointer closes it only at the next move (`hoverClosesOnMove`)
 "use client"
 
 import * as React from "react"
@@ -7,7 +8,7 @@ import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu
 import { cn } from "cn"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
-import { hoverOpensOnMove } from "@/lib/pointer-moves"
+import { hoverClosesOnMove, hoverOpensOnMove } from "@/lib/pointer-moves"
 
 function ContextMenu({ open, onOpenChange, ...props }: Omit<ContextMenuPrimitive.Root.Props, "actionsRef">) {
   const closing = useCloseWhenViewHides(open, onOpenChange)
@@ -91,7 +92,7 @@ function ContextMenuItem({
 }
 
 function ContextMenuSub({ onOpenChange, ...props }: ContextMenuPrimitive.SubmenuRoot.Props) {
-  return <ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} onOpenChange={hoverOpensOnMove(onOpenChange)} />
+  return <ContextMenuPrimitive.SubmenuRoot data-slot="context-menu-sub" {...props} onOpenChange={hoverOpensOnMove(hoverClosesOnMove(onOpenChange))} />
 }
 
 function ContextMenuSubTrigger({
