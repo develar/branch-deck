@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile, Concern, ConcernName, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewCommit, ReviewUnit, StepCommit } from "@/lib/bindings"
 import { plainTitle } from "@/lib/commit"
+import type { CountedFile } from "@/lib/diff/view-files"
 import { fileMenuItems } from "@/lib/file-actions"
 import {
   alsoRowKey,
@@ -31,6 +32,11 @@ import { moduleShape, reviewStep, stepGroup } from "@/test-support/review-step"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
+}
+
+/** `changed` once its diff is read, with `hiddenLines` lines the whitespace policy hides (`withEngineCounts`) */
+function hiding(changed: CommitFile, hiddenLines: number): CountedFile {
+  return { ...changed, hiddenLines }
 }
 
 /** `name` per row, indented by depth, directories with a trailing slash, a file "also in" a concern with its words, a commit after "@" */
@@ -71,6 +77,19 @@ describe("buildFileTree", () => {
     expect([top!.fileCount, top!.additions, top!.deletions]).toEqual([4, 39, 22])
     const projection = top!.children[1] as FileTreeDirectory
     expect([projection.name, projection.key, projection.fileCount, projection.additions]).toEqual(["projection", "plugins/air/backend/session/projection/", 2, 22])
+  })
+
+  it("sums the lines the whitespace policy hides in the read files of each directory, and marks none without them", () => {
+    // the counts of the engine once each diff is read: A.kt and B.kt hide a blank line and two, C.kt hides none
+    const [src, readme] = buildFileTree([hiding(file("src/a/A.kt"), 1), hiding(file("src/a/B.kt"), 2), file("src/b/C.kt"), hiding(file("README.md"), 1)])
+    const [a, b] = (src as FileTreeDirectory).children as FileTreeDirectory[]
+    expect([src!.key, (src as FileTreeDirectory).hiddenLines, a!.key, a!.hiddenLines]).toEqual(["src/", 3, "src/a/", 3])
+    expect(b!.key).toBe("src/b/")
+    expect(b).not.toHaveProperty("hiddenLines")
+    // a file at the root is no group: it carries its own
+    expect(readme).toMatchObject({ kind: "file", file: { hiddenLines: 1 } })
+    // before the diffs are read no file hides a line, so no group is marked
+    expect(buildFileTree(AIR)[0]).not.toHaveProperty("hiddenLines")
   })
 
   it("puts directories first and sorts names as a person reads them", () => {
@@ -361,6 +380,19 @@ describe("the concerns in the tree of a review", () => {
     const mixedOther = mixedTree.find(node => node.key === OTHER_CHANGES_KEY) as FileTreeDirectory
     const mixedDocs = mixedOther.children[0] as FileTreeDirectory
     expect([mixedDocs.fileCount, mixedDocs.additions, mixedDocs.deletions]).toEqual([1, 4, 2])
+
+    // the lines a file hides count where its own row is: a row "also in" Other changes counts none of them
+    const hidden = buildReviewTree(
+      files.map(it => (it.path === "docs/tools.md" || it.path === "src/App.kt" ? hiding(it, 2) : it)),
+      mechanical,
+      concernChapters([concerns[0]!, concerns[1]!, rest]),
+    )
+    const hiddenOther = hidden.find(node => node.key === OTHER_CHANGES_KEY) as FileTreeDirectory
+    const [hiddenDocs, hiddenSrc] = hiddenOther.children as FileTreeDirectory[]
+    expect([hiddenOther.hiddenLines, hiddenDocs!.key, hiddenSrc!.key, hiddenSrc!.hiddenLines]).toEqual([2, "docs/", "src/", 2])
+    expect(hiddenDocs).not.toHaveProperty("hiddenLines")
+    // the concern that holds the own row of docs/tools.md counts its lines
+    expect((hidden.find(node => node.key === concernRowKey("g")) as FileTreeDirectory).hiddenLines).toBe(2)
   })
 
   it("is the tree without concerns while the plan has none but the rest, and leaves out a concern the filter empties", () => {
@@ -545,6 +577,15 @@ describe("the steps of the commits in the tree of a review", () => {
       "src/Rule.kt",
     ])
     expect(listsCommits(tree)).toBe(true)
+  })
+
+  it("marks the counts of the row of a step, its commit, with the lines the whitespace policy hides in its read files", () => {
+    // under Ignore Whitespace and Blank Lines the rule's file hides a blank line once its diff is read, the paint's none
+    const tree = buildReviewTree([hiding(file("src/Rule.kt", 3, 1), 1), file("src/Paint.kt", 2, 0)], new Map(), chapters, places)
+    const [rule, paint] = tree as FileTreeDirectory[]
+    expect([rule!.commit?.commit.subject, rule!.fileCount, rule!.additions, rule!.deletions, rule!.hiddenLines]).toEqual(["IJAI-1 the rule", 1, 3, 1, 1])
+    expect(paint!.commit?.commit.subject).toBe("IJAI-1 the paint")
+    expect(paint).not.toHaveProperty("hiddenLines")
   })
 
   it("keeps the group of a step that lands nothing until narrowed, then lists only steps with shown files", () => {

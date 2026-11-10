@@ -811,6 +811,35 @@ pub mod templates {
       )
   }
 
+  /// Two commits with bodies for the whitespace policies in the review of a branch, which tells each commit as a step:
+  /// the first adds a blank line apart from a real change in `Format.kt` and changes `Main.kt`, the second adds
+  /// `Other.kt`
+  pub fn review_whitespace() -> RepoTemplate {
+    RepoTemplate::new("review_whitespace")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("src/Format.kt", "class Format {\n  fun first() = 1\n  fun middle() = 0\n  fun second() = 3\n}\n"),
+          ("src/Main.kt", "fun main() = Format().second()\n"),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(spacing) feat(format): the second format returns 4\n\nThe second format returns 4, a blank line sets the first one apart, and the main prints it.",
+        &[
+          ("src/Format.kt", "class Format {\n  fun first() = 1\n\n  fun middle() = 0\n  fun second() = 4\n}\n"),
+          ("src/Main.kt", "fun main() = println(Format().second())\n"),
+        ],
+        Some(1704118200),
+      )
+      .commit_with_timestamp(
+        "(spacing) feat(other): the other format\n\nThe other format stands beside the first one.",
+        &[("src/Other.kt", "class Other {\n  fun first() = 1\n}\n")],
+        Some(1704118800),
+      )
+  }
+
   /// One commit that deletes a file and changes another, for the status of a deleted file in the tree and the review
   pub fn commit_deleted() -> RepoTemplate {
     RepoTemplate::new("commit_deleted")

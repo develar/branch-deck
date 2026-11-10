@@ -763,9 +763,9 @@ const FileTreeRow = memo(function FileTreeRow({
 })
 
 /**
- * What a row says after its name to a screen reader: the status and the lines of a file (and those the whitespace policy
- * hides), the files of a group, the role
- * of a commit; the group of a step of the commits its files, then its commit
+ * What a row says after its name to a screen reader: the status and the lines of a file, the files of a group and their
+ * lines, each with the lines the whitespace policy hides; the role of a commit; the group of a step of the commits its
+ * files, then its commit
  */
 function rowCounts(node: FileTreeNode): string {
   if (node.kind === "commit") {
@@ -777,13 +777,18 @@ function rowCounts(node: FileTreeNode): string {
     }
     // a group that lands nothing: its commits say what it is
     const parts = [
-      node.fileCount > 0 ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}` : null,
+      node.fileCount > 0 ? `${formatFileCount(node.fileCount)}, ${linesWords(node.additions, node.deletions, node.hiddenLines)}` : null,
       node.commit === undefined ? null : commitFacts(node.commit),
     ]
     return parts.filter(part => part !== null).join(", ")
   }
-  const hidden = node.file.hiddenLines ?? 0
-  return `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}${hidden > 0 ? `, ${formatHiddenLines(hidden)}` : ""}`
+  return `${formatFileStatus(node.file.status)}, ${linesWords(node.file.additions, node.file.deletions, node.file.hiddenLines)}`
+}
+
+/** "+1 −1", then the lines the whitespace policy hides: "+1 −1, 1 line hidden by Whitespace" */
+function linesWords(additions: number, deletions: number, hidden: number | undefined): string {
+  const lines = `+${additions} −${deletions}`
+  return hidden === undefined || hidden === 0 ? lines : `${lines}, ${formatHiddenLines(hidden)}`
 }
 
 /** The role of a commit, what it is since the user's review, its branch, its hash */
@@ -974,9 +979,21 @@ function SectionRowContent({ node }: { node: FileTreeDirectory }) {
   )
 }
 
+/**
+ * The mark of counts under which the whitespace policy hides lines: a dotted underline whose hover says how many ("1 line
+ * hidden by Whitespace"), so a count that differs from git's says why
+ */
+const HIDDEN_LINES_MARK = "underline decoration-muted-foreground decoration-dotted underline-offset-2"
+
+/** The counts of a group over its files, marked as the counts of a file are where its read files hide lines (`HIDDEN_LINES_MARK`) */
 function DirectoryLineCounts({ node }: { node: FileTreeDirectory }) {
+  const hidden = node.hiddenLines ?? 0
   return (
-    <span className="shrink-0 text-xs leading-5 text-muted-foreground" data-testid="directory-line-counts">
+    <span
+      className={cn("shrink-0 text-xs leading-5 text-muted-foreground", hidden > 0 && HIDDEN_LINES_MARK)}
+      title={hidden > 0 ? formatHiddenLines(hidden) : undefined}
+      data-testid="directory-line-counts"
+    >
       <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />
     </span>
   )
@@ -1013,16 +1030,13 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
   )
 }
 
-/**
- * The counts of a file under the whitespace policy; with lines the policy hides, a dotted underline whose hover says how
- * many ("1 line hidden by Whitespace"), so a count that differs from git's says why
- */
+/** The counts of a file under the whitespace policy, marked where the policy hides lines of it (`HIDDEN_LINES_MARK`) */
 function FileLineCounts({ node: { file } }: { node: FileTreeFile }) {
   const hidden = file.hiddenLines ?? 0
   return (
     (file.additions > 0 || file.deletions > 0 || hidden > 0) && (
       <span
-        className={cn("shrink-0 text-xs leading-5", hidden > 0 && "underline decoration-muted-foreground decoration-dotted underline-offset-2")}
+        className={cn("shrink-0 text-xs leading-5", hidden > 0 && HIDDEN_LINES_MARK)}
         title={hidden > 0 ? formatHiddenLines(hidden) : undefined}
         data-testid={hidden > 0 ? "file-hidden-lines" : undefined}
       >

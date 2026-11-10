@@ -4,6 +4,7 @@ import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { chooseWhitespace, openCommitFilesSection, openCommitPreview as openPreview } from "../helpers/preview-helpers"
+import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
@@ -419,9 +420,54 @@ simpleTest.describe("Whitespace of the diffs", () => {
     await expect(format).toHaveAttribute("aria-description", "modified, +1 −1, 1 line hidden by Whitespace")
     await expect(hidden).toHaveAttribute("title", "1 line hidden by Whitespace")
     await expect(format.locator(".dv-row[data-kind=changed]")).toHaveCount(1)
+    // the directory of the two files sums their lines under the policy, and marks the line hidden in Format.kt
+    const src = tree.getByRole("treeitem", { name: "src", exact: true })
+    await expect(src).toHaveAttribute("aria-description", "2 files, +2 −2, 1 line hidden by Whitespace")
+    await expect(src.getByTestId("directory-line-counts")).toHaveAttribute("title", "1 line hidden by Whitespace")
 
     await choose("Do Not Ignore")
     await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
     await expect(hidden).toHaveCount(0)
+    await expect(src).toHaveAttribute("aria-description", "2 files, +5 −4")
+    await expect(src.getByTestId("directory-line-counts")).not.toHaveAttribute("title")
   })
+})
+
+simpleTest.describe("Whitespace of the diffs in the review of a branch", () => {
+  // the `review_whitespace` template: the branch `spacing` of two commits with bodies, a step each; the first adds a blank
+  // line apart from a real change in Format.kt and changes Main.kt, the second adds Other.kt
+  simpleTest(
+    "the row of a step, its commit, marks the lines the whitespace policy hides in its files once their diffs are read",
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("review_whitespace")
+      turnOnReviewPlan(repo)
+      const window = await openPlanWindow(page, syncAndWaitForBranches, "spacing")
+      const { tree } = reviewSidebar(window)
+      const step = tree.getByRole("treeitem", { name: "1 · feat(format): the second format returns 4", exact: true })
+      const other = tree.getByRole("treeitem", { name: "2 · feat(other): the other format", exact: true })
+      const format = tree.getByRole("treeitem", { name: "src/Format.kt", exact: true })
+      const counts = step.getByTestId("directory-line-counts")
+      const choose = (label: string) => chooseWhitespace(window, window.getByTestId("review-window"), label)
+
+      // Do Not Ignore: the blank line is a change, the policy hides nothing, so the counts of the step have no mark
+      await expect(format).toHaveAttribute("aria-description", "modified, +2 −1")
+      await expect(step).toHaveAttribute("aria-description", /^2 files, \+3 −2, commit [0-9a-f]{7,}$/)
+      await expect(counts).not.toHaveAttribute("title")
+
+      // Ignore Whitespace and Blank Lines: the blank line of Format.kt is hidden; the row of its step sums the lines of its
+      // files under the policy and says, as the row of the file does, how many the policy hides
+      await choose("Ignore Whitespace and Blank Lines")
+      await expect(format).toHaveAttribute("aria-description", "modified, +1 −1, 1 line hidden by Whitespace")
+      await expect(step).toHaveAttribute("aria-description", /^2 files, \+2 −2, 1 line hidden by Whitespace, commit [0-9a-f]{7,}$/)
+      await expect(counts).toHaveText("+2 −2")
+      await expect(counts).toHaveAttribute("title", "1 line hidden by Whitespace")
+      // the step of Other.kt hides no line: no mark
+      await expect(other).toHaveAttribute("aria-description", /^1 file, \+3 −0, commit [0-9a-f]{7,}$/)
+      await expect(other.getByTestId("directory-line-counts")).not.toHaveAttribute("title")
+
+      await choose("Do Not Ignore")
+      await expect(step).toHaveAttribute("aria-description", /^2 files, \+3 −2, commit [0-9a-f]{7,}$/)
+      await expect(counts).not.toHaveAttribute("title")
+    },
+  )
 })

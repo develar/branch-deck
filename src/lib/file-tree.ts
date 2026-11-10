@@ -64,6 +64,11 @@ export interface FileTreeDirectory {
   additions: number
   deletions: number
   /**
+   * Over the whole subtree, the lines the whitespace policy hides in its files whose diff is read
+   * (`CountedFile.hiddenLines`): "1 line hidden by Whitespace"; absent for none
+   */
+  hiddenLines?: number
+  /**
    * A group of files that is no directory: `mechanical`, the Mechanical group at the end of the tree of a review, or
    * the group of one kind in it or in a concern; `concern`, a task of the range; `other`, what no evidence joined;
    * `commits`, the commits of the range no step lists; `section`, a group of a large step (`section`), a heading of the
@@ -125,14 +130,14 @@ export function compareTreeNodes(a: FileTreeNode, b: FileTreeNode): number {
 
 interface MutableDirectory {
   directories: Map<string, MutableDirectory>
-  files: CommitFile[]
+  files: CountedFile[]
 }
 
 /**
  * The files grouped by directory, as IntelliJ and Space show the changes of a commit: a directory with a single
  * subdirectory and no files is merged with it, so a deep path costs one row, and each directory sums its line counts.
  */
-export function buildFileTree(files: readonly CommitFile[], parent?: { key: string; depth: number }): FileTreeNode[] {
+export function buildFileTree(files: readonly CountedFile[], parent?: { key: string; depth: number }): FileTreeNode[] {
   const root: MutableDirectory = { directories: new Map(), files: [] }
   for (const file of files) {
     const segments = file.path.split("/")
@@ -163,21 +168,7 @@ function toNodes(directory: MutableDirectory, prefix: string, depth: number, par
     }
     const key = `${prefix}${name}/`
     const children = toNodes(current, key, depth + 1, key)
-    let fileCount = 0
-    let additions = 0
-    let deletions = 0
-    for (const node of children) {
-      if (node.kind === "file") {
-        fileCount++
-        additions += node.file.additions
-        deletions += node.file.deletions
-      } else if (node.kind === "directory") {
-        fileCount += node.fileCount
-        additions += node.additions
-        deletions += node.deletions
-      }
-    }
-    nodes.push({ kind: "directory", key, name, depth, parentKey, children, fileCount, additions, deletions })
+    nodes.push({ kind: "directory", key, name, depth, parentKey, children, ...subtreeCounts(children) })
   }
   for (const file of directory.files) {
     nodes.push({ kind: "file", key: file.path, name: file.path.slice(prefix.length), depth, parentKey, file })
@@ -299,21 +290,9 @@ export function buildReviewTree(
       return node
     }
     const children = node.children.map(recount)
-    let fileCount = 0
-    let additions = 0
-    let deletions = 0
-    for (const child of children) {
-      if (child.kind === "file") {
-        fileCount++
-        additions += child.file.additions
-        deletions += child.file.deletions
-      } else if (child.kind === "directory") {
-        fileCount += child.fileCount
-        additions += child.additions
-        deletions += child.deletions
-      }
-    }
-    return { ...node, children, fileCount, additions, deletions }
+    // the counts of what is left: a file that became a row "also in" counts no more, its hidden lines neither
+    const { hiddenLines: _before, ...rest } = node
+    return { ...rest, children, ...subtreeCounts(children) }
   }
   // the paths whose main row a chapter holds
   const held = new Set<string>()
@@ -463,10 +442,19 @@ function groupNode(
   group: FileTreeDirectory["group"],
   title?: string,
 ): FileTreeDirectory {
+  return { kind: "directory", key, name, depth, parentKey, children, ...subtreeCounts(children), group, ...(title !== undefined && { title }) }
+}
+
+/**
+ * The counts of a row over the files of its subtree (`children`): the files, their lines, and the lines the whitespace
+ * policy hides in those whose diff is read, absent for none, as a file has them (`CountedFile.hiddenLines`)
+ */
+function subtreeCounts(children: readonly FileTreeNode[]): Pick<FileTreeDirectory, "fileCount" | "additions" | "deletions" | "hiddenLines"> {
   const files = flattenTreeFiles(children)
   const additions = files.reduce((sum, file) => sum + file.additions, 0)
   const deletions = files.reduce((sum, file) => sum + file.deletions, 0)
-  return { kind: "directory", key, name, depth, parentKey, children, fileCount: files.length, additions, deletions, group, ...(title !== undefined && { title }) }
+  const hiddenLines = files.reduce((sum, file) => sum + (file.hiddenLines ?? 0), 0)
+  return hiddenLines === 0 ? { fileCount: files.length, additions, deletions } : { fileCount: files.length, additions, deletions, hiddenLines }
 }
 
 /**
@@ -539,7 +527,7 @@ export function fileActionTarget(node: Exclude<FileTreeNode, FileTreeCommit>): F
 }
 
 /** The files in the order of the tree: what the tree shows from top to bottom with every directory open */
-export function flattenTreeFiles(nodes: readonly FileTreeNode[]): CommitFile[] {
+export function flattenTreeFiles(nodes: readonly FileTreeNode[]): CountedFile[] {
   return nodes.flatMap(node => (node.kind === "file" ? [node.file] : node.kind === "directory" ? flattenTreeFiles(node.children) : []))
 }
 
