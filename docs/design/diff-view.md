@@ -707,7 +707,10 @@ without the deleted parts of an Inline row) and selects a name once its row is p
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
 types in the view or selects elsewhere (`selectWord`). The caret of a field is no selection elsewhere while the name
 still waits for its paint: the search a reveal of a hidden file clears moves its caret, under load after the reveal;
-once the name is selected, a click into a field lets it go. The view draws
+once the name is selected, a click into a field lets it go. A place the review shows before its diffs mount (no diff
+of the subject read yet: the overview alone on the canvas, the changes of a pull request still on their way) waits in
+the review, the last one asked, and is shown as they mount (`withCode` of `CommitReview`): a link of the overview
+followed early selects its name once the diffs come. The view draws
 the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
 (`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`; Kotlin's and Java's from their PSI in one
 walk that keeps the declarations of the name, `kotlin/navigate.rs` and `java/navigate.rs`; TypeScript's and

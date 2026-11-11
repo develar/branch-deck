@@ -760,7 +760,7 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: He
  * The diffs show `place` of a shown file: its line with its name selected, or its header without one; the key of the
  * section that shows its line, undefined where the header shows instead
  */
-function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): string | undefined {
+function showPlace(code: CommitReviewCodeHandle, place: ReviewPlace): string | undefined {
   const line =
     place.line === null
       ? null
@@ -773,9 +773,9 @@ function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): str
           ...(place.name !== null && { name: place.name }),
           ...(place.unit !== undefined && { unit: place.unit }),
         }
-  const shown = line === null ? undefined : code?.revealDeclaration(line, null)
+  const shown = line === null ? undefined : code.revealDeclaration(line, null)
   if (shown === undefined) {
-    code?.scrollToFile(place.path)
+    code.scrollToFile(place.path)
   }
   return shown
 }
@@ -851,15 +851,30 @@ function ReviewLayout({
   // the file of a link is selected once: a later key or search does not select it again
   const revealApplied = loaded !== null && loaded.revealPath !== null && selection.revealed === loaded.revealPath
   const code = useRef<CommitReviewCodeHandle>(null)
+  // what the overview, a card or a link asked of the diffs before they mounted (no diff of the subject read yet: the
+  // overview alone on the canvas, a pull request's changes still on their way): kept, the last ask alone, and done as
+  // they mount, so a place shown early is not lost
+  const waitingForCode = useRef<{ readonly key: string | null; readonly action: (code: CommitReviewCodeHandle) => void } | null>(null)
+  const withCode = useCallback(
+    (action: (code: CommitReviewCodeHandle) => void) => {
+      if (code.current === null) {
+        waitingForCode.current = { key: loadedKey, action }
+      } else {
+        waitingForCode.current = null
+        action(code.current)
+      }
+    },
+    [loadedKey],
+  )
   const revealedPlace = loaded?.revealPlace ?? null
   useEffect(() => {
     if (revealApplied) {
       if (revealedPlace !== null) {
-        showPlace(code.current, revealedPlace)
+        withCode(view => showPlace(view, revealedPlace))
       }
       onRevealApplied()
     }
-  }, [revealApplied, revealedPlace, onRevealApplied])
+  }, [revealApplied, revealedPlace, onRevealApplied, withCode])
   const tree = useRef<HTMLDivElement>(null)
 
   // the diffs show the selected file of what the search kept
@@ -985,6 +1000,18 @@ function ReviewLayout({
       ]
     })
   }, [diffs, diffsComplete, files, narrative, outside, chapters, reviewFacts, withoutCard])
+  // the diffs mounted (`viewFiles`, with the first diff read): what was asked of them before, for this subject
+  const codeMounted = viewFiles !== null
+  useEffect(() => {
+    const waiting = waitingForCode.current
+    if (!codeMounted || waiting === null || code.current === null) {
+      return
+    }
+    waitingForCode.current = null
+    if (waiting.key === loadedKey) {
+      waiting.action(code.current)
+    }
+  }, [codeMounted, loadedKey])
   // the section whose layer of openings holds the opening of a step: its first, else the one a step of no card stands
   // above; of a step of no card after the last card (the epilogue), the last section
   const openingOfStep = useCallback(
@@ -1074,14 +1101,14 @@ function ReviewLayout({
       // the overview is no longer what the reader is at
       setOverviewShown(false)
       if (section === undefined) {
-        code.current?.scrollToFile(file.path)
+        withCode(view => view.scrollToFile(file.path))
       } else {
         setTopSection(section)
         setTopOpening(null)
-        code.current?.scrollToSection(section, "card")
+        withCode(view => view.scrollToSection(section, "card"))
       }
     },
-    [rows, select, cardsSeen],
+    [rows, select, cardsSeen, withCode],
   )
 
   // a place of a popover or of the card of the review plan: its file is selected as a row of the tree is, by its path
@@ -1096,11 +1123,13 @@ function ReviewLayout({
         return
       }
       select(file.path, null)
-      // of a file in parts the part that shows the place, else the one its row shows
-      const shown = showPlace(code.current, { ...place, path: file.path })
-      cardsSeen([{ path: file.path, key: shown ?? rows.sectionOf.get(file.path) ?? file.path }])
+      withCode(view => {
+        // of a file in parts the part that shows the place, else the one its row shows
+        const shown = showPlace(view, { ...place, path: file.path })
+        cardsSeen([{ path: file.path, key: shown ?? rows.sectionOf.get(file.path) ?? file.path }])
+      })
     },
-    [files, select, onRevealHidden, cardsSeen, rows],
+    [files, select, onRevealHidden, cardsSeen, rows, withCode],
   )
 
   // a use the change left outside: its file at the head of the review opens over it
@@ -1112,11 +1141,11 @@ function ReviewLayout({
       }
       void readOutsidePlace(repositoryPath, revision, place).then(target => {
         if (target !== null) {
-          code.current?.openOutside(target)
+          withCode(view => view.openOutside(target))
         }
       })
     },
-    [revision],
+    [revision, withCode],
   )
   // a step of the overview, of the bar or the title of its opening: its opening at the top of the diffs, its row selected
   const showStep = useCallback(
@@ -1124,10 +1153,10 @@ function ReviewLayout({
       const opening = openingOfStep(step)
       if (opening !== undefined) {
         showVisibleSection(opening.key, opening.path, "opening", step)
-        code.current?.scrollToSection(opening.key, "opening", step)
+        withCode(view => view.scrollToSection(opening.key, "opening", step))
       }
     },
-    [openingOfStep, showVisibleSection],
+    [openingOfStep, showVisibleSection, withCode],
   )
   // the block of a story a mark of a section showed last: its story outlines it
   const [highlight, setHighlight] = useState<StoryHighlight | null>(null)

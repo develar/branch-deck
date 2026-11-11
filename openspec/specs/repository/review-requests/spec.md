@@ -1245,6 +1245,7 @@ opening.
 - **WHEN** the user follows a breakage link in the changes of a pull request
 - **THEN** the review shows the declaration, or a use outside the changes over them
   [@test] tests/e2e/branch-review/review-plan.spec.ts (`should show the place of a breakage link in the changes of a pull request: the declaration, a use outside over the changes`)
+  [@test] tests/e2e/branch-review/review-plan.spec.ts (`should select the name of a breakage link in the changes of a pull request whose diffs are still to come, once they come`)
 
 ### Requirement: Review window: The description is the pull request as its author wrote it
 

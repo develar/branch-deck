@@ -13,6 +13,7 @@ import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/revi
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -133,6 +134,29 @@ async function openPlanWindowWithFilters(page: Page, repo: TestRepositoryBuilder
 }
 
 /** The tree of the files of the review, and the rows of the three files of `plan` */
+/**
+ * The branch `plan` as the pull request #301, its plan on, in its review window on Changes (D) once the pull request is
+ * fetched (the overview tab is its description, the changes tell the plan): the breakage entry of `helper`, the row of
+ * Store.kt; `beforeLoad` runs before the window loads
+ */
+async function openPlanRequestChanges(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  beforeLoad?: (window: Page) => Promise<unknown>,
+): Promise<{ window: Page; review: Locator; helper: Locator; store: Locator }> {
+  const repo = await setupRepo("symbol_navigation", { reviewRequests: availableReviewRequests([reviewRequest("plan", 301, 1, { title: "Scale the helper" })]) })
+  await setupPlan(repo, { experimental: true })
+  await syncAndWaitForBranches()
+  const { window, review, fetched } = await openRequestReview(page, 301, beforeLoad === undefined ? {} : { beforeLoad })
+  // Changes waits for the fetch of the pull request: its answer, then the tab
+  await fetched
+  await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
+  await expect(review.getByTestId("review-overview")).toHaveCount(0)
+  await window.keyboard.press("d")
+  return { window, review, helper: review.getByTestId("review-overview").getByTestId("review-plan-breakage-entry"), store: planRows(window).store }
+}
+
 function planRows(window: Page) {
   const tree = window.getByRole("tree", { name: "Changed files" })
   const row = (name: string) => tree.getByRole("treeitem", { name })
@@ -321,18 +345,7 @@ test.describe("The review plan in the branch review", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // the branch `plan` as a pull request, its plan on: the overview tab is its description, the changes tell the plan
-    const repo = await setupRepo("symbol_navigation", { reviewRequests: availableReviewRequests([reviewRequest("plan", 301, 1, { title: "Scale the helper" })]) })
-    await setupPlan(repo, { experimental: true })
-    await syncAndWaitForBranches()
-    const { window, review, fetched } = await openRequestReview(page, 301)
-    // Changes waits for the fetch of the pull request: its answer, then the tab
-    await fetched
-    await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
-    await expect(review.getByTestId("review-overview")).toHaveCount(0)
-    await window.keyboard.press("d")
-    const helper = review.getByTestId("review-overview").getByTestId("review-plan-breakage-entry")
-    const { store } = planRows(window)
+    const { window, review, helper, store } = await openPlanRequestChanges(page, setupRepo, syncAndWaitForBranches)
 
     // the entry: its declaration in the changes of all of it, the name selected
     await showHelperDeclaration(window, helper, store)
@@ -341,6 +354,26 @@ test.describe("The review plan in the branch review", () => {
     await showHelperUseOutside(window, helper)
     await expect(review.getByTestId("commit-review")).toBeVisible()
   })
+
+  test(
+    "should select the name of a breakage link in the changes of a pull request whose diffs are still to come, once they come",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the diffs of the changes wait: the link is followed before they come
+      let diffs!: Awaited<ReturnType<typeof holdCommandCalls>>
+      const { window, helper, store } = await openPlanRequestChanges(page, setupRepo, syncAndWaitForBranches, async window => {
+        diffs = await holdCommandCalls(window, "get_file_diffs")
+      })
+      await expect.poll(() => diffs.calls.length).toBeGreaterThan(0)
+      await helper.getByTestId("review-plan-breakage-file").click()
+      await expect(store).toHaveAttribute("aria-selected", "true")
+      expect(await selectedInDiffs(window)).toEqual({ text: "", path: null })
+
+      // the diffs come: the name the link named is selected in its file, the place kept until they could show it
+      diffs.release()
+      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
+    },
+  )
 
   test("should mark in the forms of an entry what the change did: a removed parameter struck through, a changed type, an overload only one side has", async ({
     page,
