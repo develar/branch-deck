@@ -191,6 +191,63 @@ pub struct ReferenceHit {
   pub fits: Option<bool>,
 }
 
+/// An entry of the `hits` of a `references` answer. An accio that answers lines (its decision
+/// 2026-11-11-answer-lists-lines-of-marks) lists a line once, with each usage on it as a mark of the line; an older one
+/// lists the usage itself. A review reads usages: a line answers one `ReferenceHit` for each of its marks (`usages`).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum HitEntry {
+  Line(LineHit),
+  Usage(ReferenceHit),
+}
+
+/// A line of a `references` answer: its place and text, and the usages on it
+#[derive(Deserialize)]
+struct LineHit {
+  #[serde(rename = "file")]
+  path: String,
+  line: u32,
+  #[serde(default)]
+  snippet: String,
+  marks: Vec<LineMark>,
+}
+
+/// A usage on a `LineHit`: what a `ReferenceHit` says beyond its line
+#[derive(Deserialize)]
+struct LineMark {
+  column: u32,
+  kind: Access,
+  resolved: Resolved,
+  #[serde(default)]
+  end_line: Option<u32>,
+  #[serde(default)]
+  arguments: Option<Vec<CallArgument>>,
+  #[serde(default)]
+  fits: Option<bool>,
+}
+
+/// The usages of the `hits` of a `references` answer, in its order: each usage of an older accio, each mark of a line
+fn usages<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Vec<ReferenceHit>, D::Error> {
+  let mut hits = Vec::new();
+  for entry in Vec::<HitEntry>::deserialize(deserializer)? {
+    match entry {
+      HitEntry::Usage(hit) => hits.push(hit),
+      HitEntry::Line(line) => hits.extend(line.marks.into_iter().map(|mark| ReferenceHit {
+        path: line.path.clone(),
+        line: line.line,
+        column: mark.column,
+        snippet: line.snippet.clone(),
+        kind: mark.kind,
+        resolved: mark.resolved,
+        end_line: mark.end_line,
+        arguments: mark.arguments,
+        fits: mark.fits,
+      })),
+    }
+  }
+  Ok(hits)
+}
+
 /// What ties a usage to the declaration asked about
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -602,7 +659,8 @@ pub struct DescriptorClass {
 /// The usages an index answered, and its name-only candidates excluded by `--resolved`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct References {
-  #[serde(default)]
+  /// The usages, also of an accio that lists them by line (`usages`)
+  #[serde(default, deserialize_with = "usages")]
   pub hits: Vec<ReferenceHit>,
   /// Name-only hits excluded by `--resolved`
   #[serde(default)]
