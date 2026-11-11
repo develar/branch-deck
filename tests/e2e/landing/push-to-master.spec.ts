@@ -104,6 +104,8 @@ test.describe("Push to master", () => {
     const firstAnswer = runAndWaitForAnswer(page, "execute", async () => {
       await pushStep(page, firstBranch).click()
       await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
+      // the start takes the focus after the popover opens: an Enter before it presses the step of the row
+      await expect(popoverStart(page)).toBeFocused()
       await page.keyboard.press("Enter")
     })
 
@@ -112,6 +114,7 @@ test.describe("Push to master", () => {
     await expect(secondStep).toBeEnabled()
     await secondStep.click()
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
+    await expect(popoverStart(page)).toBeFocused()
     await page.keyboard.press("Enter")
     await heldPush.release()
 
