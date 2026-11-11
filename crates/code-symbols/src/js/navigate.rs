@@ -1,8 +1,9 @@
 //! Go to Declaration and Find Usages in a TypeScript, TSX or JavaScript file from oxc's tree
 //! (openspec/specs/commit/symbol-navigation/spec.md): the name at a place, its qualifier, the kind of the reference, its
-//! declaration in the file by the scopes, and the usages of a name, answered by `navigate::{reference_answer,
-//! usage_answers}`. One walk of the tree (`Visit`) inside `js::with_program` finds the name at the place, a second one
-//! every name of its text with its kind and the declaration its scopes bind it to.
+//! declaration in the file by the scopes, and the names of one spelling with their bindings (`navigate::Names`), of
+//! which `navigate` makes the usages and the answers of `names_at` (openspec/specs/commit/name-bindings/spec.md). One
+//! walk of the tree (`Visit`) inside `js::with_program` finds the name at the place, one more per spelling every name
+//! of it with its kind and the declaration its scopes bind it to.
 //!
 //! - **A name** is an identifier of the code: a reference, a binding, the name of a member after its object, of a
 //!   member of a class, an interface or an object type, of an enum member, a key of an object literal, a name of an
@@ -21,42 +22,44 @@
 //! - **The usages** of a local (a declaration inside a function) are the names bound to it; those of any other name
 //!   are its names that no local binds, each with how it uses the name: declared, imported, called, written (the
 //!   target of an assignment, a destructuring one too, and of `++`), else read.
+//! - **What a local is** (`LocalBinding`): a `var`, `let` or `const` a variable, the one of the head of a `for` a loop
+//!   variable, the parameter of a `catch`, of an arrow or a function expression, and of a function declaration or a
+//!   method; no call names a parameter. A parameter with a modifier (`private total`) declares a property; it, the
+//!   parameter of a signature without a body, a function, a class, a type and a type parameter are `Other`.
+//! - **Its site** (`Site`): `{ total }` of an object, of a pattern and of the target of an assignment names the
+//!   property too; any other name a pattern declares or a destructuring assigns is destructured; a name read as a
+//!   type that the scopes bind to a value is a namesake (types and values are apart).
 
 use crate::js;
 use crate::js::field_of;
-use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
+use crate::navigate::{
+  Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding,
+};
 use js_syntax::Dialect;
 // jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{
   ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingIdentifier, BindingPattern,
   BlockStatement, CallExpression, CatchClause, Class, ClassElement, ClassType, ExportAllDeclaration, ExportFromDeclaration, ExportNamedDeclaration, Expression, ForInStatement,
-  ForOfStatement, ForStatement, Function, FunctionType, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, JSXAttributeName, JSXElementName, JSXMemberExpression,
-  JSXMemberExpressionObject, MethodDefinition, ModuleExportName, NewExpression, ObjectProperty, PrivateFieldExpression, PrivateInExpression, Program, PropertyKey,
-  SimpleAssignmentTarget, StaticBlock, StaticMemberExpression, SwitchStatement, TSCallSignatureDeclaration, TSConditionalType, TSConstructSignatureDeclaration, TSConstructorType,
-  TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSFunctionType, TSGlobalDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier,
-  TSIndexSignature, TSInterfaceDeclaration, TSMappedType, TSMethodSignature, TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSPropertySignature,
-  TSQualifiedName, TSTypeAliasDeclaration, TSTypeName, TSTypeParameter, TSTypePredicate, TSTypePredicateName, TSTypeQuery, TaggedTemplateExpression, UpdateExpression,
-  VariableDeclaration, VariableDeclarationKind,
+  ForOfStatement, ForStatement, ForStatementInit, ForStatementLeft, FormalParameter, FormalParameterRest, Function, FunctionType, IdentifierReference, ImportDeclaration,
+  ImportDeclarationSpecifier, JSXAttributeName, JSXElementName, JSXMemberExpression, JSXMemberExpressionObject, MethodDefinition, ModuleExportName, NewExpression, ObjectProperty,
+  PrivateFieldExpression, PrivateInExpression, Program, PropertyKey, SimpleAssignmentTarget, StaticBlock, StaticMemberExpression, SwitchStatement, TSCallSignatureDeclaration,
+  TSConditionalType, TSConstructSignatureDeclaration, TSConstructorType, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSFunctionType, TSGlobalDeclaration,
+  TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSIndexSignature, TSInterfaceDeclaration, TSMappedType, TSMethodSignature, TSModuleReference,
+  TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSPropertySignature, TSQualifiedName, TSTypeAliasDeclaration, TSTypeName, TSTypeParameter, TSTypePredicate,
+  TSTypePredicateName, TSTypeQuery, TaggedTemplateExpression, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
 };
 use js_syntax::oxc_ast_visit::{Visit, walk};
 use js_syntax::oxc_span::{GetSpan, Span};
 use js_syntax::oxc_syntax::scope::ScopeFlags;
 // jscpd:ignore-end
 
-/// The names of the text of the name at `position`, with the span of that one and its text, to `answer`
-fn with_names_at<T: Send>(dialect: Dialect, text: &str, position: Position, answer: impl FnOnce(&[Named], Span, &str) -> Option<T> + Send) -> Option<T> {
+/// The name at `position` of `text` and what its syntax says (`navigate::reference_at`)
+pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> Option<ReferenceAt> {
   let offset = u32::try_from(byte_offset(text, position)?).ok()?;
   super::with_program(dialect, text.as_bytes(), |parsed| {
     let program = parsed.program()?;
     let (span, name) = name_at(program, text, offset)?;
-    answer(&resolve(program, text, name), span, name)
-  })
-  .flatten()
-}
-
-/// The name at `position` of `text` and what its syntax says (`navigate::reference_at`)
-pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> Option<ReferenceAt> {
-  with_names_at(dialect, text, position, |names, span, name| {
+    let names = resolve(program, text, Wanted::named(name));
     let found = names.iter().find(|it| it.span == span)?;
     let local = match found.kind {
       ReferenceKind::Declaration | ReferenceKind::Member | ReferenceKind::MemberCall => None,
@@ -65,38 +68,44 @@ pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> 
     let qualifier = found.qualifier.and_then(|it| text.get(it.start as usize..it.end as usize)).map(ToString::to_string);
     Some(reference_answer(text, span.start as usize, name.to_string(), found.kind, qualifier, local))
   })
+  .flatten()
 }
 
-/// The usages of the name at `position` (`navigate::usages_at`): its own of a local, else every name of the text that no
-/// local binds
-pub(crate) fn usages_at(dialect: Dialect, text: &str, position: Position) -> Option<UsagesAt> {
-  with_names_at(dialect, text, position, |names, span, name| {
-    let local = names.iter().find(|it| it.span == span).and_then(|it| it.binding).filter(|it| it.local);
-    let used = names.iter().filter(|it| match (local, it.binding) {
-      (Some(local), binding) => binding == Some(local),
-      (None, binding) => binding.is_none_or(|it| !it.local),
-    });
-    Some(UsagesAt {
-      name: name.to_string(),
-      local: local.is_some(),
-      usages: usage_answers(text, name, used.map(|it| (it.span.start as usize, it.access))),
-    })
-  })
+/// The answer of `read` for the names of a parse of `text` (`navigate::names_at`, `usages_at`, `usages_of`); `None`
+/// for a text without a program
+pub(crate) fn with_names<R: Send>(dialect: Dialect, text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
+  super::with_program(dialect, text.as_bytes(), |parsed| Some(read(&ProgramNames { program: parsed.program()?, text }))).flatten()
 }
 
-/// The usages of `name` in a text that is not the one of the name (`navigate::usages_of`): its names that no local binds
-pub(crate) fn usages_of(dialect: Dialect, text: &str, name: &str) -> Vec<Usage> {
-  // a cheap test first: most files of a review do not have the word
-  if !text.contains(name) {
-    return Vec::new();
+/// A program and its text, for the names of `navigate::Names`
+struct ProgramNames<'p, 'a> {
+  program: &'p Program<'a>,
+  text: &'p str,
+}
+
+impl Names for ProgramNames<'_, '_> {
+  fn name_at(&self, offset: usize) -> Option<(usize, &str)> {
+    let (span, name) = name_at(self.program, self.text, u32::try_from(offset).ok()?)?;
+    Some((span.start as usize, name))
   }
-  super::with_program(dialect, text.as_bytes(), |parsed| {
-    let Some(program) = parsed.program() else { return Vec::new() };
-    let names = resolve(program, text, name);
-    let used = names.iter().filter(|it| it.binding.is_none_or(|binding| !binding.local));
-    usage_answers(text, name, used.map(|it| (it.span.start as usize, it.access)))
-  })
-  .unwrap_or_default()
+
+  fn resolve(&self, wanted: &Wanted<'_>) -> Vec<Resolved> {
+    let resolved = resolve(self.program, self.text, *wanted).into_iter().map(|it| Resolved {
+      start: it.span.start as usize,
+      access: it.access,
+      site: it.site,
+      binding: it.binding.map(|binding| Bound {
+        start: binding.start as usize,
+        local: binding.local,
+      }),
+    });
+    resolved.collect()
+  }
+
+  /// Every name the language binds is written: `arguments` and `undefined` are names of the text
+  fn is_implicit(&self, _name: &str) -> bool {
+    false
+  }
 }
 
 /// The name whose text holds the byte at `offset`, else the one that ends there (`foo|`), and its text
@@ -107,9 +116,9 @@ fn name_at<'t>(program: &Program<'_>, text: &'t str, offset: u32) -> Option<(Spa
   Some((span, text.get(span.start as usize..span.end as usize)?))
 }
 
-/// Every name `name` of the tree in the order of the text, with its kind, its access and its declaration
-fn resolve<'t>(program: &Program<'_>, text: &'t str, name: &'t str) -> Vec<Named> {
-  let mut walk = Walk::new(text, Want::Named(name));
+/// Every name the resolution looks for in the order of the text, with its kind, its access, its site and its declaration
+fn resolve<'t>(program: &Program<'_>, text: &'t str, wanted: Wanted<'t>) -> Vec<Named> {
+  let mut walk = Walk::new(text, Want::Named(wanted));
   walk.visit_program(program);
   let mut names = walk.names;
   names.sort_by_key(|it| it.span.start);
@@ -117,11 +126,11 @@ fn resolve<'t>(program: &Program<'_>, text: &'t str, name: &'t str) -> Vec<Named
   names
 }
 
-/// The declaration a name is bound to: where its name starts, and whether it is a local
+/// The declaration a name is bound to: where its name starts, and what it is when a function declares it
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Bound {
+struct Declared {
   start: u32,
-  local: bool,
+  local: Option<LocalBinding>,
 }
 
 /// A name of the text looked for, with what its syntax says
@@ -130,21 +139,22 @@ struct Named {
   kind: ReferenceKind,
   qualifier: Option<Span>,
   access: Access,
-  binding: Option<Bound>,
+  site: Site,
+  binding: Option<Declared>,
 }
 
-/// What a walk looks for: the name at an offset, or every name of a text
+/// What a walk looks for: the name at an offset, or the names of a resolution
 #[derive(Clone, Copy)]
 enum Want<'t> {
   At(u32),
-  Named(&'t str),
+  Named(Wanted<'t>),
 }
 
 /// A scope of the walk: its declarations of the name, the names in it its declarations may bind, and whether it is a
 /// function's (its `var`s, its parameters, its declarations locals)
 struct Scope {
   function: bool,
-  declared: Vec<Bound>,
+  declared: Vec<Declared>,
   /// Indices into `Walk::names` of the names waiting for a declaration of this scope or of one around it
   pending: Vec<usize>,
 }
@@ -167,6 +177,14 @@ struct Walk<'t> {
   importing: bool,
   /// The declarations of a `var` belong to the function around them
   var: bool,
+  /// The next `var`, `let` or `const` is the head's of a `for`
+  loop_head: bool,
+  /// What the parameters of the function the walk is in declare
+  parameters: LocalKind,
+  /// What a binding the walk meets declares, inside a function: set around a pattern, `Other` elsewhere
+  declares: LocalKind,
+  /// What the site of the names the walk meets makes of them: set around a pattern or a shorthand, `Plain` elsewhere
+  site: Site,
 }
 
 impl<'t> Walk<'t> {
@@ -180,7 +198,38 @@ impl<'t> Walk<'t> {
       scopes: Vec::new(),
       importing: false,
       var: false,
+      loop_head: false,
+      parameters: LocalKind::Other,
+      declares: LocalKind::Other,
+      site: Site::Plain,
     }
+  }
+
+  /// The pattern `body` walks declares locals of `kind`
+  fn declaring(&mut self, kind: LocalKind, body: impl FnOnce(&mut Self)) {
+    let saved = std::mem::replace(&mut self.declares, kind);
+    body(self);
+    self.declares = saved;
+  }
+
+  /// The names `body` walks stand at a site of `site`
+  fn at_site(&mut self, site: Site, body: impl FnOnce(&mut Self)) {
+    let saved = std::mem::replace(&mut self.site, site);
+    body(self);
+    self.site = saved;
+  }
+
+  /// Code inside a pattern or a target (a default, a computed key, the object of a member): its names are of no
+  /// pattern
+  fn aside(&mut self, body: impl FnOnce(&mut Self)) {
+    self.declaring(LocalKind::Other, |walk| walk.at_site(Site::Plain, body));
+  }
+
+  /// A function-like scope around what `body` walks, whose parameters declare `parameters`
+  fn function_scope(&mut self, parameters: LocalKind, body: impl FnOnce(&mut Self)) {
+    let saved = std::mem::replace(&mut self.parameters, parameters);
+    self.scoped(true, body);
+    self.parameters = saved;
   }
 
   fn text_of(&self, span: Span) -> &'t str {
@@ -206,9 +255,12 @@ impl<'t> Walk<'t> {
       return;
     }
     for index in scope.pending {
-      let start = self.names[index].span.start;
-      let binding = scope.declared.iter().rev().find(|it| it.start <= start).or_else(|| scope.declared.first());
-      self.names[index].binding = binding.copied();
+      let named = &mut self.names[index];
+      let start = named.span.start;
+      let binding = scope.declared.iter().rev().find(|it| it.start <= start).or_else(|| scope.declared.first()).copied();
+      named.binding = binding;
+      // a type is never a value: `total` of `let x: total` is a type of that spelling
+      named.site = site_by_binding(named.site, named.kind == ReferenceKind::Type, binding.and_then(|it| it.local));
     }
   }
 
@@ -227,8 +279,8 @@ impl<'t> Walk<'t> {
           self.before.get_or_insert(span);
         }
       }
-      Want::Named(name) => {
-        if self.text_of(span) != name {
+      Want::Named(wanted) => {
+        if !wanted.takes(self.text_of(span), span.start as usize) {
           return;
         }
         let access = match kind {
@@ -243,6 +295,7 @@ impl<'t> Walk<'t> {
           kind,
           qualifier,
           access,
+          site: self.site,
           binding: None,
         });
         if binds == Binds::Scopes
@@ -256,18 +309,23 @@ impl<'t> Walk<'t> {
 
   /// The name of a declaration, which the scope at `scope` declares (or no scope, `None`: a member)
   fn declaration(&mut self, span: Span, scope: Option<usize>) {
-    if let (Want::Named(name), Some(scope)) = (self.want, scope)
-      && self.text_of(span) == name
+    // inside a function a declaration is a local: what the pattern around it declares, a member `Other`
+    let in_function = self.in_function(scope.unwrap_or_else(|| self.scopes.len().saturating_sub(1)));
+    let kind = if scope.is_some() { self.declares } else { LocalKind::Other };
+    let declared = Declared {
+      start: span.start,
+      local: in_function.then(|| LocalBinding::of(kind)),
+    };
+    if let (Want::Named(wanted), Some(scope)) = (self.want, scope)
+      && wanted.takes(self.text_of(span), span.start as usize)
     {
-      let local = self.in_function(scope);
-      self.scopes[scope].declared.push(Bound { start: span.start, local });
+      self.scopes[scope].declared.push(declared);
     }
     let index = self.names.len();
     self.name(span, ReferenceKind::Declaration, None, Access::Declaration, Binds::Never);
     // the name of a declaration is bound to itself
     if self.names.len() > index {
-      let local = scope.map_or_else(|| self.in_function(self.scopes.len().saturating_sub(1)), |it| self.in_function(it));
-      self.names[index].binding = Some(Bound { start: span.start, local });
+      self.names[index].binding = Some(declared);
     }
   }
 
@@ -337,33 +395,30 @@ impl<'t> Walk<'t> {
     match target {
       AssignmentTarget::ArrayAssignmentTarget(it) => {
         for element in it.elements.iter().flatten() {
-          self.target_with_default(element);
+          self.at_site(Site::Destructured, |walk| walk.target_with_default(element));
         }
         if let Some(rest) = &it.rest {
-          self.target(&rest.target);
+          self.at_site(Site::Destructured, |walk| walk.target(&rest.target));
         }
       }
       AssignmentTarget::ObjectAssignmentTarget(it) => {
         for property in &it.properties {
           match property {
             AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(it) => {
-              self.value(it.binding.span, ReferenceKind::Value, Access::Write);
+              // `({ total } = box)`: the name it writes is the property it reads
+              self.at_site(Site::Shorthand, |walk| walk.value(it.binding.span, ReferenceKind::Value, Access::Write));
               if let Some(init) = &it.init {
-                self.visit_expression(init);
+                self.aside(|walk| walk.visit_expression(init));
               }
             }
             AssignmentTargetProperty::AssignmentTargetPropertyProperty(it) => {
-              if it.computed {
-                self.visit_property_key(&it.name);
-              } else if let PropertyKey::StaticIdentifier(key) = &it.name {
-                self.unbound(key.span, ReferenceKind::Value, None, Access::Read);
-              }
-              self.target_with_default(&it.binding);
+              self.aside(|walk| walk.pattern_key(&it.name, it.computed));
+              self.at_site(Site::Destructured, |walk| walk.target_with_default(&it.binding));
             }
           }
         }
         if let Some(rest) = &it.rest {
-          self.target(&rest.target);
+          self.at_site(Site::Destructured, |walk| walk.target(&rest.target));
         }
       }
       target => {
@@ -378,7 +433,7 @@ impl<'t> Walk<'t> {
     match target {
       AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(it) => {
         self.target(&it.binding);
-        self.visit_expression(&it.init);
+        self.aside(|walk| walk.visit_expression(&it.init));
       }
       target => {
         if let Some(target) = target.as_assignment_target() {
@@ -391,15 +446,28 @@ impl<'t> Walk<'t> {
   fn simple_target(&mut self, target: &SimpleAssignmentTarget<'_>) {
     match target {
       SimpleAssignmentTarget::AssignmentTargetIdentifier(it) => self.value(it.span, ReferenceKind::Value, Access::Write),
-      SimpleAssignmentTarget::StaticMemberExpression(it) => {
-        self.visit_expression(&it.object);
-        self.unbound(it.property.span, ReferenceKind::Member, Some(it.object.span()), Access::Write);
-      }
-      SimpleAssignmentTarget::PrivateFieldExpression(it) => {
-        self.visit_expression(&it.object);
-        self.unbound(it.field.span, ReferenceKind::Member, Some(it.object.span()), Access::Write);
-      }
-      target => walk::walk_simple_assignment_target(self, target),
+      // a member a destructuring assigns is a member: the names of its object are of no pattern
+      target => self.aside(|walk| match target {
+        SimpleAssignmentTarget::StaticMemberExpression(it) => {
+          walk.visit_expression(&it.object);
+          walk.unbound(it.property.span, ReferenceKind::Member, Some(it.object.span()), Access::Write);
+        }
+        SimpleAssignmentTarget::PrivateFieldExpression(it) => {
+          walk.visit_expression(&it.object);
+          walk.unbound(it.field.span, ReferenceKind::Member, Some(it.object.span()), Access::Write);
+        }
+        target => walk::walk_simple_assignment_target(walk, target),
+      }),
+    }
+  }
+
+  /// The key of a property of a pattern or of a destructuring target that names another binding (`{ key: name }`): a
+  /// name no scope binds, a computed one code
+  fn pattern_key(&mut self, key: &PropertyKey<'_>, computed: bool) {
+    if computed {
+      self.visit_property_key(key);
+    } else if let PropertyKey::StaticIdentifier(key) = key {
+      self.unbound(key.span, ReferenceKind::Value, None, Access::Read);
     }
   }
 
@@ -419,14 +487,15 @@ impl<'t> Walk<'t> {
     self.unbound(name.right.span, member, Some(name.left.span()), Access::Read);
   }
 
-  /// A function: its parameters, type parameters and body in a scope of its own, its own name too for an expression
-  fn function(&mut self, function: &Function<'_>, own_name: bool) {
-    self.push(true);
-    if own_name && let Some(id) = &function.id {
-      self.binding(id);
-    }
-    js::walk_function(self, function);
-    self.pop();
+  /// A function: its parameters (which declare `parameters`), type parameters and body in a scope of its own, its own
+  /// name too for an expression
+  fn function(&mut self, function: &Function<'_>, own_name: bool, parameters: LocalKind) {
+    self.function_scope(parameters, |walk| {
+      if own_name && let Some(id) = &function.id {
+        walk.binding(id);
+      }
+      js::walk_function(walk, function);
+    });
   }
 
   /// A field or an accessor of a class: its name a declaration, its decorators, type and value code
@@ -460,7 +529,7 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// A scope of its own around what `body` walks: a block, a loop, a signature
+  /// A scope of its own around what `body` walks: a block, a loop
   fn scoped(&mut self, function: bool, body: impl FnOnce(&mut Self)) {
     self.push(function);
     body(self);
@@ -530,8 +599,11 @@ impl<'a> Visit<'a> for Walk<'_> {
 
   fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
     if it.shorthand {
-      // `{ name }`: one name, the value
-      self.visit_expression(&it.value);
+      // `{ name }`: one name, the value, which names the property too
+      match &it.value {
+        Expression::Identifier(name) => self.at_site(Site::Shorthand, |walk| walk.visit_identifier_reference(name)),
+        value => self.visit_expression(value),
+      }
       return;
     }
     self.member_key(&it.key, it.computed, ReferenceKind::Value);
@@ -546,12 +618,22 @@ impl<'a> Visit<'a> for Walk<'_> {
     self.scoped(false, |walk| walk::walk_for_statement(walk, it));
   }
 
+  fn visit_for_statement_init(&mut self, it: &ForStatementInit<'a>) {
+    self.loop_head = matches!(it, ForStatementInit::VariableDeclaration(_));
+    walk::walk_for_statement_init(self, it);
+  }
+
   fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
     self.scoped(false, |walk| walk::walk_for_in_statement(walk, it));
   }
 
   fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
     self.scoped(false, |walk| walk::walk_for_of_statement(walk, it));
+  }
+
+  fn visit_for_statement_left(&mut self, it: &ForStatementLeft<'a>) {
+    self.loop_head = matches!(it, ForStatementLeft::VariableDeclaration(_));
+    walk::walk_for_statement_left(self, it);
   }
 
   fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
@@ -564,17 +646,45 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
-    self.scoped(false, |walk| walk::walk_catch_clause(walk, it));
+    self.scoped(false, |walk| {
+      if let Some(parameter) = &it.param {
+        walk.declaring(LocalKind::CatchParameter, |walk| walk.visit_binding_pattern(&parameter.pattern));
+        js::walk_parameter_type(walk, parameter.type_annotation.as_deref(), None);
+      }
+      walk.visit_block_statement(&it.body);
+    });
+  }
+
+  fn visit_formal_parameter_rest(&mut self, it: &FormalParameterRest<'a>) {
+    js::walk_rest_parameter(self, it, |walk, pattern| walk.declaring(walk.parameters, |walk| walk.visit_binding_pattern(pattern)));
+  }
+
+  fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
+    js::walk_decorators(self, &it.decorators);
+    // a parameter with a modifier (`private total`) declares a property of its class
+    let kind = if it.accessibility.is_some() || it.readonly || it.r#override {
+      LocalKind::Other
+    } else {
+      self.parameters
+    };
+    self.declaring(kind, |walk| walk.visit_binding_pattern(&it.pattern));
+    js::walk_parameter_type(self, it.type_annotation.as_deref(), it.initializer.as_deref());
   }
 
   fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
-    self.scoped(true, |walk| walk::walk_static_block(walk, it));
+    self.function_scope(LocalKind::Other, |walk| walk::walk_static_block(walk, it));
   }
 
   fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+    // only the declaration that is the head of a `for` declares its variables
+    let kind = if std::mem::take(&mut self.loop_head) {
+      LocalKind::LoopVariable
+    } else {
+      LocalKind::Variable
+    };
     for declarator in &it.declarations {
       self.var = it.kind == VariableDeclarationKind::Var;
-      self.visit_binding_pattern(&declarator.id);
+      self.declaring(kind, |walk| walk.visit_binding_pattern(&declarator.id));
       self.var = false;
       if let Some(annotation) = &declarator.type_annotation {
         self.visit_ts_type_annotation(annotation);
@@ -587,22 +697,34 @@ impl<'a> Visit<'a> for Walk<'_> {
 
   fn visit_binding_pattern(&mut self, it: &BindingPattern<'a>) {
     match it {
+      BindingPattern::BindingIdentifier(identifier) => self.visit_binding_identifier(identifier),
       BindingPattern::ObjectPattern(pattern) => {
         for property in &pattern.properties {
-          if property.computed {
-            self.visit_property_key(&property.key);
-          } else if !property.shorthand
-            && let PropertyKey::StaticIdentifier(key) = &property.key
-          {
-            self.unbound(key.span, ReferenceKind::Value, None, Access::Read);
+          if !property.shorthand {
+            self.aside(|walk| walk.pattern_key(&property.key, property.computed));
           }
-          self.visit_binding_pattern(&property.value);
+          // `{ total }` names the property it reads; `{ key: total }` takes a value apart
+          let site = if property.shorthand { Site::Shorthand } else { Site::Destructured };
+          self.at_site(site, |walk| walk.visit_binding_pattern(&property.value));
         }
         if let Some(rest) = &pattern.rest {
-          self.visit_binding_pattern(&rest.argument);
+          self.at_site(Site::Destructured, |walk| walk.visit_binding_pattern(&rest.argument));
         }
       }
-      pattern => walk::walk_binding_pattern(self, pattern),
+      BindingPattern::ArrayPattern(pattern) => {
+        self.at_site(Site::Destructured, |walk| {
+          for element in pattern.elements.iter().flatten() {
+            walk.visit_binding_pattern(element);
+          }
+          if let Some(rest) = &pattern.rest {
+            walk.visit_binding_pattern(&rest.argument);
+          }
+        });
+      }
+      BindingPattern::AssignmentPattern(pattern) => {
+        self.visit_binding_pattern(&pattern.left);
+        self.aside(|walk| walk.visit_expression(&pattern.right));
+      }
     }
   }
 
@@ -612,14 +734,14 @@ impl<'a> Visit<'a> for Walk<'_> {
         if let Some(id) = &it.id {
           self.binding(id);
         }
-        self.function(it, false);
+        self.function(it, false, LocalKind::Parameter);
       }
-      FunctionType::FunctionExpression | FunctionType::TSEmptyBodyFunctionExpression => self.function(it, true),
+      FunctionType::FunctionExpression | FunctionType::TSEmptyBodyFunctionExpression => self.function(it, true, LocalKind::LambdaParameter),
     }
   }
 
   fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-    self.scoped(true, |walk| {
+    self.function_scope(LocalKind::LambdaParameter, |walk| {
       if let Some(parameters) = &it.type_parameters {
         walk.visit_ts_type_parameter_declaration(parameters);
       }
@@ -682,7 +804,7 @@ impl<'a> Visit<'a> for Walk<'_> {
       self.visit_decorator(decorator);
     }
     self.member_declaration(&it.key, it.computed);
-    self.function(&it.value, false);
+    self.function(&it.value, false, LocalKind::Parameter);
   }
 
   fn visit_ts_index_signature(&mut self, it: &TSIndexSignature<'a>) {
@@ -699,25 +821,25 @@ impl<'a> Visit<'a> for Walk<'_> {
 
   fn visit_ts_method_signature(&mut self, it: &TSMethodSignature<'a>) {
     self.member_declaration(&it.key, it.computed);
-    self.scoped(true, |walk| {
+    self.function_scope(LocalKind::Other, |walk| {
       js::walk_signature(walk, it.type_parameters.as_deref(), it.this_param.as_deref(), &it.params, it.return_type.as_deref());
     });
   }
 
   fn visit_ts_call_signature_declaration(&mut self, it: &TSCallSignatureDeclaration<'a>) {
-    self.scoped(true, |walk| walk::walk_ts_call_signature_declaration(walk, it));
+    self.function_scope(LocalKind::Other, |walk| walk::walk_ts_call_signature_declaration(walk, it));
   }
 
   fn visit_ts_construct_signature_declaration(&mut self, it: &TSConstructSignatureDeclaration<'a>) {
-    self.scoped(true, |walk| walk::walk_ts_construct_signature_declaration(walk, it));
+    self.function_scope(LocalKind::Other, |walk| walk::walk_ts_construct_signature_declaration(walk, it));
   }
 
   fn visit_ts_function_type(&mut self, it: &TSFunctionType<'a>) {
-    self.scoped(true, |walk| walk::walk_ts_function_type(walk, it));
+    self.function_scope(LocalKind::Other, |walk| walk::walk_ts_function_type(walk, it));
   }
 
   fn visit_ts_constructor_type(&mut self, it: &TSConstructorType<'a>) {
-    self.scoped(true, |walk| walk::walk_ts_constructor_type(walk, it));
+    self.function_scope(LocalKind::Other, |walk| walk::walk_ts_constructor_type(walk, it));
   }
 
   fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {

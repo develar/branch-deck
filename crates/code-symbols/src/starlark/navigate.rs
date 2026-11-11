@@ -1,22 +1,29 @@
 //! Go to Declaration and Find Usages in a Starlark file from its PSI (openspec/specs/commit/symbol-navigation/spec.md): the name
 //! at a place, the kind of the reference, its declaration in the file by the scopes, and the usages of a name,
-//! answered by `navigate::{reference_answer, usage_answers}`, as Java's and C#'s (`psi_navigate`).
+//! answered by `psi_navigate` and `navigate`, as Java's and C#'s.
 //!
 //! - **A name** is an `IDENTIFIER` leaf. A label in a string (`":runtime"`, `"//pkg:x"`) is none: a reference here is
 //!   a name the tree uses, and a label needs a package model the file does not hold.
 //! - **Its kind** by the node around it: the name of a `def`, of a parameter, of a name an `=` assigns or of a name a
 //!   `load` binds is a declaration; the callee of a call is a call (`native.cc_library` a member call, `native` its
 //!   qualifier); a name after a dot is a member; else a value.
-//! - **Its declaration** by the two scopes of Starlark: the file, which sees its `def`s, the names its top level
-//!   assigns and the names its `load`s bind wherever they are, and the body of a `def`, which sees its parameters and
-//!   the names it assigns. A `load`ed name is declared by its `load`, so Go to Declaration of a loaded macro leads to
-//!   the line that loads it.
-//! - **The usages** of a name declared in a `def` are the names bound to it, inside that `def` alone; those of any
-//!   other name are its names that no local binds, each with how it uses the name (`access_of`): a name a `load`
-//!   binds is an import, a name an `=` assigns is its declaration, as every assignment of Starlark declares a name.
+//! - **Its declaration** by the scopes of Starlark: the file, which sees its `def`s, the names its top level
+//!   assigns and the names its `load`s bind wherever they are; the body of a `def` or a `lambda`, which sees its
+//!   parameters and the names it assigns; a comprehension, which sees its variables in all of it. The default of a
+//!   parameter is read where its function is defined and the first collection of a comprehension where it stands:
+//!   neither sees its own scope (`Scoping::sees`). A `load`ed name is declared by its `load`, so Go to Declaration of
+//!   a loaded macro leads to the line that loads it.
+//! - **The usages** of a name declared in a `def` or by a comprehension are the names bound to it, inside that scope
+//!   alone; those of any other name are its names that no local binds, each with how it uses the name (`access_of`):
+//!   a name a `load` binds is an import, a name an `=` assigns is its declaration, as every assignment of Starlark
+//!   declares a name.
+//! - **What a local is** (`local_of`, openspec/specs/commit/name-bindings/spec.md): a name a body assigns a variable,
+//!   the name a `for` or a comprehension binds a loop variable, the parameter of a `lambda`, and the parameter of a
+//!   `def`, which a call may name unless it is `*args` or `**kwargs`; a `def` inside a `def` is `Other`.
+//! - **Its site** (`site_of`): the name of a named argument, a name a tuple or a list of targets assigns.
 
-use crate::navigate::{Access, ReferenceKind};
-use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in};
+use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site};
+use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in, is_within, parent_kind};
 use starlark_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree, psi, string};
 
 /// Starlark's reading of its PSI for Go to Declaration and Find Usages (`psi_navigate`)
@@ -32,10 +39,55 @@ pub(crate) const NAVIGATION: Reading<starlark_syntax::Starlark, Tree> = Reading 
   is_named: |tree, leaf, name| is_name(tree, leaf) && name_of(tree, leaf) == name,
   hoisted,
   scopes: |tree, is_named| Box::new(StarlarkScopes { tree, is_named }),
-  is_local: |tree, declared| is_local_in(tree, declared, is_function),
+  is_local: |tree, declared| is_local_in(tree, declared, is_scope),
+  local_of,
+  site_of,
+  is_implicit: |_| false,
   access_of,
   name_start,
 };
+
+/// What holds the targets of an assignment or a `for` beside the statement itself: `a, b = pair`, `[a, b] = pair`
+const fn is_target_list(kind: NodeKind) -> bool {
+  matches!(kind, NodeKind::TUPLE_EXPRESSION | NodeKind::LIST_LITERAL_EXPRESSION | NodeKind::PARENTHESIZED_EXPRESSION)
+}
+
+/// What a local declares, by its declaration and what it is a part of
+fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
+  match kind {
+    NodeKind::MANDATORY_PARAMETER | NodeKind::OPTIONAL_PARAMETER | NodeKind::VARIADIC_PARAMETER | NodeKind::KEYWORD_VARIADIC_PARAMETER => {
+      match parent_kind(tree, declaration).and_then(|it| parent_kind(tree, it.0)) {
+        Some((_, NodeKind::LAMBDA_EXPRESSION)) => LocalBinding::of(LocalKind::LambdaParameter),
+        Some((_, NodeKind::FUNCTION_DECLARATION)) => LocalBinding {
+          kind: LocalKind::Parameter,
+          // `*args` and `**kwargs` take what no parameter names
+          named_by_calls: matches!(kind, NodeKind::MANDATORY_PARAMETER | NodeKind::OPTIONAL_PARAMETER),
+        },
+        _ => LocalBinding::OTHER,
+      }
+    }
+    NodeKind::TARGET_EXPRESSION => {
+      let holder = std::iter::successors(parent_kind(tree, declaration), |it| parent_kind(tree, it.0)).find(|it| !is_target_list(it.1));
+      LocalBinding::of(match holder {
+        Some((_, NodeKind::ASSIGNMENT_STATEMENT)) => LocalKind::Variable,
+        // a `for` statement and the `for` of a comprehension
+        Some(_) => LocalKind::LoopVariable,
+        None => LocalKind::Other,
+      })
+    }
+    _ => LocalBinding::OTHER,
+  }
+}
+
+/// What the site of a name makes of it beside its binding (`Site`). Starlark has one kind of name: a call and a value
+/// of a spelling are one binding
+fn site_of(tree: &Tree, leaf: NodeId, _kind: ReferenceKind, _binding: Option<LocalBinding>) -> Site {
+  match parent_kind(tree, leaf) {
+    Some((_, NodeKind::NAMED_ARGUMENT_EXPRESSION)) => Site::NamedArgument,
+    Some((target, NodeKind::TARGET_EXPRESSION)) if parent_kind(tree, target).is_some_and(|it| is_target_list(it.1)) => Site::Destructured,
+    _ => Site::Plain,
+  }
+}
 
 /// A name of the code: an identifier, and the string a `load` binds a name by (`load(":a.bzl", "macro")`), which
 /// declares `macro` in the file
@@ -130,7 +182,17 @@ const fn is_function(kind: NodeKind) -> bool {
   matches!(kind, NodeKind::FUNCTION_DECLARATION | NodeKind::LAMBDA_EXPRESSION)
 }
 
-/// The scopes of Starlark for `psi_navigate::resolve`: the file and the body of a `def`
+/// A comprehension, whose variables no name outside it sees
+const fn is_comprehension(kind: NodeKind) -> bool {
+  matches!(kind, NodeKind::LIST_COMP_EXPRESSION | NodeKind::DICT_COMP_EXPRESSION)
+}
+
+/// A node whose declarations no name outside it sees, locals all: a `def`, a `lambda`, a comprehension
+const fn is_scope(kind: NodeKind) -> bool {
+  is_function(kind) || is_comprehension(kind)
+}
+
+/// The scopes of Starlark for `psi_navigate::resolve`: the file, the body of a `def` or a `lambda`, a comprehension
 struct StarlarkScopes<'t> {
   tree: &'t Tree,
   is_named: IsNamed<'t>,
@@ -145,14 +207,33 @@ impl Scoping<starlark_syntax::Starlark> for StarlarkScopes<'_> {
     Binding::ByScopes
   }
 
+  fn is_scope(&self, _node: NodeId, kind: NodeKind) -> bool {
+    is_scope(kind)
+  }
+
   fn declared(&self, node: NodeId, kind: NodeKind) -> Option<NodeId> {
     // the parameters of a `def` and what the file declares are hoisted; a name a body assigns is seen from there on
     let declares = kind == NodeKind::TARGET_EXPRESSION && !is_hoisted(self.tree, node, kind);
     name_leaf(self.tree, node).filter(|&it| declares && (self.is_named)(it))
   }
 
-  fn is_scope(&self, _node: NodeId, kind: NodeKind) -> bool {
-    is_function(kind)
+  /// The default of a parameter is read where its function is defined, and the first collection of a comprehension
+  /// where the comprehension stands: neither sees the names their scope declares
+  fn sees(&self, scope: NodeId, leaf: NodeId) -> bool {
+    let tree = self.tree;
+    match tree.node_kind(scope) {
+      Some(kind) if is_function(kind) => {
+        let parameters = tree.children(scope).find(|&it| tree.node_kind(it) == Some(NodeKind::PARAMETER_LIST));
+        // of the names of a parameter list, only a parameter's own is no part of a default
+        !parameters.is_some_and(|it| is_within(tree, leaf, it)) || parent_kind(tree, leaf).is_some_and(|it| declares(it.1))
+      }
+      Some(kind) if is_comprehension(kind) => {
+        let first_in = tree.children(scope).find(|&it| tree.token_kind(it) == Some(TokenKind::IN_KEYWORD));
+        let collection = first_in.and_then(|it| std::iter::successors(tree.next_sibling(it), |&it| tree.next_sibling(it)).find(|&it| !tree.is_leaf(it)));
+        !collection.is_some_and(|it| is_within(tree, leaf, it))
+      }
+      _ => true,
+    }
   }
 }
 
@@ -174,7 +255,8 @@ fn hoisted(tree: &Tree, scope: NodeId, is_named: &dyn Fn(NodeId) -> bool) -> Vec
 }
 
 /// Whether a declaration is seen in all of its scope, which collects it on entry (`hoisted`): a `def`, a parameter, a
-/// name a `load` binds, and a name the file's top level assigns
+/// name a `load` binds, a name the file's top level assigns and a name a comprehension binds (its element stands
+/// before its `for`)
 fn is_hoisted(tree: &Tree, declaration: NodeId, kind: NodeKind) -> bool {
   match kind {
     NodeKind::FUNCTION_DECLARATION
@@ -184,16 +266,20 @@ fn is_hoisted(tree: &Tree, declaration: NodeId, kind: NodeKind) -> bool {
     | NodeKind::KEYWORD_VARIADIC_PARAMETER
     | NodeKind::NAMED_LOAD_VALUE
     | NodeKind::STRING_LOAD_VALUE => true,
-    NodeKind::TARGET_EXPRESSION => scope_of(tree, declaration) == tree.root(),
+    NodeKind::TARGET_EXPRESSION => {
+      let scope = scope_of(tree, declaration);
+      scope == tree.root() || tree.node_kind(scope).is_some_and(is_comprehension)
+    }
     _ => false,
   }
 }
 
-/// The scope a declaration belongs to: the innermost `def` above it, else the file. A `def`'s own name is above that
-/// `def`, so it belongs to the scope around it; a parameter is under its `def`, so it belongs to that `def`
+/// The scope a declaration belongs to: the innermost `def`, `lambda` or comprehension above it, else the file. A
+/// `def`'s own name is above that `def`, so it belongs to the scope around it; a parameter is under its `def`, so it
+/// belongs to that `def`
 fn scope_of(tree: &Tree, declaration: NodeId) -> NodeId {
   std::iter::successors(tree.parent(declaration), |&it| tree.parent(it))
-    .find(|&it| tree.node_kind(it).is_some_and(is_function))
+    .find(|&it| tree.node_kind(it).is_some_and(is_scope))
     .unwrap_or_else(|| tree.root())
 }
 

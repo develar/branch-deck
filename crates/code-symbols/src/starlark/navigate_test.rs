@@ -1,4 +1,4 @@
-//! Go to Declaration and Find Usages in Starlark, beside `navigate_test.rs`: the two scopes of the language and the
+//! Go to Declaration and Find Usages in Starlark, beside `navigate_test.rs`: the scopes of the language and the
 //! forms a name is read in.
 
 use crate::highlight::Grammar;
@@ -87,4 +87,29 @@ fn a_label_in_a_string_is_no_name() {
   // `":monolith"` names a target, but the summary and the navigation read names of the tree alone
   let found = usages_of(Grammar::StarlarkBuild, BUILD, "monolith");
   assert_eq!(found, []);
+}
+
+#[test]
+fn a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_defined() {
+  let text = "names = [\"a\"]\nname = \"x\"\n\ndef macro(name, deps = name, key = lambda name = name: name):\n    labels = [name for name in name.split() if name]\n    return [dep for dep in deps for name in dep] + [name]\n\ntops = [name for name in names]\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::Starlark, text, needle, occurrence).1;
+  // the defaults of the `def` and of the `lambda` read the file's `name`, the body of the `lambda` its parameter
+  assert_eq!(
+    (local("name, key", 0), local("name: name", 0), local("name):", 0)),
+    (Some((1, 0)), Some((1, 0)), Some((3, 42)))
+  );
+  // a comprehension sees its variable in its element and its condition; its first collection is read outside it
+  assert_eq!(
+    (local("name for name in name.split", 0), local("name.split", 0), local("name]\n    return", 0)),
+    (Some((4, 23)), Some((3, 10)), Some((4, 23)))
+  );
+  // a later collection sees the variables before it, and past the comprehension the name is the parameter again
+  assert_eq!((local("dep] +", 0), local("name]\n\n", 0)), (Some((5, 20)), Some((3, 10))));
+  // the variable of a comprehension is a local, of the file's top level too: the file's `name` is none of its usages
+  assert_eq!(
+    usages(Grammar::Starlark, text, "name for name in names", 0),
+    (true, vec![(7, Access::Read), (7, Access::Declaration)])
+  );
+  let of_file: Vec<(u32, Access)> = usages_of(Grammar::Starlark, text, "name").iter().map(|it| (it.start.line, it.access)).collect();
+  assert_eq!(of_file, [(1, Access::Declaration), (3, Access::Read), (3, Access::Read)]);
 }

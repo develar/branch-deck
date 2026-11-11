@@ -5,7 +5,7 @@
 //! `PsiModifierListImpl.hasExplicitModifier`, …) by its port in `java_syntax::psi`, not by a walk of its own. `parse` is the
 //! one call into the parser; `summary` makes the `FileSummary`, `highlight` the `LineRuns`, `navigate` the answers of Go
 //! to Declaration and Find Usages, each by the parser-neutral builders (`summary_builder` and `jvm`, `highlight::lines` and
-//! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answers, byte_offset}`).
+//! `highlight::paint::paint_leaf`, `navigate::{reference_answer, Names, byte_offset}`).
 //!
 //! - **The text** is the file as IntelliJ's document holds it (`java_syntax::document_text`): a byte order mark as
 //!   spaces, at the file's offsets; the Java lexer reads `\r`, `\n` and `\r\n` as line ends itself. The tree owns that

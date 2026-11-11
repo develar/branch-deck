@@ -1,20 +1,32 @@
 //! Go to Declaration and Find Usages in a Kotlin file from its PSI (openspec/specs/commit/symbol-navigation/spec.md): the name
 //! at a place (`Tree::leaf_index`), its qualifier, the kind of the reference, its declaration in the file by the
-//! scopes, and the usages of a name, answered by `navigate::{reference_answer, usage_answers}`.
+//! scopes, and the names of one spelling with their bindings (`navigate::Names`), which `navigate` makes the usages and
+//! the answers of `names_at` of (openspec/specs/commit/name-bindings/spec.md).
 //!
 //! - **A name** is an `IDENTIFIER` leaf of the code: not one of a doc comment, not a label (but the `Outer` of
 //!   `this@Outer`, a type).
 //! - **Its declaration by the scopes**: from the name up, the first scope (a function, a lambda, a class or an object,
 //!   an accessor, a block, a `for`, a `catch`, a `when` with its subject, the file, and a body between them) that declares the name, without the
 //!   scopes inside it but with their own names (a function of a class is declared in the class); in it the last
-//!   declaration before the name, else the first (a member declared after its use). The declarations of the name are
-//!   found in one pass over the leaves and filed under the scopes that see them (`Declarations`), so the usages of a
-//!   name cost a pass and a climb per usage, not a walk of the scopes per name.
+//!   declaration the name sees, else the first where the order does not count (a member declared after its use).
+//!   Code reads in its order: a variable is seen after its own statement (`val name = name.trim()` reads another
+//!   `name`), the variable of a `for` after its range, and a name before the declarations of its block is of a scope
+//!   around it. The declarations of the name are found in one pass over the leaves and filed under the scopes that
+//!   see them (`Declarations`), so the usages of a name cost a pass and a climb per usage, not a walk of the scopes
+//!   per name.
 //! - **A local** is a declaration inside code (a function, an `init` block, a block or a `catch` of an initializer) or
 //!   of a function type, which no other file sees: its usages are those bound to it; the usages of any other name are
 //!   those that no local binds. The parameter of a function type, `(event: Event) -> Unit`, no scope sees.
+//! - **What a local is** (`LocalBinding`): a `val` or a `var` of a body and the subject of a `when` a variable, the
+//!   variable of a `for`, the parameter of a `catch`, of a lambda or of a function without a name, and the parameter of
+//!   a function with a name, a constructor or a setter, which a call may name unless a setter declares it; a member of
+//!   a local class or object, a `val` of its constructor, a local function, class or type parameter and the parameter
+//!   of a function type are `Other`.
+//! - **Its site** (`Site`): the name of a named argument, a name after `::` without a receiver, a name called or read
+//!   as a type that the scopes bind to a value (a property with `invoke`, or a function and a class of its spelling),
+//!   an entry of a destructuring. `it` and `field` are bound without a declaration.
 
-use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
+use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding};
 use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
@@ -31,24 +43,6 @@ pub(crate) fn reference_at(kind: FileKind, text: &str, position: Position) -> Op
   })
 }
 
-/// The usages of the name at `position` (`navigate::usages_at`)
-pub(crate) fn usages_at(kind: FileKind, text: &str, position: Position) -> Option<UsagesAt> {
-  with_name_at(kind, text, position, |names, leaf, name, declarations| {
-    let (kind, _) = names.kind_of(leaf);
-    let local = declarations.binding_of(names, leaf, kind).filter(|&it| names.is_local(it));
-    let usages = names.usages(declarations, &name, |binding| match (local, binding) {
-      (Some(local), Some(binding)) => binding == local,
-      (Some(_), None) => false,
-      (None, binding) => binding.is_none_or(|it| !names.is_local(it)),
-    });
-    UsagesAt {
-      name,
-      local: local.is_some(),
-      usages,
-    }
-  })
-}
-
 /// The name leaf at `position` of a parse of `text`, its text and the declarations of that name, for `answer`; `None`
 /// where no name is
 fn with_name_at<T>(kind: FileKind, text: &str, position: Position, answer: impl FnOnce(&Names<'_>, NodeId, String, &Declarations) -> T) -> Option<T> {
@@ -57,20 +51,45 @@ fn with_name_at<T>(kind: FileKind, text: &str, position: Position, answer: impl 
   let names = Names { tree: &tree, text };
   let leaf = names.name_at(offset)?;
   let name = names.text_of(leaf).to_string();
-  let declarations = Declarations::of(&names, &name);
+  let declarations = Declarations::of(&names, &Wanted::named(&name));
   Some(answer(&names, leaf, name, &declarations))
 }
 
-/// The usages of `name` in a text that is not the one of the name (`navigate::usages_of`)
-pub(crate) fn usages_of(kind: FileKind, text: &str, name: &str) -> Vec<Usage> {
-  // a cheap test first: most files of a review do not have the word
-  if !text.contains(name) {
-    return Vec::new();
-  }
+/// The answer of `read` for the names of a parse of a Kotlin text of `kind` (`navigate::names_at`, `usages_at`,
+/// `usages_of`)
+pub(crate) fn with_names<R>(kind: FileKind, text: &str, read: impl FnOnce(&dyn crate::navigate::Names) -> R) -> R {
   let tree = super::parse(text.as_bytes(), kind);
-  let names = Names { tree: &tree, text };
-  let declarations = Declarations::of(&names, name);
-  names.usages(&declarations, name, |binding| binding.is_none_or(|it| !names.is_local(it)))
+  read(&Names { tree: &tree, text })
+}
+
+impl crate::navigate::Names for Names<'_> {
+  fn name_at(&self, offset: usize) -> Option<(usize, &str)> {
+    let leaf = Names::name_at(self, offset)?;
+    Some((self.tree.range(leaf).start, self.text_of(leaf)))
+  }
+
+  fn resolve(&self, wanted: &Wanted<'_>) -> Vec<Resolved> {
+    let declarations = Declarations::of(self, wanted);
+    let resolved = declarations.names.iter().map(|&leaf| {
+      let (kind, _) = self.kind_of(leaf);
+      let binding = declarations.binding_of(self, leaf, kind).map(|it| Bound {
+        start: self.tree.range(it).start,
+        local: self.local_of(it),
+      });
+      Resolved {
+        start: self.tree.range(leaf).start,
+        access: self.access_of(leaf, kind),
+        site: self.site_of(leaf, kind, binding.and_then(|it| it.local)),
+        binding,
+      }
+    });
+    resolved.collect()
+  }
+
+  /// The parameter of a lambda that declares none, and the field of a property in its accessors
+  fn is_implicit(&self, name: &str) -> bool {
+    matches!(name, "it" | "field")
+  }
 }
 
 /// The names of a tree and what its syntax says of each
@@ -234,6 +253,97 @@ impl Names<'_> {
     false
   }
 
+  /// The byte from which the names of its scope see a declared name: the end of its own statement for a variable of
+  /// code, whose initializer reads the name of a scope around it; the end of the range of its `for` for a loop
+  /// variable; else its own start
+  fn seen_from(&self, declared: NodeId) -> usize {
+    let tree = self.tree;
+    let around = |kind: NodeKind| tree.ancestor_or_self(declared, |it| self.kind(it) == Some(kind));
+    let end = match self.local_of(declared).map(|it| it.kind) {
+      Some(LocalKind::Variable) => around(NodeKind::DESTRUCTURING_DECLARATION).or_else(|| tree.parent(declared)),
+      Some(LocalKind::LoopVariable) => around(NodeKind::FOR).and_then(|it| tree.children(it).find(|&part| self.kind(part) == Some(NodeKind::LOOP_RANGE))),
+      _ => None,
+    };
+    end.map_or_else(|| tree.range(declared).start, |it| tree.range(it).end)
+  }
+
+  /// Whether the declarations of a scope are seen only by what follows them: code (a block but a script's, a body, a
+  /// `for`, the subject of a `when`), not the members of a class or a file
+  fn reads_in_order(&self, scope: NodeId) -> bool {
+    match self.kind(scope) {
+      Some(NodeKind::BLOCK) => self.parent_kind(scope) != Some(NodeKind::SCRIPT),
+      Some(NodeKind::BODY | NodeKind::THEN | NodeKind::ELSE | NodeKind::FOR | NodeKind::WHEN) => true,
+      _ => false,
+    }
+  }
+
+  /// What a declared name is when code declares it (`is_local`): a variable, a parameter of some kind, else `Other`
+  fn local_of(&self, declared: NodeId) -> Option<LocalBinding> {
+    if !self.is_local(declared) {
+      return None;
+    }
+    let tree = self.tree;
+    let Some(declaration) = tree.parent(declared) else { return Some(LocalBinding::OTHER) };
+    Some(match self.kind(declaration) {
+      // a property of a local class or object is its member, which a qualifier reaches
+      Some(NodeKind::PROPERTY) if self.parent_kind(declaration) == Some(NodeKind::CLASS_BODY) => LocalBinding::OTHER,
+      Some(NodeKind::PROPERTY) => LocalBinding::of(LocalKind::Variable),
+      Some(NodeKind::VALUE_PARAMETER) => self.parameter_of(declaration),
+      // `val (a, b) = pair`, and the entries of a parameter: `for ((key, value) in map)`, `{ (a, b) -> … }`
+      Some(NodeKind::DESTRUCTURING_DECLARATION_ENTRY) => match tree.parent(declaration).and_then(|it| tree.parent(it)) {
+        Some(parameter) if self.kind(parameter) == Some(NodeKind::VALUE_PARAMETER) => self.parameter_of(parameter),
+        _ => LocalBinding::of(LocalKind::Variable),
+      },
+      _ => LocalBinding::OTHER,
+    })
+  }
+
+  /// What a parameter is by what it is a parameter of. A call may name the parameter of a function with a name and of
+  /// a constructor; a function type takes no named argument, so the parameter of a lambda or of a function without a
+  /// name is its body's alone, as the one of a setter
+  fn parameter_of(&self, parameter: NodeId) -> LocalBinding {
+    let tree = self.tree;
+    let Some(parent) = tree.parent(parameter) else { return LocalBinding::OTHER };
+    if self.kind(parent) == Some(NodeKind::FOR) {
+      return LocalBinding::of(LocalKind::LoopVariable);
+    }
+    let owner = tree.parent(parent).filter(|_| self.kind(parent) == Some(NodeKind::VALUE_PARAMETER_LIST));
+    let named = LocalBinding {
+      kind: LocalKind::Parameter,
+      named_by_calls: true,
+    };
+    // a `val` or a `var` of a constructor is a property of its class
+    let is_property = || {
+      tree
+        .children(parameter)
+        .any(|it| matches!(tree.token_kind(it), Some(TokenKind::VAL_KEYWORD | TokenKind::VAR_KEYWORD)))
+    };
+    match owner.and_then(|it| self.kind(it).map(|kind| (it, kind))) {
+      Some((_, NodeKind::CATCH)) => LocalBinding::of(LocalKind::CatchParameter),
+      Some((_, NodeKind::FUNCTION_LITERAL)) => LocalBinding::of(LocalKind::LambdaParameter),
+      Some((function, NodeKind::FUN)) if psi::get_name_identifier(tree, function).is_none() => LocalBinding::of(LocalKind::LambdaParameter),
+      Some((_, NodeKind::PRIMARY_CONSTRUCTOR)) if is_property() => LocalBinding::OTHER,
+      Some((_, NodeKind::FUN | NodeKind::SECONDARY_CONSTRUCTOR | NodeKind::PRIMARY_CONSTRUCTOR)) => named,
+      Some((_, NodeKind::PROPERTY_ACCESSOR)) => LocalBinding::of(LocalKind::Parameter),
+      _ => LocalBinding::OTHER,
+    }
+  }
+
+  /// What the site of a name makes of it beside its binding (`Site`)
+  fn site_of(&self, leaf: NodeId, kind: ReferenceKind, binding: Option<LocalBinding>) -> Site {
+    let tree = self.tree;
+    let Some(parent) = tree.parent(leaf) else { return Site::Plain };
+    let syntactic = match (self.kind(parent), tree.parent(parent).and_then(|it| self.kind(it))) {
+      (Some(NodeKind::REFERENCE_EXPRESSION), Some(NodeKind::VALUE_ARGUMENT_NAME)) => Site::NamedArgument,
+      // `::total` is a function or a property, never a variable or a parameter of a body
+      (Some(NodeKind::REFERENCE_EXPRESSION), Some(NodeKind::CALLABLE_REFERENCE_EXPRESSION)) if kind == ReferenceKind::Value => Site::Namesake,
+      (Some(NodeKind::DESTRUCTURING_DECLARATION_ENTRY), _) => Site::Destructured,
+      _ => Site::Plain,
+    };
+    // a call of a value is its `invoke` or a function of its spelling, a type is never a value
+    site_by_binding(syntactic, matches!(kind, ReferenceKind::Call | ReferenceKind::Type), binding)
+  }
+
   /// How a name is used: declared, imported, called, written (the end of the left side of an assignment), else read
   fn access_of(&self, leaf: NodeId, kind: ReferenceKind) -> Access {
     match kind {
@@ -278,35 +388,26 @@ impl Names<'_> {
     let reference = tree.children(node).find(|&child| tree.node_kind(child) == Some(NodeKind::OPERATION_REFERENCE))?;
     tree.first_child(reference).and_then(|it| tree.token_kind(it))
   }
-
-  /// The names `name` of the tree whose binding `keep` takes, with how each uses it: in the order of the text, so their
-  /// places come in one pass over it (`navigate::usage_answers`)
-  fn usages(&self, declarations: &Declarations, name: &str, keep: impl Fn(Option<NodeId>) -> bool) -> Vec<Usage> {
-    let used = declarations.names.iter().filter_map(|&leaf| {
-      let (kind, _) = self.kind_of(leaf);
-      keep(declarations.binding_of(self, leaf, kind)).then(|| (self.tree.range(leaf).start, self.access_of(leaf, kind)))
-    });
-    usage_answers(self.text, name, used)
-  }
 }
 
-/// The names of the tree that spell one name, and its declarations filed under the scopes that see them
+/// The names of the tree a resolution looks for (those of one spelling), and the declarations among them filed under
+/// the scopes that see them
 struct Declarations {
-  /// Every name of that spelling, in the order of the text
+  /// Every name looked for, in the order of the text
   names: Vec<NodeId>,
   /// For each scope (or a body) that declares the name, its declarations in the order of the text
   by_scope: HashMap<u32, Vec<NodeId>>,
 }
 
 impl Declarations {
-  fn of(names: &Names<'_>, name: &str) -> Self {
+  fn of(names: &Names<'_>, wanted: &Wanted<'_>) -> Self {
     let tree = names.tree;
     let mut found = Self {
       names: Vec::new(),
       by_scope: HashMap::new(),
     };
     for leaf in tree.tokens() {
-      if tree.token_kind(leaf) != Some(TokenKind::IDENTIFIER) || names.text_of(leaf) != name || !names.is_name(leaf) {
+      if tree.token_kind(leaf) != Some(TokenKind::IDENTIFIER) || !wanted.takes(names.text_of(leaf), tree.range(leaf).start) || !names.is_name(leaf) {
         continue;
       }
       found.names.push(leaf);
@@ -345,16 +446,19 @@ impl Declarations {
     }
   }
 
-  /// The declaration of the name in the scopes around `leaf`: the nearest scope that declares it, the last declaration
-  /// before the name in it, else the first
+  /// The declaration of the name in the scopes around `leaf`: in the nearest scope that declares one the name sees,
+  /// the last such before the name; else the first where the order of the scope does not count (a member declared
+  /// after its use). A scope of code that declares the name only later is no scope of the name
   fn binding(&self, names: &Names<'_>, leaf: NodeId) -> Option<NodeId> {
     let tree = names.tree;
     let start = tree.range(leaf).start;
     let mut current = tree.parent(leaf);
     while let Some(node) = current {
       if let Some(found) = self.by_scope.get(&node.0) {
-        let before = found.iter().rev().find(|&&it| tree.range(it).start <= start);
-        return before.or_else(|| found.first()).copied();
+        let seen = found.iter().rev().find(|&&it| names.seen_from(it) <= start);
+        if let Some(declared) = seen.or_else(|| found.first().filter(|_| !names.reads_in_order(node))) {
+          return Some(*declared);
+        }
       }
       current = tree.parent(node);
     }

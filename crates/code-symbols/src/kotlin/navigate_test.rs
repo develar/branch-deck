@@ -147,11 +147,32 @@ fn a_parameter_of_a_function_type_declares_nothing_the_code_sees() {
 
 #[test]
 fn the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text() {
-  // the places come from one pass over the text (`navigate::usage_answers`): lines by `\r\n`, columns in UTF-16
+  // the places come from one pass over the text (`navigate::Places`): lines by `\r\n`, columns in UTF-16
   let text = "val n = 1\r\nfun f() {\r\n  val s = \"𝔘\" + n\r\n  n.inc(); g(n)\r\n}\r\n";
   let found = usages_of(Grammar::Kotlin, text, "n");
   let expected: Vec<Position> = text.match_indices('n').map(|(offset, _)| position_of(text, offset)).collect();
   let expected = [expected[0], expected[2], expected[3], expected[5]];
   assert_eq!(found.iter().map(|it| it.start).collect::<Vec<_>>(), expected);
   assert_eq!(found[1].start, Position { line: 2, column: 17 });
+}
+
+#[test]
+fn code_reads_in_its_order_a_variable_after_its_statement_and_a_loop_variable_after_its_range() {
+  let text = "fun f(name: String, items: List<Item>) {\n  use(count)\n  val name = name.trim()\n  for (items in items) { use(items) }\n  when (val count = count()) { else -> use(count) }\n  val count = 1\n  use(name, count)\n}\nval count = 0\n";
+  let local = |needle: &str, occurrence: usize| at(text, needle, occurrence).local.map(|it| (it.line, it.column));
+  // a name before the declaration of its block is the property of the file
+  assert_eq!(local("count)", 0), Some((8, 4)));
+  // the value of a variable reads the name of a scope around it: the parameter
+  assert_eq!(local("name.trim", 0), Some((0, 6)));
+  // the range of a `for` is read before its variable is, its body after
+  assert_eq!(local("items) {", 0), Some((0, 20)));
+  assert_eq!(local("items) }", 0), Some((3, 7)));
+  // the subject of a `when` reads the file's `count` and is what its branches read
+  assert_eq!(local("count())", 0), Some((8, 4)));
+  assert_eq!(local("count) }", 0), Some((4, 12)));
+  // after their statements, the variables
+  assert_eq!((local("name, count", 0), local("count)\n}", 0)), (Some((2, 6)), Some((5, 6))));
+  // so the usages of the parameter are its own and the value read from it, those of the variable what follows it
+  assert_eq!(places(&usages(text, "name", 0)), [(0, 6, Access::Declaration), (2, 13, Access::Read)]);
+  assert_eq!(places(&usages(text, "name", 1)), [(2, 6, Access::Declaration), (6, 6, Access::Read)]);
 }

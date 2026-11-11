@@ -171,3 +171,13 @@ fn the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members() 
   assert_eq!(kind_and_local(Grammar::Java, text, "name)", 0).1, Some((1, 9)));
   assert_eq!(kind_and_local(Grammar::Java, text, "name)", 1).1, Some((3, 11)));
 }
+
+#[test]
+fn the_collection_of_a_for_is_read_before_its_variable() {
+  let text = "class A {\n  Box item;\n  void f() {\n    for (String item : item.parts()) { use(item); }\n    use(item);\n  }\n}\n";
+  // `item.parts()` is the field's, the body reads the variable, the statement after the loop the field again
+  assert_eq!(kind_and_local(Grammar::Java, text, "item.parts", 0).1, Some((1, 6)));
+  assert_eq!(kind_and_local(Grammar::Java, text, "item); }", 0).1, Some((3, 16)));
+  assert_eq!(kind_and_local(Grammar::Java, text, "item);\n", 0).1, Some((1, 6)));
+  assert_eq!(usages(Grammar::Java, text, "item :", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
+}

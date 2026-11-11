@@ -1,8 +1,11 @@
 //! Go to Declaration and Find Usages of a Rust file (openspec/specs/commit/symbol-navigation/spec.md) from rust-analyzer's tree
-//! (`rust_syntax`), with the answers of `navigate` (`reference_answer`, `usage_answers`).
+//! (`rust_syntax`): the name at a place and the names of one spelling with their bindings (`navigate::Names`), of which
+//! `navigate` makes the usages and the answers of `names_at` (openspec/specs/commit/name-bindings/spec.md).
 //!
 //! - **Names**: the identifiers of the code, a declaration's (`NAME`), a use's (`NAME_REF`) and the tokens of a
-//!   macro; not a lifetime or a label, not a primitive type alone in a type (`u8`).
+//!   macro; not a lifetime or a label, not a primitive type alone in a type (`u8`). A string among the tokens of a
+//!   macro may be a format string, so a name it would take from the code around it (`"{total}"`, `"{:width$}"`) is a
+//!   use of that name for the usages, though no place to go from.
 //! - **Kinds**: the name of a declaration, a binding of a pattern (`let`, a parameter, `if let`, a `for`, an arm, a
 //!   closure's parameter) and an alias (`as e`) is a `Declaration`; a capitalized name alone in a pattern (`None`) is
 //!   a value; a field or a method after `.` and a segment after `::` are members (`MemberCall` when called) with the
@@ -10,18 +13,31 @@
 //!   a struct expression or pattern and an associated type are; a callee is a `Call`.
 //! - **Scopes**: a block, a function, a closure, an `impl`, a trait, a module, a match arm and a `for` declare the
 //!   names of their own items, bindings and type parameters; an item that is a scope declares its own name in the scope
-//!   around it. A name binds to the innermost scope around it that declares it: the last declaration before it there,
-//!   else the first (an item after its use). A member binds to nothing.
+//!   around it. A name binds to the innermost scope around it that declares a name it sees: an item, a parameter and
+//!   the binding of an arm are seen in all of their scope (the last before the name, else the first: an item after its
+//!   use); the binding of a `let` after its statement (`let total = total + 1` reads the `total` before it), the one of
+//!   an `if let` or a `while let` in the rest of the condition and the block it guards, the one of a `for` in its
+//!   body; a binding shadows an item. A member binds to nothing.
 //! - **Locals**: a declaration in a function or a closure, which no other file sees.
 //! - **Access**: a declaration, a call, a name in a `use` (`Import`), the end of the left side of an assignment
 //!   (`Write`), else `Read`.
+//! - **What a local is** (`LocalBinding`): the binding of a `let`, of an `if let`, a `while let` and an arm a variable,
+//!   the one of a `for` a loop variable, of a parameter of a closure or of a function, which no call names; an item
+//!   and a type or const parameter inside a function are `Other`.
+//! - **Its site** (`Site`): `Point { total }` of a struct expression and of a pattern names the field too; the name of
+//!   a field before its colon, the name of a macro and a name read as a type are no value's (namesakes of a binding
+//!   the scopes give them); a name among the tokens of a macro is the macro's to read; any other binding inside a
+//!   pattern that takes a value apart is destructured.
 //!
 //! The parse, the walks and the drop of the tree run in `rust_syntax::guarded`; a file nested deeper than any code has
 //! no answer.
 
 use super::{CONTEXTUAL_KEYWORDS, PRIMITIVES, is_callee, span};
-use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
-use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind as K, SyntaxNode, SyntaxToken, TextSize, TokenAtOffset, WalkEvent, ast};
+use crate::navigate::{
+  Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding,
+};
+use rust_syntax::ra_ap_syntax::ast::HasLoopBody;
+use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind as K, SyntaxNode, SyntaxToken, TextRange, TextSize, TokenAtOffset, ast};
 use std::collections::HashMap;
 
 /// The name at `position` of `text` and what its syntax says; `None` where no name is
@@ -36,28 +52,6 @@ pub(crate) fn reference_at(text: &str, position: Position) -> Option<ReferenceAt
   })
 }
 
-/// The usages of the name at `position`: those of its declaration for a local, else those of every name of that text
-/// that no local binds; `None` where no name is
-pub(crate) fn usages_at(text: &str, position: Position) -> Option<UsagesAt> {
-  with_name_at(text, position, |token, name, scopes| {
-    let (kind, _) = kind_of(token, text);
-    let local = binding_of(token, kind, scopes).filter(is_local);
-    let root = token.parent_ancestors().last();
-    let usages = root.map_or_else(Vec::new, |root| {
-      names_in(&root, text, name, scopes, |binding| match (&local, binding) {
-        (Some(local), Some(binding)) => binding == local,
-        (Some(_), None) => false,
-        (None, binding) => binding.is_none_or(|it| !is_local(it)),
-      })
-    });
-    UsagesAt {
-      name: name.to_string(),
-      local: local.is_some(),
-      usages,
-    }
-  })
-}
-
 /// The answer of `answer` for the name at `position` of a parse of `text`, its text and the declarations of that text,
 /// all in `rust_syntax::guarded`
 fn with_name_at<T: Send>(text: &str, position: Position, answer: impl FnOnce(&SyntaxToken, &str, &Scopes) -> T + Send) -> Option<T> {
@@ -66,23 +60,87 @@ fn with_name_at<T: Send>(text: &str, position: Position, answer: impl FnOnce(&Sy
     let root = rust_syntax::parse(text.as_bytes());
     let token = name_at(&root, text, offset)?;
     let name = text.get(span(token.text_range()))?;
-    Some(answer(&token, name, &Scopes::of(&root, name)))
+    Some(answer(&token, name, &Scopes::of(&name_tokens(&root), &Wanted::named(name))))
   })
   .flatten()
 }
 
-/// The usages of `name` in a text that is not the one of the name: every name of that text that no local binds
-pub(crate) fn usages_of(text: &str, name: &str) -> Vec<Usage> {
-  // a cheap test first: most files of a review do not have the word
-  if !text.contains(name) {
-    return Vec::new();
-  }
+/// The answer of `read` for the names of a parse of `text` (`navigate::names_at`, `usages_at`, `usages_of`), all in
+/// `rust_syntax::guarded`; `None` for a text nested deeper than any code
+pub(crate) fn with_names<R: Send>(text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
   rust_syntax::guarded(text.as_bytes(), || {
     let root = rust_syntax::parse(text.as_bytes());
-    let scopes = Scopes::of(&root, name);
-    names_in(&root, text, name, &scopes, |binding| binding.is_none_or(|it| !is_local(it)))
+    let tokens = name_tokens(&root);
+    read(&TreeNames { root, tokens, text })
   })
-  .unwrap_or_default()
+}
+
+/// A tree and its text, for the names of `navigate::Names`
+struct TreeNames<'t> {
+  root: SyntaxNode,
+  /// The tokens every resolution reads (`name_tokens`)
+  tokens: Vec<SyntaxToken>,
+  text: &'t str,
+}
+
+/// The tokens a resolution reads, in the order of the text: the identifiers of the tree and the strings among the
+/// tokens of a macro, which may be format strings. They are collected once for all the resolutions of a parse: a walk
+/// of rust-analyzer's tree costs several times what a resolution does with its tokens
+fn name_tokens(root: &SyntaxNode) -> Vec<SyntaxToken> {
+  let tokens = root.descendants_with_tokens().filter_map(NodeOrToken::into_token);
+  let reads = |token: &SyntaxToken| match token.kind() {
+    K::IDENT => true,
+    K::STRING => token.parent().is_some_and(|it| it.kind() == K::TOKEN_TREE),
+    _ => false,
+  };
+  tokens.filter(reads).collect()
+}
+
+impl Names for TreeNames<'_> {
+  fn name_at(&self, offset: usize) -> Option<(usize, &str)> {
+    let range = span(name_at(&self.root, self.text, offset)?.text_range());
+    Some((range.start, self.text.get(range)?))
+  }
+
+  fn resolve(&self, wanted: &Wanted<'_>) -> Vec<Resolved> {
+    let scopes = Scopes::of(&self.tokens, wanted);
+    let mut resolved = Vec::new();
+    let bound = |declared: SyntaxToken| Bound {
+      start: usize::from(declared.text_range().start()),
+      local: local_of(&declared),
+    };
+    for token in &self.tokens {
+      let start = usize::from(token.text_range().start());
+      if token.kind() == K::STRING {
+        for capture in captures(token, wanted) {
+          resolved.push(Resolved {
+            start: capture,
+            access: Access::Read,
+            site: Site::Macro,
+            binding: scopes.declaration_at(token, TextSize::new(u32::try_from(capture).unwrap_or(u32::MAX))).map(bound),
+          });
+        }
+        continue;
+      }
+      if !wanted.takes(token.text(), start) || !is_name(token, self.text) {
+        continue;
+      }
+      let (kind, _) = kind_of(token, self.text);
+      let binding = binding_of(token, kind, &scopes).map(bound);
+      resolved.push(Resolved {
+        start,
+        access: access_of(token, kind),
+        site: site_of(token, kind, binding.and_then(|it| it.local)),
+        binding,
+      });
+    }
+    resolved
+  }
+
+  /// `self` and `Self` are keywords, no names
+  fn is_implicit(&self, _name: &str) -> bool {
+    false
+  }
 }
 
 /// The name token at `offset`: the character there, else the one before it, as the end of a name is still the name
@@ -115,6 +173,42 @@ fn is_name(token: &SyntaxToken, text: &str) -> bool {
     }
     _ => false,
   }
+}
+
+/// The bytes where a string among the tokens of a macro names what a resolution looks for as a format string would take
+/// it from the code around the macro: a word right after the `{` of a placeholder (`{total}`, `{total:>8}`) or before
+/// a `$` (`{:width$}`). Whether the macro formats is its own: a string that only looks so costs a use too many, never
+/// one too few
+fn captures(token: &SyntaxToken, wanted: &Wanted<'_>) -> Vec<usize> {
+  let text = token.text();
+  if wanted.also.is_empty() && !text.contains(wanted.name) {
+    return Vec::new();
+  }
+  let offset = usize::from(token.text_range().start());
+  let is_word = |it: char| it == '_' || it.is_alphanumeric();
+  let mut found = Vec::new();
+  let mut previous = None;
+  let mut characters = text.char_indices().peekable();
+  while let Some((start, character)) = characters.next() {
+    if !(character == '_' || character.is_alphabetic()) || previous.is_some_and(is_word) {
+      previous = Some(character);
+      continue;
+    }
+    let mut end = start + character.len_utf8();
+    while let Some(&(next, it)) = characters.peek().filter(|it| is_word(it.1)) {
+      end = next + it.len_utf8();
+      characters.next();
+    }
+    let before = &text[..start];
+    // `{{` writes a brace, and the braces of `\u{…}` hold a code point
+    let opens = before.len() - before.trim_end_matches('{').len();
+    let placeholder = opens % 2 == 1 && !before.trim_end_matches('{').ends_with("\\u");
+    if (placeholder || text[end..].starts_with('$')) && wanted.takes(&text[start..end], offset + start) {
+      found.push(offset + start);
+    }
+    previous = text[..end].chars().next_back();
+  }
+  found
 }
 
 /// A name after `$` among the tokens of a macro (`$x`, `$crate`): the macro's, not the code's
@@ -176,35 +270,71 @@ const fn is_scope(kind: K) -> bool {
   )
 }
 
-/// The declarations of one name by the scope that declares them, each in the order of the text
-struct Scopes(HashMap<SyntaxNode, Vec<SyntaxToken>>);
+/// The declarations of the names a resolution looks for by the scope that declares them, each in the order of the text
+/// with where its scope sees it
+struct Scopes(HashMap<SyntaxNode, Vec<(SyntaxToken, TextRange)>>);
 
 impl Scopes {
-  /// The declarations of `name` in the tree: each declaring node's name in the innermost scope around the node, its
-  /// own scope excluded (a function declares its name in the scope around it)
-  fn of(root: &SyntaxNode, name: &str) -> Self {
-    let mut scopes: HashMap<SyntaxNode, Vec<SyntaxToken>> = HashMap::new();
-    for element in root.descendants_with_tokens() {
-      let NodeOrToken::Token(token) = element else { continue };
-      if token.kind() != K::IDENT || token.text() != name {
+  /// The declarations among the names a resolution looks for, of the tokens of a tree (`name_tokens`): each declaring
+  /// node's name in the innermost scope around the node, its own scope excluded (a function declares its name in the
+  /// scope around it)
+  fn of(tokens: &[SyntaxToken], wanted: &Wanted<'_>) -> Self {
+    let mut scopes: HashMap<SyntaxNode, Vec<(SyntaxToken, TextRange)>> = HashMap::new();
+    for token in tokens {
+      if token.kind() != K::IDENT || !wanted.takes(token.text(), usize::from(token.text_range().start())) {
         continue;
       }
-      let Some(declaration) = declaring(&token) else { continue };
+      let Some(declaration) = declaring(token) else { continue };
       if let Some(scope) = declaration.ancestors().skip(1).find(|it| is_scope(it.kind())) {
-        scopes.entry(scope).or_default().push(token);
+        let seen = seen_in(&declaration, &scope);
+        scopes.entry(scope).or_default().push((token.clone(), seen));
       }
     }
     Self(scopes)
   }
 
-  /// The declaration a name binds to: in the innermost scope around it that declares its name, the last declaration
-  /// before it, else the first
+  /// The declaration a name binds to: in the innermost scope around it that declares a name it sees, the binding that
+  /// shadows last (the one seen from the latest place), and among the declarations seen from one place (the items of
+  /// the scope) the last before the name, else the first
   fn declaration_of(&self, token: &SyntaxToken) -> Option<SyntaxToken> {
-    let start = token.text_range().start();
+    self.declaration_at(token, token.text_range().start())
+  }
+
+  /// The declaration a name at the byte `start` of a token binds to (`declaration_of`): the token itself, or a name
+  /// inside a string
+  fn declaration_at(&self, token: &SyntaxToken, start: TextSize) -> Option<SyntaxToken> {
     token.parent_ancestors().filter(|it| is_scope(it.kind())).find_map(|scope| {
       let declared = self.0.get(&scope)?;
-      declared.iter().rev().find(|it| it.text_range().start() <= start).or_else(|| declared.first()).cloned()
+      let from = declared.iter().filter(|it| it.1.contains(start)).map(|it| it.1.start()).max()?;
+      let seen = || declared.iter().filter(|it| it.1.contains(start) && it.1.start() == from).map(|it| &it.0);
+      let before = seen().rev().find(|it| it.text_range().start() <= start);
+      before.or_else(|| seen().next()).cloned()
     })
+  }
+}
+
+/// Where the names of its scope see a declaration: all of the scope for an item, a parameter and the binding of an arm;
+/// after its statement for the binding of a `let`, whose value reads the names before it; the rest of the condition
+/// and the block it guards for the binding of an `if let` or a `while let`; its body for the binding of a `for`
+fn seen_in(declaration: &SyntaxNode, scope: &SyntaxNode) -> TextRange {
+  let whole = scope.text_range();
+  let holder = Some(declaration)
+    .filter(|it| it.kind() == K::IDENT_PAT)
+    .and_then(|it| it.ancestors().skip(1).find(|it| !is_pattern_part(it.kind())));
+  let Some(holder) = holder else { return whole };
+  let after = |node: &SyntaxNode, end: Option<TextSize>| TextRange::new(node.text_range().end(), end.unwrap_or_else(|| whole.end()).max(node.text_range().end()));
+  match holder.kind() {
+    K::LET_STMT => after(&holder, None),
+    K::LET_EXPR => {
+      let guarded = holder.ancestors().skip(1).take_while(|it| it != scope).find_map(|it| match it.kind() {
+        K::IF_EXPR => ast::IfExpr::cast(it).and_then(|it| it.then_branch()).map(|it| it.syntax().text_range().end()),
+        K::WHILE_EXPR => ast::WhileExpr::cast(it).and_then(|it| it.loop_body()).map(|it| it.syntax().text_range().end()),
+        _ => None,
+      });
+      after(&holder, guarded)
+    }
+    K::FOR_EXPR => ast::ForExpr::cast(holder).and_then(|it| it.loop_body()).map_or(whole, |it| it.syntax().text_range()),
+    _ => whole,
   }
 }
 
@@ -225,20 +355,81 @@ fn is_local(declared: &SyntaxToken) -> bool {
   declaration.ancestors().skip(1).any(|it| matches!(it.kind(), K::FN | K::CLOSURE_EXPR))
 }
 
-/// The names `name` of the tree whose binding `keep` takes, with how each uses it, in the order of the text
-fn names_in(root: &SyntaxNode, text: &str, name: &str, scopes: &Scopes, keep: impl Fn(Option<&SyntaxToken>) -> bool) -> Vec<Usage> {
-  let mut usages = Vec::new();
-  for event in root.preorder_with_tokens() {
-    let WalkEvent::Enter(NodeOrToken::Token(token)) = event else { continue };
-    if token.text() != name || !is_name(&token, text) {
-      continue;
-    }
-    let (kind, _) = kind_of(&token, text);
-    if keep(binding_of(&token, kind, scopes).as_ref()) {
-      usages.push((usize::from(token.text_range().start()), access_of(&token, kind)));
-    }
+/// A node of a pattern between a binding and what the pattern is of: a pattern, or a field of a record pattern
+fn is_pattern_part(kind: K) -> bool {
+  ast::Pat::can_cast(kind) || matches!(kind, K::RECORD_PAT_FIELD | K::RECORD_PAT_FIELD_LIST)
+}
+
+/// What the name of a declaration is when a function or a closure declares it: a binding by what its pattern is of,
+/// else `Other`. No call names a parameter
+fn local_of(declared: &SyntaxToken) -> Option<LocalBinding> {
+  if !is_local(declared) {
+    return None;
   }
-  usage_answers(text, name, usages)
+  let binding = declared.parent().and_then(|it| it.parent()).filter(|it| it.kind() == K::IDENT_PAT);
+  let holder = binding.and_then(|it| it.ancestors().skip(1).find(|it| !is_pattern_part(it.kind())));
+  let kind = match holder.as_ref().map(SyntaxNode::kind) {
+    Some(K::LET_STMT | K::LET_EXPR | K::MATCH_ARM) => LocalKind::Variable,
+    Some(K::FOR_EXPR) => LocalKind::LoopVariable,
+    Some(K::PARAM) => match holder.and_then(|it| it.parent()).and_then(|it| it.parent()).map(|it| it.kind()) {
+      Some(K::CLOSURE_EXPR) => LocalKind::LambdaParameter,
+      Some(K::FN) => LocalKind::Parameter,
+      _ => LocalKind::Other,
+    },
+    _ => LocalKind::Other,
+  };
+  Some(LocalBinding::of(kind))
+}
+
+/// What the site of a name makes of it beside its binding (`Site`)
+fn site_of(token: &SyntaxToken, kind: ReferenceKind, binding: Option<LocalBinding>) -> Site {
+  let Some(parent) = token.parent() else { return Site::Plain };
+  let syntactic = match parent.kind() {
+    K::TOKEN_TREE => Site::Macro,
+    K::NAME => pattern_site(&parent),
+    K::NAME_REF => use_site(&parent),
+    _ => Site::Plain,
+  };
+  // a type is never a value: `total` of `let x: total` is a type of that spelling
+  site_by_binding(syntactic, kind == ReferenceKind::Type, binding)
+}
+
+/// The site of the name of a binding: `Point { total }` names the field too, any other binding inside a pattern that
+/// takes a value apart is destructured
+fn pattern_site(name: &SyntaxNode) -> Site {
+  let Some(binding) = name.parent().filter(|it| it.kind() == K::IDENT_PAT) else {
+    return Site::Plain;
+  };
+  let mut parts = binding.ancestors().skip(1).take_while(|it| is_pattern_part(it.kind()));
+  match parts.next() {
+    // without a field's name before a colon, the binding is the field's name
+    Some(field) if field.kind() == K::RECORD_PAT_FIELD && !field.children().any(|it| it.kind() == K::NAME_REF) => Site::Shorthand,
+    Some(_) => Site::Destructured,
+    None => Site::Plain,
+  }
+}
+
+/// The site of a name that declares nothing: the field a struct expression names by its value (`Point { total }`), the
+/// name of a field before its colon, the name of a macro
+fn use_site(name_ref: &SyntaxNode) -> Site {
+  let Some(parent) = name_ref.parent() else { return Site::Plain };
+  match parent.kind() {
+    K::RECORD_EXPR_FIELD | K::RECORD_PAT_FIELD => Site::Namesake,
+    K::PATH_SEGMENT => {
+      let Some(path) = parent.parent().filter(|it| !it.children().any(|it| it.kind() == K::PATH)) else {
+        return Site::Plain;
+      };
+      match path.parent() {
+        Some(outer) if outer.kind() == K::MACRO_CALL => Site::Namesake,
+        Some(outer) if outer.kind() == K::PATH_EXPR => match outer.parent() {
+          Some(field) if field.kind() == K::RECORD_EXPR_FIELD && !field.children().any(|it| it.kind() == K::NAME_REF) => Site::Shorthand,
+          _ => Site::Plain,
+        },
+        _ => Site::Plain,
+      }
+    }
+    _ => Site::Plain,
+  }
 }
 
 /// How a name is used: declared, imported, called, written (the end of the left side of an assignment), else read

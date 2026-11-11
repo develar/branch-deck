@@ -1022,6 +1022,36 @@ no local binding it), then `accio references` for the files outside the review. 
 of declarations and the list of usages; a choice moves the focus to the view at the place it shows, Escape gives it
 back to where it was.
 
+**The bindings of many names** ([Name Bindings](../../openspec/specs/commit/name-bindings/spec.md)). A reader of a
+change asks of many names at once, the renames of the marks first: is this name a local, where is every name bound to
+it, and would another name for it be taken. `code_symbols::navigate::names_at` parses the text once and resolves each
+spelling asked once (`navigate::Names::resolve`: every name of a spelling with its access, its site and the
+declaration its scopes bind it to; one implementation per parser, the one `usages_at` and `usages_of` read, so Find
+Usages is the same answer without its sites). An entry says what a body declares the local as (a variable, a
+parameter, a lambda parameter, a loop variable, a catch parameter, else `other`; whether a call may name it), its uses
+with what each site makes of the name beside the binding (`{ total }`, a named argument, `nameof(total)`, the tokens
+of a macro), and for a new name asked with the place its clashes. The clashes are one more resolution, of the names of
+the new spelling and the uses of the local as one name: a use that then binds to another declaration is shadowed, a
+name of the new spelling that binds to the local is captured. The answer is data; what is quiet is the reader's.
+
+Such a reader trusts the bindings, so the scopes read code as the language does, in its order: the value of a Kotlin
+or a Rust variable reads the name before it (`let total = total + 1`), a name before the declaration of a Kotlin local
+is of a scope around, the binding of an `if let` ends with the block it guards, the collection of a loop and the
+default of a Starlark parameter are read outside their scope, a Starlark comprehension is a scope, and a Rust format
+string uses the names it takes (`"{total}"`). Where the scopes are still narrower than the language's (a Java pattern
+variable after its `if`), a use is missing and the reader sees a name it cannot place: one stop more, never one less.
+
+| 200 places of one file, each with a new name (release, a machine at load 27) | together | one by one |
+|---|---|---|
+| Kotlin, 2 786 lines (104 entries) | 28 ms | 484 ms |
+| TSX, 2 074 lines (82 entries) | 33 ms | 177 ms |
+| Rust, 978 lines (93 entries) | 8 ms | 372 ms |
+| Java, 775 lines (88 entries) | 33 ms | 172 ms |
+| Starlark, 515 lines (124 entries) | 28 ms | 121 ms |
+
+A resolution costs 0.03 to 0.2 ms where the parse costs 1 to 2 ms. Rust collects its name tokens once per parse: a walk
+of rust-analyzer's tree cost 0.6 ms per resolution, 119 ms for the file above.
+
 ### Painting the layers of a line
 
 A code cell can show up to four layers:

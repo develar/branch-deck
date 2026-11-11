@@ -1,6 +1,7 @@
 //! Go to Declaration and Find Usages in a C# file from Roslyn's tree (openspec/specs/commit/symbol-navigation/spec.md): the name
 //! at a place (`Tree::leaf_index`), its qualifier, the kind of the reference, its declaration in the file by the scopes,
-//! and the usages of a name, answered by `navigate::{reference_answer, usage_answers}`, as Java's (`java::navigate`).
+//! and the names of one spelling with their bindings, answered by `psi_navigate` and `navigate`, as Java's
+//! (`java::navigate`).
 //!
 //! - **A name** is an `IdentifierToken` of the code: not of a documentation comment or a directive. Names compare by
 //!   their value (`@count` is `count`).
@@ -13,16 +14,26 @@
 //!   name: a type sees its members, its type parameters and its primary constructor's parameters wherever they are
 //!   declared, a member its type parameters and parameters, a block its local functions; a member, an accessor, a local
 //!   function, a lambda, a block, a `for`, a `foreach`, a `using`, a `fixed`, a `catch`, a section or an arm of a
-//!   `switch` and a query the locals declared before the name (the last one before it, else the first). `goto` goes to
-//!   the label of its name in the blocks around it, the innermost first. A member after a qualifier, a named argument
-//!   and the implicit `value` of an accessor have none.
+//!   `switch` and a query the locals declared before the name (the last one before it, else the first). A `foreach`
+//!   declares its variable in its own statement, and its collection is read before the variable is (`Scoping::sees`).
+//!   `goto` goes to the label of its name in the blocks around it, the innermost first. A member after a qualifier, a
+//!   named argument and the implicit `value` of an accessor have none.
 //! - **The usages** of a local (declared in a member, an accessor, a lambda, a local function or a top-level statement)
 //!   are the names bound to it; those of any other name are its names that no local binds, each with how it uses the
 //!   name (`access_of`: `out` and `ref` arguments write).
+//! - **What a local is** (`local_of`, openspec/specs/commit/name-bindings/spec.md): a local variable, a variable of a
+//!   pattern or of an `out` argument and a range variable of a query a variable, the variable of a `for` and a
+//!   `foreach`, the one of a `catch`, the parameter of a lambda or an anonymous method, and the parameter of a method,
+//!   a constructor, a local function, an indexer, an operator or a delegate, which a call may name; a local function,
+//!   a type parameter, a label and the element of a tuple type are `Other`.
+//! - **Its site** (`site_of`): a label and the name of a `goto`; the name of a named argument; a name `nameof` spells;
+//!   a member of an anonymous type and an element of a tuple named by the expression (`new { total }`, `(total, 1)`);
+//!   a member an initializer, a `with` or a `Name =` names and a name read as a type that the scopes bind to a value;
+//!   a variable of a deconstruction. `value` and `field` are bound without a declaration, in an accessor.
 
 use crate::csharp::{is_block_scope, is_code, is_type_declaration};
-use crate::navigate::{Access, ReferenceKind};
-use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in};
+use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site, site_by_binding};
+use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in, is_within, parent_kind};
 use csharp_syntax::read;
 use csharp_syntax::syntax_getters as sg;
 use csharp_syntax::{NodeId, NodeKind, TokenKind, Tree, facts};
@@ -40,9 +51,110 @@ pub(crate) const NAVIGATION: Reading<csharp_syntax::CSharp, Tree> = Reading {
   hoisted,
   scopes: |tree, is_named| Box::new(CSharpScopes { tree, is_named }),
   is_local: |tree, declared| is_local_in(tree, declared, is_code),
+  local_of,
+  site_of,
+  // the value a setter takes and the field of a property, in its accessors
+  is_implicit: |name| matches!(name, "value" | "field"),
   access_of,
   name_start,
 };
+
+/// The node around `node` and its kind, a composite's
+fn around(tree: &Tree, node: NodeId) -> Option<(NodeId, NodeKind)> {
+  parent_kind(tree, node)
+}
+
+/// What a local declares, by its declaration and what it is a part of. A call may name the parameter of anything it
+/// calls by a name (a method, a constructor, a local function, an indexer, an operator, a delegate); the parameter of
+/// a lambda or an anonymous method is its body's alone, as a call of a delegate names the delegate's
+fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
+  LocalBinding::of(match kind {
+    // `for (var i = 0; …)` declares its variable in the declaration of the `for`
+    NodeKind::VariableDeclarator => match around(tree, declaration).and_then(|it| around(tree, it.0)) {
+      Some((_, NodeKind::ForStatement)) => LocalKind::LoopVariable,
+      _ => LocalKind::Variable,
+    },
+    NodeKind::SingleVariableDesignation | NodeKind::FromClause | NodeKind::LetClause | NodeKind::JoinClause | NodeKind::JoinIntoClause | NodeKind::QueryContinuation => {
+      LocalKind::Variable
+    }
+    NodeKind::ForEachStatement => LocalKind::LoopVariable,
+    NodeKind::CatchDeclaration => LocalKind::CatchParameter,
+    NodeKind::Parameter => {
+      let owner = match around(tree, declaration) {
+        Some((list, NodeKind::ParameterList | NodeKind::BracketedParameterList)) => around(tree, list),
+        owner => owner,
+      };
+      return match owner {
+        Some((_, NodeKind::SimpleLambdaExpression | NodeKind::ParenthesizedLambdaExpression | NodeKind::AnonymousMethodExpression)) => LocalBinding::of(LocalKind::LambdaParameter),
+        Some(_) => LocalBinding {
+          kind: LocalKind::Parameter,
+          named_by_calls: true,
+        },
+        None => LocalBinding::OTHER,
+      };
+    }
+    _ => LocalKind::Other,
+  })
+}
+
+/// What the site of a name makes of it beside its binding (`Site`)
+fn site_of(tree: &Tree, leaf: NodeId, kind: ReferenceKind, binding: Option<LocalBinding>) -> Site {
+  let syntactic = match around(tree, leaf) {
+    Some((_, NodeKind::LabeledStatement)) => Site::Label,
+    // `var (a, b) = pair`, `(var a, var b) = pair`
+    Some((designation, NodeKind::SingleVariableDesignation)) => {
+      let destructured = std::iter::successors(around(tree, designation), |it| around(tree, it.0))
+        .take_while(|it| {
+          matches!(
+            it.1,
+            NodeKind::ParenthesizedVariableDesignation | NodeKind::DeclarationExpression | NodeKind::Argument | NodeKind::TupleExpression
+          )
+        })
+        .any(|it| matches!(it.1, NodeKind::ParenthesizedVariableDesignation | NodeKind::TupleExpression));
+      if destructured { Site::Destructured } else { Site::Plain }
+    }
+    Some((name, NodeKind::IdentifierName)) => name_site(tree, name),
+    _ => Site::Plain,
+  };
+  // a type slot reads a type, whatever value has its spelling
+  site_by_binding(syntactic, kind == ReferenceKind::Type, binding)
+}
+
+/// The site of an `IdentifierName` by what it is a part of
+fn name_site(tree: &Tree, name: NodeId) -> Site {
+  let Some((owner, kind)) = around(tree, name) else { return Site::Plain };
+  let first = || tree.composite_children(owner).next() == Some(name);
+  match kind {
+    NodeKind::GotoStatement => return Site::Label,
+    NodeKind::NameColon => return Site::NamedArgument,
+    // `Name = value` of an anonymous type, an attribute or a `using`: the member, not a name of the scopes
+    NodeKind::NameEquals => return Site::Namesake,
+    // `new { total }`: the member has the name of the expression
+    NodeKind::AnonymousObjectMemberDeclarator => return Site::Shorthand,
+    // `(total, 1)`: the element has the name of the expression, unless a name is written for it
+    NodeKind::Argument if around(tree, owner).is_some_and(|it| it.1 == NodeKind::TupleExpression) && first() => return Site::Shorthand,
+    // `new Box { Total = total }`, `box with { Total = 1 }`: the left side is a member of what is made
+    kind
+      if facts::is_assignment_expression(kind.syntax_kind())
+        && first()
+        && around(tree, owner).is_some_and(|it| matches!(it.1, NodeKind::ObjectInitializerExpression | NodeKind::WithInitializerExpression)) =>
+    {
+      return Site::Namesake;
+    }
+    _ => {}
+  }
+  // `nameof(total)` is the text "total"
+  let spelled = std::iter::successors(Some((owner, kind)), |it| around(tree, it.0))
+    .take_while(|it| !is_scope(it.1))
+    .filter(|it| it.1 == NodeKind::InvocationExpression)
+    .any(|it| {
+      sg::invocation_expression::expression(tree, it.0)
+        .filter(|&callee| tree.node_kind(callee) == Some(NodeKind::IdentifierName) && callee != name)
+        .and_then(|callee| sg::identifier_of(tree, callee))
+        .is_some_and(|callee| value_of(tree, callee) == "nameof")
+    });
+  if spelled { Site::Spelled } else { Site::Plain }
+}
 
 /// Where the text that writes a name starts: after the `@` of a verbatim identifier, at the token itself where an
 /// escape makes the value bytes the source does not hold (`C\u733f`)
@@ -168,18 +280,25 @@ impl Scoping<csharp_syntax::CSharp> for CSharpScopes<'_> {
   }
 
   fn declared(&self, node: NodeId, kind: NodeKind) -> Option<NodeId> {
-    let declares = declares(kind) && kind != NodeKind::LabeledStatement && !is_hoisted(self.tree, node, kind);
+    // a `foreach` declares its variable in its own scope, not in the block around it (`hoisted`)
+    let declares = declares(kind) && !matches!(kind, NodeKind::LabeledStatement | NodeKind::ForEachStatement) && !is_hoisted(self.tree, node, kind);
     sg::identifier_of(self.tree, node).filter(|&it| declares && (self.is_named)(it))
   }
 
   fn is_scope(&self, _node: NodeId, kind: NodeKind) -> bool {
     is_scope(kind)
   }
+
+  /// The collection of a `foreach` is read before its variable is
+  fn sees(&self, scope: NodeId, leaf: NodeId) -> bool {
+    self.tree.node_kind(scope) != Some(NodeKind::ForEachStatement) || !sg::for_each_statement::expression(self.tree, scope).is_some_and(|it| is_within(self.tree, leaf, it))
+  }
 }
 
 /// The names of the declarations a scope sees wherever they are: the members of a type (a field's declarators), its
 /// type parameters and its primary constructor's parameters; the types of a file or a namespace; the type parameters
-/// and parameters of a member, a local function or a lambda; the local functions of a block
+/// and parameters of a member, a local function or a lambda; the local functions of a block; the variable of a
+/// `foreach`, which is its own scope
 fn hoisted(tree: &Tree, scope: NodeId, is_named: &dyn Fn(NodeId) -> bool) -> Vec<NodeId> {
   let mut declared = Vec::new();
   let mut push = |declaration: NodeId| {
@@ -187,6 +306,9 @@ fn hoisted(tree: &Tree, scope: NodeId, is_named: &dyn Fn(NodeId) -> bool) -> Vec
       declared.push(name);
     }
   };
+  if tree.node_kind(scope) == Some(NodeKind::ForEachStatement) {
+    push(scope);
+  }
   if let Some(list) = sg::type_parameter_list_of(tree, scope) {
     sg::type_parameter_list::parameters(tree, list).for_each(&mut push);
   }

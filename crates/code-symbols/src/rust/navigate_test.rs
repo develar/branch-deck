@@ -96,3 +96,48 @@ fn deep_nesting_is_navigated_on_a_small_stack() {
   });
   thread.unwrap().join().unwrap();
 }
+
+/// A binding is seen where the code reads it: the one of a `let` after its statement, of an `if let` and a `while let`
+/// in the block they guard, of a `for` in its body; before and after, the name is the one of the scope around
+#[test]
+fn a_binding_is_seen_after_its_statement_and_in_the_block_it_guards() {
+  let text = "fn f(total: u32, items: Vec<u32>, found: Option<u32>) -> u32 {\n  let total = total + 1;\n  if let Some(found) = found { use_it(found); }\n  while let Some(items) = next(&items) { use_it(items); }\n  for items in items.iter() { use_it(items); }\n  let Some(found) = found else { return total };\n  total + found\n}\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(RUST, text, needle, occurrence).1;
+  // the value of a `let` reads the binding before it: the parameter
+  assert_eq!(local("total + 1", 0), Some((0, 5)));
+  // the value an `if let` and a `while let` take apart and the collection of a `for` are read before their bindings
+  assert_eq!(
+    (local("found {", 0), local("items) {", 0), local("items.iter", 0)),
+    (Some((0, 34)), Some((0, 17)), Some((0, 17)))
+  );
+  // their blocks read the bindings
+  assert_eq!(
+    (local("found);", 0), local("items);", 0), local("items);", 1)),
+    (Some((2, 14)), Some((3, 17)), Some((4, 6)))
+  );
+  // past the block of the `if let`, `found` is the parameter again, also in the value and the `else` of a `let`
+  assert_eq!((local("found else", 0), local("total }", 0)), (Some((0, 34)), Some((1, 6))));
+  assert_eq!((local("total + found", 0), local("found\n", 0)), (Some((1, 6)), Some((5, 11))));
+  // the usages of the parameter are its declaration and the value read from it
+  assert_eq!(usages(RUST, text, "total", 0), (true, vec![(0, Access::Declaration), (1, Access::Read)]));
+  assert_eq!(
+    usages(RUST, text, "found", 0),
+    (true, vec![(0, Access::Declaration), (2, Access::Read), (5, Access::Read)]),
+    "the parameter: read by the `if let` and by the `let … else`"
+  );
+}
+
+/// A name a format string takes from the code around its macro is a use of it: after the `{` of a placeholder, before
+/// a `$`; a doubled brace, a code point and a string outside a macro name nothing
+#[test]
+fn a_format_string_uses_the_names_it_takes_from_the_code_around_it() {
+  let text = "fn f(total: u32, width: usize) -> String {\n  let plain = \"{total}\";\n  format!(\"{total} {{total}} {total:>8} {:width$} \\u{61} {0}\", total)\n}\n";
+  assert_eq!(
+    usages(RUST, text, "total", 0),
+    (true, vec![(0, Access::Declaration), (2, Access::Read), (2, Access::Read), (2, Access::Read)]),
+    "two placeholders and the argument; not the doubled braces, not the string of line 1"
+  );
+  assert_eq!(usages(RUST, text, "width", 0), (true, vec![(0, Access::Declaration), (2, Access::Read)]));
+  // a name in a string is no place to go from
+  assert_eq!(reference_at(RUST, text, place(text, "total}", 1)), None);
+}

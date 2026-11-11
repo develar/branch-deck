@@ -197,10 +197,13 @@ fn answers_the_usages_of_a_text_in_one_pass_as_one_by_one() {
   // `\r\n`, a lone `\r`, a surrogate pair, a usage at the start and two on one line
   let text = "ab\r\nx 𝔸 ab\rab ab\n\nab";
   let starts: Vec<usize> = text.match_indices("ab").map(|(start, _)| start).collect();
-  let one_by_one: Vec<Usage> = starts.iter().map(|&start| crate::navigate::usage_answer(text, start, "ab", Access::Read)).collect();
-  assert_eq!(crate::navigate::usage_answers(text, "ab", starts.iter().map(|&start| (start, Access::Read))), one_by_one);
+  let one_by_one: Vec<Position> = starts.iter().map(|&start| crate::navigate::position_of(text, start)).collect();
+  let mut places = crate::navigate::Places::new(text);
+  assert_eq!(starts.iter().map(|&start| places.at(start)).collect::<Vec<_>>(), one_by_one);
   assert_eq!(
-    one_by_one.iter().map(|it| (it.start.line, it.start.column)).collect::<Vec<_>>(),
+    one_by_one.iter().map(|it| (it.line, it.column)).collect::<Vec<_>>(),
     [(0, 0), (1, 5), (2, 0), (2, 3), (4, 0)]
   );
+  // a place asked out of the order of the text is counted from its start
+  assert_eq!(places.at(starts[1]), one_by_one[1]);
 }

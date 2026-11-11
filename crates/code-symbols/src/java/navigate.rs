@@ -1,6 +1,6 @@
 //! Go to Declaration and Find Usages in a Java file from its PSI (openspec/specs/commit/symbol-navigation/spec.md): the name at
 //! a place (`Tree::leaf_index`), its qualifier, the kind of the reference, its declaration in the file by the scopes,
-//! and the usages of a name, answered by `navigate::{reference_answer, usage_answers}`.
+//! and the names of one spelling with their bindings, answered by `psi_navigate` and `navigate`.
 //!
 //! - **A name** is an `IDENTIFIER` leaf outside a Javadoc; a keyword (`var`, `this`) is none.
 //! - **Its kind** by the node it is the name of or a part of: the name of a declaration (a class, a method, a field, a
@@ -12,14 +12,22 @@
 //!   name: a class sees its members, its record components and its type parameters wherever they are declared (the
 //!   last one before the name, else the first), a method its type parameters, and a method, a lambda, a block, a `for`,
 //!   a `catch`, a `try` and a switch rule the parameters and locals declared before the name, a statement the pattern
-//!   variables of its condition (`highlight::is_pattern_scope`). `break` and `continue` go to their label. A member
-//!   after a qualifier has none.
+//!   variables of its condition (`highlight::is_pattern_scope`). The collection of a `for (T item : items)` is read
+//!   before its variable is (`Scoping::sees`). `break` and `continue` go to their label. A member after a qualifier
+//!   has none.
 //! - **The usages** of a local (declared in a method, a lambda or an initializer) are the names bound to it; those of
 //!   any other name are its names that no local binds, each with how it uses the name (`access_of`).
+//! - **What a local is** (`local_of`, openspec/specs/commit/name-bindings/spec.md): a local variable, a resource and a
+//!   pattern variable a variable, the variable of a `for` of either form, the parameter of a `catch`, of a lambda and
+//!   of a method, which no call names (Java has no named arguments); a label, a local class, the members of a local or
+//!   an anonymous class and a type parameter are `Other`.
+//! - **Its site** (`site_of`): a label and the name of a `break` or a `continue`, the name of an element of an
+//!   annotation, a name called or read as a type that the scopes bind to a value (Java keeps methods, types and
+//!   values apart), a variable of a record pattern.
 
 use super::highlight::{anonymous_body, is_callee, is_class, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
-use crate::navigate::{Access, ReferenceKind};
-use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in};
+use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site, site_by_binding};
+use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in, is_within, parent_kind};
 use java_syntax::psi;
 use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 
@@ -43,9 +51,50 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
     })
   },
   is_local: |tree, declared| is_local_in(tree, declared, is_function),
+  local_of,
+  site_of,
+  is_implicit: |_| false,
   access_of,
   name_start: |tree, leaf| tree.range(leaf).start,
 };
+
+/// What a local declares, by its declaration and what it is a part of
+fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
+  let around = |node: NodeId| parent_kind(tree, node);
+  LocalBinding::of(match kind {
+    // `for (int i = 0; …)` declares its variable in a statement of the `for`
+    NodeKind::LOCAL_VARIABLE => match around(declaration).and_then(|it| around(it.0)) {
+      Some((_, NodeKind::FOR_STATEMENT)) => LocalKind::LoopVariable,
+      _ => LocalKind::Variable,
+    },
+    NodeKind::RESOURCE_VARIABLE | NodeKind::PATTERN_VARIABLE | NodeKind::DECONSTRUCTION_PATTERN_VARIABLE => LocalKind::Variable,
+    NodeKind::PARAMETER => match around(declaration) {
+      Some((_, NodeKind::FOREACH_STATEMENT)) => LocalKind::LoopVariable,
+      Some((_, NodeKind::CATCH_SECTION)) => LocalKind::CatchParameter,
+      Some((list, NodeKind::PARAMETER_LIST)) => match around(list) {
+        Some((_, NodeKind::LAMBDA_EXPRESSION)) => LocalKind::LambdaParameter,
+        Some((_, NodeKind::METHOD)) => LocalKind::Parameter,
+        _ => LocalKind::Other,
+      },
+      _ => LocalKind::Other,
+    },
+    _ => LocalKind::Other,
+  })
+}
+
+/// What the site of a name makes of it beside its binding (`Site`)
+fn site_of(tree: &Tree, leaf: NodeId, kind: ReferenceKind, binding: Option<LocalBinding>) -> Site {
+  let around = |node: NodeId| parent_kind(tree, node);
+  let syntactic = match around(leaf) {
+    Some((_, NodeKind::LABELED_STATEMENT | NodeKind::BREAK_STATEMENT | NodeKind::CONTINUE_STATEMENT)) => Site::Label,
+    Some((_, NodeKind::NAME_VALUE_PAIR)) => Site::NamedArgument,
+    // `o instanceof Point(int x, int y)`: a variable of a pattern in the list of a record pattern
+    Some((variable, NodeKind::PATTERN_VARIABLE)) if around(variable).and_then(|it| around(it.0)).is_some_and(|it| it.1 == NodeKind::DECONSTRUCTION_LIST) => Site::Destructured,
+    _ => Site::Plain,
+  };
+  // a call is of a method and a type of a class, whatever value has their spelling
+  site_by_binding(syntactic, matches!(kind, ReferenceKind::Call | ReferenceKind::Type), binding)
+}
 
 /// The kind of a name in the node `parent` of the kind `kind`, which declares none, and its qualifier
 fn kind_in(tree: &Tree, leaf: NodeId, parent: NodeId, kind: NodeKind) -> (ReferenceKind, Option<NodeId>) {
@@ -169,6 +218,17 @@ impl Scoping<java_syntax::Java> for JavaScopes<'_> {
 
   fn opens_at(&self, leaf: NodeId) -> Option<NodeId> {
     anonymous_body(self.tree, leaf)
+  }
+
+  /// The collection of a `for (T item : items)`, the expression after its colon, is read before its variable is
+  fn sees(&self, scope: NodeId, leaf: NodeId) -> bool {
+    let tree = self.tree;
+    if tree.node_kind(scope) != Some(NodeKind::FOREACH_STATEMENT) {
+      return true;
+    }
+    let colon = tree.children(scope).find(|&it| tree.token_kind(it) == Some(TokenKind::COLON));
+    let collection = colon.and_then(|it| std::iter::successors(tree.next_sibling(it), |&it| tree.next_sibling(it)).find(|&it| !tree.is_leaf(it)));
+    !collection.is_some_and(|it| is_within(tree, leaf, it))
   }
 
   fn reached(&mut self, id: u32) {

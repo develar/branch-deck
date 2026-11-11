@@ -105,3 +105,13 @@ fn a_goto_goes_to_the_label_of_its_name_in_the_blocks_around_it() {
   assert_eq!(kind_and_local(Grammar::CSharp, text, "again;", 0).1, Some((4, 6)));
   assert_eq!(kind_and_local(Grammar::CSharp, text, "again;", 1).1, Some((6, 6)));
 }
+
+#[test]
+fn the_variable_of_a_foreach_is_seen_in_its_statement_alone() {
+  let text = "class A {\n  List<Item> item;\n  void F() {\n    foreach (var item in item) { Use(item); }\n    Use(item);\n  }\n}\n";
+  // the collection is read before the variable is, and the statement after the loop reads the field again
+  assert_eq!(kind_and_local(Grammar::CSharp, text, "item) {", 0).1, Some((1, 13)));
+  assert_eq!(kind_and_local(Grammar::CSharp, text, "item); }", 0).1, Some((3, 17)));
+  assert_eq!(kind_and_local(Grammar::CSharp, text, "item);\n", 0).1, Some((1, 13)));
+  assert_eq!(usages(Grammar::CSharp, text, "item in", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
+}

@@ -6,13 +6,19 @@
 //! The usages of a name for Find Usages are its names in the tree: those bound to the same declaration for a local
 //! (a parameter, a local of a function), else every name of that text that no local binds, each with how it uses it.
 //!
+//! `names_at` answers many places of a text from one parse of it, for a reader that asks of several names at once (the
+//! renames of a diff, openspec/specs/commit/name-bindings/spec.md): the names bound to the declaration of each place,
+//! what a body declares it as (`LocalBinding`), what each site makes of the name beside its binding (`Site`), and what
+//! another name for the binding would clash with (`Clash`). `usages_at` is `names_at` of one place.
+//!
 //! Kotlin, Java and C# answer from their PSI and Roslyn's tree (`kotlin::navigate`, `java::navigate`,
 //! `csharp::navigate`: one pass over the leaves files each declaration under the scopes that see it, by the language's
 //! own scope rules), TypeScript and JavaScript from oxc's tree (`js::navigate`), Rust from rust-analyzer's
-//! (`rust::navigate`). All give their answers through `reference_answer` and `usage_answers`, with the positions of the
-//! view.
+//! (`rust::navigate`). Each gives the names of one spelling with their bindings (`Names::resolve`); the answers are
+//! made here (`reference_answer`, `answer`), with the positions of the view.
 
 use crate::highlight::Grammar;
+use std::collections::HashMap;
 
 /// A place in a text: a line from 0 and a UTF-16 column, as the view counts them
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +97,147 @@ pub struct UsagesAt {
   pub usages: Vec<Usage>,
 }
 
+/// What a body declares a local as
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalKind {
+  /// A variable a body declares: a `val`, a `let`, a resource of a `try`, the variable of a pattern, a range variable
+  Variable,
+  /// A parameter of a function with a name, of a method, a constructor or an accessor
+  Parameter,
+  /// A parameter of a lambda, a closure or a function without a name
+  LambdaParameter,
+  /// The variable of a `for`
+  LoopVariable,
+  /// The parameter of a `catch`
+  CatchParameter,
+  /// Any other declaration inside code: a local function, a local type and its members, a parameter that declares a
+  /// member, a type parameter, a label, a name of a function type
+  Other,
+}
+
+impl LocalKind {
+  /// Whether the declaration is a value of its body alone (not `Other`): a name read as a type, or called where a call
+  /// names no value, is not its
+  pub const fn is_value(self) -> bool {
+    !matches!(self, Self::Other)
+  }
+}
+
+/// A declaration inside code, which no other file sees: what declares it, and whether other code may still spell its name
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LocalBinding {
+  pub kind: LocalKind,
+  /// A call may write the name, as a named argument: a parameter of a function with a name, a method or a constructor
+  /// of Kotlin, C# and Starlark. Such a call is no use the scopes bind, so the uses are not all that spell the name
+  pub named_by_calls: bool,
+}
+
+impl LocalBinding {
+  pub(crate) const fn of(kind: LocalKind) -> Self {
+    Self { kind, named_by_calls: false }
+  }
+
+  pub(crate) const OTHER: Self = Self::of(LocalKind::Other);
+}
+
+/// What the site of a name makes of it beside the binding the scopes give it: another name there changes more than the
+/// binding, or the binding is not what the site names. One per name, the first of this order that holds
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Site {
+  /// The name of the binding and nothing else (a string template that reads it too)
+  Plain,
+  /// The name is also the property the site reads or sets: `{ total }` of an object, a record or a pattern of
+  /// TypeScript, JavaScript and Rust, a member of an anonymous type or an element of a tuple of C# named by it
+  Shorthand,
+  /// The name of a named argument (an element of an annotation too): the parameter of what is called
+  NamedArgument,
+  /// A label, or the name of a jump to it
+  Label,
+  /// The site reads another kind of thing than the binding is, which the scopes do not tell apart: a type or a call
+  /// where the binding is a value and the language keeps those apart, a callable reference, a member an initializer or
+  /// a record names, the name of a macro
+  Namesake,
+  /// The spelling of the name is a value there: `nameof(total)`
+  Spelled,
+  /// Among the tokens of a macro, which may read the name as it likes
+  Macro,
+  /// A pattern that takes a value apart declares or assigns the name: by its place there, as far as the syntax tells
+  Destructured,
+}
+
+/// A name bound to the declaration asked, or of the text asked
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameUse {
+  pub start: Position,
+  pub end_column: u32,
+  pub access: Access,
+  pub site: Site,
+}
+
+/// What another name for a binding would change the meaning of
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClashKind {
+  /// A name of the binding would be another declaration's: one of the new name is nearer to it
+  Shadowed,
+  /// A name of the text already spelled as the new name would become the binding's
+  Captured,
+  /// The language gives the new name a meaning no declaration shows (`it`, `field`, `value`): at the declaration
+  Implicit,
+}
+
+/// A place a rename of a binding would change the meaning of
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Clash {
+  pub start: Position,
+  pub end_column: u32,
+  pub kind: ClashKind,
+}
+
+/// A place asked of `names_at`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameQuestion<'a> {
+  pub position: Position,
+  /// Another name for the binding of the place: the answer says what it would clash with (`NameAt::clashes`)
+  pub renamed_to: Option<&'a str>,
+}
+
+impl NameQuestion<'_> {
+  pub const fn at(position: Position) -> Self {
+    Self { position, renamed_to: None }
+  }
+}
+
+/// The name of a place: its binding, and every name of the text bound as it is
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameAt {
+  pub name: String,
+  /// The declaration inside code the name is bound to; `None` for any other name: a member, a declaration of the
+  /// file, a name no declaration of the file binds
+  pub local: Option<LocalBinding>,
+  /// In the order of the text: for a local the names its scopes bind to it, its declaration among them; else every
+  /// name of that text that no local binds (as `UsagesAt::usages`)
+  pub uses: Vec<NameUse>,
+  /// What the name asked as `NameQuestion::renamed_to` would clash with, in the order of the text; `None` where none
+  /// was asked or the name is no local, empty where the rename changes no binding the scopes show
+  pub clashes: Option<Vec<Clash>>,
+}
+
+/// The answers of `names_at`
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NamesAt {
+  /// For each place asked, in the order asked, its entry of `names`; `None` where no name is. The places of one
+  /// binding asked with the same new name share an entry, as the places of one text that no local binds
+  pub asked: Vec<Option<usize>>,
+  pub names: Vec<NameAt>,
+}
+
+impl NamesAt {
+  /// The answer of the `index`-th place asked
+  pub fn of(&self, index: usize) -> Option<&NameAt> {
+    self.asked.get(index).copied().flatten().and_then(|it| self.names.get(it))
+  }
+}
+
 /// The name at `position` of `text` and what its syntax says; `None` where no name is or the grammar is not in this
 /// build
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
@@ -127,38 +274,30 @@ pub(crate) fn reference_answer(text: &str, start: usize, name: String, kind: Ref
   }
 }
 
-/// A usage of any parser: the name `name` that starts at byte `start` of `text`, used as `access`; `usage_answers`
-/// answers many in one pass
-#[cfg(test)]
-pub(crate) fn usage_answer(text: &str, start: usize, name: &str, access: Access) -> Usage {
-  let start = position_of(text, start);
-  Usage {
-    start,
-    end_column: start.column + utf16_length(name),
-    access,
-  }
+/// The places of the bytes of a text asked in its order, in one pass over it, where `position_of` scans the text from
+/// its start for each (a generated file of 400 KB has 14 000 names of a word)
+pub(crate) struct Places<'t> {
+  text: &'t str,
+  last: (usize, Position),
 }
 
-/// The usages of any parser in the order of the text: the name `name` at each byte with its access, in one pass over the
-/// text, where `usage_answer` scans it from its start for each (a generated file of 400 KB has 14 000 names of a word)
-pub(crate) fn usage_answers(text: &str, name: &str, usages: impl IntoIterator<Item = (usize, Access)>) -> Vec<Usage> {
-  let length = utf16_length(name);
-  let mut last = (0, Position { line: 0, column: 0 });
-  usages
-    .into_iter()
-    .map(|(start, access)| {
-      let position = match text.get(last.0..start) {
-        Some(between) => advance(last.1, between, text.as_bytes()[..last.0].last() == Some(&b'\r')),
-        None => position_of(text, start),
-      };
-      last = (start, position);
-      Usage {
-        start: position,
-        end_column: position.column + length,
-        access,
-      }
-    })
-    .collect()
+impl<'t> Places<'t> {
+  pub(crate) const fn new(text: &'t str) -> Self {
+    Self {
+      text,
+      last: (0, Position { line: 0, column: 0 }),
+    }
+  }
+
+  /// The place of the byte `start`: counted from the place asked before it, else from the start of the text
+  pub(crate) fn at(&mut self, start: usize) -> Position {
+    let position = match self.text.get(self.last.0..start) {
+      Some(between) => advance(self.last.1, between, self.text.as_bytes()[..self.last.0].last() == Some(&b'\r')),
+      None => position_of(self.text, start),
+    };
+    self.last = (start, position);
+    position
+  }
 }
 
 /// The place after `text` that follows `from`, with the lines as the view splits them; `after_cr` when the text before
@@ -180,44 +319,229 @@ fn advance(from: Position, text: &str, after_cr: bool) -> Position {
   position
 }
 
-/// The usages of the name at `position`: those of its declaration for a local, else those of every name of that text that
-/// no local binds; `None` where no name is
-pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
+/// The names a resolution looks for: those spelled `name`, and those that start at a byte of `also` (sorted) whatever
+/// they spell, which a rename would spell `name` (`clashes`)
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Wanted<'a> {
+  pub(crate) name: &'a str,
+  pub(crate) also: &'a [usize],
+}
+
+impl<'a> Wanted<'a> {
+  pub(crate) const fn named(name: &'a str) -> Self {
+    Self { name, also: &[] }
+  }
+
+  /// Whether the name `text` that starts at the byte `start` is looked for
+  pub(crate) fn takes(&self, text: &str, start: usize) -> bool {
+    text == self.name || self.starts_at(start)
+  }
+
+  /// Whether a name that starts at the byte `start` is looked for whatever it spells
+  pub(crate) fn starts_at(&self, start: usize) -> bool {
+    !self.also.is_empty() && self.also.binary_search(&start).is_ok()
+  }
+}
+
+/// The declaration a name is bound to: the byte where its name starts, and what it is when code declares it
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Bound {
+  pub(crate) start: usize,
+  pub(crate) local: Option<LocalBinding>,
+}
+
+/// A name of a resolution: the byte where its text starts, how it uses the name, what its site makes of it and the
+/// declaration its scopes bind it to
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Resolved {
+  pub(crate) start: usize,
+  pub(crate) access: Access,
+  pub(crate) site: Site,
+  pub(crate) binding: Option<Bound>,
+}
+
+/// The site of a name that its syntax alone does not give one (`syntactic`): a `Namesake` where the name is read as
+/// another kind of thing (`apart`: a type, a call in a language that keeps callables apart) than the value its
+/// binding declares
+pub(crate) fn site_by_binding(syntactic: Site, apart: bool, binding: Option<LocalBinding>) -> Site {
+  if syntactic == Site::Plain && apart && binding.is_some_and(|it| it.kind.is_value()) {
+    Site::Namesake
+  } else {
+    syntactic
+  }
+}
+
+/// A parse of a text read for its names: what each language gives the answers of `names_at`, `usages_at` and `usages_of`
+pub(crate) trait Names {
+  /// The name whose text holds the byte `offset`, else the one that ends there (`foo|`): the byte where it starts and
+  /// the name as names compare
+  fn name_at(&self, offset: usize) -> Option<(usize, &str)>;
+
+  /// Every name the resolution looks for, in the order of the text, each bound by the scopes of the language over the
+  /// declarations among them
+  fn resolve(&self, wanted: &Wanted<'_>) -> Vec<Resolved>;
+
+  /// Whether the language gives a name a meaning no declaration shows (Kotlin's `it`)
+  fn is_implicit(&self, name: &str) -> bool;
+}
+
+/// Whether a name is a use of the declaration `local`, else of the text that no local binds: the rule of Find Usages
+fn is_use(name: &Resolved, local: Option<Bound>) -> bool {
+  match local {
+    Some(local) => name.binding.is_some_and(|it| it.start == local.start),
+    None => name.binding.is_none_or(|it| it.local.is_none()),
+  }
+}
+
+/// The answers of `names_at` from a parse: one resolution per spelling asked, one per binding asked with a new name
+fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>]) -> NamesAt {
+  let mut resolutions: HashMap<&str, Vec<Resolved>> = HashMap::new();
+  // the entry of a binding (the byte of its declaration) or of a text no local binds, asked with a new name or none
+  let mut entries: HashMap<(Option<usize>, &str, Option<&str>), usize> = HashMap::new();
+  let mut found = NamesAt::default();
+  for question in questions {
+    let entry = byte_offset(text, question.position).and_then(|offset| names.name_at(offset)).and_then(|(start, name)| {
+      let resolved = resolutions.entry(name).or_insert_with(|| names.resolve(&Wanted::named(name)));
+      let local = resolved.iter().find(|it| it.start == start)?.binding.filter(|it| it.local.is_some());
+      let renamed_to = question.renamed_to.filter(|_| local.is_some());
+      let key = (local.map(|it| it.start), name, renamed_to);
+      Some(*entries.entry(key).or_insert_with(|| {
+        found.names.push(name_at(names, text, name, resolved, local, renamed_to));
+        found.names.len() - 1
+      }))
+    });
+    found.asked.push(entry);
+  }
+  found
+}
+
+/// The entry of a name: the uses of its declaration `local` (else of its text) among the names of its spelling, and
+/// what the name `renamed_to` would clash with
+fn name_at(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], local: Option<Bound>, renamed_to: Option<&str>) -> NameAt {
+  let length = utf16_length(name);
+  let mut places = Places::new(text);
+  let uses = resolved.iter().filter(|it| is_use(it, local)).map(|it| {
+    let start = places.at(it.start);
+    NameUse {
+      start,
+      end_column: start.column + length,
+      access: it.access,
+      site: it.site,
+    }
+  });
+  NameAt {
+    name: name.to_string(),
+    local: local.and_then(|it| it.local),
+    uses: uses.collect(),
+    clashes: local.zip(renamed_to).map(|(local, new_name)| clashes(names, text, name, resolved, local, new_name)),
+  }
+}
+
+/// What the name `new_name` for the declaration `local` of `name` would change the meaning of: the names of the
+/// declaration that the scopes would bind to another declaration of the new name (`Shadowed`), the names already
+/// spelled so that they would bind to it (`Captured`), and the new name itself where the language binds it without a
+/// declaration (`Implicit`). The scopes are asked once more, of the names of the new spelling and the names of the
+/// declaration as one name
+fn clashes(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], local: Bound, new_name: &str) -> Vec<Clash> {
+  if new_name == name {
+    return Vec::new();
+  }
+  let own: Vec<usize> = resolved.iter().filter(|it| is_use(it, Some(local))).map(|it| it.start).collect();
+  let renamed = names.resolve(&Wanted { name: new_name, also: &own });
+  let (old_length, new_length) = (utf16_length(name), utf16_length(new_name));
+  let mut places = Places::new(text);
+  let implicit = names.is_implicit(new_name);
+  let mut found = Vec::new();
+  // the name of a named argument and a label are bound by no scope, whatever a resolution says of them
+  for it in renamed.iter().filter(|it| !matches!(it.site, Site::NamedArgument | Site::Label)) {
+    let is_own = own.binary_search(&it.start).is_ok();
+    let bound_to_it = it.binding.is_some_and(|binding| binding.start == local.start);
+    let kind = if is_own && it.start == local.start && implicit {
+      ClashKind::Implicit
+    } else if is_own && !bound_to_it {
+      ClashKind::Shadowed
+    } else if !is_own && bound_to_it {
+      ClashKind::Captured
+    } else {
+      continue;
+    };
+    let start = places.at(it.start);
+    found.push(Clash {
+      start,
+      end_column: start.column + if is_own { old_length } else { new_length },
+      kind,
+    });
+  }
+  found
+}
+
+/// The answer of `read` for the names of a parse of `text`; `None` where the grammar is not in this build or the text
+/// has no tree
+fn with_names<R: Send>(grammar: Grammar, text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::usages_at(crate::kotlin::file_kind(grammar), text, position),
+    Grammar::Kotlin | Grammar::KotlinScript => Some(crate::kotlin::navigate::with_names(crate::kotlin::file_kind(grammar), text, read)),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::psi_navigate::usages_at(&crate::java::navigate::NAVIGATION, text, position),
+    Grammar::Java => Some(crate::psi_navigate::with_names(&crate::java::navigate::NAVIGATION, text, read)),
     #[cfg(feature = "csharp")]
-    Grammar::CSharp => crate::psi_navigate::usages_at(&crate::csharp::navigate::NAVIGATION, text, position),
+    Grammar::CSharp => Some(crate::psi_navigate::with_names(&crate::csharp::navigate::NAVIGATION, text, read)),
     #[cfg(feature = "starlark")]
-    Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::usages_at(&crate::starlark::navigate::NAVIGATION, text, position),
+    Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::psi_navigate::with_names(&crate::starlark::navigate::NAVIGATION, text, read)),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::usages_at(crate::js::dialect_of_grammar(grammar), text, position),
+    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::with_names(crate::js::dialect_of_grammar(grammar), text, read),
     #[cfg(feature = "rust")]
-    Grammar::Rust => crate::rust::navigate::usages_at(text, position),
+    Grammar::Rust => crate::rust::navigate::with_names(text, read),
     #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]
     _ => None,
   }
 }
 
+/// The names at the places asked of `text`, from one parse of it: for each its binding, the names bound as it is with
+/// what their sites make of them, and what the new name asked would clash with. No place has an answer where the
+/// grammar is not in this build or the text has no tree
+pub fn names_at(grammar: Grammar, text: &str, questions: &[NameQuestion<'_>]) -> NamesAt {
+  let none = || NamesAt {
+    asked: vec![None; questions.len()],
+    names: Vec::new(),
+  };
+  if questions.is_empty() {
+    return none();
+  }
+  with_names(grammar, text, |names| answer(names, text, questions)).unwrap_or_else(none)
+}
+
+/// The usages of the name at `position`: those of its declaration for a local, else those of every name of that text that
+/// no local binds; `None` where no name is
+pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
+  let found = names_at(grammar, text, &[NameQuestion::at(position)]).names.pop()?;
+  Some(UsagesAt {
+    local: found.local.is_some(),
+    usages: found.uses.iter().map(usage_of).collect(),
+    name: found.name,
+  })
+}
+
 /// The usages of `name` in a text that is not the one of the name: every name of that text that no local binds
 pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
-  match grammar {
-    #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::usages_of(crate::kotlin::file_kind(grammar), text, name),
-    #[cfg(feature = "java")]
-    Grammar::Java => crate::psi_navigate::usages_of(&crate::java::navigate::NAVIGATION, text, name),
-    #[cfg(feature = "csharp")]
-    Grammar::CSharp => crate::psi_navigate::usages_of(&crate::csharp::navigate::NAVIGATION, text, name),
-    #[cfg(feature = "starlark")]
-    Grammar::Starlark | Grammar::StarlarkBuild => crate::psi_navigate::usages_of(&crate::starlark::navigate::NAVIGATION, text, name),
-    #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => crate::js::navigate::usages_of(crate::js::dialect_of_grammar(grammar), text, name),
-    #[cfg(feature = "rust")]
-    Grammar::Rust => crate::rust::navigate::usages_of(text, name),
-    #[cfg(not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "typescript", feature = "rust")))]
-    _ => Vec::new(),
+  // a cheap test first: most files of a review do not have the word
+  if !text.contains(name) {
+    return Vec::new();
+  }
+  with_names(grammar, text, |names| {
+    name_at(names, text, name, &names.resolve(&Wanted::named(name)), None, None)
+      .uses
+      .iter()
+      .map(usage_of)
+      .collect()
+  })
+  .unwrap_or_default()
+}
+
+const fn usage_of(found: &NameUse) -> Usage {
+  Usage {
+    start: found.start,
+    end_column: found.end_column,
+    access: found.access,
   }
 }
 
@@ -271,3 +595,7 @@ pub(crate) fn utf16_length(text: &str) -> u32 {
 const fn utf16_length_of(character: char) -> u32 {
   if character.len_utf16() == 2 { 2 } else { 1 }
 }
+
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript"))]
+#[path = "names_at_test.rs"]
+mod names_at_test;
