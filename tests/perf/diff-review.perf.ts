@@ -62,7 +62,7 @@ function installProbes(measureBytes: boolean) {
   function scanRows(): { rows: number; highlighted: number } {
     let rows = 0
     let highlighted = 0
-    for (const row of document.querySelectorAll(".dv-row:not([data-kind=fold])")) {
+    for (const row of document.querySelectorAll("[data-testid=diff-row]:not([data-kind=fold])")) {
       const box = row.getBoundingClientRect()
       if (box.bottom <= 0 || box.top >= innerHeight || box.height === 0 || (row.textContent ?? "").trim().length < 10) {
         continue
@@ -265,11 +265,11 @@ async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindo
     return memory === undefined ? Number.NaN : memory.usedJSHeapSize / 1024 / 1024
   })
   // a fold names the scope of its lines
-  await expect(window.locator(".dv-fold-label").first()).toBeVisible()
+  await expect(window.locator("[data-testid=diff-fold-label]").first()).toBeVisible()
 
   // the tree scrolls the diffs to the file; its first fold is the first one on screen
   await window.getByRole("treeitem", { name: path.basename(expandPath) }).click()
-  const button = window.locator(`[data-testid=diff-view-file][data-path="${expandPath}"] .dv-fold-button`).filter({ visible: true }).first()
+  const button = window.locator(`[data-testid=diff-view-file][data-path="${expandPath}"] [data-testid=diff-fold]`).filter({ visible: true }).first()
   await expect(button).toBeVisible()
   const [started, startedAt] = await window.evaluate(() => [performance.now(), Date.now()] as const)
   await button.click()

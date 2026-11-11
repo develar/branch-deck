@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 274a6347a9420c2fc8c4e720f461377d5d5b8dc7c55b1827d2ea61218c5507dc # shrinks to old = "\n😂", new = "😂"
 cc 43e2db536d09d8d5b610e04facc72c820936999a239602a3569be94f66e6a94a # shrinks to old = "  ", new = ""
+cc b7b14e55d946c4c1d7d3e44f4709ddcdd886cbb0712c4d9b5bd70c5ed51dc3fb # shrinks to old = "a b\nx y\n\nc", new = "a b\na\nx y z\nc"

@@ -104,6 +104,60 @@ fn a_renamed_parameter_reads_as_one_row_per_line() {
   assert!(result.blocks[0].inline_pairs);
 }
 
+/// A call wrapped again that loses an argument: `gamma,` goes up a line and `, true` goes. The changes are of the
+/// text of the block, so the line end before `gamma` is a change whose sides stand in lines apart, and line 1 of the
+/// two sides is no pair: a row of both would show the new line without the deleted `, true`
+#[test]
+fn a_change_across_a_line_end_leaves_a_block_without_inline_pairs() {
+  let old = "fun f() {\n  val result = compute(alpha, beta,\n      gamma, delta, epsilon, zeta, eta, true)\n}\n";
+  let new = "fun f() {\n  val result = compute(alpha, beta, gamma,\n      delta, epsilon, zeta, eta)\n}\n";
+  let result = diff(old, new);
+  assert_eq!(shape(&result), vec![(1..3, 1..3, BlockKind::Changed)]);
+  let block = &result.blocks[0];
+  assert!(!block.inline_pairs, "{block:?}");
+  // the ranges stay, for the rows of each line: `, true` is a deleted range of the old line
+  let deleted = [38, 44, RangeKind::Deleted as u32];
+  assert!(block.old_ranges[1].chunks(3).any(|range| range == deleted), "{block:?}");
+
+  // the same lines with the argument dropped where it stands are two pairs
+  let dropped = "fun f() {\n  val result = compute(alpha, beta,\n      gamma, delta, epsilon, zeta, eta)\n}\n";
+  let result = diff(old, dropped);
+  assert_eq!(shape(&result), vec![(2..3, 2..3, BlockKind::Changed)]);
+  assert!(result.blocks[0].inline_pairs);
+  assert_eq!(result.blocks[0].old_ranges, vec![vec![38, 44, RangeKind::Deleted as u32]]);
+  assert_eq!(result.blocks[0].new_ranges, vec![vec![38, 38, RangeKind::Deleted as u32]]);
+}
+
+/// Under `Ignore` a line end may move without a change: `third` stands in line 1 of the new side and in line 2 of the
+/// old one, and no range says so. Lines 1 and 2 of the sides are no pairs then, though their ranges align
+#[test]
+fn a_line_end_that_moves_under_ignore_leaves_a_block_without_inline_pairs() {
+  let result = diff_with("a\nfirst second third x\nb\n", "a\nfirst second third y\nb\n", WhitespacePolicy::Ignore);
+  assert!(result.blocks[0].inline_pairs);
+  let result = diff_with(
+    "a\nfirst second\nthird fourth fifth x\nb\n",
+    "a\nfirst second third\nfourth fifth y\nb\n",
+    WhitespacePolicy::Ignore,
+  );
+  assert_eq!(shape(&result), vec![(1..3, 1..3, BlockKind::Changed)]);
+  let block = &result.blocks[0];
+  assert_eq!(
+    (&block.old_ranges, &block.new_ranges),
+    (&vec![vec![], vec![19, 20, MODIFIED]], &vec![vec![], vec![13, 14, MODIFIED]])
+  );
+  assert!(!block.inline_pairs, "{block:?}");
+}
+
+/// Under `Trim` the indent of a pair may differ beside its change: the ranges align, the text before them does not
+/// have the same length
+#[test]
+fn a_reindented_and_edited_line_is_a_pair_under_trim() {
+  let result = diff_with("fun f() {\n    foo(bar)\n}\n", "fun f() {\n        foo(baz)\n}\n", WhitespacePolicy::Trim);
+  let block = &result.blocks[0];
+  assert!(block.inline_pairs);
+  assert_eq!((&block.old_ranges, &block.new_ranges), (&vec![vec![8, 11, MODIFIED]], &vec![vec![12, 15, MODIFIED]]));
+}
+
 #[test]
 fn a_reindented_line_is_a_change_under_default_and_no_block_under_trim() {
   let (old, new) = ("class A {\n  fun f() = 1\n}\n", "class A {\n    fun f() = 1\n}\n");
@@ -360,7 +414,7 @@ fn the_model_is_camel_case_json() {
 /// A text of up to 12 lines from a few contents, whitespace and every line end among them
 fn text() -> impl Strategy<Value = String> {
   text_of_lines(
-    vec!["a", "b", "c", "", "  ", "a b", "a  b", "fn f() {", "}", "😂", "x y z"],
+    vec!["a", "b", "c", "", "  ", "a b", "b c", "a  b", "fn f() {", "}", "😂", "x y z", "x y", "y z"],
     vec!["\n", "\n", "\r\n", "\r"],
     12,
   )
@@ -410,6 +464,9 @@ fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &TextDiff) {
         }
       }
     }
+    if block.inline_pairs {
+      check_pairs(block, &old_lines, &new_lines, policy);
+    }
     (old_position, new_position) = (block.old_end, block.new_end);
   }
   assert!(old_position <= result.old_line_count && new_position <= result.new_line_count);
@@ -445,6 +502,36 @@ fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &TextDiff) {
     "{:?}",
     result.blocks
   );
+}
+
+/// The pairs of a block with `inline_pairs`: as many lines on both sides, as many ranges in line i of both, of the
+/// same kinds, and between them the same text but for whitespace (the same text under `Default`). So a row of line i
+/// of both sides shows all of both: no text of the old line stands in the row of another pair
+fn check_pairs(block: &DiffBlock, old_lines: &[String], new_lines: &[String], policy: WhitespacePolicy) {
+  assert_eq!(block.old_end - block.old_start, block.new_end - block.new_start, "{block:?}");
+  /// The text of a line between its ranges, one part before each range and one after the last
+  fn between(line: &str, ranges: &[u32], keep_whitespace: bool) -> Vec<String> {
+    let units: Vec<u16> = line.encode_utf16().collect();
+    let mut bounds = vec![0];
+    bounds.extend(ranges.chunks(3).flat_map(|range| [range[0] as usize, range[1] as usize]));
+    bounds.push(units.len());
+    bounds
+      .chunks(2)
+      .map(|part| String::from_utf16_lossy(&units[part[0]..part[1]]))
+      .map(|part| if keep_whitespace { part } else { part.replace([' ', '\t'], "") })
+      .collect()
+  }
+  for pair in 0..(block.old_end - block.old_start) as usize {
+    let (old_ranges, new_ranges): (&[u32], &[u32]) = (block.old_ranges.get(pair).map_or(&[], Vec::as_slice), block.new_ranges.get(pair).map_or(&[], Vec::as_slice));
+    let kinds = |ranges: &[u32]| ranges.chunks(3).map(|range| range[2]).collect::<Vec<u32>>();
+    assert_eq!(kinds(old_ranges), kinds(new_ranges), "pair {pair} of {block:?}");
+    let exact = policy == WhitespacePolicy::Default;
+    assert_eq!(
+      between(&old_lines[block.old_start as usize + pair], old_ranges, exact),
+      between(&new_lines[block.new_start as usize + pair], new_ranges, exact),
+      "pair {pair} of {block:?} under {policy:?}"
+    );
+  }
 }
 
 proptest! {

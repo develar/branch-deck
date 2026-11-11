@@ -6,8 +6,9 @@
 //! has line ends. Line ends compare as equal; `TextDiff::line_ends` names them when the files differ in them.
 
 use crate::cancellation::Deadline;
+use crate::comparison_util::is_equal_texts;
 use crate::inline::{LineRanges, inline_pairs, ranges_dropped};
-use crate::policy::{HighlightPolicy, WhitespacePolicy};
+use crate::policy::{ComparisonPolicy, HighlightPolicy, WhitespacePolicy};
 use crate::provider::{ViewFragment, compare_for_view};
 use crate::text::{LineEndKind, SourceText};
 use serde::{Deserialize, Serialize};
@@ -61,7 +62,10 @@ pub struct DiffBlock {
   pub new_start: u32,
   pub new_end: u32,
   pub kind: BlockKind,
-  /// The sides have the same number of lines and each pair is similar: the Inline view may draw pair i as one row
+  /// The Inline view may draw pair i as one row (`pairs_align`): the sides have the same number of lines, each pair is
+  /// similar, each inner change lies in one pair, and outside its changes a pair is the same text on both sides but
+  /// for whitespace. So the ranges of line i of both sides align by index, and the row of a pair shows all of both
+  /// its lines.
   pub inline_pairs: bool,
   /// For each line of the old side, `[start, end, kind, start, end, kind, ...]`: UTF-16 offsets inside the line, the
   /// end exclusive, never the line end, and the `RangeKind` of the inner change, as IntelliJ types a fragment.
@@ -248,7 +252,7 @@ fn block_of(view: &ViewFragment, old: &SourceText, new: &SourceText) -> DiffBloc
     None => {}
     Some(inner) if inner.is_empty() => {
       block.kind = BlockKind::WhitespaceOnly;
-      block.inline_pairs = fragment.end_line1 - fragment.start_line1 == fragment.end_line2 - fragment.start_line2;
+      block.inline_pairs = pairs_align(old, new, fragment.start_line1..fragment.end_line1, fragment.start_line2..fragment.end_line2, &[], &[]);
     }
     Some(inner) => {
       let ranges1: Vec<Range<usize>> = inner
@@ -262,7 +266,15 @@ fn block_of(view: &ViewFragment, old: &SourceText, new: &SourceText) -> DiffBloc
       let old_lines = line_ranges(old, fragment.start_line1..fragment.end_line1, &ranges1);
       let new_lines = line_ranges(new, fragment.start_line2..fragment.end_line2, &ranges2);
       if !ranges_dropped(&old_lines, &new_lines) {
-        block.inline_pairs = inline_pairs(&old_lines, &new_lines);
+        block.inline_pairs = inline_pairs(&old_lines, &new_lines)
+          && pairs_align(
+            old,
+            new,
+            fragment.start_line1..fragment.end_line1,
+            fragment.start_line2..fragment.end_line2,
+            &ranges1,
+            &ranges2,
+          );
         let kinds: Vec<RangeKind> = inner
           .iter()
           .map(|it| match (it.start_offset1 == it.end_offset1, it.start_offset2 == it.end_offset2) {
@@ -277,6 +289,42 @@ fn block_of(view: &ViewFragment, old: &SourceText, new: &SourceText) -> DiffBloc
     }
   }
   block
+}
+
+/// Whether line i of the old side and line i of the new side of a block are a pair that one row can show whole. The
+/// inner changes are of the text of the whole block, not of a pair, so a change may take a line end with it or have
+/// its sides in lines apart (a call wrapped again), and under `Ignore` a line end may move without a change. Such a
+/// block has no pairs: a row of line i of both sides would lose the deleted text whose inserted side stands in
+/// another row. The sides align when they have as many lines, each change lies within line i of both sides for one i
+/// (an empty side in the first line that holds its offset, where `typed_line_ranges` puts its marker), and what a pair
+/// holds between its changes is the same text on both sides but for whitespace.
+fn pairs_align(old: &SourceText, new: &SourceText, old_lines: Range<usize>, new_lines: Range<usize>, old_ranges: &[Range<usize>], new_ranges: &[Range<usize>]) -> bool {
+  if old_lines.len() != new_lines.len() {
+    return false;
+  }
+  let (old_text, new_text) = (old.text(), new.text());
+  let (old_offsets, new_offsets) = (old_text.line_offsets(), new_text.line_offsets());
+  let same = |old_part: Range<usize>, new_part: Range<usize>| {
+    let (old_part, new_part) = (&old_text.units()[old_part], &new_text.units()[new_part]);
+    old_part == new_part || is_equal_texts(old_part, new_part, ComparisonPolicy::IgnoreWhitespaces)
+  };
+  let mut changes = old_ranges.iter().zip(new_ranges).peekable();
+  for (old_line, new_line) in old_lines.zip(new_lines) {
+    let (mut old_at, mut new_at) = (old_offsets.line_start(old_line), new_offsets.line_start(new_line));
+    let (old_end, new_end) = (old_offsets.line_end(old_line), new_offsets.line_end(new_line));
+    // the changes of this pair: the ones whose old side starts in its old line
+    while let Some((old_range, new_range)) = changes.next_if(|(old_range, _)| old_range.start <= old_end) {
+      let inside = old_range.start >= old_at && old_range.end <= old_end && new_range.start >= new_at && new_range.end <= new_end;
+      if !inside || !same(old_at..old_range.start, new_at..new_range.start) {
+        return false;
+      }
+      (old_at, new_at) = (old_range.end, new_range.end);
+    }
+    if !same(old_at..old_end, new_at..new_end) {
+      return false;
+    }
+  }
+  changes.next().is_none()
 }
 
 /// The ranges inside each line of `lines`, from ranges of text offsets; a range is cut at the line ends

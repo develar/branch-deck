@@ -2256,7 +2256,12 @@ export type DiffBlock = {
 	newStart: number,
 	newEnd: number,
 	kind: BlockKind,
-	/**  The sides have the same number of lines and each pair is similar: the Inline view may draw pair i as one row */
+	/**
+	 *  The Inline view may draw pair i as one row (`pairs_align`): the sides have the same number of lines, each pair is
+	 *  similar, each inner change lies in one pair, and outside its changes a pair is the same text on both sides but
+	 *  for whitespace. So the ranges of line i of both sides align by index, and the row of a pair shows all of both
+	 *  its lines.
+	 */
 	inlinePairs: boolean,
 	/**
 	 *  For each line of the old side, `[start, end, kind, start, end, kind, ...]`: UTF-16 offsets inside the line, the

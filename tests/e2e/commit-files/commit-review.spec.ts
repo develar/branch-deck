@@ -5,6 +5,7 @@ import type { BranchReviewWindowData, CommitsReviewWindowData } from "../../../s
 import { test as simpleTest, testWithIssueLinks, testWithUnassigned, expect } from "../fixtures/test-fixtures"
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
+import { changedParts, deletedParts, diffRows, findMarks, joinedText } from "../helpers/diff-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
@@ -21,6 +22,7 @@ import {
 } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
@@ -41,7 +43,7 @@ async function headerPlace(review: Locator, name: string): Promise<{ header: num
     const section = view.querySelector(`[data-testid=diff-view-file][data-path$="/${fileName}"]`)!
     const header = section.querySelector("[data-testid=review-file-header]")!.getBoundingClientRect()
     const inGap = document.elementFromPoint(box.left + box.width / 2, box.top + 5)
-    return { header: Math.round(header.top - box.top), rowInGap: inGap?.closest(".dv-row") != null }
+    return { header: Math.round(header.top - box.top), rowInGap: inGap?.closest("[data-testid=diff-row]") != null }
   }, name)
 }
 
@@ -54,11 +56,6 @@ async function headerNameLefts(code: Locator): Promise<number[]> {
     lefts.push(Math.round(box!.x))
   }
   return lefts
-}
-
-/** The text of the elements of `parts` in their order: a hit or a deleted part of a line is a span per token of the syntax */
-async function joinedText(parts: Locator): Promise<string> {
-  return (await parts.allTextContents()).join("")
 }
 
 /**
@@ -82,10 +79,10 @@ async function copyOfCells(scope: Locator, cells: string, count: number): Promis
   )
 }
 
-/** ⌘F in the diffs of the review window of the tree commit, once they show: the field of the find and its count */
-async function openFind(page: Page, window: Locator): Promise<{ code: Locator; field: Locator; count: Locator }> {
+/** ⌘F in the diffs of a review window, once they show `shown` (a text of the tree commit unless given): the field of the find and its count */
+async function openFind(page: Page, window: Locator, shown = "SessionRowMapper"): Promise<{ code: Locator; field: Locator; count: Locator }> {
   const code = window.getByTestId("commit-review-code")
-  await expect(code).toContainText("SessionRowMapper")
+  await expect(code).toContainText(shown)
   await code.locator("[aria-label='Changes of the commit']").focus()
   await page.keyboard.press("ControlOrMeta+f")
   const field = window.getByRole("textbox", { name: "Find in the review" })
@@ -427,9 +424,9 @@ simpleTest.describe("Commit review", () => {
     const code = window.getByTestId("commit-review-code")
     const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
     // the last three rows of RowMapper.kt: `val field30`, the row of the similar pair of `map`, `}`
-    const pair = mapper.locator(".dv-row[data-kind=inline]")
-    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted]"))).toBe("Row = Row")
-    const copied = await copyOfCells(mapper, ".dv-code[data-side]", 3)
+    const pair = diffRows(mapper, "inline")
+    await expect.poll(() => joinedText(deletedParts(pair))).toBe("Row = Row")
+    const copied = await copyOfCells(mapper, "[data-testid=diff-code][data-side]", 3)
     // the row shows the deleted `Row = Row` struck through; the copy is the new line
     expect(copied.text).toBe("  val field30 = 30\n  fun map(state: String): SessionRow = SessionRow(state)\n}")
   })
@@ -445,14 +442,14 @@ simpleTest.describe("Commit review", () => {
     // Enter goes to the hit: its fold opens, the hit is marked
     await field.press("Enter")
     await expect(count).toHaveText("1 of 1")
-    await expect(code.locator(".dv-hit-current")).toHaveText("field10")
+    await expect(findMarks(code, "current")).toHaveText("field10")
     await expect(code).toContainText("val field10 = 10")
 
     // Escape closes the find, the diffs keep the focus
     await field.press("Escape")
     await expect(window.getByTestId("diff-find-bar")).toHaveCount(0)
     await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
-    await expect(code.locator(".dv-hit")).toHaveCount(0)
+    await expect(findMarks(code)).toHaveCount(0)
   })
 
   simpleTest("should find a text in the deleted parts of an Inline row, struck through, and in the deleted rows of Unified", async ({ page }) => {
@@ -464,11 +461,11 @@ simpleTest.describe("Commit review", () => {
     // line and strikes `Row = Row` through between them, and the hit marks all three
     await field.fill(": Row = Row(")
     await expect(count).toHaveText("1 result")
-    const pair = mapper.locator(".dv-row[data-kind=inline]")
+    const pair = diffRows(mapper, "inline")
     await field.press("Enter")
     await expect(count).toHaveText("1 of 1")
-    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted].dv-hit-current"))).toBe("Row = Row")
-    await expect.poll(() => joinedText(pair.locator(".dv-hit-current"))).toBe(": Row = Row(")
+    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted][data-hit=current]"))).toBe("Row = Row")
+    await expect.poll(() => joinedText(findMarks(pair, "current"))).toBe(": Row = Row(")
     // the text the two lines share is found once, in the new line; the deleted part and the inserted one each on its own
     await field.fill("fun map(state")
     await expect(count).toHaveText("1 result")
@@ -476,18 +473,18 @@ simpleTest.describe("Commit review", () => {
     await expect(count).toHaveText("2 results")
     // the deleted `Row` before the inserted `SessionRow`, as the row reads
     await field.press("Enter")
-    await expect.poll(() => joinedText(pair.locator(".dv-hit-current"))).toBe("Row(state)")
-    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted].dv-hit-current"))).toBe("Row")
+    await expect.poll(() => joinedText(findMarks(pair, "current"))).toBe("Row(state)")
+    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted][data-hit=current]"))).toBe("Row")
     await field.press("Enter")
     await expect(count).toHaveText("2 of 2")
-    await expect(pair.locator("[data-inline-deleted].dv-hit-current")).toHaveCount(0)
+    await expect(pair.locator("[data-inline-deleted][data-hit=current]")).toHaveCount(0)
 
     // Unified: the old line is a deleted row, found there
     await window.getByRole("button", { name: "Unified" }).click()
     await field.fill(": Row = Row(")
     await expect(count).toHaveText("1 result")
-    await expect.poll(() => joinedText(mapper.locator(".dv-row[data-kind=deleted] .dv-hit"))).toBe(": Row = Row(")
-    await expect(mapper.locator(".dv-row[data-kind=added] .dv-hit")).toHaveCount(0)
+    await expect.poll(() => joinedText(mapper.locator("[data-testid=diff-row][data-kind=deleted] [data-hit]"))).toBe(": Row = Row(")
+    await expect(mapper.locator("[data-testid=diff-row][data-kind=added] [data-hit]")).toHaveCount(0)
   })
 
   simpleTest("should open find from the file tree and step results there with ⌘F and ⌘G @webkit", async ({ page }) => {
@@ -552,14 +549,14 @@ simpleTest.describe("Commit review in Split", () => {
     await page.setViewportSize({ width: 1600, height: 900 })
     const window = await openTreeReview(page)
     const code = window.getByTestId("diff-view")
-    await expect(window.locator(".dv-row[data-kind=changed]").first()).toBeVisible()
+    await expect(diffRows(window, "changed").first()).toBeVisible()
     // the painter paints a row anew when its texts arrive or the layout changes, so a handle of a row can be detached
     // the moment after it was found: every look finds the row and measures it in one step of the page, and twice a
     // frame apart, so it also tells whether the rows still move
     const firstRow = () =>
       window.evaluate(async review => {
         const measure = () => {
-          const row = review.querySelector(".dv-row[data-kind=changed]")!
+          const row = review.querySelector("[data-testid=diff-row][data-kind=changed]")!
           const [left, right] = [...row.children].map(half => half.getBoundingClientRect())
           return { share: left!.width / row.getBoundingClientRect().width, divider: { x: right!.x, y: right!.y + right!.height / 2 } }
         }
@@ -608,12 +605,12 @@ simpleTest.describe("Commit review in Split", () => {
   simpleTest("should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers", async ({ page }) => {
     const window = await openTreeReview(page)
     const code = window.getByTestId("commit-review-code")
-    const newSide = code.locator('.dv-half[data-side="1"] .dv-code[data-side]')
+    const newSide = code.locator('[data-testid=diff-side][data-side="1"] [data-testid=diff-code][data-side]')
     await expect(newSide.nth(2)).toBeVisible()
     // a press on the new side keeps the selection there; the copy reads the lines of the rows from the texts: the
     // last three rows of the new side of the first file
     await newSide.nth(0).click()
-    const copied = await copyOfCells(code.getByTestId("diff-view-file").first(), '.dv-half[data-side="1"] .dv-code[data-side]', 3)
+    const copied = await copyOfCells(code.getByTestId("diff-view-file").first(), '[data-testid=diff-side][data-side="1"] [data-testid=diff-code][data-side]', 3)
     expect(copied.text).toBe(copied.lines.join("\n"))
     expect(copied.text.split("\n")).toHaveLength(3)
   })
@@ -625,8 +622,8 @@ simpleTest.describe("Commit review in Split", () => {
     await field.fill("Row(state)")
     await expect(count).toHaveText("2 results")
     const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
-    await expect.poll(() => joinedText(mapper.locator('.dv-half[data-side="0"] .dv-hit'))).toBe("Row(state)")
-    await expect.poll(() => joinedText(mapper.locator('.dv-half[data-side="1"] .dv-hit'))).toBe("Row(state)")
+    await expect.poll(() => joinedText(mapper.locator('[data-testid=diff-side][data-side="0"] [data-hit]'))).toBe("Row(state)")
+    await expect.poll(() => joinedText(mapper.locator('[data-testid=diff-side][data-side="1"] [data-hit]'))).toBe("Row(state)")
   })
 })
 
@@ -942,7 +939,7 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     const code = window.getByTestId("commit-review-code")
     await expect(position).toHaveText("File 1 / 2")
     // Inline, the default: the row of `second` is its new line with the deleted `3` before the inserted `4`
-    await expect(code.locator(".dv-row[data-kind=inline]", { hasText: "fun second() = " }).locator("[data-inline-deleted]")).toHaveText("3")
+    await expect(diffRows(code, "inline", { hasText: "fun second() = " }).locator("[data-inline-deleted]")).toHaveText("3")
     /** From the top of Format.kt, N goes through `changes` blocks there, then to Main.kt; P comes back to the last one */
     const stepThrough = async (changes: number) => {
       await window.getByRole("treeitem", { name: "Format.kt" }).click()
@@ -974,6 +971,83 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     await choose("Ignore Whitespace and Blank Lines", "modified, +1 −1, 1 line hidden by Whitespace")
     await stepThrough(1)
   })
+})
+
+simpleTest.describe("Commit review of lines the engine does not pair", () => {
+  /** The review window of a commit of the branch `call` that changes src/Caller.kt from `before` to `after`, in Inline, the default */
+  async function openCallerReview(page: Page, repo: TestRepositoryBuilder, sync: () => Promise<void>, before: string, after: string): Promise<Locator> {
+    await repo.commit("Add the caller", { "src/Caller.kt": before }, 1704120600)
+    await repo.pushInTerminal("master")
+    await repo.commit("(call) change the call", { "src/Caller.kt": after }, 1704121200)
+    await sync()
+    await expandBranch(page, findBranchRow(page, "call"))
+    await openCommitPreview(page, getBranchCommitRow(page, "call", "change the call"))
+    await page.keyboard.press("d")
+    const window = await showReviewWindow(page, await openedReview(page, 1))
+    await expect(window.getByRole("button", { name: "Inline", exact: true })).toHaveAttribute("aria-pressed", "true")
+    return window
+  }
+
+  simpleTest("should show a call wrapped again line by line in Inline, and find the argument it lost", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // `gamma,` goes up a line and `, true` goes: the change of the line end has its sides in lines apart, so line 2
+    // of the old side and of the new one are no pair, and a row of both would not show the lost argument
+    const window = await openCallerReview(
+      page,
+      await setupRepo("simple"),
+      syncAndWaitForBranches,
+      "fun f() {\n  val result = compute(alpha, beta,\n      gamma, delta, epsilon, zeta, eta, true)\n}\n",
+      "fun f() {\n  val result = compute(alpha, beta, gamma,\n      delta, epsilon, zeta, eta)\n}\n",
+    )
+    const { code, field, count } = await openFind(page, window, "delta, epsilon")
+    await expect(diffRows(code, "deleted")).toHaveText([/compute\(alpha, beta,$/, /gamma, delta, epsilon, zeta, eta, true\)$/])
+    await expect(diffRows(code, "added")).toHaveText([/compute\(alpha, beta, gamma,$/, /delta, epsilon, zeta, eta\)$/])
+    await expect(diffRows(code, "inline")).toHaveCount(0)
+    // the ranges of the engine stay on the rows: the lost argument is a changed part of its deleted row
+    await expect.poll(() => joinedText(changedParts(diffRows(code, "deleted").last()))).toMatch(/, true$/)
+
+    await field.fill("true")
+    await expect(count).toHaveText("1 result")
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 1")
+    await expect.poll(() => joinedText(findMarks(diffRows(code, "deleted").last(), "current"))).toBe("true")
+    // as Unified finds it
+    await window.getByRole("button", { name: "Unified", exact: true }).click()
+    await expect(window.getByRole("button", { name: "Unified", exact: true })).toHaveAttribute("aria-pressed", "true")
+    await expect(count).toHaveText("1 of 1")
+  })
+
+  simpleTest(
+    "should mark a hit of the old line of an Inline row at its own text where Trim Whitespace pairs lines of another indent",
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the call is indented again and edited: Trim Whitespace pairs the two lines, whose text before the change is 8
+      // and 12 characters long
+      const window = await openCallerReview(
+        page,
+        await setupRepo("simple", { initialStoreValues: { diffView: { whitespacePolicy: "trim" } } }),
+        syncAndWaitForBranches,
+        "fun f() {\n    foo(bar)\n}\n",
+        "fun f() {\n        foo(baz)\n}\n",
+      )
+      const { code, field, count } = await openFind(page, window, "foo(")
+      const pair = diffRows(code, "inline")
+      await expect(deletedParts(pair)).toHaveText("bar")
+      await expect(changedParts(pair)).toHaveText("baz")
+
+      // `foo(bar` stood in the old line alone: the row marks `foo(` of the new line, not its indent, and the struck `bar`
+      await field.fill("foo(bar")
+      await expect(count).toHaveText("1 result")
+      await field.press("Enter")
+      await expect(count).toHaveText("1 of 1")
+      await expect.poll(() => joinedText(findMarks(pair, "current"))).toBe("foo(bar")
+      await expect.poll(() => joinedText(deletedParts(pair).and(findMarks(pair, "current")))).toBe("bar")
+      // `bar)`: the bracket after the inserted `baz`
+      await field.fill("bar)")
+      await expect(count).toHaveText("1 result")
+      await field.press("Enter")
+      await expect.poll(() => joinedText(findMarks(pair, "current"))).toBe("bar)")
+      await expect(changedParts(pair).and(findMarks(pair))).toHaveCount(0)
+    },
+  )
 })
 
 simpleTest.describe("A commit with its branch", () => {

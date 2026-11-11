@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { diffRows, diffSides } from "../helpers/diff-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
@@ -37,10 +38,10 @@ test.describe("Conflict fix", () => {
     await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict")
     await expect(file.getByTestId("merge-columns")).toContainText(/^(origin\/)?master/)
     await expect(file.getByTestId("merge-columns")).toContainText("“Show the timeout in seconds”")
-    const conflict = file.locator(".dv-row[data-kind=merge]")
-    await expect(conflict.locator('.dv-half[data-side="0"]')).toHaveText(/timeout = 10$/)
-    await expect(conflict.locator('.dv-half[data-side="1"]')).toHaveText(/timeout = 30$/)
-    await expect(conflict.locator('.dv-half[data-side="2"]')).toHaveText(/timeout = 30 \/\/ seconds$/)
+    const conflict = diffRows(file, "merge")
+    await expect(diffSides(conflict, 0)).toHaveText(/timeout = 10$/)
+    await expect(diffSides(conflict, 1)).toHaveText(/timeout = 30$/)
+    await expect(diffSides(conflict, 2)).toHaveText(/timeout = 30 \/\/ seconds$/)
     await expect(file.getByTestId("merge-notice")).toHaveCount(0)
 
     await runAndWaitForSync(page, () => fix.getByTestId("apply-conflict-fix").click())

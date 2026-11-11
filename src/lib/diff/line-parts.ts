@@ -77,7 +77,10 @@ export function lineParts(
   for (let index = 0; ranges !== null && index + 1 < ranges.length; index += RANGE_STRIDE) {
     bounds.push(ranges[index]!, ranges[index + 1]!)
   }
-  bounds.push(...(hits?.ranges ?? []))
+  // a loop, not a spread: a line may hold more hits than a call takes arguments
+  for (const bound of hits?.ranges ?? []) {
+    bounds.push(bound)
+  }
   for (let index = 0; sharedHits !== null && index + 1 < sharedHits.length; index += SHARED_HIT_STRIDE) {
     bounds.push(sharedHits[index]!, sharedHits[index + 1]!)
   }
@@ -148,40 +151,43 @@ export interface InlinePart extends LinePart {
   side: 0 | 1
 }
 
+/** `RangeKind::Modified` of the engine */
+const MODIFIED_RANGE = 2
+
 /**
- * The ranges of the two lines of a similar pair, aligned by index. The engine marks the empty side of an inserted or a
- * deleted change, so the two lines of a pair have as many ranges; a line without any range gets an empty range where
- * the text of the other side is inserted or deleted. Null when both sides have ranges that do not align.
+ * The two lines of a similar pair as the row of Inline shows them: the new line, with each deleted part of the old
+ * line before the inserted part of its range. The engine pairs two lines only when their ranges align
+ * (`DiffBlock.inlinePairs`, `pairs_align` of text-diff): line i of both sides has as many ranges, in the same order,
+ * and between them the same text but for whitespace, which a whitespace policy ignores. The row shows that shared
+ * text once, as the new line has it.
  */
-export function alignInlineRanges(oldRanges: readonly number[], newRanges: readonly number[]): [readonly number[], readonly number[]] | null {
+export interface InlinePair {
+  oldText: string
+  newText: string
+  /** The ranges of the old line, `[start, end, kind, ...]`: the parts the row strikes through */
+  deletions: readonly number[]
+  /** The ranges of the new line, as many as `deletions` and in their order */
+  insertions: readonly number[]
+}
+
+/**
+ * The pair of two lines with the ranges of the engine. Lines with as many ranges are a pair of the engine. Any other
+ * two (no engine gives them) are the whole old line deleted before the whole new line, so a row never hides text of
+ * its lines.
+ */
+export function inlinePair(oldText: string, newText: string, oldRanges: readonly number[], newRanges: readonly number[]): InlinePair {
   if (oldRanges.length === newRanges.length) {
-    return [oldRanges, newRanges]
+    return { oldText, newText, deletions: oldRanges, insertions: newRanges }
   }
-  const emptyAt = (ranges: readonly number[]) => {
-    const empty: number[] = []
-    // the text between two ranges is the same on both sides: an offset of the other side less what its ranges hold
-    let shift = 0
-    for (let index = 0; index + 2 < ranges.length; index += RANGE_STRIDE) {
-      empty.push(ranges[index]! - shift, ranges[index]! - shift, ranges[index + 2]!)
-      shift += ranges[index + 1]! - ranges[index]!
-    }
-    return empty
-  }
-  if (oldRanges.length === 0) {
-    return [emptyAt(newRanges), newRanges]
-  }
-  if (newRanges.length === 0) {
-    return [oldRanges, emptyAt(oldRanges)]
-  }
-  return null
+  return { oldText, newText, deletions: [0, oldText.length, MODIFIED_RANGE], insertions: [0, newText.length, MODIFIED_RANGE] }
 }
 
 /**
  * Whether the hit `[start, end)` of the old line of an Inline row is a hit of its own: it holds a deleted part, which
  * the row strikes through, or a place where the new line inserts text. Any other hit lies in text the two lines share,
- * where the new line has the same hit. `deletions`: the ranges of the old line, aligned (`alignInlineRanges`)
+ * where the new line has the same hit.
  */
-export function isOwnOldHit(deletions: readonly number[], start: number, end: number): boolean {
+export function isOwnOldHit({ deletions }: InlinePair, start: number, end: number): boolean {
   for (let index = 0; index + 2 < deletions.length; index += RANGE_STRIDE) {
     const from = deletions[index]!
     const to = deletions[index + 1]!
@@ -192,21 +198,106 @@ export function isOwnOldHit(deletions: readonly number[], start: number, end: nu
   return false
 }
 
+/** A space or a tab: the whitespace inside a line that a whitespace policy ignores (`is_space_enter_or_tab` of text-diff) */
+function isSpace(code: number): boolean {
+  return code === 32 || code === 9
+}
+
 /**
- * The offset in the text of an Inline row (`inlineParts`: the new line, the deleted parts of the old line before the
- * inserted parts) of the offset `offset` of its old (`side` 0) or new line; the ranges of both lines aligned
+ * The offset in `to[toStart, toEnd)` of the offset `offset` of `from[fromStart, fromEnd)`, two texts that are the same
+ * but for whitespace: the shared text of a pair before, between or after its ranges. Under a policy that ignores
+ * whitespace the two differ in length (another indent), so an offset maps by the characters that are no whitespace
+ * before it. `end`: the offset ends a range (the character before it counts) and does not start one; a run of
+ * whitespace maps to the whole run of the other text.
  */
-export function inlineOffset(deletions: readonly number[], insertions: readonly number[], side: number, offset: number): number {
-  // what stands in the row before the offset beside the text of its own line: for the old line the inserted parts, for
-  // the new line the deleted ones. A deleted part stands before the inserted part of its range
-  let before = 0
-  for (let index = 0; index + 2 < insertions.length; index += RANGE_STRIDE) {
-    if (offset < (side === 0 ? deletions[index + 1]! : insertions[index]!)) {
+function sharedOffset(from: string, fromStart: number, fromEnd: number, to: string, toStart: number, toEnd: number, offset: number, end: boolean): number {
+  if (fromEnd - fromStart === toEnd - toStart && from.startsWith(to.slice(toStart, toEnd), fromStart)) {
+    return toStart + offset - fromStart
+  }
+  // the ends of the text are the ends of the other text, whatever whitespace stands there
+  if (offset <= fromStart && end) {
+    return toStart
+  }
+  if (offset >= fromEnd && !end) {
+    return toEnd
+  }
+  let count = 0
+  for (let index = fromStart; index < offset; index++) {
+    if (!isSpace(from.charCodeAt(index))) {
+      count++
+    }
+  }
+  const edge = end ? offset - 1 : offset
+  const onText = edge >= fromStart && edge < fromEnd && !isSpace(from.charCodeAt(edge))
+  let index = toStart
+  for (let seen = 0; index < toEnd && seen < count; index++) {
+    if (!isSpace(to.charCodeAt(index))) {
+      seen++
+    }
+  }
+  // a start on text stands at that text, past the whitespace before it; an end after whitespace takes all of it
+  if (onText !== end) {
+    while (index < toEnd && isSpace(to.charCodeAt(index))) {
+      index++
+    }
+  }
+  return index
+}
+
+/**
+ * Calls `visit` with the text the lines of a pair share: before each range and after the last one, as `[oldFrom,
+ * oldTo)` of the old line and `[newFrom, newTo)` of the new one
+ */
+function forEachShared({ oldText, newText, deletions, insertions }: InlinePair, visit: (oldFrom: number, oldTo: number, newFrom: number, newTo: number) => void): void {
+  let oldFrom = 0
+  let newFrom = 0
+  for (let index = 0; index + 2 < deletions.length; index += RANGE_STRIDE) {
+    visit(oldFrom, deletions[index]!, newFrom, insertions[index]!)
+    oldFrom = deletions[index + 1]!
+    newFrom = insertions[index + 1]!
+  }
+  visit(oldFrom, oldText.length, newFrom, newText.length)
+}
+
+/**
+ * The offset in the text of an Inline row (`inlineParts`) of the offset `offset` of its old (`side` 0) or new line.
+ * `end`: the offset ends a range of the line, so it stands after the character before it: at the end of a deleted
+ * part, not at the inserted part or the shared text that follows it.
+ */
+export function inlineOffset(pair: InlinePair, side: number, offset: number, end = false): number {
+  const { oldText, newText, deletions, insertions } = pair
+  if (side !== 0) {
+    // the deleted parts before the offset: each stands before the inserted part of its range
+    let struck = 0
+    for (let index = 0; index + 2 < insertions.length; index += RANGE_STRIDE) {
+      if (end ? offset <= insertions[index]! : offset < insertions[index]!) {
+        break
+      }
+      struck += deletions[index + 1]! - deletions[index]!
+    }
+    return offset + struck
+  }
+  let struck = 0
+  let oldFrom = 0
+  let newFrom = 0
+  let index = 0
+  for (; index + 2 < deletions.length; index += RANGE_STRIDE) {
+    const from = deletions[index]!
+    const to = deletions[index + 1]!
+    if (end ? offset <= from : offset < from) {
       break
     }
-    before += side === 0 ? insertions[index + 1]! - insertions[index]! : deletions[index + 1]! - deletions[index]!
+    if (end ? offset <= to : offset < to) {
+      // in the deleted part, which stands where the inserted part of its range starts
+      return insertions[index]! + struck + offset - from
+    }
+    struck += to - from
+    oldFrom = to
+    newFrom = insertions[index + 1]!
   }
-  return offset + before
+  // in the shared text before the range `index`, or after the last one: where the new line has it
+  const more = index + 2 < deletions.length
+  return sharedOffset(oldText, oldFrom, more ? deletions[index]! : oldText.length, newText, newFrom, more ? insertions[index]! : newText.length, offset, end) + struck
 }
 
 /**
@@ -214,71 +305,64 @@ export function inlineOffset(deletions: readonly number[], insertions: readonly 
  * `[start, end, hit, ...]`. The row shows that text once, from the new line, so a hit that reaches out of a deleted
  * part goes on there
  */
-function sharedHitsOf(hits: LineHits | null, deletions: readonly number[], insertions: readonly number[]): number[] | null {
+function sharedHitsOf(hits: LineHits | null, pair: InlinePair): number[] | null {
   if (hits === null) {
     return null
   }
+  const { oldText, newText } = pair
   const shared: number[] = []
   for (let hit = 0; hit + 1 < hits.ranges.length; hit += 2) {
     const start = hits.ranges[hit]!
     const end = hits.ranges[hit + 1]!
-    // the shared text before each range and after the last one: where it starts in the old line, and how far the
-    // new line is ahead there
-    let from = 0
-    let ahead = 0
-    for (let index = 0; index <= deletions.length; index += RANGE_STRIDE) {
-      const to = index < deletions.length ? deletions[index]! : Number.MAX_SAFE_INTEGER
-      const cutStart = Math.max(start, from)
-      const cutEnd = Math.min(end, to)
-      if (cutStart < cutEnd) {
-        shared.push(cutStart + ahead, cutEnd + ahead, hit / 2 === hits.current ? 2 : 1)
+    forEachShared(pair, (oldFrom, oldTo, newFrom, newTo) => {
+      const cutStart = Math.max(start, oldFrom)
+      const cutEnd = Math.min(end, oldTo)
+      if (cutStart >= cutEnd) {
+        return
       }
-      if (index < deletions.length) {
-        from = deletions[index + 1]!
-        ahead = insertions[index + 1]! - from
+      const from = sharedOffset(oldText, oldFrom, oldTo, newText, newFrom, newTo, cutStart, false)
+      const to = sharedOffset(oldText, oldFrom, oldTo, newText, newFrom, newTo, cutEnd, true)
+      if (from < to) {
+        shared.push(from, to, hit / 2 === hits.current ? 2 : 1)
       }
-    }
+    })
   }
   return shared
 }
 
 /**
  * The parts of an Inline row: the new line with the deleted parts of the old line put in before the inserted parts,
- * each part with the runs of its own side. The ranges of the two lines align by index, so the text between two ranges
- * is the same on both sides and comes from the new line. Ranges that do not align give the new line as it is. The hits
- * of the old line (`oldHits`, the ones of its own: `isOwnOldHit`) mark its deleted parts and the shared text they
- * reach into.
+ * each part with the runs of its own side. The text between two ranges is the text the lines share and comes from the
+ * new line. The hits of the old line (`oldHits`, the ones of its own: `isOwnOldHit`) mark its deleted parts and the
+ * shared text they reach into.
  */
 export function inlineParts(
-  oldLength: number,
+  pair: InlinePair,
   oldRuns: Uint32Array | null,
-  oldRanges: readonly number[],
-  newLength: number,
   newRuns: Uint32Array | null,
-  newRanges: readonly number[],
   newHits: LineHits | null = null,
   oldHits: LineHits | null = null,
 ): InlinePart[] {
-  const aligned = alignInlineRanges(oldRanges, newRanges)
-  const fromNew = (parts: LinePart[]) => parts.map((part): InlinePart => ({ ...part, side: 1 }))
-  if (aligned === null) {
-    return fromNew(lineParts(newLength, newRuns, newRanges, newHits))
-  }
-  const [deletions, insertions] = aligned
+  const { oldText, newText, deletions, insertions } = pair
   // the deleted text stands in the row, so an empty side needs no marker
-  const newParts = lineParts(newLength, newRuns, insertions, newHits, sharedHitsOf(oldHits, deletions, insertions)).filter(part => part.marker !== true)
-  const oldParts = lineParts(oldLength, oldRuns, null, oldHits)
+  const newParts = lineParts(newText.length, newRuns, insertions, newHits, sharedHitsOf(oldHits, pair)).filter(part => part.marker !== true)
+  const oldParts = lineParts(oldText.length, oldRuns, null, oldHits)
   const result: InlinePart[] = []
+  // a loop, not a spread: a line may have more parts than a call takes arguments
+  const add = (parts: readonly LinePart[], side: 0 | 1) => {
+    for (const part of parts) {
+      result.push({ ...part, side })
+    }
+  }
   let position = 0
   for (let index = 0; index + 2 < insertions.length; index += RANGE_STRIDE) {
     const newStart = insertions[index]!
     const newEnd = insertions[index + 1]!
-    result.push(...fromNew(sliceParts(newParts, position, newStart)))
-    const deleted = sliceParts(oldParts, deletions[index]!, deletions[index + 1]!, { change: deletions[index + 2]!, deleted: true })
-    result.push(...deleted.map((part): InlinePart => ({ ...part, side: 0 })))
-    result.push(...fromNew(sliceParts(newParts, newStart, newEnd)))
+    add(sliceParts(newParts, position, newStart), 1)
+    add(sliceParts(oldParts, deletions[index]!, deletions[index + 1]!, { change: deletions[index + 2]!, deleted: true }), 0)
+    add(sliceParts(newParts, newStart, newEnd), 1)
     position = Math.max(position, newEnd)
   }
-  result.push(...fromNew(sliceParts(newParts, position, newLength)))
+  add(sliceParts(newParts, position, newText.length), 1)
   return result
 }

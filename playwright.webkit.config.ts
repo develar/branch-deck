@@ -32,6 +32,7 @@ export default defineConfig({
     "review-requests/review-requests.spec.ts",
     "review-window/review-window.spec.ts",
     "commit-files/commit-review.spec.ts",
+    "commit-files/symbol-navigation.spec.ts",
     "commit-message/commit-message.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],

@@ -1,7 +1,7 @@
 # Writing E2E Tests
 
 **Status:** Active  
-**Updated:** 2026-11-10  
+**Updated:** 2026-11-11  
 **Tags:** [e2e, playwright, tests]
 
 ## Summary
@@ -62,6 +62,16 @@ rules in one line each and links here.
   a quarter of a second under load; a sweep of widths is two tests of half the widths (`title-bar.spec.ts`).
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
+- **The rows of a diff** are drawn by the painter outside React, without a role or a name: find them by the helpers of
+  `tests/e2e/helpers/diff-helpers.ts`, which read the test ids and the data attributes the painter writes, never by a
+  `dv-` class. A row is `diffRows(scope, kind)` (`diff-row` with `data-kind`: `context`, `added`, `deleted`,
+  `changed`, `inline`, `merge`, `fold`, `note`), the cell of a side `diffSides(scope, side)` (`diff-side` with
+  `data-side`, `data-cell`, `data-tint`), the code of a line `DIFF_CODE` (`diff-code`), its number
+  `diffLineNumbers` (`diff-line-number`); a part of a line by what it is: `changedParts` (`data-change`),
+  `deletedParts` of an Inline row (`data-inline-deleted`), `findMarks(scope, "current")` (`data-hit`); and
+  `visualLines` of Soft Wraps, `horizontalBars`, `foldButtons`, the underline of a link (`diff-link`). A part is an
+  element per token of the syntax: read a text over several by `joinedText`. Code that runs in the page takes the
+  same selectors (`diffRowSelector`, `diffSideSelector`).
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command
   directly only to set up a state the user path cannot reach in a test. An error path fails the command with
   `routeCommandError`, not by breaking the repository.

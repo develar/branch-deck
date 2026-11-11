@@ -44,7 +44,7 @@ test.describe("Parts of a file", () => {
     const fold = (card: number) =>
       cards
         .nth(card)
-        .locator(".dv-fold")
+        .locator("[data-testid=diff-row][data-kind=fold]")
         .filter({ has: window.getByTestId("diff-fold-elsewhere") })
     await expect(fold(0).getByRole("button", { name: "Expand 9 unchanged lines in Loader" })).toBeVisible()
     await expect(fold(0).getByTestId("diff-fold-elsewhere")).toHaveText("1 change in Other changes")

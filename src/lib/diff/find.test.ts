@@ -91,14 +91,46 @@ describe("findHits", () => {
     const cut = inlineFile("call(x)", "call(x, y)", [6, 6, 0], [6, 9, 0])
     expect(search(cut, "x)")).toEqual(["-5..7"])
     expect(search(cut, "call(x")).toEqual(["+0..6"])
-    // a line without ranges of its own gets an empty range where the other side has its text
-    const deleted = inlineFile("call(x, y)", "call(x)", [6, 9, 1], [])
+    // `call(x, y)` to `call(x)`: the engine marks the empty new side where `, y` stood
+    const deleted = inlineFile("call(x, y)", "call(x)", [6, 9, 1], [6, 6, 1])
     expect(search(deleted, ", y")).toEqual(["-6..9"])
     expect(search(deleted, "x)")).toEqual(["+5..7"])
-    // ranges that do not align: the row is the new line as it is
+    // ranges that do not align (no engine pairs such lines): the row is the whole old line before the whole new one
     const apart = inlineFile("abcde", "abXde", [0, 1, 2, 2, 3, 2], [2, 3, 2])
-    expect(search(apart, "c")).toEqual([])
+    expect(search(apart, "c")).toEqual(["-2..3"])
     expect(search(apart, "x")).toEqual(["+2..3"])
+    expect(search(apart, "ab")).toEqual(["-0..2", "+0..2"])
+  })
+
+  it("finds in an Inline row of a whitespace policy the old line by its own text, in the order of the text of the row", () => {
+    // Trim Whitespace pairs `    foo(bar)` with the line indented again and edited: the row is the new indent,
+    // `foo(`, struck `bar`, inserted `baz`, `)`
+    const pair = inlineFile("    foo(bar)", "        foo(baz)", [8, 11, 2], [12, 15, 2])
+    const search = (query: string) => places(findHits([pair], query, { sideBySide: false, folded: false }))
+    expect(search("foo(bar")).toEqual(["-4..11"])
+    expect(search("bar)")).toEqual(["-8..12"])
+    // the shared text is the new line's: one hit
+    expect(search("foo")).toEqual(["+8..11"])
+    // `a` of the deleted part before `a` of the inserted one, both after the shared text
+    expect(search("a")).toEqual(["-9..10", "+13..14"])
+    expect(search("(")).toEqual(["+11..12"])
+    expect(search(")")).toEqual(["+15..16"])
+    // the old line after its deleted part is the text after the inserted part of the row
+    expect(search("r)")).toEqual(["-10..12"])
+    expect(search("z)")).toEqual(["+14..16"])
+  })
+
+  it("finds in a line more hits than a call takes arguments", () => {
+    // a minified file, one letter typed: every character of its one line is a hit
+    const line = "a".repeat(200_000)
+    for (const mode of ["unified", "inline", "split"] as const) {
+      const diff = textDiff(1, 1, [block(0, 1, 0, 1, { inlinePairs: true })])
+      const long: FindFile = { rows: buildFileRows(diff, mode), tables: [buildLineTable(`${line}b`), buildLineTable(line)], ranges: diffCells(diff, mode).ranges }
+      const hits = findHits([long], "a", { sideBySide: mode === "split", folded: false })
+      // Unified and Split: the old and the new line; Inline: the row of the pair, the text the lines share once
+      expect(hits.length, mode).toBe(mode === "inline" ? 200_000 : 400_000)
+      expect(hits.at(-1), mode).toMatchObject({ side: NEW, start: 199_999 })
+    }
   })
 
   it("groups the hits by file and line for the painter, the current one marked", () => {

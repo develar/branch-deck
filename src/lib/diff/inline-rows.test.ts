@@ -8,9 +8,9 @@ describe("inlineRowText", () => {
   it("is the new line with the deleted parts of the old line before the inserted parts", () => {
     expect(inlineRowText("val a = string", "val a = name", [8, 14, 2], [8, 12, 2])).toBe("val a = stringname")
     // a pure insertion: the row is the new line
-    expect(inlineRowText("val a = state", "val a = state + 1", [], [13, 17, 0])).toBe("val a = state + 1")
-    // ranges that do not align: the new line as it is
-    expect(inlineRowText("abcde", "abXde", [0, 1, 2, 2, 3, 2], [2, 3, 2])).toBe("abXde")
+    expect(inlineRowText("val a = state", "val a = state + 1", [13, 13, 0], [13, 17, 0])).toBe("val a = state + 1")
+    // ranges that do not align (no engine pairs such lines): the whole old line before the whole new one
+    expect(inlineRowText("abcde", "abXde", [0, 1, 2, 2, 3, 2], [2, 3, 2])).toBe("abcdeabXde")
   })
 })
 
@@ -27,10 +27,10 @@ describe("widestInlineRow", () => {
     const tables = [buildLineTable("a long old line\n"), buildLineTable("a line\n")] as const
     const widest = (extra: Parameters<typeof block>[4]) => widestInlineRow(textDiff(2, 2, [block(0, 1, 0, 1, extra)]), tables[0], tables[1], 4)
     // Unified rows: each line on its own
-    expect(widest({ inlinePairs: false, oldRanges: [[2, 11, 1]], newRanges: [[]] })).toBe(0)
-    expect(widest({ inlinePairs: true, kind: "ignored", oldRanges: [[2, 11, 1]], newRanges: [[]] })).toBe(0)
+    expect(widest({ inlinePairs: false, oldRanges: [[2, 11, 1]], newRanges: [[2, 2, 1]] })).toBe(0)
+    expect(widest({ inlinePairs: true, kind: "ignored", oldRanges: [[2, 11, 1]], newRanges: [[2, 2, 1]] })).toBe(0)
     // nothing deleted: the row is the new line
-    expect(widest({ inlinePairs: true, oldRanges: [[]], newRanges: [[2, 6, 0]] })).toBe(0)
-    expect(widest({ inlinePairs: true, oldRanges: [[2, 11, 1]], newRanges: [[]] })).toBe(15)
+    expect(widest({ inlinePairs: true, oldRanges: [[2, 2, 0]], newRanges: [[2, 6, 0]] })).toBe(0)
+    expect(widest({ inlinePairs: true, oldRanges: [[2, 11, 1]], newRanges: [[2, 2, 1]] })).toBe(15)
   })
 })

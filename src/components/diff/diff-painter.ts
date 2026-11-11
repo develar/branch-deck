@@ -5,8 +5,8 @@ import type { HighlightClient, BlobWant } from "@/lib/diff/highlight/client"
 import { FONT_STYLE_SHIFT, PAGE_LINES, ROLE_MASK } from "@/lib/diff/highlight/protocol"
 import type { Priority } from "@/lib/diff/highlight/protocol"
 import type { DiffLayout, LayoutPart } from "@/lib/diff/layout"
-import { alignInlineRanges, inlineOffset, inlineParts, isOwnOldHit, lineParts, runsOf } from "@/lib/diff/line-parts"
-import type { InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, inlineParts, lineParts, runsOf } from "@/lib/diff/line-parts"
+import type { InlinePair, InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RowCells } from "@/lib/diff/row-cells"
@@ -124,9 +124,13 @@ function isTextField(element: Node | null): boolean {
   )
 }
 
-function element(tag: string, className: string): HTMLElement {
+/** An element of the view; `testId`: how a test finds it (docs/contributing/e2e-tests.md, "The rows of a diff"), never by its class */
+function element(tag: string, className: string, testId?: string): HTMLElement {
   const created = document.createElement(tag)
   created.className = className
+  if (testId !== undefined) {
+    created.dataset.testid = testId
+  }
   return created
 }
 
@@ -165,8 +169,16 @@ function partNodes(parts: readonly (LinePart | InlinePart)[], textOf: (part: Lin
       continue
     }
     const span = element("span", className)
+    // what a part is, for a test: a changed range by its kind, a hit of the find, the current one named
+    if (part.marker !== true && part.change >= 0 && !part.deleted) {
+      span.dataset.change = String(part.change)
+    }
+    if (part.hit !== undefined) {
+      span.dataset.hit = part.hit === 2 ? "current" : ""
+    }
     if (part.deleted) {
-      span.dataset.inlineDeleted = ""
+      // where the part starts in the old line: a point in it is a point of that line (`pointOf`)
+      span.dataset.inlineDeleted = String(part.start)
     }
     span.textContent = text
     nodes.push(span)
@@ -194,8 +206,13 @@ export class DiffPainter {
    * selects elsewhere
    */
   private revealedName: { file: number; side: number; line: number; start: number; end: number; word: string | null; selected: boolean } | null = null
-  /** The row whose deleted parts a revealed name of the old line made selectable (`data-revealed-old`), while it is selected */
-  private revealedOldRow: HTMLElement | null = null
+  /**
+   * The name of the old line that a reveal selected in the row of Inline that shows it: the row, whose deleted parts
+   * are selectable (`data-revealed-old`) for as long as the selection is that name (`[from, to)` of the text of the
+   * row in its cell), and the name, which a copy and the keys of the code act on (the selection of the page alone
+   * cannot say it: it may start in the text the row shows from the new line)
+   */
+  private revealedOld: { row: HTMLElement; cell: HTMLElement; from: number; to: number; word: CodeWord } | null = null
   /** The pages of tokens that arrived since the last repaint, as `blobId:page` */
   private readonly arrivedPages = new Set<string>()
   private textsChanged = false
@@ -601,7 +618,7 @@ export class DiffPainter {
   }
 
   private paintRow(file: number, painterFile: PainterFile, row: number, value: Row, tables: readonly (LineTable | null)[], top: number, height: number): PaintedRow {
-    const rowElement = element("div", "dv-row")
+    const rowElement = element("div", "dv-row", "diff-row")
     rowElement.style.top = `${top}px`
     if (height !== this.model!.layout.metrics.rowHeight) {
       rowElement.style.height = `${height}px`
@@ -659,7 +676,7 @@ export class DiffPainter {
   }
 
   private half(side: number, cell: string, tint: LineTint, resolved: string | null): HTMLElement {
-    const half = element("div", "dv-half")
+    const half = element("div", "dv-half", "diff-side")
     half.dataset.side = String(side)
     half.dataset.cell = cell
     if (tint !== "full" && cell !== "context" && cell !== "filler") {
@@ -672,7 +689,7 @@ export class DiffPainter {
   }
 
   private number(line: number | null): HTMLElement {
-    const cell = element("span", "dv-num")
+    const cell = element("span", "dv-num", "diff-line-number")
     cell.setAttribute("aria-hidden", "true")
     if (line !== null) {
       cell.textContent = String(line + 1)
@@ -686,7 +703,7 @@ export class DiffPainter {
    * another section shows (`foldTargets` names those) nor of one the policy hides
    */
   private foldButton(file: number, fold: FoldRow): HTMLElement {
-    const button = element("button", "dv-fold-button")
+    const button = element("button", "dv-fold-button", "diff-fold")
     button.setAttribute("type", "button")
     button.tabIndex = -1
     button.dataset.file = String(file)
@@ -698,7 +715,7 @@ export class DiffPainter {
     text.textContent = lines === "" ? "⋯" : `⋯ ${lines}`
     button.append(text)
     if (fold.label !== null) {
-      const label = element("span", "dv-fold-label")
+      const label = element("span", "dv-fold-label", "diff-fold-label")
       label.textContent = fold.label
       button.append(label)
     }
@@ -762,7 +779,7 @@ export class DiffPainter {
 
   /** The code of one side of a row: plain text, or the parts of its tokens and ranges; wrapped in visual lines */
   private code(file: number, painterFile: PainterFile, value: LineRow, side: number, line: number | null, tables: readonly (LineTable | null)[], height: number): HTMLElement {
-    const cell = element("span", "dv-code")
+    const cell = element("span", "dv-code", "diff-code")
     const text = element("span", "dv-text")
     cell.append(text)
     const table = tables[side]
@@ -779,7 +796,7 @@ export class DiffPainter {
     if (this.model!.softWraps && height > this.model!.layout.metrics.rowHeight) {
       this.paintWrapped(text, parts, textOf, painterFile.codeWidths[side] ?? 0)
     } else {
-      text.append(...partNodes(parts, textOf))
+      appendAll(text, partNodes(parts, textOf))
     }
     if (line === table.lineCount - 1 && !table.endsWithLineEnd) {
       const marker = element("span", "dv-eof")
@@ -813,12 +830,9 @@ export class DiffPainter {
     if (value.kind === "inline" && oldTable != null) {
       const oldLine = value.lines[OLD]!
       return inlineParts(
-        lineText(oldTable, oldLine).length,
+        inlinePair(lineText(oldTable, oldLine), content, cells.ranges(value, OLD) ?? [], cells.ranges(value, NEW) ?? []),
         runsAt(OLD, oldLine),
-        cells.ranges(value, OLD) ?? [],
-        content.length,
         runsAt(NEW, line),
-        cells.ranges(value, NEW) ?? [],
         hits,
         // the hits of the old line: in its deleted parts, and on into the text the row shows from the new line
         this.model?.hits?.get(file)?.get(lineKey(OLD, oldLine)) ?? null,
@@ -834,7 +848,7 @@ export class DiffPainter {
     let start = 0
     let partIndex = 0
     for (const end of breaks) {
-      const line = element("span", "dv-vl")
+      const line = element("span", "dv-vl", "diff-visual-line")
       const lineParts: (LinePart | InlinePart)[] = []
       // the parts are in the order of the composed text: cut them at the break
       while (partIndex < parts.length) {
@@ -860,7 +874,7 @@ export class DiffPainter {
         offset = partEnd
         partIndex++
       }
-      line.append(...partNodes(lineParts, textOf))
+      appendAll(line, partNodes(lineParts, textOf))
       text.append(line)
       start = end
     }
@@ -1008,8 +1022,13 @@ export class DiffPainter {
   /** With a column per side, a press on a side makes the others not selectable, so a selection stays on one side */
   private onPointerDown(event: PointerEvent): void {
     this.selectAll = null
-    // the user selects now: the name a reveal selected is selected no more
-    this.letRevealedNameGo()
+    // the user selects now: the name a reveal selected is selected no more, and no paint selects it again. Another
+    // button than the first selects nothing by itself: the menu of the code it opens acts on the name of the old line
+    // while the selection is that name (`onSelectionChange` lets it go when the press selects a word)
+    this.revealedName = null
+    if (event.button === 0) {
+      this.letRevealedOldGo()
+    }
     const scroller = this.root
     if (scroller === null) {
       return
@@ -1025,8 +1044,12 @@ export class DiffPainter {
 
   /** ⌘A (Ctrl+A off macOS) selects the side of the file at the top; a copy then takes all its lines */
   private onKeyDown(event: KeyboardEvent): void {
-    // a key of the user: the name a reveal selected is selected no more (⌘A selects all, Back reveals another)
-    this.letRevealedNameGo()
+    // a key of the user that moves or types: the name a reveal selected is not selected again by a paint (⌘A selects
+    // all, Back reveals another). A modifier alone and the copy act on the name; the keys of the code (Go to
+    // Declaration, Find Usages) read it for as long as the selection is the name (`onSelectionChange`)
+    if (!isModifierKey(event) && !isSystemCopyKey(event)) {
+      this.revealedName = null
+    }
     const model = this.model
     const scroller = this.root
     if (model === null || scroller === null || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey) || event.code !== "KeyA") {
@@ -1058,6 +1081,10 @@ export class DiffPainter {
     if (selection === null || selection.rangeCount === 0 || selection.anchorNode === null) {
       return null
     }
+    // the name of the old line a reveal selected in an Inline row: the selection may start in the text of the new line
+    if (this.revealedOld !== null && this.holdsRevealedOld()) {
+      return this.revealedOld.word
+    }
     const range = selection.getRangeAt(0)
     return this.wordOfPoint(range.startContainer, range.startOffset)
   }
@@ -1073,27 +1100,54 @@ export class DiffPainter {
       return null
     }
     const value = rowAt(painterFile.rows, point.row)
-    const line = isLineRow(value) ? value.lines[point.side] : null
-    const table = this.tablesOf(painterFile)[point.side]
+    // a point in a deleted part of an Inline row is a point of the old line, which the cell of the new line shows
+    const side = point.struck === null ? point.side : OLD
+    const line = isLineRow(value) ? value.lines[side] : null
+    const table = this.tablesOf(painterFile)[side]
     if (line == null || table == null) {
       return null
     }
-    const content = lineText(table, line)
-    const [start, end] = wordBounds(content, point.offset)
+    const [start, end] = wordBounds(lineText(table, line), point.struck ?? point.offset)
     if (start === end) {
       return null
     }
     const element = node instanceof Element ? node : node.parentElement
-    const cell = element?.closest<HTMLElement>(".dv-code") ?? null
+    return this.wordOf(point.file, painterFile, value, side, line, start, end, element?.closest<HTMLElement>(".dv-code") ?? null)
+  }
+
+  /** The word `[start, end)` of a line of a side that the row `value` shows in `cell` */
+  private wordOf(file: number, painterFile: PainterFile, value: Row, side: number, line: number, start: number, end: number, cell: HTMLElement | null): CodeWord {
+    const table = this.tablesOf(painterFile)[side]
+    const pair = side === OLD ? this.inlinePairOf(painterFile, value) : null
     return {
-      file: point.file,
-      side: point.side,
+      file,
+      side,
       line,
       start,
       end,
-      text: content.slice(start, end),
-      rects: () => (cell === null ? [] : Array.from(cellRange(cell, start, end).getClientRects())),
+      text: table == null ? "" : lineText(table, line).slice(start, end),
+      rects: () => {
+        if (cell === null) {
+          return []
+        }
+        // a word of the old line of an Inline row: where the row shows it, struck through or in the text of the new line
+        return pair === null ? textRects(cell, start, end, NOT_OF_THE_LINE) : textRects(cell, inlineOffset(pair, OLD, start), inlineOffset(pair, OLD, end, true), NOT_OF_THE_ROW)
+      },
     }
+  }
+
+  /** The two lines of the row of a similar pair in Inline (`inlinePair`); null for another row, or while a text is not read */
+  private inlinePairOf(painterFile: PainterFile, value: Row): InlinePair | null {
+    const [oldTable, newTable] = this.tablesOf(painterFile)
+    if (value.kind !== "inline" || painterFile.cells === null || oldTable == null || newTable == null) {
+      return null
+    }
+    return inlinePair(
+      lineText(oldTable, value.lines[OLD]!),
+      lineText(newTable, value.lines[NEW]!),
+      painterFile.cells.ranges(value, OLD) ?? [],
+      painterFile.cells.ranges(value, NEW) ?? [],
+    )
   }
 
   /**
@@ -1112,8 +1166,29 @@ export class DiffPainter {
   /** The name a reveal selected is selected no more: the deleted parts of its Inline row are not selectable again */
   private letRevealedNameGo(): void {
     this.revealedName = null
-    delete this.revealedOldRow?.dataset.revealedOld
-    this.revealedOldRow = null
+    this.letRevealedOldGo()
+  }
+
+  private letRevealedOldGo(): void {
+    delete this.revealedOld?.row.dataset.revealedOld
+    this.revealedOld = null
+  }
+
+  /** The selection of the page is the name of the old line that a reveal selected in its Inline row */
+  private holdsRevealedOld(): boolean {
+    const selection = document.getSelection()
+    const revealed = this.revealedOld
+    if (revealed === null || selection === null || selection.isCollapsed || selection.rangeCount === 0) {
+      return false
+    }
+    // by the text of the row before each end, not by the nodes: an engine may put an end at the same place of the next node
+    const range = selection.getRangeAt(0)
+    return (
+      revealed.cell.contains(range.startContainer) &&
+      revealed.cell.contains(range.endContainer) &&
+      textOffset(revealed.cell, range.startContainer, range.startOffset, NOT_OF_THE_ROW) === revealed.from &&
+      textOffset(revealed.cell, range.endContainer, range.endOffset, NOT_OF_THE_ROW) === revealed.to
+    )
   }
 
   private selectRevealedName(): void {
@@ -1130,8 +1205,8 @@ export class DiffPainter {
     }
     const value = rowAt(rows, row)
     // the row of a similar pair in Inline shows its old line in the cell of the new one
-    const inlineOld = value.kind === "inline" && name.side === OLD
-    const cell = entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${inlineOld ? NEW : name.side}"]`)
+    const pair = name.side === OLD ? this.inlinePairOf(painterFile, value) : null
+    const cell = entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${pair === null ? name.side : NEW}"]`)
     const table = this.tablesOf(painterFile)[name.side]
     // a row that stands for the line without showing it (a fold not expanded yet) has no name to select
     if (cell === null || table == null || !isLineRow(value) || value.lines[name.side] !== name.line) {
@@ -1142,22 +1217,20 @@ export class DiffPainter {
     const at = name.word === null ? -1 : wordColumn(lineText(table, name.line), name.word)
     const [start, end] = at < 0 ? [name.start, name.end] : [at, at + name.word!.length]
     let range: Range
-    if (inlineOld) {
-      const aligned = painterFile.cells === null ? null : alignInlineRanges(painterFile.cells.ranges(value, OLD) ?? [], painterFile.cells.ranges(value, NEW) ?? [])
-      if (aligned === null || start >= end) {
-        // ranges that do not align: the row is the new line as it is, and shows nothing of the old one
+    if (pair === null) {
+      range = textRange(cell, start, end, NOT_OF_THE_LINE)
+    } else {
+      if (start >= end) {
         return
       }
-      const [deletions, insertions] = aligned
       // where the row shows the name: in the text it shares with the new line, or struck through in a deleted part,
       // which is selectable for as long as the name is selected
-      if (isOwnOldHit(deletions, start, end)) {
-        entry.element.dataset.revealedOld = ""
-        this.revealedOldRow = entry.element
-      }
-      range = rowTextRange(cell, inlineOffset(deletions, insertions, OLD, start), inlineOffset(deletions, insertions, OLD, end - 1) + 1)
-    } else {
-      range = cellRange(cell, start, end)
+      const from = inlineOffset(pair, OLD, start)
+      const to = inlineOffset(pair, OLD, end, true)
+      this.letRevealedOldGo()
+      entry.element.dataset.revealedOld = ""
+      this.revealedOld = { row: entry.element, cell, from, to, word: this.wordOf(name.file, painterFile, value, OLD, name.line, start, end, cell) }
+      range = textRange(cell, from, to, NOT_OF_THE_ROW)
     }
     const selection = document.getSelection()
     selection?.removeAllRanges()
@@ -1166,12 +1239,16 @@ export class DiffPainter {
   }
 
   /**
-   * The selection moved out of the view (the user selected in another one): the name a reveal selected is let go. A
-   * reveal still waiting for the paint of its row keeps through the caret of a field: a field moves it as its value is
-   * set, the search a reveal of a hidden file clears, and that change may come after the reveal and before the paint
-   * (under load). Once the name is selected, a click into a field lets it go
+   * The selection changed. It is no more the name of the old line a reveal selected in an Inline row: the deleted
+   * parts of the row are not selectable again. It moved out of the view (the user selected in another one): the name a
+   * reveal selected is let go. A reveal still waiting for the paint of its row keeps through the caret of a field: a
+   * field moves it as its value is set, the search a reveal of a hidden file clears, and that change may come after
+   * the reveal and before the paint (under load). Once the name is selected, a click into a field lets it go
    */
   private onSelectionChange(): void {
+    if (this.revealedOld !== null && !this.holdsRevealedOld()) {
+      this.letRevealedOldGo()
+    }
     const selection = document.getSelection()
     const anchor = selection?.anchorNode ?? null
     if (this.revealedName === null || this.root === null || anchor === null || this.root.contains(anchor)) {
@@ -1194,7 +1271,10 @@ export class DiffPainter {
       return { rows: file?.rows ?? null, tables: file === undefined ? [] : this.tablesOf(file) }
     }
     let text: string
-    if (this.selectAll !== null) {
+    if (this.revealedOld !== null && this.holdsRevealedOld()) {
+      // the name of the old line that a reveal selected in an Inline row: a copy of the lines takes the new line
+      text = this.revealedOld.word.text
+    } else if (this.selectAll !== null) {
       text = copyFile(fileOf(this.selectAll.file), sideBySide(model.files[this.selectAll.file]), this.selectAll.side)
     } else {
       const anchor = pointOf(selection.anchorNode, selection.anchorOffset)
@@ -1207,6 +1287,10 @@ export class DiffPainter {
         files[index] = fileOf(index)
       }
       text = copyText(files, anchor, focus, sideBySide(model.files[anchor.file]), anchor.side)
+    }
+    // a selection that holds no text of a line (a fold, a note) is the browser's to copy: never an empty clipboard
+    if (text === "") {
+      return
     }
     event.clipboardData.setData("text/plain", text)
     event.preventDefault()
@@ -1242,6 +1326,23 @@ export class DiffPainter {
   }
 }
 
+/** Appends the nodes one by one: a line may have more parts than a call takes arguments */
+function appendAll(parent: HTMLElement, nodes: readonly Node[]): void {
+  for (const node of nodes) {
+    parent.append(node)
+  }
+}
+
+/** A key that is a modifier alone: it starts a chord and does nothing by itself */
+function isModifierKey(event: KeyboardEvent): boolean {
+  return event.key === "Meta" || event.key === "Control" || event.key === "Alt" || event.key === "Shift" || event.key === "AltGraph" || event.key === "CapsLock"
+}
+
+/** The copy of the system, which copies the selection: ⌘C or Ctrl+C by the key of the layout, Ctrl+Insert */
+function isSystemCopyKey(event: KeyboardEvent): boolean {
+  return (event.metaKey || event.ctrlKey) && !event.altKey && (event.key.toLowerCase() === "c" || event.key === "Insert")
+}
+
 /** An end of a non-empty selection is in `element` */
 function holdsSelection(element: HTMLElement): boolean {
   const selection = document.getSelection()
@@ -1275,66 +1376,97 @@ function caretAt(clientX: number, clientY: number): { node: Node; offset: number
   return range == null ? null : { node: range.startContainer, offset: range.startOffset }
 }
 
-/** The range of the columns `[start, end)` of a code cell, without the deleted parts of an Inline row */
-function cellRange(cell: HTMLElement, start: number, end: number): Range {
-  return textRange(cell, start, end, "[data-inline-deleted], .dv-eof")
-}
+/** What a code cell holds beside the text of its line: the deleted parts of the old line in an Inline row, the mark of a file without a final line end */
+const NOT_OF_THE_LINE = "[data-inline-deleted], .dv-eof"
+/** What a code cell holds beside the text of an Inline row, the deleted parts of the old line with it (`inlineOffset`) */
+const NOT_OF_THE_ROW = ".dv-eof"
 
-/** The range `[start, end)` of the text of an Inline row as it stands in its cell, the deleted parts of the old line with it (`inlineOffset`) */
-function rowTextRange(cell: HTMLElement, start: number, end: number): Range {
-  return textRange(cell, start, end, ".dv-eof")
-}
-
-/** The range `[start, end)` of the text of a code cell, the text in `excluded` elements not counted */
-function textRange(cell: HTMLElement, start: number, end: number, excluded: string): Range {
-  const range = document.createRange()
+/**
+ * Calls `visit` with each text node of a code cell that holds a part of `[start, end)` of its text, and that part as
+ * offsets in the node; the text in `excluded` elements is not counted. A range without text is the place of `start`
+ * in the node that holds it
+ */
+function forEachText(cell: HTMLElement, start: number, end: number, excluded: string, visit: (text: Node, from: number, to: number) => void): void {
+  const empty = start >= end
   let length = 0
-  let started = false
   const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
   for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
     if (text.parentElement?.closest(excluded) != null) {
       continue
     }
     const size = text.textContent?.length ?? 0
-    if (!started && start <= length + size) {
-      range.setStart(text, start - length)
-      started = true
-    }
-    if (started && end <= length + size) {
-      range.setEnd(text, end - length)
-      return range
+    if (empty ? start <= length + size : start < length + size) {
+      visit(text, Math.max(start - length, 0), empty ? Math.max(start - length, 0) : Math.min(end - length, size))
     }
     length += size
+    if (empty ? start <= length : end <= length) {
+      return
+    }
   }
+}
+
+/**
+ * The range `[start, end)` of the text of a code cell, the text in `excluded` elements not counted: from the node that
+ * holds its first character to the one that holds its last, so no text before or after it that is not counted (a
+ * deleted part of an Inline row beside the name) lies in the range
+ */
+function textRange(cell: HTMLElement, start: number, end: number, excluded: string): Range {
+  const range = document.createRange()
+  let started = false
+  forEachText(cell, start, end, excluded, (text, from, to) => {
+    if (!started) {
+      range.setStart(text, from)
+      started = true
+    }
+    range.setEnd(text, to)
+  })
   return range
 }
 
-/** The text of a code cell before a point of a selection, without the deleted parts of an Inline row */
-function textOffset(cell: HTMLElement, node: Node, offset: number): number {
+/** Where `[start, end)` of the text of a code cell is drawn, in viewport coordinates: no text in `excluded` elements, also between its parts */
+function textRects(cell: HTMLElement, start: number, end: number, excluded: string): DOMRect[] {
+  const rects: DOMRect[] = []
+  const range = document.createRange()
+  forEachText(cell, start, end, excluded, (text, from, to) => {
+    range.setStart(text, from)
+    range.setEnd(text, to)
+    for (const rect of range.getClientRects()) {
+      rects.push(rect)
+    }
+  })
+  return rects
+}
+
+/** The text of a code cell before a point of a selection, the text in `excluded` elements not counted */
+function textOffset(cell: HTMLElement, node: Node, offset: number, excluded: string): number {
   const boundary = document.createRange()
   boundary.setStart(node, offset)
   boundary.collapse(true)
   let length = 0
   const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
   for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
-    const excluded = text.parentElement?.closest("[data-inline-deleted], .dv-eof") != null
+    const skipped = text.parentElement?.closest(excluded) != null
     if (text === node) {
-      return length + (excluded ? 0 : offset)
+      return length + (skipped ? 0 : offset)
     }
     const size = text.textContent?.length ?? 0
     // a text that ends after the point is not before it
     if (boundary.comparePoint(text, size) > 0) {
       break
     }
-    if (!excluded) {
+    if (!skipped) {
       length += size
     }
   }
   return length
 }
 
-/** A point of a selection in the model: the file and the row of its row element, the offset in its code cell */
-function pointOf(node: Node | null, offset: number): (CopyPoint & { side: number }) | null {
+/**
+ * A point of a selection in the model: the file and the row of its row element, the side of its code cell and the
+ * offset in the line the cell shows. `struck`: for a point in a deleted part of an Inline row, its offset in the old
+ * line (`offset` is then where the part stands in the new line); null elsewhere
+ */
+function pointOf(node: Node | null, offset: number): (CopyPoint & { side: number; struck: number | null }) | null {
   const element = node === null ? null : node instanceof Element ? node : node.parentElement
   const row = element?.closest<HTMLElement>(".dv-row")
   const file = row?.parentElement?.dataset.file
@@ -1342,11 +1474,21 @@ function pointOf(node: Node | null, offset: number): (CopyPoint & { side: number
     return null
   }
   const cell = element?.closest<HTMLElement>(".dv-code") ?? row.querySelector<HTMLElement>(".dv-code[data-side]")
+  const inCell = cell !== null && cell.contains(node)
+  const deleted = inCell ? (element?.closest<HTMLElement>("[data-inline-deleted]") ?? null) : null
+  let struck: number | null = null
+  if (deleted !== null) {
+    // in the text of the part, or at the part itself: before it or after it
+    const inside = node === deleted ? (offset > 0 ? (deleted.textContent?.length ?? 0) : 0) : offset
+    struck = Number(deleted.dataset.inlineDeleted) + inside
+  }
   return {
     file: Number(file),
     row: Number(row.dataset.row),
-    offset: cell === null || !cell.contains(node) ? 0 : textOffset(cell, node!, offset),
+    // without the deleted parts of an Inline row: a point in one stands where the part does in the new line
+    offset: inCell ? textOffset(cell, node!, offset, NOT_OF_THE_LINE) : 0,
     side: Number(cell?.dataset.side ?? NEW),
+    struck,
   }
 }
 

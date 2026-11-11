@@ -71,7 +71,7 @@ function currentReviewFindMarker(window: Page): Promise<ReviewFindMarker | null>
       contents.setEnd(range.endContainer, range.endOffset)
       return { kind: "text", layer: layer?.dataset.testid ?? null, text: contents.cloneContents().textContent ?? "" }
     }
-    const hit = document.querySelector<HTMLElement>(".dv-hit-current")
+    const hit = document.querySelector<HTMLElement>("[data-hit=current]")
     return hit === null ? null : { kind: "diff", layer: hit.closest<HTMLElement>("[data-testid=diff-view-file]")?.dataset.path ?? null, text: hit.textContent ?? "" }
   })
 }

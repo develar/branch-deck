@@ -115,7 +115,11 @@ A file is a list of segments. A segment holds its start line on each side and th
 The rows of a block depend on the mode, in the order of the toggle (Inline · Unified · Split, from the most compact
 one):
 - **Inline:** one row per pair when `inlinePairs` is true. Each row is the new line, with the deleted parts of the old
-  line before the inserted parts. Another block shows as in Unified.
+  line before the inserted parts. Another block shows as in Unified. The engine pairs the lines of a block only when
+  one row can show all of both ([Text Diff](text-diff.md), "Inline pairs"): each inner change lies in line i of both
+  sides, so their ranges align by index, and between its ranges a pair is the same text but for whitespace. A call
+  wrapped again, whose argument goes up a line, is no block of pairs: a row of its second lines would not show the
+  argument the old line lost.
 - **Unified:** the deleted lines, then the added lines.
 - **Split:** `max(old, new)` rows. The shorter side is filled.
 
@@ -716,13 +720,21 @@ decisions 26 and 27). The rules have golden files (`crates/code-symbols/testdata
 
 **Go to Declaration** ([Symbol Navigation](../../openspec/specs/commit/symbol-navigation/spec.md)). The painter finds the word
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
-without the deleted parts of an Inline row) and selects a name once its row is painted with its text, by every paint
+without the deleted parts of an Inline row; a point in a deleted part is a point of the old line, by the offset the
+part starts at, `data-inline-deleted`, so a struck-through name is the old name on the old side and its underline is
+that part alone) and selects a name once its row is painted with its text, by every paint
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
 types in the view or selects elsewhere (`selectWord`). A name without its columns is the first whole word of that
 name in the line of the model, never in the text of the cell, which in an Inline row holds the deleted parts of the old
 line too. A name of the old line whose line is a row of a similar pair in Inline has no cell of its own: it is
-selected where that row shows it, in the text the row shares with the new line, or struck through in a deleted part,
-which is selectable (`data-revealed-old` on the row) for as long as the name is selected. The caret of a field is no selection elsewhere while the name
+selected where that row shows it (`inlineOffset`), in the text the row shares with the new line, or struck through in
+a deleted part, which is selectable (`data-revealed-old` on the row) for as long as the selection is that name
+(`revealedOld`, checked at every `selectionchange` by the text of the row before each end of the selection). While it
+is, a copy takes the name, and ⌘B, ⌥F7 and Back read it as the name of the old line: the selection of the page alone
+cannot say it, since it may start in the text the row shows from the new line. A modifier alone and the copy keep the
+name selected; another key only stops a later paint from selecting it again. The menu of the code acts on the name
+it opened on (the point of its `contextmenu`: the pointer, or the caret for a key), and on the name at the selection
+where it opened on none: a press that opens the menu selects no word in a part that is not selectable. The caret of a field is no selection elsewhere while the name
 still waits for its paint: the search a reveal of a hidden file clears moves its caret, under load after the reveal;
 once the name is selected, a click into a field lets it go. A place the review shows before its diffs mount (no diff
 of the subject read yet: the overview alone on the canvas, the changes of a pull request still on their way) waits in
@@ -755,14 +767,17 @@ back to where it was.
 A code cell can show up to four layers:
 - the syntax runs;
 - the changed ranges of the engine (`oldRanges`, `newRanges`), on the emphasis colour;
-- in Inline, the deleted parts of the old line, in a `data-inline-deleted` span that is not selectable;
+- in Inline, the deleted parts of the old line, in a `data-inline-deleted` span that is not selectable; the value of
+  the attribute is where the part starts in the old line;
 - the hits of the find, on the find colour; in an Inline row the hits of both its lines, a hit of the old line in its
   deleted parts and on in the text the row shows from the new line (`sharedHitsOf` of `line-parts.ts`).
 
 The painter merges the boundaries of the layers into one list of spans per line. A span has one class per role
 (`t<id>`, `t1` a keyword; `ti`, `tb`, `tu` for italic, bold and the underline of a mutable binding) and one per layer (`range`, `hit`). The deleted parts of an Inline row take the syntax runs of the old
-line. The rule of `composeInlineLine.ts` aligns the ranges of the two lines by index. That rule moves into the
-painter.
+line. The ranges of the two lines of a pair align by index (`inlinePair` of `line-parts.ts`): the engine pairs no
+other lines. A part says what it is for a test (`data-change` with the kind of its range, `data-hit`, `current` for
+the current hit), and the rows, their sides, code cells and line numbers have test ids
+([Writing E2E Tests](../contributing/e2e-tests.md), "The rows of a diff"): a test never finds them by a `dv-` class.
 
 ### Interaction
 
@@ -777,7 +792,9 @@ A `copy` event builds the text from the model, not from the DOM. It maps the two
 row, a side and an offset (from `data-row` and the text nodes of the code cell). Then it joins the lines between them
 from the texts. So a selection over rows that are no longer in the DOM copies all its lines. The copy does not take
 the breaks of soft wraps or the deleted parts of an Inline row. Unified copies its rows as shown, deleted and added
-lines. ⌘A in the diffs selects the side of the file at the top.
+lines. ⌘A in the diffs selects the side of the file at the top. The one selection that holds a deleted part is the
+name of the old line that a reveal selected in its Inline row: its copy is that name. A selection that holds no text
+of a line (a fold, a note) is left to the browser: the view never puts an empty text on the clipboard.
 
 **Keys.** J and K go to the next and the previous file. N and P go to the next and the previous change. Both use the
 layout, so the scroll lands exactly at once:
@@ -799,9 +816,14 @@ at the top changes the selection only after a wheel, touch, pointer or key event
   new side of an unchanged line. One column searches a deleted row by its old line and every other row by its new
   line; the row of a similar pair in Inline shows both its lines, so it is searched in both: the new line, and of the
   old line the hits that hold a deleted part, struck through in the row, or a place where the new line inserts text
-  (`isOwnOldHit`). A hit of the old line that lies in the text the two lines share is the same characters as the hit
-  of the new line there, and counts once. The hits of a row go in the order of its text (`inlineOffset`), a deleted
-  part before the inserted one. So a text found in Unified or in Split is found in Inline too. "In folded
+  (`isOwnOldHit`). A hit of the old line that lies in the text the two lines share is the hit of the new line there,
+  and counts once. The hits of a row go in the order of its text (`inlineOffset`), a deleted part before the inserted
+  one. Under a policy that ignores whitespace the shared text of a pair may differ in whitespace (another indent):
+  the row shows it as the new line has it, and an offset of the old line maps into it by the characters that are no
+  whitespace (`sharedOffset`), so a hit that reaches out of a deleted part marks its own text, not the indent. So a
+  text found in Unified or in Split is found in Inline too, but for the whitespace of an old line that the policy
+  ignores and the row does not show. A line may hold more hits than a call takes arguments (a minified file, one
+  letter typed): the hits and the parts of a line are added in loops, never spread into a call. "In folded
   lines" searches folded diff lines only; it does not gate story text.
 
 Closed story-body parts and `Disclosure`s retain their text hidden in the page. A text hit opens each fold around it

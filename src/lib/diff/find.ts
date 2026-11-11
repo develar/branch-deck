@@ -1,6 +1,6 @@
 import { copySide } from "@/lib/diff/copy-text"
 import type { CopyFile } from "@/lib/diff/copy-text"
-import { alignInlineRanges, inlineOffset, isOwnOldHit } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, isOwnOldHit } from "@/lib/diff/line-parts"
 import type { LineHits } from "@/lib/diff/line-parts"
 import { lineText } from "@/lib/diff/line-table"
 import { NEW, OLD, rowAt } from "@/lib/diff/rows"
@@ -44,8 +44,9 @@ export interface FindFile extends CopyFile {
  * with a column per side (Split, a merge) a change is searched on every side and an unchanged line on the new side
  * (the middle of a merge). One column shows a deleted row by its old line, and an Inline row by both its lines: the new
  * one, and of the old one the hits of its own (`isOwnOldHit`: one that holds a deleted part, struck through in the
- * row, or a place where the new line inserts text), in the order of the text of the row. With `folded` the folded
- * lines of that side are searched too.
+ * row, or a place where the new line inserts text), in the order of the text of the row. The text the two lines of
+ * the row share is the new line's: where a whitespace policy pairs lines of another indent, the row shows and the
+ * find reads the whitespace of the new line. With `folded` the folded lines of that side are searched too.
  */
 export function findHits(files: readonly FindFile[], query: string, { sideBySide, folded }: { sideBySide: boolean; folded: boolean }): DiffFindHit[] {
   const needle = query.toLowerCase()
@@ -66,7 +67,13 @@ export function findHits(files: readonly FindFile[], query: string, { sideBySide
     }
     return found
   }
-  files.forEach(({ rows, ranges }, file) => {
+  // a loop, not `push(...found)`: a line may hold more hits than a call takes arguments (a minified file, one letter)
+  const add = (found: readonly DiffFindHit[]) => {
+    for (const hit of found) {
+      hits.push(hit)
+    }
+  }
+  files.forEach(({ rows, tables, ranges }, file) => {
     if (rows === null) {
       return
     }
@@ -75,7 +82,7 @@ export function findHits(files: readonly FindFile[], query: string, { sideBySide
       if (row.kind === "fold") {
         const [start, end] = row.lines[NEW]!
         for (let line = start; folded && line < end; line++) {
-          hits.push(...hitsIn(file, NEW, line, row.gap))
+          add(hitsIn(file, NEW, line, row.gap))
         }
         continue
       }
@@ -84,22 +91,24 @@ export function findHits(files: readonly FindFile[], query: string, { sideBySide
       }
       if (!sideBySide && row.kind === "inline") {
         const newHits = hitsIn(file, NEW, row.lines[NEW], -1)
-        const aligned = alignInlineRanges(ranges(row, OLD) ?? [], ranges(row, NEW) ?? [])
-        if (aligned === null) {
-          // ranges that do not align: the row shows the new line as it is
-          hits.push(...newHits)
+        const oldHits = hitsIn(file, OLD, row.lines[OLD], -1)
+        const newTable = tables[NEW]
+        if (oldHits.length === 0 || newTable == null) {
+          add(newHits)
           continue
         }
-        const [deletions, insertions] = aligned
-        const oldHits = hitsIn(file, OLD, row.lines[OLD], -1).filter(hit => isOwnOldHit(deletions, hit.start, hit.end))
+        const pair = inlinePair(lineText(tables[OLD]!, row.lines[OLD]!), lineText(newTable, row.lines[NEW]!), ranges(row, OLD) ?? [], ranges(row, NEW) ?? [])
         // in the order of the text of the row; a deleted part stands before the inserted one, so the old line goes first
-        const place = (hit: DiffFindHit) => inlineOffset(deletions, insertions, hit.side, hit.start)
-        hits.push(...[...oldHits, ...newHits].sort((a, b) => place(a) - place(b) || a.side - b.side))
+        const placed = [...oldHits.filter(hit => isOwnOldHit(pair, hit.start, hit.end)), ...newHits].map(hit => ({ hit, place: inlineOffset(pair, hit.side, hit.start) }))
+        placed.sort((a, b) => a.place - b.place || a.hit.side - b.hit.side)
+        for (const { hit } of placed) {
+          hits.push(hit)
+        }
         continue
       }
       const sides = sideBySide ? (row.kind === "context" ? [NEW] : row.lines.map((_, side) => side)) : [copySide(row, false, NEW)]
       for (const side of sides) {
-        hits.push(...hitsIn(file, side, row.lines[side], -1))
+        add(hitsIn(file, side, row.lines[side], -1))
       }
     }
   })

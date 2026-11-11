@@ -1,5 +1,5 @@
 import type { TextDiff } from "@/lib/diff/file-diff-model"
-import { inlineParts } from "@/lib/diff/line-parts"
+import { inlinePair, inlineParts, RANGE_STRIDE } from "@/lib/diff/line-parts"
 import { columnsOf, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 
@@ -10,7 +10,7 @@ import type { LineTable } from "@/lib/diff/line-table"
 
 /** The text an Inline row shows: the new line with the deleted parts of the old line before the inserted parts (`inlineParts`) */
 export function inlineRowText(oldLine: string, newLine: string, oldRanges: readonly number[], newRanges: readonly number[]): string {
-  return inlineParts(oldLine.length, null, oldRanges, newLine.length, null, newRanges)
+  return inlineParts(inlinePair(oldLine, newLine, oldRanges, newRanges), null, null)
     .map(part => (part.side === 0 ? oldLine : newLine).slice(part.start, part.end))
     .join("")
 }
@@ -33,11 +33,14 @@ export function widestInlineRow(diff: TextDiff, oldTable: LineTable, newTable: L
     }
     for (let pair = 0; pair < pairs; pair++) {
       const oldRanges = block.oldRanges[pair] ?? []
-      // a pair without a deleted part is its new line, which the widest line of the text counts
-      if (oldRanges.length === 0 || block.oldStart + pair >= oldTable.lineCount || block.newStart + pair >= newTable.lineCount) {
+      const newRanges = block.newRanges[pair] ?? []
+      // a pair without a deleted part (the old line has none, or the markers of its empty sides alone) is its new
+      // line, which the widest line of the text counts
+      const deletes = oldRanges.length !== newRanges.length || oldRanges.some((start, index) => index % RANGE_STRIDE === 0 && start < oldRanges[index + 1]!)
+      if (!deletes || block.oldStart + pair >= oldTable.lineCount || block.newStart + pair >= newTable.lineCount) {
         continue
       }
-      const text = inlineRowText(lineText(oldTable, block.oldStart + pair), lineText(newTable, block.newStart + pair), oldRanges, block.newRanges[pair] ?? [])
+      const text = inlineRowText(lineText(oldTable, block.oldStart + pair), lineText(newTable, block.newStart + pair), oldRanges, newRanges)
       widest = Math.max(widest, columnsOf(text, tabSize))
     }
   }

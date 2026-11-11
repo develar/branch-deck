@@ -1,6 +1,7 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { changedParts, diffRows } from "../helpers/diff-helpers"
 import { openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 
 /**
@@ -20,7 +21,7 @@ test.describe("The font of the diffs", () => {
     const preview = await openCommitPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
     const tree = await openCommitFilesSection(preview)
     await tree.getByRole("treeitem", { name: "RowMapper.kt" }).getByText("RowMapper.kt").click()
-    await expect(page.getByTestId("diff-view").first().locator(".dv-row").first()).toBeVisible()
+    await expect(page.getByTestId("diff-view").first().locator("[data-testid=diff-row]").first()).toBeVisible()
     const measured = await page.evaluate(async () => {
       await document.fonts.load('13px "JetBrains Mono Variable"')
       const host = document.createElement("div")
@@ -41,10 +42,10 @@ test.describe("The font of the diffs", () => {
         arrow: width("a -> b") / cell,
         strictNotEqual: width("a !== b") / cell,
         // `!=` to `!==`: the inserted `=` is a range of its own inside the ligature
-        cut: width('a !=<span class="dv-changed dv-change-0">=</span> b') / cell,
+        cut: width('a !=<span class="dv-changed dv-change-0" data-change="0">=</span> b') / cell,
         changed: 0,
       }
-      const changed = host.lastElementChild!.querySelector(".dv-changed")!
+      const changed = host.lastElementChild!.querySelector("[data-change]")!
       result.changed = changed.getBoundingClientRect().width / cell
       host.remove()
       return result
@@ -70,18 +71,19 @@ test.describe("The font of the diffs", () => {
     const decoration = (selector: string) =>
       file.evaluate((root, selector) => [...root.querySelectorAll(selector)].map(element => getComputedStyle(element).textDecorationLine), selector)
 
-    await preview.getByRole("button", { name: "Inline", exact: true }).click()
+    // Inline, the default: nothing chooses it
+    await expect(preview.getByRole("button", { name: "Inline", exact: true })).toHaveAttribute("aria-pressed", "true")
     // `Row = Row` becomes `SessionRow = SessionRow`: the deleted part stands before the inserted one
-    const deleted = ".dv-row[data-kind=inline] [data-inline-deleted]"
+    const deleted = "[data-testid=diff-row][data-kind=inline] [data-inline-deleted]"
     await expect(file.locator(deleted).first()).toBeVisible()
     expect(new Set(await decoration(deleted))).toEqual(new Set(["line-through"]))
 
     for (const mode of ["Split", "Unified"]) {
       await preview.getByRole("button", { name: mode, exact: true }).click()
       // the rows of the mode, not the Inline rows before the switch
-      await expect(file.locator(".dv-row[data-kind=inline]")).toHaveCount(0)
-      await expect(file.locator(".dv-changed").first()).toBeVisible()
-      expect(new Set(await decoration(".dv-changed")), mode).toEqual(new Set(["none"]))
+      await expect(diffRows(file, "inline")).toHaveCount(0)
+      await expect(changedParts(file).first()).toBeVisible()
+      expect(new Set(await decoration("[data-change]")), mode).toEqual(new Set(["none"]))
     }
   })
 })

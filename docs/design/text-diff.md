@@ -1,7 +1,7 @@
 # Text Diff Engine
 
 **Status:** Implemented (the crate and its model; the app does not call it yet)
-**Updated:** 2026-11-10
+**Updated:** 2026-11-11
 **Tags:** [diff, comparison, intellij, port]
 
 ## Problem
@@ -113,9 +113,15 @@ flowchart TD
   holds its offset; a view draws it as IntelliJ's `DiffEmptyHighlighterRenderer`, a bar 2 px wide. The lists are
   empty for an `Ignored` and a `WhitespaceOnly` block, for a block without similar parts, and for a block whose
   ranges are dropped. The ranges of a merge keep the untyped form: a merge block has one kind.
-- **Inline pairs.** `inline_pairs` is set when both sides have the same number of lines and each pair is similar:
-  less than `SIMILAR_PAIR_MAX_CHANGED` (1/3) of its chars changed, with at most `SIMILAR_PAIR_MAX_RANGES` (4) ranges
-  in each line. A `WhitespaceOnly` block of n to n lines has inline pairs.
+- **Inline pairs.** `inline_pairs` is set when both sides have the same number of lines, each pair is similar (less
+  than `SIMILAR_PAIR_MAX_CHANGED` (1/3) of its chars changed, with at most `SIMILAR_PAIR_MAX_RANGES` (4) ranges in
+  each line), and the pairs align (`pairs_align`). The inner changes are of the text of the whole block, so a change
+  may take a line end with it, or have its sides in lines apart: a call wrapped again, whose argument goes up a line.
+  Under `Ignore` a line end may also move without a change. The pairs align when each change lies within line i of
+  both sides for one i, and what a pair holds between its changes is the same text on both sides but for whitespace
+  (the same text under `Default`). Then line i of both sides has as many ranges, of the same kinds, in the same
+  order, and one row shows all of both lines; a block whose pairs do not align is drawn line by line, as in Unified,
+  with its ranges. A `WhitespaceOnly` block of n to n lines has inline pairs under the same rule.
 - **Dropped ranges.** When at least `DROP_RANGES_MIN_CHANGED` (2/3) of the chars of a block changed, the ranges are
   noise and are dropped. The three thresholds come from the inline diff of Space and are to be tuned on real commits.
 - **Line ends.** When the line ends of the files differ (`lf`, `crlf`, `cr`, `mixed`), `line_ends` names them for a

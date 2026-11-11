@@ -2,9 +2,11 @@
 import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
+import type { FindDeclarationParams } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { changedParts, deletedParts, diffRows } from "../helpers/diff-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
@@ -19,9 +21,10 @@ const MODIFIER = "Meta"
 const COMMAND = "Control"
 const BACK = "Control+Alt+ArrowLeft"
 
-async function openNavigationReview(page: Page): Promise<Locator> {
+/** The code of the review window of a commit of `nav`: the commit of the template unless another `subject` is given */
+async function openNavigationReview(page: Page, subject = "use the store and the queue"): Promise<Locator> {
   await expandBranch(page, findBranchRow(page, "nav"))
-  await openCommitPreview(page, getBranchCommitRow(page, "nav", "use the store and the queue"))
+  await openCommitPreview(page, getBranchCommitRow(page, "nav", subject))
   await page.keyboard.press("d")
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
   const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
@@ -59,7 +62,7 @@ async function wordIn(view: Locator, path: string, word: string): Promise<{ x: n
     for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
       const content = text.textContent ?? ""
       const index = content.search(new RegExp(`\\b${name}\\b`))
-      const cell = text.parentElement?.closest<HTMLElement>(".dv-code[data-side]")
+      const cell = text.parentElement?.closest<HTMLElement>("[data-testid=diff-code][data-side]")
       if (index >= 0 && cell?.dataset.side === "1") {
         const range = document.createRange()
         range.setStart(text, index)
@@ -276,6 +279,81 @@ test.describe("Go to Declaration", () => {
     await expectOutsiderFileAndBack(page)
   })
 })
+
+test(
+  "should underline a struck-through name of an Inline row alone under the pointer with the modifier, and go to the declaration of that old name on a click",
+  { tag: "@webkit" },
+  async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    // a call of `helper` in Uses.kt becomes a call of `helperScaled`, which nothing declares: in Inline, the default,
+    // its row is the new line with the old name struck through before the new one
+    const uses = (name: string) => `class Uses {\n  fun run(store: Any) {\n    store.add(1)\n    val sum = ${name}(2) + outsider(3) + outsider(4) + outsider(5)\n  }\n}\n`
+    await repo.commit("(nav) sum the calls", { "src/Uses.kt": uses("helper") }, 1704120600)
+    await repo.commit("(nav) call the scaled helper", { "src/Uses.kt": uses("helperScaled") }, 1704121200)
+    // the index of the repository, as accio answers `symbol helper`: its declaration in src/Store.kt, outside this review
+    writeFileSync(
+      path.join(repo.path, ".git", "branch-deck-accio.json"),
+      JSON.stringify({ symbol: { helper: [{ file: "src/Store.kt", line: 36, column: 4, end_column: 10, kind: "function", name: "helper" }] } }),
+    )
+    await syncAndWaitForBranches()
+    const code = await openNavigationReview(page, "call the scaled helper")
+    const pair = diffRows(code, "inline")
+    const struck = deletedParts(pair)
+    await expect(struck).toHaveText("helper")
+    const inserted = changedParts(pair)
+    await expect(inserted).toHaveText("helperScaled")
+
+    /** The underline of the link under the pointer: where it starts and how wide it is, in whole pixels */
+    const link = async () => {
+      const boxes = await Promise.all((await code.getByTestId("diff-link").all()).map(line => line.boundingBox()))
+      return boxes.map(box => [Math.round(box!.x), Math.round(box!.width)])
+    }
+    const place = async (part: Locator) => {
+      const box = (await part.boundingBox())!
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2, underline: [Math.round(box.x), Math.round(box.width)] }
+    }
+    const scroller = code.getByTestId("diff-view")
+    const old = await place(struck)
+    await page.mouse.move(old.x, old.y)
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.move(old.x + 1, old.y)
+    await expect(scroller).toHaveCSS("cursor", "pointer")
+    // the old name alone: not the new name beside it
+    await expect.poll(link).toEqual([old.underline])
+    // the new name alone: not the struck-through part before it
+    const added = await place(inserted)
+    await page.mouse.move(added.x, added.y)
+    await expect.poll(link).toEqual([added.underline])
+
+    // a click on the old name asks for the declaration of `helper` on the old side, and shows it
+    const asked = await recordCommand(page, "find_declaration")
+    await page.mouse.move(old.x, old.y)
+    await page.mouse.click(old.x, old.y)
+    await page.keyboard.up(MODIFIER)
+    const fileView = page.getByTestId("declaration-file-view")
+    await expect(fileView).toContainText("src/Store.kt")
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "helper", path: "src/Store.kt" })
+    expect(asked.map(call => (call as unknown as FindDeclarationParams).site)).toMatchObject([{ path: "src/Uses.kt", side: "old", line: 3, column: 14 }])
+
+    // Back (⌘[ where the page says it runs on a Mac, as WebKit's does): the old name the jump started from, selected
+    // where its row strikes it through
+    const mac = await page.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
+    await page.keyboard.press(mac ? "Meta+BracketLeft" : BACK)
+    await expect(fileView).toBeHidden()
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "helper", path: "src/Uses.kt" })
+    // the menu of the code on the old name acts on it, whatever a click left selected elsewhere
+    await diffRows(code, "context", { hasText: "store.add(1)" }).click()
+    await expect.poll(async () => (await selectedInDiffs(page)).text).toBe("")
+    // the reveal of Back scrolled the row
+    const again = await place(struck)
+    await page.mouse.click(again.x, again.y, { button: "right" })
+    await page.getByRole("menuitem", { name: "Find Usages" }).click()
+    // the usage the review knows: the call of the old line itself
+    await expect(page.getByRole("listbox", { name: "Usages of helper" }).getByRole("option")).toHaveText([
+      "callval sum = helper(2) + outsider(3) + outsider(4) + outsider(5)src/Uses.kt:4",
+    ])
+  },
+)
 
 test.describe("Find Usages", () => {
   /** The test repository of the test, for its fixture of the index */

@@ -1250,6 +1250,7 @@ export function DiffView({
       ...rects.map(rect => {
         const line = document.createElement("div")
         line.className = "dv-link"
+        line.dataset.testid = "diff-link"
         line.style.cssText = `left:${rect.left}px;top:${rect.bottom - 1}px;width:${rect.width}px`
         return line
       }),
@@ -1302,6 +1303,7 @@ export function DiffView({
     }
   }
 
+  /** The pointer moved over the code, or the menu of the code opens (at the pointer, or at the caret for a key): the point the names are read at */
   const onCodeMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
     pointer.current = { x: event.clientX, y: event.clientY }
     showLink(modifierHeld(event) ? painter.wordAt(event.clientX, event.clientY) : null)
@@ -1324,7 +1326,10 @@ export function DiffView({
   const [codeMenu, setCodeMenu] = useState<MenuItem[]>([])
   const openCodeMenu = () => {
     const at = pointer.current ?? { x: 0, y: 0 }
-    const word = painter.wordAtSelection() ?? painter.wordAt(at.x, at.y)
+    // the name the menu opened on; where it opened on none (a key opens it at the caret), the name at the selection. A
+    // press that opens the menu selects no word in a part that is not selectable (the struck-through old name of an
+    // Inline row), and on Windows in no text
+    const word = painter.wordAt(at.x, at.y) ?? painter.wordAtSelection()
     const target = word === null ? null : siteOf(word)
     setCodeMenu(
       codeMenuItems({
@@ -1617,6 +1622,7 @@ export function DiffView({
       onDoubleClick={scroll === "own" && mode === "split" ? event => onDividerOf(event) && setDiffSplitRatio(0.5) : undefined}
       data-plain={plain ? "" : undefined}
       onMouseMove={navigates ? onCodeMouseMove : undefined}
+      onContextMenuCapture={navigates ? onCodeMouseMove : undefined}
       onMouseLeave={navigates ? () => showLink(null) : undefined}
       onClickCapture={navigates ? onCodeClick : undefined}
       onScroll={navigates ? () => showLink(null) : undefined}
@@ -1877,7 +1883,7 @@ function HorizontalBars({ file, sideWidths, columnWidth, codeWidths }: { file: P
     <div className="dv-hscrolls" data-testid="diff-view-scrollbars">
       {widths !== null &&
         columns.map((side, index) => (
-          <div key={side} className="dv-hscroll" data-side={side}>
+          <div key={side} className="dv-hscroll" data-testid="diff-hscroll" data-side={side}>
             <div style={{ width: widths[index]! + file.gutterColumns * columnWidth * (sideBySide ? 1 : (file.cells?.numbers.length ?? 2)), height: 1 }} />
           </div>
         ))}

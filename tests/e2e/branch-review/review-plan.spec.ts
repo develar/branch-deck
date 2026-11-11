@@ -3,11 +3,12 @@ import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
-import type { GetBlobTextsParams } from "../../../src/lib/bindings"
+import type { FindDeclarationParams, GetBlobTextsParams } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
+import { copiedByKey, deletedParts, diffRows } from "../helpers/diff-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
@@ -19,7 +20,7 @@ import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
-import { holdCommandCalls, expectClosed } from "../helpers/wait-helpers"
+import { holdCommandCalls, expectClosed, recordCommand } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template (src/Store.kt with the top-level `helper`, the commit of `nav`), then the branch
 // `plan` of a terminal: `helper` takes a scale (a changed declaration that src/Base.kt and others use), then
@@ -324,7 +325,9 @@ test.describe("The review plan in the branch review", () => {
       // `helper` gets another name and its uses outside stay: in Inline, the default, the row of its declaration is the
       // new line with the old name struck through before the new one
       await repo.commit("(plan) rename the helper", { "src/Store.kt": storeText("fun helperScaled(value: Int) = value") }, 1704121200)
-      writeHelperIndex(repo, [helperUsage("src/Base.kt", 1), helperUsage("src/Uses.kt", 4)])
+      // the index: the uses of the plan, and what Find Usages asks at the name of the old line (`path:line:column` from 1)
+      const usages = [helperUsage("src/Base.kt", 1), helperUsage("src/Uses.kt", 4)]
+      writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ references: { [HELPER]: usages, [`${HELPER}:5`]: usages } }))
       const window = await openPlanWindow(page, syncAndWaitForBranches)
 
       const removed = window.getByTestId("review-overview").getByTestId("review-plan-breakage-entry")
@@ -333,19 +336,33 @@ test.describe("The review plan in the branch review", () => {
       await removed.getByTestId("review-plan-breakage-file").click()
       // the old name is selected where the row shows it: its deleted part, selectable while the name is selected
       await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
-      const pair = window.locator(".dv-row[data-kind=inline]", { hasText: "helperScaled" })
-      await expect(pair.locator("[data-inline-deleted]")).toHaveText("helper")
-      await expect(pair.locator("[data-inline-deleted]")).toHaveCSS("user-select", "text")
+      const pair = diffRows(window, "inline", { hasText: "helperScaled" })
+      await expect(deletedParts(pair)).toHaveText("helper")
+      await expect(deletedParts(pair)).toHaveCSS("user-select", "text")
       const selectedParts = () =>
         pair.evaluate(row => {
           const selection = document.getSelection()!
-          return { deleted: selection.containsNode(row.querySelector("[data-inline-deleted]")!, true), inserted: selection.containsNode(row.querySelector(".dv-changed")!, true) }
+          return { deleted: selection.containsNode(row.querySelector("[data-inline-deleted]")!, true), inserted: selection.containsNode(row.querySelector("[data-change]")!, true) }
         })
       await expect.poll(selectedParts).toEqual({ deleted: true, inserted: false })
 
+      // a copy takes the name selected, and its keys (a modifier, then C) leave it selected
+      expect(await copiedByKey(window)).toBe("helper")
+      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
+      await expect(deletedParts(pair)).toHaveCSS("user-select", "text")
+
+      // Find Usages reads the name selected, the one of the old line, not the new name that stands after it
+      const asked = await recordCommand(window, "find_usages")
+      await window.keyboard.press("Alt+F7")
+      const found = window.getByRole("listbox", { name: "Usages of helper" })
+      await expect(found.getByRole("option").first()).toBeVisible()
+      expect(asked.map(call => (call as unknown as FindDeclarationParams).site)).toMatchObject([{ path: "src/Store.kt", side: "old", line: 35, column: 4 }])
+      await window.keyboard.press("Escape")
+      await expectClosed(window.getByTestId("symbol-chooser"))
+
       // a press in the diffs lets the name go: the deleted part is left out of a selection again
-      await window.locator(".dv-row[data-kind=context]").first().click()
-      await expect(pair.locator("[data-inline-deleted]")).toHaveCSS("user-select", "none")
+      await diffRows(window, "context").first().click()
+      await expect(deletedParts(pair)).toHaveCSS("user-select", "none")
     },
   )
 

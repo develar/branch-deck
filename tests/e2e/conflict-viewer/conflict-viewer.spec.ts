@@ -4,6 +4,7 @@ import type { ConflictingFilesWindowData, MissingCommitsWindowData } from "../..
 import { test as simpleTest, testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, collapseBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
+import { diffRows, diffSides } from "../helpers/diff-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
 import { routeCommandError, waitForConflictViewer, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -311,8 +312,8 @@ simpleTest.describe("Merge of a conflicting file", () => {
     // git stops at the line, but the changes of the two sides touch other words of it
     await expect(file.getByTestId("merge-notice")).toHaveText("Git stops here; the conflict resolves by words")
 
-    const conflict = file.locator(".dv-row[data-kind=merge]", { hasText: "limits" })
-    const half = (row: typeof conflict, side: number) => row.locator(`.dv-half[data-side="${side}"]`)
+    const conflict = diffRows(file, "merge", { hasText: "limits" })
+    const half = (row: typeof conflict, side: number) => row.locator(`[data-testid=diff-side][data-side="${side}"]`)
     await expect(half(conflict, 0)).toHaveAttribute("data-cell", "conflict")
     await expect(half(conflict, 0)).toContainText("{ timeout: 10, retries: 1 }")
     await expect(half(conflict, 2)).toContainText("{ timeout: 30, retries: 3 }")
@@ -321,7 +322,7 @@ simpleTest.describe("Merge of a conflicting file", () => {
     await expect(half(conflict, 1)).toContainText("{ timeout: 10, retries: 3 }")
     await expect(half(conflict, 1)).toHaveAttribute("data-resolved", "both")
     // the line the commit added: inserted on its side and in the result, a gap on the left
-    const inserted = file.locator(".dv-row[data-kind=merge]", { hasText: "verbose" })
+    const inserted = diffRows(file, "merge", { hasText: "verbose" })
     await expect(half(inserted, 2)).toHaveAttribute("data-cell", "inserted")
     await expect(half(inserted, 1)).toHaveAttribute("data-cell", "inserted")
     await expect(half(inserted, 0)).toHaveAttribute("data-cell", "filler")
@@ -355,9 +356,9 @@ simpleTest.describe("Conflict resolved by words", () => {
     await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict resolved")
     // the middle is the blob the sync committed: the line with the words of both sides
     await expect(file.getByRole("button", { name: "Result (committed)" })).toHaveAttribute("aria-pressed", "true")
-    const conflict = file.locator(".dv-row[data-kind=merge]", { hasText: "limits" })
-    await expect(conflict.locator('.dv-half[data-side="1"]')).toContainText("{ timeout: 10, retries: 3 }")
-    await expect(conflict.locator('.dv-half[data-side="2"]')).toContainText("{ timeout: 30, retries: 3 }")
+    const conflict = diffRows(file, "merge", { hasText: "limits" })
+    await expect(diffSides(conflict, 1)).toContainText("{ timeout: 10, retries: 3 }")
+    await expect(diffSides(conflict, 2)).toContainText("{ timeout: 30, retries: 3 }")
 
     await notice.click()
     await expect(resolved).toHaveCount(0)
