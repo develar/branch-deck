@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.8.0](https://github.com/develar/branch-deck/compare/v1.7.1...v1.8.0) (2026-11-11)
+
+
+### Features
+
+* **diff:** Inline is the default layout of every diff, its rows found, scrolled and selected whole ([108f71a](https://github.com/develar/branch-deck/commit/108f71ac8a07ceacc2bbe1e751c7755cf50cbcb2))
+* **review-plan:** whitespace of a file of a grammar is told by the tokens of its parse, a space inside a string is real work ([00c796b](https://github.com/develar/branch-deck/commit/00c796bb76f949b5dec1f7105c2787f5ff5cfdb2))
+
+
+### Bug Fixes
+
+* **bd:** Activity shows an entry the page recorded once, whichever of its record and a read answers first ([ac607f8](https://github.com/develar/branch-deck/commit/ac607f8d5219501a9fab97046296e5eb47d9288a))
+* **diff:** Inline pairs only the lines one row shows whole, and the old line of a row is found, copied and navigated where the row shows it ([cdf50a4](https://github.com/develar/branch-deck/commit/cdf50a4f9b744f126cc0e99777d5e0e51914b420))
+* **diff:** the menu of the code opens by a key on the name at the selection, and by the pointer only on the name under it ([13f6320](https://github.com/develar/branch-deck/commit/13f63200f903862d2534017922466d4d7f1a2dbc))
+* **diff:** the number of a changed line reads on the colour of its line ([3e916d7](https://github.com/develar/branch-deck/commit/3e916d75fe4c7d885dc7aa6ee5f0477723cc3727))
+* **e2e:** a menu is opened once the session answered the facts of its first sync, and a submenu only by openSubmenu ([f38e1d6](https://github.com/develar/branch-deck/commit/f38e1d6ae14f0c6775bf969896cade154872cae3))
+* **e2e:** a move of the session clock waits for the state it brings, and the waits of a sync and of the step facts have no limit of their own ([140fa8f](https://github.com/develar/branch-deck/commit/140fa8f6605181ee74612bc22b1042022c175bd5))
+* **e2e:** the menus after the first sync wait for its step facts by waitForStepFacts, the helper that waited for them already ([3d2b9ca](https://github.com/develar/branch-deck/commit/3d2b9ca425e76dfc37287a7fc4c76a64bc09f32a))
+* **e2e:** the result of an Update Project is read once the update answered, not within 5 s of its start ([1a551b0](https://github.com/develar/branch-deck/commit/1a551b05fb0d8628417361f8e16274954bfe7c03))
+* **e2e:** two moves queued behind the lock are checked once both answered, not within 5 s of the release ([2b10fdc](https://github.com/develar/branch-deck/commit/2b10fdc07f0e9548c2e01a9e55dd5242c24d9d63))
+* **navigation:** the usages of an accio that answers lines are each mark of a line ([eb1bafb](https://github.com/develar/branch-deck/commit/eb1bafbb7a8e7a33942161f0b0073893bacb9bfc))
+* **processes:** a kill waits until each thread of a stopped process has stopped, so the ssh a git forked meanwhile is found ([a6b6cdb](https://github.com/develar/branch-deck/commit/a6b6cdb3d7dc1fe1409d090f40d427c5d8c3a1cd))
+* **review:** a place shown before the diffs mount waits for them, so a link of the overview followed early selects its name ([04459af](https://github.com/develar/branch-deck/commit/04459afa9c736c8e26351c7b04842a8f13981530))
+* **review:** a stop at the first card of a group shows the heading of the group whole, an opening goes wholly above the view ([adb673b](https://github.com/develar/branch-deck/commit/adb673bbe9a9d854b267dd15ef8efe2c567c53ed))
+
 ## [1.7.1](https://github.com/develar/branch-deck/compare/v1.7.0...v1.7.1) (2026-11-11)
 
 
