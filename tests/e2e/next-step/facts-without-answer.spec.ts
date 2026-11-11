@@ -1,6 +1,6 @@
 // @spec openspec/specs/branch/next-step/spec.md
 // @spec openspec/specs/branch/pull-requests/spec.md
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
@@ -12,7 +12,7 @@ import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from
 import { openSubmenu } from "../helpers/selection-helpers"
 import { oneCommitUnpushedRemote, pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
-import { expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -406,5 +406,146 @@ test.describe("Next step before the answers", () => {
     await checkApprovalsAgain(page, failed)
     await expect(failedSlot).toHaveAttribute("data-step", "restart")
     await expect(step).toBeEnabled()
+  })
+})
+
+/** The menu of the row of JIRA-456, opened by a right click */
+async function openRowMenu(page: Page): Promise<Locator> {
+  await findBranchRow(page, BRANCH).click({ button: "right" })
+  const menu = page.getByRole("menu")
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+/** The words of the items of `menu`, in their order: a place is an index */
+function itemWords(menu: Locator): Promise<string[]> {
+  return menu.getByRole("menuitem").allTextContents()
+}
+
+/** The pointer rests on the middle of `item`: the point, which later reads what lies under it (`itemAt`) */
+async function restOn(page: Page, item: Locator): Promise<{ x: number; y: number }> {
+  const box = await item.boundingBox()
+  expect(box).not.toBeNull()
+  const point = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 }
+  await page.mouse.move(point.x, point.y)
+  return point
+}
+
+/** The words of the menu item under `point` */
+function itemAt(page: Page, point: { x: number; y: number }): Promise<string | null> {
+  return page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("[role=menuitem]")?.textContent ?? null, point)
+}
+
+/** `item` of the open menu is disabled, its hover saying `reason` */
+async function expectItemWaits(page: Page, item: Locator, reason: string): Promise<void> {
+  await expect(item).toBeDisabled()
+  await item.hover()
+  await expect(openTooltip(page, { name: reason })).toBeVisible()
+}
+
+const LISTING = "Waits for GitHub to list the pull requests"
+
+test.describe("Places of the menu before the answers", () => {
+  test("should keep Safe Push in its place while Patronus answers, disabled until it does, and the item under the pointer where it was @webkit", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupHeld(setupRepo, APPROVED_BY_CODE_OWNER, [APPROVED], ["robots"])
+    await syncAndWaitForBranches()
+    await expectHeld(repo, "robots")
+    // GitHub listed #1078 already: only the answer of Patronus is to come
+    await expect(findBranchRow(page, BRANCH).getByTestId("pull-request-chip")).toBeVisible()
+
+    // origin is on Space: the starts of Patronus are there from the first view, waiting for it
+    const menu = await openRowMenu(page)
+    const safePush = menu.getByRole("menuitem", SAFE_PUSH_ITEM)
+    await expectItemWaits(page, safePush, "Waits for the answer of Patronus")
+    const words = await itemWords(menu)
+    const pointer = await restOn(page, menu.getByRole("menuitem", { name: /^Push Branch/ }))
+
+    // Patronus answers, then checks the approvals: the same items in the same places, Safe Push enabled
+    await repo.holdRemoteAnswers({ release: ["robots"] })
+    await expect(safePush).toBeEnabled()
+    expect(await itemWords(menu)).toEqual(words)
+    expect(await itemAt(page, pointer)).toMatch(/^Push Branch/)
+  })
+
+  test("should keep Merge and Create Pull Request… in their places while GitHub lists, the open pull request in the place of Create @webkit", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const seven = pullRequest(BRANCH, 7, { baseRefName: "master", reviewDecision: "approved", mergeState: "clean" })
+    const repo = await setupRepo("issue_links", { pullRequests: availablePullRequests(seven), landing: { setting: null, gitHub: "acme/monorepo" } })
+    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
+    await syncAndWaitForBranches()
+    await expectHeld(repo, "pullRequests")
+
+    // origin pushes to acme/monorepo: its merge and its pull request are there from the first view, waiting for GitHub
+    const menu = await openRowMenu(page)
+    const merge = menu.getByRole("menuitem", { name: /^Merge/ })
+    const create = menu.getByRole("menuitem", { name: "Create Pull Request…" })
+    await expectItemWaits(page, merge, "Waits for GitHub to tell what you may do in the repository")
+    await expectItemWaits(page, create, LISTING)
+    const words = await itemWords(menu)
+    const mergeAt = words.findIndex(word => word.startsWith("Merge"))
+    const createAt = words.indexOf("Create Pull Request…")
+    const pointer = await restOn(page, menu.getByRole("menuitem", { name: /^Push Branch/ }))
+
+    // GitHub lists #7: the merge of it in the place of Merge, its open in the place of Create
+    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
+    const open = menu.getByRole("menuitem", { name: /^Open Pull Request #7/ })
+    await expect(open).toBeVisible()
+    await expect(merge).toBeEnabled()
+    const answered = await itemWords(menu)
+    expect(answered[mergeAt]).toBe("Merge #7S")
+    expect(answered[createAt]).toMatch(/^Open Pull Request #7/)
+    expect(answered.slice(0, createAt)).toEqual(words.slice(0, createAt).map(word => (word.startsWith("Merge") ? "Merge #7S" : word)))
+    expect(await itemAt(page, pointer)).toMatch(/^Push Branch/)
+  })
+
+  test("should never offer Merge on a mirror origin doesn't push to, and keep Create Pull Request… in its place while GitHub lists", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // origin is a path, the branches mirrored to acme/monorepo (`branchdeck.githubRepository`)
+    const repo = await setupRepo("issue_links", { pullRequests: availablePullRequests() })
+    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
+    await syncAndWaitForBranches()
+    await expectHeld(repo, "pullRequests")
+
+    const menu = await openRowMenu(page)
+    const create = menu.getByRole("menuitem", { name: "Create Pull Request…" })
+    await expectItemWaits(page, create, LISTING)
+    await expect(menu.getByRole("menuitem", { name: /^(Merge|Safe Push)/ })).toHaveCount(0)
+    const words = await itemWords(menu)
+    const pointer = await restOn(page, menu.getByRole("menuitem", { name: "Rename…" }))
+
+    // GitHub lists none: Create is enabled in its place, nothing else moves, and still no merge
+    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
+    await expect(create).toBeEnabled()
+    expect(await itemWords(menu)).toEqual(words)
+    expect(await itemAt(page, pointer)).toBe("Rename…")
+    await expect(menu.getByRole("menuitem", { name: /^(Merge|Safe Push)/ })).toHaveCount(0)
+  })
+
+  test("should offer no start and no pull request on a local remote from the first view", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // origin is a path and nothing names a repository of GitHub: neither Patronus nor GitHub can add a slot
+    const repo = await setupRepo("issue_links")
+    await repo.holdRemoteAnswers({ hold: ["robots", "pullRequests"] })
+    await syncAndWaitForBranches()
+
+    const menu = await openRowMenu(page)
+    const words = await itemWords(menu)
+    expect(words[0]).toMatch(/^Push Branch/)
+    expect(words.filter(word => /^(Safe Push|Merge|Push to master|Create Pull Request|Patronus)/.test(word))).toEqual([])
+    await page.keyboard.press("Escape")
+    await expectClosed(menu)
+
+    await repo.holdRemoteAnswers({ release: ["robots", "pullRequests"] })
+    await waitForStepFacts(slot(page))
+    expect(await itemWords(await openRowMenu(page))).toEqual(words)
   })
 })

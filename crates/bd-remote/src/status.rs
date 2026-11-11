@@ -907,6 +907,7 @@ fn next_steps_of_status(
   let readiness = |_: &str| None;
   let sources = StepSources {
     route,
+    landing: &grouping.landing,
     table,
     remote: &table.remote,
     rows: &rows,

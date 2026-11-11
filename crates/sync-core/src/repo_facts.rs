@@ -5,13 +5,14 @@
 //! the archived and the remote branches (on the monorepo 452 refs, 1 to 2 s from a cold pack).
 
 use crate::baseline::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
+use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::CONFLICT_REFS;
-use crate::github_repository::parse_github_repository;
+use crate::github_repository::{parse_github_repository, resolve_github_repository_with};
 use crate::landed::STATE_FILE;
 use crate::patronus::parse_space_repository;
 use anyhow::{Result, anyhow, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
-use domain_types::landing_route::{LandingRemote, LandingSetting};
+use domain_types::landing_route::{LandingRemote, LandingSetting, LocalGitHub};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::on_local_baseline;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_ref};
@@ -72,10 +73,19 @@ impl RepoFacts {
     })
   }
 
-  /// What the route into master is decided on of git, from these facts and `setting` (`ConfigSnapshot::landing`): no
-  /// process (`landing_remote_of`)
-  pub(crate) fn landing_remote(&self, setting: Option<LandingSetting>) -> LandingRemote {
-    landing_remote_of(&self.push_urls, self.upstream.as_ref(), setting)
+  /// What the route into master and the slots of the landing are decided on of git, from these facts, the config the
+  /// sync read (the setting, `branchdeck.githubRepository`) and the word of the host on Patronus (`space`,
+  /// `SyncOptions::space`): one `cat-file` only for a Space `origin` without the GitHub repository configured, whose
+  /// committed settings may name its mirror (`resolve_github_repository_with`)
+  pub(crate) fn landing_remote(&self, git_executor: &GitCommandExecutor, repository_path: &str, config: &ConfigSnapshot, space: Option<bool>) -> Result<LandingRemote> {
+    let mut remote = landing_remote_of(&self.push_urls, self.upstream.as_ref(), config.landing()?);
+    remote.patronus = space.unwrap_or(remote.on_space);
+    let origin = self.push_urls.get("origin").map(String::as_str);
+    remote.github = match resolve_github_repository_with(git_executor, repository_path, config.github_repository(), origin)? {
+      Some(repository) => LocalGitHub::Repository { name: repository.full_name() },
+      None => LocalGitHub::None,
+    };
+    Ok(remote)
   }
 }
 
@@ -84,9 +94,12 @@ impl RepoFacts {
 /// (`find_space_repository`), the remote of the baseline to a github.com repository
 pub(crate) fn landing_remote_of(push_urls: &HashMap<String, String>, upstream: Option<&BaselineUpstream>, setting: Option<LandingSetting>) -> LandingRemote {
   let push_url = |remote: &str| push_urls.get(remote).map(String::as_str);
+  let on_space = push_url("origin").and_then(parse_space_repository).is_some();
   LandingRemote {
     setting,
-    on_space: push_url("origin").and_then(parse_space_repository).is_some(),
+    on_space,
+    patronus: on_space,
+    github: LocalGitHub::Unread,
     push_repository: upstream
       .and_then(|upstream| push_url(&upstream.remote))
       .and_then(parse_github_repository)

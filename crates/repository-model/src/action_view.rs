@@ -10,7 +10,7 @@
 //! robots or pull requests that are values of it, hold the remote actions back (`on_cached_frame`, by what each reads:
 //! `reads_cached_frame`, which the engine refuses their intents by too).
 
-use crate::derive::{github_repository_known, landing_route_of, live_hold, patronus_lands, row_of_view};
+use crate::derive::{landing_route_of, live_hold, row_of_view};
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{
@@ -19,8 +19,9 @@ use domain_policy::actions::{
 };
 use domain_policy::github_stack::stack_writes;
 use domain_policy::kept::{KeptFacts, KeptKind, kept_actions};
-use domain_policy::land::merges_on_github;
+use domain_policy::land::{merges_on_github, patronus_lands};
 use domain_policy::next_step::{Listing, PatronusStanding};
+use domain_policy::pull_request::github_repository_known;
 use domain_types::actions::{ActionState, NothingBeyond};
 use domain_types::branch_names::{baseline_on_remote, kept_branch_name, to_final_branch_name};
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
@@ -80,15 +81,16 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
   let part = facts.patronus.part();
   let robots = facts.robots.view();
   let pull_requests = facts.pull_requests.view();
-  let standing = PatronusStanding::of(&robots.head, &part.state);
+  let landing = &parts.header.landing;
+  let standing = PatronusStanding::of_remote(&robots.head, &part.state, landing);
   let patronus = standing.answer();
-  let listing = Listing::of(&pull_requests.head);
-  let repository = github_repository_known(pull_requests, robots);
+  let listing = Listing::of_remote(&pull_requests.head, landing);
+  let repository = github_repository_known(pull_requests, robots, landing);
   let sync_running = matches!(state.sync, SyncState::Running { .. });
   let operations = state.operations();
   let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
   let push_route = matches!(route, LandingRoute::Push { .. });
-  let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view()));
+  let merge_route = merges_on_github(&route, patronus_lands(facts.robots.view(), landing));
   // what the pushes, the starts and the pull requests read; a restart and a cancel only the robots
   let cached = reads_cached_frame(state, facts, FrameReads::Landing);
   let robots_cached = reads_cached_frame(state, facts, FrameReads::Robots);
@@ -209,6 +211,7 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       step,
       pull_request: stack_pull_request,
       open_pull_request: sources.open_pull_requests.get(&key),
+      listing,
       repository,
       landed: sources.landed.get(&key),
       root_landed: sources.landed.get(root),

@@ -25,7 +25,7 @@ use crate::land_execute::{Planned, PushLease, PushedRef};
 use crate::needs::{FactNeed, waits};
 use crate::witness::Witness;
 use domain_policy::facts::Robots;
-use domain_policy::land::TargetConflictFact;
+use domain_policy::land::{TargetConflictFact, patronus_lands};
 use domain_policy::landed::LandedFacts;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::landing::{Land, LandDecision, LandProfiles, LandingRefusal, PlannedEffect, Subject};
@@ -34,7 +34,7 @@ use domain_types::session::{Fact, LandedSection, SubjectReadiness};
 use git_executor::git_command_executor::GitCommandExecutor;
 use remote_facts::fact_sources::FactSources;
 use repository_model::branch_table::BranchTable;
-use repository_model::derive::{LandSources, declared_needs_of, github_layers_over, is_unapplied, land_decision, landing_route_of, patronus_lands, with_land_sources};
+use repository_model::derive::{LandSources, declared_needs_of, github_layers_over, is_unapplied, land_decision, landing_route_of, with_land_sources};
 use repository_model::facts::FactRecord;
 use repository_model::one_shot::OneShot;
 use repository_model::session::{SessionKey, Sessions};
@@ -116,7 +116,7 @@ pub fn with_one_shot_sources<T>(session: &OneShot, host: &LandHost<'_>, decide: 
   let declared = declared_needs_of(host.table, |need| is_unapplied(&session.state().sections().unapplied, need), session.view());
   let sources = LandSources {
     route: &route,
-    patronus: patronus_lands(session.facts().robots.view()),
+    patronus: patronus_lands(session.facts().robots.view(), &header.landing),
     // a command keeps no push of its own: its process ends with it
     pushed: None,
     header,

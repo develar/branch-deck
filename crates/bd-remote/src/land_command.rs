@@ -182,9 +182,11 @@ pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -
     .landing()
     .map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
   // the route by the rule of the app; its gate reads the facts of GitHub, which the push reads itself
+  let on_space = context.space_repository()?.is_some();
   let remote = LandingRemote {
     setting,
-    on_space: context.space_repository()?.is_some(),
+    on_space,
+    patronus: on_space,
     ..LandingRemote::default()
   };
   let routed = route(&RouteFacts {
@@ -300,7 +302,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
     }
   }
   let target = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_else(|| synced.baseline.clone());
-  let github = github_repository(context, &synced.report)?;
+  let github = github_repository(&synced.report);
   // on Space the robots refuse it as they refuse a Safe Push (one on its commit, one that lands it)
   let space = context.space_repository()?;
   let patronus = space.as_ref().and_then(|_| patronus_service(environment).ok()).map(Arc::new);

@@ -82,6 +82,9 @@ fn reads_the_mirror_from_the_committed_space_settings() {
     ".space/repository-settings.json",
     r#"{"version": "1.1", "mirror": {"url": "git@github.com:acme/monorepo.git", "useKeyAuth": true}}"#,
   );
+  // settings of Space describe a repository on Space only: of another host they are not read
+  assert_eq!(resolve(&repo), None);
+  repo.git(&["remote", "set-url", "origin", "ssh://git@git.jetbrains.team/team/monorepo.git"]);
   assert_eq!(resolve(&repo), Some(repository("acme", "monorepo")));
 
   // a file of the working tree is not read: a checkout without the commit has no mirror

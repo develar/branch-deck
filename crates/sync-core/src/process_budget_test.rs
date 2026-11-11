@@ -194,6 +194,23 @@ async fn an_unchanged_sync() {
   assert_processes(&git, &UNCHANGED_SYNC);
 }
 
+/// An `origin` on Space without the GitHub repository configured: its committed Space settings, which may name the
+/// mirror the slots of the pull request are offered by from the first view (`LandingRemote::github`), are one
+/// `cat-file` more of each sync; `origin` elsewhere and a configured repository read none
+#[tokio::test]
+async fn an_unchanged_sync_of_a_space_origin_reads_its_github_mirror() {
+  let (repo, _) = alpha_and_beta_on_origin();
+  repo.git(&["remote", "set-url", "--push", "origin", "ssh://git@git.jetbrains.team/team/monorepo.git"]);
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(&git, &with_added_processes(&UNCHANGED_SYNC, &[("cat-file", 1)]));
+  repo.git(&["config", "branchdeck.githubRepository", "acme/monorepo"]);
+  let git = counting();
+  sync(&git, &repo).await;
+  assert_processes(&git, &UNCHANGED_SYNC);
+}
+
 /// The processes of a sync of `repo` that changes nothing; a conflicting branch whose view the object cache remembers
 /// adds none
 const UNCHANGED_SYNC: [(&str, u32); 8] = [

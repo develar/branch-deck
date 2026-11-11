@@ -1,14 +1,18 @@
 use crate::actions::{BranchFacts, Children, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, on_cached_frame, robot_actions, stack_actions, start_actions};
-use crate::next_step::{Listing, PatronusAnswer};
+use crate::land::{merges_on_github, patronus_lands};
+use crate::landing_route::{GitHubFacts, RouteFacts, TargetRules, route};
+use crate::next_step::{Listing, PatronusAnswer, PatronusStanding};
 use crate::next_step_test::landed_by_oauth;
+use crate::pull_request::github_repository_known;
 use domain_types::actions::{ActionBlocker, ActionId, ActionState, Availability, NothingBeyond};
 use domain_types::fixtures::{pull_request, remote_status, robot, robot_of};
+use domain_types::landing_route::{LandingRemote, LandingRoute, LocalGitHub};
 use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepKind, StepRetarget, StepRow, WithoutReview};
-use domain_types::patronus::{PatronusPushMode, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, PullRequestBase, PullRequestState, PullRequestView};
+use domain_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRobotStatus};
+use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestView, ViewerPermission};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RestartAction, RobotRestart};
-use domain_types::session::{BranchStatus, ChildrenPush, FactState, Parked, StackBranchAlong};
+use domain_types::session::{BranchStatus, ChildrenPush, Fact, FactState, Parked, PullRequestsView, RobotsHead, RobotsView, StackBranchAlong};
 use domain_types::stack::{StackBranchState, StackFix, StackProblem, StackProblemView};
 use domain_types::{PushAction, RemoteStatusUpdate};
 use pretty_assertions::assert_eq;
@@ -670,6 +674,7 @@ fn stack_facts<'a>(shape: StackShape<'a>, step: Option<&'a NextStep>) -> StackFa
     step,
     pull_request: None,
     open_pull_request: None,
+    listing: Listing::Listed,
     repository: true,
     landed: None,
     root_landed: None,
@@ -771,6 +776,15 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
   assert_eq!(
     table(&stack_actions(&landed_stack))[0],
     (CreateStackPullRequest, Some(ActionBlocker::Landed { landed: landed.clone() }))
+  );
+  // GitHub has not listed the pull requests yet: the pull request of its stack branch may exist, none is created
+  let listing = StackFacts {
+    listing: Listing::Loading,
+    ..stack_facts(built, None)
+  };
+  assert_eq!(
+    table(&stack_actions(&listing))[0],
+    (CreateStackPullRequest, Some(ActionBlocker::Pending { fact: StepFact::PullRequests }))
   );
   // its root landed: a new pull request of it would show a stack that is no more from its start
   let root_landed_stack = StackFacts {
@@ -1774,4 +1788,157 @@ fn a_layer_whose_stack_is_out_of_line_offers_link_github_stack() {
   let link = actions.iter().find(|action| action.id == ActionId::LinkGithubStack).expect("offered");
   assert_eq!(link.availability, Availability::Enabled);
   assert!(!branch_actions(&facts(&step, &remote)).iter().any(|action| action.id == ActionId::LinkGithubStack));
+}
+
+/// The remote of a branch as the sync reads it of git (`LandingRemote`), for the repository `acme/monorepo`
+fn remote_of(on_space: bool, github: LocalGitHub, push_repository: Option<&str>) -> LandingRemote {
+  LandingRemote {
+    setting: None,
+    on_space,
+    patronus: on_space,
+    github,
+    push_repository: push_repository.map(str::to_owned),
+    target: Some("master".to_owned()),
+    remote: Some("origin".to_owned()),
+  }
+}
+
+/// The start slots and the pull request slot of a branch of `remote` while Patronus and GitHub stand as `robots` and
+/// `pull_requests` say, with the step `step`: the route, how Patronus stands, the listing and the repository each of
+/// its own rule, as the session derives them
+fn slots(remote: &LandingRemote, robots: &RobotsView, pull_requests: &PullRequestsView, step: &NextStep) -> Vec<(ActionId, Option<ActionBlocker>)> {
+  let routed = route(&RouteFacts {
+    remote,
+    baseline: "origin/master",
+    github: GitHubFacts::of_remote(pull_requests, remote),
+    rules: TargetRules::Pending,
+    refused: None,
+    update: None,
+    landing_in_flight: false,
+  });
+  let answered = if robots.head.value.is_some() { FactState::Fresh } else { FactState::Loading };
+  let standing = PatronusStanding::of_remote(&robots.head, &answered, remote);
+  let status = remote_status("auth");
+  let facts = BranchFacts {
+    patronus: standing.answer(),
+    listing: Listing::of_remote(&pull_requests.head, remote),
+    repository: github_repository_known(pull_requests, robots, remote),
+    push_route: matches!(routed, LandingRoute::Push { .. }),
+    merge_route: merges_on_github(&routed, patronus_lands(robots, remote)),
+    remote: Some(&status),
+    ..facts(step, &status)
+  };
+  let slots = [SafePush, SafePushWithProfile, DryRun, CheckApprovals, PushToBaseline, MergePullRequest, CreatePullRequest];
+  table(&branch_actions(&facts)).into_iter().filter(|(id, _)| slots.contains(id)).collect()
+}
+
+/// What Patronus answers of the repository: its robots for a repository on Space, else that the repository is not its
+fn robots_answer(on_space: bool) -> RobotsView {
+  let availability = if on_space { PatronusAvailability::Available } else { PatronusAvailability::NotPatronus };
+  RobotsView {
+    head: Fact {
+      value: Some(RobotsHead {
+        availability,
+        github_repository: on_space.then(|| "acme/monorepo".to_owned()),
+      }),
+      state: FactState::Fresh,
+      ..Fact::default()
+    },
+    ..RobotsView::default()
+  }
+}
+
+/// What GitHub answers: no pull request of acme/monorepo, which the token may write, or that the branches are not on
+/// GitHub (the listing answers it with no request)
+fn listing_answer(on_github: bool) -> PullRequestsView {
+  let availability = if on_github {
+    PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned(),
+    }
+  } else {
+    PullRequestAvailability::NotGitHub
+  };
+  PullRequestsView {
+    head: Fact {
+      value: Some(availability),
+      state: FactState::Fresh,
+      ..Fact::default()
+    },
+    repository: on_github.then(|| "acme/monorepo".to_owned()),
+    viewer_permission: on_github.then_some(ViewerPermission::Write),
+    ..PullRequestsView::default()
+  }
+}
+
+/// The slots of the menu of a branch are decided on what git tells at the first view, before Patronus and GitHub
+/// answer (`LandingRemote::patronus`, `LandingRemote::github`): their answers only enable a slot or say why it is
+/// disabled, and a slot shown never leaves. A local path has no start and no pull request; Space the starts of
+/// Patronus; GitHub the merge of the pull request; a mirror `origin` doesn't push to no merge ever; each repository on
+/// GitHub Create Pull Request…, waiting for the listing. Only a remote `brd`'s grouping did not read (no menu shows
+/// it) waits for GitHub to name the repository
+#[test]
+fn the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_leave() {
+  let monorepo = || LocalGitHub::Repository { name: "acme/monorepo".to_owned() };
+  let pending_step = NextStep {
+    kind: StepKind::Pending { fact: StepFact::PullRequests },
+    safe_push: Some(StepBlocker::Step),
+    dry_run: Some(StepBlocker::Step),
+    ..ready_step()
+  };
+  let ready = ready_step();
+  let waits = Some(ActionBlocker::Step { blocker: StepBlocker::Step });
+  let listing = Some(ActionBlocker::Pending { fact: StepFact::PullRequests });
+  let cases = [
+    ("a local path", remote_of(false, LocalGitHub::None, None), vec![], vec![]),
+    (
+      "Space, mirrored to GitHub",
+      remote_of(true, monorepo(), None),
+      vec![
+        (SafePush, waits.clone()),
+        (SafePushWithProfile, waits.clone()),
+        (DryRun, waits.clone()),
+        (CheckApprovals, None),
+        (CreatePullRequest, listing.clone()),
+      ],
+      vec![
+        (SafePush, None),
+        (SafePushWithProfile, None),
+        (DryRun, None),
+        (CheckApprovals, None),
+        (CreatePullRequest, None),
+      ],
+    ),
+    (
+      "GitHub",
+      remote_of(false, monorepo(), Some("acme/monorepo")),
+      vec![(MergePullRequest, waits.clone()), (CreatePullRequest, listing.clone())],
+      vec![(MergePullRequest, None), (CreatePullRequest, None)],
+    ),
+    (
+      "a GitHub mirror origin doesn't push to",
+      remote_of(false, monorepo(), None),
+      vec![(CreatePullRequest, listing)],
+      vec![(CreatePullRequest, None)],
+    ),
+    (
+      "a remote brd's grouping did not read",
+      remote_of(false, LocalGitHub::Unread, Some("acme/monorepo")),
+      vec![(MergePullRequest, waits)],
+      vec![(MergePullRequest, None), (CreatePullRequest, None)],
+    ),
+  ];
+  for (case, remote, before, after) in cases {
+    let on_github = remote.github != LocalGitHub::None;
+    assert_eq!(
+      slots(&remote, &RobotsView::default(), &PullRequestsView::default(), &pending_step),
+      before,
+      "{case}: before any answer"
+    );
+    assert_eq!(
+      slots(&remote, &robots_answer(remote.on_space), &listing_answer(on_github), &ready),
+      after,
+      "{case}: after the answers"
+    );
+  }
 }

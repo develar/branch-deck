@@ -316,10 +316,10 @@ fn a_status_of_a_forking_stack() {
 /// `brd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
 /// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report, the push URL of `origin`
 /// (for the Space and the GitHub repository) from the remotes of the command, which the sync took (`remote -v`, one
-/// `remote` for both); besides the push only the Space settings (`cat-file`, for the GitHub mirror `--repo` names: the
-/// remote is no GitHub URL) and the size check of the files the push adds (`log` and `cat-file`; the limit is the
-/// sync's `config`). A dry run moves nothing, so it reads no witness of its plan: the tips and the leases are the ones
-/// the plan was decided on
+/// `remote` for both), and the GitHub repository from the sync's report (`SyncReport::github`: no Space settings of a
+/// remote off Space); besides the push only the size check of the files the push adds (`log` and `cat-file`; the limit
+/// is the sync's `config`). A dry run moves nothing, so it reads no witness of its plan: the tips and the leases are the
+/// ones the plan was decided on
 #[test]
 fn a_push() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login", "(ui) Add form"]);
@@ -341,7 +341,7 @@ fn a_push() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 3),
+      ("cat-file", 2),
       ("config", 1),
       ("fast-import", 3),
       ("for-each-ref", 1),
@@ -384,7 +384,7 @@ fn a_push_over_a_moved_remote() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 4),
+      ("cat-file", 3),
       ("config", 1),
       ("fast-import", 2),
       ("fetch", 1),
@@ -1869,10 +1869,10 @@ fn a_land_by_a_push() {
 
 /// What `brd land auth --dry-run` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
 /// their push URLs (`remote -v`), from which the push URL of `origin` for Space comes too, and the trial of the landing
-/// gate in the session of the sync's report (`log`, `cat-file`); no fetch, no check against the newest target: a push
-/// is its own
+/// gate in the session of the sync's report (`log`, `cat-file`); no Space settings of a remote off Space, no fetch, no
+/// check against the newest target: a push is its own
 const LAND_CHECK: &[(&str, u32)] = &[
-  ("cat-file", 3),
+  ("cat-file", 2),
   ("config", 1),
   ("fast-import", 2),
   ("for-each-ref", 2),

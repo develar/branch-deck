@@ -1196,7 +1196,7 @@ fn plan(
       format!("The baseline {} is not a branch of origin: Patronus pushes into a branch of origin", synced.baseline),
     )
   })?;
-  let github = github_repository(context, &synced.report)?;
+  let github = github_repository(&synced.report);
   let mut land = Land {
     subject: subject.clone(),
     mode,
@@ -1524,6 +1524,7 @@ pub(crate) fn check_next_step(context: &RepoContext, read: &CheckRead<'_>, start
   let readiness = |subject: &str| read.readiness.filter(|_| subject == key);
   let sources = StepSources {
     route: read.route,
+    landing: &read.session.state().header().landing,
     table,
     remote: &table.remote,
     rows: &rows,

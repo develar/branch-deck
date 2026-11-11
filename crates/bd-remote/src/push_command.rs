@@ -319,7 +319,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     }
   }
   let github = Arc::new(github_service(context, environment));
-  let repository = github_repository(context, &synced.report)?;
+  let repository = github_repository(&synced.report);
   // no Safe Push runs on an unapplied branch, and its pull request stays as it was: nothing is asked of the remote
   let space = if args.unapplied { None } else { context.space_repository().ok().flatten() };
   let patronus = space.as_ref().and_then(|_| patronus_service(environment).ok()).map(Arc::new);
@@ -770,7 +770,7 @@ impl PushRun<'_> {
     let order = self.synced.order();
     branches.sort_by_key(|branch| order.iter().position(|name| *name == branch.name).unwrap_or(usize::MAX));
     let mut retarget_warnings = told.retarget_warnings;
-    retarget_warnings.extend(self.listing_warning(facts, !branches.is_empty() || !stacks.is_empty())?);
+    retarget_warnings.extend(self.listing_warning(facts, !branches.is_empty() || !stacks.is_empty()));
     let listed = &facts.session.facts().pull_requests.view().pull_requests;
     let merged_into_other_bases = branches
       .iter()
@@ -818,14 +818,14 @@ impl PushRun<'_> {
 
   /// Why the pull requests weren't checked for a base to retarget, when GitHub couldn't list them for another reason
   /// than a missing token or GitHub repository; nothing when the push pushed and listed nothing
-  fn listing_warning(&self, facts: &SessionFacts, listed: bool) -> Result<Option<String>, CliError> {
-    if !listed || self.args.unapplied || github_repository(self.context, &self.synced.report)?.is_none() {
-      return Ok(None);
+  fn listing_warning(&self, facts: &SessionFacts, listed: bool) -> Option<String> {
+    if !listed || self.args.unapplied || github_repository(&self.synced.report).is_none() {
+      return None;
     }
-    Ok(match &facts.session.facts().pull_requests.view().head.value {
+    match &facts.session.facts().pull_requests.view().head.value {
       None | Some(PullRequestAvailability::Available { .. } | PullRequestAvailability::SignedOut | PullRequestAvailability::NotGitHub) => None,
       Some(other) => Some(format!("the pull requests weren't checked for a base to retarget: {}", availability_error(other).message)),
-    })
+    }
   }
 }
 
@@ -1139,10 +1139,9 @@ pub(crate) fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved
   error
 }
 
-/// The GitHub repository of the branches (`resolve_github_repository`) from what the sync read and the push URL of
-/// `origin`: a git process only for the Space mirror, once per command (`RepoContext::github_repository`)
-pub(crate) fn github_repository(context: &RepoContext, report: &SyncReport) -> Result<Option<GitHubRepository>, CliError> {
-  github_repository_of(context, &report.config)
+/// The GitHub repository of the branches as the sync of the command read it (`SyncReport::github`): no process
+pub(crate) fn github_repository(report: &SyncReport) -> Option<GitHubRepository> {
+  report.github.clone()
 }
 
 /// The GitHub repository of the branches by `config` (`branchdeck.githubRepository`, the Space settings), else `origin`
@@ -1161,7 +1160,7 @@ pub(crate) fn github_repository_of(context: &RepoContext, config: &ConfigSnapsho
 /// `branchdeck.githubRepository` or the Space settings): `gh` finds no GitHub repository among the remotes; empty
 /// otherwise
 fn github_repository_option(context: &RepoContext, report: &SyncReport) -> Result<String, CliError> {
-  let Some(repository) = github_repository(context, report)? else {
+  let Some(repository) = github_repository(report) else {
     return Ok(String::new());
   };
   if context.origin_url()?.as_deref().and_then(parse_github_repository).as_ref() == Some(&repository) {

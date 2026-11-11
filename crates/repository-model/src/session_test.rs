@@ -15,7 +15,7 @@ use domain_types::actions::{ActionBlocker, ActionId, Availability};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::{pull_request, robot};
 use domain_types::landing::{BaselinePush, LandedBy, LandingFix, LandingRefusal, StackCommit};
-use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, RouteGate};
+use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, LocalGitHub, RouteGate};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission};
 use domain_types::reason::Reason;
@@ -1436,6 +1436,8 @@ async fn a_push_route_reads_the_rules_of_the_target() {
   let landing = LandingRemote {
     setting: Some(LandingSetting::Push),
     on_space: false,
+    patronus: false,
+    github: LocalGitHub::Repository { name: "acme/monorepo".to_owned() },
     push_repository: Some("acme/monorepo".to_owned()),
     target: Some("main".to_owned()),
     remote: Some("origin".to_owned()),

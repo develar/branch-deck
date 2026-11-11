@@ -1,7 +1,8 @@
 use crate::baseline::resolve_baseline_upstream;
+use crate::config_snapshot::ConfigSnapshot;
 use crate::repo_facts::{RepoFacts, parse_remotes, read_baseline_listing, read_repo_facts};
 use branch_integration::common::{ListedBranch, list_branches};
-use domain_types::landing_route::{LandingRemote, LandingSetting};
+use domain_types::landing_route::{LandingRemote, LandingSetting, LocalGitHub};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::with_dirs_of;
 use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
@@ -223,8 +224,20 @@ fn the_remotes_come_with_their_push_urls() {
   assert_eq!(remotes.push_url("upstream"), None);
 }
 
-/// The route is decided on what the listing read: the setting, `origin` on Space, the github.com repository the remote
-/// of the baseline pushes to and its branch; nothing of a local baseline
+/// The landing remote of a sync of `repo` with the config it has now and the word of the host on Patronus (`space`), and
+/// how many git processes it cost beside the facts
+fn landing_of(repo: &TestRepo, space: Option<bool>) -> (LandingRemote, u32) {
+  let facts = read_repo_facts(repo.git_executor(), repo.path_str(), "master", "test", None).unwrap();
+  let config = ConfigSnapshot::read(repo.git_executor(), repo.path_str()).unwrap();
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let landing = facts.landing_remote(&git, repo.path_str(), &config, space).unwrap();
+  (landing, git.process_stats().unwrap().total())
+}
+
+/// The route and the slots of the landing are decided on what the listing and the config read: the setting, `origin`
+/// on Space, the github.com repository the remote of the baseline pushes to and its branch, and the GitHub repository
+/// the branches end up in, from the first view: a local remote, a repository on GitHub, a mirror named in the config,
+/// Space with and without the mirror its committed settings name (one `cat-file`, only there), the word of the host
 #[test]
 fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
   let repo = TestRepo::new();
@@ -233,24 +246,55 @@ fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
   repo.git(&["fetch", "-q", "origin"]);
   repo.git(&["config", "branch.master.remote", "origin"]);
   repo.git(&["config", "branch.master.merge", "refs/heads/master"]);
-  repo.git(&["config", "remote.origin.pushurl", "git@github.com:acme/app.git"]);
 
+  // a local remote: off Space, off GitHub, no process
+  let (local, processes) = landing_of(&repo, None);
+  assert_eq!((local.patronus, local.github, local.push_repository, processes), (false, LocalGitHub::None, None, 0));
+
+  repo.git(&["config", "remote.origin.pushurl", "git@github.com:acme/app.git"]);
   let (facts, processes) = facts(&repo);
   // the URLs come with the listing of the remotes: no process of their own
   assert_eq!(processes, 3, "remote -v, for-each-ref and rev-parse");
+  repo.git(&["config", "branchdeck.landing", "push"]);
+  let config = ConfigSnapshot::read(repo.git_executor(), repo.path_str()).unwrap();
   assert_eq!(
-    facts.unwrap().landing_remote(Some(LandingSetting::Push)),
+    facts.unwrap().landing_remote(repo.git_executor(), repo.path_str(), &config, None).unwrap(),
     LandingRemote {
       setting: Some(LandingSetting::Push),
       on_space: false,
+      patronus: false,
+      github: LocalGitHub::Repository { name: "acme/app".to_string() },
       push_repository: Some("acme/app".to_string()),
       target: Some("master".to_string()),
       remote: Some("origin".to_string()),
     }
   );
+  repo.git(&["config", "--unset", "branchdeck.landing"]);
 
+  // a mirror the config names: the branches are on GitHub, the remote of the baseline pushes elsewhere
+  repo.git(&["config", "remote.origin.pushurl", "https://gitlab.example.com/acme/app.git"]);
+  repo.git(&["config", "branchdeck.githubRepository", "acme/app"]);
+  let (mirror, processes) = landing_of(&repo, None);
+  assert_eq!(
+    (mirror.github, mirror.push_repository, processes),
+    (LocalGitHub::Repository { name: "acme/app".to_string() }, None, 0)
+  );
+  repo.git(&["config", "--unset", "branchdeck.githubRepository"]);
+
+  // Space without a mirror in its committed settings: off GitHub, one `cat-file` that found none; Patronus knows it
   repo.git(&["config", "remote.origin.pushurl", "https://git.jetbrains.team/ij/app.git"]);
-  let facts = read_repo_facts(repo.git_executor(), repo.path_str(), "master", "test", None).unwrap();
-  let landing = facts.landing_remote(None);
-  assert_eq!((landing.on_space, landing.push_repository), (true, None));
+  let (space, processes) = landing_of(&repo, None);
+  assert_eq!(
+    (space.on_space, space.patronus, space.github, space.push_repository, processes),
+    (true, true, LocalGitHub::None, None, 1)
+  );
+  // with the mirror its settings name
+  repo.create_commit("Settings", ".space/repository-settings.json", r#"{"mirror":{"url":"https://github.com/acme/app.git"}}"#);
+  let (space, processes) = landing_of(&repo, None);
+  assert_eq!((space.github, processes), (LocalGitHub::Repository { name: "acme/app".to_string() }, 1));
+
+  // the host knows better (the fake Patronus of the E2E server): its word on Patronus, the route of `origin` unchanged
+  repo.git(&["config", "remote.origin.pushurl", "."]);
+  let (faked, _) = landing_of(&repo, Some(true));
+  assert_eq!((faked.on_space, faked.patronus), (false, true));
 }

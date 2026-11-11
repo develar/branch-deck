@@ -848,6 +848,63 @@
     }
   },
   {
+    "id": "mirror-merges-nothing-while-github-fails",
+    "group": "next-step-rows",
+    "title": "origin is a path, the branches mirrored to acme/monorepo, GitHub's listing fails: git tells the mirror, so no merge waits for GitHub and the app offers no start",
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/branch/landing-routes/spec.md#merge"],
+    "given": {
+      "notOnSpace": true,
+      "readiness": "unlisted"
+    },
+    "expect": {
+      "step": {
+        "row": "noSlot",
+        "kind": "hidden"
+      },
+      "land": {
+        "confirmations": ["approvalsJudgedAtStart"],
+        "waits": ["profiles", "readiness"],
+        "start": "api",
+        "pushes": ["auth"]
+      }
+    },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "a repository Patronus can't push fails the command: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    },
+    "bd": {
+      "error": "not_on_space"
+    }
+  },
+  {
+    "id": "not-on-github-hidden",
+    "group": "next-step-rows",
+    "title": "origin is a path and nothing names a GitHub repository: git tells both, so the app offers no start and no pull request",
+    "spec": ["openspec/specs/branch/next-step/spec.md#the-table", "openspec/specs/branch/landing-routes/spec.md#merge"],
+    "given": {
+      "notOnSpace": true,
+      "readiness": "space"
+    },
+    "expect": {
+      "step": {
+        "row": "noSlot",
+        "kind": "hidden"
+      },
+      "land": {
+        "waits": ["profiles", "readiness"],
+        "start": "api",
+        "pushes": ["auth"]
+      }
+    },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "a repository Patronus can't push fails the command: openspec/specs/cli/agent-cli/spec.md#brd-safe-push"
+    },
+    "bd": {
+      "error": "not_on_space"
+    }
+  },
+  {
     "id": "landed-by-content-work-left",
     "group": "next-step-rows",
     "title": "the baseline landed the commits of auth rebuilt, one commit added since: that commit is the work left",

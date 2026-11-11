@@ -57,8 +57,8 @@ use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::github_stack::chain_of;
 use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{
-  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, restart_refusal,
-  standing, start_refusal,
+  BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, patronus_lands,
+  restart_refusal, standing, start_refusal,
 };
 use domain_policy::landed::{LandedFacts, LandedSubject, Of, landed_reason, landed_state};
 use domain_policy::landing_needs::name_landing_robots;
@@ -66,7 +66,7 @@ use domain_policy::landing_node::{NodeFacts, landing_node};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_policy::next_step::{Listing, Needs, PatronusStanding, StepFacts, StepPullRequest, StepRobot, next_step};
 use domain_policy::parked::{parked_state, whole_stack_parked};
-use domain_policy::pull_request::layer_base_of;
+use domain_policy::pull_request::{github_repository_known, layer_base_of};
 use domain_policy::push::{
   HeadedStack, Kept, PushState, StartAncestor, StartPush, UpToStop, Verdict, action_push, branch_push, kept, stack_branch_along, start_push, up_to_push, verdict,
 };
@@ -80,10 +80,8 @@ use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, Lan
 use domain_types::landing_route::{LandingRemote, LandingRoute};
 use domain_types::next_step::{NextStepView, RowStatus, StackPullRequest};
 use domain_types::operation::{Resource, RunningOperation};
-use domain_types::patronus::{
-  LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness,
-};
-use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestState, PullRequestView};
+use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness};
+use domain_types::pull_request::{BranchRules, PullRequest, PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchLanding, BranchPatronus, HoldKind, HoldView, LandingNeeds, PatronusView, RestartAction, RobotOf, RobotRestart, SpanView, StackLanding};
 use domain_types::session::{
@@ -994,7 +992,7 @@ pub fn landing_route_of(header: &TableHeader, landed: &LandedSection, facts: &Fa
   route(&RouteFacts {
     remote,
     baseline: &header.baseline_branch,
-    github: GitHubFacts::of(facts.pull_requests.view()),
+    github: GitHubFacts::of_remote(facts.pull_requests.view(), remote),
     rules: TargetRules::of(rules),
     refused: facts.baseline_pushes.refused.as_ref().map(|refused| refused.message.as_str()),
     update: landed.baseline.as_ref().and_then(|baseline| baseline.update.as_ref()),
@@ -1209,7 +1207,7 @@ fn sources_of<T>(state: &TableState, facts: &FactStore, prefix: &str, checks: &S
   let declared = declared_needs_of(&table.table, |need| is_unapplied(&state.parts.sections.unapplied, need), &part.view);
   let sources = LandSources {
     route: &route,
-    patronus: patronus_lands(facts.robots.view()),
+    patronus: patronus_lands(facts.robots.view(), &state.parts.header.landing),
     pushed: Some(&facts.baseline_pushes.landed),
     header: &state.parts.header,
     table: &table.table,
@@ -1253,13 +1251,6 @@ pub fn declared_needs_of(table: &BranchTable, unapplied: impl Fn(&str) -> bool, 
 #[must_use]
 pub fn is_unapplied(unapplied: &[UnappliedBranchInfo], name: &str) -> bool {
   unapplied.iter().any(|branch| branch.branch == name)
-}
-
-/// A robot of Patronus lands the repository of `robots`: they answered for it (logged in or not, failing), or have not
-/// answered yet; not where Patronus said the repository is not its (`NotPatronus`)
-#[must_use]
-pub fn patronus_lands(robots: &RobotsView) -> bool {
-  !matches!(robots.head.value.as_ref().map(|head| &head.availability), Some(PatronusAvailability::NotPatronus))
 }
 
 /// The decisions of the default intents of every branch and of every whole stack that forks: both of a subject over
@@ -1485,6 +1476,9 @@ fn member_parked(member: &ParkedMember) -> Parked {
 pub struct StepSources<'a> {
   /// The route of the repository into master with its gate (`landing_route_of`)
   pub route: &'a LandingRoute,
+  /// What the route and the slots of the landing are decided on of git (`TableHeader::landing`): what is known at the
+  /// first view, before Patronus and GitHub answer
+  pub landing: &'a LandingRemote,
   pub table: &'a BranchTable,
   pub remote: &'a RemoteFacts,
   /// The rows, in the order of the table, by branch
@@ -1546,13 +1540,8 @@ impl StepSources<'_> {
 
   /// The GitHub repository of the branches is known
   fn repository(&self) -> bool {
-    github_repository_known(self.pull_requests, self.robots)
+    github_repository_known(self.pull_requests, self.robots, self.landing)
   }
-}
-
-/// The GitHub repository of the branches is known: GitHub lists it, or Patronus names the mirror
-pub(crate) fn github_repository_known(pull_requests: &PullRequestsView, robots: &RobotsView) -> bool {
-  matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) || robots.head.value.as_ref().is_some_and(|head| head.github_repository.is_some())
 }
 
 /// What holds the push of a branch now, with its robot: a hold of the view (`BranchLanding::hold`) whose robot holds
@@ -1588,7 +1577,7 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
     .collect();
   let repository = sources.repository();
   let patronus = sources.patronus.answer();
-  let listing = Listing::of(&sources.pull_requests.head);
+  let listing = Listing::of_remote(&sources.pull_requests.head, sources.landing);
   let rows: HashMap<&str, &RowFacts> = sources.rows.iter().map(|(name, row)| (name.as_str(), row)).collect();
   // in the order of the rows, then of the stacks: collected into the map at once
   let mut steps = Vec::with_capacity(sources.rows.len() + sources.table.stack_branches.len());
@@ -1785,11 +1774,12 @@ pub fn next_steps_of(state: &TableState, facts: &FactStore, open: &BTreeMap<Stri
   let rows: Vec<(String, RowFacts)> = parts.order.iter().filter_map(|name| Some((name.clone(), row_of_view(parts.branches.get(name)?)))).collect();
   let part = facts.patronus.part();
   let robots = facts.robots.view();
-  let patronus = PatronusStanding::of(&robots.head, &part.state);
+  let patronus = PatronusStanding::of_remote(&robots.head, &part.state, &parts.header.landing);
   let readiness = |key: &str| facts.readiness.fact(key);
   let route = landing_route_of(&parts.header, &parts.sections.landed, facts, state.operations());
   let sources = StepSources {
     route: &route,
+    landing: &parts.header.landing,
     table: &table.table,
     remote: &table.remote,
     rows: &rows,

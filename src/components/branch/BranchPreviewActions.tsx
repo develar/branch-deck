@@ -24,7 +24,7 @@ import { firstPushPending, firstPushWait } from "@/presenters/push-button"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { operationBusyOf } from "@/stores/indicators"
-import { usePatronusAvailable, usePatronusOffered, usePatronusPending, usePushHold } from "@/stores/patronus"
+import { usePatronusAvailable, usePatronusPending, usePushHold } from "@/stores/patronus"
 import { usePullRequest, usePullRequestsLoading } from "@/stores/pull-requests"
 
 /**
@@ -41,8 +41,6 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
   // the menu's item, "Open Pull Request #7"
   const openItem = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
-  // until Patronus answers, its Safe Push waits there, disabled with why
-  const patronusOffered = usePatronusOffered()
   // or Push to master, where the repository lands by a push of the copy into the target
   const landsByPush = useLandsByPush()
   const closePreview = useContext(ClosePreviewContext)
@@ -50,7 +48,9 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   // actions of the branch it subscribes to are its argument, so the item follows them
   const actions = useRowPart(branch.name, "actions")
   const createItem = getCreatePullRequestItem(branch, actions)
-  // or Merge #7, where Rust offers the merge of its pull request on GitHub
+  // Safe Push where Rust offers it (by what git tells of the remotes, from the first view: until Patronus answers it
+  // waits there, disabled with why), or Merge #7, where Rust offers the merge of its pull request on GitHub
+  const offersSafePush = actions?.some(action => action.id === "safe-push") === true
   const landsByMerge = actions?.some(action => action.id === "merge-pull-request") === true
   // as the push button of the row: only a branch that synced without an error has something to push
   // the first push of a branch is a step of Safe Push and Create Pull Request: "⋯" offers it; unless Push with Children
@@ -63,12 +63,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
   const waits = firstPushWait(branch, { landingPushes, patronus: usePatronusAvailable(), held, pending: firstPushPending(usePatronusPending(), usePullRequestsLoading()) })
   return (
     <>
-      {openItem !== null && (
-        <Button variant="ghost" size="xs" onClick={() => openItem.onSelect(FROM_MENU)}>
-          <Kbd>O</Kbd>
-          {openItem.label}
-        </Button>
-      )}
+      {/* the slot of the pull request, as the menu has it: Create, then Open */}
       {createItem !== null && (
         <Tooltip disabled={createItem.disabled !== true}>
           <TooltipTrigger
@@ -92,7 +87,13 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
           <TooltipContent>{createItem.description}</TooltipContent>
         </Tooltip>
       )}
-      {(patronusOffered || landsByPush || landsByMerge) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
+      {openItem !== null && (
+        <Button variant="ghost" size="xs" onClick={() => openItem.onSelect(FROM_MENU)}>
+          <Kbd>O</Kbd>
+          {openItem.label}
+        </Button>
+      )}
+      {(offersSafePush || landsByPush || landsByMerge) && <SafePushButton branch={branch} hint={<Kbd>S</Kbd>} />}
       {hasPush && <BranchPushButton branch={branch.row} colored={false} hint={<Kbd>P</Kbd>} confirmTarget="preview" waits={waits} />}
     </>
   )

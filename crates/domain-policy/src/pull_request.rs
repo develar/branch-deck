@@ -7,9 +7,24 @@
 
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::error::ApiError;
-use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, ReviewerState};
+use domain_types::landing_route::{LandingRemote, LocalGitHub};
+use domain_types::pull_request::{BranchRules, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, ReviewerState};
 use domain_types::reason::Reason;
-use domain_types::session::{Fact, FactState};
+use domain_types::session::{Fact, FactState, PullRequestsView, RobotsView};
+
+/// The GitHub repository of the branches is known, so their pull requests are offered: git names it
+/// (`LandingRemote::github`, from the first view, so the slot of the pull request is there before GitHub answers), or,
+/// where the remotes were not read for it (a grouping of `brd`), GitHub lists it or Patronus names the mirror
+#[must_use]
+pub fn github_repository_known(pull_requests: &PullRequestsView, robots: &RobotsView, landing: &LandingRemote) -> bool {
+  match landing.github {
+    LocalGitHub::Repository { .. } => true,
+    LocalGitHub::None => false,
+    LocalGitHub::Unread => {
+      matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) || robots.head.value.as_ref().is_some_and(|head| head.github_repository.is_some())
+    }
+  }
+}
 
 /// Where the pull request goes: `target` (or no base read), a virtual branch of `prefix` (`{prefix}/virtual/<name>`, any
 /// name: a parent's, another branch of the table, one that landed and is gone), else another base. A pull request into a

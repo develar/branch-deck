@@ -1107,7 +1107,7 @@ impl<'c> AppSession<'c> {
       environment,
       state: std::mem::take(&mut synced.table),
       facts: FactStore::new(),
-      github: github_repository(context, &synced.report).unwrap(),
+      github: github_repository(&synced.report),
       seq: 0,
     };
     let observation = session.observation();

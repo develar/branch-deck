@@ -187,13 +187,12 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
         description: "The diff of the branch, the parts of its stack, the files of each code owner, in a window",
         onSelect: () => void openBranchReviewWindow(branch.name),
       }),
-      pullRequest === undefined ? null : openPullRequestItemOf(pullRequest),
+      ...pullRequestItems(branch, pullRequest),
       // the row's step when it is the one (a group nobody of it can approve says so), else the action's item
       nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItemNow(branch.name),
       // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
       findAction(actionsOf(branch.name), "retarget-pull-request") === undefined ? null : nextStep.retarget,
       getLinkGitHubStackItem(branch),
-      getCreatePullRequestItem(branch),
     ),
   )
 
@@ -468,13 +467,11 @@ export interface BranchActionItem extends MenuItem {
  * (`firstPushWait`: "⋯" pushes it alone). The same items as the menu; Push has no key, P is the previous change there.
  */
 export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
-  const items: BranchActionItem[] = []
   const pullRequest = getPullRequest(branch.name)
-  if (pullRequest !== undefined) {
-    items.push({ ...openPullRequestItemOf(pullRequest), url: pullRequest.url })
-  }
-  // the review window opens the dialog itself, with what the main window sends for it
-  items.push(...present(getCreatePullRequestItem(branch)))
+  // the review window opens the dialog itself, with what the main window sends for it; Open opens the pull request
+  const items: BranchActionItem[] = pullRequestItems(branch, pullRequest).map(item =>
+    item.id === "open-pull-request" && pullRequest !== undefined ? { ...item, url: pullRequest.url } : item,
+  )
   // as the push button of the row: only a branch that synced without an error has something to push
   const hasPush = !branch.hasError && branch.commitCount > 0
   if (hasPush) {
@@ -492,6 +489,17 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
     }
   }
   return items
+}
+
+/**
+ * The slot of the pull request of a branch on every surface (the menu of the row, the title bar of the review, the
+ * footer of the preview): "Create Pull Request…" where Rust offers it (disabled "Waits for GitHub to list the pull
+ * requests" from the first view of a branch on GitHub, before the listing), then "Open Pull Request #7" of the one it
+ * has. A live pull request takes the place of Create, so the items below keep theirs as the listing comes; a closed one
+ * keeps Create, Open after it
+ */
+export function pullRequestItems(branch: Branch, pullRequest: PullRequest | undefined, actions?: readonly ActionState[]): MenuItem[] {
+  return present(getCreatePullRequestItem(branch, actions), pullRequest === undefined ? null : openPullRequestItemOf(pullRequest))
 }
 
 /**

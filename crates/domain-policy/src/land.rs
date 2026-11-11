@@ -53,12 +53,14 @@ use crate::push::{StartAncestor, kept, start_push};
 use crate::reasons::{ancestor, blocked, descendant, held, last_commit, stack_not_built};
 use crate::review::{ReviewState, review_state, skips_approvals};
 use domain_types::landing::{ApprovalsSkip, Confirmation, FactWait, Land, LandDecision, LandFact, LandProfiles, LandingRefusal, PlannedEffect, ProfileChoice, StartRoute};
-use domain_types::landing_route::{LandingRoute, RouteGate};
-use domain_types::patronus::{LandingAllowances, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness};
+use domain_types::landing_route::{LandingRemote, LandingRoute, RouteGate};
+use domain_types::patronus::{
+  LandingAllowances, PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, ReviewReadiness,
+};
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, ReviewerState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView, RobotOf, SpanView};
-use domain_types::session::{Fact, FactState, Parked, ParkedMember, PullRequestsView, SubjectReadiness};
+use domain_types::session::{Fact, FactState, Parked, ParkedMember, PullRequestsView, RobotsView, SubjectReadiness};
 use domain_types::stack::{BlockReason, BranchStack, StackBranchUpdate};
 
 /// The robot took its subject as it is: its tip, or its remote branch while that has the same commits by content
@@ -328,8 +330,8 @@ fn chosen_profile(options: &PatronusStartOptions, last: Option<&PatronusRobotPro
 }
 
 /// The pull-request route lands by a merge on GitHub (`land_direct::decide_merge`): while no robot of Patronus lands the
-/// repository (`patronus`: its robots answer for it, a Space repository that names the pull-request route, or before
-/// its answer), and a merge there lands into the target (the gate refuses neither a mirror nor a repository off GitHub)
+/// repository (`patronus`, `patronus_lands`: its robots answer for it, a Space repository that names the pull-request
+/// route, or one Patronus knows before its answer), and a merge there lands into the target (the gate refuses neither a mirror nor a repository off GitHub)
 #[must_use]
 pub const fn merges_on_github(route: &LandingRoute, patronus: bool) -> bool {
   match route {
@@ -343,6 +345,17 @@ pub const fn merges_on_github(route: &LandingRoute, patronus: bool) -> bool {
         )
     }
     LandingRoute::Patronus { .. } | LandingRoute::Push { .. } => false,
+  }
+}
+
+/// A robot of Patronus lands the repository of `robots`: they answered for it (logged in or not, failing), or have not
+/// answered yet for a repository Patronus knows (`LandingRemote::patronus`); not where Patronus said the repository is
+/// not its (`NotPatronus`), nor before its answer where it doesn't know it, which needs no request
+#[must_use]
+pub const fn patronus_lands(robots: &RobotsView, landing: &LandingRemote) -> bool {
+  match robots.head.value.as_ref() {
+    None => landing.patronus,
+    Some(head) => !matches!(head.availability, PatronusAvailability::NotPatronus),
   }
 }
 

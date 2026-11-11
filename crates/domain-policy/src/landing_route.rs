@@ -2,22 +2,23 @@
 //! Patronus, a push of the copy into the target, or a merge of the pull request on GitHub, each with its gate.
 //!
 //! - `route`: the setting names the route (`branchdeck.landing`); unset, it is Patronus on Space and the pull request
-//!   elsewhere, never a push. Patronus named off Space is refused. A push is refused below write access, by the rules of
-//!   the target that no push of an unsigned copy passes (`required_signatures`), and for a writer by the rules only a
-//!   maintainer or an admin may bypass (a pull request, the merge queue, restricted updates), which those confirm; the
-//!   required status checks a push lands without are a confirmation. A merge needs write access too; without it the
-//!   route stays and others merge. The facts of GitHub count only when the remote of the baseline pushes to the
-//!   repository they describe: otherwise there is no gate, and the server answers. A fact without an answer waits,
-//!   never "no". A refusal of the server of a push into the target in this session (`[remote rejected]`: a hook, a
-//!   protected branch) is asked first before the next push (`BaselineRefusedPush`): a hook may refuse only some commits.
-//!   A fetched baseline with commits the fork point of the checked out branch lacks refuses a push that the gate would
-//!   let go (`BaselineAhead`): the copies are built on the fork point, so the server would refuse it as no fast-forward;
-//!   the update comes first
+//!   elsewhere, never a push. Patronus named off Space is refused. A push is refused below write access, by the rules
+//!   of the target that no push of an unsigned copy passes (`required_signatures`), and for a writer by the rules only
+//!   a maintainer or an admin may bypass (a pull request, the merge queue, restricted updates), which those confirm;
+//!   the required status checks a push lands without are a confirmation. A merge needs write access too; without it the
+//!   route stays and others merge. A merge of a mirror `origin` doesn't push to, or off GitHub, is refused on what git
+//!   names before GitHub answers (`LandingRemote::github`), so its slot is never offered and taken back. The facts of
+//!   GitHub count only when the remote of the baseline pushes to the repository they describe: otherwise there is no
+//!   gate, and the server answers. A fact without an answer waits, never "no". A refusal of the server of a push into
+//!   the target in this session (`[remote rejected]`: a hook, a protected branch) is asked first before the next push
+//!   (`BaselineRefusedPush`): a hook may refuse only some commits. A fetched baseline with commits the fork point of
+//!   the checked out branch lacks refuses a push that the gate would let go (`BaselineAhead`): the copies are built on
+//!   the fork point, so the server would refuse it as no fast-forward; the update comes first
 //! - `rules_target`: the branch whose rules the session reads for the route: the target, while the repository lands by
 //!   a push into it on GitHub
 
 use domain_types::error::ApiError;
-use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, RouteFact, RouteGate};
+use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, LocalGitHub, RouteFact, RouteGate};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, ViewerPermission};
 use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState, PullRequestsView};
@@ -37,6 +38,17 @@ pub enum GitHubFacts<'a> {
 }
 
 impl<'a> GitHubFacts<'a> {
+  /// Of the pull requests of the session (`FactsView::pull_requests`): a listing that stands names its repository, also
+  /// through a failed refresh after it; none before GitHub's first answer, but for branches git names no repository on
+  /// GitHub for (`LandingRemote::github`), which the listing answers with no request
+  #[must_use]
+  pub fn of_remote(view: &'a PullRequestsView, remote: &LandingRemote) -> Self {
+    match Self::of(view) {
+      Self::Pending if remote.github == LocalGitHub::None => Self::NotGitHub,
+      facts => facts,
+    }
+  }
+
   /// Of the pull requests of the session (`FactsView::pull_requests`): a listing that stands names its repository, also
   /// through a failed refresh after it; none before GitHub's first answer
   #[must_use]
@@ -228,15 +240,24 @@ fn push_gate(facts: &RouteFacts<'_>) -> RouteGate {
   }
 }
 
-/// The gate of a merge of the pull request on GitHub
+/// The gate of a merge of the pull request on GitHub. What git names decides before GitHub answers
+/// (`LandingRemote::github`): branches on no repository of GitHub, or on a mirror the remote of the baseline doesn't
+/// push to, merge nothing, so their slot of the merge is never offered; only the permission waits for GitHub
 fn merge_gate(facts: &RouteFacts<'_>) -> RouteGate {
+  match &facts.remote.github {
+    LocalGitHub::None => return refused(Reason::NotOnGitHub),
+    LocalGitHub::Repository { name } if !pushes_to(facts.remote, name) => {
+      return refused(Reason::GitHubMirror { repository: name.clone() });
+    }
+    LocalGitHub::Repository { .. } | LocalGitHub::Unread => {}
+  }
   let (repository, permission) = match facts.github {
     GitHubFacts::Pending => return wait(RouteFact::Permission, None),
     GitHubFacts::Failed { reason } => return wait(RouteFact::Permission, Some(reason)),
     GitHubFacts::NotGitHub => return refused(Reason::NotOnGitHub),
     GitHubFacts::Listed { repository, permission } => (repository, permission),
   };
-  if !facts.remote.push_repository.as_deref().is_some_and(|pushed_to| pushed_to.eq_ignore_ascii_case(repository)) {
+  if !pushes_to(facts.remote, repository) {
     return refused(Reason::GitHubMirror {
       repository: repository.to_owned(),
     });
@@ -248,4 +269,9 @@ fn merge_gate(facts: &RouteFacts<'_>) -> RouteGate {
     });
   }
   RouteGate::Open
+}
+
+/// The remote of the baseline pushes to `repository` on GitHub
+fn pushes_to(remote: &LandingRemote, repository: &str) -> bool {
+  remote.push_repository.as_deref().is_some_and(|pushed_to| pushed_to.eq_ignore_ascii_case(repository))
 }

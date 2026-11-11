@@ -4137,10 +4137,9 @@ no witness, no other effect). A branch another writer moved between the sync and
 3), nothing pushed. It reads nothing the sync read again: the stack, the tips the sync left, the remote tips of
 `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push and the witness it reads only
 the push URL of `origin` of the remotes the sync took (`RepoContext::origin_url` of `RepoContext::remotes`, one
-`remote -v` for the command: the Space repository of the holds, the GitHub repository and the `--repo` of
-`gh pr create`), and the committed Space settings when neither
-`branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`, once per command,
-`RepoContext::github_repository`):
+`remote -v` for the command: the Space repository of the holds and the `--repo` of `gh pr create`); the GitHub
+repository is the one the sync read with the remotes (`SyncReport::github`: the committed Space settings of an `origin`
+on Space when `branchdeck.githubRepository` names none, the sync's one `cat-file`):
 
 1. The intents: Push Stack of each named branch (`WithAncestors`: the branches it is built on that have work go
    first), the branch alone with `--alone`, `--all` and `--expect-remote`, Push with Children beside Push Stack with
@@ -4576,7 +4575,10 @@ no operation.
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `symbol_mode`,
   `resolve_mode`, `branch_prefix`, `github_repository`, `push_size_limit`, `landing`, `review_experimental` and `descriptions`. A sync reads it once for the
   route into master (sent in `BranchesGrouped` with the push URLs of its listing, `RepoFacts::landing_remote`; `brd status`
-  takes the same of the listing of its grouping, `BranchGrouping::landing`), the flag of the review windows (sent in
+  takes the same of the listing of its grouping, `BranchGrouping::landing`) and for the GitHub repository of the
+  branches the menu offers its merge and its pull requests by from the first view (`LandingRemote::github`: the
+  configured one or the one `origin` pushes to with no process, else for an `origin` on Space the mirror of its
+  committed Space settings, one `cat-file`), the flag of the review windows (sent in
   `BranchesGrouped` too, into `TableHeader.review_experimental` of the view: a value git refuses is off, with a
   warning, and fails no sync) and the
   description titles, or takes the one its caller read (`SyncOptions::config`): the app's session host reads it

@@ -1,8 +1,10 @@
 //! The GitHub repository the virtual branches end up in, without HTTP: `branchdeck.githubRepository`, else the push URL
-//! of `origin` when it is on github.com, else the GitHub mirror of the committed Space settings. The pull requests
+//! of `origin` when it is on github.com, else the GitHub mirror of the committed Space settings of an `origin` on Space.
+//! The sync (`LandingRemote::github`, the slots of the pull request and the merge from the first view), the pull requests
 //! (`pull_requests`), the review fetch (`review_fetch`) and Settings → Repository (`repository_config`) read it.
 
 use crate::config_snapshot::ConfigSnapshot;
+use crate::patronus::parse_space_repository;
 use crate::remote_url::{origin_push_url, parse_remote_url, split_owner_and_name};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -30,6 +32,11 @@ impl GitHubRepository {
   /// `owner/name`
   pub fn full_name(&self) -> String {
     format!("{}/{}", self.owner, self.name)
+  }
+
+  /// Of its `owner/name` (`full_name`, `LandingRemote::github`); `None` for another shape
+  pub fn of_full_name(full_name: &str) -> Option<Self> {
+    split_owner_and_name(full_name).map(|(owner, name)| Self::new(owner, name))
   }
 }
 
@@ -97,8 +104,8 @@ pub fn resolve_github_repository_with(
   Ok(detect_github_repository_of(git_executor, repository_path, url)?.map(|(repository, _)| repository))
 }
 
-/// The GitHub repository of the push URL of `origin`, else the Space mirror the committed Space settings name (one
-/// `cat-file`)
+/// The GitHub repository of the push URL of `origin`, else, of an `origin` on Space, the mirror the committed Space
+/// settings name (one `cat-file`); none for another remote, which no Space settings describe
 pub(crate) fn detect_github_repository_of(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -106,6 +113,9 @@ pub(crate) fn detect_github_repository_of(
 ) -> Result<Option<(GitHubRepository, GitHubRepositorySource)>> {
   if let Some(repository) = parse_github_repository(origin_url) {
     return Ok(Some((repository, GitHubRepositorySource::Origin)));
+  }
+  if parse_space_repository(origin_url).is_none() {
+    return Ok(None);
   }
   let (settings, exit_code) = git_executor.execute_command_with_status(&["cat-file", "blob", &format!("HEAD:{SPACE_SETTINGS_FILE}")], repository_path)?;
   if exit_code != 0 {

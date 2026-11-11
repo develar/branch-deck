@@ -579,6 +579,10 @@ fn landed_ancestor_answers(by_robot: bool, reported: bool, in_baseline: bool) ->
   }
   auth.action = auth.push_action();
   let mut events = vec![grouping(branches.clone(), &[], &[])];
+  // a repository Patronus knows: its start is the robot's also before Patronus answers
+  if let SyncEvent::BranchesGrouped { landing, .. } = &mut events[0] {
+    landing.patronus = true;
+  }
   events.extend(
     [remote_status("base", &["base-2"]), auth, remote_status("login", &["login-1"])]
       .into_iter()

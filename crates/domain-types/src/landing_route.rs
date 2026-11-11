@@ -82,6 +82,16 @@ pub struct LandingRemote {
   pub setting: Option<LandingSetting>,
   /// The push URL of `origin` is a repository on Space (`git.jetbrains.team`), where Patronus lands
   pub on_space: bool,
+  /// Patronus knows the repository: the Space repository `origin` pushes to (`on_space`), or the one the host of the sync
+  /// names (`SyncOptions::space`: the fake Patronus of the E2E server). Its starts are offered from the first view of a
+  /// session, waiting for its answer, and none ever where it doesn't know the repository: its answer that it doesn't
+  /// needs no request
+  #[serde(default)]
+  pub patronus: bool,
+  /// The GitHub repository the branches end up in, as git names it without a request (`LocalGitHub`): what the slots of
+  /// the pull request and of the merge are offered by from the first view
+  #[serde(default)]
+  pub github: LocalGitHub,
   /// `owner/name` of the github.com repository the push URL of the baseline's remote names; `None` for another host,
   /// and for a local baseline
   pub push_repository: Option<String>,
@@ -92,6 +102,35 @@ pub struct LandingRemote {
   /// for a local baseline
   #[serde(default)]
   pub remote: Option<String>,
+}
+
+/// The GitHub repository the branches end up in, as git names it without a request (`sync_core::github_repository`):
+/// `branchdeck.githubRepository`, else the github.com repository `origin` pushes to, else the mirror the committed Space
+/// settings of a Space `origin` name. The listing of the pull requests answers the same with no request for a repository
+/// not on GitHub, so its answer is known at the first view; a mirror (`LandingRemote::push_repository` another) merges
+/// nothing
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LocalGitHub {
+  /// Not read with the remotes (the grouping of a `brd` command): the listing of the pull requests tells
+  #[default]
+  Unread,
+  /// Nothing names one: the branches are not on GitHub
+  None,
+  /// `owner/name`
+  Repository { name: String },
+}
+
+impl LocalGitHub {
+  /// The repository it names
+  #[must_use]
+  pub fn repository(&self) -> Option<&str> {
+    match self {
+      Self::Repository { name } => Some(name),
+      Self::Unread | Self::None => None,
+    }
+  }
 }
 
 /// The route of a repository into master, each with its gate (`domain_policy::landing_route::route`)

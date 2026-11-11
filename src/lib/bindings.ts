@@ -4311,6 +4311,18 @@ export type LandingRemote = {
 	/**  The push URL of `origin` is a repository on Space (`git.jetbrains.team`), where Patronus lands */
 	onSpace: boolean,
 	/**
+	 *  Patronus knows the repository: the Space repository `origin` pushes to (`on_space`), or the one the host of the sync
+	 *  names (`SyncOptions::space`: the fake Patronus of the E2E server). Its starts are offered from the first view of a
+	 *  session, waiting for its answer, and none ever where it doesn't know the repository: its answer that it doesn't
+	 *  needs no request
+	 */
+	patronus?: boolean,
+	/**
+	 *  The GitHub repository the branches end up in, as git names it without a request (`LocalGitHub`): what the slots of
+	 *  the pull request and of the merge are offered by from the first view
+	 */
+	github?: LocalGitHub,
+	/**
 	 *  `owner/name` of the github.com repository the push URL of the baseline's remote names; `None` for another host,
 	 *  and for a local baseline
 	 */
@@ -4452,6 +4464,21 @@ export type LinkedSymbol = {
 	name: string,
 	line: number,
 };
+
+/**
+ *  The GitHub repository the branches end up in, as git names it without a request (`sync_core::github_repository`):
+ *  `branchdeck.githubRepository`, else the github.com repository `origin` pushes to, else the mirror the committed Space
+ *  settings of a Space `origin` name. The listing of the pull requests answers the same with no request for a repository
+ *  not on GitHub, so its answer is known at the first view; a mirror (`LandingRemote::push_repository` another) merges
+ *  nothing
+ */
+export type LocalGitHub = 
+/**  Not read with the remotes (the grouping of a `brd` command): the listing of the pull requests tells */
+{ kind: "unread" } | 
+/**  Nothing names one: the branches are not on GitHub */
+{ kind: "none" } | 
+/**  `owner/name` */
+{ kind: "repository"; name: string };
 
 /**  The holder of the repository lock as the page names it: "`brd push auth` (pid 4242) has held the repository for 40 s" */
 export type LockHolderInfo = {

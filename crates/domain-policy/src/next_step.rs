@@ -42,7 +42,7 @@ use crate::pull_request::merged_elsewhere;
 use crate::readiness::waiting_reviewers;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{Landed, LandedBy, LandingRefusal, Subject};
-use domain_types::landing_route::{LandingRoute, RouteFact, RouteGate};
+use domain_types::landing_route::{LandingRemote, LandingRoute, LocalGitHub, RouteFact, RouteGate};
 use domain_types::next_step::{NextStep, StackPullRequest, StepBlocker, StepFact, StepFailure, StepHelp, StepKind, StepRetarget, StepRow, WithoutReview};
 use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotStatus, ReviewReadiness, UnavailableReadinessReason,
@@ -97,6 +97,17 @@ impl PatronusStanding {
     Self::Answers(failure)
   }
 
+  /// `of`, with what the remotes tell before Patronus answers (`LandingRemote::patronus`): where Patronus doesn't know
+  /// the repository its answer that it doesn't needs no request, so it is known at the first view (no start, no wait
+  /// for it); once Patronus answered, its answer
+  #[must_use]
+  pub fn of_remote(head: &Fact<RobotsHead>, view: &FactState, remote: &LandingRemote) -> Self {
+    if head.value.is_none() && !remote.patronus {
+      return Self::NotOnSpace;
+    }
+    Self::of(head, view)
+  }
+
   #[must_use]
   pub const fn answer(&self) -> PatronusAnswer<'_> {
     match self {
@@ -130,6 +141,16 @@ impl<'a> Listing<'a> {
       (Some(PullRequestAvailability::NotGitHub), _) => Self::Unlisted { why: None },
       (Some(availability), _) => Self::Unlisted { why: Some(availability) },
     }
+  }
+
+  /// `of`, with what git names before GitHub answers (`LandingRemote::github`): branches no repository on GitHub is
+  /// named for are off GitHub at the first view, as the listing answers with no request
+  #[must_use]
+  pub fn of_remote(head: &'a Fact<PullRequestAvailability>, remote: &LandingRemote) -> Self {
+    if head.value.is_none() && remote.github == LocalGitHub::None {
+      return Self::Unlisted { why: None };
+    }
+    Self::of(head)
   }
 }
 

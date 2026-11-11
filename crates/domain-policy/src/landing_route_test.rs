@@ -1,6 +1,6 @@
 use crate::landing_route::{GitHubFacts, RouteFacts, TargetRules, route, rules_target};
 use domain_types::error::ApiError;
-use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, RouteFact, RouteGate};
+use domain_types::landing_route::{LandingRemote, LandingRoute, LandingSetting, LocalGitHub, RouteFact, RouteGate};
 use domain_types::pull_request::ViewerPermission::{Admin, Maintain, Read, Triage, Write};
 use domain_types::pull_request::{BranchRules, PullRequestAvailability, ViewerPermission};
 use domain_types::reason::Reason;
@@ -15,6 +15,9 @@ fn on_github(setting: Option<LandingSetting>) -> LandingRemote {
   LandingRemote {
     setting,
     on_space: false,
+    patronus: false,
+    // what the listing answers decides (a remote of `brd`'s grouping): the tests of the remote kinds read it
+    github: LocalGitHub::Unread,
     push_repository: Some(REPOSITORY.to_owned()),
     target: Some("master".to_owned()),
     remote: Some("origin".to_owned()),
@@ -26,6 +29,8 @@ fn on_space(setting: Option<LandingSetting>) -> LandingRemote {
   LandingRemote {
     setting,
     on_space: true,
+    patronus: true,
+    github: LocalGitHub::Unread,
     push_repository: None,
     target: Some("master".to_owned()),
     remote: Some("origin".to_owned()),
@@ -268,6 +273,46 @@ fn a_merge_needs_write_access_to_the_repository_origin_pushes_to() {
       repository: REPOSITORY.to_owned()
     }))
   );
+}
+
+/// The gate of the merge before GitHub answers, by the remote git reads (`LandingRemote::github`): off GitHub and on a
+/// mirror `origin` doesn't push to it refuses at once, so no merge waits for an answer that can't open it; on the
+/// repository `origin` pushes to it waits for the permission, as it does where `brd`'s grouping read no remote
+#[test]
+fn a_merge_is_refused_before_any_answer_where_git_names_no_repository_origin_pushes_to() {
+  let monorepo = || LocalGitHub::Repository { name: REPOSITORY.to_owned() };
+  let with = |github: LocalGitHub, push_repository: Option<&str>| LandingRemote {
+    github,
+    push_repository: push_repository.map(str::to_owned),
+    ..on_github(Some(LandingSetting::PullRequest))
+  };
+  let waits = merge(RouteGate::Wait {
+    fact: RouteFact::Permission,
+    failed: None,
+  });
+  let pending = PullRequestsView::default();
+  let cases = [
+    ("a local path", with(LocalGitHub::None, None), merge(refused(Reason::NotOnGitHub))),
+    (
+      "a mirror origin doesn't push to",
+      with(monorepo(), None),
+      merge(refused(Reason::GitHubMirror {
+        repository: REPOSITORY.to_owned(),
+      })),
+    ),
+    (
+      "a mirror of another repository origin pushes to",
+      with(monorepo(), Some("develar/fork")),
+      merge(refused(Reason::GitHubMirror {
+        repository: REPOSITORY.to_owned(),
+      })),
+    ),
+    ("the repository origin pushes to", with(monorepo(), Some(REPOSITORY)), waits.clone()),
+    ("a remote brd's grouping did not read", with(LocalGitHub::Unread, Some(REPOSITORY)), waits),
+  ];
+  for (case, remote, expected) in cases {
+    assert_eq!(decide(&remote, GitHubFacts::of_remote(&pending, &remote), TargetRules::Pending), expected, "{case}");
+  }
 }
 
 /// The session reads the rules of the target only for a push into it on GitHub

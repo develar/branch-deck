@@ -120,8 +120,10 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   let step = facts.step;
   let mut actions = Vec::with_capacity(BRANCH_ACTIONS);
   let mut offer = |id: ActionId, reason: Option<ActionBlocker>| actions.push(state(id, reason));
-  // until Patronus answers its starts are offered, disabled with what they wait for: hidden only off Space, and where
-  // the push into the target lands it
+  // the slots stand from the first view, on what git tells (`PatronusStanding::of_remote`, `Listing::of_remote`, the
+  // merge gate): an answer only enables one or says why it is disabled. Until Patronus answers the starts of a
+  // repository it knows are offered, disabled with what they wait for; never off Space, nor where the push into the
+  // target or the merge on GitHub lands it
   if facts.push_route {
     offer(ActionId::PushToBaseline, step.safe_push.as_ref().map(of_step));
   } else if facts.merge_route {
@@ -162,6 +164,7 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     offer(ActionId::LinkGithubStack, None);
   }
   let live = facts.pull_request.is_some_and(|pull_request| pull_request.state != PullRequestState::Closed);
+  // from the first view where git names the GitHub repository; Open Pull Request #N takes its place once listed
   if facts.repository && !live {
     // the pull request of the branch is not known yet: never a second one of a branch that has one
     let reason = if matches!(facts.listing, Listing::Loading) {
@@ -427,6 +430,8 @@ pub struct StackFacts<'a> {
   /// The pull request of its stack branch, any state, and the open one as the rules read it
   pub pull_request: Option<&'a PullRequest>,
   pub open_pull_request: Option<&'a PullRequestView>,
+  /// The listing of the pull requests: the pull request of its stack branch is not known before it
+  pub listing: Listing<'a>,
   pub repository: bool,
   /// What landed all of it
   pub landed: Option<&'a Landed>,
@@ -492,9 +497,11 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
     && facts.repository
     && pull_request.is_none()
   {
+    // the pull request of its stack branch is not known yet: never a second one of a stack that has one
+    let listing = matches!(facts.listing, Listing::Loading).then_some(ActionBlocker::Pending { fact: StepFact::PullRequests });
     let reason = not_built.map(|reason| ActionBlocker::Rule { reason: reason.clone() });
     let landed = landed_whole(facts.landed).or_else(|| facts.root_landed.map(|landed| ActionBlocker::Landed { landed: landed.clone() }));
-    offer(ActionId::CreateStackPullRequest, reason.or(landed));
+    offer(ActionId::CreateStackPullRequest, listing.or(reason).or(landed));
   }
   // its open pull request no longer matches the stack: a landing took its root, or the stack no longer forks (its stack
   // branch stays for its remote branch); the user closes it, nothing closes it by itself

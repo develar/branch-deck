@@ -10,6 +10,7 @@ use crate::commit_owners::CommitOwners;
 use crate::companions::{CompanionNeed, read_companion_needs};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::conflict_chain::{ChainMemo, conflict_ref, move_conflict_refs};
+use crate::github_repository::GitHubRepository;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::remote_status::RemoteStatusMemo;
@@ -86,6 +87,9 @@ pub struct SyncOptions {
   /// guards and the facts of the sync take them instead of a `symbolic-ref` and a `remote -v`; `None`: the sync reads
   /// them (the app's session)
   pub facts: Option<CommandFacts>,
+  /// Whether Patronus knows the repository, as the host decides it (`LandingRemote::patronus`): the E2E server by its
+  /// fake Patronus; `None`: by the push URL of `origin` (`on_space`), as Patronus itself does
+  pub space: Option<bool>,
 }
 
 impl Default for SyncOptions {
@@ -98,6 +102,7 @@ impl Default for SyncOptions {
       object_cache: ObjectCache::disabled(),
       config: None,
       facts: None,
+      space: None,
     }
   }
 }
@@ -289,6 +294,9 @@ pub struct SyncReport {
   /// The commit the branches without a parent are built on, as the sync read it; `None` without branches. A trial
   /// build after the sync starts from it without reading it again
   pub base: Option<BuildBase>,
+  /// The GitHub repository of the branches, as the sync read it with the remotes (`LandingRemote::github`): a command
+  /// after the sync takes it instead of reading the Space settings again
+  pub github: Option<GitHubRepository>,
 }
 
 impl SyncReport {
@@ -419,6 +427,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   issue_config: IssueConfigSource,
   config: Option<ConfigSnapshot>,
   command_facts: Option<CommandFacts>,
+  space: Option<bool>,
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   object_cache: &ObjectCache,
@@ -458,7 +467,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   let resolve = config.resolve_mode()?;
   let signing = config.signing()?;
-  let landing = facts.landing_remote(config.landing()?);
+  let landing = facts.landing_remote(git_executor, repository_path, &config, space)?;
   let review_experimental = config.review_experimental();
   let companions = crate::companions::repository_links(git_executor, repository_path, &config);
   // the conflict views of the unchanged branches come from the object cache, the new ones go there
@@ -575,6 +584,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     companion_needs: BTreeMap::new(),
     retry: false,
     base: None,
+    github: landing.github.repository().and_then(GitHubRepository::of_full_name),
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
@@ -1006,6 +1016,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     object_cache,
     config,
     facts: command_facts,
+    space,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1053,6 +1064,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           issue_config,
           config,
           command_facts,
+          space,
           detection_strategy,
           archive_retention_days,
           &object_cache,

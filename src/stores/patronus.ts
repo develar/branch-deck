@@ -953,15 +953,6 @@ export function isPatronusAvailable(): boolean {
 }
 
 /**
- * The starts of Patronus are offered for the selected repository: it answers for it, or it hasn't answered yet (each
- * start disabled with "Waits for the answer of Patronus" meanwhile); not once it says the repository is not on Space
- */
-export function usePatronusOffered(): boolean {
-  const key = useRepositoryKey()
-  return useStore(patronusStore, state => state.repositories[key]?.availability?.status !== "notPatronus")
-}
-
-/**
  * Why Rust didn't derive the view of the robots of the selected repository, while no earlier view stands for it
  * (`unavailable`): what they hold, land and need is unknown, so no start is decided on "none"; null once a view is in
  */
