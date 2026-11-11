@@ -7,9 +7,12 @@ import type { Page } from "@playwright/test"
 import type { PullRequest } from "../../src/lib/bindings"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow } from "../e2e/helpers/branch-helpers"
+import { diffRows } from "../e2e/helpers/diff-helpers"
 import type { PullRequestsFixture } from "../e2e/helpers/pull-request-helpers"
 import { pullRequest, reviewer, VIEWER_LOGIN } from "../e2e/helpers/pull-request-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
+import { closeToast, openToast } from "../e2e/helpers/toast-helpers"
+import { expectClosed } from "../e2e/helpers/wait-helpers"
 
 const SHOTS_DIR = process.env.SHOTS_DIR ?? path.join(import.meta.dirname, "../../docs/screenshots")
 const REPOSITORY = { owner: "acme", name: "notes" }
@@ -66,11 +69,9 @@ async function settled(page: Page): Promise<void> {
 async function push(page: Page, branch: string): Promise<void> {
   await findBranchRow(page, branch).click({ button: "right" })
   await page.getByRole("menuitem", { name: /^Push (Branch \(\d+\)|Stack )/ }).click()
-  const toast = page.locator("[data-slot=toast]").filter({ hasText: /^Pushed / })
+  const toast = openToast(page, /^Pushed /)
   await expect(toast).toBeVisible()
-  await toast.locator("[data-slot=toast-close]").click()
-  await expect(toast).toHaveCount(0)
-  await page.keyboard.press("Escape")
+  await closeToast(toast)
 }
 
 test("README: the branches of a day of work", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -83,13 +84,13 @@ test("README: the branches of a day of work", async ({ page, setupRepo, syncAndW
 
   // the path of the fixture repository is a temporary directory: the selector shows the path a user would have
   await page
-    .locator("[data-slot=select-trigger] bdi")
+    .getByTestId("repository-path")
     .first()
     .evaluate(element => (element.textContent = "~/projects/notes"))
   // a branch of the stack with its commits; the pointer off the rows
   await expandBranch(page, findBranchRow(page, "conflicts"))
   await page.mouse.move(0, 0)
-  await expect(page.getByRole("tooltip")).toHaveCount(0)
+  await expectClosed(page.getByRole("tooltip"))
   // the window down to the last card
   const bottom = await page.evaluate(() => Math.max(...[...document.querySelectorAll("[data-slot=card]")].map(it => it.getBoundingClientRect().bottom)))
   const clip = { x: 0, y: 0, width: page.viewportSize()?.width ?? 1100, height: Math.ceil(bottom) + 12 }
@@ -109,8 +110,23 @@ test("README: the branches of a day of work", async ({ page, setupRepo, syncAndW
   await review.setViewportSize({ width: 1280, height: 760 })
   await expect(review.getByTestId("review-file-header").first()).toBeVisible()
   await expect.poll(() => getSubWindowReadyOpen(review)).not.toBeNull()
-  // the changed file in view, beside the end of the added one
+  // Inline, the layout the app opens in. The changed file in view, beside the end of the added one: the view goes down
+  // to the end of its last card, where a click on the file in the tree puts its header at the top
+  await expect(review.getByRole("button", { name: "Inline", exact: true })).toHaveAttribute("aria-pressed", "true")
   await review.getByRole("tree", { name: "Changed files" }).getByText("SyncEngine.kt", { exact: true }).click()
+  await expect(review.getByTestId("review-position")).toHaveText(/File 2 \/ 2$/)
+  const view = review.getByTestId("diff-view")
+  const [viewBox, cardBox] = await Promise.all([view.boundingBox(), review.getByTestId("diff-view-file").last().boundingBox()])
+  await view.evaluate((element, down) => (element.scrollTop -= down), viewBox!.y + viewBox!.height - 12 - (cardBox!.y + cardBox!.height))
+  // no row cut by the header of the first card: up to the next whole row
+  const [headerBox, rowBoxes] = await Promise.all([
+    review.getByTestId("review-file-header").first().boundingBox(),
+    Promise.all((await diffRows(review.getByTestId("diff-view-file").first()).all()).map(row => row.boundingBox())),
+  ])
+  const headerBottom = headerBox!.y + headerBox!.height
+  const cut = rowBoxes.find(box => box !== null && box.y < headerBottom && box.y + box.height > headerBottom)
+  await view.evaluate((element, up) => (element.scrollTop += up), cut == null ? 0 : cut.y + cut.height - headerBottom)
+  await expect(review.getByTestId("review-file-header").first()).toContainText("ConflictResolver.kt")
   await review.mouse.move(0, 0)
   for (const colorScheme of ["light", "dark"] as const) {
     await review.emulateMedia({ colorScheme })

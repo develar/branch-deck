@@ -152,7 +152,7 @@ publisher: choose More info → Run anyway.
 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
-    <img alt="The review window of a branch: its commits, the tree of its files and their diffs side by side, coloured as IntelliJ colours Kotlin" src="docs/screenshots/review-light.png">
+    <img alt="The review window of a branch: its commits, the tree of its files and their diffs in one scrolling view, a changed line beside the lines it replaced, coloured as IntelliJ colours Kotlin" src="docs/screenshots/review-light.png">
   </picture>
 - **History editing with Undo**: reword, amend uncommitted changes into a branch, squash commits even when others lie
   between them, fold fixup commits, drop a commit that must not land instead of reverting it, unapply a branch with
