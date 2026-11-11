@@ -176,3 +176,41 @@ fn code_reads_in_its_order_a_variable_after_its_statement_and_a_loop_variable_af
   assert_eq!(places(&usages(text, "name", 0)), [(0, 6, Access::Declaration), (2, 13, Access::Read)]);
   assert_eq!(places(&usages(text, "name", 1)), [(2, 6, Access::Declaration), (6, 6, Access::Read)]);
 }
+
+/// A local is found before a member of an implicit receiver: a property of a local class or an object gives way to a
+/// variable of the function around it, as a member of the class of the function gives way to none of the file
+#[test]
+fn a_member_of_a_class_inside_a_body_gives_way_to_a_local_of_the_body() {
+  let text = "val limit = 0\nclass Outer {\n  val limit = 1\n  fun f(): String {\n    val total = \"local\"\n    val sum = \"outer\"\n    val o = object { val sum = \"member\"; val size = 1; fun g() = sum + total + size + limit }\n    class Box(val total: Int) { fun g() = total }\n    return o.g() + total\n  }\n}\n";
+  let local = |needle: &str, occurrence: usize| at(text, needle, occurrence).local.map(|it| (it.line, it.column));
+  // the variable of the function, though the object declares a property of the name
+  assert_eq!(local("sum + total", 0), Some((5, 8)));
+  assert_eq!(local("total + size", 0), Some((4, 8)));
+  // a member no local hides is the member; a member of the class of the function comes before the file
+  assert_eq!((local("size + limit", 0), local("limit }", 0)), (Some((6, 45)), Some((2, 6))));
+  // the `val` of a constructor is a member too
+  assert_eq!(local("total }", 0), Some((4, 8)));
+  assert_eq!(
+    places(&usages(text, "total", 0)),
+    [(4, 8, Access::Declaration), (6, 71, Access::Read), (7, 42, Access::Read), (8, 19, Access::Read)]
+  );
+}
+
+/// The condition of a `do … while` sees what the block of its body declares; a name where a type is written is of no
+/// value, and the name of a named argument of no local
+#[test]
+fn a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local() {
+  let text = "val more = false\nfun f(total: Int) {\n  var n = 0\n  do { val more = n++ < 3 } while (more)\n  val typed: total = report(total = total)\n  use(more, typed)\n}\n";
+  let found = |needle: &str, occurrence: usize| {
+    let reference = at(text, needle, occurrence);
+    (reference.kind, reference.local.map(|it| (it.line, it.column)))
+  };
+  // the condition reads the variable of the body, the statement after the loop the property of the file
+  assert_eq!(found("more)", 0), (ReferenceKind::Value, Some((3, 11))));
+  assert_eq!(found("more, typed", 0), (ReferenceKind::Value, Some((0, 4))));
+  assert_eq!(places(&usages(text, "more = n", 0)), [(3, 11, Access::Declaration), (3, 35, Access::Read)]);
+  // a type of the spelling of the parameter is no parameter, the name of the argument the parameter of `report`
+  assert_eq!(found("total = report", 0), (ReferenceKind::Type, None));
+  assert_eq!(found("total = total", 0), (ReferenceKind::Member, None));
+  assert_eq!(places(&usages(text, "total:", 0)), [(1, 6, Access::Declaration), (4, 36, Access::Read)]);
+}

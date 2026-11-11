@@ -17,24 +17,29 @@
 //! - **Its declaration** by the scopes around it, as the language has them: a function's parameters and its `var`s are
 //!   seen in all of it, `let`, `const`, a class, a function and an enum in all of their block, a type parameter in its
 //!   declaration, what `infer` declares in its conditional type; the last declaration before the name in the innermost
-//!   scope that declares one, else the first (a function declared after its use). A bare name is never a member of
-//!   the class around it, which only `this.` reaches; a member after a qualifier has none.
+//!   scope that declares one, else the first (a function declared after its use). A function has one variable of a
+//!   name: a parameter, a `var` and a function its body declares of one name are that variable, declared by the
+//!   first, and a later one is a use of it (a `var` in a `catch` of the name of its parameter writes the parameter).
+//!   The signature of a function (the defaults of its parameters, their types) is read before its body: its names
+//!   are bound to its parameters, else to a scope around the function, never to what the body declares. The name of
+//!   a function expression is seen in the function alone, the members of an enum in its body. Types and values are
+//!   apart: a name read as a type, and a namespace before the dot of one, is of no variable, parameter or function.
+//!   A bare name is never a member of the class around it, which only `this.` reaches; a member after a qualifier
+//!   has none.
 //! - **The usages** of a local (a declaration inside a function) are the names bound to it; those of any other name
 //!   are its names that no local binds, each with how it uses the name: declared, imported, called, written (the
-//!   target of an assignment, a destructuring one too, and of `++`), else read.
+//!   target of an assignment, a destructuring one too, of `++`, and a later `var` of the variable with a value),
+//!   else read.
 //! - **What a local is** (`LocalBinding`): a `var`, `let` or `const` a variable, the one of the head of a `for` a loop
 //!   variable, the parameter of a `catch`, of an arrow or a function expression, and of a function declaration or a
 //!   method; no call names a parameter. A parameter with a modifier (`private total`) declares a property; it, the
 //!   parameter of a signature without a body, a function, a class, a type and a type parameter are `Other`.
 //! - **Its site** (`Site`): `{ total }` of an object, of a pattern and of the target of an assignment names the
-//!   property too; any other name a pattern declares or a destructuring assigns is destructured; a name read as a
-//!   type that the scopes bind to a value is a namesake (types and values are apart).
+//!   property too; any other name a pattern declares or a destructuring assigns is destructured.
 
 use crate::js;
 use crate::js::field_of;
-use crate::navigate::{
-  Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding,
-};
+use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
 use js_syntax::Dialect;
 // jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{
@@ -126,11 +131,24 @@ fn resolve<'t>(program: &Program<'_>, text: &'t str, wanted: Wanted<'t>) -> Vec<
   names
 }
 
-/// The declaration a name is bound to: where its name starts, and what it is when a function declares it
+/// What may name a declaration, as the language keeps values and types apart: a value alone (a variable, a parameter,
+/// a function), a type alone (an interface, a type alias, a type parameter), or both (a class, an enum, a namespace)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Space {
+  Value,
+  Type,
+  Both,
+}
+
+/// The declaration a name is bound to: where its name starts, what it is when a function declares it, what may name
+/// it, and whether it is a variable of its function (a parameter, a `var`, a function the body declares), of which a
+/// function has one per name
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Declared {
   start: u32,
   local: Option<LocalBinding>,
+  space: Space,
+  of_function: bool,
 }
 
 /// A name of the text looked for, with what its syntax says
@@ -140,6 +158,8 @@ struct Named {
   qualifier: Option<Span>,
   access: Access,
   site: Site,
+  /// The name is read as a type or as the namespace of one: no value alone is its declaration
+  of_type: bool,
   binding: Option<Declared>,
 }
 
@@ -150,10 +170,32 @@ enum Want<'t> {
   Named(Wanted<'t>),
 }
 
-/// A scope of the walk: its declarations of the name, the names in it its declarations may bind, and whether it is a
-/// function's (its `var`s, its parameters, its declarations locals)
+/// What the binding the walk meets next is of, beside its pattern
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Binder {
+  /// A `let`, a `const`, a parameter, a class, a type: of the innermost scope
+  Scope,
+  /// A `var`, of the function around it; with a value, it writes the variable its function has of the name
+  Var { assigns: bool },
+  /// The name of a function declaration: a variable of the function whose body declares it
+  Function,
+}
+
+/// Whether the `var`, `let` or `const` the walk meets next is the head's of a loop
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Head {
+  No,
+  /// Of a `for (…; …; …)`
+  For,
+  /// Of a `for … in` or a `for … of`, which gives its variable a value
+  Each,
+}
+
+/// A scope of the walk: its declarations of the name, the names in it its declarations may bind, whether it is a
+/// function's (its `var`s, its parameters, its declarations locals) and whether it is a `catch`'s
 struct Scope {
   function: bool,
+  catch: bool,
   declared: Vec<Declared>,
   /// Indices into `Walk::names` of the names waiting for a declaration of this scope or of one around it
   pending: Vec<usize>,
@@ -175,10 +217,12 @@ struct Walk<'t> {
   scopes: Vec<Scope>,
   /// Inside an import: its names are imports
   importing: bool,
-  /// The declarations of a `var` belong to the function around them
-  var: bool,
-  /// The next `var`, `let` or `const` is the head's of a `for`
-  loop_head: bool,
+  /// What the bindings the walk meets are of: a `var`'s belong to the function around them
+  binder: Binder,
+  /// The next `var`, `let` or `const` is the head's of a loop
+  head: Head,
+  /// The names the walk meets are namespaces of a type (`a.b` of `a.b.C`)
+  namespace: bool,
   /// What the parameters of the function the walk is in declare
   parameters: LocalKind,
   /// What a binding the walk meets declares, inside a function: set around a pattern, `Other` elsewhere
@@ -197,8 +241,9 @@ impl<'t> Walk<'t> {
       names: Vec::new(),
       scopes: Vec::new(),
       importing: false,
-      var: false,
-      loop_head: false,
+      binder: Binder::Scope,
+      head: Head::No,
+      namespace: false,
       parameters: LocalKind::Other,
       declares: LocalKind::Other,
       site: Site::Plain,
@@ -220,9 +265,11 @@ impl<'t> Walk<'t> {
   }
 
   /// Code inside a pattern or a target (a default, a computed key, the object of a member): its names are of no
-  /// pattern
+  /// pattern, and what it declares is no part of the declaration around it
   fn aside(&mut self, body: impl FnOnce(&mut Self)) {
+    let binder = std::mem::replace(&mut self.binder, Binder::Scope);
     self.declaring(LocalKind::Other, |walk| walk.at_site(Site::Plain, body));
+    self.binder = binder;
   }
 
   /// A function-like scope around what `body` walks, whose parameters declare `parameters`
@@ -239,29 +286,36 @@ impl<'t> Walk<'t> {
   fn push(&mut self, function: bool) {
     self.scopes.push(Scope {
       function,
+      catch: false,
       declared: Vec::new(),
       pending: Vec::new(),
     });
   }
 
-  /// Leaves a scope: its declarations bind the names waiting in it, the last before each name else the first; the other
-  /// names wait in the scope around it
-  fn pop(&mut self) {
+  /// The declarations of the innermost scope bind the names waiting in it: each the last declaration before it that
+  /// may be what it reads (a type is of no value alone), else the first; the other names wait in the scope around it
+  fn settle(&mut self) {
     let Some(scope) = self.scopes.pop() else { return };
-    if scope.declared.is_empty() {
-      if let Some(outer) = self.scopes.last_mut() {
-        outer.pending.extend(scope.pending);
-      }
-      return;
-    }
-    for index in scope.pending {
+    let mut waiting = Vec::new();
+    for &index in &scope.pending {
       let named = &mut self.names[index];
       let start = named.span.start;
-      let binding = scope.declared.iter().rev().find(|it| it.start <= start).or_else(|| scope.declared.first()).copied();
-      named.binding = binding;
-      // a type is never a value: `total` of `let x: total` is a type of that spelling
-      named.site = site_by_binding(named.site, named.kind == ReferenceKind::Type, binding.and_then(|it| it.local));
+      let mut seen = scope.declared.iter().filter(|it| !named.of_type || it.space != Space::Value);
+      match seen.clone().rev().find(|it| it.start <= start).or_else(|| seen.next()) {
+        Some(binding) => named.binding = Some(*binding),
+        None => waiting.push(index),
+      }
     }
+    if let Some(outer) = self.scopes.last_mut() {
+      outer.pending.extend(&waiting);
+    }
+    self.scopes.push(Scope { pending: Vec::new(), ..scope });
+  }
+
+  /// Leaves a scope, whose declarations bind the names waiting in it (`settle`)
+  fn pop(&mut self) {
+    self.settle();
+    self.scopes.pop();
   }
 
   /// Whether a scope at this index or around it is a function's: what it declares is a local
@@ -296,6 +350,7 @@ impl<'t> Walk<'t> {
           qualifier,
           access,
           site: self.site,
+          of_type: kind == ReferenceKind::Type || self.namespace,
           binding: None,
         });
         if binds == Binds::Scopes
@@ -307,37 +362,62 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// The name of a declaration, which the scope at `scope` declares (or no scope, `None`: a member)
-  fn declaration(&mut self, span: Span, scope: Option<usize>) {
+  /// The name of a declaration, which the scope at `scope` declares (or no scope, `None`: a member), and what may
+  /// name it. A function has one variable of a name: where its scope has one already (a parameter, a `var`, a function
+  /// it declares), such a declaration is a use of that one, a write when it comes with a value
+  fn declaration(&mut self, span: Span, scope: Option<usize>, space: Space) {
     // inside a function a declaration is a local: what the pattern around it declares, a member `Other`
     let in_function = self.in_function(scope.unwrap_or_else(|| self.scopes.len().saturating_sub(1)));
     let kind = if scope.is_some() { self.declares } else { LocalKind::Other };
+    let binder = self.binder;
+    let of_function = scope.is_some_and(|it| self.scopes[it].function) && (binder != Binder::Scope || matches!(kind, LocalKind::Parameter | LocalKind::LambdaParameter));
     let declared = Declared {
       start: span.start,
       local: in_function.then(|| LocalBinding::of(kind)),
+      space,
+      of_function,
     };
+    let mut variable = None;
     if let (Want::Named(wanted), Some(scope)) = (self.want, scope)
       && wanted.takes(self.text_of(span), span.start as usize)
     {
-      self.scopes[scope].declared.push(declared);
+      variable = self.scopes[scope].declared.iter().find(|it| of_function && it.of_function).copied();
+      if variable.is_none() {
+        self.scopes[scope].declared.push(declared);
+      }
+      // `catch (e) { var e = 1 }` writes the parameter of the `catch`, and declares a variable of the function
+      if matches!(binder, Binder::Var { .. }) {
+        let caught = self.scopes[scope + 1..].iter().rev().filter(|it| it.catch);
+        variable = caught.flat_map(|it| &it.declared).find(|it| it.space == Space::Value).copied().or(variable);
+      }
     }
     let index = self.names.len();
-    self.name(span, ReferenceKind::Declaration, None, Access::Declaration, Binds::Never);
-    // the name of a declaration is bound to itself
+    match variable {
+      Some(_) => {
+        let access = if binder == (Binder::Var { assigns: true }) {
+          Access::Write
+        } else {
+          Access::Declaration
+        };
+        self.name(span, ReferenceKind::Value, None, access, Binds::Never);
+      }
+      None => self.name(span, ReferenceKind::Declaration, None, Access::Declaration, Binds::Never),
+    }
+    // the name of a declaration is bound to itself, or to the variable it declares again
     if self.names.len() > index {
-      self.names[index].binding = Some(declared);
+      self.names[index].binding = Some(variable.unwrap_or(declared));
     }
   }
 
   /// A binding in the innermost scope, a `var`'s in the function's around it
-  fn binding(&mut self, identifier: &BindingIdentifier<'_>) {
+  fn binding(&mut self, identifier: &BindingIdentifier<'_>, space: Space) {
     let innermost = self.scopes.len().saturating_sub(1);
-    let scope = if self.var {
+    let scope = if matches!(self.binder, Binder::Var { .. }) {
       self.scopes.iter().rposition(|it| it.function).unwrap_or(0)
     } else {
       innermost
     };
-    self.declaration(identifier.span, Some(scope));
+    self.declaration(identifier.span, Some(scope), space);
   }
 
   /// A use of a name the scopes may bind
@@ -383,8 +463,8 @@ impl<'t> Walk<'t> {
   /// The name of a declaration of the member kind: bound to itself, the declaration of no scope
   fn member_declaration(&mut self, key: &PropertyKey<'_>, computed: bool) {
     match key {
-      PropertyKey::StaticIdentifier(it) if !computed => self.declaration(it.span, None),
-      PropertyKey::PrivateIdentifier(it) => self.declaration(it.span, None),
+      PropertyKey::StaticIdentifier(it) if !computed => self.declaration(it.span, None, Space::Value),
+      PropertyKey::PrivateIdentifier(it) => self.declaration(it.span, None, Space::Value),
       key if computed => self.visit_property_key(key),
       _ => {}
     }
@@ -480,22 +560,41 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// `a.b.C`: `C` of the kind (a member of a value), qualified by `a.b`, whose names are values
+  /// `a.b.C`: `C` of the kind (a member of a value), qualified by `a.b`, whose names are values; before a type they
+  /// are namespaces, which no variable is
   fn qualified_name(&mut self, name: &TSQualifiedName<'_>, kind: ReferenceKind) {
+    let saved = self.namespace;
+    self.namespace = saved || kind == ReferenceKind::Type;
     self.type_name(&name.left, ReferenceKind::Value);
+    self.namespace = saved;
     let member = if kind == ReferenceKind::Type { ReferenceKind::Type } else { ReferenceKind::Member };
     self.unbound(name.right.span, member, Some(name.left.span()), Access::Read);
   }
 
-  /// A function: its parameters (which declare `parameters`), type parameters and body in a scope of its own, its own
-  /// name too for an expression
+  /// A function: its parameters (which declare `parameters`), type parameters and body in a scope of its own; the own
+  /// name of an expression in a scope around that one, as a parameter or a `var` of the name is another variable
   fn function(&mut self, function: &Function<'_>, own_name: bool, parameters: LocalKind) {
-    self.function_scope(parameters, |walk| {
-      if own_name && let Some(id) = &function.id {
-        walk.binding(id);
-      }
-      js::walk_function(walk, function);
-    });
+    let own_name = function.id.as_ref().filter(|_| own_name);
+    let scope = |walk: &mut Self| {
+      walk.function_scope(parameters, |walk| {
+        js::walk_signature(
+          walk,
+          function.type_parameters.as_deref(),
+          function.this_param.as_deref(),
+          &function.params,
+          function.return_type.as_deref(),
+        );
+        walk.settle();
+        js::walk_body(walk, function.body.as_deref());
+      });
+    };
+    match own_name {
+      Some(id) => self.scoped(true, |walk| {
+        walk.binding(id, Space::Value);
+        scope(walk);
+      }),
+      None => scope(self),
+    }
   }
 
   /// A field or an accessor of a class: its name a declaration, its decorators, type and value code
@@ -554,7 +653,7 @@ impl<'a> Visit<'a> for Walk<'_> {
     if self.importing {
       self.unbound(it.span, ReferenceKind::Value, None, Access::Import);
     } else {
-      self.binding(it);
+      self.binding(it, Space::Value);
     }
   }
 
@@ -619,7 +718,9 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_for_statement_init(&mut self, it: &ForStatementInit<'a>) {
-    self.loop_head = matches!(it, ForStatementInit::VariableDeclaration(_));
+    if matches!(it, ForStatementInit::VariableDeclaration(_)) {
+      self.head = Head::For;
+    }
     walk::walk_for_statement_init(self, it);
   }
 
@@ -632,7 +733,9 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_for_statement_left(&mut self, it: &ForStatementLeft<'a>) {
-    self.loop_head = matches!(it, ForStatementLeft::VariableDeclaration(_));
+    if matches!(it, ForStatementLeft::VariableDeclaration(_)) {
+      self.head = Head::Each;
+    }
     walk::walk_for_statement_left(self, it);
   }
 
@@ -647,6 +750,9 @@ impl<'a> Visit<'a> for Walk<'_> {
 
   fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
     self.scoped(false, |walk| {
+      if let Some(scope) = walk.scopes.last_mut() {
+        scope.catch = true;
+      }
       if let Some(parameter) = &it.param {
         walk.declaring(LocalKind::CatchParameter, |walk| walk.visit_binding_pattern(&parameter.pattern));
         js::walk_parameter_type(walk, parameter.type_annotation.as_deref(), None);
@@ -676,16 +782,20 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
-    // only the declaration that is the head of a `for` declares its variables
-    let kind = if std::mem::take(&mut self.loop_head) {
-      LocalKind::LoopVariable
-    } else {
-      LocalKind::Variable
-    };
+    // only the declaration that is the head of a loop declares its variables
+    let head = std::mem::replace(&mut self.head, Head::No);
+    let kind = if head == Head::No { LocalKind::Variable } else { LocalKind::LoopVariable };
     for declarator in &it.declarations {
-      self.var = it.kind == VariableDeclarationKind::Var;
+      let binder = if it.kind == VariableDeclarationKind::Var {
+        Binder::Var {
+          assigns: head == Head::Each || declarator.init.is_some(),
+        }
+      } else {
+        Binder::Scope
+      };
+      let around = std::mem::replace(&mut self.binder, binder);
       self.declaring(kind, |walk| walk.visit_binding_pattern(&declarator.id));
-      self.var = false;
+      self.binder = around;
       if let Some(annotation) = &declarator.type_annotation {
         self.visit_ts_type_annotation(annotation);
       }
@@ -732,7 +842,9 @@ impl<'a> Visit<'a> for Walk<'_> {
     match it.r#type {
       FunctionType::FunctionDeclaration | FunctionType::TSDeclareFunction => {
         if let Some(id) = &it.id {
-          self.binding(id);
+          let around = std::mem::replace(&mut self.binder, Binder::Function);
+          self.binding(id, Space::Value);
+          self.binder = around;
         }
         self.function(it, false, LocalKind::Parameter);
       }
@@ -749,6 +861,7 @@ impl<'a> Visit<'a> for Walk<'_> {
       if let Some(annotation) = &it.return_type {
         walk.visit_ts_type_annotation(annotation);
       }
+      walk.settle();
       match &it.body {
         ArrowFunctionBody::FunctionBody(body) => {
           for statement in &body.statements {
@@ -770,11 +883,11 @@ impl<'a> Visit<'a> for Walk<'_> {
     }
     let declaration = it.r#type == ClassType::ClassDeclaration;
     if declaration && let Some(id) = &it.id {
-      self.binding(id);
+      self.binding(id, Space::Both);
     }
     self.scoped(false, |walk| {
       if !declaration && let Some(id) = &it.id {
-        walk.binding(id);
+        walk.binding(id, Space::Both);
       }
       if let Some(parameters) = &it.type_parameters {
         walk.visit_ts_type_parameter_declaration(parameters);
@@ -843,7 +956,7 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
-    self.binding(&it.id);
+    self.binding(&it.id, Space::Type);
     self.scoped(false, |walk| {
       if let Some(parameters) = &it.type_parameters {
         walk.visit_ts_type_parameter_declaration(parameters);
@@ -856,7 +969,7 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_ts_type_alias_declaration(&mut self, it: &TSTypeAliasDeclaration<'a>) {
-    self.binding(&it.id);
+    self.binding(&it.id, Space::Type);
     self.scoped(false, |walk| {
       if let Some(parameters) = &it.type_parameters {
         walk.visit_ts_type_parameter_declaration(parameters);
@@ -865,20 +978,24 @@ impl<'a> Visit<'a> for Walk<'_> {
     });
   }
 
+  /// The members of an enum are seen by their bare names in its body alone (`B = A * 2`)
   fn visit_ts_enum_declaration(&mut self, it: &TSEnumDeclaration<'a>) {
-    self.binding(&it.id);
-    for member in &it.body.members {
-      if let TSEnumMemberName::Identifier(name) = &member.id {
-        self.declaration(name.span, None);
+    self.binding(&it.id, Space::Both);
+    self.scoped(false, |walk| {
+      let body = walk.scopes.len().saturating_sub(1);
+      for member in &it.body.members {
+        if let TSEnumMemberName::Identifier(name) = &member.id {
+          walk.declaration(name.span, Some(body), Space::Value);
+        }
+        if let Some(initializer) = &member.initializer {
+          walk.visit_expression(initializer);
+        }
       }
-      if let Some(initializer) = &member.initializer {
-        self.visit_expression(initializer);
-      }
-    }
+    });
   }
 
   fn visit_ts_namespace_declaration(&mut self, it: &TSNamespaceDeclaration<'a>) {
-    self.binding(&it.id);
+    self.binding(&it.id, Space::Both);
     self.scoped(false, |walk| match &it.body {
       TSNamespaceDeclarationBody::TSNamespaceDeclaration(inner) => walk.visit_ts_namespace_declaration(inner),
       TSNamespaceDeclarationBody::TSModuleBlock(block) => walk.visit_ts_module_block(block),
@@ -894,7 +1011,7 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_ts_type_parameter(&mut self, it: &TSTypeParameter<'a>) {
-    self.binding(&it.name);
+    self.binding(&it.name, Space::Type);
     js::walk_type_parameter_bounds(self, it);
   }
 

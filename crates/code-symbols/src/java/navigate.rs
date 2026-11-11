@@ -5,16 +5,19 @@
 //! - **A name** is an `IDENTIFIER` leaf outside a Javadoc; a keyword (`var`, `this`) is none.
 //! - **Its kind** by the node it is the name of or a part of: the name of a declaration (a class, a method, a field, a
 //!   local, a parameter of any kind, a pattern variable, an enum constant, a record component, a type parameter, a
-//!   label); a callee (`foo()`, `a.foo()`, with its qualifier); a member after a qualifier (`a.b`); a type (the parts
-//!   of a `JAVA_CODE_REFERENCE` of a type); else a value. The dotted names of the package, the imports, an annotation
-//!   and a module are a value and members after it, without a qualifier, as `scoped_identifier` read them before.
+//!   label); a callee (`foo()`, `a.foo()`, with its qualifier); a member after a qualifier (`a.b`, `a::b`); a type
+//!   (the parts of a `JAVA_CODE_REFERENCE` of a type); else a value. The dotted names of the package, the imports, an
+//!   annotation and a module are a value and members after it, without a qualifier, as `scoped_identifier` read them
+//!   before.
 //! - **Its declaration** by the scopes around it, in one walk of the tree that keeps only the declarations of that
 //!   name: a class sees its members, its record components and its type parameters wherever they are declared (the
 //!   last one before the name, else the first), a method its type parameters, and a method, a lambda, a block, a `for`,
 //!   a `catch`, a `try` and a switch rule the parameters and locals declared before the name, a statement the pattern
 //!   variables of its condition (`highlight::is_pattern_scope`). The collection of a `for (T item : items)` is read
-//!   before its variable is (`Scoping::sees`). `break` and `continue` go to their label. A member after a qualifier
-//!   has none.
+//!   before its variable is, the variable of a pattern of a `case …:` is of the statements of its label alone, and a
+//!   name is of the kind of thing its place reads, as Java keeps them apart: a call is of a method (a record
+//!   component too), a type of a class or a type parameter, a value of no method (`Scoping::sees`). `break` and
+//!   `continue` go to their label. A member after a qualifier has none.
 //! - **The usages** of a local (declared in a method, a lambda or an initializer) are the names bound to it; those of
 //!   any other name are its names that no local binds, each with how it uses the name (`access_of`).
 //! - **What a local is** (`local_of`, openspec/specs/commit/name-bindings/spec.md): a local variable, a resource and a
@@ -22,11 +25,13 @@
 //!   of a method, which no call names (Java has no named arguments); a label, a local class, the members of a local or
 //!   an anonymous class and a type parameter are `Other`.
 //! - **Its site** (`site_of`): a label and the name of a `break` or a `continue`, the name of an element of an
-//!   annotation, a name called or read as a type that the scopes bind to a value (Java keeps methods, types and
-//!   values apart), a variable of a record pattern.
+//!   annotation, a variable of a record pattern; and a namesake where only the types tell whether the name is the
+//!   variable the scopes give it: a name that is all of a `case` label (a constant of the enum the `switch` is over,
+//!   whatever is in scope) and a name in a class that has a supertype and stands inside the body of the variable (a
+//!   member it inherits would hide the variable).
 
 use super::highlight::{anonymous_body, is_callee, is_class, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
-use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site, site_by_binding};
+use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site};
 use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in, is_within, parent_kind};
 use java_syntax::psi;
 use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
@@ -53,6 +58,7 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   is_local: |tree, declared| is_local_in(tree, declared, is_function),
   local_of,
   site_of,
+  rebinds: |_, _| false,
   is_implicit: |_| false,
   access_of,
   name_start: |tree, leaf| tree.range(leaf).start,
@@ -83,17 +89,39 @@ fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
 }
 
 /// What the site of a name makes of it beside its binding (`Site`)
-fn site_of(tree: &Tree, leaf: NodeId, kind: ReferenceKind, binding: Option<LocalBinding>) -> Site {
+fn site_of(tree: &Tree, leaf: NodeId, _kind: ReferenceKind, local: Option<(NodeId, LocalBinding)>) -> Site {
   let around = |node: NodeId| parent_kind(tree, node);
-  let syntactic = match around(leaf) {
+  match around(leaf) {
     Some((_, NodeKind::LABELED_STATEMENT | NodeKind::BREAK_STATEMENT | NodeKind::CONTINUE_STATEMENT)) => Site::Label,
     Some((_, NodeKind::NAME_VALUE_PAIR)) => Site::NamedArgument,
     // `o instanceof Point(int x, int y)`: a variable of a pattern in the list of a record pattern
     Some((variable, NodeKind::PATTERN_VARIABLE)) if around(variable).and_then(|it| around(it.0)).is_some_and(|it| it.1 == NodeKind::DECONSTRUCTION_LIST) => Site::Destructured,
+    Some((reference, NodeKind::REFERENCE_EXPRESSION)) if local.is_some_and(|(declared, binding)| binding.kind.is_value() && may_be_another(tree, reference, declared)) => {
+      Site::Namesake
+    }
     _ => Site::Plain,
+  }
+}
+
+/// Whether only the types tell that the name of `reference`, which the scopes bind to the variable `declared`, is that
+/// variable: the name is all of a `case` label, where a constant of the enum of the `switch` comes before any
+/// variable; or it stands in an anonymous class, or in a local class with a supertype, inside the body that declares
+/// the variable, where a field the class inherits hides the variable
+fn may_be_another(tree: &Tree, reference: NodeId, declared: NodeId) -> bool {
+  if tree.parent(reference).and_then(|it| tree.node_kind(it)) == Some(NodeKind::CASE_LABEL_ELEMENT_LIST) {
+    return true;
+  }
+  let inherits = |class: NodeId| match tree.node_kind(class) {
+    Some(NodeKind::ANONYMOUS_CLASS) => true,
+    Some(NodeKind::CLASS) => tree
+      .children(class)
+      .filter(|&it| matches!(tree.node_kind(it), Some(NodeKind::EXTENDS_LIST | NodeKind::IMPLEMENTS_LIST)))
+      .any(|list| tree.composite_children(list).next().is_some()),
+    _ => false,
   };
-  // a call is of a method and a type of a class, whatever value has their spelling
-  site_by_binding(syntactic, matches!(kind, ReferenceKind::Call | ReferenceKind::Type), binding)
+  std::iter::successors(tree.parent(reference), |&it| tree.parent(it))
+    .take_while(|&it| !is_within(tree, declared, it))
+    .any(inherits)
 }
 
 /// The kind of a name in the node `parent` of the kind `kind`, which declares none, and its qualifier
@@ -127,6 +155,11 @@ fn kind_in(tree: &Tree, leaf: NodeId, parent: NodeId, kind: NodeKind) -> (Refere
     NodeKind::JAVA_CODE_REFERENCE => (ReferenceKind::Type, None),
     // the member of a static import: `max` of `import static java.lang.Math.max`
     NodeKind::IMPORT_STATIC_REFERENCE => (ReferenceKind::Member, None),
+    // `this::size`, `Box::size`: the method of what stands before the colons
+    NodeKind::METHOD_REF_EXPRESSION => (
+      ReferenceKind::Member,
+      tree.composite_children(parent).find(|&it| tree.node_kind(it) != Some(NodeKind::REFERENCE_PARAMETER_LIST)),
+    ),
     // a module's name: `a` and `.b` of `requires a.b`; the module's own, when undotted, is its declaration
     NodeKind::MODULE_REFERENCE => {
       let dotted = tree.children(parent).filter(|&it| tree.token_kind(it) == Some(TokenKind::IDENTIFIER)).nth(1).is_some();
@@ -220,15 +253,34 @@ impl Scoping<java_syntax::Java> for JavaScopes<'_> {
     anonymous_body(self.tree, leaf)
   }
 
-  /// The collection of a `for (T item : items)`, the expression after its colon, is read before its variable is
-  fn sees(&self, scope: NodeId, leaf: NodeId) -> bool {
+  /// A name sees the declarations of the kind of thing its place reads: a call a method (the accessor of a record
+  /// component too), a type a class or a type parameter, a value no method. The collection of a
+  /// `for (T item : items)`, the expression after its colon, is read before its variable is, and the variable of a
+  /// pattern of a `case …:` is seen by the statements of its label alone
+  fn sees(&self, scope: NodeId, declared: NodeId, leaf: NodeId, kind: ReferenceKind) -> bool {
     let tree = self.tree;
-    if tree.node_kind(scope) != Some(NodeKind::FOREACH_STATEMENT) {
-      return true;
+    let declares = parent_kind(tree, declared).map(|it| it.1);
+    let method = matches!(declares, Some(NodeKind::METHOD | NodeKind::ANNOTATION_METHOD));
+    let of_kind = match kind {
+      ReferenceKind::Call => method || declares == Some(NodeKind::RECORD_COMPONENT),
+      ReferenceKind::Type => matches!(declares, Some(NodeKind::CLASS | NodeKind::TYPE_PARAMETER)),
+      _ => !method,
+    };
+    if !of_kind {
+      return false;
     }
-    let colon = tree.children(scope).find(|&it| tree.token_kind(it) == Some(TokenKind::COLON));
-    let collection = colon.and_then(|it| std::iter::successors(tree.next_sibling(it), |&it| tree.next_sibling(it)).find(|&it| !tree.is_leaf(it)));
-    !collection.is_some_and(|it| is_within(tree, leaf, it))
+    if tree.node_kind(scope) == Some(NodeKind::FOREACH_STATEMENT) {
+      let colon = tree.children(scope).find(|&it| tree.token_kind(it) == Some(TokenKind::COLON));
+      let collection = colon.and_then(|it| std::iter::successors(tree.next_sibling(it), |&it| tree.next_sibling(it)).find(|&it| !tree.is_leaf(it)));
+      return !collection.is_some_and(|it| is_within(tree, leaf, it));
+    }
+    // the variable of a pattern of a `case …:` is of the statements of its label alone, up to the next label
+    let in_scope = |node: NodeId| std::iter::successors(Some(node), |&it| tree.parent(it)).find(|&it| tree.parent(it) == Some(scope));
+    let is_label = |node: &NodeId| tree.node_kind(*node) == Some(NodeKind::SWITCH_LABEL_STATEMENT);
+    match in_scope(declared).filter(is_label) {
+      Some(label) => in_scope(leaf).and_then(|it| std::iter::successors(Some(it), |&it| tree.previous_sibling(it)).find(is_label)) == Some(label),
+      None => true,
+    }
   }
 
   fn reached(&mut self, id: u32) {

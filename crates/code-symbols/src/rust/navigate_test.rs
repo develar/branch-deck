@@ -131,13 +131,62 @@ fn a_binding_is_seen_after_its_statement_and_in_the_block_it_guards() {
 /// a `$`; a doubled brace, a code point and a string outside a macro name nothing
 #[test]
 fn a_format_string_uses_the_names_it_takes_from_the_code_around_it() {
-  let text = "fn f(total: u32, width: usize) -> String {\n  let plain = \"{total}\";\n  format!(\"{total} {{total}} {total:>8} {:width$} \\u{61} {0}\", total)\n}\n";
+  let text = "fn f(total: u32, width: usize) -> String {\n  let plain = \"{total}\";\n  format!(\"{total} {{total}} {total:>8} {:width$} \\u{61} {0}\", total);\n  format!(\"{total:0width$} {:#0width$x} {:08.width$} {width:0>5} {0width}\", total)\n}\n";
   assert_eq!(
     usages(RUST, text, "total", 0),
-    (true, vec![(0, Access::Declaration), (2, Access::Read), (2, Access::Read), (2, Access::Read)]),
-    "two placeholders and the argument; not the doubled braces, not the string of line 1"
+    (
+      true,
+      vec![
+        (0, Access::Declaration),
+        (2, Access::Read),
+        (2, Access::Read),
+        (2, Access::Read),
+        (3, Access::Read),
+        (3, Access::Read)
+      ]
+    ),
+    "the placeholders and the arguments; not the doubled braces, not the string of line 1"
   );
-  assert_eq!(usages(RUST, text, "width", 0), (true, vec![(0, Access::Declaration), (2, Access::Read)]));
+  // a width after the flag `0` and after a precision: a digit starts no word, and is no part of the name after it
+  assert_eq!(
+    usages(RUST, text, "width", 0),
+    (
+      true,
+      vec![
+        (0, Access::Declaration),
+        (2, Access::Read),
+        (3, Access::Read),
+        (3, Access::Read),
+        (3, Access::Read),
+        (3, Access::Read)
+      ]
+    )
+  );
   // a name in a string is no place to go from
   assert_eq!(reference_at(RUST, text, place(text, "total}", 1)), None);
+}
+
+/// A name is of its namespace: a segment before `::` and a type of a module or a type, the name of a macro call of a
+/// macro, the name of a field before its colon of none; and an item sees no binding of the code around it
+#[test]
+fn a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it() {
+  let text = "mod total { pub struct T; pub fn run(x: u32) -> u32 { x } }\nmacro_rules! first { () => { 1 } }\nstatic sum: u32 = 7;\nfn f(sum: u32) -> u32 {\n  let total = 1;\n  let first = 2;\n  let s = S { total: total };\n  let typed: total::T = first!();\n  fn g() -> u32 { total::run(sum) }\n  total::run(total) + first + sum\n}\n";
+  let found = |needle: &str, occurrence: usize| kind_and_local(RUST, text, needle, occurrence);
+  // the module, though a binding of its name is in sight; the argument is the binding
+  assert_eq!(found("total::run(total)", 0).1, Some((0, 4)));
+  assert_eq!(found("total) + first", 0), (ReferenceKind::Value, Some((4, 6))));
+  assert_eq!(found("total::T", 0).1, Some((0, 4)));
+  // the field is a member no scope binds, its value the binding
+  assert_eq!(
+    (found("total: total", 0), found("total };", 0)),
+    ((ReferenceKind::Member, None), (ReferenceKind::Value, Some((4, 6))))
+  );
+  // the macro, and the binding of its name
+  assert_eq!((found("first!", 0).1, found("first + sum", 0).1), (Some((1, 13)), Some((5, 6))));
+  // the `fn` inside reads the static, not the parameter of the function around it
+  assert_eq!((found("sum) }", 0).1, found("sum\n}", 0).1), (Some((2, 7)), Some((3, 5))));
+  assert_eq!(
+    usages(RUST, text, "total = 1", 0),
+    (true, vec![(4, Access::Declaration), (6, Access::Read), (9, Access::Read)])
+  );
 }

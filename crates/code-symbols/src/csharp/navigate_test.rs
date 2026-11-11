@@ -115,3 +115,104 @@ fn the_variable_of_a_foreach_is_seen_in_its_statement_alone() {
   assert_eq!(kind_and_local(Grammar::CSharp, text, "item);\n", 0).1, Some((1, 13)));
   assert_eq!(usages(Grammar::CSharp, text, "item in", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
 }
+
+/// The statements of the sections of a `switch` share its block, a section alone has the variables of its labels, and
+/// what the governing expression declares is of the statements around the `switch`
+#[test]
+fn the_sections_of_a_switch_share_its_block() {
+  let text = "class A {\n  int total, n;\n  int F(int k) {\n    switch (Next(out var seen)) {\n      case 1: int total = 1; Use(total); break;\n      case int n when n > 0: total = 2; Use(Twice(n)); break;\n      default: Use(n); int Twice(int x) => x * 2; break;\n    }\n    return total + seen;\n  }\n}\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence).1;
+  // the local of the first section is the one the second assigns; after the `switch` the field is read
+  assert_eq!(
+    (local("total); break", 0), local("total = 2", 0), local("total + seen", 0)),
+    (Some((4, 18)), Some((4, 18)), Some((1, 6)))
+  );
+  // the variable of a label is of its section alone; the local function of a section is called from another
+  assert_eq!(
+    (local("n > 0", 0), local("n)); break", 0), local("n); int", 0)),
+    (Some((5, 15)), Some((5, 15)), Some((1, 13)))
+  );
+  assert_eq!(local("Twice(n)", 0), Some((6, 27)));
+  // the variable of the governing expression is seen after the `switch`
+  assert_eq!(local("seen;", 0), Some((3, 25)));
+  assert_eq!(
+    usages(Grammar::CSharp, text, "total = 1", 0),
+    (true, vec![(4, Access::Declaration), (4, Access::Read), (5, Access::Write)])
+  );
+}
+
+/// A loop, a `lock` and a statement that is the body of another without a block end the variables their expressions
+/// declare; the variable of an `if` is of the statements around it
+#[test]
+fn a_loop_and_an_embedded_statement_end_the_variables_of_their_expressions() {
+  let text = "class A {\n  int x, y, z, w;\n  void F(object o, bool c) {\n    while (o is int x) { Use(x); }\n    Use(x);\n    if (c) Use(out var y);\n    Use(y);\n    do { } while (Next(out var z));\n    Use(z);\n    lock (Get(out var w)) { Use(w); }\n    Use(w);\n    if (o is string s) { }\n    Use(s);\n  }\n}\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence).1;
+  assert_eq!((local("x); }", 0), local("x);\n", 0)), (Some((3, 20)), Some((1, 6))));
+  assert_eq!(local("y);\n    do", 0), Some((1, 9)));
+  assert_eq!(local("z);\n    lock", 0), Some((1, 12)));
+  assert_eq!((local("w); }", 0), local("w);\n    if", 0)), (Some((9, 22)), Some((1, 15))));
+  assert_eq!(local("s);", 0), Some((11, 20)));
+  assert_eq!(usages(Grammar::CSharp, text, "x)", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
+}
+
+/// The top-level statements of a file share one scope: a local of one is read by the next and by a local function
+#[test]
+fn the_top_level_statements_of_a_file_share_a_scope() {
+  let text = "var total = 1;\nSystem.Console.WriteLine(total);\nint Twice(int x) => x * total;\nSystem.Console.WriteLine(Twice(total));\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence).1;
+  assert_eq!(
+    (local("total);", 0), local("total;", 0), local("Twice(total)", 0)),
+    (Some((0, 4)), Some((0, 4)), Some((2, 4)))
+  );
+  assert_eq!(
+    usages(Grammar::CSharp, text, "total", 0),
+    (true, vec![(0, Access::Declaration), (1, Access::Read), (2, Access::Read), (3, Access::Read)])
+  );
+}
+
+/// A query reads its clauses in their order: the source of a `from`, the value of a `let` and the source and the left
+/// key of a `join` before their own variable, the right key that variable alone; `into` ends the variables before it.
+/// The collection of a `foreach` is read before the variables of its deconstruction
+#[test]
+fn a_query_reads_its_clauses_in_their_order() {
+  let text = "class A {\n  Box item, part;\n  object F(int[] xs) {\n    var a = from item in item.Parts let part = part + item select part;\n    var b = from x in xs join item in item.Parts on item equals item into g select g;\n    var c = from x in xs group x by x into g select item;\n    foreach (var (item, n) in item.Pairs) { Use(item, n); }\n    return from x in xs group x by x into g select x;\n  }\n}\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence).1;
+  // the source of the `from` and the value of the `let` read the fields, what follows the range variables
+  assert_eq!(
+    (local("item.Parts let", 0), local("part + item", 0), local("item select", 0)),
+    (Some((1, 6)), Some((1, 12)), Some((3, 17)))
+  );
+  assert_eq!(local("part;", 1), Some((3, 40)));
+  // the source and the left key of the `join` read the field, its right key the variable of the `join`
+  assert_eq!(
+    (local("item.Parts on", 0), local("item equals", 0), local("item into", 0)),
+    (Some((1, 6)), Some((1, 6)), Some((4, 30)))
+  );
+  assert_eq!(local("g;", 0), Some((4, 74)));
+  // after an `into` the variables before it are gone: the field, and no declaration at all
+  assert_eq!((local("item;", 0), local("x;", 0)), (Some((1, 6)), None));
+  // the collection of the `foreach` is the field's, its body reads the variable
+  assert_eq!((local("item.Pairs", 0), local("item, n);", 0)), (Some((1, 6)), Some((6, 18))));
+}
+
+/// A name where C# reads a type is of a type, never of a variable; the member an initializer names and the name of
+/// a `Name =` are members, which no scope binds
+#[test]
+fn a_type_and_a_member_an_initializer_names_are_of_no_variable() {
+  let text = "class total {}\nclass A {\n  object F(int Size) {\n    var total = 1;\n    total typed = null;\n    var box = new Box { Size = Size, total = total };\n    return new { Size = total, typed, box };\n  }\n}\n";
+  let found = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence);
+  assert_eq!(found("total typed", 0), (ReferenceKind::Type, Some((0, 6))));
+  assert_eq!(
+    (found("Size = Size", 0), found("Size,", 0)),
+    ((ReferenceKind::Member, None), (ReferenceKind::Value, Some((2, 15))))
+  );
+  assert_eq!(
+    (found("total = total }", 0), found("total }", 0)),
+    ((ReferenceKind::Member, None), (ReferenceKind::Value, Some((3, 8))))
+  );
+  assert_eq!(found("Size = total", 0), (ReferenceKind::Member, None));
+  assert_eq!(
+    usages(Grammar::CSharp, text, "total = 1", 0),
+    (true, vec![(3, Access::Declaration), (5, Access::Read), (6, Access::Read)])
+  );
+}

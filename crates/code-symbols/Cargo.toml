@@ -24,9 +24,15 @@ starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e
 serde.workspace = true
 
 [dev-dependencies]
+# the benchmark of the bindings of many names (`benches/names_bench.rs`)
+criterion = "0.8"
 pretty_assertions.workspace = true
 serde_json.workspace = true
 sync-utils = { path = "../sync-utils" }
+
+[[bench]]
+name = "names_bench"
+harness = false
 
 [features]
 default = ["kotlin", "java", "csharp", "starlark", "rust", "typescript"]

@@ -25,17 +25,14 @@ pub(crate) struct Frame {
   pub(crate) declared: Vec<NodeId>,
 }
 
-/// The declaration of the scopes whose name starts at `start`: in the innermost scope that declares one and that the
-/// name sees (`sees`), the last one before it, else the first (a member declared after its use)
-pub(crate) fn declaration_in<L: TreeLanguage>(frames: &[Frame], start: usize, tree: &Tree<L>, sees: impl Fn(NodeId) -> bool) -> Option<NodeId> {
-  let frame = frames.iter().rev().find(|it| !it.declared.is_empty() && sees(it.node))?;
-  frame
-    .declared
-    .iter()
-    .rev()
-    .find(|&&it| tree.range(it).start <= start)
-    .or_else(|| frame.declared.first())
-    .copied()
+/// The declaration of the scopes whose name starts at `start`: in the innermost scope that declares one the name sees
+/// (`sees`: the scope and the name of its declaration), the last such before the name, else the first (a member
+/// declared after its use)
+pub(crate) fn declaration_in<L: TreeLanguage>(frames: &[Frame], start: usize, tree: &Tree<L>, sees: impl Fn(NodeId, NodeId) -> bool) -> Option<NodeId> {
+  frames.iter().rev().find_map(|frame| {
+    let seen = || frame.declared.iter().copied().filter(|&it| sees(frame.node, it));
+    seen().rev().find(|&it| tree.range(it).start <= start).or_else(|| seen().next())
+  })
 }
 
 /// Whether the name `declared` of a declaration is a local: a node of code that runs (`is_function`) around what it
@@ -56,6 +53,10 @@ type KindIn<L, T> = fn(&T, NodeId, NodeId, <L as TreeLanguage>::Node) -> Answer;
 
 /// The names a scope sees wherever they are, a language's (`Reading::hoisted`)
 type Hoisted<T> = fn(&T, NodeId, IsNamed<'_>) -> Vec<NodeId>;
+
+/// What the site of a name of the kind makes of it beside its binding, a language's (`Reading::site_of`): the name
+/// of the declaration of a local and what it declares
+type SiteOf<T> = fn(&T, NodeId, ReferenceKind, Option<(NodeId, LocalBinding)>) -> Site;
 
 /// The scopes of a language over the names of one name (`Reading::scopes`)
 type MakeScopes<L, T> = for<'a> fn(&'a T, IsNamed<'a>) -> Box<dyn Scoping<L> + 'a>;
@@ -93,8 +94,11 @@ pub(crate) struct Reading<L: TreeLanguage, T> {
   /// What a declaration that is a local declares, by its node and the kind of it: a variable, a parameter of some
   /// kind, else `Other`
   pub(crate) local_of: fn(&T, NodeId, L::Node) -> LocalBinding,
-  /// What the site of a name of the kind makes of it beside its binding, a local's
-  pub(crate) site_of: fn(&T, NodeId, ReferenceKind, Option<LocalBinding>) -> Site,
+  /// What the site of a name of the kind makes of it beside its binding
+  pub(crate) site_of: SiteOf<T>,
+  /// Whether the name of a declaration may name a variable its scope already has, which the scopes then bind it to: a
+  /// name a `def` of Starlark assigns again
+  pub(crate) rebinds: fn(&T, NodeId) -> bool,
   /// Whether the language gives a name a meaning no declaration shows
   pub(crate) is_implicit: fn(&str) -> bool,
   /// How a name is used
@@ -114,12 +118,19 @@ pub(crate) trait Scoping<L: TreeLanguage> {
   /// The name of the name the walk resolves that a composite declares where the walk meets it (not hoisted)
   fn declared(&self, node: NodeId, kind: L::Node) -> Option<NodeId>;
 
+  /// The scope around a composite that declares a name where the walk meets it, when it is not the innermost: the
+  /// `switch` of a statement of its section
+  fn declares_in(&self, _node: NodeId) -> Option<NodeId> {
+    None
+  }
+
   /// Whether a composite opens a scope
   fn is_scope(&self, node: NodeId, kind: L::Node) -> bool;
 
-  /// Whether a name sees the declarations of the scope `scope` around it: not from a part of the scope's node that the
-  /// language reads outside it (the collection of a `foreach`, the default of a parameter of Starlark)
-  fn sees(&self, _scope: NodeId, _leaf: NodeId) -> bool {
+  /// Whether the name `leaf` of the kind sees the declaration `declared` of the scope `scope` around it: not from a
+  /// part of the scope's node that the language reads outside it (the collection of a `foreach`, the default of a
+  /// parameter of Starlark), and not a declaration of another kind of thing than the name reads (a variable for a type)
+  fn sees(&self, _scope: NodeId, _declared: NodeId, _leaf: NodeId, _kind: ReferenceKind) -> bool {
     true
   }
 
@@ -172,14 +183,25 @@ pub(crate) fn resolve<L: TreeLanguage, T>(reading: &Reading<L, T>, language_tree
         });
       }
       if is_named(node) {
-        let kind = kind_of(reading, language_tree, node).0;
-        let binding = match kind {
-          ReferenceKind::Declaration => Some(node),
-          ReferenceKind::Member | ReferenceKind::MemberCall => None,
+        let syntactic = kind_of(reading, language_tree, node).0;
+        // a binding the scopes of the walk don't give: a label, an annotation's element
+        let given = match syntactic {
+          ReferenceKind::Declaration | ReferenceKind::Member | ReferenceKind::MemberCall => None,
           _ => match scoping.binding(node) {
-            Binding::Bound(binding) => binding,
-            Binding::ByScopes => declaration_in(&frames, tree.range(node).start, tree, |scope| scoping.sees(scope, node)),
+            Binding::Bound(binding) => Some(binding),
+            Binding::ByScopes => None,
           },
+        };
+        let by_scopes = |kind: ReferenceKind| declaration_in(&frames, tree.range(node).start, tree, |scope, declared| scoping.sees(scope, declared, node, kind));
+        let (kind, binding) = match syntactic {
+          // a name its scope declares again is a use of the variable the scope has: its first declaration
+          ReferenceKind::Declaration if (reading.rebinds)(language_tree, node) => match by_scopes(ReferenceKind::Value).filter(|&it| it != node) {
+            Some(first) => (ReferenceKind::Value, Some(first)),
+            None => (syntactic, Some(node)),
+          },
+          ReferenceKind::Declaration => (syntactic, Some(node)),
+          ReferenceKind::Member | ReferenceKind::MemberCall => (syntactic, None),
+          _ => (syntactic, given.unwrap_or_else(|| by_scopes(syntactic))),
         };
         names.push(Named { leaf: node, kind, binding });
         if until == Some(node) {
@@ -190,10 +212,10 @@ pub(crate) fn resolve<L: TreeLanguage, T>(reading: &Reading<L, T>, language_tree
       continue;
     }
     if let Some(kind) = tree.node_kind(node) {
-      if let Some(declared) = scoping.declared(node, kind)
-        && let Some(frame) = frames.last_mut()
-      {
-        frame.declared.push(declared);
+      if let Some(declared) = scoping.declared(node, kind) {
+        let scope = scoping.declares_in(node);
+        let frame = scope.and_then(|scope| frames.iter().rposition(|it| it.node == scope)).unwrap_or(frames.len() - 1);
+        frames[frame].declared.push(declared);
       }
       scoping.entered(node, kind);
       if scoping.is_scope(node, kind) {
@@ -215,9 +237,14 @@ pub(crate) fn reference_at<L: TreeLanguage, T>(reading: &Reading<L, T>, text: &s
   let psi = (reading.psi)(&tree);
   let name = (reading.name)(&tree, leaf);
   let (kind, qualifier) = kind_of(reading, &tree, leaf);
-  let local = match kind {
-    ReferenceKind::Declaration | ReferenceKind::Member | ReferenceKind::MemberCall => None,
-    _ => resolve(reading, &tree, &Wanted::named(name), Some(leaf)).last().and_then(|it| it.binding),
+  let resolved = || resolve(reading, &tree, &Wanted::named(name), Some(leaf)).pop();
+  let (kind, local) = match kind {
+    // the name of a declaration that names a variable its scope already has is a use of it
+    ReferenceKind::Declaration if (reading.rebinds)(&tree, leaf) => resolved()
+      .filter(|it| it.kind != ReferenceKind::Declaration)
+      .map_or((kind, None), |it| (it.kind, it.binding)),
+    ReferenceKind::Declaration | ReferenceKind::Member | ReferenceKind::MemberCall => (kind, None),
+    _ => (kind, resolved().and_then(|it| it.binding)),
   };
   Some(reference_answer(
     text,
@@ -259,10 +286,11 @@ impl<L: TreeLanguage, T> Names for TreeNames<'_, L, T> {
         start: (reading.name_start)(tree, declared),
         local: (reading.is_local)(tree, declared).then(|| local_of(declared)),
       });
+      let local = it.binding.zip(binding.and_then(|it| it.local));
       Resolved {
         start: (reading.name_start)(tree, it.leaf),
         access: (reading.access_of)(tree, it.leaf, it.kind),
-        site: (reading.site_of)(tree, it.leaf, it.kind, binding.and_then(|it| it.local)),
+        site: (reading.site_of)(tree, it.leaf, it.kind, local),
         binding,
       }
     });

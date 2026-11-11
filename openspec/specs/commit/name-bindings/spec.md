@@ -1,10 +1,16 @@
 ---
 name: Name Bindings
-description: Requirements for the bindings of the names of a file as a reader of a change asks them, many places from one parse; what a body declares a local as and whether a call may name it, every name bound to it with what its site makes of the name beside the binding (a shorthand property, a named argument, a label, a namesake, a spelled name, the tokens of a macro, a destructuring), and what another name for the local would clash with.
+description: Requirements for the bindings of the names of a file as a reader of a change asks them, many places from one parse; what a body declares a local as and whether other code may name it, every name bound to it with what its site makes of the name beside the binding (a shorthand property, a label, a namesake only the types tell apart, a spelled name, the tokens of a macro, a destructuring), the names of its spelling that are no variable kept apart, and what another name for the local would clash with.
 style: plain-1
 targets:
   - crates/code-symbols/src/navigate.rs
   - crates/code-symbols/src/psi_navigate.rs
+  - crates/code-symbols/src/kotlin/navigate.rs
+  - crates/code-symbols/src/java/navigate.rs
+  - crates/code-symbols/src/csharp/navigate.rs
+  - crates/code-symbols/src/starlark/navigate.rs
+  - crates/code-symbols/src/js/navigate.rs
+  - crates/code-symbols/src/rust/navigate.rs
 ---
 
 # Name Bindings
@@ -28,14 +34,16 @@ many places from one parse. It decides nothing: which local may be quiet, and at
 ## Goals
 
 - One parse of a text answers every place asked of it; the places of one binding share their answer.
-- A local says what a body declares it as, and whether a call may still write its name.
-- Every use of a local says what its site makes of the name beside the binding.
+- A local says what a body declares it as, and whether code outside its body may still name it.
+- Every use of a local says what its site makes of the name beside the binding; a name the language reads as another
+  kind of thing than a variable is no use of one.
 - Another name for a local says what it would change the meaning of, by the scopes the navigation reads.
 
 ## Non-goals
 
-- No types: a call of a Kotlin value (`total()`, its `invoke` or a function of that spelling) and a member reached
-  without a qualifier are told as far as the syntax tells them, as a `namesake`, never resolved.
+- No types: where only the types tell whether a name is the local the scopes give it (a call of a Kotlin value, its
+  `invoke` or a function of that spelling; a name in a Java class that may inherit a member of it), the use says so,
+  as a `namesake`, and is never resolved.
 - No other file: a name that is no local is answered by its text (the names no local binds), as Find Usages reads it;
   its declaration and its uses in a repository are the index's ([Symbol Navigation](../symbol-navigation/spec.md)).
 - No policy: no answer says "quiet" or "safe".
@@ -46,13 +54,17 @@ many places from one parse. It decides nothing: which local may be quiet, and at
   declares it; `other` is everything that is no value of its body alone (a local function, a local class and its
   members, a type parameter, a label).
 - **A use** is a name the scopes bind to the declaration, the declaration itself among them, with how it uses the name
-  (declared, read, written, called) and its **site**.
+  (declared, read, written, called) and its **site**. A name its place reads as another kind of thing than a variable
+  (a type, a Java call, the name of a named argument, a field before its colon) is bound to no local, whatever it
+  spells.
 - **A clash** is a place whose meaning another name for the local would change: a use that a nearer declaration of the
   new name would take (`shadowed`), a name already spelled so that the local would take (`captured`), or the
   declaration itself where the language binds the new name without one (`implicit`).
-- The scopes are those of the navigation, read from the syntax alone. Where a language reads a name by more than its
-  scopes, the site says so; where the scopes of the navigation are narrower than the language's, a use is missing and
-  the reader sees a name of the rename that is no use: never the reverse.
+- The scopes are those of the navigation ([Symbol Navigation](../symbol-navigation/spec.md)), read from the syntax
+  alone, as each language scopes its names. A reader proves a rename by them, so a scope that differs from the
+  language's is a defect whichever way it differs: a scope too wide binds a name to a local that the language reads
+  as another, and a scope too narrow loses a use, which a change that leaves it in place then passes in silence (the
+  use is no place of the rename, so no side sees it). The differences known are in Open Questions.
 
 ## Requirements
 
@@ -121,12 +133,12 @@ plain, no clash with the other name), a rename of one local holds on both sides,
 declaration, sets another property or lets other code spell the name fails on one.
 
 #### Scenario: Renames of one local
-- **WHEN** a local and its uses, a parameter of Java, a second `let` of Rust that shadows, a loop variable, a value under a property or a named argument that keeps its name are renamed
+- **WHEN** a local and its uses, a parameter of Java, a second `let` of Rust that shadows, a loop variable, a local of the top-level statements of C#, or a value are renamed, the value under a property, a named argument, a field of a Rust struct or a member of a C# initializer that keeps its name, or beside the method or the function of its old name
 - **THEN** both sides read as one local
   [@test] crates/code-symbols/src/names_at_test.rs (`a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
 
 #### Scenario: Changes of meaning
-- **WHEN** the value of a variable reads another parameter after the change, a statement after a loop or an `if let` another field or parameter, a default or a `return` another name of the file, the new name takes a read of a member, or the change renames a shorthand property, a named argument, the argument of `nameof`, a called Kotlin value or a parameter a call may name
+- **WHEN** the value of a variable reads another parameter after the change, a statement after a loop, an `if let` or a statement without a block another field or parameter, a default, a `return`, a closure, a query or the condition of a `do … while` another name, the new name takes a read of a member, a later assignment of a `def` or a later `var` of a function writes another variable, or the change renames a shorthand property, a named argument, the argument of `nameof`, a called Kotlin value, a namespace, a parameter a call or an attribute macro names, or a name only the types tell from an inherited member or a constant of an enum
 - **THEN** one side does not read as one local
   [@test] crates/code-symbols/src/names_at_test.rs (`a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
 
@@ -171,14 +183,14 @@ parameter that declares a member, a type parameter, a label, a parameter of a fu
 
 ### Requirement: Locals: A parameter a call may name says so
 
-A parameter that a call may write as a named argument MUST say so, as its uses are then not all that spell its name:
-the parameter of a function with a name, a method or a constructor of Kotlin, of anything C# calls by a name (a method,
-a constructor, a local function, an indexer, a delegate) and of a `def` of Starlark but `*args` and `**kwargs`. The
-parameter of a lambda, an anonymous function or a setter, and every parameter of Java, Rust, TypeScript and JavaScript
-MUST NOT.
+A parameter that code outside its body may name MUST say so: a call names the parameter of a function with a name, a
+method or a constructor of Kotlin, of anything C# calls by a name and of a `def` or a `lambda` of Starlark (but
+`*args`, `**kwargs`); an attribute macro reads those of a Rust function under an attribute that is not the language's
+own. The parameter of a Kotlin or C# lambda, an anonymous function, a setter or a closure, and every one of Java,
+TypeScript and JavaScript MUST NOT.
 
 #### Scenario: Named by calls
-- **WHEN** a parameter of a Kotlin function, of a constructor of a local class, of a C# method or local function, or of a `def` is asked
+- **WHEN** a parameter of a Kotlin function, of a constructor of a local class, of a C# method or local function, or of a `def` or a `lambda` of Starlark is asked
 - **THEN** it says a call may name it
   [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `kotlin_tells_what_a_local_is`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
@@ -187,12 +199,17 @@ MUST NOT.
 - **THEN** it says no call names it
   [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_tells_what_a_local_is`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
+#### Scenario: Read by an attribute macro
+- **WHEN** a parameter of a Rust function under `#[instrument(skip(amount))]` is asked, and one of a function under `#[inline]` and a `cfg_attr` of `allow`
+- **THEN** the first says other code may name it, with the name among the tokens of the attribute a use of it; the second does not
+  [@test] crates/code-symbols/src/names_at_test.rs (`rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
+
 ### Requirement: Sites: A use says what its site makes of the name beside its binding
 
 Each use MUST say what its site makes of the name beside the binding the scopes give it, the first of: `shorthand`
-(the name is also a property there), `named argument`, `label`, `namesake` (the site reads another kind of thing than
-the binding is), `spelled` (the spelling is a value), `macro` (among the tokens of a macro), `destructured` (a
-pattern that takes a value apart declares or assigns it); else it is plain, a string template that reads it too.
+(the name is also a property there), `named argument`, `label`, `namesake` (only the types tell whether the name is
+the binding), `spelled` (the spelling is a value), `macro` (among the tokens of a macro), `destructured` (a pattern
+that takes a value apart declares or assigns it); else it is plain, a string template that reads it too.
 
 #### Scenario: Shorthand
 - **WHEN** a local is written as `{ total }` in an object, a pattern or the target of an assignment of TypeScript, TSX or JavaScript, as `Ledger { total }` of Rust, or as `new { total }` and `(total, scale)` of C#
@@ -200,16 +217,16 @@ pattern that takes a value apart declares or assigns it); else it is plain, a st
   [@test] crates/code-symbols/src/names_at_test.rs (`typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `tsx_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 #### Scenario: A named argument and a label
-- **WHEN** a name the scopes bind to a local is the name of a named argument of Kotlin or Starlark, or a name is a label of Java or the name of its jump
+- **WHEN** a name is the name of a named argument of Kotlin, Starlark or C#, of an element of a Java annotation, or a label of Java or C# or the name of its jump
 - **THEN** the use is a named argument, or a label
-- **AND** the name of a named argument of C# and of an element of a Java annotation is bound to no local
+- **AND** the name of a named argument is a use of the names of its text that no local binds, never of a local
   [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 #### Scenario: A namesake
-- **WHEN** a name bound to a variable or a parameter is called in Kotlin or Java, read as a type in any language that keeps types apart, written after `::` in Kotlin, the name of a member an initializer of C# sets, the name of a field of Rust before its colon or the name of a macro
+- **WHEN** a name bound to a variable or a parameter is called in Kotlin or written after `::` there, is all of a `case` label of Java, or stands in an anonymous class of Java inside the body of the variable
 - **THEN** the use is a namesake
 - **AND** a call of a local of C#, Rust, Starlark, TypeScript or JavaScript, where a call names a value, is plain
-  [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `kotlin_tells_what_a_local_is`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+  [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 #### Scenario: Spelled, and the tokens of a macro
 - **WHEN** a local is the argument of `nameof` of C#, or stands among the tokens of a Rust macro or in a format string of one
@@ -226,22 +243,34 @@ pattern that takes a value apart declares or assigns it); else it is plain, a st
 - **THEN** the use is plain
   [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
+### Requirement: Sites: A name its place reads as another kind of thing is no use of a local
+
+A name its place reads as another kind of thing than a variable MUST be no use of a local of its spelling and no
+clash of one: a type and the namespace before one, a call and a method reference of Java, the name of a named
+argument, the member an initializer or a `Name =` of C# names, the field of a Rust struct before its colon, the name
+of a macro and a path segment before `::`. It is a use of the names of its text that no local binds.
+
+#### Scenario: Not among the uses of the local
+- **WHEN** a local is asked beside a type of its spelling in Kotlin, Java, C#, Rust or TypeScript, a call of it in Java, the name of an argument it is given as in Kotlin or Starlark, the member a C# initializer names, or the field of a Rust struct before its colon and the name of a macro
+- **THEN** none of them is among its uses
+- **AND** each is among the uses of the name of that text that no local binds, which has no clashes
+  [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `kotlin_tells_what_a_local_is`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+
 ### Requirement: Clashes: A new name for a local is tried against the scopes
 
 A place of a local asked with a new name MUST answer what the name would change the meaning of, by the scopes asked
 of the names of the new spelling and the names of the local as one name: `shadowed`, a name of the local that would
-be another declaration's, and `captured`, a name already spelled so that would become the local's. The name of a
-named argument and a label MUST be neither. No clash MUST be an empty list, and a place asked without a new name, or
-of no local, MUST have none.
+be another declaration's, and `captured`, a name already spelled so that would become the local's. No clash MUST be
+an empty list, and a place asked without a new name, or of no local, MUST have none.
 
 #### Scenario: Shadowed
 - **WHEN** a parameter is asked with the name of a loop variable, a use of it inside the loop
-- **THEN** that use is shadowed, in every language
+- **THEN** that use is shadowed, in every language but Starlark, where the loop variable of a `def` and the parameter would be one variable: the names of the loop variable are captured
   [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 #### Scenario: Captured
 - **WHEN** a local is asked with the name of a member, a constant or a name of the file that its body reads
-- **THEN** that read is captured, in every language; a named argument of the new name is not
+- **THEN** that read is captured, in every language; a named argument of the new name and a call of a Java method of the new name are not
   [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `tsx_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 #### Scenario: No clash, and none asked
@@ -261,10 +290,25 @@ and `field` of Kotlin, `value` and `field` of C#.
 
 ## Open Questions / Risks
 
-- A Rust pattern that is a lower-case name alone is read as a binding; where a constant of that name is in sight it
-  is a constant pattern, which only the types tell.
-- A nested Rust `fn` does not see the locals around it; the scopes give its names to them.
-- The uses of a name inside a string are known only for the format strings of Rust.
+The scopes are read without types and without the other files, so they differ from the language's in the places
+below. None is conservative by itself: a reader that hides what it proves by the bindings keeps the quiet of a rename
+behind its measurement on real ranges.
+
+- A Rust pattern that is a lower-case name alone is read as a binding; where a constant of that name is in sight
+  (which Rust warns about) it is a constant pattern, and the names after it are the constant's.
+- A member a class inherits is in no file the navigation reads. Java: a use in an anonymous class, or in a local
+  class with a supertype, inside the body of its variable is a `namesake`; a method of a class with a supertype reads
+  an inherited field by a bare name, which the scopes bind to nothing, so a local renamed to that name captures it
+  in the answer only where the read is in the file. Kotlin and TypeScript find a local before a member.
+- Kotlin: a property declared by a `val` of a primary constructor and read in an initializer of its class is the
+  parameter there; the scopes give it the property.
+- JavaScript outside strict mode: a function declared in a block is also a variable of the function around the
+  block; the scopes keep it in its block.
+- C#: a name before the declaration of a local of its block is the local's (an error of the compiler); the scopes
+  give it the declaration around.
+- Starlark: `total += 1` is read as a read of `total`, though it writes it.
+- The uses of a name inside a string are known only for the format strings of Rust; a text the parser reads no tree
+  of (TypeScript, TSX and JavaScript with some syntax errors) has no answer at all.
 
 ## References
 

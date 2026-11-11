@@ -8,34 +8,36 @@
 //!   use of that name for the usages, though no place to go from.
 //! - **Kinds**: the name of a declaration, a binding of a pattern (`let`, a parameter, `if let`, a `for`, an arm, a
 //!   closure's parameter) and an alias (`as e`) is a `Declaration`; a capitalized name alone in a pattern (`None`) is
-//!   a value; a field or a method after `.` and a segment after `::` are members (`MemberCall` when called) with the
-//!   text before them as their qualifier, but a segment of a type, which is a `Type` (`fmt::Debug`), as a name in a type,
-//!   a struct expression or pattern and an associated type are; a callee is a `Call`.
+//!   a value; a field or a method after `.`, the name of a field before its colon (`Point { total: 1 }`) and a
+//!   segment after `::` are members (`MemberCall` when called) with the text before them as their qualifier, but a
+//!   segment of a type, which is a `Type` (`fmt::Debug`), as a name in a type, a struct expression or pattern and an
+//!   associated type are; a callee is a `Call`.
 //! - **Scopes**: a block, a function, a closure, an `impl`, a trait, a module, a match arm and a `for` declare the
 //!   names of their own items, bindings and type parameters; an item that is a scope declares its own name in the scope
 //!   around it. A name binds to the innermost scope around it that declares a name it sees: an item, a parameter and
 //!   the binding of an arm are seen in all of their scope (the last before the name, else the first: an item after its
 //!   use); the binding of a `let` after its statement (`let total = total + 1` reads the `total` before it), the one of
 //!   an `if let` or a `while let` in the rest of the condition and the block it guards, the one of a `for` in its
-//!   body; a binding shadows an item. A member binds to nothing.
+//!   body; a binding shadows an item. A name sees the declarations of its namespace (`Space`): a type, and a segment
+//!   before `::`, a type, a module or a type parameter; the name of a macro call and of an attribute a macro; any
+//!   other name everything but a macro. A member binds to nothing.
 //! - **Locals**: a declaration in a function or a closure, which no other file sees.
 //! - **Access**: a declaration, a call, a name in a `use` (`Import`), the end of the left side of an assignment
 //!   (`Write`), else `Read`.
 //! - **What a local is** (`LocalBinding`): the binding of a `let`, of an `if let`, a `while let` and an arm a variable,
-//!   the one of a `for` a loop variable, of a parameter of a closure or of a function, which no call names; an item
-//!   and a type or const parameter inside a function are `Other`.
-//! - **Its site** (`Site`): `Point { total }` of a struct expression and of a pattern names the field too; the name of
-//!   a field before its colon, the name of a macro and a name read as a type are no value's (namesakes of a binding
-//!   the scopes give them); a name among the tokens of a macro is the macro's to read; any other binding inside a
-//!   pattern that takes a value apart is destructured.
+//!   the one of a `for` a loop variable, of a parameter of a closure or of a function; an item and a type or const
+//!   parameter inside a function are `Other`. No call names a parameter, but an attribute macro reads the names of
+//!   the function it stands on (`#[tauri::command]`, `#[instrument]`): the parameter of a function under an
+//!   attribute that is not one of the language's own says other code may name it.
+//! - **Its site** (`Site`): `Point { total }` of a struct expression and of a pattern names the field too; a name
+//!   among the tokens of a macro is the macro's to read; any other binding inside a pattern that takes a value apart
+//!   is destructured.
 //!
 //! The parse, the walks and the drop of the tree run in `rust_syntax::guarded`; a file nested deeper than any code has
 //! no answer.
 
 use super::{CONTEXTUAL_KEYWORDS, PRIMITIVES, is_callee, span};
-use crate::navigate::{
-  Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding,
-};
+use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
 use rust_syntax::ra_ap_syntax::ast::HasLoopBody;
 use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind as K, SyntaxNode, SyntaxToken, TextRange, TextSize, TokenAtOffset, ast};
 use std::collections::HashMap;
@@ -117,7 +119,9 @@ impl Names for TreeNames<'_> {
             start: capture,
             access: Access::Read,
             site: Site::Macro,
-            binding: scopes.declaration_at(token, TextSize::new(u32::try_from(capture).unwrap_or(u32::MAX))).map(bound),
+            binding: scopes
+              .declaration_at(token, TextSize::new(u32::try_from(capture).unwrap_or(u32::MAX)), Space::Value)
+              .map(bound),
           });
         }
         continue;
@@ -130,7 +134,7 @@ impl Names for TreeNames<'_> {
       resolved.push(Resolved {
         start,
         access: access_of(token, kind),
-        site: site_of(token, kind, binding.and_then(|it| it.local)),
+        site: site_of(token),
         binding,
       });
     }
@@ -177,8 +181,8 @@ fn is_name(token: &SyntaxToken, text: &str) -> bool {
 
 /// The bytes where a string among the tokens of a macro names what a resolution looks for as a format string would take
 /// it from the code around the macro: a word right after the `{` of a placeholder (`{total}`, `{total:>8}`) or before
-/// a `$` (`{:width$}`). Whether the macro formats is its own: a string that only looks so costs a use too many, never
-/// one too few
+/// a `$` (`{:width$}`, and `{:0width$}` after a flag: a digit starts no word). Whether the macro formats is its own:
+/// a string that only looks so costs a use too many, never one too few
 fn captures(token: &SyntaxToken, wanted: &Wanted<'_>) -> Vec<usize> {
   let text = token.text();
   if wanted.also.is_empty() && !text.contains(wanted.name) {
@@ -187,11 +191,11 @@ fn captures(token: &SyntaxToken, wanted: &Wanted<'_>) -> Vec<usize> {
   let offset = usize::from(token.text_range().start());
   let is_word = |it: char| it == '_' || it.is_alphanumeric();
   let mut found = Vec::new();
-  let mut previous = None;
   let mut characters = text.char_indices().peekable();
   while let Some((start, character)) = characters.next() {
-    if !(character == '_' || character.is_alphabetic()) || previous.is_some_and(is_word) {
-      previous = Some(character);
+    // a word starts at a letter or `_` and takes every letter and digit after it, so the character before it is none
+    // of its own
+    if !(character == '_' || character.is_alphabetic()) {
       continue;
     }
     let mut end = start + character.len_utf8();
@@ -206,7 +210,6 @@ fn captures(token: &SyntaxToken, wanted: &Wanted<'_>) -> Vec<usize> {
     if (placeholder || text[end..].starts_with('$')) && wanted.takes(&text[start..end], offset + start) {
       found.push(offset + start);
     }
-    previous = text[..end].chars().next_back();
   }
   found
 }
@@ -270,46 +273,110 @@ const fn is_scope(kind: K) -> bool {
   )
 }
 
+/// What a name may be, as Rust keeps its namespaces apart
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Space {
+  /// A type, a module, a type parameter: a name in a type, and a segment of a path before `::`
+  Type,
+  /// A macro: the name of a macro call and of an attribute
+  Macro,
+  /// Anything but a macro: a value, and what the syntax does not tell (a token of a macro)
+  Value,
+}
+
+impl Space {
+  /// The namespace a name reads by its place
+  fn of(token: &SyntaxToken, kind: ReferenceKind) -> Self {
+    let path = token
+      .parent()
+      .filter(|it| it.kind() == K::NAME_REF)
+      .and_then(|it| it.parent())
+      .filter(|it| it.kind() == K::PATH_SEGMENT)
+      .and_then(|it| it.parent());
+    match path.as_ref().and_then(SyntaxNode::parent).map(|it| it.kind()) {
+      _ if kind == ReferenceKind::Type => Self::Type,
+      // `total::run`: only a module or a type has a path after it
+      Some(K::PATH) => Self::Type,
+      Some(K::MACRO_CALL | K::PATH_META | K::KEY_VALUE_META | K::TOKEN_TREE_META) => Self::Macro,
+      _ => Self::Value,
+    }
+  }
+
+  /// Whether a name of the namespace may be what the node `declaration` declares
+  fn holds(self, declaration: K) -> bool {
+    let is_macro = matches!(declaration, K::MACRO_RULES | K::MACRO_DEF);
+    match self {
+      Self::Type => matches!(
+        declaration,
+        K::STRUCT | K::UNION | K::ENUM | K::VARIANT | K::TRAIT | K::TYPE_ALIAS | K::MODULE | K::TYPE_PARAM | K::RENAME
+      ),
+      Self::Macro => is_macro || declaration == K::RENAME,
+      Self::Value => !is_macro,
+    }
+  }
+}
+
+/// An item whose code sees the items around it, never their bindings
+const fn is_item(kind: K) -> bool {
+  matches!(
+    kind,
+    K::FN | K::CONST | K::STATIC | K::IMPL | K::TRAIT | K::MODULE | K::STRUCT | K::ENUM | K::UNION | K::TYPE_ALIAS
+  )
+}
+
 /// The declarations of the names a resolution looks for by the scope that declares them, each in the order of the text
-/// with where its scope sees it
-struct Scopes(HashMap<SyntaxNode, Vec<(SyntaxToken, TextRange)>>);
+/// with where its scope sees it and the kind of the node that declares it
+struct Scopes(HashMap<SyntaxNode, Vec<Declaration>>);
+
+/// A declaration of a scope: its name, where the names of the scope see it, and the kind of the node that declares it
+struct Declaration {
+  name: SyntaxToken,
+  seen: TextRange,
+  kind: K,
+}
 
 impl Scopes {
   /// The declarations among the names a resolution looks for, of the tokens of a tree (`name_tokens`): each declaring
   /// node's name in the innermost scope around the node, its own scope excluded (a function declares its name in the
   /// scope around it)
   fn of(tokens: &[SyntaxToken], wanted: &Wanted<'_>) -> Self {
-    let mut scopes: HashMap<SyntaxNode, Vec<(SyntaxToken, TextRange)>> = HashMap::new();
+    let mut scopes: HashMap<SyntaxNode, Vec<Declaration>> = HashMap::new();
     for token in tokens {
       if token.kind() != K::IDENT || !wanted.takes(token.text(), usize::from(token.text_range().start())) {
         continue;
       }
       let Some(declaration) = declaring(token) else { continue };
       if let Some(scope) = declaration.ancestors().skip(1).find(|it| is_scope(it.kind())) {
-        let seen = seen_in(&declaration, &scope);
-        scopes.entry(scope).or_default().push((token.clone(), seen));
+        let declared = Declaration {
+          name: token.clone(),
+          seen: seen_in(&declaration, &scope),
+          kind: declaration.kind(),
+        };
+        scopes.entry(scope).or_default().push(declared);
       }
     }
     Self(scopes)
   }
 
-  /// The declaration a name binds to: in the innermost scope around it that declares a name it sees, the binding that
-  /// shadows last (the one seen from the latest place), and among the declarations seen from one place (the items of
-  /// the scope) the last before the name, else the first
-  fn declaration_of(&self, token: &SyntaxToken) -> Option<SyntaxToken> {
-    self.declaration_at(token, token.text_range().start())
-  }
-
-  /// The declaration a name at the byte `start` of a token binds to (`declaration_of`): the token itself, or a name
-  /// inside a string
-  fn declaration_at(&self, token: &SyntaxToken, start: TextSize) -> Option<SyntaxToken> {
-    token.parent_ancestors().filter(|it| is_scope(it.kind())).find_map(|scope| {
-      let declared = self.0.get(&scope)?;
-      let from = declared.iter().filter(|it| it.1.contains(start)).map(|it| it.1.start()).max()?;
-      let seen = || declared.iter().filter(|it| it.1.contains(start) && it.1.start() == from).map(|it| &it.0);
-      let before = seen().rev().find(|it| it.text_range().start() <= start);
-      before.or_else(|| seen().next()).cloned()
-    })
+  /// The declaration a name of the namespace `space` at the byte `start` of a token binds to (the token itself, or a
+  /// name inside a string): in the innermost scope around it that declares a name of the namespace it sees, the
+  /// binding that shadows last (the one seen from the latest place), and among the declarations seen from one place
+  /// (the items of the scope) the last before the name, else the first. An item sees no binding of the code around
+  /// it: a `fn` inside a function reads the items alone
+  fn declaration_at(&self, token: &SyntaxToken, start: TextSize, space: Space) -> Option<SyntaxToken> {
+    let mut in_item = false;
+    for scope in token.parent_ancestors() {
+      if let Some(declared) = self.0.get(&scope).filter(|_| is_scope(scope.kind())) {
+        let sees = |it: &&Declaration| it.seen.contains(start) && space.holds(it.kind) && !(in_item && it.kind == K::IDENT_PAT);
+        if let Some(from) = declared.iter().filter(sees).map(|it| it.seen.start()).max() {
+          let seen = || declared.iter().filter(sees).filter(|it| it.seen.start() == from).map(|it| &it.name);
+          let before = seen().rev().find(|it| it.text_range().start() <= start);
+          return before.or_else(|| seen().next()).cloned();
+        }
+      }
+      in_item |= is_item(scope.kind());
+    }
+    None
   }
 }
 
@@ -342,7 +409,7 @@ fn seen_in(declaration: &SyntaxNode, scope: &SyntaxNode) -> TextRange {
 fn binding_of(token: &SyntaxToken, kind: ReferenceKind, scopes: &Scopes) -> Option<SyntaxToken> {
   match kind {
     ReferenceKind::Declaration => Some(token.clone()),
-    ReferenceKind::Value | ReferenceKind::Call | ReferenceKind::Type => scopes.declaration_of(token),
+    ReferenceKind::Value | ReferenceKind::Call | ReferenceKind::Type => scopes.declaration_at(token, token.text_range().start(), Space::of(token, kind)),
     ReferenceKind::Member | ReferenceKind::MemberCall => None,
   }
 }
@@ -361,7 +428,7 @@ fn is_pattern_part(kind: K) -> bool {
 }
 
 /// What the name of a declaration is when a function or a closure declares it: a binding by what its pattern is of,
-/// else `Other`. No call names a parameter
+/// else `Other`. No call names a parameter; an attribute macro on its function may (`is_read_by_attribute`)
 fn local_of(declared: &SyntaxToken) -> Option<LocalBinding> {
   if !is_local(declared) {
     return None;
@@ -371,27 +438,125 @@ fn local_of(declared: &SyntaxToken) -> Option<LocalBinding> {
   let kind = match holder.as_ref().map(SyntaxNode::kind) {
     Some(K::LET_STMT | K::LET_EXPR | K::MATCH_ARM) => LocalKind::Variable,
     Some(K::FOR_EXPR) => LocalKind::LoopVariable,
-    Some(K::PARAM) => match holder.and_then(|it| it.parent()).and_then(|it| it.parent()).map(|it| it.kind()) {
+    Some(K::PARAM) => match holder.as_ref().and_then(SyntaxNode::parent).and_then(|it| it.parent()).map(|it| it.kind()) {
       Some(K::CLOSURE_EXPR) => LocalKind::LambdaParameter,
       Some(K::FN) => LocalKind::Parameter,
       _ => LocalKind::Other,
     },
     _ => LocalKind::Other,
   };
-  Some(LocalBinding::of(kind))
+  Some(LocalBinding {
+    kind,
+    named_by_calls: kind == LocalKind::Parameter && holder.is_some_and(|it| is_read_by_attribute(&it)),
+  })
+}
+
+/// The attributes of the language and of its tools, which read no name of what they stand on
+const INERT_ATTRIBUTES: [&str; 53] = [
+  "allow",
+  "automatically_derived",
+  "cfg",
+  "cold",
+  "collapse_debuginfo",
+  "coverage",
+  "crate_name",
+  "crate_type",
+  "debugger_visualizer",
+  "deny",
+  "deprecated",
+  "derive",
+  "doc",
+  "expect",
+  "export_name",
+  "feature",
+  "forbid",
+  "global_allocator",
+  "ignore",
+  "inline",
+  "instruction_set",
+  "link",
+  "link_name",
+  "link_ordinal",
+  "link_section",
+  "macro_export",
+  "macro_use",
+  "must_use",
+  "naked",
+  "no_builtins",
+  "no_implicit_prelude",
+  "no_link",
+  "no_main",
+  "no_mangle",
+  "no_std",
+  "non_exhaustive",
+  "optimize",
+  "panic_handler",
+  "path",
+  "proc_macro",
+  "proc_macro_attribute",
+  "proc_macro_derive",
+  "recursion_limit",
+  "repr",
+  "should_panic",
+  "target_feature",
+  "test",
+  "track_caller",
+  "type_length_limit",
+  "used",
+  "warn",
+  "windows_subsystem",
+  "bench",
+];
+
+/// The tools whose attributes the compiler knows (`#[rustfmt::skip]`, `#[clippy::…]`)
+const ATTRIBUTE_TOOLS: [&str; 5] = ["clippy", "diagnostic", "miri", "rust_analyzer", "rustfmt"];
+
+/// Whether an attribute macro may read the name of a parameter: its function, an item around it or the parameter
+/// itself stands under an attribute that is not one of the language's own (`#[tauri::command]` and `#[instrument]`
+/// name the parameters in what they generate), which gets the tokens of all it stands on
+fn is_read_by_attribute(parameter: &SyntaxNode) -> bool {
+  let attributes = |node: SyntaxNode| node.children().filter(|it| it.kind() == K::ATTR).flat_map(|it| it.children());
+  parameter.ancestors().flat_map(attributes).any(|it| !is_inert_meta(&it))
+}
+
+/// Whether what an attribute holds is of the language or of its tools: a `cfg`, a path of theirs, or a `cfg_attr` or
+/// an `unsafe(…)` of such alone
+fn is_inert_meta(meta: &SyntaxNode) -> bool {
+  match meta.kind() {
+    K::CFG_META => true,
+    K::CFG_ATTR_META | K::UNSAFE_META => meta
+      .children()
+      .filter(|it| {
+        matches!(
+          it.kind(),
+          K::PATH_META | K::KEY_VALUE_META | K::TOKEN_TREE_META | K::CFG_ATTR_META | K::CFG_META | K::UNSAFE_META
+        )
+      })
+      .all(|it| is_inert_meta(&it)),
+    _ => meta.children().find(|it| it.kind() == K::PATH).is_some_and(|it| {
+      let path: String = it.text().to_string().split_whitespace().collect();
+      is_inert_path(&path)
+    }),
+  }
+}
+
+/// Whether the path of an attribute names one of the language or of its tools
+fn is_inert_path(path: &str) -> bool {
+  match path.split_once("::") {
+    Some((tool, _)) => ATTRIBUTE_TOOLS.contains(&tool),
+    None => INERT_ATTRIBUTES.contains(&path),
+  }
 }
 
 /// What the site of a name makes of it beside its binding (`Site`)
-fn site_of(token: &SyntaxToken, kind: ReferenceKind, binding: Option<LocalBinding>) -> Site {
+fn site_of(token: &SyntaxToken) -> Site {
   let Some(parent) = token.parent() else { return Site::Plain };
-  let syntactic = match parent.kind() {
+  match parent.kind() {
     K::TOKEN_TREE => Site::Macro,
     K::NAME => pattern_site(&parent),
     K::NAME_REF => use_site(&parent),
     _ => Site::Plain,
-  };
-  // a type is never a value: `total` of `let x: total` is a type of that spelling
-  site_by_binding(syntactic, kind == ReferenceKind::Type, binding)
+  }
 }
 
 /// The site of the name of a binding: `Point { total }` names the field too, any other binding inside a pattern that
@@ -409,26 +574,23 @@ fn pattern_site(name: &SyntaxNode) -> Site {
   }
 }
 
-/// The site of a name that declares nothing: the field a struct expression names by its value (`Point { total }`), the
-/// name of a field before its colon, the name of a macro
+/// The site of a name that declares nothing: the field a struct expression names by its value (`Point { total }`)
 fn use_site(name_ref: &SyntaxNode) -> Site {
-  let Some(parent) = name_ref.parent() else { return Site::Plain };
-  match parent.kind() {
-    K::RECORD_EXPR_FIELD | K::RECORD_PAT_FIELD => Site::Namesake,
-    K::PATH_SEGMENT => {
-      let Some(path) = parent.parent().filter(|it| !it.children().any(|it| it.kind() == K::PATH)) else {
-        return Site::Plain;
-      };
-      match path.parent() {
-        Some(outer) if outer.kind() == K::MACRO_CALL => Site::Namesake,
-        Some(outer) if outer.kind() == K::PATH_EXPR => match outer.parent() {
-          Some(field) if field.kind() == K::RECORD_EXPR_FIELD && !field.children().any(|it| it.kind() == K::NAME_REF) => Site::Shorthand,
-          _ => Site::Plain,
-        },
-        _ => Site::Plain,
-      }
-    }
-    _ => Site::Plain,
+  let path = name_ref
+    .parent()
+    .filter(|it| it.kind() == K::PATH_SEGMENT)
+    .and_then(|it| it.parent())
+    .filter(|it| !it.children().any(|it| it.kind() == K::PATH));
+  let field = path
+    .and_then(|it| it.parent())
+    .filter(|it| it.kind() == K::PATH_EXPR)
+    .and_then(|it| it.parent())
+    .filter(|it| it.kind() == K::RECORD_EXPR_FIELD);
+  // without a field's name before a colon, the value is the field's name
+  if field.is_some_and(|it| !it.children().any(|it| it.kind() == K::NAME_REF)) {
+    Site::Shorthand
+  } else {
+    Site::Plain
   }
 }
 
@@ -482,6 +644,8 @@ fn kind_of(token: &SyntaxToken, text: &str) -> (ReferenceKind, Option<String>) {
       ast::MethodCallExpr::cast(context).and_then(|it| it.receiver()).map(|it| text_of(it.syntax())),
     ),
     K::ASSOC_TYPE_ARG => (ReferenceKind::Type, None),
+    // `Point { total: 1 }`, `Point { total: read }`: the field before the colon, which no scope binds
+    K::RECORD_EXPR_FIELD | K::RECORD_PAT_FIELD => (ReferenceKind::Member, None),
     K::PATH_SEGMENT => path_kind(&context, &text_of),
     _ => (ReferenceKind::Value, None),
   }

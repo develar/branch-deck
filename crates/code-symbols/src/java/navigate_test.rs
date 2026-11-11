@@ -181,3 +181,34 @@ fn the_collection_of_a_for_is_read_before_its_variable() {
   assert_eq!(kind_and_local(Grammar::Java, text, "item);\n", 0).1, Some((1, 6)));
   assert_eq!(usages(Grammar::Java, text, "item :", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
 }
+
+/// A name is of the kind of thing its place reads: a call of a method, a type of a class, a name after `::` of a
+/// member, never of a variable of the spelling
+#[test]
+fn a_call_a_type_and_a_method_reference_are_of_no_variable() {
+  let text = "class A {\n  int size;\n  int size() { return 1; }\n  class total {}\n  Object f() {\n    int size = size();\n    int total = size + this.size;\n    total typed = null;\n    Supplier<Integer> s = this::size;\n    return size + total;\n  }\n}\n";
+  let found = |needle: &str, occurrence: usize| kind_and_local(Grammar::Java, text, needle, occurrence);
+  // the method, though the variable of the statement has its name
+  assert_eq!(found("size();", 0), (ReferenceKind::Call, Some((2, 6))));
+  assert_eq!(found("size + this", 0), (ReferenceKind::Value, Some((5, 8))));
+  // the class, though a variable has its name
+  assert_eq!(found("total typed", 0), (ReferenceKind::Type, Some((3, 8))));
+  let reference = at(Grammar::Java, text, "size;\n    return", 0);
+  assert_eq!(
+    (reference.kind, reference.qualifier.as_deref(), reference.local),
+    (ReferenceKind::Member, Some("this"), None)
+  );
+  assert_eq!(
+    usages(Grammar::Java, text, "size = size", 0),
+    (true, vec![(5, Access::Declaration), (6, Access::Read), (9, Access::Read)])
+  );
+  assert_eq!(usages(Grammar::Java, text, "total = size", 0), (true, vec![(6, Access::Declaration), (9, Access::Read)]));
+}
+
+/// The variable of a pattern of a `case …:` is of the statements of its label alone
+#[test]
+fn the_variable_of_a_case_pattern_ends_at_the_next_label() {
+  let text = "class A {\n  Object i;\n  void f(Object o) {\n    switch (o) {\n      case Integer i when i > 0: use(i); break;\n      default: use(i);\n    }\n  }\n}\n";
+  let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::Java, text, needle, occurrence).1;
+  assert_eq!((local("i > 0", 0), local("i); break", 0), local("i);\n", 0)), (Some((4, 19)), Some((4, 19)), Some((1, 9))));
+}

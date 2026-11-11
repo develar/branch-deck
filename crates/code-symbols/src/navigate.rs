@@ -149,13 +149,15 @@ pub enum Site {
   /// The name is also the property the site reads or sets: `{ total }` of an object, a record or a pattern of
   /// TypeScript, JavaScript and Rust, a member of an anonymous type or an element of a tuple of C# named by it
   Shorthand,
-  /// The name of a named argument (an element of an annotation too): the parameter of what is called
+  /// The name of a named argument (an element of an annotation too): the parameter of what is called, which no scope
+  /// binds to a local
   NamedArgument,
   /// A label, or the name of a jump to it
   Label,
-  /// The site reads another kind of thing than the binding is, which the scopes do not tell apart: a type or a call
-  /// where the binding is a value and the language keeps those apart, a callable reference, a member an initializer or
-  /// a record names, the name of a macro
+  /// Only the types tell whether the name is the binding the scopes give it: a value called or written after `::` in
+  /// Kotlin (its `invoke`, or a function of its spelling), a name that is all of a `case` label of Java (a constant of
+  /// the enum the `switch` is over), a name in a Java class with a supertype inside the body of the binding (a member
+  /// the class inherits hides it)
   Namesake,
   /// The spelling of the name is a value there: `nameof(total)`
   Spelled,
@@ -360,9 +362,9 @@ pub(crate) struct Resolved {
   pub(crate) binding: Option<Bound>,
 }
 
-/// The site of a name that its syntax alone does not give one (`syntactic`): a `Namesake` where the name is read as
-/// another kind of thing (`apart`: a type, a call in a language that keeps callables apart) than the value its
-/// binding declares
+/// The site of a name that its syntax alone does not give one (`syntactic`): a `Namesake` where the scopes bind the
+/// name to a value and only the types tell whether the name is that value (`apart`: a call of Kotlin, a name before
+/// its `::`)
 pub(crate) fn site_by_binding(syntactic: Site, apart: bool, binding: Option<LocalBinding>) -> Site {
   if syntactic == Site::Plain && apart && binding.is_some_and(|it| it.kind.is_value()) {
     Site::Namesake
@@ -406,7 +408,7 @@ fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>]) -> Name
       let renamed_to = question.renamed_to.filter(|_| local.is_some());
       let key = (local.map(|it| it.start), name, renamed_to);
       Some(*entries.entry(key).or_insert_with(|| {
-        found.names.push(name_at(names, text, name, resolved, local, renamed_to));
+        found.names.push(entry_of(names, text, name, resolved, local, renamed_to));
         found.names.len() - 1
       }))
     });
@@ -417,7 +419,7 @@ fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>]) -> Name
 
 /// The entry of a name: the uses of its declaration `local` (else of its text) among the names of its spelling, and
 /// what the name `renamed_to` would clash with
-fn name_at(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], local: Option<Bound>, renamed_to: Option<&str>) -> NameAt {
+fn entry_of(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], local: Option<Bound>, renamed_to: Option<&str>) -> NameAt {
   let length = utf16_length(name);
   let mut places = Places::new(text);
   let uses = resolved.iter().filter(|it| is_use(it, local)).map(|it| {
@@ -452,8 +454,7 @@ fn clashes(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], loc
   let mut places = Places::new(text);
   let implicit = names.is_implicit(new_name);
   let mut found = Vec::new();
-  // the name of a named argument and a label are bound by no scope, whatever a resolution says of them
-  for it in renamed.iter().filter(|it| !matches!(it.site, Site::NamedArgument | Site::Label)) {
+  for it in &renamed {
     let is_own = own.binary_search(&it.start).is_ok();
     let bound_to_it = it.binding.is_some_and(|binding| binding.start == local.start);
     let kind = if is_own && it.start == local.start && implicit {
@@ -528,7 +529,7 @@ pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
     return Vec::new();
   }
   with_names(grammar, text, |names| {
-    name_at(names, text, name, &names.resolve(&Wanted::named(name)), None, None)
+    entry_of(names, text, name, &names.resolve(&Wanted::named(name)), None, None)
       .uses
       .iter()
       .map(usage_of)

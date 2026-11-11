@@ -485,6 +485,63 @@ and of a file are seen wherever they are declared.
 - **AND** the usages of the parameter are its declaration and the value read from it
   [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`code_reads_in_its_order_a_variable_after_its_statement_and_a_loop_variable_after_its_range`)
 
+### Requirement: A Kotlin local is found before a member of a class inside its body
+
+As Kotlin finds a local before a member of an implicit receiver, a bare name in a class or an object declared inside
+code MUST go to a variable, a parameter or a function that the code around the class declares, before a member of
+the class of that name (a property, a `val` of its constructor). A member gives way to no declaration of the top
+level of a file.
+
+#### Scenario: A property of an object and a val of a constructor of the name of a local
+- **WHEN** a function declares `val total` and `val sum`, then an object with a property `sum` whose function reads `sum`, `total` and a property of its own, and a local class `Box(val total: Int)` whose function reads `total`
+- **THEN** `sum` and `total` go to the variables of the function, in the object and in the class
+- **AND** the property no local hides goes to the property, and a property of the class of the function comes before one of the file
+  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_member_of_a_class_inside_a_body_gives_way_to_a_local_of_the_body`)
+
+### Requirement: The condition of a Kotlin do while sees the block of its body
+
+The condition of a Kotlin `do … while` MUST see the variables the block of its body declares, as Kotlin reads it; a
+statement after the loop does not.
+
+#### Scenario: A variable of the body read by the condition
+- **WHEN** a function loops `do { val more = … } while (more)` beside a property `more` of the file and reads `more` after the loop
+- **THEN** the condition goes to the variable of the body, the name after the loop to the property
+- **AND** the usages of the variable are its declaration and the condition
+  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
+
+### Requirement: A Kotlin name where a type is written is of no value
+
+A Kotlin name where a type is written (`val x: Name`, a constraint of a `where`) MUST be bound to a class, an object,
+a type alias or a type parameter the scopes declare, else to none: never to a variable, a parameter, a property or a
+function of its spelling.
+
+#### Scenario: A type of the spelling of a parameter
+- **WHEN** a function with the parameter `total` declares `val typed: total`
+- **THEN** the type has no declaration in the file, and is no usage of the parameter
+  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
+
+### Requirement: The name of a named argument is the parameter of what is called
+
+The name of a named argument (`report(total = 1)` of Kotlin, `rule(name = name)` of a Bazel file, `F(total: 1)` of
+C#) MUST be a member without a qualifier, which no scope of its file binds: Go to Declaration from it goes to no
+local of its spelling, and it is no usage of one.
+
+#### Scenario: Kotlin
+- **WHEN** a Kotlin function calls `report(total = total)` beside its parameter `total`
+- **THEN** the name of the argument is a member with no declaration, its value goes to the parameter
+- **AND** the usages of the parameter are its declaration and the value
+  [@test] crates/code-symbols/src/kotlin/navigate_test.rs (`a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local`)
+
+#### Scenario: Bazel
+- **WHEN** a `def` calls `rule(name = name)` beside its parameter `name`
+- **THEN** the name of the argument is a member with no declaration, its value goes to the parameter
+  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_name_of_a_named_argument_is_bound_to_no_local`)
+
+#### Scenario: C#
+- **WHEN** a C# method calls `Report(total: total)` beside its local `total`
+- **THEN** the name of the argument is no usage of the local
+  [@test] crates/code-symbols/src/names_at_test.rs (`csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+
 ### Requirement: C# local functions, labels, verbatim names and using static
 
 In C# a local function MUST be seen in all of its block, `goto` MUST go to the label of its name in the blocks around it
@@ -525,6 +582,69 @@ In C# a name in a documentation comment or a directive MUST be none.
 - **THEN** there is no name there
   [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_name_in_a_documentation_comment_or_a_directive_is_none`)
 
+### Requirement: The statements of the sections of a C# switch share its block
+
+The statements of every section of a C# `switch` MUST share the block of the `switch`: a local one section declares
+is the one another assigns, and a local function of a section is seen in all of them. A variable of a label
+(`case int n when n > 0`) MUST be of its section alone, and a variable the governing expression declares of the
+statements around the `switch`.
+
+#### Scenario: A local of one section assigned by another
+- **WHEN** a `switch (Next(out var seen))` declares `int total` in its first section beside a field `total`, assigns `total` in its second, whose label is `case int n when n > 0`, and declares a local function in its third
+- **THEN** the assignment of the second section goes to the local of the first, a `total` after the `switch` to the field
+- **AND** `n` goes to the variable of the label in its section and to the field in the third, the call of the local function to it, `seen` after the `switch` to the variable of the governing expression
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_sections_of_a_switch_share_its_block`)
+
+### Requirement: A C# loop and a statement without a block end the variables of their expressions
+
+A variable an expression of a C# `while`, `do`, `for`, `foreach`, `lock`, `using` or `fixed` declares (`out var x`,
+`o is int x`) MUST end with that statement, and so MUST one of a statement that is the body of another without a
+block (`if (c) Use(out var y);`): a name after it goes to the declaration around. A variable of the condition of an
+`if` is of the statements around the `if`.
+
+#### Scenario: A while, a do, a lock, a body without a block, an if
+- **WHEN** a method declares `x` in the condition of a `while`, `y` in `if (c) Use(out var y);`, `z` in the condition of a `do … while`, `w` in the expression of a `lock` and `s` in the condition of an `if`, beside fields `x`, `y`, `z`, `w`, and reads each after its statement
+- **THEN** the bodies of the `while` and the `lock` go to the variables, the names after the statements to the fields
+- **AND** `s` after its `if` goes to the variable of the condition
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_loop_and_an_embedded_statement_end_the_variables_of_their_expressions`)
+
+### Requirement: The top-level statements of a C# file share one scope
+
+The top-level statements of a C# file MUST share one scope: a local of one is read by those after it and by a local
+function of the file, which they call, and it stays a local, whose usages are the names bound to it.
+
+#### Scenario: A local of the first statement
+- **WHEN** a file of top-level statements declares `var total`, reads it in the next statement and in a local function, and calls that function
+- **THEN** each read goes to the declaration and the call to the local function
+- **AND** the usages of `total` are its declaration and the three reads
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_top_level_statements_of_a_file_share_a_scope`)
+
+### Requirement: A C# query reads its clauses in their order
+
+In a C# query the source of a `from`, the value of a `let` and the source and the left key of a `join` MUST be read
+before their own range variable, the right key of a `join` MUST see that variable alone, the variable of a
+`join … into` MUST end with its clause, and an `into` MUST end every variable before it. The collection of a
+`foreach` MUST be read before the variables of its deconstruction too.
+
+#### Scenario: A from, a let, a join into, an into, a foreach of a deconstruction
+- **WHEN** queries `from item in item.Parts let part = part + item select part`, `from x in xs join item in item.Parts on item equals item into g select g` and `from x in xs group x by x into g select item` stand beside fields `item` and `part`, and a `foreach (var (item, n) in item.Pairs)`
+- **THEN** the sources, the value of the `let` and the left key go to the fields, the right key to the variable of the `join`, the names after the clauses to their range variables
+- **AND** after an `into` a variable before it is gone: `item` goes to the field, an `x` to no declaration
+- **AND** the collection of the `foreach` goes to the field, its body to the variable
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_query_reads_its_clauses_in_their_order`)
+
+### Requirement: A C# type and the member an initializer names are of no variable
+
+A name where C# reads a type MUST be bound to a type or a type parameter the scopes declare, never to a variable of
+its spelling. The member an object initializer or a `with` sets (`new Box { Size = size }`) and the name of a
+`Name =` MUST be members without a qualifier, which no scope binds.
+
+#### Scenario: A type, a member of an initializer and of an anonymous type
+- **WHEN** a method declares `var total`, then `total typed`, `new Box { Size = Size, total = total }` and `new { Size = total }`, beside a class `total` of the file and a parameter `Size`
+- **THEN** the type goes to the class, the members the initializers name to no declaration, their values to the parameter and the local
+- **AND** the usages of the local are its declaration and the two values
+  [@test] crates/code-symbols/src/csharp/navigate_test.rs (`a_type_and_a_member_an_initializer_names_are_of_no_variable`)
+
 ### Requirement: The collection of a loop is read before its variable
 
 The collection a loop runs over MUST be read outside the loop: `for (String item : item.parts())` of Java and
@@ -540,6 +660,28 @@ statement alone: a name after the loop goes to the declaration around it.
 - **WHEN** a C# method loops `foreach (var item in item)` beside a field `item` and reads `item` after the loop
 - **THEN** the collection and the name after the loop go to the field, the body to the variable
   [@test] crates/code-symbols/src/csharp/navigate_test.rs (`the_variable_of_a_foreach_is_seen_in_its_statement_alone`)
+
+### Requirement: A Java call, type and method reference are of no variable
+
+As Java keeps methods, types and variables apart, a called name MUST be bound to a method of the scopes (the accessor
+of a record component too), a name read as a type to a class or a type parameter, and a value to no method. The name
+after `::` of a method reference MUST be a member of what stands before the colons.
+
+#### Scenario: A variable of the name of the method that gives it
+- **WHEN** a method declares `int size = size()` and `int total`, then `total typed` and `this::size`, beside a field and a method `size` and a class `total`
+- **THEN** the call goes to the method, the type to the class, `size` after `this::` is a member of `this`
+- **AND** the usages of each variable are its declaration and its reads
+  [@test] crates/code-symbols/src/java/navigate_test.rs (`a_call_a_type_and_a_method_reference_are_of_no_variable`)
+
+### Requirement: The variable of a Java case pattern ends at the next label
+
+The variable of a pattern of a `case …:` label of Java MUST be seen in the guard of its label and in the statements
+after it up to the next label; the statements of another label go to the declaration around the `switch`.
+
+#### Scenario: A pattern variable read under the next label
+- **WHEN** a `switch` has `case Integer i when i > 0: use(i); break;` and `default: use(i);` beside a field `i`
+- **THEN** the guard and the first `use(i)` go to the variable of the pattern, the one under `default` to the field
+  [@test] crates/code-symbols/src/java/navigate_test.rs (`the_variable_of_a_case_pattern_ends_at_the_next_label`)
 
 ### Requirement: A TypeScript or JavaScript file is read in the dialect of its extension
 
@@ -571,6 +713,53 @@ conditional type.
 - **WHEN** a name is a parameter of a function type or a signature, or what `infer` declares
 - **THEN** it is seen in that function type or signature alone, or in its conditional type
   [@test] crates/code-symbols/src/js/navigate_test.rs (`type_parameters_infer_and_a_predicate_go_to_their_declarations`)
+
+### Requirement: A TypeScript or JavaScript function has one variable of a name
+
+In TypeScript and JavaScript a parameter, a `var` and a function the body of a function declares, of one name, MUST
+be one variable: the first declares it, a later one is a use of it wherever its block stands, a write when it is a
+`var` with a value. A `var` in a `catch` of the name of its parameter MUST write that parameter. The name of a
+function expression is another variable than a parameter of its name.
+
+#### Scenario: A var of the name of a parameter, a second var, a var in a catch
+- **WHEN** a function declares `var total = 2` in a block beside its parameter `total`, declares `var later` three times, the last in the head of a `for … of`, and reads `later` before the first
+- **THEN** the `var` of `total` goes to the parameter and is a write of it, every `later` goes to the first `var`, the last one as a write
+- **AND** `var e = 1` in `catch (e)` writes the parameter of the `catch`, and the parameter of `function total(total)` is what its body reads
+  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_function_has_one_variable_of_a_name`)
+
+### Requirement: The signature of a TypeScript or JavaScript function is read before its body
+
+The names of the signature of a function (the defaults of its parameters, their types, its return type) MUST be bound
+to its parameters and type parameters, else to a scope around the function, never to a declaration of its body:
+`function f(a = total) { let total = a }` reads the `total` around `f`.
+
+#### Scenario: A default of the name of a let and of a var of the body
+- **WHEN** a function inside `outer(total, sum)` has the default `a = total` and a `let total` in its body, and an arrow function the default `c = sum` and a `var sum`
+- **THEN** both defaults go to the parameters of `outer`, a default that names a parameter before it to that parameter
+- **AND** the bodies read their own declarations
+  [@test] crates/code-symbols/src/js/navigate_test.rs (`the_default_of_a_parameter_is_read_outside_the_body`)
+
+### Requirement: A TypeScript name read as a type is of no variable
+
+A name TypeScript reads as a type, and a namespace before the dot of one (`total.T`), MUST be bound to a type, a
+class, an enum or a namespace the scopes declare, else to none: never to a variable, a parameter or a function of its
+spelling. `typeof total` reads the value.
+
+#### Scenario: A type and a namespace of the spelling of a constant
+- **WHEN** a function declares `const total`, a `const typed: total`, a `const other: total.T` and reads `typeof total`, beside a `type total` of the file
+- **THEN** the type and the namespace go to the type of the file, `typeof total` to the constant
+- **AND** the usages of the constant are its declaration, the `typeof` and its reads
+  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_type_is_of_no_variable_and_an_enum_sees_its_members`)
+
+### Requirement: The members of a TypeScript enum are seen in its body
+
+A bare name in the body of a TypeScript enum MUST go to the member of that name (`twice = sum * 2`), before any
+declaration around the enum; outside its body a member is reached through the enum alone.
+
+#### Scenario: A member read by the member after it
+- **WHEN** an enum declares `sum = 1, twice = sum * 2` beside a constant `sum` of the function around it
+- **THEN** the `sum` of the enum goes to its member, the `sum` after the enum to the constant
+  [@test] crates/code-symbols/src/js/navigate_test.rs (`a_type_is_of_no_variable_and_an_enum_sees_its_members`)
 
 ### Requirement: A bare TypeScript name is never a member of the class around it
 
@@ -684,16 +873,40 @@ and a binding shadows an item.
 - **AND** the usages of the parameter `total` are its declaration and the value read from it
   [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_binding_is_seen_after_its_statement_and_in_the_block_it_guards`)
 
+### Requirement: A Rust name is of its namespace
+
+A Rust name MUST be bound to a declaration of the namespace its place reads: a type and a path segment before `::`
+to a type, a module or a type parameter, never to a binding (`total::run(total)` calls the module); the name of a
+macro call and of an attribute to a macro; any other name to no macro. The name of a field before its colon
+(`Point { total: 1 }`) MUST be a member, which no scope binds.
+
+#### Scenario: A module, a macro and a field of the name of a binding
+- **WHEN** a function declares `let total` and `let first`, then `S { total: total }`, `let typed: total::T = first!()` and `total::run(total) + first`, beside a module `total` and a macro `first` of the file
+- **THEN** the segments before `::` go to the module, `first!` to the macro, the field before its colon is a member with no declaration
+- **AND** the value of the field, the argument and `first` go to the bindings, and the usages of `total` are its declaration, that value and that argument
+  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it`)
+
+### Requirement: A Rust item sees no binding of the code around it
+
+A Rust item inside a function (a `fn`, a `const`, a `static`, an `impl`, a module, a type) MUST see the items around
+it and none of the bindings: a name in a `fn` inside a function goes past the parameters and the `let`s of that
+function.
+
+#### Scenario: A fn inside a function reads a static
+- **WHEN** a function with the parameter `sum` declares `fn g() -> u32 { total::run(sum) }` beside a static `sum` of the file, and reads `sum` itself
+- **THEN** the `sum` of `g` goes to the static, the `sum` of the function to its parameter
+  [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it`)
+
 ### Requirement: A Rust format string uses the names it takes from the code around it
 
 A string among the tokens of a Rust macro may be a format string, so a name it would take from the code around the
 macro MUST be a usage of that name: a word right after the `{` of a placeholder (`{total}`, `{total:>8}`) or before a
-`$` (`{:width$}`). A doubled brace, the braces of a code point and a string outside a macro MUST name nothing, and a
-name inside a string is no place to go from.
+`$` (`{:width$}`, and `{:0width$}` after a flag: a digit starts no word). A doubled brace, the braces of a code point
+and a string outside a macro MUST name nothing, and a name inside a string is no place to go from.
 
 #### Scenario: Placeholders, a width, a doubled brace
-- **WHEN** Find Usages runs on a parameter that `format!("{total} {{total}} {total:>8} {:width$} …", total)` reads, a string outside a macro spelling `{total}` too
-- **THEN** its usages are its declaration, the two placeholders and the argument; `width` has its declaration and the width
+- **WHEN** Find Usages runs on a parameter that `format!("{total} {{total}} {total:>8} {:width$} …", total)` and `format!("{total:0width$} {:#0width$x} {:08.width$} {width:0>5} …", total)` read, a string outside a macro spelling `{total}` too
+- **THEN** its usages are its declaration, the placeholders and the arguments; `width` has its declaration, the width of the first string and the three widths and the placeholder of the second
 - **AND** Go to Declaration finds no name inside the string
   [@test] crates/code-symbols/src/rust/navigate_test.rs (`a_format_string_uses_the_names_it_takes_from_the_code_around_it`)
 
@@ -736,6 +949,19 @@ collection and the condition of a comprehension see its variables.
 - **THEN** both defaults go to the `name` of the file, the body of the `lambda` to its parameter
 - **AND** the first collection goes to the parameter of the `def`, the element and the condition to the variable of the comprehension
   [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_defined`)
+
+### Requirement: A name a Bazel def binds is one variable in all of it
+
+A name a `def` or a comprehension of a Bazel file binds MUST be one variable in all of that scope, as Starlark reads
+it: its declaration is the first place that binds it (the parameter, else the first assignment, `for` or `def`
+inside), a later one is a write of it, and a name before its first assignment, a closure's too, is the variable's,
+not a name of the file.
+
+#### Scenario: An assignment in a branch, a parameter assigned again, a closure before the assignment
+- **WHEN** a `def` assigns `total` twice, the second time in an `if`, assigns and loops over its parameter `deps`, and a `def` inside it reads `total` before the first assignment, beside a `total` of the file
+- **THEN** the second assignment and the read of the closure go to the first assignment, the assignment and the `for` of `deps` to the parameter
+- **AND** the usages of `total` are its declaration, the write of the branch and its reads, the closure's among them; the name of the file has none of them
+  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`a_name_a_def_binds_is_one_variable_in_all_of_it`)
 
 ### Requirement: A name a Bazel load binds is declared by its string
 
@@ -1064,11 +1290,11 @@ the other files of the review in a language that sees it, from the texts the dif
 
 ### Requirement: A write is an assignment, an increment, a C# out or ref argument or a destructuring target
 
-A usage MUST be a write where its name ends the left side of an assignment, in every language but Bazel (where every
-`=` declares its name), or is the operand of `++` or `--` (Kotlin, Java, C#, TypeScript and JavaScript; Rust has
-none). In C# an `out` or `ref` argument MUST be a write, as an assignment and an increment are; only C# has one, and an
-argument of any other language reads (a Rust `&mut x` too). In TypeScript and JavaScript the targets of a destructuring
-assignment MUST be writes too.
+A usage MUST be a write where its name ends the left side of an assignment or is the operand of `++` or `--`, where
+a C# argument is `out` or `ref`, and where it is a target of a TypeScript destructuring assignment. In a Bazel file
+an `=` declares its name, but one of a `def` whose name the `def` bound before, which writes, as a later `var` with a
+value of a variable of a TypeScript or JavaScript function does. An argument of any other language reads (a Rust
+`&mut x` too).
 
 #### Scenario: An assignment and an increment write
 - **WHEN** a name ends the left side of an assignment or is the operand of `++` or `--`
@@ -1080,7 +1306,8 @@ assignment MUST be writes too.
 #### Scenario: A Bazel assignment declares
 - **WHEN** a name of a Bazel file is assigned by `=`
 - **THEN** its usage there is its declaration, no write
-  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`)
+- **AND** a later assignment of the name in its `def`, and a `for` over it, is a write of the variable
+  [@test] crates/code-symbols/src/starlark/navigate_test.rs (`the_usages_of_a_parameter_stay_inside_its_def`, `a_name_a_def_binds_is_one_variable_in_all_of_it`)
 
 #### Scenario: A C# out or ref argument writes
 - **WHEN** a C# name is passed as an `out` or `ref` argument
@@ -1094,7 +1321,8 @@ assignment MUST be writes too.
 #### Scenario: The targets of a TypeScript destructuring assignment write
 - **WHEN** a TypeScript or JavaScript name is a target of a destructuring assignment
 - **THEN** its usage is a write
-  [@test] crates/code-symbols/src/js/navigate_test.rs (`an_assignment_a_destructuring_and_an_increment_write`)
+- **AND** a later `var` of a variable of its function is a write when it has a value, a declaration again when it has none
+  [@test] crates/code-symbols/src/js/navigate_test.rs (`an_assignment_a_destructuring_and_an_increment_write`, `a_function_has_one_variable_of_a_name`)
 
 ### Requirement: The usages outside the review come from the index at the side
 
@@ -1167,4 +1395,3 @@ answer: <why>" under them, and a name without a declaration in the review says w
 - **THEN** its toast says why
   [@test] crates/file-diffs/src/usages_test.rs (`an_index_that_fails_takes_nothing_from_the_review_and_says_why`)
   [@test] tests/e2e/commit-files/symbol-navigation.spec.ts (`should keep what the review knows and say why when the index of the repository fails`)
-

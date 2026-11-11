@@ -126,6 +126,8 @@ const JAVA: &str = "class Ledger {
     if (first instanceof Point(int x, int y) && other instanceof String text) { use(x, text); }
     @Range(scale = 1) int ranged = total;
     total local = null;
+    switch (scale) { case total: break; default: break; }
+    Runnable task = new Runnable() { public void run() { use(total, scale); } };
     return total;
   }
 }
@@ -149,6 +151,8 @@ const CSHARP: &str = r#"class Ledger {
     Func<int, int> twice = item => item * 2;
     int Local(int size) => size + total;
     total other = default;
+    var doubled = twice(total);
+    again: scale--; if (scale > 0) goto again;
     return total;
   }
   long sum;
@@ -167,6 +171,8 @@ def _library(name, deps = [], *args, **kwargs):
     native.cc_library(name = name, deps = deps, total = total, size = size)
     def inner(total):
         return total
+    if first:
+        total = key(first)
     return struct(total = total, args = args)
 
 size = 2
@@ -189,10 +195,17 @@ fn balance(entries: &[Entry], scale: u64) -> u64 {
   read!(first);
   let typed: read = first;
   if let Some(found) = find(read) { use_it(found); }
-  match second { 0 => sum, more => more }
+  match second { 0 => sum, more => twice(more) }
 }
 
 const sum: u64 = 1;
+
+#[instrument(skip(amount))]
+fn load(amount: u64) -> u64 { amount }
+
+#[inline]
+#[cfg_attr(test, allow(unused))]
+fn plain(count: u64) -> u64 { count }
 "#;
 const TYPESCRIPT: &str = "class Ledger {
   total = 0
@@ -245,15 +258,16 @@ fn kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::Kotlin,
     KOTLIN,
     &[
-      // a local with several uses: a named argument, a call, a callable reference and a string template among them; `sum` is a property its body reads
+      // a local with several uses: a call, a callable reference and a string template among them, not the name of the argument it is given as; `sum` is a property its body reads
       (
         "total = 0L",
         0,
         Some("sum"),
-        "variable: 2:8 declaration, 4:6 write, 5:27 write, 7:31 read, 8:11 read named argument, 8:19 read, 9:10 call namesake, 9:52 read namesake, 9:61 read, 11:11 read | 10:44 captured",
+        "variable: 2:8 declaration, 4:6 write, 5:27 write, 7:31 read, 8:19 read, 9:10 call namesake, 9:52 read namesake, 9:61 read, 11:11 read | 10:44 captured",
       ),
-      // the property of the same spelling: no use of the local is its
-      ("total: Long", 0, None, "-: 0:17 declaration, 8:37 read"),
+      // the property of the same spelling: no use of the local is its; the name of the argument is a name of that text no local binds
+      ("total: Long", 0, None, "-: 0:17 declaration, 8:11 read named argument, 8:37 read"),
+      ("total = total", 0, Some("sum"), "-: 0:17 declaration, 8:11 read named argument, 8:37 read"),
       // a parameter a call may name; the name of the loop variable is nearer to its use in the loop
       ("scale: Int", 0, Some("entry"), "parameter named by calls: 1:36 declaration, 4:30 read | 4:30 shadowed"),
       // the local of a nested block shadows the parameter and would take the write beside it
@@ -294,8 +308,9 @@ fn kotlin_tells_what_a_local_is() {
       ("count:", 0, None, "parameter named by calls: 7:14 declaration, 7:28 read"),
       // a local function
       ("inner", 0, None, "other: 7:8 declaration"),
-      // a parameter read as a type is a type of that spelling
-      ("handler:", 0, None, "parameter named by calls: 3:11 declaration, 8:15 read namesake, 8:25 read"),
+      // a type of the spelling of a parameter is no use of the parameter
+      ("handler:", 0, None, "parameter named by calls: 3:11 declaration, 8:25 read"),
+      ("handler =", 0, None, "-: 8:15 read"),
       // an entry of the destructuring of a loop
       ("key,", 0, None, "loop variable: 9:10 declaration destructured, 9:38 read"),
       // an entry of the destructuring of a lambda
@@ -310,17 +325,22 @@ fn java_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::Java,
     JAVA,
     &[
-      // a local with several uses; a call and a type of its spelling are no value; `sum` is read as a value and called
+      // a local with several uses; a call and a type of its spelling are none of them, a `case` label and a use in an anonymous class may be another thing; `sum` is read as a value, and called as the method
       (
         "total = 0",
         0,
         Some("sum"),
-        "variable: 4:9 declaration, 6:6 write, 7:23 write, 9:38 write, 11:31 call namesake, 14:35 read, 15:4 read namesake, 16:11 read | 11:83 captured, 12:38 captured",
+        "variable: 4:9 declaration, 6:6 write, 7:23 write, 9:38 write, 14:35 read, 16:26 read namesake, 17:61 read namesake, 18:11 read | 11:83 captured",
       ),
-      // the field of the same spelling
-      ("total;", 0, None, "-: 1:7 declaration, 11:76 read"),
-      // a parameter: Java has no named arguments
-      ("scale)", 0, Some("entry"), "parameter: 3:40 declaration, 6:30 read, 9:24 read | 6:30 shadowed"),
+      // the field of the same spelling, with the call and the type no variable is
+      ("total;", 0, None, "-: 1:7 declaration, 11:31 call, 11:76 read, 15:4 read"),
+      // a parameter: Java has no named arguments; its use in the anonymous class may be a member the class inherits
+      (
+        "scale)",
+        0,
+        Some("entry"),
+        "parameter: 3:40 declaration, 6:30 read, 9:24 read, 16:12 read, 17:68 read namesake | 6:30 shadowed",
+      ),
       // the local of a nested block would take the write beside it
       ("inner = 2", 0, Some("total"), "variable: 7:12 declaration, 7:32 read | 7:23 captured"),
       // the variable of a for over a collection
@@ -351,21 +371,21 @@ fn csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::CSharp,
     CSHARP,
     &[
-      // a local with several uses: an element of a tuple and a member of an anonymous type it names, a member an initializer names, `nameof`, an interpolation, a type
+      // a local with several uses: an element of a tuple and a member of an anonymous type it names, `nameof`, an interpolation, the argument of a call of a delegate; not the member an initializer names, not a type
       (
         "total = 0",
         0,
         Some("sum"),
-        "variable: 3:9 declaration, 5:6 write, 6:23 write, 8:38 write, 9:16 read shorthand, 10:21 read shorthand, 11:24 write namesake, 11:32 read, 12:18 read, 13:22 read spelled, 13:34 read, 17:34 read, 18:4 read namesake, 19:11 read | 15:60 captured",
+        "variable: 3:9 declaration, 5:6 write, 6:23 write, 8:38 write, 9:16 read shorthand, 10:21 read shorthand, 11:32 read, 12:18 read, 13:22 read spelled, 13:34 read, 17:34 read, 19:24 read, 21:11 read | 15:60 captured",
       ),
-      // the field of the same spelling, and the named argument
-      ("total;", 0, None, "-: 1:7 declaration, 12:11 read named argument, 12:35 read"),
+      // the field of the same spelling, with what no variable is: the member an initializer names, the named argument, the type
+      ("total;", 0, None, "-: 1:7 declaration, 11:24 write, 12:11 read named argument, 12:35 read, 18:4 read"),
       // a parameter a call may name; the foreach variable is nearer in its loop only
       (
         "scale)",
         0,
         Some("entry"),
-        "parameter named by calls: 2:40 declaration, 5:30 read, 8:24 read, 9:23 read shorthand, 10:35 read shorthand | 5:30 shadowed",
+        "parameter named by calls: 2:40 declaration, 5:30 read, 8:24 read, 9:23 read shorthand, 10:35 read shorthand, 20:11 write, 20:24 read | 5:30 shadowed",
       ),
       // the local of a nested block
       ("inner = 2", 0, Some("total"), "variable: 6:12 declaration, 6:32 read | 6:23 captured"),
@@ -384,9 +404,13 @@ fn csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
       // the parameter of a local function
       ("size)", 0, None, "parameter named by calls: 17:18 declaration, 17:27 read"),
       // a local of a setter; `value` is bound without a declaration
-      ("size =", 0, Some("value"), "variable: 22:24 declaration | 22:24 implicit, 22:31 captured"),
+      ("size =", 0, Some("value"), "variable: 24:24 declaration | 24:24 implicit, 24:31 captured"),
       // a local function
       ("Local", 0, None, "other: 17:8 declaration"),
+      // a local that holds a delegate: its call is a plain use
+      ("twice =", 0, None, "variable: 16:19 declaration, 19:18 call"),
+      // a label and its jump: no scope binds them
+      ("again:", 0, Some("total"), "other: 20:4 declaration label, 20:40 read label | no clash"),
     ],
   );
 }
@@ -397,38 +421,47 @@ fn starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::Starlark,
     STARLARK,
     &[
-      // a local with several uses, the names of named arguments among them; `size` is a name of the file its body calls
+      // a local with several uses, a later assignment of it among them, not the names of the arguments it is given as; `size` is a name of the file its body calls
       (
         "total = len",
         0,
         Some("size"),
-        "variable: 3:4 declaration, 5:8 read, 5:35 read, 6:25 read, 8:30 read, 9:48 read named argument, 9:56 read, 12:18 read named argument, 12:26 read | 5:17 captured, 9:70 captured",
+        "variable: 3:4 declaration, 5:8 read, 5:35 read, 6:25 read, 8:30 read, 9:56 read, 13:8 write, 14:26 read | 5:17 captured, 9:70 captured",
       ),
-      // the name of the file of the same spelling
-      ("total", 0, None, "-: 0:0 declaration"),
+      // the name of the file of the same spelling, with the names of the arguments
+      ("total", 0, None, "-: 0:0 declaration, 9:48 read named argument, 14:18 read named argument"),
       // a parameter a call may name, apart from the variable of the comprehension
-      ("name,", 0, None, "parameter named by calls: 2:13 declaration, 9:22 read named argument, 9:29 read"),
-      // a parameter; the loop variable is declared before its other uses
+      ("name,", 0, None, "parameter named by calls: 2:13 declaration, 9:29 read"),
+      // a parameter; the name of the loop variable would be the same variable of the def
       (
         "deps =",
         0,
         Some("dep"),
-        "parameter named by calls: 2:19 declaration, 3:16 read, 4:15 read, 7:30 read, 9:35 read named argument, 9:42 read | 4:15 shadowed, 7:30 shadowed, 9:42 shadowed",
+        "parameter named by calls: 2:19 declaration, 3:16 read, 4:15 read, 7:30 read, 9:42 read | 4:8 captured, 5:22 captured",
       ),
       // the variable of a for
       ("dep in", 0, None, "loop variable: 4:8 declaration, 5:22 read"),
       // a name a tuple of targets assigns
-      ("first", 0, None, "variable: 6:4 declaration destructured"),
-      // the parameter of a lambda
-      ("item:", 0, None, "lambda parameter: 8:17 declaration, 8:23 read"),
+      ("first", 0, None, "variable: 6:4 declaration destructured, 12:7 read, 13:20 read"),
+      // the parameter of a lambda, which a call may name as the one of a def
+      ("item:", 0, None, "lambda parameter named by calls: 8:17 declaration, 8:23 read"),
       // no call names what `*args` takes
-      ("args", 0, None, "parameter: 2:31 declaration, 12:33 read named argument, 12:40 read"),
+      ("args", 0, None, "parameter: 2:31 declaration, 14:40 read"),
       // a def inside a def
       ("inner", 0, None, "other: 10:8 declaration"),
       // the parameter of the inner def shadows the local
       ("total):", 0, None, "parameter named by calls: 10:14 declaration, 11:15 read"),
       // the variable of a comprehension, seen in all of it
       ("name for", 0, None, "loop variable: 7:13 read, 7:22 declaration, 7:38 read"),
+      // a local that holds a lambda: its call is a plain use
+      ("key =", 0, None, "variable: 8:4 declaration, 13:16 call"),
+      // the name of a named argument is a name of that text no local binds
+      (
+        "total = total, size",
+        0,
+        Some("size"),
+        "-: 0:0 declaration, 9:48 read named argument, 14:18 read named argument",
+      ),
     ],
   );
 }
@@ -439,27 +472,27 @@ fn rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::Rust,
     RUST,
     &[
-      // a local with several uses: the field it names by its value, the name of a field; the binding of line 11 takes the later ones; `sum` is a constant its body reads
+      // a local with several uses: the field it names by its value, not the name of a field before its colon; the binding of line 11 takes the later ones; `sum` is a constant its body reads
       (
         "total = 0",
         0,
         Some("sum"),
-        "variable: 3:10 declaration, 5:4 write, 6:21 write, 8:24 read shorthand, 9:23 read namesake, 9:30 read, 10:15 read namesake | 13:33 captured, 18:22 captured",
+        "variable: 3:10 declaration, 5:4 write, 6:21 write, 8:24 read shorthand, 9:30 read | 13:33 captured, 18:22 captured",
       ),
-      // the field of the same spelling
-      ("total:", 0, None, "-: 0:16 declaration"),
+      // the field of the same spelling, with its names before a colon
+      ("total:", 0, None, "-: 0:16 declaration, 9:23 read, 10:15 read"),
       // a parameter; the loop variable is nearer in the loop
       ("scale:", 0, Some("entry"), "parameter: 2:30 declaration, 5:28 read | 5:28 shadowed"),
       // the local of a nested block
       ("scale = 2", 0, Some("total"), "variable: 6:10 declaration, 6:30 read | 6:21 captured"),
       // the variable of a for
       ("entry in", 0, None, "loop variable: 4:6 declaration, 5:13 read"),
-      // a binding of a record pattern: the names a format string takes, the tokens and the name of a macro, a type
+      // a binding of a record pattern: the names a format string and the tokens of a macro take; not the name of a macro, not a type
       (
         "read }",
         0,
         Some("sum"),
-        "variable: 10:22 declaration destructured, 14:16 read macro, 14:43 read macro, 15:2 read namesake, 16:13 read namesake, 17:28 read | 13:33 captured, 18:22 captured",
+        "variable: 10:22 declaration destructured, 14:16 read macro, 14:43 read macro, 17:28 read | 13:33 captured, 18:22 captured",
       ),
       // a binding that is the name of its field
       ("total } = other", 0, None, "variable: 11:15 declaration shorthand, 12:29 read"),
@@ -470,7 +503,15 @@ fn rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
       // the binding of an if let
       ("found)", 0, None, "variable: 17:14 declaration destructured, 17:43 read"),
       // the binding of an arm
-      ("more =>", 0, None, "variable: 18:27 declaration, 18:35 read"),
+      ("more =>", 0, None, "variable: 18:27 declaration, 18:41 read"),
+      // a local that holds a closure: its call is a plain use
+      ("twice =", 0, None, "variable: 13:6 declaration, 18:35 call"),
+      // the field before its colon is a member no scope binds
+      ("total: total", 0, Some("sum"), "-: 0:16 declaration, 9:23 read, 10:15 read"),
+      // an attribute macro reads the parameters of the function it stands on, as this one names one among its tokens
+      ("amount:", 0, None, "parameter named by calls: 23:18 read macro, 24:8 declaration, 24:30 read"),
+      // the attributes of the language read none
+      ("count:", 0, None, "parameter: 28:9 declaration, 28:30 read"),
     ],
   );
 }
@@ -481,15 +522,15 @@ fn typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::TypeScript,
     TYPESCRIPT,
     &[
-      // a local with several uses: the property it names, the targets of two destructurings, a call, a type, a template
+      // a local with several uses: the property it names, the targets of two destructurings, a call, a template; not the type of its spelling
       (
         "total = 0\n    for",
         0,
         Some("sum"),
-        "variable: 4:8 declaration, 6:6 write, 7:25 write, 9:36 write, 10:19 read shorthand, 13:8 write shorthand, 14:6 write destructured, 15:10 call, 17:17 read namesake, 17:28 read, 19:11 read | 15:47 captured, 16:40 captured",
+        "variable: 4:8 declaration, 6:6 write, 7:25 write, 9:36 write, 10:19 read shorthand, 13:8 write shorthand, 14:6 write destructured, 15:10 call, 17:28 read, 19:11 read | 15:47 captured, 16:40 captured",
       ),
-      // the field of the same spelling, and the type
-      ("total = 0", 0, None, "-: 1:2 declaration, 10:36 read, 23:5 declaration"),
+      // the field of the same spelling, and the type with its use
+      ("total = 0", 0, None, "-: 1:2 declaration, 10:36 read, 17:17 read, 23:5 declaration"),
       // a parameter of a method: no call names it
       ("scale: number)", 0, Some("entry"), "parameter: 3:28 declaration, 6:30 read, 9:24 read | 6:30 shadowed"),
       // the local of a nested block
@@ -596,7 +637,8 @@ fn a_text_with_a_syntax_error_still_answers_the_names_its_tree_holds() {
     (
       Grammar::Starlark,
       "def f(scale):\n    total = 1\n    broken = (\n    use(total, scale)\n",
-      "variable: 1:4 declaration, 3:8 read | 3:15 captured",
+      // in a def the new name is the variable of the parameter: the names of the local would be its
+      "variable: 1:4 declaration, 3:8 read | 1:4 shadowed, 3:8 shadowed",
     ),
     (
       Grammar::Rust,
@@ -764,14 +806,12 @@ fn is_one_local(grammar: Grammar, text: &str, sites: &[Position], new_name: &str
   let found = names_at(grammar, text, &questions);
   let Some(&Some(entry)) = found.asked.first() else { return false };
   let name = &found.names[entry];
-  // the name of a named argument and a label are no uses of the local, whatever its scopes say
-  let uses: Vec<_> = name.uses.iter().filter(|it| !matches!(it.site, Site::NamedArgument | Site::Label)).collect();
   found.asked.iter().all(|it| *it == Some(entry))
     && name.local.is_some_and(|it| it.kind.is_value() && !it.named_by_calls)
     && name.clashes.as_ref().is_some_and(Vec::is_empty)
-    && uses.len() == sites.len()
-    && uses.iter().zip(sites).all(|(used, site)| used.start == *site && used.site == Site::Plain)
-    && uses.iter().any(|it| it.access == Access::Declaration)
+    && name.uses.len() == sites.len()
+    && name.uses.iter().zip(sites).all(|(used, site)| used.start == *site && used.site == Site::Plain)
+    && name.uses.iter().any(|it| it.access == Access::Declaration)
 }
 
 /// Whether the change from `old` to `new`, two texts of the same words but `old_name` written `new_name` at some
@@ -787,8 +827,8 @@ fn is_rename(grammar: Grammar, old: &str, new: &str, old_name: &str, new_name: &
   is_one_local(grammar, old, &old_sites, new_name) && is_one_local(grammar, new, &new_sites, old_name)
 }
 
-/// The cases a reader of renames must tell apart, read as `is_rename` reads them: the first of each language is the
-/// rename of one local, every other changes what the code means or what other code may spell
+/// The cases a reader of renames must tell apart, read as `is_rename` reads them: a rename of one local, or a change
+/// of what the code means or of what other code may spell
 #[test]
 fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike() {
   let cases: &[(Grammar, &str, &str, bool, &str)] = &[
@@ -842,6 +882,27 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "a call may name the parameter",
     ),
     (
+      Grammar::Kotlin,
+      "fun f(): String {\n  val total = \"local\"\n  val o = object { val sum = \"member\"; fun g() = sum }\n  return o.g() + total\n}\n",
+      "fun f(): String {\n  val sum = \"local\"\n  val o = object { val sum = \"member\"; fun g() = sum }\n  return o.g() + sum\n}\n",
+      false,
+      "the function of the object reads the variable now, not its property",
+    ),
+    (
+      Grammar::Kotlin,
+      "class A {\n  var total = 0\n  fun f(): Int {\n    var n = 0\n    do {\n      val total = 500\n      n += total\n    } while (total > 100 && n < 2000)\n    return n\n  }\n}\n",
+      "class A {\n  var total = 0\n  fun f(): Int {\n    var n = 0\n    do {\n      val sum = 500\n      n += sum\n    } while (total > 100 && n < 2000)\n    return n\n  }\n}\n",
+      false,
+      "the condition of the loop reads the property now",
+    ),
+    (
+      Grammar::Kotlin,
+      "fun f(): Int {\n  val size = size()\n  return size + 1\n}\n",
+      "fun f(): Int {\n  val count = size()\n  return count + 1\n}\n",
+      true,
+      "the function that gives the value keeps its name",
+    ),
+    (
       Grammar::Java,
       "class A { int f(int total) { int next = total + 1; return next; } }\n",
       "class A { int f(int sum) { int next = sum + 1; return next; } }\n",
@@ -854,6 +915,34 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "class A {\n  Box item, part;\n  void f() {\n    for (String part : part.parts()) { use(part); }\n  }\n}\n",
       false,
       "the loop runs over another field now",
+    ),
+    (
+      Grammar::Java,
+      "class A { int f() { int size = size(); return size + 1; } }\n",
+      "class A { int f() { int count = size(); return count + 1; } }\n",
+      true,
+      "the method that gives the value keeps its name: a call is of no variable",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  String f() {\n    String total = \"local\";\n    return new Base() { String g() { return total; } }.g();\n  }\n}\n",
+      "class A {\n  String f() {\n    String sum = \"local\";\n    return new Base() { String g() { return sum; } }.g();\n  }\n}\n",
+      false,
+      "a field the anonymous class inherits may take the read",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  String f() {\n    String total = \"local\";\n    class Box extends Base { String g() { return total; } }\n    return new Box().g();\n  }\n}\n",
+      "class A {\n  String f() {\n    String sum = \"local\";\n    class Box extends Base { String g() { return sum; } }\n    return new Box().g();\n  }\n}\n",
+      false,
+      "a field the local class inherits may take the read",
+    ),
+    (
+      Grammar::Java,
+      "class A { int f(Kind kind) { int total = 1; switch (kind) { case total: return total; default: return 0; } } }\n",
+      "class A { int f(Kind kind) { int sum = 1; switch (kind) { case sum: return sum; default: return 0; } } }\n",
+      false,
+      "the label may be a constant of the enum",
     ),
     (
       Grammar::CSharp,
@@ -884,6 +973,62 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "the member of the anonymous type has another name now",
     ),
     (
+      Grammar::CSharp,
+      "class A { void F() { var total = 1; Use(new Box { total = total }); } }\n",
+      "class A { void F() { var sum = 1; Use(new Box { total = sum }); } }\n",
+      true,
+      "the member the initializer names keeps its name",
+    ),
+    (
+      Grammar::CSharp,
+      "var total = 1;\nSystem.Console.WriteLine(total);\nint Twice(int x) => x * total;\n",
+      "var sum = 1;\nSystem.Console.WriteLine(sum);\nint Twice(int x) => x * sum;\n",
+      true,
+      "a local of the top-level statements and its uses in them",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { int total = 100; int F(int k) { switch (k) {\n  case 1: int total = 1; Use(total); break;\n  case 2: total = 2; return total;\n} return 0; } }\n",
+      "class A { int total = 100; int F(int k) { switch (k) {\n  case 1: int sum = 1; Use(sum); break;\n  case 2: total = 2; return total;\n} return 0; } }\n",
+      false,
+      "the other section writes the field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int x, y;\n  void F() {\n    while (Next(out var x)) { Use(x); }\n    Use(x);\n  }\n}\n",
+      "class A {\n  int x, y;\n  void F() {\n    while (Next(out var y)) { Use(y); }\n    Use(y);\n  }\n}\n",
+      false,
+      "the statement after the loop reads another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int x, y;\n  void F(bool c) {\n    if (c) Use(out var x);\n    Use(x);\n  }\n}\n",
+      "class A {\n  int x, y;\n  void F(bool c) {\n    if (c) Use(out var y);\n    Use(y);\n  }\n}\n",
+      false,
+      "the statement after the if reads another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  Box item, part;\n  object F() { return from item in item.Parts select item; }\n}\n",
+      "class A {\n  Box item, part;\n  object F() { return from part in part.Parts select part; }\n}\n",
+      false,
+      "the query runs over another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int total, sum;\n  object F(int[] xs) { return from x in xs let total = total + x select total; }\n}\n",
+      "class A {\n  int total, sum;\n  object F(int[] xs) { return from x in xs let sum = sum + x select sum; }\n}\n",
+      false,
+      "the value of the let reads another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  Box item, part;\n  object F(int[] xs) { return from x in xs join item in item.Parts on x equals item select item; }\n}\n",
+      "class A {\n  Box item, part;\n  object F(int[] xs) { return from x in xs join part in part.Parts on x equals part select part; }\n}\n",
+      false,
+      "the join runs over another field now",
+    ),
+    (
       Grammar::Starlark,
       "def f(xs):\n    total = len(xs)\n    return total\n",
       "def f(xs):\n    count = len(xs)\n    return count\n",
@@ -903,6 +1048,48 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "name = 1\nlabel = 2\nkey = [lambda label = label: label]\n",
       false,
       "the default reads another name of the file now",
+    ),
+    (
+      Grammar::Starlark,
+      "def f(c):\n    total = 1\n    if c:\n        total = 2\n    return total\n",
+      "def f(c):\n    total = 1\n    if c:\n        count = 2\n    return count\n",
+      false,
+      "the assignment of the branch was one variable with the first",
+    ),
+    (
+      Grammar::Starlark,
+      "total = \"global\"\ndef outer():\n    def inner():\n        return total\n    total = \"local\"\n    return inner()\n",
+      "total = \"global\"\ndef outer():\n    def inner():\n        return total\n    count = \"local\"\n    return inner()\n",
+      false,
+      "the closure reads the name of the file now",
+    ),
+    (
+      Grammar::Starlark,
+      "def f(xs, ys):\n    xs = xs + [1]\n    return xs\n",
+      "def f(xs, ys):\n    ys = ys + [1]\n    return ys\n",
+      false,
+      "the assignment writes another parameter now",
+    ),
+    (
+      Grammar::Starlark,
+      "def f(a, b):\n    total = a\n    count = b\n    total = total + 1\n    return total\n",
+      "def f(a, b):\n    total = a\n    count = b\n    count = count + 1\n    return count\n",
+      false,
+      "the assignment writes another variable now",
+    ),
+    (
+      Grammar::Starlark,
+      "def f(a):\n    if a:\n        total = 1\n    else:\n        total = 2\n    return total\n",
+      "def f(a):\n    if a:\n        total = 1\n    else:\n        count = 2\n    return count\n",
+      false,
+      "the branches assigned one variable",
+    ),
+    (
+      Grammar::Starlark,
+      "def f():\n    key = lambda item: item + 1\n    return key(item = 2)\n",
+      "def f():\n    key = lambda entry: entry + 1\n    return key(item = 2)\n",
+      false,
+      "a call names the parameter of the lambda",
     ),
     (
       Grammar::Rust,
@@ -933,6 +1120,41 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "the struct is given another field now",
     ),
     (
+      Grammar::Rust,
+      "fn f() -> S {\n  let total = 1;\n  S { total: total }\n}\n",
+      "fn f() -> S {\n  let sum = 1;\n  S { total: sum }\n}\n",
+      true,
+      "the field keeps its name",
+    ),
+    (
+      Grammar::Rust,
+      "static sum: u32 = 7;\nfn f() -> u32 {\n  let total = 1;\n  fn g() -> u32 { sum }\n  g() + total\n}\n",
+      "static sum: u32 = 7;\nfn f() -> u32 {\n  let sum = 1;\n  fn g() -> u32 { sum }\n  g() + sum\n}\n",
+      true,
+      "the fn inside reads the static on both sides: it sees no binding around it",
+    ),
+    (
+      Grammar::Rust,
+      "fn f(width: usize, n: u32) -> String {\n  let width = width * 2;\n  format!(\"{n:0width$}\")\n}\n",
+      "fn f(width: usize, n: u32) -> String {\n  let pad = width * 2;\n  format!(\"{n:0width$}\")\n}\n",
+      false,
+      "the format string takes its width from the parameter now",
+    ),
+    (
+      Grammar::Rust,
+      "#[tauri::command]\nfn load(total: u32) -> u32 {\n  total + 1\n}\n",
+      "#[tauri::command]\nfn load(sum: u32) -> u32 {\n  sum + 1\n}\n",
+      false,
+      "the attribute macro names the parameter in what it generates",
+    ),
+    (
+      Grammar::Rust,
+      "fn f() -> u32 {\n  let total = 1;\n  total::run(total)\n}\n",
+      "fn f() -> u32 {\n  let sum = 1;\n  sum::run(sum)\n}\n",
+      false,
+      "the function of another module is called now",
+    ),
+    (
       Grammar::TypeScript,
       "function f() {\n  const total = 1\n  return `${total}` + total\n}\n",
       "function f() {\n  const sum = 1\n  return `${sum}` + sum\n}\n",
@@ -961,6 +1183,34 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "another property is read now",
     ),
     (
+      Grammar::TypeScript,
+      "function f() {\n  const total = 1\n  let x: total.T = make()\n  return [total, x]\n}\n",
+      "function f() {\n  const sum = 1\n  let x: sum.T = make()\n  return [sum, x]\n}\n",
+      false,
+      "the type is of another namespace now",
+    ),
+    (
+      Grammar::TypeScript,
+      "const outer = (total: number, sum: number) => {\n  const f = (a = total) => { let total = a + 1; return total }\n  return f()\n}\n",
+      "const outer = (total: number, sum: number) => {\n  const f = (a = sum) => { let sum = a + 1; return sum }\n  return f()\n}\n",
+      false,
+      "the default reads another parameter of the function around now",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f(xs: number[], ys: number[]) {\n  var xs = xs || []\n  return xs\n}\n",
+      "function f(xs: number[], ys: number[]) {\n  var ys = ys || []\n  return ys\n}\n",
+      false,
+      "the var is the other parameter now",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f(a: boolean) {\n  if (a) { var total = 1 } else { var total = 2 }\n  return total\n}\n",
+      "function f(a: boolean) {\n  if (a) { var total = 1 } else { var sum = 2 }\n  return sum\n}\n",
+      false,
+      "the two vars were one variable",
+    ),
+    (
       Grammar::Tsx,
       "function F() {\n  const total = 1\n  return <Row total={total} />\n}\n",
       "function F() {\n  const sum = 1\n  return <Row total={sum} />\n}\n",
@@ -981,9 +1231,42 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       false,
       "the new name takes a read of the variable of the file",
     ),
+    (
+      Grammar::JavaScript,
+      "function f(c) {\n  var total = 1\n  if (c) { var total = 2 }\n  return total\n}\n",
+      "function f(c) {\n  var total = 1\n  if (c) { var sum = 2 }\n  return sum\n}\n",
+      false,
+      "the var of the block was one variable with the first",
+    ),
+    (
+      Grammar::JavaScript,
+      "function f(total) {\n  if (!total) { var total = 1 }\n  return total\n}\n",
+      "function f(total) {\n  if (!total) { var sum = 1 }\n  return sum\n}\n",
+      false,
+      "the var was the parameter",
+    ),
+    (
+      Grammar::JavaScript,
+      "function f(a, b) {\n  var total = a\n  var count = b\n  var total = total + 1\n  return total\n}\n",
+      "function f(a, b) {\n  var total = a\n  var count = b\n  var count = count + 1\n  return count\n}\n",
+      false,
+      "the var writes another variable now",
+    ),
+    (
+      Grammar::JavaScript,
+      "function outer(total, sum) {\n  function f(a = total) { let total = a + 1; return total }\n  return f()\n}\n",
+      "function outer(total, sum) {\n  function f(a = sum) { let sum = a + 1; return sum }\n  return f()\n}\n",
+      false,
+      "the default reads another parameter of the function around now",
+    ),
   ];
+  // every case is read, so that a change of the scopes shows all it moves
+  let mut wrong = Vec::new();
   for &(grammar, old, new, expected, why) in cases {
     let (old_name, new_name) = words(old).iter().zip(&words(new)).find(|it| it.0.1 != it.1.1).map(|it| (it.0.1, it.1.1)).unwrap();
-    assert_eq!(is_rename(grammar, old, new, old_name, new_name), expected, "{grammar:?}: {why}\n{old}\n{new}");
+    if is_rename(grammar, old, new, old_name, new_name) != expected {
+      wrong.push(format!("{grammar:?}, expected {expected}: {why}\n{old}\n{new}"));
+    }
   }
+  assert!(wrong.is_empty(), "{} of {} cases read wrong:\n{}", wrong.len(), cases.len(), wrong.join("\n"));
 }

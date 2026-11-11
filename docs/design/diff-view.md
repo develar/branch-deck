@@ -1028,29 +1028,46 @@ it, and would another name for it be taken. `code_symbols::navigate::names_at` p
 spelling asked once (`navigate::Names::resolve`: every name of a spelling with its access, its site and the
 declaration its scopes bind it to; one implementation per parser, the one `usages_at` and `usages_of` read, so Find
 Usages is the same answer without its sites). An entry says what a body declares the local as (a variable, a
-parameter, a lambda parameter, a loop variable, a catch parameter, else `other`; whether a call may name it), its uses
-with what each site makes of the name beside the binding (`{ total }`, a named argument, `nameof(total)`, the tokens
-of a macro), and for a new name asked with the place its clashes. The clashes are one more resolution, of the names of
-the new spelling and the uses of the local as one name: a use that then binds to another declaration is shadowed, a
-name of the new spelling that binds to the local is captured. The answer is data; what is quiet is the reader's.
+parameter, a lambda parameter, a loop variable, a catch parameter, else `other`; whether code outside its body may
+name it: a call by a named argument, an attribute macro of Rust), its uses with what each site makes of the name
+beside the binding (`{ total }`, `nameof(total)`, the tokens of a macro), and for a new name asked with the place its
+clashes. The clashes are one more resolution, of the names of the new spelling and the uses of the local as one name:
+a use that then binds to another declaration is shadowed, a name of the new spelling that binds to the local is
+captured. The answer is data; what is quiet is the reader's.
 
-Such a reader trusts the bindings, so the scopes read code as the language does, in its order: the value of a Kotlin
-or a Rust variable reads the name before it (`let total = total + 1`), a name before the declaration of a Kotlin local
-is of a scope around, the binding of an `if let` ends with the block it guards, the collection of a loop and the
-default of a Starlark parameter are read outside their scope, a Starlark comprehension is a scope, and a Rust format
-string uses the names it takes (`"{total}"`). Where the scopes are still narrower than the language's (a Java pattern
-variable after its `if`), a use is missing and the reader sees a name it cannot place: one stop more, never one less.
+Two kinds of names are kept apart from the uses. A name its place reads as another kind of thing than a variable is
+bound to no local, by the kind of the name or the namespace of its place: a type, a Java call, the name of a named
+argument, the field of a Rust struct before its colon, the member a C# initializer names, a path segment before `::`.
+So `S { total: total }` → `S { total: sum }` reads as the rename of one local, and `total::run(total)` →
+`sum::run(sum)` does not. And where only the types tell whether a name is the local its scopes give it, the use says
+so (`Site::Namesake`): a called Kotlin value, a name that is all of a Java `case` label, a name in a Java class that
+may inherit a member of that spelling.
 
-| 200 places of one file, each with a new name (release, a machine at load 27) | together | one by one |
+Such a reader proves a rename by the scopes, so they read code as each language does, and a difference is a defect
+whichever way it goes: a scope too wide binds a name to a local the language reads as another, a scope too narrow
+loses a use, and a change that leaves that use in place then passes in silence (the use is no place of the rename, so
+neither side sees it). Hence the value of a Kotlin or a Rust variable reads the name before it
+(`let total = total + 1`); a name a Starlark `def` binds is one variable in all of it, as a parameter and the `var`s of
+its name are in a JavaScript function; the default of a parameter is read outside the body; a Kotlin local comes
+before a member of a class inside its body; the statements of the sections of a C# `switch` share its block and a
+query reads its clauses in their order; a Rust item sees no binding around it. The differences that are left need
+types or another file; [Name Bindings](../../openspec/specs/commit/name-bindings/spec.md) lists them, and the quiet
+of a rename waits for its measurement on real ranges.
+
+| 200 places of a file of 250 functions, each a local asked with a new name (`benches/names_bench.rs`, the Studio at load 9 of 20 cores) | together | one by one |
 |---|---|---|
-| Kotlin, 2 786 lines (104 entries) | 28 ms | 484 ms |
-| TSX, 2 074 lines (82 entries) | 33 ms | 177 ms |
-| Rust, 978 lines (93 entries) | 8 ms | 372 ms |
-| Java, 775 lines (88 entries) | 33 ms | 172 ms |
-| Starlark, 515 lines (124 entries) | 28 ms | 121 ms |
+| Kotlin, 2 504 lines | 37 ms | 341 ms |
+| Java, 2 505 lines | 199 ms | 655 ms |
+| C#, 2 505 lines | 383 ms | 992 ms |
+| Starlark, 2 002 lines | 154 ms | 640 ms |
+| Rust, 2 502 lines | 29 ms | 1 159 ms |
+| TypeScript, 2 502 lines | 37 ms | 223 ms |
 
-A resolution costs 0.03 to 0.2 ms where the parse costs 1 to 2 ms. Rust collects its name tokens once per parse: a walk
-of rust-analyzer's tree cost 0.6 ms per resolution, 119 ms for the file above.
+One by one is a parse per place; together is one parse, a resolution of the spelling and one more per entry for its
+clashes. A resolution of Kotlin, Rust and TypeScript reads the names of the spelling (0.15 ms here); one of Java, C#
+and Starlark walks the tree with its scopes (1 to 2 ms here), so their cost grows with the entries asked with a new
+name: a reader bounds its candidates by count. Rust collects its name tokens once per parse, where a walk of
+rust-analyzer's tree per resolution cost several times the resolution.
 
 ### Painting the layers of a line
 

@@ -113,3 +113,54 @@ fn a_comprehension_is_a_scope_and_a_default_is_read_where_its_function_is_define
   let of_file: Vec<(u32, Access)> = usages_of(Grammar::Starlark, text, "name").iter().map(|it| (it.start.line, it.access)).collect();
   assert_eq!(of_file, [(1, Access::Declaration), (3, Access::Read), (3, Access::Read)]);
 }
+
+/// A name a `def` binds is one variable in all of it: the first place that binds it declares it (the parameter, else
+/// the first assignment), a later one writes it, and a name before its assignment, a closure's too, is the variable's
+#[test]
+fn a_name_a_def_binds_is_one_variable_in_all_of_it() {
+  let text = "total = \"global\"\n\ndef outer(deps, flag):\n    def inner():\n        return total\n    total = 1\n    if flag:\n        total = 2\n    deps = deps + [total]\n    for deps in deps:\n        pass\n    return inner() + total\n";
+  let found = |needle: &str, occurrence: usize| kind_and_local(Grammar::Starlark, text, needle, occurrence);
+  // the closure reads the variable its `def` assigns after it, not the name of the file
+  assert_eq!(found("total\n    total", 0), (ReferenceKind::Value, Some((5, 4))));
+  // the first assignment declares, the one of the branch is a use of the same variable
+  assert_eq!(
+    (found("total = 1", 0), found("total = 2", 0)),
+    ((ReferenceKind::Declaration, None), (ReferenceKind::Value, Some((5, 4))))
+  );
+  // an assignment and a `for` of the name of a parameter write the parameter, and read it on their right
+  assert_eq!(
+    (found("deps = deps", 0), found("deps + [", 0)),
+    ((ReferenceKind::Value, Some((2, 10))), (ReferenceKind::Value, Some((2, 10))))
+  );
+  assert_eq!(
+    (found("deps in deps", 0), found("deps:", 0)),
+    ((ReferenceKind::Value, Some((2, 10))), (ReferenceKind::Value, Some((2, 10))))
+  );
+  assert_eq!(
+    usages(Grammar::Starlark, text, "total = 1", 0),
+    (
+      true,
+      vec![(4, Access::Read), (5, Access::Declaration), (7, Access::Write), (8, Access::Read), (11, Access::Read)]
+    )
+  );
+  assert_eq!(
+    usages(Grammar::Starlark, text, "deps,", 0),
+    (
+      true,
+      vec![(2, Access::Declaration), (8, Access::Write), (8, Access::Read), (9, Access::Write), (9, Access::Read)]
+    )
+  );
+  // the name of the file is none of them
+  let of_file: Vec<(u32, Access)> = usages_of(Grammar::Starlark, text, "total").iter().map(|it| (it.start.line, it.access)).collect();
+  assert_eq!(of_file, [(0, Access::Declaration)]);
+}
+
+/// The name of a named argument is the parameter of what is called: no name of the scopes of the file
+#[test]
+fn the_name_of_a_named_argument_is_bound_to_no_local() {
+  let text = "def f(name):\n    return rule(name = name)\n";
+  let argument = at(Grammar::Starlark, text, "name = ", 0);
+  assert_eq!((argument.kind, argument.local), (ReferenceKind::Member, None));
+  assert_eq!(kind_and_local(Grammar::Starlark, text, "name)", 1), (ReferenceKind::Value, Some((0, 6))));
+  assert_eq!(usages(Grammar::Starlark, text, "name)", 0), (true, vec![(0, Access::Declaration), (1, Access::Read)]));
+}
