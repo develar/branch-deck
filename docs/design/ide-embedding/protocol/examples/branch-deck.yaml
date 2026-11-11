@@ -1,0 +1,32 @@
+# The app file that the installer of Branch Deck writes to ~/.air/apps/branch-deck.yaml.
+# The schema of the file is ../air-app.schema.json, and the corpus file registry.ndjson reads this file.
+format: 1
+id: branch-deck
+name: Branch Deck
+icon: icons/branch-deck.svg
+server:
+  command:
+    mac: /Applications/BranchDeck.app/Contents/MacOS/branch-deck
+    windows: C:\Program Files\BranchDeck\brd.exe
+  args:
+    mac: [cli, mcp]
+    windows: [mcp]
+  env: {}
+  start: onFirstView
+projects:
+  require: [git]
+views:
+  main: { resource: ui://branch-deck/main, place: toolWindow, toolWindow: { anchor: bottom, title: Branch Deck } }
+  activity: { resource: ui://branch-deck/activity, place: toolWindowTab, toolWindowTab: { of: main, title: Activity } }
+  review: { resource: ui://branch-deck/review, place: editor, instances: many }
+  settings: { resource: ui://branch-deck/settings, place: window, window: { width: 880, height: 640 } }
+  conflicting-files: { resource: ui://branch-deck/conflicting-files, place: dialog, dialog: { width: 720, height: 520 } }
+  missing-commits: { resource: ui://branch-deck/missing-commits, place: dialog }
+actions:
+  - id: sync
+    text: Sync Virtual Branches
+    groups: [Vcs.MainMenu]
+    shortcut: { mac: "meta alt Y", other: "ctrl alt Y" }
+    run: { tool: sync }
+agent:
+  tools: none

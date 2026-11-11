@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jetbrains.com/air/air-app.schema.json",
+  "title": "The file of an app of the IDE, ~/.air/apps/<id>.yaml",
+  "description": "The static part of one app: what the IDE registers before the process of the app starts. The registry of air-apps reads the YAML file as JSON and checks it with this schema. A reader ignores a key that it does not know, so the schema allows additional properties. A file whose format has another major is refused with the reason unsupportedFormat.",
+  "type": "object",
+  "required": ["format", "id", "name", "server", "views"],
+  "properties": {
+    "format": {
+      "description": "The major of the file format. This schema is format 1.",
+      "const": 1
+    },
+    "id": {
+      "description": "The id of the app. It equals the name of the file without .yaml. The ids of the tool windows and the actions, and the origin <id>.air-genui-app.local of the frames, come from it.",
+      "$ref": "#/$defs/Id"
+    },
+    "name": {
+      "description": "The name that the IDE shows: the consent banner, the tool window stripe and the notifications.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "icon": {
+      "description": "An SVG icon of 16 px. A relative path resolves from the directory of the file. A file <name>_dark.svg beside it is the icon of a dark theme.",
+      "type": "string",
+      "pattern": "\\.svg$"
+    },
+    "server": { "$ref": "#/$defs/Server" },
+    "projects": { "$ref": "#/$defs/Projects" },
+    "views": {
+      "description": "The views of the app by their id. An app opens instances only of the declared views.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/Id" },
+      "additionalProperties": { "$ref": "#/$defs/View" }
+    },
+    "actions": {
+      "description": "The IDE actions of the app. The ids are unique in the file.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/Action" }
+    },
+    "agent": { "$ref": "#/$defs/Agent" }
+  },
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "ByOs": {
+      "description": "One string for every OS, or one string for each OS. An OS without a value has no app.",
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "properties": {
+            "mac": { "type": "string", "minLength": 1 },
+            "windows": { "type": "string", "minLength": 1 },
+            "linux": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Server": {
+      "description": "The process of the app, one for each project of the IDE. Its stdin and stdout are the app link.",
+      "type": "object",
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "description": "An absolute path of an executable. A relative path resolves from the directory of the file.",
+          "$ref": "#/$defs/ByOs"
+        },
+        "args": {
+          "description": "The arguments, one list for every OS, or one list for each OS.",
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "properties": {
+                "mac": { "type": "array", "items": { "type": "string" } },
+                "windows": { "type": "array", "items": { "type": "string" } },
+                "linux": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "default": []
+        },
+        "env": {
+          "description": "The variables that the process gets beside the environment of the IDE.",
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        },
+        "start": {
+          "description": "onFirstView starts the process when the first view of the app opens. onProjectOpen starts it when a project opens, and only after Always Allow.",
+          "enum": ["onFirstView", "onProjectOpen"],
+          "default": "onFirstView"
+        }
+      }
+    },
+    "Projects": {
+      "type": "object",
+      "properties": {
+        "require": {
+          "description": "What a project must have for the app. git: a Git root in the project. A project that is not on this machine, such as a WSL or a Docker project, is always refused.",
+          "type": "array",
+          "items": { "enum": ["git"] },
+          "uniqueItems": true,
+          "default": []
+        }
+      }
+    },
+    "View": {
+      "type": "object",
+      "required": ["resource", "place"],
+      "properties": {
+        "resource": {
+          "description": "The ui:// resource of the page of the view. Its host part is the id of the app.",
+          "type": "string",
+          "pattern": "^ui://[a-z0-9]+(-[a-z0-9]+)*/[A-Za-z0-9._~/-]+$"
+        },
+        "place": { "enum": ["toolWindow", "toolWindowTab", "editor", "window", "dialog"] },
+        "instances": {
+          "description": "one: the IDE keeps at most one instance of the view in a project. many: an instance for each key. A toolWindow and a toolWindowTab are always one.",
+          "enum": ["one", "many"],
+          "default": "one"
+        },
+        "toolWindow": {
+          "type": "object",
+          "properties": {
+            "anchor": { "enum": ["left", "right", "bottom"], "default": "bottom" },
+            "title": { "type": "string", "minLength": 1 }
+          }
+        },
+        "toolWindowTab": {
+          "type": "object",
+          "required": ["of"],
+          "properties": {
+            "of": { "description": "The id of a view of the place toolWindow.", "$ref": "#/$defs/Id" },
+            "title": { "type": "string", "minLength": 1 }
+          }
+        },
+        "window": { "$ref": "#/$defs/Size" },
+        "dialog": { "$ref": "#/$defs/Size" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "place": { "const": "toolWindowTab" } } },
+          "then": { "required": ["toolWindowTab"] }
+        },
+        {
+          "if": { "properties": { "place": { "enum": ["toolWindow", "toolWindowTab"] } } },
+          "then": { "properties": { "instances": { "const": "one" } } }
+        }
+      ]
+    },
+    "Size": {
+      "description": "The size of a new frame in px. A window keeps the bounds that the user gave it.",
+      "type": "object",
+      "properties": {
+        "width": { "type": "integer", "minimum": 200, "maximum": 4000 },
+        "height": { "type": "integer", "minimum": 150, "maximum": 4000 }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "required": ["id", "text", "run"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "text": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "groups": {
+          "description": "The ids of the IDE action groups that get the action, such as Vcs.MainMenu.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "shortcut": {
+          "description": "A KeyStroke of the IDE, for macOS and for the other OS. The user can change it in the Keymap.",
+          "type": "object",
+          "properties": {
+            "mac": { "type": "string", "minLength": 1 },
+            "other": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "run": { "$ref": "#/$defs/Run" }
+      }
+    },
+    "Run": {
+      "description": "What an action or the action of a notification does: a call of a tool of the app with the origin action, or the open of a view.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["tool"],
+          "properties": {
+            "tool": { "type": "string", "minLength": 1 },
+            "arguments": { "type": "object", "default": {} }
+          },
+          "not": { "required": ["view"] }
+        },
+        {
+          "type": "object",
+          "required": ["view"],
+          "properties": {
+            "view": { "$ref": "#/$defs/Id" },
+            "key": { "type": "string" },
+            "params": { "type": "object" }
+          },
+          "not": { "required": ["tool"] }
+        }
+      ]
+    },
+    "Agent": {
+      "type": "object",
+      "properties": {
+        "tools": {
+          "description": "none: no agent sees a tool of the app. model: after its own consent, the agents of a session see the tools that the model may call through air_app.",
+          "enum": ["none", "model"],
+          "default": "none"
+        }
+      }
+    }
+  }
+}

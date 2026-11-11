@@ -1,0 +1,69 @@
+{"comment":"The host page between the frame of a view and air-ide. The frame speaks MCP Apps (SEP-1865) by postMessage, with the extension x-air-app that it offers in appCapabilities. The host page maps each x-air-app message to the page link, and it keeps the order of the WebSocket. A runner of the host page sends the lines of the frame and of air-ide, and checks its own: the ends host and page. ${ticket} and ${t2} are the tickets that the IDE gives the host page for main:1."}
+{"step":"wsHandshake","origin":"https://air-openui.local","host":"127.0.0.1:${port}","expect":101}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${ticket}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"comment":"ui/initialize: the host serves x-air-app, and hostContext names the view of the ticket, with the theme of the IDE."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":1,"method":"ui/initialize","params":{"protocolVersion":"2026-01-26","appInfo":{"name":"fixture","version":"1.0.0"},"appCapabilities":{"experimental":{"x-air-app":{"version":"1.0.0"}}}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2026-01-26","hostInfo":{"name":"air","version":"${any}"},"hostCapabilities":{"openLinks":{},"serverTools":{},"logging":{},"experimental":{"x-air-app":{"version":"1.0.0"}}},"hostContext":{"theme":"dark","styles":{"variables":"${any}"},"locale":"en-US","x-air-app":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","method":"ui/notifications/initialized","params":{}}}
+{"comment":"subscribe is viewOpen. The subscription of the frame is the channel of the page link."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":2,"method":"x-air-app/subscribe","params":{"params":{"repositoryPath":"/r"}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":2,"method":"x-air-app/viewOpen","params":{"channel":"ahp-root://","params":{"repositoryPath":"/r"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-air-ide:/appView/1","snapshot":{"resource":"x-air-ide:/appView/1","state":{"order":[],"branches":{}},"fromSeq":0}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":2,"result":{"subscription":"x-air-ide:/appView/1","state":{"order":[],"branches":{}},"fromSeq":0}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/1","serverSeq":1,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"set","part":"branches","key":"a","value":{"n":1}}]}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/action","params":{"subscription":"x-air-ide:/appView/1","serverSeq":1,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"set","part":"branches","key":"a","value":{"n":1}}]}}}}
+{"comment":"An intent of the frame and its echo."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","method":"x-air-app/dispatchAction","params":{"subscription":"x-air-ide:/appView/1","clientSeq":1,"action":{"type":"fixture/select","id":"a"}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","method":"dispatchAction","params":{"channel":"x-air-ide:/appView/1","clientSeq":1,"action":{"type":"fixture/select","id":"a"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/1","serverSeq":2,"action":{"type":"fixture/select","id":"a"},"origin":{"clientId":"page","clientSeq":1},"rejectionReason":"unknownAction"}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/action","params":{"subscription":"x-air-ide:/appView/1","serverSeq":2,"action":{"type":"fixture/select","id":"a"},"clientSeq":1,"rejectionReason":"unknownAction"}}}
+{"comment":"tools/call of the frame is toolsCall of the page link. The events, the call events and the progress keep their order before the result. callId is the id of the request of the frame, and progress takes the progressToken of the frame."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"diffs"},"_meta":{"progressToken":"f3"}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"diffs"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"channel":"ahp-root://","event":"settings-changed","payload":{"key":"theme"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"channel":"ahp-root://","callId":3,"event":{"file":"a.txt"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/progress","params":{"channel":"ahp-root://","requestId":3,"progress":1,"total":2}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"result":{"content":[],"structuredContent":{"value":null}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/event","params":{"event":"settings-changed","payload":{"key":"theme"}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"callId":3,"event":{"file":"a.txt"}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"f3","progress":1,"total":2}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":3,"result":{"content":[],"structuredContent":{"value":null}}}}
+{"comment":"A cancel of the frame is a cancel of the page link, and the frame gets the error of its call."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"slow"}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":4,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"slow"}}}}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":4}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","method":"x-air-app/cancel","params":{"channel":"ahp-root://","requestId":4}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":4,"error":{"code":-32800,"message":"${any}","data":{"reason":"cancelled"}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":4,"error":{"code":-32800,"message":"${any}","data":{"reason":"cancelled"}}}}
+{"comment":"A theme change of the IDE reaches the frame as host-context-changed."}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"ui/notifications/host-context-changed","params":{"theme":"light","styles":{"variables":"${any}"}}}}
+{"comment":"A resync of the page link is a resync of the subscription. A stale mark stays in the host page."}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/stale","params":{"channel":"x-air-ide:/appView/1"}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/resync","params":{"channel":"x-air-ide:/appView/1","snapshot":{"resource":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7},"lastClientSeq":1}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/resync","params":{"subscription":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}
+{"comment":"A dropped WebSocket: each call in flight fails with connectionLost. The host page asks the IDE for a new ticket, opens the view again, and the frame gets a resync of the subscription that it holds. The frame never loads again."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"invoke","arguments":{"command":"slow"}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":5,"method":"x-air-app/toolsCall","params":{"channel":"ahp-root://","name":"invoke","arguments":{"command":"slow"}}}}
+{"step":"wsClose","closeCode":1006}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":5,"error":{"code":-32003,"message":"${any}","data":{"reason":"connectionLost"}}}}
+{"step":"wsHandshake","origin":"https://air-openui.local","host":"127.0.0.1:${port}","expect":101}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"page","ticket":"${t2}","_meta":{"x-air-app":{"version":"1.0.0"}}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":7,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-app":{"version":"1.0.0","view":{"app":"fixture","view":"main","instance":"main:1","params":{}}}}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":2,"method":"x-air-app/viewOpen","params":{"channel":"ahp-root://","params":{"repositoryPath":"/r"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-air-ide:/appView/2","snapshot":{"resource":"x-air-ide:/appView/2","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/resync","params":{"subscription":"x-air-ide:/appView/1","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":7}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"action","params":{"channel":"x-air-ide:/appView/2","serverSeq":8,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"remove","part":"branches","key":"a"}]}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/action","params":{"subscription":"x-air-ide:/appView/1","serverSeq":8,"action":{"type":"x-air-app/viewChanged","ops":[{"op":"remove","part":"branches","key":"a"}]}}}}
+{"comment":"The end of the mirror ends the subscription of the frame with the reason of the page link."}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/subscriptionEnded","params":{"channel":"x-air-ide:/appView/2","reason":"serverExited"}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","method":"x-air-app/subscriptionEnded","params":{"subscription":"x-air-ide:/appView/1","reason":"serverExited"}}}
+{"comment":"unsubscribe of a live subscription is unsubscribe of the page link."}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":6,"method":"x-air-app/subscribe","params":{"params":{"repositoryPath":"/r"}}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":3,"method":"x-air-app/viewOpen","params":{"channel":"ahp-root://","params":{"repositoryPath":"/r"}}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"result":{"channel":"x-air-ide:/appView/3","snapshot":{"resource":"x-air-ide:/appView/3","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":8}}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":6,"result":{"subscription":"x-air-ide:/appView/3","state":{"order":["a"],"branches":{"a":{"n":2}}},"fromSeq":8}}}
+{"link":"frame","from":"frame","message":{"jsonrpc":"2.0","id":7,"method":"x-air-app/unsubscribe","params":{"subscription":"x-air-ide:/appView/3"}}}
+{"link":"page","from":"page","message":{"jsonrpc":"2.0","id":4,"method":"unsubscribe","params":{"channel":"x-air-ide:/appView/3"}}}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","id":4,"result":{}}}
+{"link":"frame","from":"host","message":{"jsonrpc":"2.0","id":7,"result":{}}}

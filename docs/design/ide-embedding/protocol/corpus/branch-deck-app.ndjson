@@ -1,0 +1,47 @@
+{"comment":"The app link of Branch Deck: what `branch-deck cli mcp` (brd mcp) writes for each message of air-ide. A runner of the app side starts brd mcp on the fixtures of test-server, sends each line of air-ide and checks each line of the app; ${repo} is the repository of its fixture. A runner of air-ide does not run this file. The lines of the app hold ${any} where a value depends on the fixture."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true},"experimental":{"x-air-app":{"version":"1.0.0","ahpVersion":"1.0.0"}}},"clientInfo":{"name":"air-ide","version":"1.0.0"}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{},"resources":{},"experimental":{"x-air-app":{"version":"1.0.0"}}},"serverInfo":{"name":"branch-deck","version":"${any}"}}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"comment":"brd asks the roots of the project at once, and it shows the first Git root of them until the user picks another."}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":1,"method":"roots/list"}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":1,"result":{"roots":[{"uri":"file://${repo}","name":"repo"}]}}}
+{"comment":"Two tools, both only for the app: no agent sees them."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"bd_invoke","description":"${any}","inputSchema":{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"object"}},"required":["command"]},"_meta":{"ui":{"visibility":["app"]}}},{"name":"bd_bootstrap","description":"${any}","inputSchema":{"type":"object","properties":{"view":{"type":"string"}},"required":["view"]},"_meta":{"ui":{"visibility":["app"]}}}]}}}
+{"comment":"The page of a view and each file of the Air build are resources built into the binary."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"ui://branch-deck/main"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":3,"result":{"contents":[{"uri":"ui://branch-deck/main","mimeType":"text/html;profile=mcp-app","text":"${any}"}]}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"ui://branch-deck/nothing.js"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":4,"error":{"code":-32602,"message":"${any}","data":{"reason":"badParams"}}}}
+{"comment":"The life of the place of the tool window."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewShown","params":{"instance":"main:1","view":"main","params":{}}}}
+{"comment":"bd_bootstrap gives what the page needs before its main: the settings, the warm frame, the init data of the view and the title bar."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"bd_bootstrap","arguments":{"view":"main"},"_meta":{"progressToken":5,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":5,"result":{"content":[],"structuredContent":{"settings":"${any}","warmFrame":"${any}","initData":"${any}","titleBar":"${any}"}}}}
+{"comment":"subscribe_view of the page is the mirror of its repository: the state is the view without its version, which stays in brd."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":6,"method":"x-air-app/subscribe","params":{"instance":"main:1","params":{"repositoryPath":"${repo}"}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":6,"result":{"mirror":"${repo}","state":"${any}"}}}
+{"comment":"An intent of the mirror is refused: Branch Deck takes its intents through bd_invoke."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":7,"method":"x-air-app/dispatchAction","params":{"instance":"main:1","mirror":"${repo}","action":{"type":"branch-deck/nothing"}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"${any}","data":{"reason":"unknownAction"}}}}
+{"comment":"bd_invoke runs one command of app-api by its name. A JSON command answers in structuredContent.value."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"get_settings_changes","args":{"since":0}},"_meta":{"progressToken":8,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":8,"result":{"content":[],"structuredContent":{"value":"${any}"}}}}
+{"comment":"A raw command answers its bytes in base64."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"get_blob_syntax","args":{"params":"${any}"}},"_meta":{"progressToken":9,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":9,"result":{"content":[],"structuredContent":{"bytes":"${any}"}}}}
+{"comment":"The channel of a command is the call events of its call, each before its answer."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"get_file_diffs","args":{"params":"${any}"}},"_meta":{"progressToken":10,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/callEvent","params":{"callId":10,"event":"${any}"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":10,"result":{"content":[],"structuredContent":{"value":null}}}}
+{"comment":"A command that fails answers its ApiError, and an unknown command too."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"nothing","args":{}},"_meta":{"progressToken":11,"x-air-app":{"origin":"click","app":"branch-deck","view":"main","instance":"main:1"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":11,"result":{"content":[{"type":"text","text":"${any}"}],"isError":true,"structuredContent":{"error":"${any}"}}}}
+{"comment":"A call with the origin agent is refused, whatever the tool."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"bd_invoke","arguments":{"command":"get_settings_changes","args":{"since":0}},"_meta":{"progressToken":12,"x-air-app":{"origin":"agent"}}}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":12,"error":{"code":-32009,"message":"${any}","data":{"reason":"agentOrigin"}}}}
+{"comment":"The life of the place reaches the window registry: viewClosed forgets the page and the window of the instance."}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewHidden","params":{"instance":"main:1"}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","id":13,"method":"x-air-app/unsubscribe","params":{"instance":"main:1"}}}
+{"link":"app","from":"app","message":{"jsonrpc":"2.0","id":13,"result":{}}}
+{"link":"app","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-app/viewClosed","params":{"instance":"main:1"}}}

@@ -1,0 +1,3476 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jetbrains.com/air/x-air-app.schema.json",
+  "title": "The frames of the app host of Air on its links",
+  "description": "One line of the corpus of air-apps. A message of one link is the def <Link>Message: AppMessage for the stdio of an app, PageMessage for the WebSocket of the host page, FrameMessage for the postMessage of a frame, IdeMessage for the frames of air-apps on the connection of air-ide. The string ${any} matches any value, and ${<name>} binds a value at its first place and matches it after.",
+  "$ref": "#/$defs/CorpusLine",
+  "$defs": {
+    "Id": {
+      "description": "The id of a request. The answer carries it verbatim.",
+      "type": ["string", "number"]
+    },
+    "Version": {
+      "description": "MAJOR.MINOR.PATCH without a leading zero, a pre-release or a build part.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "AppId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "ViewId": {
+      "$ref": "#/$defs/AppId"
+    },
+    "Instance": {
+      "description": "The id of one instance of a view, which air-ide gives. It is never used twice in one run of air-ide.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[1-9][0-9]*$"
+    },
+    "Mirror": {
+      "description": "The key of a mirror of the app, which the app gives, such as the path of a repository. The views that show the same state share one mirror.",
+      "type": "string",
+      "minLength": 1
+    },
+    "AppViewChannel": {
+      "description": "A held channel of the page link that mirrors one mirror of the app.",
+      "type": "string",
+      "pattern": "^x-air-ide:/appView/[1-9][0-9]*$"
+    },
+    "AppsChannel": {
+      "description": "The held channel of the IDE link with the apps of one project.",
+      "type": "string",
+      "pattern": "^x-air-ide:/apps/[1-9][0-9]*$"
+    },
+    "Root": {
+      "const": "ahp-root://"
+    },
+    "Origin": {
+      "description": "Who asked for a call. click: a frame of a view. action: an action of the app file or of a notification. agent: the proxy tool air_app of a session.",
+      "enum": ["click", "action", "agent"]
+    },
+    "Reason": {
+      "description": "The kind of an error of the x-air-app vocabulary, in data.reason. A receiver ignores a field that it does not know.",
+      "enum": [
+        "parse",
+        "invalidRequest",
+        "notInitialized",
+        "alreadyInitialized",
+        "unknownMethod",
+        "badParams",
+        "unknownChannel",
+        "notSubscribed",
+        "ahpVersion",
+        "vocabularyVersion",
+        "badTicket",
+        "serverExited",
+        "notStarted",
+        "connectionLost",
+        "tooLarge",
+        "cancelled",
+        "noConsent",
+        "agentOrigin",
+        "unknownView",
+        "unknownInstance",
+        "unknownAction",
+        "unknownTool",
+        "badResponse"
+      ]
+    },
+    "ErrorData": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/Reason"
+        },
+        "stderrTail": {
+          "description": "The last lines of the stderr of a process that exited, at most 20.",
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string"
+          }
+        },
+        "supportedVersions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Version"
+          }
+        }
+      }
+    },
+    "ErrorObject": {
+      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32009 noConsent and agentOrigin, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ErrorData"
+        }
+      }
+    },
+    "Result": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "result": true
+      },
+      "not": {
+        "required": ["error"]
+      }
+    },
+    "Error": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "$ref": "#/$defs/ErrorObject"
+        }
+      },
+      "not": {
+        "required": ["result"]
+      }
+    },
+    "EmptyResult": {
+      "type": "object",
+      "maxProperties": 0
+    },
+    "ViewOp": {
+      "description": "One change of the state of a mirror by the table rule of air-host: part replaces one part, set puts one entry of a part by its key, remove deletes it.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["op", "part", "value"],
+          "properties": {
+            "op": {
+              "const": "part"
+            },
+            "part": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value": true
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "part", "key", "value"],
+          "properties": {
+            "op": {
+              "const": "set"
+            },
+            "part": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string"
+            },
+            "value": true
+          }
+        },
+        {
+          "type": "object",
+          "required": ["op", "part", "key"],
+          "properties": {
+            "op": {
+              "const": "remove"
+            },
+            "part": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ViewChanged": {
+      "description": "The one state action of an app view channel: the ops of one change of the app, applied in order.",
+      "type": "object",
+      "required": ["type", "ops"],
+      "properties": {
+        "type": {
+          "const": "x-air-app/viewChanged"
+        },
+        "ops": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/ViewOp"
+          }
+        }
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "required": ["resource", "state", "fromSeq"],
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/AppViewChannel"
+        },
+        "state": {
+          "type": "object"
+        },
+        "fromSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ViewContext": {
+      "description": "What the view of a frame shows: the IDE gives it, and the page never sets it.",
+      "type": "object",
+      "required": ["app", "view", "instance", "params"],
+      "properties": {
+        "app": {
+          "$ref": "#/$defs/AppId"
+        },
+        "view": {
+          "$ref": "#/$defs/ViewId"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "key": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
+    "Notify": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["info", "warning", "error"],
+          "default": "info"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text", "run"],
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "run": {
+                "$ref": "#/$defs/Run"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Run": {
+      "description": "As Run of air-app.schema.json: a call of a tool with the origin action, or the open of a view.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["tool"],
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "arguments": {
+              "type": "object"
+            }
+          },
+          "not": {
+            "required": ["view"]
+          }
+        },
+        {
+          "type": "object",
+          "required": ["view"],
+          "properties": {
+            "view": {
+              "$ref": "#/$defs/ViewId"
+            },
+            "key": {
+              "type": "string"
+            },
+            "params": {
+              "type": "object"
+            }
+          },
+          "not": {
+            "required": ["tool"]
+          }
+        }
+      ]
+    },
+    "CallMeta": {
+      "description": "_meta[\"x-air-app\"] of a tools/call that air-ide sends: the origin, and the view of a click.",
+      "type": "object",
+      "required": ["origin"],
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "app": {
+          "$ref": "#/$defs/AppId"
+        },
+        "view": {
+          "$ref": "#/$defs/ViewId"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "action": {
+          "type": "string"
+        }
+      }
+    },
+    "Tool": {
+      "type": "object",
+      "required": ["name", "inputSchema"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputSchema": {
+          "type": "object"
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "_meta": {
+          "type": "object",
+          "properties": {
+            "ui": {
+              "type": "object",
+              "properties": {
+                "resourceUri": {
+                  "type": "string"
+                },
+                "visibility": {
+                  "type": "array",
+                  "items": {
+                    "enum": ["model", "app"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "CallToolResult": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "content": {
+          "type": "array"
+        },
+        "structuredContent": true,
+        "isError": {
+          "type": "boolean"
+        },
+        "_meta": {
+          "type": "object"
+        }
+      }
+    },
+    "ResourceContents": {
+      "type": "object",
+      "required": ["contents"],
+      "properties": {
+        "contents": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["uri", "mimeType", "text"],
+                "properties": {
+                  "uri": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": ["uri", "mimeType", "blob"],
+                "properties": {
+                  "uri": {
+                    "type": "string"
+                  },
+                  "mimeType": {
+                    "type": "string"
+                  },
+                  "blob": {
+                    "description": "base64",
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Root_": {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "pattern": "^file://"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "AppInitializeParams": {
+      "type": "object",
+      "required": ["protocolVersion", "capabilities", "clientInfo"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "object",
+          "required": ["experimental"],
+          "properties": {
+            "roots": {
+              "type": "object"
+            },
+            "experimental": {
+              "type": "object",
+              "required": ["x-air-app"],
+              "properties": {
+                "x-air-app": {
+                  "type": "object",
+                  "required": ["version", "ahpVersion"],
+                  "properties": {
+                    "version": {
+                      "$ref": "#/$defs/Version"
+                    },
+                    "ahpVersion": {
+                      "$ref": "#/$defs/Version"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "clientInfo": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "const": "air-ide"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "AppInitializeResult": {
+      "description": "An app without experimental[\"x-air-app\"] is a plain MCP server: it serves tools, and no view.",
+      "type": "object",
+      "required": ["protocolVersion", "capabilities", "serverInfo"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string"
+        },
+        "serverInfo": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "tools": {
+              "type": "object"
+            },
+            "resources": {
+              "type": "object"
+            },
+            "experimental": {
+              "type": "object",
+              "required": [],
+              "properties": {
+                "x-air-app": {
+                  "type": "object",
+                  "required": ["version"],
+                  "properties": {
+                    "version": {
+                      "$ref": "#/$defs/Version"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "AppRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "method": {
+          "enum": [
+            "initialize",
+            "ping",
+            "tools/list",
+            "tools/call",
+            "resources/read",
+            "x-air-app/subscribe",
+            "x-air-app/unsubscribe",
+            "x-air-app/dispatchAction",
+            "roots/list",
+            "x-air-app/openView",
+            "x-air-app/closeView",
+            "x-air-app/setViewTitle",
+            "x-air-app/notify",
+            "x-air-app/setBadge",
+            "x-air-app/setProgress"
+          ]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "initialize"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/AppInitializeParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "tools/call"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "arguments": {
+                    "type": "object"
+                  },
+                  "_meta": {
+                    "type": "object",
+                    "required": ["x-air-app"],
+                    "properties": {
+                      "progressToken": {
+                        "type": ["string", "integer"]
+                      },
+                      "x-air-app": {
+                        "$ref": "#/$defs/CallMeta"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "resources/read"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["uri"],
+                "properties": {
+                  "uri": {
+                    "type": "string",
+                    "pattern": "^ui://"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/subscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/unsubscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/dispatchAction"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance", "mirror", "action"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  },
+                  "mirror": {
+                    "$ref": "#/$defs/Mirror"
+                  },
+                  "action": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/openView"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["view"],
+                "properties": {
+                  "view": {
+                    "$ref": "#/$defs/ViewId"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "object"
+                  },
+                  "opener": {
+                    "$ref": "#/$defs/Instance"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/closeView"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/setViewTitle"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance", "title"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/notify"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/Notify"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/setBadge"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["view", "count"],
+                "properties": {
+                  "view": {
+                    "$ref": "#/$defs/ViewId"
+                  },
+                  "count": {
+                    "type": ["integer", "null"],
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/setProgress"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["view", "fraction"],
+                "properties": {
+                  "view": {
+                    "$ref": "#/$defs/ViewId"
+                  },
+                  "fraction": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AppNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method"],
+      "not": {
+        "required": ["id"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "enum": [
+            "notifications/initialized",
+            "notifications/cancelled",
+            "notifications/roots/list_changed",
+            "x-air-app/viewShown",
+            "x-air-app/viewHidden",
+            "x-air-app/viewClosed",
+            "notifications/progress",
+            "notifications/message",
+            "x-air-app/viewChanged",
+            "x-air-app/viewEnded",
+            "x-air-app/event",
+            "x-air-app/callEvent"
+          ]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "notifications/cancelled"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["requestId"],
+                "properties": {
+                  "requestId": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/viewShown"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance", "view", "params"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  },
+                  "view": {
+                    "$ref": "#/$defs/ViewId"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/viewHidden"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/viewClosed"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["instance"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "notifications/progress"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["progressToken", "progress"],
+                "properties": {
+                  "progressToken": {
+                    "type": ["string", "integer"]
+                  },
+                  "progress": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "notifications/message"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["level", "data"],
+                "properties": {
+                  "level": {
+                    "enum": ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]
+                  },
+                  "logger": {
+                    "type": "string"
+                  },
+                  "data": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/viewChanged"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["mirror", "ops"],
+                "properties": {
+                  "mirror": {
+                    "$ref": "#/$defs/Mirror"
+                  },
+                  "ops": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "#/$defs/ViewOp"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/viewEnded"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["mirror", "reason"],
+                "properties": {
+                  "mirror": {
+                    "$ref": "#/$defs/Mirror"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/event"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["event", "payload"],
+                "properties": {
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  },
+                  "event": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "payload": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/callEvent"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["callId", "event"],
+                "properties": {
+                  "callId": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "event": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AppMessage": {
+      "description": "One message of the app link: MCP JSON-RPC 2.0 over the stdio of the app, one object per line.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AppRequest"
+        },
+        {
+          "$ref": "#/$defs/AppNotification"
+        },
+        {
+          "$ref": "#/$defs/Result"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        }
+      ]
+    },
+    "AppSubscribeResult": {
+      "type": "object",
+      "required": ["mirror", "state"],
+      "properties": {
+        "mirror": {
+          "$ref": "#/$defs/Mirror"
+        },
+        "state": {
+          "type": "object"
+        }
+      }
+    },
+    "AppOpenViewResult": {
+      "type": "object",
+      "required": ["instance"],
+      "properties": {
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        }
+      }
+    },
+    "PageInitializeParams": {
+      "type": "object",
+      "required": ["channel", "protocolVersions", "clientId", "ticket", "_meta"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/Root"
+        },
+        "protocolVersions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Version"
+          }
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "ticket": {
+          "description": "At least 32 characters of base64url, once.",
+          "type": "string",
+          "minLength": 1
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["x-air-app"],
+          "properties": {
+            "x-air-app": {
+              "type": "object",
+              "required": ["version"],
+              "properties": {
+                "version": {
+                  "$ref": "#/$defs/Version"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "PageInitializeResult": {
+      "type": "object",
+      "required": ["protocolVersion", "serverSeq", "snapshots", "serverInfo", "_meta"],
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/Version"
+        },
+        "serverSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshots": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "serverInfo": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "const": "air-ide"
+            }
+          }
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["x-air-app"],
+          "properties": {
+            "x-air-app": {
+              "type": "object",
+              "required": ["version", "view"],
+              "properties": {
+                "version": {
+                  "$ref": "#/$defs/Version"
+                },
+                "view": {
+                  "$ref": "#/$defs/ViewContext"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ViewOpenResult": {
+      "type": "object",
+      "required": ["channel", "snapshot"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/AppViewChannel"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/Snapshot"
+        }
+      }
+    },
+    "PageAction": {
+      "type": "object",
+      "required": ["channel", "serverSeq", "action"],
+      "properties": {
+        "channel": {
+          "$ref": "#/$defs/AppViewChannel"
+        },
+        "serverSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": true,
+        "origin": {
+          "type": "object",
+          "required": ["clientId", "clientSeq"],
+          "properties": {
+            "clientId": {
+              "type": "string"
+            },
+            "clientSeq": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "rejectionReason": {
+          "type": "string"
+        },
+        "_meta": {
+          "type": "object"
+        }
+      }
+    },
+    "PageRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "method": {
+          "enum": ["initialize", "ping", "x-air-app/viewOpen", "unsubscribe", "x-air-app/toolsCall", "x-air-app/resourcesRead"]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "initialize"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/PageInitializeParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ping"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/viewOpen"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "unsubscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppViewChannel"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/toolsCall"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "name"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "arguments": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/resourcesRead"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "uri"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "uri": {
+                    "type": "string",
+                    "pattern": "^ui://"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PageNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "not": {
+        "required": ["id"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "enum": [
+            "dispatchAction",
+            "x-air-app/cancel",
+            "action",
+            "x-air-ide/stale",
+            "x-air-ide/resync",
+            "x-air-ide/subscriptionEnded",
+            "x-air-ide/log",
+            "x-air-app/event",
+            "x-air-app/callEvent",
+            "x-air-app/progress",
+            "x-air-app/message"
+          ]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "dispatchAction"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "clientSeq", "action"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppViewChannel"
+                  },
+                  "clientSeq": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "action": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/cancel"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "requestId"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "requestId": {
+                    "$ref": "#/$defs/Id"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "action"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/PageAction"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/stale"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppViewChannel"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/resync"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "snapshot", "lastClientSeq"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppViewChannel"
+                  },
+                  "snapshot": {
+                    "$ref": "#/$defs/Snapshot"
+                  },
+                  "lastClientSeq": {
+                    "type": ["integer", "null"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/subscriptionEnded"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "reason"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppViewChannel"
+                  },
+                  "reason": {
+                    "enum": ["closed", "snapshotFailed", "serverExited", "viewEnded"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/log"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "level", "category", "message", "dropped"],
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "enum": ["debug", "info", "warn", "error"]
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "dropped": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/event"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "event", "payload"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "event": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "payload": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/callEvent"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "callId", "event"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "callId": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "event": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/progress"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "requestId", "progress"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "requestId": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "progress": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/message"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "level", "data"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "level": {
+                    "type": "string"
+                  },
+                  "logger": {
+                    "type": "string"
+                  },
+                  "data": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PageMessage": {
+      "description": "One message of the page link: one JSON-RPC 2.0 object in one text frame of the WebSocket. Every params has channel, as on the connection of air-ide.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PageRequest"
+        },
+        {
+          "$ref": "#/$defs/PageNotification"
+        },
+        {
+          "$ref": "#/$defs/Result"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        }
+      ]
+    },
+    "FrameInitializeParams": {
+      "type": "object",
+      "required": ["protocolVersion", "appInfo", "appCapabilities"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string"
+        },
+        "appInfo": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "appCapabilities": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "experimental": {
+              "type": "object",
+              "required": [],
+              "properties": {
+                "x-air-app": {
+                  "type": "object",
+                  "required": ["version"],
+                  "properties": {
+                    "version": {
+                      "$ref": "#/$defs/Version"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "FrameInitializeResult": {
+      "description": "hostContext[\"x-air-app\"] is present when the frame offered the extension and the host serves it.",
+      "type": "object",
+      "required": ["protocolVersion", "hostInfo", "hostCapabilities", "hostContext"],
+      "properties": {
+        "protocolVersion": {
+          "type": "string"
+        },
+        "hostInfo": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "hostCapabilities": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "experimental": {
+              "type": "object",
+              "required": [],
+              "properties": {
+                "x-air-app": {
+                  "type": "object",
+                  "required": ["version"],
+                  "properties": {
+                    "version": {
+                      "$ref": "#/$defs/Version"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "hostContext": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "theme": {
+              "enum": ["light", "dark"]
+            },
+            "styles": {
+              "type": "object"
+            },
+            "locale": {
+              "type": "string"
+            },
+            "x-air-app": {
+              "$ref": "#/$defs/ViewContext"
+            }
+          }
+        }
+      }
+    },
+    "FrameSubscribeResult": {
+      "type": "object",
+      "required": ["subscription", "state", "fromSeq"],
+      "properties": {
+        "subscription": {
+          "type": "string"
+        },
+        "state": {
+          "type": "object"
+        },
+        "fromSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "FrameRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "method": {
+          "enum": ["ui/initialize", "tools/call", "resources/read", "ui/open-link", "x-air-app/subscribe", "x-air-app/unsubscribe", "ui/resource-teardown"]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ui/initialize"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/FrameInitializeParams"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "tools/call"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "arguments": {
+                    "type": "object"
+                  },
+                  "_meta": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "resources/read"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["uri"],
+                "properties": {
+                  "uri": {
+                    "type": "string",
+                    "pattern": "^ui://"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ui/open-link"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/subscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/unsubscribe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["subscription"],
+                "properties": {
+                  "subscription": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ui/resource-teardown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FrameNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method"],
+      "not": {
+        "required": ["id"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "enum": [
+            "ui/notifications/initialized",
+            "notifications/message",
+            "notifications/cancelled",
+            "x-air-app/dispatchAction",
+            "ui/notifications/host-context-changed",
+            "notifications/progress",
+            "x-air-app/action",
+            "x-air-app/resync",
+            "x-air-app/subscriptionEnded",
+            "x-air-app/event",
+            "x-air-app/callEvent"
+          ]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "notifications/message"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["level", "data"],
+                "properties": {
+                  "level": {
+                    "type": "string"
+                  },
+                  "logger": {
+                    "type": "string"
+                  },
+                  "data": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "notifications/cancelled"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["requestId"],
+                "properties": {
+                  "requestId": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/dispatchAction"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["subscription", "clientSeq", "action"],
+                "properties": {
+                  "subscription": {
+                    "type": "string"
+                  },
+                  "clientSeq": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "action": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ui/notifications/host-context-changed"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "notifications/progress"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["progressToken", "progress"],
+                "properties": {
+                  "progressToken": {
+                    "type": ["string", "integer"]
+                  },
+                  "progress": {
+                    "type": "number"
+                  },
+                  "total": {
+                    "type": "number"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/action"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["subscription", "serverSeq", "action"],
+                "properties": {
+                  "subscription": {
+                    "type": "string"
+                  },
+                  "serverSeq": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "action": true,
+                  "clientSeq": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "rejectionReason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/resync"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["subscription", "state", "fromSeq"],
+                "properties": {
+                  "subscription": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "object"
+                  },
+                  "fromSeq": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/subscriptionEnded"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["subscription", "reason"],
+                "properties": {
+                  "subscription": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/event"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["event", "payload"],
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "payload": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-app/callEvent"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["callId", "event"],
+                "properties": {
+                  "callId": {
+                    "$ref": "#/$defs/Id"
+                  },
+                  "event": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FrameMessage": {
+      "description": "One message of the frame link: MCP Apps JSON-RPC 2.0 by postMessage between the frame of a view and the host page.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FrameRequest"
+        },
+        {
+          "$ref": "#/$defs/FrameNotification"
+        },
+        {
+          "$ref": "#/$defs/Result"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        }
+      ]
+    },
+    "AppProblem": {
+      "type": "object",
+      "required": ["reason", "message"],
+      "properties": {
+        "reason": {
+          "enum": ["invalidFile", "unsupportedFormat", "idMismatch", "duplicateId", "noCommandForOs", "remoteProject", "requirementUnmet", "vocabularyVersion", "refused"]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "AppEntry": {
+      "description": "One app of the apps channel. A project entry of genui-apps.json has no views, no actions and no instances.",
+      "type": "object",
+      "required": ["id", "source", "file", "name", "consent", "process", "instances"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/AppId"
+        },
+        "source": {
+          "enum": ["user", "project", "local"]
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "light": {
+              "type": "string"
+            },
+            "dark": {
+              "type": "string"
+            }
+          }
+        },
+        "views": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "agentTools": {
+          "enum": ["none", "model"]
+        },
+        "problem": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AppProblem"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "consent": {
+          "type": "object",
+          "required": ["state", "command"],
+          "properties": {
+            "state": {
+              "enum": ["unknown", "allowedOnce", "allowed", "denied"]
+            },
+            "command": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "agentTools": {
+              "enum": ["unknown", "allowed", "denied"]
+            }
+          }
+        },
+        "process": {
+          "type": "object",
+          "required": ["state"],
+          "properties": {
+            "state": {
+              "enum": ["stopped", "starting", "running", "restarting", "failed"]
+            },
+            "restarts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stderrTail": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "instances": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["view", "params", "generation"],
+            "properties": {
+              "view": {
+                "$ref": "#/$defs/ViewId"
+              },
+              "key": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "params": {
+                "type": "object"
+              },
+              "focus": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "generation": {
+                "description": "Grows with each restart of the process: a new generation reloads the frame with a new ticket.",
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "badges": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "progress": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["fraction"],
+            "properties": {
+              "fraction": {
+                "type": ["number", "null"]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "AppsState": {
+      "type": "object",
+      "required": ["apps"],
+      "properties": {
+        "apps": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/AppEntry"
+          }
+        }
+      }
+    },
+    "AppsIntent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "app", "answer"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appConsent"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "answer": {
+              "enum": ["allowOnce", "alwaysAllow", "deny"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "app", "answer"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appAgentConsent"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "answer": {
+              "enum": ["allow", "deny"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "app", "view"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appViewCreate"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "view": {
+              "$ref": "#/$defs/ViewId"
+            },
+            "key": {
+              "type": "string"
+            },
+            "params": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "app", "instance"],
+          "properties": {
+            "type": {
+              "enum": ["x-air-ide/appViewShown", "x-air-ide/appViewHidden", "x-air-ide/appViewClosed"]
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "instance": {
+              "$ref": "#/$defs/Instance"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "app"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appRestart"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "app", "action"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appRun"
+            },
+            "app": {
+              "$ref": "#/$defs/AppId"
+            },
+            "action": {
+              "type": "string",
+              "minLength": 1
+            },
+            "instance": {
+              "$ref": "#/$defs/Instance"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "roots"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appRoots"
+            },
+            "roots": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Root_"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AppsAction": {
+      "description": "A state action of the apps channel by the table rule: one app entry set or removed by its id.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "key", "value"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appEntrySet"
+            },
+            "key": {
+              "$ref": "#/$defs/AppId"
+            },
+            "value": {
+              "$ref": "#/$defs/AppEntry"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "key"],
+          "properties": {
+            "type": {
+              "const": "x-air-ide/appEntryRemoved"
+            },
+            "key": {
+              "$ref": "#/$defs/AppId"
+            }
+          }
+        }
+      ]
+    },
+    "AppViewTicketResult": {
+      "type": "object",
+      "required": ["ticket", "url", "expiresInMs"],
+      "properties": {
+        "ticket": {
+          "description": "At least 32 characters of base64url, once.",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^ws://127\\.0\\.0\\.1:"
+        },
+        "expiresInMs": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "IdeRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "method": {
+          "enum": ["initialize", "x-air-ide/appsOpen", "x-air-ide/appViewTicket", "x-air-ide/appNotify", "x-air-ide/appHostTool", "x-air-ide/appToolCall"]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "initialize"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "protocolVersions", "clientId", "_meta"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "protocolVersions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Version"
+                    }
+                  },
+                  "clientId": {
+                    "type": "string"
+                  },
+                  "_meta": {
+                    "type": "object",
+                    "required": ["x-air-ide"],
+                    "properties": {
+                      "x-air-ide": {
+                        "type": "object",
+                        "required": ["version"],
+                        "properties": {
+                          "version": {
+                            "$ref": "#/$defs/Version"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appsOpen"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "project"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "project": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "local": {
+                        "type": "boolean",
+                        "default": true
+                      }
+                    }
+                  },
+                  "roots": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Root_"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appViewTicket"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "apps", "instance"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/Root"
+                  },
+                  "apps": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appNotify"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "app", "notification"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "app": {
+                    "$ref": "#/$defs/AppId"
+                  },
+                  "notification": {
+                    "$ref": "#/$defs/Notify"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appHostTool"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "app", "instance", "name"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "app": {
+                    "$ref": "#/$defs/AppId"
+                  },
+                  "instance": {
+                    "$ref": "#/$defs/Instance"
+                  },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^air_"
+                  },
+                  "arguments": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appToolCall"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "app", "name", "origin"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "app": {
+                    "$ref": "#/$defs/AppId"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "arguments": {
+                    "type": "object"
+                  },
+                  "origin": {
+                    "const": "agent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "IdeNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "params"],
+      "not": {
+        "required": ["id"]
+      },
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "enum": ["x-air-ide/appToolCancel", "x-air-ide/log", "dispatchAction", "action"]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/appToolCancel"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "requestId"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "requestId": {
+                    "$ref": "#/$defs/Id"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "x-air-ide/log"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "level", "category", "message", "dropped"],
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "enum": ["debug", "info", "warn", "error"]
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "dropped": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "dispatchAction"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "clientSeq", "action"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "clientSeq": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "action": {
+                    "$ref": "#/$defs/AppsIntent"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "action"
+              }
+            }
+          },
+          "then": {
+            "required": ["params"],
+            "properties": {
+              "params": {
+                "type": "object",
+                "required": ["channel", "serverSeq", "action"],
+                "properties": {
+                  "channel": {
+                    "$ref": "#/$defs/AppsChannel"
+                  },
+                  "serverSeq": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "action": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "IdeMessage": {
+      "description": "One message of the IDE link: the frames of air-apps on the connection of air-ide, in its vocabulary x-air-ide.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/IdeRequest"
+        },
+        {
+          "$ref": "#/$defs/IdeNotification"
+        },
+        {
+          "$ref": "#/$defs/Result"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        }
+      ]
+    },
+    "LinkFrame": {
+      "description": "One message on one link, from one end. A runner of one end sends the messages of the other end and checks its own.",
+      "type": "object",
+      "required": ["link", "from"],
+      "additionalProperties": false,
+      "properties": {
+        "link": {
+          "enum": ["app", "page", "frame", "ide"]
+        },
+        "from": {
+          "type": "string"
+        },
+        "message": {
+          "type": "object"
+        },
+        "conn": {
+          "description": "The connection of the line when its link has more than one at a time: a WebSocket by the order of its handshake, from 1. Without it, the line is on the last one that opened.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "raw": {
+          "description": "A line or a text frame that is no JSON message, as sent.",
+          "type": "string"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["message"]
+        },
+        {
+          "required": ["raw"]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "link": {
+                "const": "app"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "from": {
+                "enum": ["air-ide", "app"]
+              },
+              "message": {
+                "$ref": "#/$defs/AppMessage"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "link": {
+                "const": "page"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "from": {
+                "enum": ["page", "air-ide"]
+              },
+              "message": {
+                "$ref": "#/$defs/PageMessage"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "link": {
+                "const": "frame"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "from": {
+                "enum": ["frame", "host"]
+              },
+              "message": {
+                "$ref": "#/$defs/FrameMessage"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "link": {
+                "const": "ide"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "from": {
+                "enum": ["ide", "air-ide"]
+              },
+              "message": {
+                "$ref": "#/$defs/IdeMessage"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Step": {
+      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see.",
+      "type": "object",
+      "required": ["step"],
+      "properties": {
+        "step": {
+          "enum": ["appExit", "appStart", "wsHandshake", "wsClose", "jcefReload", "clock", "file", "fileRemoved"]
+        },
+        "code": {
+          "type": ["integer", "null"]
+        },
+        "stderr": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "origin": {
+          "type": ["string", "null"]
+        },
+        "host": {
+          "type": "string"
+        },
+        "expect": {
+          "type": "integer"
+        },
+        "closeCode": {
+          "type": "integer"
+        },
+        "advanceMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "StateCheck": {
+      "description": "The mirror of a channel or a subscription after the lines before it, by the table rule.",
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "object",
+          "required": ["link", "channel", "state"],
+          "properties": {
+            "link": {
+              "enum": ["page", "frame", "ide"]
+            },
+            "channel": {
+              "type": "string"
+            },
+            "state": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "Comment": {
+      "type": "object",
+      "required": ["comment"],
+      "properties": {
+        "comment": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "CorpusLine": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Comment"
+        },
+        {
+          "$ref": "#/$defs/LinkFrame"
+        },
+        {
+          "$ref": "#/$defs/Step"
+        },
+        {
+          "$ref": "#/$defs/StateCheck"
+        }
+      ]
+    }
+  }
+}
