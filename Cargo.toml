@@ -202,6 +202,12 @@ implicit_hasher = "allow"
 [profile.dev.package."*"]
 debug = "line-tables-only"
 
+# oxc's parser recurses once per level of nesting, and `js_syntax::stack_needed`, the stack a file's parse gets, bounds
+# an optimized build only (psi-syntax's consumer contract, "Stack"). Unoptimized, oxc 0.158 took up to 7.5 KiB a level
+# (`() => (` nested 2 000 times) and overflowed the thread `stack_needed` sized; at opt-level 1 it takes 1.5 at most.
+[profile.dev.package.oxc_parser]
+opt-level = 1
+
 [profile.release]
 codegen-units = 1 # Allows LLVM to perform better optimization
 lto = true # Enables link-time-optimizations

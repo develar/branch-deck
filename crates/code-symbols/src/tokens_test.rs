@@ -14,7 +14,7 @@ mod token_checks;
 
 /// The value for the parsers and the rules of this build. A change of `RULES_VERSION` (of the tokens or of the
 /// summaries) or of the psi-syntax revision changes it: replace it with the value the failure prints
-const TOKENS_VERSION: u32 = 1_021_957_210;
+const TOKENS_VERSION: u32 = 1_837_207_020;
 
 const KOTLIN: Grammar = Grammar::Kotlin;
 const KTS: Grammar = Grammar::KotlinScript;

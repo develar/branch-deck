@@ -14,13 +14,13 @@ description = "Declarations, imports and references of one source file, its high
 # reader of psi-syntax shares of its parse (the dialects, the options, the recovery, the stack); oxc is named only
 # through its re-exports. `rust-syntax` is rust-analyzer's parser, the parse accio reads Rust with; its `ra_ap_syntax`
 # and `rowan` are named only through its re-exports.
-csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
-java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
-js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
-kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb" }
-rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
-starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "bc067e4d4061b11c26ec6bd769e1de8d7ddce9cb", optional = true }
+csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316" }
+rust-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
+starlark-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316", optional = true }
 serde.workspace = true
 
 [dev-dependencies]

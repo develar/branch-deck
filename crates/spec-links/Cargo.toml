@@ -18,7 +18,7 @@ git-ops = { path = "../git-ops" }
 sync-utils = { path = "../sync-utils" }
 # a link's path by the rule of its file's format (`spec_syntax::resolve`) and a glob of the files checked
 # (`spec_syntax::glob_matches`): psi-syntax's reader of the specs, which the review and accio read them with too
-spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "c7aff9dfd2272eccbd0e57ebce2e0f542e13f647" }
+spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "2c8d63c1498e0b837050952d4b95fc24af8af316" }
 regex = "1.13"
 serde_json.workspace = true
 # the anchor GitHub gives a heading keeps its letters, marks, numbers and connector punctuation (github-slugger)
