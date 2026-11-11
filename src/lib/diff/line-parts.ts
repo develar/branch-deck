@@ -55,11 +55,21 @@ export function runsOf(page: TokenPage | undefined, lineInPage: number): Uint32A
   return page.runs.subarray(page.lineStarts[lineInPage]! * 2, page.lineStarts[lineInPage + 1]! * 2)
 }
 
+/** The values of one hit of the old line in the text the new line shows: `[start, end, hit]`, `hit` as `LinePart.hit` */
+const SHARED_HIT_STRIDE = 3
+
 /**
  * The parts of a line of `length` UTF-16 units: a part ends at each run start, each bound of a changed range (`[start,
- * end, kind, ...]`) and each bound of a hit. The empty side of a change is a marker part where it stands
+ * end, kind, ...]`) and each bound of a hit. The empty side of a change is a marker part where it stands. `sharedHits`:
+ * the hits of the old line of an Inline row in the text it shares with this line (`sharedHitsOf`)
  */
-export function lineParts(length: number, runs: Uint32Array | null, ranges: readonly number[] | null, hits: LineHits | null = null): LinePart[] {
+export function lineParts(
+  length: number,
+  runs: Uint32Array | null,
+  ranges: readonly number[] | null,
+  hits: LineHits | null = null,
+  sharedHits: readonly number[] | null = null,
+): LinePart[] {
   const bounds = [0, length]
   for (let index = 0; runs !== null && index < runs.length; index += 2) {
     bounds.push(runs[index]!)
@@ -68,11 +78,15 @@ export function lineParts(length: number, runs: Uint32Array | null, ranges: read
     bounds.push(ranges[index]!, ranges[index + 1]!)
   }
   bounds.push(...(hits?.ranges ?? []))
+  for (let index = 0; sharedHits !== null && index + 1 < sharedHits.length; index += SHARED_HIT_STRIDE) {
+    bounds.push(sharedHits[index]!, sharedHits[index + 1]!)
+  }
   bounds.sort((a, b) => a - b)
   const parts: LinePart[] = []
   let run = -2
   const changedAt = rangeCursor(ranges, RANGE_STRIDE)
   const hitAt = rangeCursor(hits?.ranges ?? null, 2)
+  const sharedHitAt = rangeCursor(sharedHits, SHARED_HIT_STRIDE)
   for (let index = 0; index + 1 < bounds.length; index++) {
     const start = bounds[index]!
     const end = Math.min(bounds[index + 1]!, length)
@@ -83,10 +97,13 @@ export function lineParts(length: number, runs: Uint32Array | null, ranges: read
       run += 2
     }
     const hit = hitAt(start)
+    const sharedHit = sharedHitAt(start)
     const range = changedAt(start)
     const part: LinePart = { start, end, style: run >= 0 ? runs![run + 1]! : 0, change: range >= 0 ? ranges![range * RANGE_STRIDE + 2]! : -1, deleted: false }
-    if (hit >= 0) {
-      part.hit = hit === hits!.current ? 2 : 1
+    // the current hit wins where a hit of each line holds the part
+    const marked = Math.max(hit < 0 ? 0 : hit === hits!.current ? 2 : 1, sharedHit < 0 ? 0 : sharedHits![sharedHit * SHARED_HIT_STRIDE + 2]!)
+    if (marked > 0) {
+      part.hit = marked
     }
     parts.push(part)
   }
@@ -114,11 +131,11 @@ function withMarkers(parts: LinePart[], ranges: readonly number[] | null): LineP
   return result
 }
 
-/** The parts of `parts` that cover `[start, end)`, cut at the bounds, with `extra` set */
+/** The parts of `parts` that cover `[start, end)`, cut at the bounds, with `extra` set; none for a range without text */
 function sliceParts(parts: readonly LinePart[], start: number, end: number, extra: Partial<LinePart> = {}): LinePart[] {
   const result: LinePart[] = []
   for (const part of parts) {
-    if (part.end <= start || part.start >= end) {
+    if (start >= end || part.end <= start || part.start >= end) {
       continue
     }
     result.push({ ...part, start: Math.max(part.start, start), end: Math.min(part.end, end), ...extra })
@@ -160,9 +177,77 @@ export function alignInlineRanges(oldRanges: readonly number[], newRanges: reado
 }
 
 /**
+ * Whether the hit `[start, end)` of the old line of an Inline row is a hit of its own: it holds a deleted part, which
+ * the row strikes through, or a place where the new line inserts text. Any other hit lies in text the two lines share,
+ * where the new line has the same hit. `deletions`: the ranges of the old line, aligned (`alignInlineRanges`)
+ */
+export function isOwnOldHit(deletions: readonly number[], start: number, end: number): boolean {
+  for (let index = 0; index + 2 < deletions.length; index += RANGE_STRIDE) {
+    const from = deletions[index]!
+    const to = deletions[index + 1]!
+    if (from === to ? start < from && from < end : from < end && to > start) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * The offset in the text of an Inline row (`inlineParts`: the new line, the deleted parts of the old line before the
+ * inserted parts) of the offset `offset` of its old (`side` 0) or new line; the ranges of both lines aligned
+ */
+export function inlineOffset(deletions: readonly number[], insertions: readonly number[], side: number, offset: number): number {
+  // what stands in the row before the offset beside the text of its own line: for the old line the inserted parts, for
+  // the new line the deleted ones. A deleted part stands before the inserted part of its range
+  let before = 0
+  for (let index = 0; index + 2 < insertions.length; index += RANGE_STRIDE) {
+    if (offset < (side === 0 ? deletions[index + 1]! : insertions[index]!)) {
+      break
+    }
+    before += side === 0 ? insertions[index + 1]! - insertions[index]! : deletions[index + 1]! - deletions[index]!
+  }
+  return offset + before
+}
+
+/**
+ * The hits of the old line of an Inline row in the text it shares with the new line, by the offsets of the new line:
+ * `[start, end, hit, ...]`. The row shows that text once, from the new line, so a hit that reaches out of a deleted
+ * part goes on there
+ */
+function sharedHitsOf(hits: LineHits | null, deletions: readonly number[], insertions: readonly number[]): number[] | null {
+  if (hits === null) {
+    return null
+  }
+  const shared: number[] = []
+  for (let hit = 0; hit + 1 < hits.ranges.length; hit += 2) {
+    const start = hits.ranges[hit]!
+    const end = hits.ranges[hit + 1]!
+    // the shared text before each range and after the last one: where it starts in the old line, and how far the
+    // new line is ahead there
+    let from = 0
+    let ahead = 0
+    for (let index = 0; index <= deletions.length; index += RANGE_STRIDE) {
+      const to = index < deletions.length ? deletions[index]! : Number.MAX_SAFE_INTEGER
+      const cutStart = Math.max(start, from)
+      const cutEnd = Math.min(end, to)
+      if (cutStart < cutEnd) {
+        shared.push(cutStart + ahead, cutEnd + ahead, hit / 2 === hits.current ? 2 : 1)
+      }
+      if (index < deletions.length) {
+        from = deletions[index + 1]!
+        ahead = insertions[index + 1]! - from
+      }
+    }
+  }
+  return shared
+}
+
+/**
  * The parts of an Inline row: the new line with the deleted parts of the old line put in before the inserted parts,
  * each part with the runs of its own side. The ranges of the two lines align by index, so the text between two ranges
- * is the same on both sides and comes from the new line. Ranges that do not align give the new line as it is.
+ * is the same on both sides and comes from the new line. Ranges that do not align give the new line as it is. The hits
+ * of the old line (`oldHits`, the ones of its own: `isOwnOldHit`) mark its deleted parts and the shared text they
+ * reach into.
  */
 export function inlineParts(
   oldLength: number,
@@ -172,6 +257,7 @@ export function inlineParts(
   newRuns: Uint32Array | null,
   newRanges: readonly number[],
   newHits: LineHits | null = null,
+  oldHits: LineHits | null = null,
 ): InlinePart[] {
   const aligned = alignInlineRanges(oldRanges, newRanges)
   const fromNew = (parts: LinePart[]) => parts.map((part): InlinePart => ({ ...part, side: 1 }))
@@ -180,8 +266,8 @@ export function inlineParts(
   }
   const [deletions, insertions] = aligned
   // the deleted text stands in the row, so an empty side needs no marker
-  const newParts = lineParts(newLength, newRuns, insertions, newHits).filter(part => part.marker !== true)
-  const oldParts = lineParts(oldLength, oldRuns, null)
+  const newParts = lineParts(newLength, newRuns, insertions, newHits, sharedHitsOf(oldHits, deletions, insertions)).filter(part => part.marker !== true)
+  const oldParts = lineParts(oldLength, oldRuns, null, oldHits)
   const result: InlinePart[] = []
   let position = 0
   for (let index = 0; index + 2 < insertions.length; index += RANGE_STRIDE) {

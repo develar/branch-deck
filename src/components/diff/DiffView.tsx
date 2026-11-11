@@ -23,9 +23,9 @@ import { findHits, hitsByLine, mergeHits } from "@/lib/diff/find"
 import type { DiffFindHit, FindHit, TextFindHit } from "@/lib/diff/find"
 import { findTextHits, revealTextHit } from "@/lib/diff/find-text"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
+import { inlineRowText, widestInlineRow } from "@/lib/diff/inline-rows"
 import { DiffLayout, endsWithFooter, EPILOGUE_KEY, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutPart } from "@/lib/diff/layout"
-import { inlineParts } from "@/lib/diff/line-parts"
 import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
 import { DIFF_FONT_SIZE, DIFF_TAB_SIZE, measureFont, rowHeightOf, textMetricsOf } from "@/lib/diff/metrics"
 import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
@@ -82,6 +82,8 @@ const ROWS_FONT = `${DIFF_FONT_SIZE}px "JetBrains Mono Variable", ui-monospace, 
 /** The files after the window whose texts are read ahead */
 const READ_AHEAD_FILES = 20
 const EMPTY_TEXT_HITS: readonly TextFindHit[] = []
+/** The inner ranges of a file whose cells are not known yet: it has no rows to search either */
+const NO_RANGES = (): null => null
 
 type FindHitIdentity = { kind: "text"; node: Node; offset: number } | { kind: "diff"; file: number; side: number; line: number; start: number; end: number }
 
@@ -590,10 +592,13 @@ export function DiffView({
           return 1
         }
         if (value.kind === "inline") {
-          const oldLine = lineText(tables[OLD]!, value.lines[OLD]!)
-          const newLine = lineText(tables[NEW]!, value.lines[NEW]!)
-          const parts = inlineParts(oldLine.length, null, cells.ranges(value, OLD) ?? [], newLine.length, null, cells.ranges(value, NEW) ?? [])
-          return visualLineCount(parts.map(part => (part.side === OLD ? oldLine : newLine).slice(part.start, part.end)).join(""), widths[NEW]!, metrics.text)
+          const text = inlineRowText(
+            lineText(tables[OLD]!, value.lines[OLD]!),
+            lineText(tables[NEW]!, value.lines[NEW]!),
+            cells.ranges(value, OLD) ?? [],
+            cells.ranges(value, NEW) ?? [],
+          )
+          return visualLineCount(text, widths[NEW]!, metrics.text)
         }
         let lines = 1
         value.lines.forEach((line, side) => {
@@ -744,7 +749,7 @@ export function DiffView({
         const text = blobText(texts, id)
         return id === null || text === null ? null : getLineTable(id, text)
       })
-      return { rows: layout.files[index]!.rows, tables }
+      return { rows: layout.files[index]!.rows, tables, ranges: file.cells?.ranges ?? NO_RANGES }
     })
     const sideBySide = mode === "split" || prepared.some(file => file.kind === "merge")
     return findHits(searched, find.query, { sideBySide, folded: find.folded })
@@ -1891,19 +1896,38 @@ function layoutRowsOf(file: PreparedFile): FileRows | null {
  */
 const widestColumns = new Map<string, number>()
 
-/** The width of the widest line of the text of each side in CSS px, two columns of padding with it; 0 while it is unread */
+/** The widest Inline row of a diff in columns (`widestInlineRow`), kept with the diff as `widestColumns` keeps a text's */
+const widestInlineRows = new WeakMap<TextDiff, number>()
+
+/**
+ * The width of the widest line each side shows in CSS px, two columns of padding with it; 0 while its text is unread.
+ * In Inline the new side shows the rows of the similar pairs too, each wider than its lines by the deleted parts
+ */
 function sideWidthsOf(file: PreparedFile, texts: ReadonlyMap<string, BlobTextEntry>, columnWidth: number): number[] {
-  return file.ids.map(id => {
+  const columns = file.ids.map(id => {
     if (id === null) {
-      return 0
+      return undefined
     }
     const text = blobText(texts, id)
     if (text !== null) {
       widestColumns.set(id, maxColumns(getLineTable(id, text), DIFF_TAB_SIZE))
     }
-    const columns = widestColumns.get(id)
-    return columns === undefined ? 0 : (columns + 2) * columnWidth
+    return widestColumns.get(id)
   })
+  const diff = file.rows?.mode === "inline" && file.diff?.content.kind === "text" ? file.diff.content : null
+  if (diff !== null) {
+    const [oldId, newId] = file.ids
+    const oldText = blobText(texts, oldId ?? null)
+    const newText = blobText(texts, newId ?? null)
+    if (oldId != null && newId != null && oldText !== null && newText !== null) {
+      widestInlineRows.set(diff, widestInlineRow(diff, getLineTable(oldId, oldText), getLineTable(newId, newText), DIFF_TAB_SIZE))
+    }
+    const inline = widestInlineRows.get(diff)
+    if (inline !== undefined && columns[NEW] !== undefined) {
+      columns[NEW] = Math.max(columns[NEW], inline)
+    }
+  }
+  return columns.map(count => (count === undefined ? 0 : (count + 2) * columnWidth))
 }
 
 /** The width of the scroller of each column (one column shows the line of either side); null when every line fits */

@@ -1,7 +1,7 @@
 # UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-10-26  
+**Updated:** 2026-11-11  
 **Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
@@ -144,7 +144,8 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   between the cards, so a chip of code and a Look closely callout in them have a surface, as the rule below asks. The
   column of the diffs is one canvas: the bar of the step above it lies on it (`bg-canvas`), the overview keeps its
   card while the diffs load. A white band of the bar over a canvas of text read as a block sawn in two.
-- **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline has no precedent in
+- **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline, the default layout
+  ([Diff View](diff-view.md), "The row model"), has no precedent in
   IntelliJ: it puts the deleted run beside the inserted one in one line, where only the colour would tell them apart.
   A strikethrough is the convention of tracked changes, it matches the icon of the mode, and it does not depend on
   telling colours apart. Split and Unified show each side on its own line, as IntelliJ does, without it.
@@ -200,7 +201,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     window.
 - **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../openspec/specs/repository/title-bar/spec.md)),
   on the canvas, never an island: on the left where the user is (the repository, the stack and the robot that lands
-  it while it runs, the list and the commit, the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`).
+  it while it runs, the list and the commit, the request), on the right the view of the window (Inline/Unified/Split) and the actions on its object (`ActionButton`).
   An option set of the row (the scopes of the stack bar) is a `ToggleGroup`, as the shadcn rule for 2 to 7 choices
   asks, so it reads as a control. A
   sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog
@@ -208,11 +209,11 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The actions on the object are in
   the row in every review window, the decisions on a pull request (Request Changes…, Approve and Safe Push…, Approve)
   too: what the window is for stays in one place in each tab, as the branch review's push and Safe Push do. The
-  Split/Unified/Inline toggle is in the header of the block whose diffs it switches: the title bar of a window that
+  Inline/Unified/Split toggle is in the header of the block whose diffs it switches: the title bar of a window that
   is its diffs (the branch and the commit review), the end of the tabs of the pull request review, where it shows
   only with the changes and leaves the row to the decisions.
 - **An option set is the stock `ToggleGroup`** (`src/components/ui/toggle-group.tsx`), as the shadcn rule for 2 to 7
-  choices asks: the views of the main window, the layouts of a diff (Split · Unified · Inline) and the scopes of the
+  choices asks: the views of the main window, the layouts of a diff (Inline · Unified · Split, the default first) and the scopes of the
   stack bar of a review (`outline`, `sm`, `spacing={0}`), the chips of a filter of a list (`FilterChips`: the state chips of the branch table, the kinds of
   Activity, the owners of the files of a review; `spacing={1}`, wrapping). The chosen one has the selection tint of the app,
   `bg-primary/15` with the text in the foreground, as a selected page of Settings: the stock pressed `bg-muted` is the 5%

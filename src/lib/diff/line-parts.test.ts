@@ -56,6 +56,29 @@ describe("inlineParts", () => {
     expect(marked.map(part => `${newLine.slice(part.start, part.end)}:${part.side}${part.change >= 0 ? "+" : ""}`)).toEqual(["val a = state:1", " + 1:1+"])
   })
 
+  it("marks a hit of the old line in its deleted part and on in the text the row shows from the new line", () => {
+    const oldLine = "val a = string"
+    const newLine = "val a = name"
+    const marks = (oldHits: number[], current: number, newHits: number[] = []) =>
+      inlineParts(oldLine.length, null, [8, 14, 2], newLine.length, null, [8, 12, 2], { ranges: newHits, current: -1 }, { ranges: oldHits, current })
+        .filter(part => part.hit !== undefined)
+        .map(part => `${(part.side === 0 ? oldLine : newLine).slice(part.start, part.end)}:${part.side}:${part.hit}`)
+    // `string`, the deleted part alone
+    expect(marks([8, 14], -1)).toEqual(["string:0:1"])
+    // `a = str`, the current hit: the shared `a = ` is the text of the new line
+    expect(marks([4, 11], 0)).toEqual(["a = :1:2", "str:0:2"])
+    // with a hit of the new line on the same shared text, the part both hold is marked once, the current hit over the other
+    expect(marks([4, 11], 0, [0, 5])).toEqual(["val :1:1", "a:1:2", " = :1:2", "str:0:2"])
+    expect(marks([4, 11], -1, [0, 5])).toEqual(["val :1:1", "a:1:1", " = :1:1", "str:0:1"])
+  })
+
+  it("marks a hit of the old line around the text the new line inserts into it", () => {
+    // `call(x)` to `call(x, y)`: the hit `x)` of the old line stands on both sides of the inserted `, y`
+    const newLine = "call(x, y)"
+    const parts = inlineParts(7, null, [6, 6, 0], newLine.length, null, [6, 9, 0], null, { ranges: [5, 7], current: 0 })
+    expect(parts.map(part => `${newLine.slice(part.start, part.end)}:${part.hit ?? 0}`)).toEqual(["call(:0", "x:2", ", y:0", "):2"])
+  })
+
   it("gives the new line as it is when the ranges of the two lines do not align", () => {
     const parts = inlineParts(5, null, [0, 1, 2, 2, 3, 2], 5, null, [0, 1, 2])
     expect(parts.every(part => part.side === 1 && !part.deleted)).toBe(true)

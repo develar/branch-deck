@@ -49,23 +49,27 @@ export function lineText(table: LineTable, index: number): string {
 
 const widest = new WeakMap<LineTable, number>()
 
+/** The columns of `text[start, end)`, a tab to its next stop; a line end takes none */
+export function columnsOf(text: string, tabSize: number, start = 0, end = text.length): number {
+  let columns = 0
+  for (let index = start; index < end; index++) {
+    const code = text.charCodeAt(index)
+    if (code === 9) {
+      columns += tabSize - (columns % tabSize)
+    } else if (code !== 10 && code !== 13) {
+      columns++
+    }
+  }
+  return columns
+}
+
 /** The columns of the widest line, a tab to its next stop: the width of the horizontal scroll */
 export function maxColumns(table: LineTable, tabSize: number): number {
   let result = widest.get(table)
   if (result === undefined) {
     result = 0
     for (let line = 0; line < table.lineCount; line++) {
-      let columns = 0
-      const end = table.starts[line + 1]!
-      for (let index = table.starts[line]!; index < end; index++) {
-        const code = table.text.charCodeAt(index)
-        if (code === 9) {
-          columns += tabSize - (columns % tabSize)
-        } else if (code !== 10 && code !== 13) {
-          columns++
-        }
-      }
-      result = Math.max(result, columns)
+      result = Math.max(result, columnsOf(table.text, tabSize, table.starts[line]!, table.starts[line + 1]!))
     }
     widest.set(table, result)
   }

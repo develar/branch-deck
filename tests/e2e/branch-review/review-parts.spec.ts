@@ -2,6 +2,8 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { SPLIT_DIFFS } from "../helpers/setup-options"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `review_parts` template: the branch `parts`, one commit that adds `Loader.probe`, uses it in `Config.kt`, removes
@@ -10,9 +12,14 @@ import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 const LOADER = "src/plugins/Loader.kt"
 
-/** The review window of the branch `parts` with the review plan on */
-async function openParts(page: Page, setupRepo: (template: string) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>): Promise<Page> {
-  turnOnReviewPlan(await setupRepo("review_parts"))
+/** The review window of the branch `parts` with the review plan on; `options` of the repository (the stored layout of the diffs) */
+async function openParts(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  options?: SetupRepoOptions,
+): Promise<Page> {
+  turnOnReviewPlan(await setupRepo("review_parts", options))
   return openPlanWindow(page, syncAndWaitForBranches, "parts")
 }
 
@@ -105,8 +112,8 @@ test.describe("Parts of a file", () => {
     "should take a click on the lower half of the fold at the end of a card, the scrollbar of its long lines in a strip of its own below it",
     { tag: "@webkit" },
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      const window = await openParts(page, setupRepo, syncAndWaitForBranches)
-      // the old side narrower than the line of `load`: the first part has its scrollbar
+      // Split: the old side narrower than the line of `load`, so the first part has its scrollbar
+      const window = await openParts(page, setupRepo, syncAndWaitForBranches, SPLIT_DIFFS)
       await window.setViewportSize({ width: 1100, height: 900 })
       const position = window.getByTestId("review-position")
       await reviewSidebar(window).tree.getByRole("treeitem", { name: LOADER, exact: true }).click()

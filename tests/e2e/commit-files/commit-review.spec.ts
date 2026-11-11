@@ -9,6 +9,7 @@ import { mapPointOf } from "../helpers/file-map-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
+import { SPLIT_DIFFS } from "../helpers/setup-options"
 import {
   getEmittedEvents,
   getOpenedSubWindows,
@@ -53,6 +54,43 @@ async function headerNameLefts(code: Locator): Promise<number[]> {
     lefts.push(Math.round(box!.x))
   }
   return lefts
+}
+
+/** The text of the elements of `parts` in their order: a hit or a deleted part of a line is a span per token of the syntax */
+async function joinedText(parts: Locator): Promise<string> {
+  return (await parts.allTextContents()).join("")
+}
+
+/**
+ * A copy of the selection from the start of the first to the end of the last of the code cells `cells` in `scope`
+ * (a part of the diffs): the text the view puts on the clipboard, and the text of each of those cells
+ */
+async function copyOfCells(scope: Locator, cells: string, count: number): Promise<{ text: string; lines: string[] }> {
+  return scope.evaluate(
+    (element, [selector, last]) => {
+      const cells = [...element.querySelectorAll(selector)].slice(-last)
+      const range = document.createRange()
+      range.setStart(cells[0]!, 0)
+      range.setEnd(cells.at(-1)!, cells.at(-1)!.childNodes.length)
+      document.getSelection()!.removeAllRanges()
+      document.getSelection()!.addRange(range)
+      const data = new DataTransfer()
+      element.closest("[data-testid=diff-view]")!.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }))
+      return { text: data.getData("text/plain"), lines: cells.map(cell => cell.textContent ?? "") }
+    },
+    [cells, count] as const,
+  )
+}
+
+/** ⌘F in the diffs of the review window of the tree commit, once they show: the field of the find and its count */
+async function openFind(page: Page, window: Locator): Promise<{ code: Locator; field: Locator; count: Locator }> {
+  const code = window.getByTestId("commit-review-code")
+  await expect(code).toContainText("SessionRowMapper")
+  await code.locator("[aria-label='Changes of the commit']").focus()
+  await page.keyboard.press("ControlOrMeta+f")
+  const field = window.getByRole("textbox", { name: "Find in the review" })
+  await expect(field).toBeFocused()
+  return { code, field, count: window.getByTestId("diff-find-count") }
 }
 
 function selectedFile(review: Locator): Locator {
@@ -384,6 +422,132 @@ simpleTest.describe("Commit review", () => {
     await expect(page.getByTestId("review-sidebar")).toBeVisible()
   })
 
+  simpleTest("should copy the lines of a selection of the diffs from the model in Inline, without the deleted parts and the line numbers", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const code = window.getByTestId("commit-review-code")
+    const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
+    // the last three rows of RowMapper.kt: `val field30`, the row of the similar pair of `map`, `}`
+    const pair = mapper.locator(".dv-row[data-kind=inline]")
+    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted]"))).toBe("Row = Row")
+    const copied = await copyOfCells(mapper, ".dv-code[data-side]", 3)
+    // the row shows the deleted `Row = Row` struck through; the copy is the new line
+    expect(copied.text).toBe("  val field30 = 30\n  fun map(state: String): SessionRow = SessionRow(state)\n}")
+  })
+
+  simpleTest("should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const { code, field, count } = await openFind(page, window)
+    // line 11 of RowMapper.kt lies in a fold: only the find in the folded lines sees it
+    await field.fill("field10")
+    await expect(count).toHaveText("No results")
+    await window.getByText("In folded lines").click()
+    await expect(count).toHaveText("1 result")
+    // Enter goes to the hit: its fold opens, the hit is marked
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 1")
+    await expect(code.locator(".dv-hit-current")).toHaveText("field10")
+    await expect(code).toContainText("val field10 = 10")
+
+    // Escape closes the find, the diffs keep the focus
+    await field.press("Escape")
+    await expect(window.getByTestId("diff-find-bar")).toHaveCount(0)
+    await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
+    await expect(code.locator(".dv-hit")).toHaveCount(0)
+  })
+
+  simpleTest("should find a text in the deleted parts of an Inline row, struck through, and in the deleted rows of Unified", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const { code, field, count } = await openFind(page, window)
+    const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
+
+    // Inline, the default. `: Row = Row(` stood in the old line of `map` alone: the row shows `: ` and `(` from the new
+    // line and strikes `Row = Row` through between them, and the hit marks all three
+    await field.fill(": Row = Row(")
+    await expect(count).toHaveText("1 result")
+    const pair = mapper.locator(".dv-row[data-kind=inline]")
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 1")
+    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted].dv-hit-current"))).toBe("Row = Row")
+    await expect.poll(() => joinedText(pair.locator(".dv-hit-current"))).toBe(": Row = Row(")
+    // the text the two lines share is found once, in the new line; the deleted part and the inserted one each on its own
+    await field.fill("fun map(state")
+    await expect(count).toHaveText("1 result")
+    await field.fill("Row(state)")
+    await expect(count).toHaveText("2 results")
+    // the deleted `Row` before the inserted `SessionRow`, as the row reads
+    await field.press("Enter")
+    await expect.poll(() => joinedText(pair.locator(".dv-hit-current"))).toBe("Row(state)")
+    await expect.poll(() => joinedText(pair.locator("[data-inline-deleted].dv-hit-current"))).toBe("Row")
+    await field.press("Enter")
+    await expect(count).toHaveText("2 of 2")
+    await expect(pair.locator("[data-inline-deleted].dv-hit-current")).toHaveCount(0)
+
+    // Unified: the old line is a deleted row, found there
+    await window.getByRole("button", { name: "Unified" }).click()
+    await field.fill(": Row = Row(")
+    await expect(count).toHaveText("1 result")
+    await expect.poll(() => joinedText(mapper.locator(".dv-row[data-kind=deleted] .dv-hit"))).toBe(": Row = Row(")
+    await expect(mapper.locator(".dv-row[data-kind=added] .dv-hit")).toHaveCount(0)
+  })
+
+  simpleTest("should open find from the file tree and step results there with ⌘F and ⌘G @webkit", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const item = window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first()
+    await item.focus()
+    await expect(item).toBeFocused()
+
+    await page.keyboard.press("ControlOrMeta+f")
+    const field = window.getByRole("textbox", { name: "Find in the review" })
+    await expect(field).toBeFocused()
+    const count = window.getByTestId("diff-find-count")
+    await field.fill("val")
+    await expect(count).toHaveText(/^\d+ results?$/)
+    const total = Number((await count.textContent())?.split(" ")[0])
+    expect(total).toBeGreaterThan(1)
+
+    await field.press("Enter")
+    await expect(count).toHaveText(`1 of ${total}`)
+    await item.focus()
+    await expect(item).toBeFocused()
+    await page.keyboard.press("ControlOrMeta+g")
+    await expect(count).toHaveText(`2 of ${total}`)
+    await page.keyboard.press("ControlOrMeta+Shift+g")
+    await expect(count).toHaveText(`1 of ${total}`)
+  })
+
+  simpleTest("should open the review at a file with Enter in the tree, and with the footer button", async ({ page }) => {
+    const preview = await openTreePreview(page)
+    await openCommitFilesSection(preview)
+    await preview.getByRole("treeitem", { name: "plugins/air" }).focus()
+    // plugins/air, backend/session, catalog, src, RowMapper.kt, testSrc, RowMapperTest.kt
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("ArrowDown")
+    }
+    await expect(preview.getByRole("treeitem", { name: "RowMapperTest.kt" })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expectClosed(preview)
+    const atFile = await openedReview(page, 1)
+    expect(atFile.data.focus.path).toBe("plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt")
+
+    // the footer button: the first file
+    await openCommitPreview(page, getBranchCommitRow(page, "session", SUBJECT))
+    await preview.getByTestId("commit-review-toggle").click()
+    await expectClosed(preview)
+    expect((await openedReview(page, 2)).data.focus.path).toBeNull()
+
+    const window = await showReviewWindow(page, atFile)
+    await expect(window.getByTestId("review-position")).toHaveText("File 2 / 5")
+    await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
+  })
+})
+
+simpleTest.describe("Commit review in Split", () => {
+  simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    // Split stored: the default is Inline, one column
+    await setupRepo("commit_tree", SPLIT_DIFFS)
+    await syncAndWaitForBranches()
+  })
+
   simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
     const window = await openTreeReview(page)
@@ -446,99 +610,23 @@ simpleTest.describe("Commit review", () => {
     const code = window.getByTestId("commit-review-code")
     const newSide = code.locator('.dv-half[data-side="1"] .dv-code[data-side]')
     await expect(newSide.nth(2)).toBeVisible()
-    // a press on the new side keeps the selection there; the copy reads the lines of the rows from the texts
+    // a press on the new side keeps the selection there; the copy reads the lines of the rows from the texts: the
+    // last three rows of the new side of the first file
     await newSide.nth(0).click()
-    const copied = await code.evaluate(element => {
-      const cells = element.querySelectorAll('.dv-half[data-side="1"] .dv-code[data-side]')
-      const range = document.createRange()
-      range.setStart(cells[0]!, 0)
-      range.setEnd(cells[2]!, cells[2]!.childNodes.length)
-      document.getSelection()!.removeAllRanges()
-      document.getSelection()!.addRange(range)
-      const data = new DataTransfer()
-      element.querySelector("[data-testid=diff-view]")!.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }))
-      return { text: data.getData("text/plain"), lines: [...cells].slice(0, 3).map(cell => cell.textContent) }
-    })
+    const copied = await copyOfCells(code.getByTestId("diff-view-file").first(), '.dv-half[data-side="1"] .dv-code[data-side]', 3)
     expect(copied.text).toBe(copied.lines.join("\n"))
     expect(copied.text.split("\n")).toHaveLength(3)
   })
 
-  simpleTest("should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape", async ({ page }) => {
+  simpleTest("should find a text on both sides of a change in Split", async ({ page }) => {
     const window = await openTreeReview(page)
-    const code = window.getByTestId("commit-review-code")
-    await expect(code).toContainText("SessionRowMapper")
-    await code.locator("[aria-label='Changes of the commit']").focus()
-
-    await page.keyboard.press("ControlOrMeta+f")
-    const field = window.getByRole("textbox", { name: "Find in the review" })
-    await expect(field).toBeFocused()
-    // line 11 of RowMapper.kt lies in a fold: only the find in the folded lines sees it
-    await field.fill("field10")
-    const count = window.getByTestId("diff-find-count")
-    await expect(count).toHaveText("No results")
-    await window.getByText("In folded lines").click()
-    await expect(count).toHaveText("1 result")
-    // Enter goes to the hit: its fold opens, the hit is marked
-    await field.press("Enter")
-    await expect(count).toHaveText("1 of 1")
-    await expect(code.locator(".dv-hit-current")).toHaveText("field10")
-    await expect(code).toContainText("val field10 = 10")
-
-    // Escape closes the find, the diffs keep the focus
-    await field.press("Escape")
-    await expect(window.getByTestId("diff-find-bar")).toHaveCount(0)
-    await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
-    await expect(code.locator(".dv-hit")).toHaveCount(0)
-  })
-
-  simpleTest("should open find from the file tree and step results there with ⌘F and ⌘G @webkit", async ({ page }) => {
-    const window = await openTreeReview(page)
-    const item = window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first()
-    await item.focus()
-    await expect(item).toBeFocused()
-
-    await page.keyboard.press("ControlOrMeta+f")
-    const field = window.getByRole("textbox", { name: "Find in the review" })
-    await expect(field).toBeFocused()
-    const count = window.getByTestId("diff-find-count")
-    await field.fill("val")
-    await expect(count).toHaveText(/^\d+ results?$/)
-    const total = Number((await count.textContent())?.split(" ")[0])
-    expect(total).toBeGreaterThan(1)
-
-    await field.press("Enter")
-    await expect(count).toHaveText(`1 of ${total}`)
-    await item.focus()
-    await expect(item).toBeFocused()
-    await page.keyboard.press("ControlOrMeta+g")
-    await expect(count).toHaveText(`2 of ${total}`)
-    await page.keyboard.press("ControlOrMeta+Shift+g")
-    await expect(count).toHaveText(`1 of ${total}`)
-  })
-
-  simpleTest("should open the review at a file with Enter in the tree, and with the footer button", async ({ page }) => {
-    const preview = await openTreePreview(page)
-    await openCommitFilesSection(preview)
-    await preview.getByRole("treeitem", { name: "plugins/air" }).focus()
-    // plugins/air, backend/session, catalog, src, RowMapper.kt, testSrc, RowMapperTest.kt
-    for (let i = 0; i < 6; i++) {
-      await page.keyboard.press("ArrowDown")
-    }
-    await expect(preview.getByRole("treeitem", { name: "RowMapperTest.kt" })).toBeFocused()
-    await page.keyboard.press("Enter")
-    await expectClosed(preview)
-    const atFile = await openedReview(page, 1)
-    expect(atFile.data.focus.path).toBe("plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt")
-
-    // the footer button: the first file
-    await openCommitPreview(page, getBranchCommitRow(page, "session", SUBJECT))
-    await preview.getByTestId("commit-review-toggle").click()
-    await expectClosed(preview)
-    expect((await openedReview(page, 2)).data.focus.path).toBeNull()
-
-    const window = await showReviewWindow(page, atFile)
-    await expect(window.getByTestId("review-position")).toHaveText("File 2 / 5")
-    await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
+    const { code, field, count } = await openFind(page, window)
+    // `Row = Row(state)` of the old side of RowMapper.kt, `SessionRow = SessionRow(state)` of the new one
+    await field.fill("Row(state)")
+    await expect(count).toHaveText("2 results")
+    const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
+    await expect.poll(() => joinedText(mapper.locator('.dv-half[data-side="0"] .dv-hit'))).toBe("Row(state)")
+    await expect.poll(() => joinedText(mapper.locator('.dv-half[data-side="1"] .dv-hit'))).toBe("Row(state)")
   })
 })
 
@@ -853,7 +941,8 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     const position = window.getByTestId("review-position")
     const code = window.getByTestId("commit-review-code")
     await expect(position).toHaveText("File 1 / 2")
-    await expect(code).toContainText("fun second() = 4")
+    // Inline, the default: the row of `second` is its new line with the deleted `3` before the inserted `4`
+    await expect(code.locator(".dv-row[data-kind=inline]", { hasText: "fun second() = " }).locator("[data-inline-deleted]")).toHaveText("3")
     /** From the top of Format.kt, N goes through `changes` blocks there, then to Main.kt; P comes back to the last one */
     const stepThrough = async (changes: number) => {
       await window.getByRole("treeitem", { name: "Format.kt" }).click()

@@ -7,11 +7,11 @@ import type { WhitespacePolicy } from "@/lib/diff/file-diff-model"
 import { setDiffViewMode, setDiffWhitespacePolicy, useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
-/** The layouts in IntelliJ's order: side by side (the default), unified, then Inline beside it as its compact variant */
+/** The layouts from the most compact one: Inline (the default), Unified beside it as its variant of a row per changed line, then side by side */
 const modes: Array<{ mode: DiffViewMode; label: string; icon: typeof AlignLeftIcon }> = [
-  { mode: "split", label: "Split", icon: Columns2Icon },
-  { mode: "unified", label: "Unified", icon: AlignLeftIcon },
   { mode: "inline", label: "Inline", icon: StrikethroughIcon },
+  { mode: "unified", label: "Unified", icon: AlignLeftIcon },
+  { mode: "split", label: "Split", icon: Columns2Icon },
 ]
 
 /** IntelliJ's choices of what the diff ignores, in its order */
@@ -33,7 +33,7 @@ export function DiffViewToggle() {
 }
 
 /**
- * Split · Unified · Inline, one option set (the stock `ToggleGroup`), the pressed one the layout of every diff view; also
+ * Inline · Unified · Split, one option set (the stock `ToggleGroup`), the pressed one the layout of every diff view; also
  * in Settings → Diffs. A press of the pressed one keeps it
  */
 export function DiffLayoutButtons() {

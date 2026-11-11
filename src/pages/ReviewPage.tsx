@@ -324,7 +324,7 @@ function branchPlace(model: BranchReviewModel): ReviewPlace | null {
 }
 
 /**
- * The review of a branch (`BranchReview` on the canvas of the window): the stack bar, Unified/Split and the actions on
+ * The review of a branch (`BranchReview` on the canvas of the window): the stack bar, Inline/Unified/Split and the actions on
  * the branch of the part in the title bar, the commits and the owner chips above the files beside the diffs in the
  * island, the position and the keys in the footer. The heads a sync built, the baseline, the branch of each commit of a
  * whole stack and the actions come from the window's own session; the window runs the actions itself, those that open
@@ -537,7 +537,7 @@ function goneReason(branchName: string, kept: KeptReview | undefined): string {
 
 /**
  * The review of a commit of a list: the commits of the list above its files (⌥↑/⌥↓), the title bar names the list and
- * the commit, Unified/Split on its right; no action and no "⋯". It reads only the repository: the commits don't change,
+ * the commit, Inline/Unified/Split on its right; no action and no "⋯". It reads only the repository: the commits don't change,
  * so the list it got stays true; nothing is edited here. A move (an open of a commit of the list on screen) shows it.
  */
 function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview; back: ReactNode; onPlace: ReportPlace }) {

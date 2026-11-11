@@ -330,8 +330,12 @@ test.describe("Settings window", () => {
 
   test("should set every diff from Diffs, the Whitespace menu naming its choice", async ({ page, testStore }) => {
     const window = await openSettingsWindow(page, { page: "diffs" })
+    // the layouts from the most compact one, Inline, the default, pressed
+    const layouts = window.getByTestId("setting-diffViewMode").getByRole("button")
+    await expect(layouts).toHaveText(["Inline", "Unified", "Split"])
+    await expect(layouts.first()).toHaveAttribute("aria-pressed", "true")
     // the main window saves what differs from the defaults
-    await window.getByTestId("setting-diffViewMode").getByRole("button", { name: "Unified" }).click()
+    await layouts.filter({ hasText: "Unified" }).click()
     await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified" })
 
     const whitespace = window.getByTestId("setting-whitespacePolicy").getByRole("button")
@@ -350,6 +354,11 @@ test.describe("Settings window", () => {
     await ligatures.click()
     await expect(ligatures.getByRole("switch")).not.toBeChecked()
     await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified", whitespacePolicy: "trim", ligatures: false })
+
+    // Inline again is the default again: nothing of the layout is stored
+    await layouts.filter({ hasText: "Inline" }).click()
+    await expect(layouts.first()).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => testStore.get("diffView")).toEqual({ whitespacePolicy: "trim", ligatures: false })
   })
 
   test("should ask the OS for the permission to notify again when the window gets the focus", async ({ page }) => {

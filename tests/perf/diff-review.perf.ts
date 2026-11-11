@@ -1,7 +1,8 @@
 // The time of the review window over large synthetic commits (docs/design/diff-view.md, "Performance Targets"): the
 // review root mounted, the first diff rows, the first screen highlighted, the long tasks of the main thread until it
 // is quiet, the DOM nodes and the heap, and the bytes of the worker messages, for an open and for the expansion of the
-// unchanged lines of a large file; then the frames of a scroll at 3 and at 20 viewports per second.
+// unchanged lines of a large file; then the frames of a scroll at 3 and at 20 viewports per second. Each commit in
+// Inline, the default layout, which the targets gate, and in Split, stored.
 //
 //   pnpm perf:diff                      3 runs of each scenario, a table on stdout
 //   PERF_RUNS=5 pnpm perf:diff          more runs
@@ -19,6 +20,8 @@ import type { BranchReviewWindowData } from "../../src/types/sub-window"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../e2e/helpers/branch-helpers"
 import { openCommitPreview } from "../e2e/helpers/preview-helpers"
+import { SPLIT_DIFFS } from "../e2e/helpers/setup-options"
+import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../e2e/helpers/sub-window-helpers"
 import { hugeFileCommit, largeCommit } from "./diff-fixtures"
@@ -218,8 +221,22 @@ async function openReviewData(page: Page): Promise<OpenedSubWindow<BranchReviewW
   return opened!
 }
 
-/** Opens the review of `files`, then expands the unchanged lines above the second hunk of `expandPath` */
-async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindowData>, files: SyntheticFile[], expandPath: string, measureBytes: boolean) {
+/** A layout of the diffs a scenario runs in: the name of its button, and the options of the repository that store it */
+interface Layout {
+  name: "Inline" | "Split"
+  /** In the key of a result: nothing for the default, whose numbers the targets gate */
+  suffix: string
+  options: SetupRepoOptions | undefined
+}
+
+/** Inline with nothing stored, so the benchmark follows the default; Split as a stored choice */
+const LAYOUTS: Layout[] = [
+  { name: "Inline", suffix: "", options: undefined },
+  { name: "Split", suffix: ", Split", options: SPLIT_DIFFS },
+]
+
+/** Opens the review of `files` in `layout`, then expands the unchanged lines above the second hunk of `expandPath` */
+async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindowData>, files: SyntheticFile[], expandPath: string, measureBytes: boolean, layout: Layout) {
   // the copy of the commit in the virtual branch, which the review shows
   const commitId = opened.data.focus.commitId!
   const window = await openLinkedSubWindow(page, opened, {
@@ -240,6 +257,8 @@ async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindo
     () => ((window as unknown as { __SUB_WINDOW_OPEN__?: { openedAt: number | null } }).__SUB_WINDOW_OPEN__?.openedAt ?? performance.timeOrigin) - performance.timeOrigin,
   )
   Object.assign(open, measureBytes ? await workerBytes(window) : await quietAndLongTasks(window, Math.max(openedAt, 0)))
+  // the numbers are of this layout: the default one when nothing is stored
+  await expect(window.getByRole("button", { name: layout.name, exact: true })).toHaveAttribute("aria-pressed", "true")
   open.domNodes = await window.evaluate(() => document.querySelectorAll("[data-testid=diff-view] *").length)
   open.heapMb = await window.evaluate(() => {
     const memory = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
@@ -319,13 +338,13 @@ function median(values: number[]): number {
 
 type ScenarioResult = Record<"open" | "expand" | "still" | "scroll3" | "scroll20", Record<string, number>>
 
-async function measure(page: Page, files: SyntheticFile[], expandPath: string): Promise<ScenarioResult> {
+async function measure(page: Page, files: SyntheticFile[], expandPath: string, layout: Layout): Promise<ScenarioResult> {
   const opened = await openReviewData(page)
   const runs: Awaited<ReturnType<typeof runScenario>>[] = []
   for (let run = 0; run < RUNS; run++) {
-    runs.push(await runScenario(page, opened, files, expandPath, false))
+    runs.push(await runScenario(page, opened, files, expandPath, false, layout))
   }
-  const bytes = await runScenario(page, opened, files, expandPath, true)
+  const bytes = await runScenario(page, opened, files, expandPath, true, layout)
   const result = {} as ScenarioResult
   for (const phase of ["open", "expand"] as const) {
     const keys = Object.keys(runs[0]![phase]) as (keyof PhaseMetrics)[]
@@ -345,11 +364,6 @@ const results: Record<string, ScenarioResult> = {}
 test.describe.configure({ mode: "serial" })
 
 test.describe("Diff review performance", () => {
-  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("commit_tree")
-    await syncAndWaitForBranches()
-  })
-
   test.afterAll(() => {
     console.table(Object.fromEntries(Object.entries(results).flatMap(([scenario, phases]) => Object.entries(phases).map(([phase, metrics]) => [`${scenario} ${phase}`, metrics]))))
     const directory = path.join("tests", "results", "perf")
@@ -357,15 +371,24 @@ test.describe("Diff review performance", () => {
     writeFileSync(path.join(directory, `diff-review-${test.info().project.name}.json`), `${JSON.stringify(results, null, 2)}\n`)
   })
 
-  test("a commit of 200 files, 4 of them 3,000-5,000 lines", async ({ page }) => {
-    test.setTimeout(20 * 60_000)
-    const files = largeCommit()
-    results["200 files"] = await measure(page, files, files.find(it => it.file.path.includes("/Large"))!.file.path)
-  })
+  for (const layout of LAYOUTS) {
+    test.describe(`in ${layout.name}`, () => {
+      test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+        await setupRepo("commit_tree", layout.options)
+        await syncAndWaitForBranches()
+      })
 
-  test("a commit of one file of 10,000 lines", async ({ page }) => {
-    test.setTimeout(20 * 60_000)
-    const files = hugeFileCommit()
-    results["10k lines"] = await measure(page, files, files[0]!.file.path)
-  })
+      test("a commit of 200 files, 4 of them 3,000-5,000 lines", async ({ page }) => {
+        test.setTimeout(20 * 60_000)
+        const files = largeCommit()
+        results[`200 files${layout.suffix}`] = await measure(page, files, files.find(it => it.file.path.includes("/Large"))!.file.path, layout)
+      })
+
+      test("a commit of one file of 10,000 lines", async ({ page }) => {
+        test.setTimeout(20 * 60_000)
+        const files = hugeFileCommit()
+        results[`10k lines${layout.suffix}`] = await measure(page, files, files[0]!.file.path, layout)
+      })
+    })
+  }
 })

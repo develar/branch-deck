@@ -265,12 +265,13 @@ test.describe("Conflict Viewer Feature", () => {
       await setupConflictRepo("conflict_branches")
     })
 
-    test("should keep a stored diff view mode over the Split default", async ({ page }) => {
+    test("should keep a stored diff view mode over the Inline default", async ({ page }) => {
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await expandBranch(page, bugFixBranch)
       const missingCommits = getBranchDetailsRow(page, "bug-fix").getByTestId("missing-commits")
       await waitForConflictViewer(page, getBranchDetailsRow(page, "bug-fix"))
-      await expect(missingCommits.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
+      // nothing stored: Inline
+      await expect(missingCommits.getByRole("button", { name: "Inline" })).toHaveAttribute("aria-pressed", "true")
       await missingCommits.getByRole("button", { name: "Unified" }).click()
       await expect(missingCommits.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
 

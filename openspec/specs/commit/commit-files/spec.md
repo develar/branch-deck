@@ -26,6 +26,7 @@ targets:
   - src/lib/diff/file-diff-model.ts
   - src/lib/diff/rows.ts
   - src/lib/diff/line-parts.ts
+  - src/lib/diff/inline-rows.ts
   - src/components/diff/DiffView.tsx
   - src/stores/file-diffs.ts
   - src/stores/blob-texts.ts
@@ -1438,15 +1439,30 @@ section, the reviews, the uncommitted changes, the conflicts and the missing com
 - **WHEN** the user chooses a view in one diff view, or in Settings → Diffs
 - **THEN** the section, the reviews, the uncommitted changes, the conflicts and the missing commits show that view
 
-### Requirement: Files section: Split is the default, a stored choice wins
+### Requirement: Files section: Inline is the default, a stored choice wins
 
-Split MUST be the default, as in IntelliJ; a stored choice keeps winning over it.
+Inline MUST be the default, the first of the toggle (Inline · Unified · Split, from the most compact one), where
+IntelliJ's diff opens side by side: one column reads at any width of its pane. A stored choice keeps winning over it;
+a choice of the default is not stored.
+
+#### Scenario: Nothing stored
+- **WHEN** a diff view opens and the user never chose a view
+- **THEN** it shows Inline, the first of Inline · Unified · Split, pressed
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
+  [@test] tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs, the Whitespace menu naming its choice`)
 
 #### Scenario: A stored choice
 - **GIVEN** the user chose another view before
 - **WHEN** a diff view opens
-- **THEN** it shows the stored choice, not the Split default
-  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
+- **THEN** it shows the stored choice, not the Inline default
+  [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Inline default`)
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Split shows an added file as its one side, with its line numbers, as IntelliJ's one-sided viewer`)
+
+#### Scenario: Inline chosen again
+- **GIVEN** a stored choice of Unified
+- **WHEN** the user chooses Inline
+- **THEN** nothing of the layout is stored, as only what differs from the default is
+  [@test] tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs, the Whitespace menu naming its choice`)
 
 ### Requirement: Files section: Inline shows a similar pair of a block as one row
 
@@ -1459,6 +1475,7 @@ left out of a copy, the line number of the new line.
 - **THEN** they are one row, the new line with the deleted parts of the old line before the inserted parts
 - **AND** each part has the syntax colours of its own side, the deleted parts are left out of a copy, the line number is the new line's
   [@test] tests/e2e/commit-files/commit-files.spec.ts (`Inline shows a lightly edited line as one row`)
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Inline shows a re-indented line as one pale row, its indentation in the full colour, and the whitespace policy hides it`)
   [@test] src/lib/diff/line-parts.test.ts (`puts the deleted part of the old line before the inserted part, each with the runs of its side`)
 
 ### Requirement: Files section: A line of a pair without a range has an empty one
@@ -1480,6 +1497,23 @@ end.
 - **WHEN** Inline shows a block that is no similar pair, or a pair at the end of a file without a newline at its end
 - **THEN** it shows as in Unified
   [@test] src/lib/diff/rows.test.ts (`makes each similar pair of a block one row only in the Inline view, also at the end of a file`)
+
+### Requirement: Files section: Inline scrolls a row as far as its deleted parts reach
+
+The one column of Inline MUST scroll sideways as far as its widest row: the row of a similar pair holds the deleted
+parts of its old line too, so it is longer than both lines, and its end is never out of reach of the scroll bar.
+
+#### Scenario: A long line whose last name changes
+- **GIVEN** a long line of a similar pair whose row in Inline is wider than its column and than both its lines
+- **WHEN** the user scrolls the column to its end
+- **THEN** the end of the row shows
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Inline scrolls a row of a similar pair as far as its deleted part reaches, past the widest line of both texts`)
+  [@test] src/lib/diff/inline-rows.test.ts (`counts the row of a similar pair wider than both its lines, a tab to its next stop`, `counts no row of a block that is no similar pair, that the policy ignores, or that deletes nothing`)
+
+#### Scenario: The text of the row
+- **WHEN** Inline lays out the row of a similar pair, for its width or its soft wraps
+- **THEN** its text is the new line with the deleted parts of the old line before the inserted parts
+  [@test] src/lib/diff/inline-rows.test.ts (`is the new line with the deleted parts of the old line before the inserted parts`)
 
 ### Requirement: Files section: An added or a deleted file shows its one side alone
 
@@ -1600,6 +1634,7 @@ Inline MUST strike its deleted parts through, still grey and left out of a copy;
 - **THEN** with it on the line breaks at the edge of the diff
 - **AND** with it off, as by default, the line keeps its shape and scrolls sideways
   [@test] tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`Split breaks a long line on each side with Soft Wraps on, and scrolls it with them off`)
 
 #### Scenario: One setting for every diff view
 - **WHEN** the user turns "Soft wraps" on
@@ -1809,7 +1844,7 @@ When the files cannot be read, the copy MUST show an error toast and copy nothin
 - A `border-border` rule above the section separates it from the message. Its header is a button: a `ChevronRightIcon`
   (`size-3.5` muted, turned down when open, as a tree row's) and the label "Files 4", muted `text-xs font-medium`
   (`SectionLabel` with the count, as the files of a review), `hover:bg-muted rounded-md`, `aria-expanded`; the
-  `Split`/`Unified`/`Inline` toggle on its right while it is open.
+  `Inline`/`Unified`/`Split` toggle on its right while it is open.
 - The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, the focus outline
   inside the focused row (`bd-focus-inset`). A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).

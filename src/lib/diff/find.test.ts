@@ -1,9 +1,9 @@
 // @spec openspec/specs/commit/commit-review/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { CopyFile } from "@/lib/diff/copy-text"
 import { findHits, findInSegments, hitsByLine, lineKey, mergeHits } from "@/lib/diff/find"
-import type { DiffFindHit, TextFindHit } from "@/lib/diff/find"
+import type { DiffFindHit, FindFile, TextFindHit } from "@/lib/diff/find"
 import { buildLineTable } from "@/lib/diff/line-table"
+import { diffCells } from "@/lib/diff/row-cells"
 import { buildFileRows, NEW, OLD } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import { block, textDiff } from "@/test-support/diff-blocks"
@@ -11,8 +11,20 @@ import { block, textDiff } from "@/test-support/diff-blocks"
 const OLD_TEXT = Array.from({ length: 30 }, (_, index) => (index === 20 ? "val Total = 1" : `val total${index} = ${index}`)).join("\n")
 const NEW_TEXT = OLD_TEXT.replace("val Total = 1", "val total = 2")
 
-function file(mode: DiffViewMode): CopyFile {
-  return { rows: buildFileRows(textDiff(30, 30, [block(20, 21, 20, 21)]), mode), tables: [buildLineTable(OLD_TEXT), buildLineTable(NEW_TEXT)] }
+function file(mode: DiffViewMode): FindFile {
+  const diff = textDiff(30, 30, [block(20, 21, 20, 21)])
+  return { rows: buildFileRows(diff, mode), tables: [buildLineTable(OLD_TEXT), buildLineTable(NEW_TEXT)], ranges: diffCells(diff, mode).ranges }
+}
+
+/** One Inline row of a similar pair, with the ranges of the engine: `[start, end, kind]` of each line */
+function inlineFile(oldLine: string, newLine: string, oldRanges: number[], newRanges: number[]): FindFile {
+  const diff = textDiff(1, 1, [block(0, 1, 0, 1, { inlinePairs: true, oldRanges: [oldRanges], newRanges: [newRanges] })])
+  return { rows: buildFileRows(diff, "inline"), tables: [buildLineTable(oldLine), buildLineTable(newLine)], ranges: diffCells(diff, "inline").ranges }
+}
+
+/** The hits as `-old` or `+new` with their offsets, in the order the find steps through them */
+function places(hits: readonly DiffFindHit[]): string[] {
+  return hits.map(hit => `${hit.side === OLD ? "-" : "+"}${hit.start}..${hit.end}`)
 }
 
 describe("findHits", () => {
@@ -31,6 +43,62 @@ describe("findHits", () => {
     // line 3 lies in the first fold, the gap before the change
     expect(folded).toEqual([{ kind: "diff", file: 0, side: NEW, line: 3, start: 4, end: 11, gap: 0 }])
     expect(findHits([file("split")], "", { sideBySide: true, folded: true })).toEqual([])
+  })
+
+  it("searches the deleted rows of Unified and of Inline by their old line, and the lines of a deleted file", () => {
+    // a block without a similar pair is a deleted and an added row in Inline, as in Unified
+    for (const mode of ["unified", "inline"] as const) {
+      const hits = findHits([file(mode)], "Total = 1", { sideBySide: false, folded: false })
+      expect(places(hits), mode).toEqual(["-4..13"])
+      expect(hits[0]).toMatchObject({ side: OLD, line: 20, gap: -1 })
+    }
+    // a deleted file is its old side alone, in one column in every layout
+    const deleted = textDiff(2, 0, [block(0, 2, 0, 0)])
+    const gone: FindFile = {
+      rows: buildFileRows(deleted, "unified"),
+      tables: [buildLineTable("val gone = 1\nval left = 2\n"), null],
+      ranges: diffCells(deleted, "inline", OLD).ranges,
+    }
+    expect(places(findHits([gone], "val", { sideBySide: false, folded: false }))).toEqual(["-0..3", "-0..3"])
+  })
+
+  it("searches an Inline row in its new line and in the deleted parts of its old line, in the order of the text of the row", () => {
+    // the row shows `val a = ` + struck `string` + inserted `name`
+    const pair = inlineFile("val a = string", "val a = name", [8, 14, 2], [8, 12, 2])
+    const search = (query: string) => places(findHits([pair], query, { sideBySide: false, folded: false }))
+    // a deleted part alone, and an inserted one
+    expect(search("string")).toEqual(["-8..14"])
+    expect(search("name")).toEqual(["+8..12"])
+    // the text both lines share is the text of the new line: one hit, not one of each line
+    expect(search("val a")).toEqual(["+0..5"])
+    // a hit that reaches from the shared text into the deleted part is one of the old line; the deleted part stands
+    // before the inserted one, so the old line comes first
+    expect(search("a = ")).toEqual(["+4..8"])
+    expect(search("= s")).toEqual(["-6..9"])
+    expect(search("= ")).toEqual(["+6..8"])
+    expect(search("a = string")).toEqual(["-4..14"])
+    // one letter of each part: the shared `a` of `val` and of the name, then the deleted part, then the inserted one
+    expect(search("a")).toEqual(["+1..2", "+4..5", "+9..10"])
+    expect(search("n")).toEqual(["-12..13", "+8..9"])
+  })
+
+  it("finds in an Inline row a text of the old line that the new line cuts with an insertion, or has lost with a deletion", () => {
+    // `state` to `state + 1`: the engine marks the empty old side; the old line has no hit the new line lacks
+    const inserted = inlineFile("val a = state", "val a = state + 1", [13, 13, 0], [13, 17, 0])
+    const search = (target: FindFile, query: string) => places(findHits([target], query, { sideBySide: false, folded: false }))
+    expect(search(inserted, "state")).toEqual(["+8..13"])
+    // `call(x)` to `call(x, y)`: `x)` stood in the old line, and the row shows it around the inserted `, y`
+    const cut = inlineFile("call(x)", "call(x, y)", [6, 6, 0], [6, 9, 0])
+    expect(search(cut, "x)")).toEqual(["-5..7"])
+    expect(search(cut, "call(x")).toEqual(["+0..6"])
+    // a line without ranges of its own gets an empty range where the other side has its text
+    const deleted = inlineFile("call(x, y)", "call(x)", [6, 9, 1], [])
+    expect(search(deleted, ", y")).toEqual(["-6..9"])
+    expect(search(deleted, "x)")).toEqual(["+5..7"])
+    // ranges that do not align: the row is the new line as it is
+    const apart = inlineFile("abcde", "abXde", [0, 1, 2, 2, 3, 2], [2, 3, 2])
+    expect(search(apart, "c")).toEqual([])
+    expect(search(apart, "x")).toEqual(["+2..3"])
   })
 
   it("groups the hits by file and line for the painter, the current one marked", () => {

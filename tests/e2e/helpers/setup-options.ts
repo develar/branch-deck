@@ -156,6 +156,12 @@ export type SetupRepoOptions = z.input<typeof SetupRepoOptionsSchema>
 export type ParsedSetupRepoOptions = z.output<typeof SetupRepoOptionsSchema>
 
 /**
+ * Split stored as the layout of every diff view (`diffView` of the settings), for a test of what only Split has: its two
+ * sides, its divider, the colours of a block by its type. A test that stores nothing runs in Inline, the default
+ */
+export const SPLIT_DIFFS = { initialStoreValues: { diffView: { mode: "split" } } } satisfies SetupRepoOptions
+
+/**
  * Parse and validate setup options, applying defaults
  */
 export function parseSetupOptions(options?: SetupRepoOptions): ParsedSetupRepoOptions {

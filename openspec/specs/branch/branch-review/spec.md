@@ -835,12 +835,12 @@ again.
 ### Requirement: Title bar, footer and actions: The title bar shows the stack bar, the diff view and the actions
 
 The title bar of the window ([Title Bar](../../repository/title-bar/spec.md)) MUST show the stack bar and after it the
-robot that lands the target branch while it runs, then at its other end the Split/Unified/Inline toggle and the
+robot that lands the target branch while it runs, then at its other end the Inline/Unified/Split toggle and the
 actions on the target branch.
 
 #### Scenario: The title bar of the review window
 - **WHEN** the review window of a branch shows
-- **THEN** its title bar shows the stack bar, then at its other end the Split/Unified/Inline toggle and the actions on the target branch
+- **THEN** its title bar shows the stack bar, then at its other end the Inline/Unified/Split toggle and the actions on the target branch
 - **AND** after the stack bar the robot that lands the target branch while it runs
   [@test] tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`)
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`)
@@ -1130,12 +1130,12 @@ The menu of a commit in the review of the whole stack MUST hold the copies only:
 
 ### Requirement: Title bar, footer and actions: The diff view is saved by the writer of the backend
 
-Split/Unified/Inline MUST be the setting of every diff view, saved by the writer of the backend, which owns
+Inline/Unified/Split MUST be the setting of every diff view, saved by the writer of the backend, which owns
 `settings.json` ([Distributed Settings](../../../../docs/design/distributed-settings.md)): the window sends it the
 change, and keeps the choice on its answer.
 
 #### Scenario: The window chooses a diff view
-- **WHEN** the user chooses Split, Unified or Inline in the window
+- **WHEN** the user chooses Inline, Unified or Split in the window
 - **THEN** the window sends the change to the writer of the backend, which saves it in `settings.json`
 - **AND** the window keeps the choice on its answer
   [@test] tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the writer of the backend`)

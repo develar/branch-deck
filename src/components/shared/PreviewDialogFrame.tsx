@@ -72,7 +72,7 @@ export function PreviewDialogFrame({
   )
 }
 
-/** The title and what goes with it; `end` on the right, before the close button: the view of the body (Unified/Split) */
+/** The title and what goes with it; `end` on the right, before the close button: the view of the body (Inline/Unified/Split) */
 export function PreviewDialogHeader({ children, end }: { children: ReactNode; end?: ReactNode }) {
   // one structure with or without `end`: a dialog that shows it in one mode (the review) keeps its title mounted
   return (

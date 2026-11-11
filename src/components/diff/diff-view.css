@@ -504,6 +504,11 @@
   text-decoration: line-through;
 }
 
+/* a name of the old line that a reveal selected in its Inline row: its deleted parts show the selection while it lasts */
+[data-revealed-old] [data-inline-deleted] {
+  user-select: text;
+}
+
 /*
  * The hits of the find, as IntelliJ's TEXT_SEARCH_RESULT_ATTRIBUTES (Islands Dark boxes them); the current one is
  * selected, as the find of IntelliJ selects it

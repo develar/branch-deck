@@ -11,8 +11,10 @@ import { createPersistentStore } from "./persistent-store"
 export const MIN_SPLIT_RATIO = 0.15
 
 const DiffViewSettingsSchema = z.object({
-  // Split first, as IntelliJ's diff and its VCS log; Inline is Unified with a lightly edited line as one row
-  mode: z.enum(["split", "unified", "inline"]).default("split"),
+  // Inline first, unlike IntelliJ's diff, which opens side by side: one column reads top to bottom at any width of the
+  // pane, and a lightly edited line is one row with its deleted parts struck through. Unified is Inline with every
+  // changed line on a row of its own, Split the old and the new text side by side
+  mode: z.enum(["inline", "unified", "split"]).default("inline"),
   // off, as IntelliJ's USE_SOFT_WRAPS: a long line keeps its shape and scrolls
   softWraps: z.boolean().default(false),
   // on, unlike IntelliJ's "Enable ligatures": a ligature of JetBrains Mono keeps the width of its cells

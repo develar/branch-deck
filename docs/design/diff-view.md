@@ -1,7 +1,7 @@
 # Diff View: Our Own Renderer on the Blocks of the Engine
 
 **Status:** Implemented  
-**Updated:** 2026-10-26  
+**Updated:** 2026-11-11  
 **Tags:** [ui, diff, highlighting, virtualization, performance]
 
 **What runs and what is planned.** The steps of the Migration run: the row model, the layout, the highlight worker,
@@ -112,11 +112,22 @@ A file is a list of segments. A segment holds its start line on each side and th
 | `ignored` | per mode, below | an `ignored` block with unequal sides |
 | `note` | one row of words | a section of a review: the heading of the change a block starts, or a block another section shows |
 
-The rows of a block depend on the mode:
-- **Unified:** the deleted lines, then the added lines.
+The rows of a block depend on the mode, in the order of the toggle (Inline · Unified · Split, from the most compact
+one):
 - **Inline:** one row per pair when `inlinePairs` is true. Each row is the new line, with the deleted parts of the old
   line before the inserted parts. Another block shows as in Unified.
+- **Unified:** the deleted lines, then the added lines.
 - **Split:** `max(old, new)` rows. The shorter side is filled.
+
+**Inline is the default** (`diff-view-settings.ts`), where IntelliJ's diff opens side by side. One column reads top
+to bottom at any width of its pane: the preview of a commit and a review beside its tree are narrow, and a side of
+Split there is about 50 columns, so many changed lines scroll or wrap. A lightly edited line is one row, its deleted
+parts struck through beside what replaced them, so the eye does not travel between two columns to find the change.
+Split stays for a rewrite of whole lines read side by side. One setting holds for every diff view, and the settings
+keep only what differs from a default: a choice of Split made while Split was the default is not stored, so it cannot
+be told from no choice, and such a user gets Inline, without a notice. The default layout is the one the tests of
+the keys, the find, the folds and the benchmark run in; a test of what only Split has stores Split
+(`SPLIT_DIFFS` of `tests/e2e/helpers/setup-options.ts`).
 
 **A file with one side.** An added file has no old blob, a deleted file no new blob (`oneSideOf` in `row-cells.ts`).
 Such a file shows its one side alone in every mode: the rows of Unified, which are its lines as one block, in one
@@ -126,7 +137,7 @@ take `SimpleOnesideDiffViewer` first when `OnesideDiffViewer.canShowRequest` fin
 `EmptyContent` (`community/platform/diff-impl/src/com/intellij/diff/tools/simple/SimpleDiffTool.java`,
 `.../tools/util/side/OnesideDiffViewer.java`), and that viewer highlights all the lines of its editor as
 `TextDiffType.INSERTED` or `DELETED`. Before, Split showed an added file as an empty grey half beside the new lines in
-half the width. The Split/Unified/Inline toggle stays as it is for every other file. A file that exists on both sides
+half the width. The Inline/Unified/Split toggle stays as it is for every other file. A file that exists on both sides
 with an empty text keeps its two sides, as IntelliJ's `DocumentContent` of an empty document is no `EmptyContent`. A
 long line keeps its horizontal scroll: the one column has the scroller of its side. The column has no divider, so a
 drag at its line numbers moves no split (`.dv-half + .dv-half[data-side="1"]`, `onDividerOf`). The view of a
@@ -464,7 +475,9 @@ side and per file cannot work: its scrollbar would be at the end of the file, an
 
 So each file keeps a horizontal offset per side:
 - A thin native scroller per side is sticky at the bottom of the viewport, inside the section of its file. Its width
-  is the widest line of the side, from the line table. It shows only when the side is wider than its column, in a
+  is the widest line of the side, from the line table; the one column of Inline is as wide as its widest row, since
+  the row of a similar pair holds the deleted parts of its old line too and is longer than both lines
+  (`widestInlineRow` of `inline-rows.ts`, counted once per diff). It shows only when the side is wider than its column, in a
   strip of 10 px of its own below the rows (`LayoutFile.scrollbar`, `SCROLLBAR_HEIGHT`): at the end of the file it
   lies under the last row, so a fold there takes a click anywhere on it (laid over the row, it took the lower half of
   the row). The strip is the one height of the layout that the width and the texts decide: a file has it once its
@@ -475,7 +488,7 @@ So each file keeps a horizontal offset per side:
 - A wheel or a trackpad gesture with a horizontal delta over the code of a side moves its scroller. Shift with the
   wheel does the same. A trackpad sends its momentum as wheel events, so the scroll feels native.
 - In Split, a scroll of one side sets the other side to the same offset, as IntelliJ's `SyncScrollSupport` does.
-  Unified has one side.
+  Inline and Unified have one side.
 
 The offset is per file, as in IntelliJ's combined diff. A long line in one file does not move the others.
 
@@ -705,7 +718,11 @@ decisions 26 and 27). The rules have golden files (`crates/code-symbols/testdata
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
 without the deleted parts of an Inline row) and selects a name once its row is painted with its text, by every paint
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
-types in the view or selects elsewhere (`selectWord`). The caret of a field is no selection elsewhere while the name
+types in the view or selects elsewhere (`selectWord`). A name without its columns is the first whole word of that
+name in the line of the model, never in the text of the cell, which in an Inline row holds the deleted parts of the old
+line too. A name of the old line whose line is a row of a similar pair in Inline has no cell of its own: it is
+selected where that row shows it, in the text the row shares with the new line, or struck through in a deleted part,
+which is selectable (`data-revealed-old` on the row) for as long as the name is selected. The caret of a field is no selection elsewhere while the name
 still waits for its paint: the search a reveal of a hidden file clears moves its caret, under load after the reveal;
 once the name is selected, a click into a field lets it go. A place the review shows before its diffs mount (no diff
 of the subject read yet: the overview alone on the canvas, the changes of a pull request still on their way) waits in
@@ -739,7 +756,8 @@ A code cell can show up to four layers:
 - the syntax runs;
 - the changed ranges of the engine (`oldRanges`, `newRanges`), on the emphasis colour;
 - in Inline, the deleted parts of the old line, in a `data-inline-deleted` span that is not selectable;
-- the hits of the find, on the find colour.
+- the hits of the find, on the find colour; in an Inline row the hits of both its lines, a hit of the old line in its
+  deleted parts and on in the text the row shows from the new line (`sharedHitsOf` of `line-parts.ts`).
 
 The painter merges the boundaries of the layers into one list of spans per line. A span has one class per role
 (`t<id>`, `t1` a keyword; `ti`, `tb`, `tu` for italic, bold and the underline of a mutable binding) and one per layer (`range`, `hit`). The deleted parts of an Inline row take the syntax runs of the old
@@ -777,7 +795,13 @@ at the top changes the selection only after a wheel, touch, pointer or key event
 - The mounted DOM text of the prologue, each opening and the epilogue (`find-text.ts`), in document order around the
   diff rows. It matches case-insensitively within one block, can span inline nodes, and skips `.sr-only`,
   `[aria-hidden=true]` and `[data-find-skip]`.
-- The diff model's lines (`find.ts`): both sides of a change in Split and the new side of an unchanged line. "In folded
+- The diff model's lines (`find.ts`): what the rows of the layout show. Split searches both sides of a change and the
+  new side of an unchanged line. One column searches a deleted row by its old line and every other row by its new
+  line; the row of a similar pair in Inline shows both its lines, so it is searched in both: the new line, and of the
+  old line the hits that hold a deleted part, struck through in the row, or a place where the new line inserts text
+  (`isOwnOldHit`). A hit of the old line that lies in the text the two lines share is the same characters as the hit
+  of the new line there, and counts once. The hits of a row go in the order of its text (`inlineOffset`), a deleted
+  part before the inserted one. So a text found in Unified or in Split is found in Inline too. "In folded
   lines" searches folded diff lines only; it does not gate story text.
 
 Closed story-body parts and `Disclosure`s retain their text hidden in the page. A text hit opens each fold around it
@@ -918,6 +942,29 @@ task, apart from this renderer: in WebKit it is 322 ms of the 412 ms of the 200 
 
 The fork did not finish the open of the 200 files in WebKit: the benchmark stopped it after its 20 minutes.
 
+**Inline, the default (2026-11-11).** The benchmark runs each commit in Inline, with nothing stored, and in Split.
+WebKit, the medians of 3 runs, on the developer Mac at a load of 45 to 55, where the table above had about 30:
+
+| scenario | metric | Inline | Split | target |
+|---|---|---|---|---|
+| 200 files, open | ready | 150 ms | 191 ms | — |
+| 200 files, open | first rows after ready | 252 ms | 306 ms | ≤ 350 ms |
+| 200 files, open | highlighted | 490 ms | 591 ms | ≤ 450 ms |
+| 10k lines, open | first rows | 282 ms | 272 ms | ≤ 300 ms |
+| 10k lines, open | highlighted | 317 ms | 310 ms | ≤ 400 ms |
+| 200 files, expand a fold | highlighted | 95 ms | 108 ms | in the same frame |
+| scroll, 20 viewports/s | a scroll event with its layout, p95 (200 files, 10k lines) | 3, 3 ms | 5, 4 ms | ≤ 4 ms |
+| scroll | frames with an empty row | 0 | 0 | 0 |
+| any | DOM nodes of the view (200 files, 10k lines) | 697, 646 | 1075, 1045 | ≤ 4,000 |
+| any | long tasks after the first rows | none | none | none over 50 ms |
+
+Inline is within the targets but for the highlighted time of the 200 files, 40 ms past it at that load as the 452 ms
+of the table above were 2 ms past it at a lower one, and 100 ms less than Split in the same run. A row of Inline has
+one code cell where Split has two, so the view holds a third fewer nodes and a scroll event is shorter. The same
+benchmark on the Mac Studio beside the runs of other sessions (a load of 40 to 90), against the commit before the
+change, where it ran in Split: the first rows of the 200 files 398 and 414 ms after ready in Inline against 441 ms,
+those of the 10,000 lines 378 and 437 ms against 628 ms, the scroll event 5 and 4 ms against 9 and 7 ms.
+
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized
 component, so a mount renders that section alone. The benchmark times the whole scroll event with the layout of the
@@ -928,7 +975,9 @@ leaves the layout to the next read and hides it.
 
 `pnpm perf:diff` (`tests/perf/diff-review.perf.ts`, `playwright.perf.config.ts`) opens the review window on the
 production build of the e2e setup, over two synthetic commits (`tests/perf/diff-fixtures.ts`): 200 files (four of
-3,000-5,000 lines), and one file of 10,000 lines. Routed answers of `get_commit_files`, `get_file_diffs` and
+3,000-5,000 lines), and one file of 10,000 lines, each changed line a similar pair. It runs each commit in Inline,
+with nothing stored, so it follows the default and the targets gate the layout a user gets, and in Split, stored
+(the rows "…, Split" of its table); a run asserts the layout its numbers are of. Routed answers of `get_commit_files`, `get_file_diffs` and
 `get_blob_texts` give the diffs of the engine and the texts. `--project=chromium` and `--project=webkit` run one
 engine; `PERF_RUNS` sets the runs (3). The medians go to stdout and to `tests/results/perf/diff-review-<project>.json`.
 

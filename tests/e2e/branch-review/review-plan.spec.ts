@@ -62,17 +62,23 @@ async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experi
     { "src/b/Cache.kt": "package b\n\nclass Cache {\n  fun get(key: String): Int = key.length\n}\n", "src/a/Reader.kt": READER('cache.get("x")') },
     1704123000,
   )
-  // the index of the repository, as accio answers `references --at` the line of `helper`
-  const usage = (file: string, line: number) => ({ file, line, column: 3, snippet: "helper(1)", kind: "call", resolved: "typed" })
-  writeFileSync(
-    path.join(repo.path, ".git", "branch-deck-accio.json"),
-    JSON.stringify({
-      references: {
-        // and a call only the name ties, in a script
-        [HELPER]: [usage("src/Base.kt", 1), usage("src/Uses.kt", 4), usage("src/main/App.kt", 9), { ...usage("scripts/helper.py", 2), resolved: "name" }],
-      },
-    }),
-  )
+  // and a call only the name ties, in a script
+  writeHelperIndex(repo, [
+    helperUsage("src/Base.kt", 1),
+    helperUsage("src/Uses.kt", 4),
+    helperUsage("src/main/App.kt", 9),
+    { ...helperUsage("scripts/helper.py", 2), resolved: "name" },
+  ])
+}
+
+/** A call of `helper` at a line of a file, as the index answers a usage: tied by its type */
+function helperUsage(file: string, line: number) {
+  return { file, line, column: 3, snippet: "helper(1)", kind: "call", resolved: "typed" }
+}
+
+/** The index of the repository, as accio answers `references --at` the line of `helper` */
+function writeHelperIndex(repo: TestRepositoryBuilder, usages: ReturnType<typeof helperUsage>[]): void {
+  writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ references: { [HELPER]: usages } }))
 }
 
 /** The rows of the commit column: a scope by its label, a commit by its subject with what it is since the review */
@@ -308,6 +314,40 @@ test.describe("The review plan in the branch review", () => {
     await overview.getByTestId("review-step-opens-wider").click()
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "format", path: "src/Format.kt" })
   })
+
+  test(
+    "should select the name of a removed declaration in the Inline row that strikes it through, until a press in the diffs",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("symbol_navigation")
+      turnOnReviewPlan(repo)
+      // `helper` gets another name and its uses outside stay: in Inline, the default, the row of its declaration is the
+      // new line with the old name struck through before the new one
+      await repo.commit("(plan) rename the helper", { "src/Store.kt": storeText("fun helperScaled(value: Int) = value") }, 1704121200)
+      writeHelperIndex(repo, [helperUsage("src/Base.kt", 1), helperUsage("src/Uses.kt", 4)])
+      const window = await openPlanWindow(page, syncAndWaitForBranches)
+
+      const removed = window.getByTestId("review-overview").getByTestId("review-plan-breakage-entry")
+      await expect(removed).toHaveAttribute("data-name", "helper")
+      await expect(removed).toContainText("Removed")
+      await removed.getByTestId("review-plan-breakage-file").click()
+      // the old name is selected where the row shows it: its deleted part, selectable while the name is selected
+      await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
+      const pair = window.locator(".dv-row[data-kind=inline]", { hasText: "helperScaled" })
+      await expect(pair.locator("[data-inline-deleted]")).toHaveText("helper")
+      await expect(pair.locator("[data-inline-deleted]")).toHaveCSS("user-select", "text")
+      const selectedParts = () =>
+        pair.evaluate(row => {
+          const selection = document.getSelection()!
+          return { deleted: selection.containsNode(row.querySelector("[data-inline-deleted]")!, true), inserted: selection.containsNode(row.querySelector(".dv-changed")!, true) }
+        })
+      await expect.poll(selectedParts).toEqual({ deleted: true, inserted: false })
+
+      // a press in the diffs lets the name go: the deleted part is left out of a selection again
+      await window.locator(".dv-row[data-kind=context]").first().click()
+      await expect(pair.locator("[data-inline-deleted]")).toHaveCSS("user-select", "none")
+    },
+  )
 
   test('should name a long fact in the opening of a step by its first eight names, and the rest in place on a click of "and N more"', async ({
     page,

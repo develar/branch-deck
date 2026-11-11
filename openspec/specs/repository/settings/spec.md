@@ -450,12 +450,12 @@ Appearance SHALL have "Zoom", Zoom Out · the level · Zoom In, then Actual Size
 
 ### Requirement: Pages: Diffs sets every diff view
 
-Diffs SHALL have one setting of every diff view in each row, as IntelliJ's diff settings: Layout (Split · Unified ·
-Inline) and Whitespace (the menu above the diffs, which says the choice here), the controls above every diff too; then
+Diffs SHALL have one setting of every diff view in each row, as IntelliJ's diff settings: Layout (Inline · Unified ·
+Split, the default first) and Whitespace (the menu above the diffs, which says the choice here), the controls above every diff too; then
 "Soft wraps" and "Ligatures", each with what it does ([Commit Files](../../commit/commit-files/spec.md#soft-wraps)).
 
 #### Scenario: Layout and Whitespace
-- **WHEN** the user chooses a Layout (Split · Unified · Inline) or a Whitespace in Diffs
+- **WHEN** the user chooses a Layout (Inline · Unified · Split) or a Whitespace in Diffs
 - **THEN** every diff view follows it
 - **AND** the Whitespace menu above the diffs says the choice
   [@test] tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs, the Whitespace menu naming its choice`)
