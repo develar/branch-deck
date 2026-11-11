@@ -10,7 +10,7 @@ import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { emitTauriEvent, runAndWaitForAnswer, waitForFactsAnswered } from "../helpers/sync-helpers"
+import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
 
@@ -250,7 +250,7 @@ test.describe("Merge #7", () => {
   }) => {
     // #7 was merged into the branch of its parent core after core had landed: master lacks its commits (#163)
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, seven({ state: "merged", baseRefName: "user-name/virtual/core" }))
-    await waitForFactsAnswered(page, repo)
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
     const step = findBranchRow(page, BRANCH).getByTestId("next-step-slot").getByTestId("next-step")
     await expect(step).toHaveText("Create Pull Request…")
     await findBranchRow(page, BRANCH).click({ button: "right" })

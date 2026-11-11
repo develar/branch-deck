@@ -61,7 +61,7 @@ import {
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu, waitForFactsAnswered } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
@@ -419,10 +419,10 @@ test.describe("Stacked branches", () => {
   })
 
   test("should stack a branch on another one and unstack it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_branches")
+    await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
     // the Safe Push of docs leaves its menu once Patronus answers: Stack On… would move from under the pointer
-    await waitForFactsAnswered(page, repo)
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
 
     await openContextMenu(page, findBranchRow(page, "docs"))
     // the submenu lists the other branches
@@ -480,11 +480,11 @@ test.describe("Stacked branches", () => {
   })
 
   test("should stack an issue branch without a rewrite and undo it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_issues")
+    await setupRepo("stacked_issues")
     await syncAndWaitForBranches()
     // docs is stacked on ABC-1 by the stack parents, its prefix names no parent
     expect(await branchTree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
-    await waitForFactsAnswered(page, repo)
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
 
     await openContextMenu(page, findBranchRow(page, "ABC-2"))
     await openSubmenu(page, "Stack On…")
@@ -501,9 +501,9 @@ test.describe("Stacked branches", () => {
   })
 
   test("should not offer a branch's own descendants to stack on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_branches")
+    await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    await waitForFactsAnswered(page, repo)
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
 
     await openContextMenu(page, findBranchRow(page, "auth"))
     await openSubmenu(page, "Stack On…")
@@ -1619,7 +1619,7 @@ test.describe("Stacked branches", () => {
         pullRequests: { ...availablePullRequests(), nextNumber: 901 },
       })
       await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
-      await waitForFactsAnswered(page, repo)
+      await waitForStepFacts(page.getByTestId("next-step-slot"))
 
       // docs below auth, after the Safe Push of oauth took its commit: the robot lands none of docs
       await openContextMenu(page, findBranchRow(page, "auth"))

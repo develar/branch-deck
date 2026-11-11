@@ -63,7 +63,7 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
  * Open the submenu `name` of the open menu ("Patronus", "Copy" of the branch menu) as the user does, by hovering its
  * item; resolves once it is open. The one way a test opens a submenu: `hover()` of its item is refused
  * (`refuseSubmenuHovers` of fixtures/base-test.ts). A menu whose items still change as it shows (the facts of the first
- * sync, `waitForFactsAnswered`) moves the item from under the pointer before the delay ran out, and nothing opens: the
+ * sync, `waitForStepFacts`) moves the item from under the pointer before the delay ran out, and nothing opens: the
  * error says so
  */
 export async function openSubmenu(page: Page, name: string): Promise<void> {
@@ -79,7 +79,7 @@ export async function openSubmenu(page: Page, name: string): Promise<void> {
     await expect(trigger).toHaveAttribute("aria-expanded", "true")
   } catch (error) {
     if (error instanceof Error && !(await trigger.evaluate(element => element.matches(":hover")))) {
-      error.message = `${error.message}\n\nThe menu moved "${name}" from under the pointer before its submenu opened: its items changed as it showed. Anchor on the state the menu shows first (the facts of the first sync: waitForFactsAnswered of tests/e2e/helpers/sync-helpers.ts)`
+      error.message = `${error.message}\n\nThe menu moved "${name}" from under the pointer before its submenu opened: its items changed as it showed. Anchor on the state the menu shows first (the facts of the first sync: waitForStepFacts of tests/e2e/helpers/wait-helpers.ts)`
     }
     throw error
   }

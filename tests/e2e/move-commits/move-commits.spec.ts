@@ -16,11 +16,11 @@ import {
   shiftSelectCommit,
   startDrag,
 } from "../helpers/selection-helpers"
-import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu, waitForFactsAnswered } from "../helpers/sync-helpers"
+import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
-import { recordRewrites, expectClosed } from "../helpers/wait-helpers"
+import { recordRewrites, expectClosed, waitForStepFacts } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -124,7 +124,7 @@ test.describe("Move commits", () => {
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     // the menus a test opens show what the facts of the first sync decided, and keep their items under the pointer
-    await waitForFactsAnswered(page, repo)
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
   })
 
   test("should split commits out of an issue branch into a new branch nested under the issue", async ({ page }) => {

@@ -107,7 +107,7 @@ let plainHover: Hover | null = null
  * Makes `hover()` of every locator refuse a menu item that opens a submenu (`aria-haspopup="menu"`): the submenu opens
  * by `openSubmenu` (helpers/selection-helpers.ts), which asserts the open and says when the menu moved the item from
  * under the pointer before it opened (its items changed as it showed: the facts of the first sync came,
- * `waitForFactsAnswered`). A hover that opened nothing failed later, on an item of the submenu
+ * `waitForStepFacts`). A hover that opened nothing failed later, on an item of the submenu
  */
 function refuseSubmenuHovers(page: Page): void {
   if (plainHover !== null) {

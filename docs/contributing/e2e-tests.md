@@ -128,11 +128,11 @@ rules in one line each and links here.
   Patronus, the route) come after it, in a patch of every next step, and the branch menu loses its Safe Push item at
   the top as Patronus answers. The items below move up a row under the pointer, the item that was under it hears the
   pointer leave, and Base UI cancels the open of its submenu or tooltip, as it should: the item left the pointer
-  (stacked-branches.spec.ts, 3 runs in 150 under load). A test opens such a menu once the session answered them
-  (`waitForFactsAnswered` of sync-helpers.ts), never with an answer held. A submenu opens by `openSubmenu` of
-  selection-helpers.ts, which asserts the open and says when the menu moved its item from under the pointer; `hover()` of
-  an item with a submenu is refused (`refuseSubmenuHovers` of fixtures/base-test.ts), and `hoverSubmenuTrigger` is the
-  plain move for a test that holds the delay.
+  (stacked-branches.spec.ts, 3 runs in 150 under load). A test opens such a menu once no step says "Checking…"
+  (`waitForStepFacts(page.getByTestId("next-step-slot"))`), never with an answer held. A submenu opens by `openSubmenu`
+  of selection-helpers.ts, which asserts the open and says when the menu moved its item from under the pointer;
+  `hover()` of an item with a submenu is refused (`refuseSubmenuHovers` of fixtures/base-test.ts), and
+  `hoverSubmenuTrigger` is the plain move for a test that holds the delay.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config

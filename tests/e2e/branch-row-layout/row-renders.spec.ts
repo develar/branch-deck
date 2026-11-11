@@ -4,8 +4,9 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { recordRenders, renderCounts, resetRenders } from "../helpers/render-helpers"
 import type { RenderCounts } from "../helpers/render-helpers"
-import { runAndWaitForSync, waitForFactsAnswered, waitForViewVersion } from "../helpers/sync-helpers"
+import { runAndWaitForSync, waitForViewVersion } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { waitForStepFacts } from "../helpers/wait-helpers"
 
 /**
  * The renders of the page (`countRender`) a sync from the Sync button made, read once the page holds the view in which
@@ -42,7 +43,7 @@ test.describe("The renders of a sync", () => {
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, "docs"), 1)
     // the facts of the first sync came: their patch of every next step renders every row (1 run in 30 under load)
-    await waitForFactsAnswered(page, repo)
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
 
     // every branch from `Created` to `Unchanged`: the status of each row renders, no row, no card (B5)
     const resync = await syncRenders(page, repo)

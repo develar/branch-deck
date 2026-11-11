@@ -13,9 +13,9 @@ import {
 } from "../helpers/branch-helpers"
 import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, openSubmenu, selectCommit } from "../helpers/selection-helpers"
-import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer, waitForFactsAnswered } from "../helpers/sync-helpers"
+import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand, recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { recordCommand, recordRewrites, expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
 
@@ -28,7 +28,7 @@ async function setup(page: Page, setupRepo: (template: string) => Promise<TestRe
   await syncAndWaitForBranches()
   await verifyCommitCount(findBranchRow(page, ISSUE), 3)
   // the menus a test opens show what the facts of the first sync decided, and keep their items under the pointer
-  await waitForFactsAnswered(page, repo)
+  await waitForStepFacts(page.getByTestId("next-step-slot"))
   await expandBranch(page, findBranchRow(page, ISSUE))
   return repo
 }
