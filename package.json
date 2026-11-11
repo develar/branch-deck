@@ -64,7 +64,7 @@
   "devDependencies": {
     "@fission-ai/openspec": "1.16.1",
     "@playwright/test": "1.65.0",
-    "@tailwindcss/vite": "4.3.4",
+    "@tailwindcss/vite": "4.3.5",
     "@tauri-apps/cli": "2.12.4",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
