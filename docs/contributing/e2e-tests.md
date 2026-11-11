@@ -127,7 +127,8 @@ rules in one line each and links here.
   sync-helpers.ts, with `focus` and `asked`; `focusPastReviewRequestsAge` for the review requests). A loop that moves the
   clock is no `expect.poll` of 5 s either: the answers it waits for take seconds each under load. Likewise a toast or a
   row after an operation is checked once it answered (`runAndWaitForAnswer(page, "execute", …)` before
-  `expectPushedToast`), or once the state its sync shows is there (`releaseTheSyncOfTheUnstack`), and the facts of the
+  `expectPushedToast`; two moves queued behind the lock, each with its sync, 3 to 8 s under load: both answers,
+  `releaseTheTwoMoves` of move-commits.spec.ts), or once the state its sync shows is there (`releaseTheSyncOfTheUnstack`), and the facts of the
   steps are waited for as long as the test lets them take (`waitForStepFacts`).
 - **A menu opened right after the first sync changes as it shows**: the facts that sync asked for (the permission of
   Patronus, the route) come after it, in a patch of every next step, and the branch menu loses its Safe Push item at

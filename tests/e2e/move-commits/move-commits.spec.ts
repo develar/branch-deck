@@ -16,13 +16,24 @@ import {
   shiftSelectCommit,
   startDrag,
 } from "../helpers/selection-helpers"
-import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
+import { finishedSyncCount, nextAnswer, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
 import { recordRewrites, expectClosed, waitForStepFacts } from "../helpers/wait-helpers"
 
 const ISSUE = "ABC-123"
+
+/**
+ * Releases the repository lock two moves wait behind and waits for the answers of both (`execute` answers once its
+ * operation ended in the journal): they run one after the other, each with its sync, which a loaded machine took 3 to 8
+ * seconds for, past the wait of an assertion
+ */
+async function releaseTheTwoMoves(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  const answered = nextAnswer(page, "execute", 2)
+  await repo.holdRepositoryLock(false)
+  await answered
+}
 
 /** Names of the branch rows in display order */
 /** Moves "Add parser" of the issue branch to docs through Move to Existing of its context menu, and waits for the sync. */
@@ -405,7 +416,7 @@ test.describe("Move commits", () => {
     // the holder is done: the second move runs beside the sync of the first, with the id the first move gave the commit
     // (the old id would fail with "Cannot move the commits to docs"), and the two syncs fold into two runs at most
     const syncs = await finishedSyncCount(page)
-    await repo.holdRepositoryLock(false)
+    await releaseTheTwoMoves(page, repo)
     await verifyCommitCount(findBranchRow(page, "docs"), 3)
     await verifyCommitCount(findBranchRow(page, ISSUE), 2)
     await expect(page.getByTestId("unassigned-commits-section")).toHaveCount(0)
@@ -421,7 +432,7 @@ test.describe("Move commits", () => {
     await expect.poll(() => moves.length).toBe(2)
 
     // both commits reached docs, each in a move of its own
-    await repo.holdRepositoryLock(false)
+    await releaseTheTwoMoves(page, repo)
     await verifyCommitCount(findBranchRow(page, "docs"), 3)
     await verifyCommitCount(findBranchRow(page, ISSUE), 1)
     await expect(page.locator("[data-slot=toast]", { hasText: /^Cannot move/ })).toHaveCount(0)
@@ -432,7 +443,7 @@ test.describe("Move commits", () => {
     await dropDuringMove(page, getUnassignedCommitRow(page, "Refactor build script"), ISSUE)
     await expect.poll(() => moves.map(move => move.rewrite.targetBranch)).toEqual(["docs", ISSUE])
 
-    await repo.holdRepositoryLock(false)
+    await releaseTheTwoMoves(page, repo)
     await verifyCommitCount(findBranchRow(page, "docs"), 2)
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
     await expect(getBranchCommitRow(page, ISSUE, "Refactor build script")).toBeVisible()
