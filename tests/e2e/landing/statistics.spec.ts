@@ -6,7 +6,7 @@ import { findBranchRow, getMoreButton, getPushButton } from "../helpers/branch-h
 import { DAY_ROBOTS, ROBOTS_NOW, availableRobots, failedFastTests, setupRobots, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { openLandingOverview } from "../helpers/review-status-helpers"
-import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { HistoryRobotFixture, TestRepositoryBuilder } from "../helpers/test-repository"
 import { openMainMenuView, TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { recordCommand, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
@@ -52,6 +52,14 @@ function landingView(page: Page) {
   return page.getByTestId("landing-view")
 }
 
+/**
+ * Shows the Landing view by its button and waits for the statistics it asks for as it shows (`get_robot_stats`), which
+ * read the history of Patronus, seconds under load: what the view says of the history is read then
+ */
+async function showLandingView(page: Page): Promise<void> {
+  await runAndWaitForAnswer(page, "get_robot_stats", () => page.getByTestId("main-view-landing").click())
+}
+
 /** Chooses a period through the Select of the header, as the user does */
 async function choosePeriod(page: Page, name: string): Promise<void> {
   await landingView(page).getByRole("combobox", { name: "Period" }).click()
@@ -82,7 +90,7 @@ test.describe("Landing view", () => {
     syncAndWaitForBranches,
   }) => {
     const repo = await setupHistory(page, setupRepo, syncAndWaitForBranches)
-    await page.getByTestId("main-view-landing").click()
+    await showLandingView(page)
     await expectStatisticsShown(page)
     const view = landingView(page)
     // 30 days by default
@@ -354,7 +362,7 @@ test.describe("Landing view", () => {
       finishTime: MONDAY_NINE + 8 * HOUR,
     }))
     await setupHistory(page, setupRepo, syncAndWaitForBranches, [...HISTORY, ...slow])
-    await page.getByTestId("main-view-landing").click()
+    await showLandingView(page)
     await expect(landingView(page).getByTestId("landing-fastest-hours")).toHaveText("Robots that start 09:00–10:00 merge fastest: 1h, against 3h at 14:00")
     // the chart illustrates the sentence: the key names the run, and the two medians stand on their bars
     await expect(landingView(page).getByTestId("hour-legend").getByRole("listitem")).toHaveText(["Everyone else, median", "Fastest hours 09:00–10:00", "You"])
@@ -376,7 +384,7 @@ test.describe("Landing view", () => {
       ...HISTORY,
       { id: "mine-older", owner: "1", status: "success", startTime: ROBOTS_NOW - 20 * DAY, finishTime: ROBOTS_NOW - 20 * DAY + HOUR, branch: "older-work" },
     ])
-    await page.getByTestId("main-view-landing").click()
+    await showLandingView(page)
     const view = landingView(page)
     await expect(view.getByTestId("landing-merged")).toContainText("Merged3")
     await expect(view.getByTestId("landing-numbers")).toHaveAttribute("data-period", "30d")
