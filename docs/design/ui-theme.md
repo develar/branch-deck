@@ -124,7 +124,11 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
 - **Pale and full.** A block with inner ranges, also an empty list of them, has pale lines and full words; a block
   without inner ranges has full lines; a whitespace-only block is pale with nothing strong.
 - **Gutter.** The colour of a line fills its line number as well (`DiffLineMarkerRenderer`): no bar beside the code.
-  The line numbers are a point smaller than the code, 12 px, in `LINE_NUMBERS_COLOR`.
+  The line numbers are a point smaller than the code, 12 px, in `LINE_NUMBERS_COLOR` (`--diff-line-number`). The
+  number of a changed line is our own, `--diff-line-number-changed`: `LINE_NUMBERS_COLOR` is made for the editor
+  background and is lost on the colour of a line (1.4:1 on a deleted line of the light scheme, 1.1:1 and 1.04:1 on a
+  deleted and a modified line of the dark one, where the number of a deleted row of Inline could not be read); the
+  token is at least 3:1 against every line colour of its scheme, pale or full.
 - **Folds.** `DIFF_SEPARATORS_BACKGROUND`, with a 1-px line of `DIFF_SEPARATOR_WAVE` above and below the row. IntelliJ
   draws a squiggle across the middle; the text of our fold stands there, so the lines go to the edges.
 - **Selection and find.** `SELECTION_BACKGROUND` for a selection and for the current hit, as IntelliJ's find selects

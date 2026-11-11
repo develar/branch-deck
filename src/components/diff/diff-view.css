@@ -429,6 +429,17 @@
   background: var(--dv-pale);
 }
 
+/*
+ * The number of a changed line reads on the colour of its line: LINE_NUMBERS_COLOR, made for the editor background,
+ * is lost on a deleted or a modified line of the dark scheme (docs/design/ui-theme.md, "Gutter")
+ */
+[data-cell="inserted"] > .dv-num,
+[data-cell="deleted"] > .dv-num,
+[data-cell="modified"] > .dv-num,
+[data-cell="conflict"] > .dv-num {
+  color: var(--diff-line-number-changed);
+}
+
 [data-cell="filler"] {
   background: color-mix(in oklab, var(--foreground) 3%, var(--card));
 }

@@ -508,7 +508,8 @@
    * The diff colours of IntelliJ's Light scheme (Islands Light): DIFF_INSERTED, DIFF_DELETED, DIFF_MODIFIED and
    * DIFF_CONFLICT, each with its pale form (`TextDiffTypeImpl.getIgnoredColor`: the colour mixed 0.6 with the editor
    * background #FFFFFF); the line numbers, the separators of the folds, the selection and the search results
-   * (docs/design/ui-theme.md, "Diffs")
+   * (docs/design/ui-theme.md, "Diffs"). `--diff-line-number-changed` is our own: the number of a changed line, at
+   * least 3:1 against each line colour, where LINE_NUMBERS_COLOR is 1.4:1 (1.04:1 in the dark scheme)
    */
   --diff-inserted: #bee6be;
   --diff-inserted-pale: #e5f5e5;
@@ -519,6 +520,7 @@
   --diff-conflict: #ffd5cc;
   --diff-conflict-pale: #ffeeeb;
   --diff-line-number: #aeb3c2;
+  --diff-line-number-changed: #6c707e;
   --diff-separator: #e4e6eb;
   --diff-separator-wave: #d0d0d0;
   --diff-selection: #a6d2ff;
@@ -641,6 +643,7 @@
   --diff-conflict: #45302b;
   --diff-conflict-pale: #2b2322;
   --diff-line-number: #4b5059;
+  --diff-line-number-changed: #a8adbd;
   --diff-separator: #2b2d30;
   --diff-separator-wave: #555555;
   --diff-selection: #214283;
