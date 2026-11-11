@@ -115,6 +115,11 @@ rules in one line each and links here.
   after the window opened may never see the call a test waits for (1 run in 12 of `review-plan.spec.ts`). Hold it on
   the context before the window opens (`holdCommandCalls(page, command, { scope: "context" })`) and wait for a held
   call that asks for what the test holds unpainted, never for a call that may already have gone out.
+- **Answers come in another order than their work** on a loaded machine: a command writes, the write tells the windows
+  to read again, and that read can answer before the command does. Activity showed a rewrite twice, each with its Undo
+  (2 of 370 runs of `move-commits.spec.ts`): the read brought the entry, then the record added it again. A test of
+  such an order holds only the answer (`holdNextAnswer(page, command)` of wait-helpers.ts: the command runs at once, its
+  answer waits for the release), never the call (`holdCommand`, which holds the work too).
 - **A move of the session clock after a call the fake counted** comes before the answer ended in the session: a fake
   counts a call as it answers, the session applies the answer seconds later under load and counts the age of the list
   from that end, past the move, or takes the focus of the move into the list in flight. One move and one focus then ask

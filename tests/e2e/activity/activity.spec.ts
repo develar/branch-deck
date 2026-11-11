@@ -15,12 +15,13 @@ import {
 } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
+import { submitInlineForm } from "../helpers/inline-form-helpers"
 import { confirmForcePush, expectPushedToRemote, virtualBranch } from "../helpers/push-helpers"
-import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
+import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, nextAnswer, runAndWaitForSync, runAndWaitForUpdate, syncFromMenu, waitForTauriListener, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { waitForStorePersistence, expectClosed } from "../helpers/wait-helpers"
+import { waitForStorePersistence, expectClosed, holdNextAnswer } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
 // origin/master, the update rebases cleanly / conflicts in src/app.txt. `landed_upstream`: a robot pushed feature-auth
@@ -144,6 +145,32 @@ testWithIssueLinks.describe("Activity", () => {
 
   testWithIssueLinks("should offer the Undo of a squash while the toast's lasts, in the panel", async ({ page }) => {
     await squashAndUndo({ page }, "panel")
+  })
+
+  testWithIssueLinks("should show a rewrite once whose record answers after the read its write asked, and undo it there", async ({ page }) => {
+    await activityButton(page).click()
+    // the record of the rename writes at once and answers late: its write tells the windows to read the log, and that
+    // read brings the entry first
+    const record = await holdNextAnswer(page, "record_activity")
+    await openContextMenu(page, findBranchRow(page, "feature-auth"))
+    await clickContextMenuItem(page, "Rename…")
+    const input = page.getByTestId("inline-rename-input").locator('input[type="text"]')
+    await expect(input).toHaveValue("feature-auth")
+    await runAndWaitForSync(page, () => submitInlineForm(input, "auth"))
+    const entry = activityPanel(page)
+      .getByTestId("activity-entry")
+      .filter({ hasText: /^Renamed feature-auth to auth/ })
+    await expect(entry).toHaveCount(1)
+
+    // the record answers: the same entry gets its Undo, never a second one beside it, and its Undo undoes the rename
+    await record.ran
+    record.release()
+    await expect(entry.getByTestId("activity-undo")).toBeVisible()
+    await expect(entry).toHaveCount(1)
+    await runAndWaitForSync(page, () => entry.getByTestId("activity-undo").click())
+    await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
+    await expect(findBranchRow(page, "feature-auth")).toBeVisible()
+    await expect(findBranchRow(page, "auth")).toHaveCount(0)
   })
 
   testWithIssueLinks("should read the log from the journal of the repository after a reload", async ({ page, syncAndWaitForBranches }) => {

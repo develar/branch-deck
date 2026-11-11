@@ -111,6 +111,35 @@ describe("activity", () => {
     expect(entries("/b")).toHaveLength(1)
   })
 
+  it("shows an entry it recorded once when a read made after the write answered before the record", async () => {
+    const release = fakeActivity.holdAnswer("recordActivity")
+    const recorded = recordActivity("/a", { kind: "rewrite", title: "Renamed docs to documentation (2 commits)" })
+    // the write tells every window to read the log again: that read brings the entry while its record has not answered
+    await refreshActivity()
+    expect(entries().map(entry => entry.title)).toEqual(["Renamed docs to documentation (2 commits)"])
+    release()
+    const id = await recorded
+    expect(entries().map(entry => entry.id)).toEqual([id])
+    await refreshActivity()
+    expect(entries().map(entry => entry.id)).toEqual([id])
+  })
+
+  it("keeps an entry it recorded when a read made before the write answers after the record, until a read made after it", async () => {
+    const release = fakeActivity.holdAnswer("readActivity")
+    const read = refreshActivity()
+    const id = await recordActivity("/a", { kind: "rewrite", title: "Renamed docs to documentation (2 commits)" })
+    expect(entries().map(entry => entry.id)).toEqual([id])
+    // the read from before the write lacks the entry: it stays, as the read after the write has it
+    release()
+    await read
+    expect(entries().map(entry => entry.id)).toEqual([id])
+    await refreshActivity()
+    expect(entries().map(entry => entry.id)).toEqual([id])
+    // a read made after the record is the log's: Clear Log forgets the entry
+    expect(await clearActivity("/a")).toBeNull()
+    expect(entries()).toEqual([])
+  })
+
   it("records nothing without a repository", async () => {
     expect(await recordActivity("", { kind: "update", title: "Updated master" })).toBeNull()
     expect(fakeActivity.page).toEqual([])

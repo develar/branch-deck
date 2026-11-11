@@ -2,7 +2,7 @@ import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { createStore } from "zustand/vanilla"
 import { ACTIVITY_WINDOW } from "@/lib/activity-window"
-import type { ActivityLog, DroppedCommit, LandedBranch, PageActivity, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
+import type { ActivityLog, DroppedCommit, LandedBranch, PageActivity, PageEntry, PatronusRobot, ReviewRequest, UpdateProjectResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { logError, setErrorRecorder } from "@/lib/errors"
 import { appliedUpdateToast, foundLandedNews } from "@/lib/landed"
@@ -100,7 +100,27 @@ function itemsOf(log: ActivityLog | null, undo: Readonly<Record<string, UndoStat
   return log === null ? [] : withUndo(presentActivity(log, gitHubRepository), undo)
 }
 
-function setLog(log: ActivityLog): void {
+/** The reads of the log this window asked, numbered as it asks them */
+let readsAsked = 0
+
+/**
+ * The entries this window recorded, each with the number of the last read asked before its answer came: such a read may
+ * have read the journal before the write and lack it; a read asked after the answer read it after the write
+ */
+let recordedEntries: { readonly entry: PageEntry; readonly after: number }[] = []
+
+/** `page` with `entry` once: a read made after its write may have brought it before its record answered */
+function withEntry(page: readonly PageEntry[], entry: PageEntry): PageEntry[] {
+  return page.some(it => it.id === entry.id) ? [...page] : [...page, entry]
+}
+
+/**
+ * The log of the read numbered `asked`, with the entries this window recorded that it may lack: those whose record
+ * answered after it was asked. An entry recorded before it is the read's to have (Clear Log forgets it)
+ */
+function setLog(read: ActivityLog, asked: number): void {
+  recordedEntries = recordedEntries.filter(it => it.after >= asked)
+  const log = { ...read, page: recordedEntries.reduce((page, it) => withEntry(page, it.entry), read.page) }
   activityStore.setState(state => ({ log, items: itemsOf(log, state.undo) }))
 }
 
@@ -130,9 +150,10 @@ export function refreshActivity(): Promise<void> {
   const read = async (): Promise<void> => {
     do {
       readAgain = false
+      const asked = ++readsAsked
       const answer = await commands.readActivity()
       if (answer.status === "ok") {
-        setLog(answer.data)
+        setLog(answer.data, asked)
       } else {
         logError("Cannot read Activity", answer.error)
       }
@@ -199,11 +220,15 @@ export async function recordActivity(repositoryPath: string, input: PageInput): 
     logError("Cannot record in Activity", recorded.error)
     return null
   }
+  // the entry shows at once, also beside a read that answered before it (made before the write) and once beside one that
+  // answered first with it (made after the write: the write tells every window to read the log again)
+  const entry = recorded.data
+  recordedEntries.push({ entry, after: readsAsked })
   activityStore.setState(state => {
-    const log: ActivityLog = { journals: state.log?.journals ?? [], page: [...(state.log?.page ?? []), recorded.data] }
+    const log: ActivityLog = { journals: state.log?.journals ?? [], page: withEntry(state.log?.page ?? [], entry) }
     return { log, items: itemsOf(log, state.undo) }
   })
-  return recorded.data.id
+  return entry.id
 }
 
 /** The undo functions of this session's rewrites, by entry id, while their window lasts */
