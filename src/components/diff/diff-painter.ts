@@ -213,6 +213,12 @@ export class DiffPainter {
    * cannot say it: it may start in the text the row shows from the new line)
    */
   private revealedOld: { row: HTMLElement; cell: HTMLElement; from: number; to: number; word: CodeWord } | null = null
+  /**
+   * The ends of the selection of the view, for the return of the focus: WebKit clears the selection of the page as the
+   * focus goes to an element that does not hold it (the menu of the code, a list of declarations or usages), so the
+   * name the popup was opened on would be selected no more once it closes, and the keys of the code would read none
+   */
+  private keptSelection: { anchor: Node; anchorOffset: number; focus: Node; focusOffset: number } | null = null
   /** The pages of tokens that arrived since the last repaint, as `blobId:page` */
   private readonly arrivedPages = new Set<string>()
   private textsChanged = false
@@ -261,11 +267,13 @@ export class DiffPainter {
     const onKeyDown = (event: KeyboardEvent) => this.onKeyDown(event)
     const onCopy = (event: ClipboardEvent) => this.onCopy(event)
     const onSelectionChange = () => this.onSelectionChange()
+    const onFocusIn = () => this.restoreSelection()
     scroller.addEventListener("scroll", onScroll, { capture: true, passive: true })
     scroller.addEventListener("wheel", onWheel, { passive: true })
     scroller.addEventListener("click", onClick)
     scroller.addEventListener("pointerdown", onPointerDown)
     scroller.addEventListener("keydown", onKeyDown)
+    scroller.addEventListener("focusin", onFocusIn)
     // a copy goes to the focused element, the body when the view is a block of its parent: the view reads the selection
     document.addEventListener("copy", onCopy)
     document.addEventListener("selectionchange", onSelectionChange)
@@ -287,6 +295,7 @@ export class DiffPainter {
       () => scroller.removeEventListener("click", onClick),
       () => scroller.removeEventListener("pointerdown", onPointerDown),
       () => scroller.removeEventListener("keydown", onKeyDown),
+      () => scroller.removeEventListener("focusin", onFocusIn),
       () => document.removeEventListener("copy", onCopy),
       () => document.removeEventListener("selectionchange", onSelectionChange),
       () => scrollParent?.removeEventListener("scroll", onParentScroll),
@@ -1069,10 +1078,25 @@ export class DiffPainter {
   }
 
   /** A copy gives the lines of the model between the ends of the selection, also of rows no longer painted */
-  /** The word of code at a point of the viewport: a name to go to the declaration of; null outside the code */
+  /**
+   * The word of code under a point of the viewport: a name to go to the declaration of; null outside the code and
+   * beside its text. The caret of a point beside the text (the number of a line, the blank end of a row, the space
+   * under the last row) is the nearest place of the text, and the word there is not under the point
+   */
   wordAt(clientX: number, clientY: number): CodeWord | null {
     const caret = caretAt(clientX, clientY)
-    return caret === null ? null : this.wordOfPoint(caret.node, caret.offset)
+    const word = caret === null ? null : this.wordOfPoint(caret.node, caret.offset)
+    if (word === null) {
+      return null
+    }
+    const rowHeight = this.model!.layout.metrics.rowHeight
+    return word.rects().some(rect => {
+      // the text of a line is lower than its row: a point between two lines is on the nearer one
+      const slack = Math.max(rowHeight - rect.height, 0) / 2
+      return rect.left <= clientX && clientX <= rect.right && rect.top - slack <= clientY && clientY <= rect.bottom + slack
+    })
+      ? word
+      : null
   }
 
   /** The word at the start of the selection in the view, or at the caret a click left */
@@ -1239,25 +1263,53 @@ export class DiffPainter {
   }
 
   /**
-   * The selection changed. It is no more the name of the old line a reveal selected in an Inline row: the deleted
+   * The selection changed. Its ends are kept while they are in the view (`keptSelection`). It is no more the name of
+   * the old line a reveal selected in an Inline row: the deleted
    * parts of the row are not selectable again. It moved out of the view (the user selected in another one): the name a
    * reveal selected is let go. A reveal still waiting for the paint of its row keeps through the caret of a field: a
    * field moves it as its value is set, the search a reveal of a hidden file clears, and that change may come after
    * the reveal and before the paint (under load). Once the name is selected, a click into a field lets it go
    */
   private onSelectionChange(): void {
+    const selection = document.getSelection()
+    const anchor = selection?.anchorNode ?? null
+    const focus = selection?.focusNode ?? null
+    if (selection === null || selection.rangeCount === 0 || anchor === null || focus === null) {
+      // no selection at all is no gesture of the user (a click leaves a caret): the engine cleared it as the focus left
+      // (`keptSelection`). What the view holds for the selection waits for the return of the focus
+      return
+    }
+    this.keptSelection =
+      this.root !== null && this.root.contains(anchor) && this.root.contains(focus)
+        ? { anchor, anchorOffset: selection.anchorOffset, focus, focusOffset: selection.focusOffset }
+        : null
     if (this.revealedOld !== null && !this.holdsRevealedOld()) {
       this.letRevealedOldGo()
     }
-    const selection = document.getSelection()
-    const anchor = selection?.anchorNode ?? null
-    if (this.revealedName === null || this.root === null || anchor === null || this.root.contains(anchor)) {
+    if (this.revealedName === null || this.root === null || this.root.contains(anchor)) {
       return
     }
-    if (!this.revealedName.selected && selection?.isCollapsed === true && isFieldCaret(anchor, selection.anchorOffset)) {
+    if (!this.revealedName.selected && selection.isCollapsed && isFieldCaret(anchor, selection.anchorOffset)) {
       return
     }
     this.letRevealedNameGo()
+  }
+
+  /**
+   * The focus is in the view again: the selection the engine cleared as the focus left (`keptSelection`) is put back,
+   * if its rows are still the painted ones. An engine that keeps the selection (Chromium) has nothing to put back
+   */
+  private restoreSelection(): void {
+    const kept = this.keptSelection
+    const selection = document.getSelection()
+    if (kept === null || selection === null || selection.rangeCount > 0) {
+      return
+    }
+    if (this.root?.contains(kept.anchor) === true && this.root.contains(kept.focus)) {
+      selection.setBaseAndExtent(kept.anchor, kept.anchorOffset, kept.focus, kept.focusOffset)
+    } else {
+      this.keptSelection = null
+    }
   }
 
   private onCopy(event: ClipboardEvent): void {

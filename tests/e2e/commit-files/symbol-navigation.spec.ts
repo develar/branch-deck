@@ -6,7 +6,7 @@ import type { FindDeclarationParams } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
-import { changedParts, deletedParts, diffRows } from "../helpers/diff-helpers"
+import { changedParts, deletedParts, diffLineNumbers, diffRows, expectOverviewLaidOut } from "../helpers/diff-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
@@ -31,6 +31,8 @@ async function openNavigationReview(page: Page, subject = "use the store and the
   await openSubWindowPage(page, opened!)
   const code = page.getByTestId("commit-review-code")
   await expect(code).toContainText("store.add(1)")
+  // the heading of the commit comes above the files after them: the places of the names are read once they stay
+  await expectOverviewLaidOut(code)
   return code
 }
 
@@ -44,8 +46,16 @@ function writeOutsiderIndex(repositoryPath: string): void {
   )
 }
 
-/** The middle of the first `word` in the code of the file `path`, on the new side, the file shown by its row of the tree */
-async function pointOf(code: Locator, path: string, word: string): Promise<{ x: number; y: number }> {
+/** Where a word is drawn: its middle, where a press lands, and the corner under its start, where the menu of a key opens */
+interface WordPlace {
+  x: number
+  y: number
+  left: number
+  bottom: number
+}
+
+/** The first `word` in the code of the file `path`, on the new side, the file shown by its row of the tree */
+async function pointOf(code: Locator, path: string, word: string): Promise<WordPlace> {
   await code
     .page()
     .getByRole("treeitem", { name: path.split("/").at(-1) })
@@ -53,8 +63,8 @@ async function pointOf(code: Locator, path: string, word: string): Promise<{ x: 
   return wordIn(code, path, word)
 }
 
-/** The middle of the first `word` in the code of the file `path` of `view`, on the new side */
-async function wordIn(view: Locator, path: string, word: string): Promise<{ x: number; y: number }> {
+/** The first `word` in the code of the file `path` of `view`, on the new side */
+async function wordIn(view: Locator, path: string, word: string): Promise<WordPlace> {
   const section = view.locator(`[data-testid=diff-view-file][data-path="${path}"]`)
   await expect(section).toBeInViewport()
   return section.evaluate((element, name) => {
@@ -68,11 +78,16 @@ async function wordIn(view: Locator, path: string, word: string): Promise<{ x: n
         range.setStart(text, index)
         range.setEnd(text, index + name.length)
         const rect = range.getBoundingClientRect()
-        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, left: rect.left, bottom: rect.bottom }
       }
     }
     throw new Error(`no ${name} in ${element.dataset.path}`)
   }, word)
+}
+
+/** The number of the first line of the file `path`: `class Uses {` of Uses.kt, a line that starts with a word */
+function firstLineNumber(code: Locator, path: string): Locator {
+  return diffLineNumbers(code.locator(`[data-testid=diff-view-file][data-path="${path}"]`)).first()
 }
 
 /** `helper` is shown at its declaration in Store.kt, out of its fold; Back returns to its call in Uses.kt */
@@ -126,6 +141,13 @@ test.describe("Go to Declaration", () => {
     await page.keyboard.down(MODIFIER)
     await page.mouse.move(at.x + 1, at.y)
     await expect(scroller).toHaveCSS("cursor", "pointer")
+    // beside the text the pointer is on no name: right of the number of `class Uses {`, where the nearest text is the
+    // word `class`
+    const number = (await firstLineNumber(code, "src/Uses.kt").boundingBox())!
+    await page.mouse.move(number.x + number.width + 4, number.y + number.height / 2)
+    await expect(scroller).not.toHaveCSS("cursor", "pointer")
+    await page.mouse.move(at.x + 1, at.y)
+    await expect(scroller).toHaveCSS("cursor", "pointer")
     await page.mouse.click(at.x, at.y)
     await page.keyboard.up(MODIFIER)
     // Back: the name the jump started from
@@ -153,6 +175,78 @@ test.describe("Go to Declaration", () => {
     await page.keyboard.press("Enter")
     await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "add", path: "src/Queue.kt" })
   })
+
+  test(
+    "should open the menu of the code by the context menu key and Shift+F10 on the name at the selection, under that name, and by the pointer on no name selected elsewhere",
+    { tag: "@webkit" },
+    async ({ page }) => {
+      const code = await openNavigationReview(page)
+      const view = code.getByTestId("diff-view")
+      const menu = page.getByRole("menu")
+      const goToDeclaration = menu.getByRole("menuitem", { name: "Go to Declaration" })
+      const findUsages = menu.getByRole("menuitem", { name: "Find Usages" })
+      /** The menu is open under the start of the name: not at the middle of the view, where the engine opens the menu of a key */
+      const expectMenuAt = async (name: WordPlace) => {
+        await expect(menu).toBeVisible()
+        const box = (await menu.boundingBox())!
+        expect(box.x - name.left).toBeGreaterThanOrEqual(-1)
+        expect(box.x - name.left).toBeLessThan(12)
+        expect(box.y - name.bottom).toBeGreaterThanOrEqual(-1)
+        expect(box.y - name.bottom).toBeLessThan(12)
+      }
+
+      // a click leaves the caret in `helper`, nothing selected, and the focus on the view
+      const helper = await pointOf(code, "src/Uses.kt", "helper")
+      await page.mouse.click(helper.x, helper.y)
+      await expect(view).toBeFocused()
+      expect((await selectedInDiffs(page)).text).toBe("")
+      await page.keyboard.press("ContextMenu")
+      await expectMenuAt(helper)
+      await expect(goToDeclaration).toBeEnabled()
+      await expect(findUsages).toBeEnabled()
+      // Escape gives the focus back to the view, the caret where it was: the next key opens the menu on the name again
+      await page.keyboard.press("Escape")
+      await expectClosed(menu)
+      await expect(view).toBeFocused()
+
+      // Shift+F10, and the item chosen by the keys of a menu: the usages of the name at the caret
+      await page.keyboard.press("Shift+F10")
+      await expectMenuAt(helper)
+      // the menu takes the focus a frame after it shows: its keys before that are the view's
+      await expect(menu).toBeFocused()
+      await page.keyboard.press("ArrowDown")
+      await expect(goToDeclaration).toBeFocused()
+      await page.keyboard.press("ArrowDown")
+      await expect(findUsages).toBeFocused()
+      await page.keyboard.press("Enter")
+      const usages = page.getByRole("listbox", { name: "Usages of helper" })
+      await expect(usages.getByRole("option")).toHaveText(["callhelper(2)src/Uses.kt:4", "declarationfun helper(value: Int) = valuesrc/Store.kt:36"])
+      await page.keyboard.press("Escape")
+      await expectClosed(page.getByTestId("symbol-chooser"))
+
+      // a selected name, not a caret: the menu of a key is of that name, wherever the pointer is
+      const outsider = await pointOf(code, "src/Uses.kt", "outsider")
+      await page.mouse.dblclick(outsider.x, outsider.y)
+      await expect.poll(async () => (await selectedInDiffs(page)).text).toBe("outsider")
+      await page.mouse.move(helper.x, helper.y)
+      await page.keyboard.press("ContextMenu")
+      await expectMenuAt(outsider)
+      await goToDeclaration.click()
+      // nothing declares it in the review, and the repository has no index
+      await expect(page.getByText("No declaration of outsider found")).toBeVisible()
+      // the menu closed: the name is selected as it was, also where the engine cleared the selection as the menu took the focus
+      await expectClosed(menu)
+      await expect(view).toBeFocused()
+      await expect.poll(async () => (await selectedInDiffs(page)).text).toBe("outsider")
+
+      // the pointer where no name is (the number of a line, beside the word `class`), `outsider` still selected
+      // elsewhere: the menu has no name
+      await firstLineNumber(code, "src/Uses.kt").click({ button: "right" })
+      await expect(menu).toBeVisible()
+      await expect(goToDeclaration).toBeDisabled()
+      await expect(findUsages).toBeDisabled()
+    },
+  )
 
   test("should say when the review has no declaration of a name", async ({ page }) => {
     const code = await openNavigationReview(page)

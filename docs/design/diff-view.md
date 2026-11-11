@@ -722,7 +722,9 @@ decisions 26 and 27). The rules have golden files (`crates/code-symbols/testdata
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
 without the deleted parts of an Inline row; a point in a deleted part is a point of the old line, by the offset the
 part starts at, `data-inline-deleted`, so a struck-through name is the old name on the old side and its underline is
-that part alone) and selects a name once its row is painted with its text, by every paint
+that part alone). The caret of a point beside the text (the number of a line, the space before its first character,
+the blank end of its row) is the nearest place of the text, so `wordAt` gives the word there only when the point is on
+one of its rectangles: beside the text the pointer is on no name. The painter selects a name once its row is painted with its text, by every paint
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
 types in the view or selects elsewhere (`selectWord`). A name without its columns is the first whole word of that
 name in the line of the model, never in the text of the cell, which in an Inline row holds the deleted parts of the old
@@ -733,8 +735,22 @@ a deleted part, which is selectable (`data-revealed-old` on the row) for as long
 is, a copy takes the name, and ⌘B, ⌥F7 and Back read it as the name of the old line: the selection of the page alone
 cannot say it, since it may start in the text the row shows from the new line. A modifier alone and the copy keep the
 name selected; another key only stops a later paint from selecting it again. The menu of the code acts on the name
-it opened on (the point of its `contextmenu`: the pointer, or the caret for a key), and on the name at the selection
-where it opened on none: a press that opens the menu selects no word in a part that is not selectable. The caret of a field is no selection elsewhere while the name
+it opened on. The pointer opens it on the name under it (the point of its `contextmenu`), whatever is selected
+elsewhere, and on none where it is on no name: a press that opens the menu selects no word in a part that is not
+selectable, and on Windows in no text, so the selection cannot say where the menu opened. The context menu key and
+Shift+F10 open it on the name at the selection, under the start of that name (`openCodeMenuByKey`,
+`codeMenuKeyPoint`, as the list of ⌘B): the engine's own `contextmenu` of a key goes to the element with the focus,
+which is the view and not the trigger of the menu inside it, at the middle of the view, so the view takes the key and
+dispatches a `contextmenu` at the trigger (`openMenuByKey` of `src/lib/menu-key.ts`, which the rows of pull requests
+use too). A prevented press holds back the engine's menu of Shift+F10 everywhere and of the context menu key in
+WebKit and in Chromium off Windows; on Windows the engine opens the menu of that key as the key goes up, at whatever
+has the focus by then (an item of the menu just opened), whether the press was prevented or not, and only a prevented
+release holds it back (checked in Edge, the engine of WebView2: `openMenuByKey` prevents the next release of the key,
+wherever it lands). WebKit clears the selection of the page as the focus goes to an element that does not hold it (the
+menu, a list of declarations or usages; `FocusController::clearSelectionIfNeeded`), Chromium keeps it: the painter
+keeps the ends of the selection of the view (`keptSelection`, no selection at all being no gesture of the user) and
+puts them back as the focus returns (`restoreSelection`), so the name a popup opened on is selected again once the
+popup closes and the keys of the code read it. The caret of a field is no selection elsewhere while the name
 still waits for its paint: the search a reveal of a hidden file clears moves its caret, under load after the reveal;
 once the name is selected, a click into a field lets it go. A place the review shows before its diffs mount (no diff
 of the subject read yet: the overview alone on the canvas, the changes of a pull request still on their way) waits in

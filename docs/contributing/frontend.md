@@ -168,3 +168,14 @@ and ignores the header. The lockfile holds the hash of each patch: a checkout ru
   it is enabled, so a tooltip that got its words with the pointer resting on it (the description of Approve) opened
   only at the next move. The tooltip replays the hover of its trigger as it is enabled (`hoverAgain`), for a pointer
   that moved over it, never for content under a still pointer.
+- **A context menu by a key**: the engine's own `contextmenu` of the context menu key or Shift+F10 goes to the element
+  with the focus, at the middle of it or at the selection: it opens a menu only when the focus is inside the trigger,
+  and never at the place the menu is about. A view that knows the place takes the key (`isMenuKey`) and opens the menu
+  itself with `openMenuByKey` (`src/lib/menu-key.ts`: the rows of pull requests, the code of a diff), never by a
+  `contextmenu` dispatched by hand: Windows opens the engine's menu of the context menu key as the key goes up, at
+  whatever has the focus by then, and only the helper holds that release back. The menu takes the focus a frame after
+  it shows: an E2E test waits for `toBeFocused()` of the menu before its arrows.
+- **WebKit clears the selection as the focus leaves it**: the focus going to an element that does not hold the
+  selection (a menu, a list, a field) leaves the page with no selection at all, where Chromium keeps it. A view whose
+  keys read the selection keeps its ends and puts them back as the focus returns (`keptSelection` of `DiffPainter`); a
+  test of "the name is still selected after the popup" is a `@webkit` test.

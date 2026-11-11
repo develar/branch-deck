@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react"
 import { neighbourRow } from "@/lib/branch-row-keys"
+import { isMenuKey, openMenuByKey } from "@/lib/menu-key"
 
 /** What the keys of a row of pull requests do, by the number of the row */
 export interface ReviewRowKeys {
@@ -14,7 +15,8 @@ export interface ReviewRowKeys {
 /**
  * The keys of a list of pull requests (Your Turn, a section of Reviews): ↑/↓ move the focus between its rows (one tab
  * stop, `setFocused`), Enter, D and O by `keys` (the physical keys, in any keyboard layout), the context menu key and
- * Shift+F10 the menu of the row at its start. Space does nothing: it is Quick Look elsewhere, and a pull request has none
+ * Shift+F10 the menu of the row at its start (`openMenuByKey`). Space does nothing: it is Quick Look elsewhere, and a
+ * pull request has none
  */
 export function handleReviewRowKeys(event: KeyboardEvent<HTMLElement>, numbers: readonly number[], keys: ReviewRowKeys, setFocused: (number: number) => void): void {
   if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey) {
@@ -45,9 +47,8 @@ export function handleReviewRowKeys(event: KeyboardEvent<HTMLElement>, numbers: 
   } else if (event.code === "KeyO" && !event.shiftKey) {
     event.preventDefault()
     keys.onOpen(number)
-  } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
-    event.preventDefault()
+  } else if (isMenuKey(event)) {
     const rect = row.getBoundingClientRect()
-    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left + 24, clientY: rect.bottom, button: 2 }))
+    openMenuByKey(event, row, rect.left + 24, rect.bottom)
   }
 }

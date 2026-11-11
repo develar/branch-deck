@@ -14,7 +14,7 @@ import { useMeasuredHeights } from "@/components/diff/use-measured-heights"
 import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite, ReviewTitle } from "@/lib/bindings"
-import { codeMenuItems } from "@/lib/diff/code-menu"
+import { codeMenuItems, codeMenuKeyPoint } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
@@ -50,6 +50,7 @@ import { blobText, fileNotice, isEmptyNotice, languageOf, mergeNotice, startsCol
 import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
 import type { MenuItem } from "@/lib/menu"
+import { isMenuKey, openMenuByKey } from "@/lib/menu-key"
 import { isMac } from "@/lib/platform"
 import { formatCollapse } from "@/presenters/collapse"
 import type { StoryMark } from "@/presenters/review-story"
@@ -1216,6 +1217,9 @@ export function DiffView({
   // Go to Declaration: the name under the pointer with the modifier held, its underline, the jump, Back and Forward
   const links = useRef<HTMLDivElement>(null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
+  /** The trigger of the menu of the code, and what a menu key opens it on: the name at the selection and the point under it */
+  const codeDocument = useRef<HTMLDivElement>(null)
+  const keyedMenu = useRef<{ word: CodeWord | null; at: { x: number; y: number } } | null>(null)
   const history = useRef<{ back: DeclarationPlace[]; forward: DeclarationPlace[] }>({ back: [], forward: [] })
   const pendingReveal = useRef<DeclarationPlace | null>(null)
   const [revealTick, setRevealTick] = useState(0)
@@ -1303,10 +1307,17 @@ export function DiffView({
     }
   }
 
-  /** The pointer moved over the code, or the menu of the code opens (at the pointer, or at the caret for a key): the point the names are read at */
+  /** The pointer moved over the code, or opens the menu of the code: the point the names are read at */
   const onCodeMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
     pointer.current = { x: event.clientX, y: event.clientY }
     showLink(modifierHeld(event) ? painter.wordAt(event.clientX, event.clientY) : null)
+  }
+
+  /** A `contextmenu` in the view: the pointer's, at its point; the one a menu key dispatched is no move of the pointer */
+  const onCodeContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (keyedMenu.current === null) {
+      onCodeMouseMove(event)
+    }
   }
 
   const onCodeClick = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1322,14 +1333,17 @@ export function DiffView({
     }
   }
 
-  /** The items of the menu of the code: built when it opens, for the name under the pointer */
+  /**
+   * The items of the menu of the code: built when it opens, for the name it opened on. The pointer opens it on the name
+   * under it, whatever is selected elsewhere: its press selects no word in a part that is not selectable (the
+   * struck-through old name of an Inline row), on Windows in no text, and where it is on no name the menu has none. A
+   * menu key opens it on the name at the selection (`openCodeMenuByKey`)
+   */
   const [codeMenu, setCodeMenu] = useState<MenuItem[]>([])
   const openCodeMenu = () => {
-    const at = pointer.current ?? { x: 0, y: 0 }
-    // the name the menu opened on; where it opened on none (a key opens it at the caret), the name at the selection. A
-    // press that opens the menu selects no word in a part that is not selectable (the struck-through old name of an
-    // Inline row), and on Windows in no text
-    const word = painter.wordAt(at.x, at.y) ?? painter.wordAtSelection()
+    const keyed = keyedMenu.current
+    const at = keyed?.at ?? pointer.current ?? { x: 0, y: 0 }
+    const word = keyed === null ? painter.wordAt(at.x, at.y) : keyed.word
     const target = word === null ? null : siteOf(word)
     setCodeMenu(
       codeMenuItems({
@@ -1338,6 +1352,21 @@ export function DiffView({
         findUsages: onFindUsages === undefined ? null : () => goTo(word, at, onFindUsages),
       }),
     )
+  }
+
+  /**
+   * The context menu key or Shift+F10 in the view: the menu of the code on the name at the selection, opened under the
+   * start of that name as a list of ⌘B is. The engine's own `contextmenu` of the key would go to the view, not to the
+   * trigger inside it, at the middle of the view
+   */
+  const openCodeMenuByKey = (event: KeyboardEvent<HTMLDivElement>, view: HTMLDivElement, trigger: HTMLDivElement) => {
+    const word = painter.wordAtSelection()
+    const selection = document.getSelection()
+    const selected = selection !== null && selection.rangeCount > 0 && view.contains(selection.anchorNode) ? selection.getRangeAt(0).getClientRects()[0] : undefined
+    keyedMenu.current = { word, at: codeMenuKeyPoint(word?.rects()[0] ?? selected, view.getBoundingClientRect()) }
+    // the menu opens, and reads what the key opens it on, before this returns
+    openMenuByKey(event, trigger, keyedMenu.current.at.x, keyedMenu.current.at.y)
+    keyedMenu.current = null
   }
 
   // the place the view opens at, once its file is laid out
@@ -1396,7 +1425,10 @@ export function DiffView({
     }
     const command = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
     const findsUsages = event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === "F7" && onFindUsages !== undefined
-    if ((command && !event.altKey && !event.shiftKey && event.code === "KeyB") || findsUsages) {
+    // a menu key while the view itself has the focus: a control in it (the header of a file) has a menu of its own
+    if (isMenuKey(event) && event.target === scroller.current && codeDocument.current !== null) {
+      openCodeMenuByKey(event, scroller.current, codeDocument.current)
+    } else if ((command && !event.altKey && !event.shiftKey && event.code === "KeyB") || findsUsages) {
       const word = painter.wordAtSelection()
       const rect = word?.rects()[0]
       event.preventDefault()
@@ -1622,7 +1654,7 @@ export function DiffView({
       onDoubleClick={scroll === "own" && mode === "split" ? event => onDividerOf(event) && setDiffSplitRatio(0.5) : undefined}
       data-plain={plain ? "" : undefined}
       onMouseMove={navigates ? onCodeMouseMove : undefined}
-      onContextMenuCapture={navigates ? onCodeMouseMove : undefined}
+      onContextMenuCapture={navigates ? onCodeContextMenu : undefined}
       onMouseLeave={navigates ? () => showLink(null) : undefined}
       onClickCapture={navigates ? onCodeClick : undefined}
       onScroll={navigates ? () => showLink(null) : undefined}
@@ -1631,7 +1663,9 @@ export function DiffView({
       {navigates ? (
         <ContextMenu onOpenChange={open => open && openCodeMenu()}>
           {/* the trigger turns off the selection of its content; the code keeps it (the copy, ⌘B) */}
-          <ContextMenuTrigger render={<div className="dv-document select-text" style={{ height: layout.height }} />}>{content}</ContextMenuTrigger>
+          <ContextMenuTrigger ref={codeDocument} render={<div className="dv-document select-text" style={{ height: layout.height }} />}>
+            {content}
+          </ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuItems groups={[codeMenu]} />
           </ContextMenuContent>

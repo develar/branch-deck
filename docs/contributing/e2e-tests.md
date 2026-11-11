@@ -71,7 +71,10 @@ rules in one line each and links here.
   `deletedParts` of an Inline row (`data-inline-deleted`), `findMarks(scope, "current")` (`data-hit`); and
   `visualLines` of Soft Wraps, `horizontalBars`, `foldButtons`, the underline of a link (`diff-link`). A part is an
   element per token of the syntax: read a text over several by `joinedText`. Code that runs in the page takes the
-  same selectors (`diffRowSelector`, `diffSideSelector`).
+  same selectors (`diffRowSelector`, `diffSideSelector`). The files of a review move down once its overview (the
+  heading of a commit shown alone) came and was measured, after the files show: a test that reads the place of a row
+  or of a word right after the window opens waits for `expectOverviewLaidOut(code)` first, or it points at where the
+  row was (16 of 40 runs of such a test alone on the Studio).
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command
   directly only to set up a state the user path cannot reach in a test. An error path fails the command with
   `routeCommandError`, not by breaking the repository.

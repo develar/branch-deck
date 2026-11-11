@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 /*
  * The rows of a diff (docs/contributing/e2e-tests.md, "The rows of a diff"): the painter draws them outside React,
@@ -85,4 +86,21 @@ export async function copiedByKey(page: Page): Promise<string | null> {
   })
   await page.keyboard.press("ControlOrMeta+c")
   return page.evaluate(() => (window as unknown as { __copied?: string | null }).__copied ?? null)
+}
+
+/**
+ * The files of a review stand where they stay: its overview (the heading of a commit shown alone) comes above them
+ * after they show, by a read of its own, and moves them down once the view has measured it. A test that reads the
+ * place of a row or of a word right after the window opens waits for this first, or it points at where the row was
+ */
+export async function expectOverviewLaidOut(code: Locator): Promise<void> {
+  const overview = code.getByTestId("diff-view-prologue")
+  await expect(overview).toBeVisible()
+  const file = code.getByTestId("diff-view-file").first()
+  await expect
+    .poll(async () => {
+      const [above, below] = [await overview.boundingBox(), await file.boundingBox()]
+      return above !== null && below !== null && below.y >= above.y + above.height
+    })
+    .toBe(true)
 }
