@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.9.0](https://github.com/develar/branch-deck/compare/v1.8.0...v1.9.0) (2026-11-11)
+
+
+### Features
+
+* **bd:** an open menu doesn't move, and Request Review… stands in its place from the first view on GitHub ([79e5279](https://github.com/develar/branch-deck/commit/79e5279a941d8d449d3a81306c20db402b4ed728))
+* **bd:** the branch menu keeps the places of its starts and its pull request while the first answers come ([36e34a8](https://github.com/develar/branch-deck/commit/36e34a87e39697a0ce5ed8ef0608a652230db33e))
+* **diff:** a diff marks the lines that changed in their formatting or their comments alone, and names the line the reading of each block starts at ([82cfe0f](https://github.com/develar/branch-deck/commit/82cfe0fe83bd36117922276bcd1da52d3cbb5329))
+* **diff:** a diff names the lines that moved within a file, read once where they stand now, and the review plan calls a moved declaration Moved ([d5732bd](https://github.com/develar/branch-deck/commit/d5732bdf9235e9329bb64226fdef784e1b429f38))
+* **diff:** a diff names the names a change renamed within a file and the lines that changed in such a name alone, proven for a local of its body and a label until measured ([802ba80](https://github.com/develar/branch-deck/commit/802ba80a945f93711d4c2a6b292d0e1aab250bf7))
+* **diff:** the views show the lines that changed in their formatting or their comments alone, and N and P pass what needs no reading ([a22c421](https://github.com/develar/branch-deck/commit/a22c4218a50f0d3f9955adc0960f0703877fe68a))
+* **diff:** the views show the lines that moved within a file once, where they stand now, with a note at each end that shows the other ([15b3b4d](https://github.com/develar/branch-deck/commit/15b3b4d8ee93e26c552aa5735765f5cddb2011ef))
+* **navigation:** the names of many places of a file are answered from one parse, each with what declares it, its uses, their sites and the clashes of another name ([ebd8655](https://github.com/develar/branch-deck/commit/ebd8655b76c36f50d6986fc3140e4ad8b41901ba))
+
+
+### Bug Fixes
+
+* **bd:** Request Review… without an open pull request says that Create Pull Request… asks for a review as it opens one ([382ee89](https://github.com/develar/branch-deck/commit/382ee89a81365f256bec0b935548959f41a7b284))
+* **clients:** the test of a read that timed out stops its clock once the request reached the fake ([877307f](https://github.com/develar/branch-deck/commit/877307f819c36aa17cad8c5225e6349976ec5edd))
+* **disk:** the test of the disk report waits until the event log holds its files before it measures them ([80219ce](https://github.com/develar/branch-deck/commit/80219cea0b8a80e84621ee6ef8c8bc28114cfb7d))
+* **e2e:** a queued push to master presses Enter once the start of its popover has the focus ([fb0cd94](https://github.com/develar/branch-deck/commit/fb0cd945704d90c734972a5baf7fb33729275116))
+* **e2e:** the column tests read the restart of a failed robot once Patronus told why it failed ([c56ab46](https://github.com/develar/branch-deck/commit/c56ab4666c890923c1d71b0047ad5abc2f538e77))
+* **e2e:** the footer of the pull request dialog is measured once the code owner Patronus names is a chip of it ([27e6a15](https://github.com/develar/branch-deck/commit/27e6a15fb78c9c40191140743f61bd583c56a645))
+* **e2e:** the Landing view's sentences of the history are read once its statistics answered ([1386bea](https://github.com/develar/branch-deck/commit/1386bea195c97a41fa904759fdb87c431ea435d5))
+* **e2e:** the retarget before a comment start is asserted once GitHub has both writes, without a limit of its own ([0da8574](https://github.com/develar/branch-deck/commit/0da8574df573eb38bd4d5241b35f367bfe7c5960))
+* **e2e:** the step of a branch whose approvals count in the pull request of its whole stack is read once its facts came ([63a0099](https://github.com/develar/branch-deck/commit/63a00994b96949054e8186cef448a01ae04b59bc))
+* **e2e:** the tests of the Patronus chip hover it once every step of the rows came ([a98bdee](https://github.com/develar/branch-deck/commit/a98bdee316d9356d43a2ad5e0be35e498edc0e00))
+* **files:** a short directory of the Files tree starts at its icon, never by the counts, and every path cut from its start is one component ([e5767ab](https://github.com/develar/branch-deck/commit/e5767ab0340995a04ce63798372e1fc3f756cd86))
+* **navigation:** a name is bound as its language binds it: one variable per name in a def and a function, a local before a member, a type and a named argument of no variable ([9a36054](https://github.com/develar/branch-deck/commit/9a36054e8473c429ec551d7080aea6061b8e2714))
+* **navigation:** a name is bound where the compiler binds it: a pattern variable where its test matched, a resource in its block, a parameter of a constructor in its initializers, and a parameter an annotation names says so ([4eb86c4](https://github.com/develar/branch-deck/commit/4eb86c45d477ad5fe347105403f80dfeb618b18f))
+* **review:** ⌘F pressed before the diffs of a review came opens the find as they come, also from the frame of the review ([9967d41](https://github.com/develar/branch-deck/commit/9967d412bd085417706f83d11dd6e15b883f5eb3))
+
 ## [1.8.0](https://github.com/develar/branch-deck/compare/v1.7.1...v1.8.0) (2026-11-11)
 
 
