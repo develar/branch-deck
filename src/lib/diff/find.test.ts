@@ -4,9 +4,9 @@ import { findHits, findInSegments, hitsByLine, lineKey, mergeHits } from "@/lib/
 import type { DiffFindHit, FindFile, TextFindHit } from "@/lib/diff/find"
 import { buildLineTable } from "@/lib/diff/line-table"
 import { diffCells } from "@/lib/diff/row-cells"
-import { buildFileRows, NEW, OLD } from "@/lib/diff/rows"
+import { buildFileRows, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, textDiff } from "@/test-support/diff-blocks"
+import { block, run, textDiff } from "@/test-support/diff-blocks"
 
 const OLD_TEXT = Array.from({ length: 30 }, (_, index) => (index === 20 ? "val Total = 1" : `val total${index} = ${index}`)).join("\n")
 const NEW_TEXT = OLD_TEXT.replace("val Total = 1", "val total = 2")
@@ -152,6 +152,37 @@ describe("findInSegments", () => {
   it("does not match across segments and returns no hits for an empty query", () => {
     expect(findInSegments(["over", "view"], "overview")).toEqual([])
     expect(findInSegments(["overview"], "")).toEqual([])
+  })
+})
+
+describe("the find in a quiet run", () => {
+  // `call(first, second)` wrapped over three lines, a quiet run of formatting
+  const diff = textDiff(3, 5, [block(1, 2, 1, 4)], { runs: [run(1, 2, 1, 4)] })
+  const tables = [buildLineTable("a\ncall(first, second)\nz\n"), buildLineTable("a\ncall(\n  first, second\n)\nz\n")]
+  const shown = (mode: DiffViewMode, open: number[] = []): FindFile => ({
+    rows: buildFileRows(diff, mode, [], false, null, new Set(open)),
+    tables,
+    ranges: diffCells(diff, mode).ranges,
+  })
+  const lines = (hits: readonly DiffFindHit[]) => hits.map(hit => `${hit.side === OLD ? "-" : "+"}${hit.line}:${hit.start}`)
+
+  it("searches the old lines that Inline shows once, at the note that stands for them, before the new lines", () => {
+    const inline = shown("inline")
+    const hits = findHits([inline], "first", { sideBySide: false, folded: false })
+    expect(lines(hits)).toEqual(["-1:5", "+2:2"])
+    // the hit of the old line is of the row of its note; the hit of the new line of its own row
+    expect(hits.map(hit => rowOfLine(inline.rows!, hit.side, hit.line))).toEqual([1, 3])
+    // text only the old line has in one piece is found there alone
+    expect(lines(findHits([inline], "call(first", { sideBySide: false, folded: false }))).toEqual(["-1:0"])
+  })
+
+  it("finds the same hits by the rows of the old lines once the note is opened, and where every line stays", () => {
+    const open = shown("inline", [1])
+    const hits = findHits([open], "first", { sideBySide: false, folded: false })
+    expect(lines(hits)).toEqual(["-1:5", "+2:2"])
+    expect(hits.map(hit => rowOfLine(open.rows!, hit.side, hit.line))).toEqual([2, 4])
+    expect(lines(findHits([shown("unified")], "first", { sideBySide: false, folded: false }))).toEqual(["-1:5", "+2:2"])
+    expect(lines(findHits([shown("split")], "first", { sideBySide: true, folded: false }))).toEqual(["-1:5", "+2:2"])
   })
 })
 

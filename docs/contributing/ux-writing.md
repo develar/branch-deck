@@ -215,7 +215,8 @@ indicator could cancel a robot but not restart it.
   file of the tree, which closes the preview); a commit of a branch is reviewed in the window of its branch, at the
   commit, where the stack and the actions are; Space previews it, Escape closes the window. On a row D follows the
   pointer as Space does; the keys that act (P, S, O, M) need the focused row. Inside a review J/K are the files, N/P
-  the changes, ⌥↑/⌥↓ the commits.
+  the changes, H the old lines of the notes in view, ⌥↑/⌥↓ the commits; a key of the review (`REVIEW_KEYS`) is never
+  the key of an action of its window, so O is the pull request's there too.
 - **No verb on a verb**: an action named by a verb is its own button ("Safe Push", never "Start Safe Push"; "Dry
   Run", never "Run Dry Run"); the toast says what happened ("Safe Push started").
 - **One name per action**: "Open Pull Request" (never "Open on GitHub"), "Copy Pull Request Link", "Open in Patronus",

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Kbd } from "@/components/ui/kbd"
 import { KeyHint } from "@/components/shared/PreviewDialogFrame"
 import { isMac } from "@/lib/platform"
+import { REVIEW_KEYS } from "@/lib/review-keys"
 
 export interface ReviewKeyHintsProps {
   /** ⌥↑ ⌥↓ step through more than one commit */
@@ -44,8 +45,8 @@ export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
       <KeyHint
         keys={
           <>
-            <Kbd>J</Kbd>
-            <Kbd>K</Kbd>
+            <Kbd>{REVIEW_KEYS.nextSection}</Kbd>
+            <Kbd>{REVIEW_KEYS.previousSection}</Kbd>
           </>
         }
       >
@@ -54,14 +55,14 @@ export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
       <KeyHint
         keys={
           <>
-            <Kbd>N</Kbd>
-            <Kbd>P</Kbd>
+            <Kbd>{REVIEW_KEYS.nextChange}</Kbd>
+            <Kbd>{REVIEW_KEYS.previousChange}</Kbd>
           </>
         }
       >
         Changes
       </KeyHint>
-      <KeyHint keys={<Kbd>F</Kbd>}>Sidebar</KeyHint>
+      <KeyHint keys={<Kbd>{REVIEW_KEYS.sidebar}</Kbd>}>Sidebar</KeyHint>
       {treeRowFocused && <KeyHint keys={<Kbd>I</Kbd>}>Details</KeyHint>}
       {commits && (
         <KeyHint

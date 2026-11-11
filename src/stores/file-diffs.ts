@@ -4,7 +4,7 @@ import type { DiffContent, DiffFileHeader, FileDiffEvent } from "@/lib/bindings"
 import { withoutIds } from "@/lib/commit-files"
 import { diffSourceOf, fileDiffSubjectId } from "@/lib/diff/file-diff-model"
 import type { FileDiff, FileDiffSubject, WhitespacePolicy } from "@/lib/diff/file-diff-model"
-import { getFoldLevels, setFoldLevels } from "@/lib/diff/rows"
+import { keepOpened } from "@/lib/diff/rows"
 import { createFileStream, streamedFileOf } from "@/stores/file-stream"
 import type { FileStreamEntry } from "@/stores/file-stream"
 import { getDiffRepositoryPath } from "@/stores/repository"
@@ -23,8 +23,8 @@ const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffE
       return null
     }
     const content: DiffContent = { ...file.content, oldScopes: event.oldScopes, newScopes: event.newScopes, importBlocks: event.importBlocks }
-    // the same diff with its labels: the lines it expanded stay expanded
-    setFoldLevels(content, getFoldLevels(file.content))
+    // the same diff with its labels: what the views opened of it stays open, its folds and its notes
+    keepOpened(file.content, content)
     return { ...file, content }
   },
 )

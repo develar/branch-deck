@@ -1027,9 +1027,11 @@ simpleTest.describe("Commit review of a re-indented file", () => {
       await expect(window.getByRole("treeitem", { name: "Format.kt" })).toHaveAttribute("aria-description", additions)
     }
 
-    // Do Not Ignore: the indentation, the blank line and `4`
-    await stepThrough(3)
-    // Trim Whitespace: the indentation is an ignored block, so N passes it
+    // Do Not Ignore: the blank line and `4`; the tokens of the Kotlin file prove the indentation a change of formatting
+    // alone, a quiet run with nothing to read, so N passes it (a file of no grammar: quiet-changes.spec.ts)
+    await expect(window.getByRole("treeitem", { name: "Format.kt" })).toHaveAttribute("aria-description", "modified, +4 −3, 2 of 3 changes to read")
+    await stepThrough(2)
+    // Trim Whitespace: the indentation is an ignored block, no change at all; N stops at the same two
     await choose("Trim Whitespace", "modified, +2 −1")
     await stepThrough(2)
     // Ignore Whitespace: the blank line is a whitespace-only change, pale, and N still stops at it, as in IntelliJ

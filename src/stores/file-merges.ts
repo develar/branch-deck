@@ -4,7 +4,7 @@ import type { FileMergeEvent, MergeContent } from "@/lib/bindings"
 import type { WhitespacePolicy } from "@/lib/diff/file-diff-model"
 import { mergeSourceId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, FileMergeHeader, MergeSource } from "@/lib/diff/file-merge-model"
-import { getFoldLevels, setFoldLevels } from "@/lib/diff/rows"
+import { keepOpened } from "@/lib/diff/rows"
 import { createFileStream, streamedFileOf } from "@/stores/file-stream"
 import type { FileStreamEntry } from "@/stores/file-stream"
 import { getDiffRepositoryPath } from "@/stores/repository"
@@ -23,8 +23,8 @@ const stream = createFileStream<FileMergeHeader, MergeContent, FileMerge, FileMe
       return null
     }
     const content: MergeContent = { ...file.content, leftScopes: event.leftScopes, baseScopes: event.baseScopes, rightScopes: event.rightScopes }
-    // the same merge with its labels: the lines it expanded stay expanded
-    setFoldLevels(content, getFoldLevels(file.content))
+    // the same merge with its labels: what the views opened of it stays open, its folds and its notes
+    keepOpened(file.content, content)
     return { ...file, content }
   },
 )

@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { inlineOffset, inlinePair, inlineParts, isOwnOldHit, lineParts } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, inlineParts, isOwnOldHit, lineParts, sameTextOffset } from "@/lib/diff/line-parts"
 import type { InlinePair, InlinePart, LinePart } from "@/lib/diff/line-parts"
 
 /** The parts as `text:style`, `+` for a changed range, `-` for a deleted part */
@@ -222,5 +222,21 @@ describe("inlineOffset", () => {
         expect([selected[0], selected.at(-1)], `selection ${start}..${end} of ${tag}`).toEqual([oldText[start], oldText[end - 1]])
       }
     }
+  })
+})
+
+describe("sameTextOffset", () => {
+  it("places a name of the old line in the new line of a row the whitespace policy ignores, by the characters that are no whitespace", () => {
+    // a line indented again from 2 to 6 columns, a space gone inside it: one column shows the new line alone
+    const oldText = "  val entry = make(a,  b)"
+    const newText = "      val entry = make(a, b)"
+    const select = (start: number, end: number) => newText.slice(sameTextOffset(oldText, newText, start), sameTextOffset(oldText, newText, end, true))
+    // each name of the old line is the same name in the new one, four columns to the right
+    expect([select(2, 5), select(6, 11), select(14, 18), select(19, 20), select(23, 24)]).toEqual(["val", "entry", "make", "a", "b"])
+    expect(sameTextOffset(oldText, newText, 14)).toBe(18)
+    // a range over the whitespace that differs is the same text but for it
+    expect(select(14, 25)).toBe("make(a, b)")
+    // an unchanged line is the same text: every offset is its own
+    expect([0, 3, 9].map(offset => sameTextOffset("val a = 1", "val a = 1", offset))).toEqual([0, 3, 9])
   })
 })

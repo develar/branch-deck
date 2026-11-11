@@ -1,3 +1,4 @@
+import type { Remark } from "@/lib/diff/block-parts"
 import { copyFile, copyText } from "@/lib/diff/copy-text"
 import type { CopyFile, CopyPoint } from "@/lib/diff/copy-text"
 import { lineKey } from "@/lib/diff/find"
@@ -5,16 +6,17 @@ import type { HighlightClient, BlobWant } from "@/lib/diff/highlight/client"
 import { FONT_STYLE_SHIFT, PAGE_LINES, ROLE_MASK } from "@/lib/diff/highlight/protocol"
 import type { Priority } from "@/lib/diff/highlight/protocol"
 import type { DiffLayout, LayoutPart } from "@/lib/diff/layout"
-import { inlineOffset, inlinePair, inlineParts, lineParts, runsOf } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, inlineParts, lineParts, runsOf, sameTextOffset } from "@/lib/diff/line-parts"
 import type { InlinePair, InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RowCells } from "@/lib/diff/row-cells"
 import { foldWords, isLineRow, NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
-import type { FileRows, FoldRow, LineRow, LineTint, NoteRow, Row } from "@/lib/diff/rows"
+import type { FileRows, FoldRow, LineRow, NoteRow, Row } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
+import { formatHiddenMatches, presentRemark } from "@/presenters/diff-marks"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 
 /*
@@ -62,6 +64,11 @@ export interface PainterModel {
   layout: DiffLayout
   softWraps: boolean
   textMetrics: TextMetrics
+  /**
+   * The key that shows and hides the old lines of the notes in view (`DiffViewProps.notesKey`): a note that opens
+   * shows it after its words and names it to a screen reader; absent where no key does
+   */
+  notesKey?: string
 }
 
 export interface PainterCallbacks {
@@ -78,6 +85,11 @@ export interface PainterCallbacks {
   onFold: (file: number, fold: FoldRow, all: boolean) => void
   /** A click on the row of a block another section shows (`NoteRow`, `elsewhere`) */
   onNote: (file: number, note: NoteRow) => void
+  /**
+   * A click on a note that opens (`Remark.open` not null): its old lines show, or go again; with ⌥ (Alt) every such
+   * note of the file follows it
+   */
+  onNoteToggle: (file: number, note: NoteRow, all: boolean) => void
   /** The rows of the first screen are painted with their texts; the tokens of their pages are there or overdue */
   onFirstScreen: () => void
   /** A wrapped line came out wider in the DOM than measured: the widths are corrected, the heights need a layout */
@@ -643,6 +655,15 @@ export class DiffPainter {
       rowElement.classList.add("dv-note")
       rowElement.dataset.kind = "note"
       rowElement.dataset.tone = value.tone
+      if (value.tone === "remark") {
+        // its words start where the code of the first column does: after the line numbers of that column (diff-view.css)
+        const cells = painterFile.cells
+        rowElement.style.setProperty("--dv-numbers", String(cells === null || cells.columns.length > 1 ? 1 : Math.max(cells.numbers.length, 1)))
+        // the note of a quiet run lies on the colour of its lines; a heading keeps its own
+        if (value.remark?.quiet === true) {
+          rowElement.dataset.quiet = ""
+        }
+      }
       rowElement.append(this.note(file, value))
       return { element: rowElement, cells: [], textsRead: true }
     }
@@ -657,7 +678,7 @@ export class DiffPainter {
       // a column per side: Split, a merge
       for (const side of rowCells.columns) {
         const line = value.lines[side] ?? null
-        const half = this.half(side, rowCells.cell(value, side), value.tint, rowCells.resolved(value, side) ? resolvedEdges(value) : null)
+        const half = this.half(side, rowCells.cell(value, side), value, rowCells.resolved(value, side) ? resolvedEdges(value) : null)
         half.append(this.number(line))
         half.append(this.code(file, painterFile, value, side, line, tables, height))
         rowElement.append(half)
@@ -669,7 +690,7 @@ export class DiffPainter {
     } else {
       // Unified and Inline: one side, both line numbers (a file with one side: its own); a deleted row shows the old line
       const side = value.kind === "deleted" ? OLD : NEW
-      const half = this.half(NEW, rowCells.cell(value, side), value.tint, null)
+      const half = this.half(NEW, rowCells.cell(value, side), value, null)
       half.append(...rowCells.numbers.map(numberSide => this.number(value.lines[numberSide] ?? null)))
       half.append(this.code(file, painterFile, value, side, value.lines[side] ?? null, tables, height))
       rowElement.append(half)
@@ -684,12 +705,16 @@ export class DiffPainter {
     return { element: rowElement, cells, textsRead }
   }
 
-  private half(side: number, cell: string, tint: LineTint, resolved: string | null): HTMLElement {
+  private half(side: number, cell: string, { tint, run }: LineRow, resolved: string | null): HTMLElement {
     const half = element("div", "dv-half", "diff-side")
     half.dataset.side = String(side)
     half.dataset.cell = cell
     if (tint !== "full" && cell !== "context" && cell !== "filler") {
       half.dataset.tint = tint
+      // a line of a quiet run of the marks: what it changed in, for a screen reader (diff-view.css)
+      if (run !== null) {
+        half.dataset.run = run
+      }
     }
     if (resolved !== null) {
       half.dataset.resolved = resolved
@@ -750,8 +775,68 @@ export class DiffPainter {
     })
   }
 
-  /** The words of a note row: the heading of a change, or a button to the section that shows a block */
+  /**
+   * What the diff says of the lines after a note (`NoteRow.remark`), in the words of its presenter: "Formatting only ·
+   * 3 lines". A note that opens (Inline shows its run once) is a button with a chevron, which shows the old lines or
+   * hides them again, and where a key does the same for the notes in view (`PainterModel.notesKey`) its hint; the
+   * hits of the find in the old lines it stands for are named after its words. Not focusable, as a fold: a review
+   * has hundreds, and the key reaches it
+   */
+  private remark(file: number, note: NoteRow, remark: Remark): HTMLElement[] {
+    const { label, detail, toggle } = presentRemark(remark)
+    const words = element(toggle === null ? "span" : "button", toggle === null ? "dv-remark" : "dv-remark dv-remark-button", "diff-remark")
+    words.dataset.kind = remark.kind
+    if (toggle !== null) {
+      words.setAttribute("type", "button")
+      words.tabIndex = -1
+      words.dataset.file = String(file)
+      words.setAttribute("aria-expanded", String(remark.open === true))
+      words.setAttribute("aria-label", `${label}, ${detail}: ${toggle}`)
+      words.title = toggle
+      const key = this.model?.notesKey
+      if (key !== undefined) {
+        // drawn after the words as generated content (diff-view.css): no text of the row, as the type of a line
+        words.dataset.key = key
+        words.setAttribute("aria-keyshortcuts", key)
+      }
+      words.append(element("span", "dv-remark-chevron"))
+    }
+    const text = element("span", "dv-remark-label")
+    text.textContent = label
+    const reach = element("span", "dv-remark-detail")
+    reach.textContent = ` · ${detail}`
+    words.append(text, reach)
+    // the hits in the old lines the note stands for: the find lands on the note, which says how many it holds
+    const hits = this.model?.hits?.get(file)
+    let matches = 0
+    let current = false
+    const [oldStart, oldEnd] = note.lines[OLD]!
+    for (let line = oldStart; hits !== undefined && line < oldEnd; line++) {
+      const found = hits.get(lineKey(OLD, line))
+      matches += (found?.ranges.length ?? 0) / 2
+      current ||= (found?.current ?? -1) >= 0
+    }
+    if (matches === 0) {
+      return [words]
+    }
+    const hit = element("span", current ? "dv-remark-hits dv-hit dv-hit-current" : "dv-remark-hits dv-hit", "diff-remark-hits")
+    hit.dataset.hit = current ? "current" : ""
+    hit.textContent = formatHiddenMatches(matches, oldEnd - oldStart)
+    return [words, hit]
+  }
+
+  /**
+   * The words of a note row: the heading of a change, with what the diff says of the run its block starts with; that
+   * remark alone; or a button to the section that shows a block
+   */
   private note(file: number, note: NoteRow): HTMLElement {
+    if (note.tone === "remark") {
+      const row = element("span", "dv-note-label")
+      if (note.remark !== null) {
+        appendAll(row, this.remark(file, note, note.remark))
+      }
+      return row
+    }
     if (note.tone === "unit") {
       const heading = element("span", "dv-note-label")
       heading.dataset.testid = "diff-unit-heading"
@@ -775,7 +860,17 @@ export class DiffPainter {
           words(part.name === null ? part.words : ` — ${part.words}`, part.name === null)
         }
       }
-      return heading
+      if (note.remark === null) {
+        return heading
+      }
+      // the block starts with a run: its remark in the row of the heading, after it
+      const row = element("span", "dv-note-label")
+      heading.className = "dv-note-heading"
+      const separator = element("span", "dv-note-words")
+      separator.textContent = " · "
+      row.append(heading, separator)
+      appendAll(row, this.remark(file, note, note.remark))
+      return row
     }
     const button = element("button", "dv-note-button")
     button.setAttribute("type", "button")
@@ -1230,16 +1325,33 @@ export class DiffPainter {
     const value = rowAt(rows, row)
     // the row of a similar pair in Inline shows its old line in the cell of the new one
     const pair = name.side === OLD ? this.inlinePairOf(painterFile, value) : null
-    const cell = entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${pair === null ? name.side : NEW}"]`)
-    const table = this.tablesOf(painterFile)[name.side]
+    const own = entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${pair === null ? name.side : NEW}"]`)
+    // one column shows an unchanged line once, by its new line: the old line has no cell of its own
+    const shown = own === null && pair === null && name.side === OLD && value.kind === "context" ? NEW : name.side
+    const cell = shown === name.side ? own : entry.element.querySelector<HTMLElement>(`.dv-code[data-side="${shown}"]`)
+    const tables = this.tablesOf(painterFile)
+    const table = tables[name.side]
     // a row that stands for the line without showing it (a fold not expanded yet) has no name to select
     if (cell === null || table == null || !isLineRow(value) || value.lines[name.side] !== name.line) {
       return
     }
     // a name without its columns is the first whole word of that name in the line: the line of the model, since the
     // text of the cell of an Inline row holds the deleted parts of the old line too
-    const at = name.word === null ? -1 : wordColumn(lineText(table, name.line), name.word)
-    const [start, end] = at < 0 ? [name.start, name.end] : [at, at + name.word!.length]
+    const text = lineText(table, name.line)
+    const at = name.word === null ? -1 : wordColumn(text, name.word)
+    let [start, end] = at < 0 ? [name.start, name.end] : [at, at + name.word!.length]
+    if (shown !== name.side) {
+      // the columns are of the old line, the cell holds the new one: the same text but for the whitespace of a block
+      // the policy ignores (another indent), where the name stands at other columns
+      const line = value.lines[shown]
+      const shownTable = tables[shown]
+      if (line == null || shownTable == null) {
+        return
+      }
+      const shownText = lineText(shownTable, line)
+      start = sameTextOffset(text, shownText, start)
+      end = sameTextOffset(text, shownText, end, true)
+    }
     let range: Range
     if (pair === null) {
       range = textRange(cell, start, end, NOT_OF_THE_LINE)
@@ -1349,7 +1461,7 @@ export class DiffPainter {
   }
 
   private onClick(event: MouseEvent): void {
-    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button, .dv-fold-target") : null
+    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button, .dv-fold-target, .dv-remark-button") : null
     const model = this.model
     if (button === null || model === null) {
       return
@@ -1365,15 +1477,22 @@ export class DiffPainter {
       // a block another section shows, hidden in a fold: as the row of such a block, it opens that section
       const block = Number(button.dataset.block)
       const label = value.elsewhere.find(it => it.block === block)?.label ?? ""
-      this.callbacks.onNote(file, { kind: "note", tone: "elsewhere", label, heading: null, block, lines: [] })
+      this.callbacks.onNote(file, { kind: "note", tone: "elsewhere", label, heading: null, block, lines: [], remark: null })
     } else if (value.kind === "fold") {
-      // the button goes with the rows it stood for: the diffs keep the focus, so their keys still work
-      if (this.scrollParent === null) {
-        this.root?.focus({ preventScroll: true })
-      }
+      this.keepFocus()
       this.callbacks.onFold(file, value, event.altKey)
+    } else if (value.kind === "note" && value.remark !== null && value.remark.open !== null) {
+      this.keepFocus()
+      this.callbacks.onNoteToggle(file, value, event.altKey)
     } else if (value.kind === "note") {
       this.callbacks.onNote(file, value)
+    }
+  }
+
+  /** A button of a row goes with the rows it stood for (a fold, a note that opens): the diffs keep the focus, so their keys still work */
+  private keepFocus(): void {
+    if (this.scrollParent === null) {
+      this.root?.focus({ preventScroll: true })
     }
   }
 }

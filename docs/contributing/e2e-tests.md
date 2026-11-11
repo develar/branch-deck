@@ -65,11 +65,16 @@ rules in one line each and links here.
 - **The rows of a diff** are drawn by the painter outside React, without a role or a name: find them by the helpers of
   `tests/e2e/helpers/diff-helpers.ts`, which read the test ids and the data attributes the painter writes, never by a
   `dv-` class. A row is `diffRows(scope, kind)` (`diff-row` with `data-kind`: `context`, `added`, `deleted`,
-  `changed`, `inline`, `merge`, `fold`, `note`), the cell of a side `diffSides(scope, side)` (`diff-side` with
+  `changed`, `inline`, `once`, `merge`, `fold`, `note`), the cell of a side `diffSides(scope, side)` (`diff-side` with
   `data-side`, `data-cell`, `data-tint`), the code of a line `DIFF_CODE` (`diff-code`), its number
   `diffLineNumbers` (`diff-line-number`); a part of a line by what it is: `changedParts` (`data-change`),
   `deletedParts` of an Inline row (`data-inline-deleted`), `findMarks(scope, "current")` (`data-hit`); and
-  `visualLines` of Soft Wraps, `horizontalBars`, `foldButtons`, the underline of a link (`diff-link`). A part is an
+  `visualLines` of Soft Wraps, `horizontalBars`, `foldButtons`, the underline of a link (`diff-link`). The marks of a
+  diff: `remarks(scope, kind)` are the words of the notes of its runs (`diff-remark`, a button with `aria-expanded`
+  where Inline shows the run once), `quietSides(scope, side)` the cells of the lines played down
+  (`data-tint="quiet"`), `remarkHits(scope)` the hits of the find a note names (`diff-remark-hits`). The painter draws
+  only the rows around the view: `scrollDiffsTo(scope, target)` scrolls a view in the scroller of its parent (the
+  preview of a commit) until a row far below is painted. A part is an
   element per token of the syntax: read a text over several by `joinedText`. Code that runs in the page takes the
   same selectors (`diffRowSelector`, `diffSideSelector`). The files of a review move down once its overview (the
   heading of a commit shown alone) came and was measured, after the files show: a test that reads the place of a row

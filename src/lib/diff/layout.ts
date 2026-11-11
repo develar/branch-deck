@@ -1,5 +1,5 @@
 import { isLineRow, NEW, rowAt as fileRowAt, rowOfLine } from "@/lib/diff/rows"
-import type { FileRows } from "@/lib/diff/rows"
+import type { FileRows, Row } from "@/lib/diff/rows"
 
 /*
  * The layout of a document of file diffs (docs/design/diff-view.md, "Layout and virtualization"): every item has a known
@@ -82,7 +82,11 @@ export interface ScrollAnchor {
    * `EPILOGUE_KEY` for a top in the epilogue, whose offset is from its top
    */
   key: string
-  /** A line of a side whose row is at the top; absent when the top is in the header or the notice */
+  /**
+   * A line of a side whose row is at the top; absent when the top is in the header or the notice. Of a row of words
+   * that stands for no line (`standsForNoLine`: a heading, the note of lines that all show) it is the line of the row
+   * after it, and the offset is negative: the top is that far above the row of the line
+   */
   line?: { side: number; line: number }
   /**
    * The offset is from the start of the section (`sectionStart`, the top of its opening), not from its card: the top
@@ -385,7 +389,9 @@ export class DiffLayout {
   }
 
   /**
-   * The anchor at `scrollTop`: the file there, and the line of its row at the top. A top in the prologue (or the space
+   * The anchor at `scrollTop`: the file there, and the line of its row at the top; of a row of words that stands for
+   * no line the line of the first row after it that has one, the offset counted from that row (negative), so the row
+   * of words stays at the top across a new layout: `rowOfLine` never gives such a row. A top in the prologue (or the space
    * above it) keeps its offset from the top of the document; one in an opening, from the start of its section, so an
    * opening that grows grows below it. Below the prologue (the gap, the space above the cards) and below the rows of a
    * file (the line at the end of its card, its bottom border, the gap) it is the start of the next section: a scroll
@@ -414,23 +420,27 @@ export class DiffLayout {
     if (rows === null || rows.rowCount === 0 || scrollTop < rowsTop) {
       return { key, offset: scrollTop - this.offsets[file]! }
     }
-    const index = this.rowAt(file, scrollTop)
-    const row = fileRowAt(rows, index)
-    // the new side (the middle of a merge) first, else the first side with a line
-    const side =
-      !isLineRow(row) || row.lines[NEW] != null
-        ? NEW
-        : Math.max(
-            row.lines.findIndex(line => line != null),
-            0,
-          )
+    let index = this.rowAt(file, scrollTop)
+    let row = fileRowAt(rows, index)
+    // a row of words that stands for no line is held by the row after it: the lines its words are about
+    while (standsForNoLine(row) && index + 1 < rows.rowCount) {
+      index++
+      row = fileRowAt(rows, index)
+    }
+    // the new side (the middle of a merge) first, else the first side with a line; of a row of words the first side it
+    // stands for lines of (a note that stands for old lines alone: `rowOfLine` of its first one is the note)
+    const holds = (side: number) => (isLineRow(row) ? row.lines[side] != null : row.lines[side]![0] < row.lines[side]![1])
+    const first = row.lines.findIndex((_, at) => holds(at))
+    const side = holds(NEW) || first < 0 ? (isLineRow(row) && first < 0 ? 0 : NEW) : first
     const line = { side, line: (isLineRow(row) ? row.lines[side] : row.lines[side]![0]) ?? 0 }
     return { key, line, offset: scrollTop - this.rowTop(file, index) }
   }
 
   /**
    * The `scrollTop` that puts the anchor where it was; null when its file is gone. An offset into a prologue or an
-   * opening that became lower is clamped to its end: the top of what follows it
+   * opening that became lower is clamped to its end: the top of what follows it. A negative offset, of a top in the
+   * rows of words above the row of the line, reaches no further up than those rows: where they are gone (another
+   * layout, a note that stands for the line again) the top is the row of the line
    */
   scrollTopOf(anchor: ScrollAnchor): number | null {
     if (anchor.key === PROLOGUE_KEY) {
@@ -451,9 +461,21 @@ export class DiffLayout {
       return this.offsets[file]! + Math.min(anchor.offset, this.fileHeight(file))
     }
     const row = rowOfLine(rows, anchor.line.side, anchor.line.line)
+    let above = row
+    while (anchor.offset < 0 && above > 0 && standsForNoLine(fileRowAt(rows, above - 1))) {
+      above--
+    }
     // a row that shows fewer visual lines keeps the anchor inside it
-    return this.rowTop(file, row) + Math.min(anchor.offset, Math.max(this.rowHeight(file, row) - 1, 0))
+    return this.rowTop(file, row) + Math.max(Math.min(anchor.offset, Math.max(this.rowHeight(file, row) - 1, 0)), this.rowTop(file, above) - this.rowTop(file, row))
   }
+}
+
+/**
+ * A row of words that stands for no line of any side (the heading of a change, the note of a run whose lines all
+ * show): no line finds it (`rowOfLine`), so the scroll position holds it by the row after it
+ */
+function standsForNoLine(row: Row): boolean {
+  return !isLineRow(row) && row.lines.every(([start, end]) => start >= end)
 }
 
 /** The visual lines before each row, from the visual lines of each row: the `visualLines` of a `LayoutFile` */

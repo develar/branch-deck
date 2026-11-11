@@ -3,11 +3,9 @@ import { describe, expect, it, vi } from "vite-plus/test"
 import type { ActionBlocker, ActionId, ActionState } from "@/lib/bindings"
 import type { ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
-import { reviewRequest } from "@/test-support/review-request"
+import { REVIEWED_COMMIT as HEAD, reviewRequest, reviewRequestActionContext } from "@/test-support/review-request"
 
 vi.mock("@/lib/clipboard", () => ({ copyText: async () => {} }))
-
-const HEAD = "0123456789abcdef0123456789abcdef01234567"
 
 /** The actions of a pull request as Rust decides them: each id enabled, or disabled with its blocker */
 function rust(...actions: (ActionId | [ActionId, ActionBlocker])[]): ActionState[] {
@@ -19,18 +17,7 @@ function rust(...actions: (ActionId | [ActionId, ActionBlocker])[]): ActionState
 const OFFERED = rust("review", "approve", "request-changes", "open-pull-request")
 
 function context(patch: Partial<ReviewRequestActionContext> = {}): ReviewRequestActionContext {
-  return {
-    reviewedCommit: { id: HEAD },
-    actions: OFFERED,
-    words: { operations: {}, named: {} },
-    busy: undefined,
-    onReview: () => {},
-    onApprove: () => {},
-    onSafePush: () => {},
-    onRequestChanges: () => {},
-    onOpenPullRequest: () => {},
-    ...patch,
-  }
+  return reviewRequestActionContext(OFFERED, patch)
 }
 
 function labels(groups: ReturnType<typeof reviewRequestMenu>): string[][] {

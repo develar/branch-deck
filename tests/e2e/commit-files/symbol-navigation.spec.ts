@@ -6,8 +6,8 @@ import type { FindDeclarationParams } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
-import { changedParts, deletedParts, diffLineNumbers, diffRows, expectOverviewLaidOut } from "../helpers/diff-helpers"
-import { openCommitPreview } from "../helpers/preview-helpers"
+import { changedParts, deletedParts, diffLineNumbers, diffRows, diffSides, expectOverviewLaidOut } from "../helpers/diff-helpers"
+import { chooseWhitespace, openCommitPreview } from "../helpers/preview-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { holdCommandCalls, holdNextAnswer, recordCommand, expectClosed } from "../helpers/wait-helpers"
@@ -21,8 +21,11 @@ const MODIFIER = "Meta"
 const COMMAND = "Control"
 const BACK = "Control+Alt+ArrowLeft"
 
-/** The code of the review window of a commit of `nav`: the commit of the template unless another `subject` is given */
-async function openNavigationReview(page: Page, subject = "use the store and the queue"): Promise<Locator> {
+/**
+ * The code of the review window of a commit of `nav`: the commit of the template unless another `subject` is given,
+ * shown once its code holds `shows`
+ */
+async function openNavigationReview(page: Page, subject = "use the store and the queue", shows = "store.add(1)"): Promise<Locator> {
   await expandBranch(page, findBranchRow(page, "nav"))
   await openCommitPreview(page, getBranchCommitRow(page, "nav", subject))
   await page.keyboard.press("d")
@@ -30,7 +33,7 @@ async function openNavigationReview(page: Page, subject = "use the store and the
   const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
   await openSubWindowPage(page, opened!)
   const code = page.getByTestId("commit-review-code")
-  await expect(code).toContainText("store.add(1)")
+  await expect(code).toContainText(shows)
   // the heading of the commit comes above the files after them: the places of the names are read once they stay
   await expectOverviewLaidOut(code)
   return code
@@ -446,6 +449,69 @@ test(
     await expect(page.getByRole("listbox", { name: "Usages of helper" }).getByRole("option")).toHaveText([
       "callval sum = helper(2) + outsider(3) + outsider(4) + outsider(5)src/Uses.kt:4",
     ])
+  },
+)
+
+// a selection the view makes in a row of one column after a press on a side of Split: the engines differ there
+test(
+  "should select a name of the old side at its own columns in a line the whitespace policy ignores, which one column shows by its new line",
+  { tag: "@webkit" },
+  async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    // the call of `helper` is indented again, by four columns more, and a value changes three lines below it
+    const box = (indent: string, value: number) =>
+      `class Box {\n  fun helper(): Int = 1\n\n  fun use(): Int {\n${indent}return helper() + 1\n  }\n\n  fun other(): Int = ${value}\n}\n`
+    await repo.commit("(nav) add the box", { "src/Box.kt": box("    ", 1) }, 1704120600)
+    await repo.commit("(nav) indent the call", { "src/Box.kt": box("        ", 2) }, 1704121200)
+    await syncAndWaitForBranches()
+    const code = await openNavigationReview(page, "indent the call", "fun other(): Int = ")
+    const window = page.getByTestId("review-window")
+    // under Ignore Whitespace the indented call is no change: an unchanged row, in Split with the line of each side
+    await chooseWhitespace(page, window, "Ignore Whitespace")
+    await window.getByRole("button", { name: "Split", exact: true }).click()
+    const call = diffRows(code, "context", { hasText: "return helper() + 1" })
+    await expect(diffSides(call)).toHaveCount(2)
+    await expect(diffSides(call, 0).getByTestId("diff-code")).toHaveText("    return helper() + 1")
+    await expect(diffSides(call, 1).getByTestId("diff-code")).toHaveText("        return helper() + 1")
+    /** The row of the diffs the selection is in, as its code reads */
+    const selectedRow = () =>
+      page.evaluate(() => {
+        const node = document.getSelection()?.anchorNode ?? null
+        const row = (node instanceof Element ? node : node?.parentElement)?.closest("[data-testid=diff-row]")
+        return { selected: document.getSelection()?.toString() ?? "", row: [...(row?.querySelectorAll("[data-testid=diff-code]") ?? [])].map(cell => cell.textContent) }
+      })
+
+    // ⌘-click on `helper` of the old side: its declaration in the old text, the call of the old line the place to return to
+    const at = await diffSides(call, 0)
+      .getByTestId("diff-code")
+      .evaluate(cell => {
+        const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+        for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+          const index = (text.textContent ?? "").indexOf("helper")
+          if (index >= 0) {
+            const range = document.createRange()
+            range.setStart(text, index)
+            range.setEnd(text, index + "helper".length)
+            const rect = range.getBoundingClientRect()
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+          }
+        }
+        throw new Error("no helper in the old line")
+      })
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.click(at.x, at.y)
+    await page.keyboard.up(MODIFIER)
+    await expect.poll(selectedRow).toEqual({ selected: "helper", row: ["  fun helper(): Int = 1", "  fun helper(): Int = 1"] })
+
+    // Inline: the row of the call is the new line alone, the name four columns further than in the old line
+    await window.getByRole("button", { name: "Inline", exact: true }).click()
+    await expect(diffSides(call)).toHaveCount(1)
+    await code.locator("[aria-label='Changes of the commit']").focus()
+    // Back (⌘[ where the page says it runs on a Mac, as WebKit's does): the name of the old line is selected where the
+    // new line has it, not the text at the columns of the old line
+    const mac = await page.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
+    await page.keyboard.press(mac ? "Meta+BracketLeft" : BACK)
+    await expect.poll(selectedRow).toEqual({ selected: "helper", row: ["        return helper() + 1"] })
   },
 )
 

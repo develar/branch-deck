@@ -33,7 +33,8 @@ function fileOf(target: DeclarationTarget): DiffViewFile {
       oldScopes: [],
       newScopes: [],
       importBlocks: [],
-      marks: { runs: [], moves: [], renames: [], starts: [] },
+      // as the engine gives them: the reading of the one block starts at its first line
+      marks: { runs: [], moves: [], renames: [], starts: [0, 1, 0] },
     },
   }
   return {

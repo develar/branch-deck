@@ -123,6 +123,15 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   resolved conflict has no background, and a dotted line (2 px on, 2 px off) above and below it.
 - **Pale and full.** A block with inner ranges, also an empty list of them, has pale lines and full words; a block
   without inner ranges has full lines; a whitespace-only block is pale with nothing strong.
+- **Quiet.** Our own, with no precedent in IntelliJ: `--diff-quiet` is the colour of a line the marks of the diff
+  call quiet (it changed in its formatting alone, [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)),
+  and of the note before such lines, which reads as their first row. One colour whatever the type of the line: Inline
+  shows such a line once, where it is neither inserted nor deleted, and Unified and Split play both its forms down
+  alike. It is a faint sand (light `#f5f1e6`, dark `#2a2820`), weaker than the pale form of every type and no hue of
+  one: grey is a deleted line, green an inserted one, blue a modified one, and the paler grey the eye would expect
+  of "nothing here" cannot be told from a deleted line of Inline. The text of a quiet line is not dimmed: a reader
+  opens such lines to check the mark. `--diff-line-number-changed` is 4.4:1 on it in the light theme and 6.5:1 in
+  the dark one. Never a `dark:` variant: the token has a value per theme.
 - **Gutter.** The colour of a line fills its line number as well (`DiffLineMarkerRenderer`): no bar beside the code.
   The line numbers are a point smaller than the code, 12 px, in `LINE_NUMBERS_COLOR` (`--diff-line-number`). The
   number of a changed line is our own, `--diff-line-number-changed`: `LINE_NUMBERS_COLOR` is made for the editor

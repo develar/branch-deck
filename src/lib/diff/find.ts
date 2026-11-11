@@ -46,7 +46,9 @@ export interface FindFile extends CopyFile {
  * one, and of the old one the hits of its own (`isOwnOldHit`: one that holds a deleted part, struck through in the
  * row, or a place where the new line inserts text), in the order of the text of the row. The text the two lines of
  * the row share is the new line's: where a whitespace policy pairs lines of another indent, the row shows and the
- * find reads the whitespace of the new line. With `folded` the folded lines of that side are searched too.
+ * find reads the whitespace of the new line. The old lines of a quiet run that Inline shows once are searched at the
+ * note that stands for them (`NoteRow.lines`), before the new lines: their hits are of the old side, and
+ * `rowOfLine` gives the note. With `folded` the folded lines of that side are searched too.
  */
 export function findHits(files: readonly FindFile[], query: string, { sideBySide, folded }: { sideBySide: boolean; folded: boolean }): DiffFindHit[] {
   const needle = query.toLowerCase()
@@ -87,6 +89,11 @@ export function findHits(files: readonly FindFile[], query: string, { sideBySide
         continue
       }
       if (row.kind === "note") {
+        // the old lines a note stands for while Inline shows their run once: found there, the note is where they are
+        const [start, end] = row.remark?.open === false ? row.lines[OLD]! : [0, 0]
+        for (let line = start; line < end; line++) {
+          add(hitsIn(file, OLD, line, -1))
+        }
         continue
       }
       if (!sideBySide && row.kind === "inline") {

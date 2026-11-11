@@ -40,6 +40,7 @@ import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeFile, Fil
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
 import type { ReviewPlace } from "@/lib/review-place"
+import { describeToRead, formatToRead } from "@/presenters/diff-marks"
 import { presentRowFacts } from "@/presenters/review-plan"
 import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
 import { formatCommitRole, formatModuleState, formatSeen } from "@/presenters/review-steps"
@@ -782,7 +783,9 @@ function rowCounts(node: FileTreeNode): string {
     ]
     return parts.filter(part => part !== null).join(", ")
   }
-  return `${formatFileStatus(node.file.status)}, ${linesWords(node.file.additions, node.file.deletions, node.file.hiddenLines)}`
+  const { toRead } = node.file
+  const lines = linesWords(node.file.additions, node.file.deletions, node.file.hiddenLines)
+  return `${formatFileStatus(node.file.status)}, ${toRead === undefined ? lines : `${lines}, ${describeToRead(toRead.toRead, toRead.changes)}`}`
 }
 
 /** "+1 −1", then the lines the whitespace policy hides: "+1 −1, 1 line hidden by Whitespace" */
@@ -1030,18 +1033,29 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
   )
 }
 
-/** The counts of a file under the whitespace policy, marked where the policy hides lines of it (`HIDDEN_LINES_MARK`) */
+/**
+ * The counts of a file under the whitespace policy, marked where the policy hides lines of it (`HIDDEN_LINES_MARK`);
+ * before them what is left to read of its changes, where the marks of its diff call some of them quiet ("2 to read")
+ */
 function FileLineCounts({ node: { file } }: { node: FileTreeFile }) {
   const hidden = file.hiddenLines ?? 0
+  const { toRead } = file
   return (
-    (file.additions > 0 || file.deletions > 0 || hidden > 0) && (
-      <span
-        className={cn("shrink-0 text-xs leading-5", hidden > 0 && HIDDEN_LINES_MARK)}
-        title={hidden > 0 ? formatHiddenLines(hidden) : undefined}
-        data-testid={hidden > 0 ? "file-hidden-lines" : undefined}
-      >
-        <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
-      </span>
-    )
+    <>
+      {toRead !== undefined && (
+        <span className="shrink-0 text-xs leading-5 text-muted-foreground" title={describeToRead(toRead.toRead, toRead.changes)} data-testid="file-to-read">
+          {formatToRead(toRead.toRead)}
+        </span>
+      )}
+      {(file.additions > 0 || file.deletions > 0 || hidden > 0) && (
+        <span
+          className={cn("shrink-0 text-xs leading-5", hidden > 0 && HIDDEN_LINES_MARK)}
+          title={hidden > 0 ? formatHiddenLines(hidden) : undefined}
+          data-testid={hidden > 0 ? "file-hidden-lines" : undefined}
+        >
+          <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
+        </span>
+      )}
+    </>
   )
 }

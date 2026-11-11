@@ -26,6 +26,8 @@ import type { CommitFile } from "@/lib/bindings"
 import { titleText } from "@/lib/commit"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import type { LayoutPart } from "@/lib/diff/layout"
+import { REVIEW_KEYS } from "@/lib/review-keys"
+import { describeToRead, formatToRead } from "@/presenters/diff-marks"
 import { presentCardEnd } from "@/presenters/review-card-end"
 import type { GroupOpeningView, OpeningView, StoryMark } from "@/presenters/review-story"
 import { formatPart } from "@/presenters/review-units"
@@ -151,6 +153,12 @@ export function CommitReviewCode({
       setFileViews([])
       review.current?.scrollToPrologue()
     },
+    // of the review, as its other keys: a file over it has no note that opens
+    toggleNotes: () => {
+      if (fileViews.length === 0) {
+        review.current?.toggleNotes()
+      }
+    },
     visibleStop: () => review.current?.visibleStop(),
     focus: () => review.current?.focus(),
     openFind: () => review.current?.openFind(),
@@ -189,6 +197,8 @@ export function CommitReviewCode({
         softWraps={softWraps}
         initialPath={initialPath}
         label="Changes of the commit"
+        // the key of the review that calls `toggleNotes` (`CommitReview`, beside N and P)
+        notesKey={REVIEW_KEYS.notes}
         onVisibleSectionChange={onVisibleSectionChange}
         onFirstScreen={onFirstScreen}
         onCardsPassed={onCardsPassed}
@@ -266,6 +276,7 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
               folded={null}
               collapsed={false}
               onToggle={() => {}}
+              toRead={null}
               pending
               owner={fileOwners?.get(file.path)}
               muted={false}
@@ -440,7 +451,7 @@ function ReviewCardEnd({
         // the file as the header of its card names it: the name bold, the directory muted, its last folder not
         <FilePathLabel path={next.path} emphasis className="text-foreground" />
       )}
-      <Kbd className="h-4 min-w-4">J</Kbd>
+      <Kbd className="h-4 min-w-4">{REVIEW_KEYS.nextSection}</Kbd>
     </button>
   )
 }
@@ -451,7 +462,7 @@ function ReviewCardEnd({
  * are on its divider, so the name of every file stands at one x. The insets are IntelliJ's: 12 px above and below, 10
  * px at the sides
  */
-function ReviewFileHeader({ file, section, notice, empty, folded, pending = false, owner, muted, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ file, section, notice, empty, folded, pending = false, owner, muted, collapsed, onToggle, onExpandAll, toRead }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -508,6 +519,12 @@ function ReviewFileHeader({ file, section, notice, empty, folded, pending = fals
         {owner !== undefined && (
           <span data-testid="review-file-owner" className="text-muted-foreground" title={`Owned by ${owner}`}>
             {owner}
+          </span>
+        )}
+        {toRead !== null && (
+          // what N and P stop at among the changes of the card: fewer than its changes, so the counts are not all to read
+          <span data-testid="review-file-to-read" className="text-muted-foreground" title={describeToRead(toRead.toRead, toRead.changes)}>
+            {formatToRead(toRead.toRead)}
           </span>
         )}
         {section?.part != null ? (

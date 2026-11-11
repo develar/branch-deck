@@ -5,7 +5,7 @@ import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { buildFileRows } from "@/lib/diff/rows"
 import { fileNotice, formatHiddenLines, lineEndsNotice, withEngineCounts } from "@/lib/diff/view-files"
 import type { BlobTextEntry } from "@/stores/blob-texts"
-import { block, textDiff } from "@/test-support/diff-blocks"
+import { block, run, textDiff } from "@/test-support/diff-blocks"
 
 const OLD_ID = "1".repeat(40)
 const NEW_ID = "2".repeat(40)
@@ -60,6 +60,45 @@ describe("withEngineCounts", () => {
     // none before the diff is read, none of a diff the policy hides nothing of
     expect(withEngineCounts([gitFile()], undefined)[0]!.hiddenLines).toBeUndefined()
     expect(withEngineCounts([gitFile()], [textFile()])[0]!.hiddenLines).toBeUndefined()
+  })
+})
+
+describe("what is left to read of a file", () => {
+  // a wrapped call (a quiet run of formatting), a block of the imports alone and a real change
+  const marked = {
+    kind: "text" as const,
+    ...textDiff(30, 32, [block(1, 2, 1, 2), block(10, 11, 10, 13), block(20, 21, 22, 23)], { runs: [run(10, 11, 10, 13)], importBlocks: [0] }),
+    additions: 5,
+    deletions: 3,
+  }
+
+  it("counts the stops of N and P among the changes of a file where some change is quiet, and nothing where every change is read", () => {
+    const [counted] = withEngineCounts([gitFile()], [{ ...textFile(), content: marked }])
+    expect(counted).toMatchObject({ additions: 5, deletions: 3, toRead: { toRead: 2, changes: 3 } })
+    // every change a stop: no count, the file as it was
+    expect(withEngineCounts([gitFile()], [textFile()])[0]).not.toHaveProperty("toRead")
+    expect(withEngineCounts([gitFile()], undefined)[0]).not.toHaveProperty("toRead")
+    // a block the policy ignores is no change and no stop
+    const ignored = { kind: "text" as const, ...textDiff(9, 9, [block(1, 2, 1, 2, { kind: "ignored" }), block(6, 7, 6, 7)]), additions: 1, deletions: 1 }
+    expect(withEngineCounts([gitFile()], [{ ...textFile(), content: ignored }])[0]).not.toHaveProperty("toRead")
+  })
+
+  it("passes a block of the imports alone too in a review with its plan, as N and P do there", () => {
+    const [counted] = withEngineCounts([gitFile()], [{ ...textFile(), content: marked }], true)
+    expect(counted!.toRead).toEqual({ toRead: 1, changes: 3 })
+    // the same stops as the rows of the file have
+    const rows = buildFileRows(marked, "inline", [], true)
+    expect([rows.changeStarts.length, rows.changes]).toEqual([1, 3])
+    expect([buildFileRows(marked, "inline").changeStarts.length, buildFileRows(marked, "inline").changes]).toEqual([2, 3])
+  })
+
+  it("counts no block without a line: the stand-in of a use a change left outside is no change", () => {
+    const ghost = { kind: "text" as const, ...textDiff(9, 9, [block(4, 4, 4, 4)], { importBlocks: [0] }), additions: 0, deletions: 0 }
+    expect(
+      withEngineCounts([{ ...gitFile(), additions: 0, deletions: 0 }], [{ ...textFile(), content: { ...ghost, marks: { ...ghost.marks, starts: [] } } }], true)[0],
+    ).not.toHaveProperty("toRead")
+    const rows = buildFileRows({ ...ghost, marks: { ...ghost.marks, starts: [] } }, "inline", [], true)
+    expect([rows.changeStarts, rows.changes]).toEqual([[], 0])
   })
 })
 

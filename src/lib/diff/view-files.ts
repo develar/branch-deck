@@ -1,4 +1,5 @@
 import type { CommitFile } from "@/lib/bindings"
+import { readingOf } from "@/lib/diff/block-parts"
 import type { DiffContent, FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { languageOfPath } from "@/lib/diff/file-languages"
 import type { FileMerge, MergeContent } from "@/lib/diff/file-merge-model"
@@ -21,24 +22,32 @@ export function languageOf(path: string): string {
 export type CountedFile = CommitFile & {
   /** Of each block the policy ignores the most of a side: "1 line hidden by Whitespace"; absent for none */
   readonly hiddenLines?: number
+  /**
+   * What is left to read of its changes (`readingOf`: the stops of N and P among its blocks of changed lines), where
+   * that is fewer than all of them: "2 to read"; absent where every change is a stop
+   */
+  readonly toRead?: { readonly toRead: number; readonly changes: number }
 }
 
 /**
  * Git's files of a subject with the line counts of the engine, the one source of the counts a diff shows (git numstat
- * counts the changes the policy ignores too), and the lines the policy hides (`hiddenLines`). A file without its diff
- * yet has no counts: no number turns into another.
+ * counts the changes the policy ignores too), the lines the policy hides (`hiddenLines`) and what is left to read of
+ * its changes where the marks of the diff call some quiet (`toRead`; `quietImports`: a review with its plan plays the
+ * blocks of the imports alone down too). A file without its diff yet has no counts: no number turns into another.
  */
-export function withEngineCounts(files: readonly CommitFile[], diffs: readonly FileDiff[] | undefined): CountedFile[] {
+export function withEngineCounts(files: readonly CommitFile[], diffs: readonly FileDiff[] | undefined, quietImports = false): CountedFile[] {
   const byPath = new Map(diffs?.map(diff => [diff.path, diff]))
   return files.map(file => {
     const content = byPath.get(file.path)?.content
     const additions = content?.kind === "text" ? content.additions : 0
     const deletions = content?.kind === "text" ? content.deletions : 0
     const hiddenLines = content?.kind === "text" ? hiddenLinesOf(content) : 0
-    if (additions === file.additions && deletions === file.deletions && hiddenLines === 0) {
+    const reading = content?.kind === "text" ? readingOf(content, quietImports) : null
+    const toRead = reading !== null && reading.toRead < reading.changes ? reading : null
+    if (additions === file.additions && deletions === file.deletions && hiddenLines === 0 && toRead === null) {
       return file
     }
-    return hiddenLines === 0 ? { ...file, additions, deletions } : { ...file, additions, deletions, hiddenLines }
+    return { ...file, additions, deletions, ...(hiddenLines > 0 && { hiddenLines }), ...(toRead !== null && { toRead }) }
   })
 }
 

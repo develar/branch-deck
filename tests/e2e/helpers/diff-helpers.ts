@@ -7,8 +7,8 @@ import { expect } from "../fixtures/base-test"
  * `dv-` class.
  */
 
-/** The kind of a row (`data-kind`): a line row by its kind, a fold, a note */
-export type DiffRowKind = "context" | "added" | "deleted" | "changed" | "inline" | "merge" | "fold" | "note"
+/** The kind of a row (`data-kind`): a line row by its kind (`once`: a line of a quiet run that Inline shows once), a fold, a note */
+export type DiffRowKind = "context" | "added" | "deleted" | "changed" | "inline" | "once" | "merge" | "fold" | "note"
 
 /** The selector of the rows of a diff, of one kind when given; for a locator and for the code a test runs in the page */
 export function diffRowSelector(kind?: DiffRowKind): string {
@@ -51,6 +51,37 @@ export function deletedParts(scope: Locator | Page): Locator {
 /** The parts of the lines in `scope` that a hit of the find marks: every hit, or the current one alone. A hit is a part per token of the syntax */
 export function findMarks(scope: Locator | Page, which: "every" | "current" = "every"): Locator {
   return scope.locator(which === "current" ? '[data-hit="current"]' : "[data-hit]")
+}
+
+/**
+ * The words of the notes that say what the marks of the diff say of the lines after them ("Formatting only · 3
+ * lines"), of one kind of run when given: a button where the note opens (Inline shows its run once: `aria-expanded`
+ * says whether its old lines show), plain words elsewhere
+ */
+export function remarks(scope: Locator | Page, kind?: "formatting" | "comments"): Locator {
+  return scope.locator(kind === undefined ? "[data-testid=diff-remark]" : `[data-testid=diff-remark][data-kind=${kind}]`)
+}
+
+/** The hits of the find in the old lines a note stands for, named after its words ("1 match in the old line"); `data-hit` says whether the current one is among them */
+export function remarkHits(scope: Locator | Page): Locator {
+  return scope.getByTestId("diff-remark-hits")
+}
+
+/** The cells of the lines of a quiet run of the marks, which are played down (`data-tint="quiet"`), of a side when given */
+export function quietSides(scope: Locator | Page, side?: number): Locator {
+  return scope.locator(`${diffSideSelector(side)}[data-tint="quiet"]`)
+}
+
+/**
+ * Scrolls the diffs of `scope` down until `target` is painted: the painter draws only the rows around the view, so a
+ * row far below it is not in the page until a scroll brings it near
+ */
+export async function scrollDiffsTo(scope: Locator, target: Locator): Promise<void> {
+  await expect(async () => {
+    // the last row painted is the lowest one: the rows below it follow as it comes into view
+    await diffRows(scope).last().scrollIntoViewIfNeeded()
+    await expect(target).toBeVisible({ timeout: 500 })
+  }).toPass()
 }
 
 /** The visual lines of the rows that Soft Wraps breaks */

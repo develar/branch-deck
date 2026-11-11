@@ -3,13 +3,14 @@ import type { Locator, Page } from "@playwright/test"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { changedParts, deletedParts, diffLineNumbers, diffRows, foldButtons, horizontalBars, visualLines } from "../helpers/diff-helpers"
+import { changedParts, deletedParts, diffLineNumbers, diffRows, foldButtons, horizontalBars, quietSides, remarks, visualLines } from "../helpers/diff-helpers"
 import { chooseWhitespace, openCommitFilesSection, openCommitPreview as openPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { SPLIT_DIFFS } from "../helpers/setup-options"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
 // the `issue_links` template: JIRA-456 has three commits, newest first; each changes one file under db/
 const BRANCH = "JIRA-456"
@@ -394,35 +395,52 @@ function scrollLeft(column: Locator): Promise<number> {
 
 /**
  * The diff of Format.kt of the `commit_whitespace` template in the preview of its commit: it indents two lines again,
- * adds a blank line apart from them and changes `3` to `4`; Main.kt changes one line
+ * adds a blank line apart from them and changes `3` to `4`; Main.kt changes one line. `file`: the same change in a file
+ * of that name, committed by `commitPlainFormat`
  */
-async function openFormatDiff(page: Page) {
-  await expandBranch(page, findBranchRow(page, "format"))
-  const preview = await openPreview(page, getBranchCommitRow(page, "format", "indent the block of first and return 4"))
+async function openFormatDiff(page: Page, file = "Format.kt", branch = "format") {
+  await expandBranch(page, findBranchRow(page, branch))
+  const preview = await openPreview(page, getBranchCommitRow(page, branch, "indent the block of first and return 4"))
   const tree = await openCommitFilesSection(preview)
-  const format = tree.getByRole("treeitem", { name: "Format.kt" })
-  await format.getByText("Format.kt").click()
+  const format = tree.getByRole("treeitem", { name: file })
+  await format.getByText(file).click()
   await expect(format).toContainText("fun middle() = 0")
   return { preview, tree, format, choose: (label: string) => chooseWhitespace(page, preview, label) }
 }
 
+/**
+ * The change of Format.kt of the `commit_whitespace` template in `src/format.txt`, a file of no grammar, in a commit of
+ * the branch `text`: its tokens cannot be read, so its change of indentation is no quiet run of the marks and shows as
+ * IntelliJ shows it
+ */
+async function commitPlainFormat(repo: TestRepositoryBuilder): Promise<void> {
+  const before = "class Format {\n  fun first() {\n    val a = 1\n    val b = 2\n  }\n  fun middle() = 0\n  fun second() = 3\n}\n"
+  const after = "class Format {\n  fun first() {\n      val a = 1\n      val b = 2\n  }\n\n  fun middle() = 0\n  fun second() = 4\n}\n"
+  await repo.commit("Add the format as text", { "src/format.txt": before }, 1704120600)
+  await repo.pushInTerminal("master")
+  await repo.commit("(text) indent the block of first and return 4", { "src/format.txt": after }, 1704121200)
+}
+
 simpleTest(
-  "Inline shows a re-indented line as one pale row, its indentation in the full colour, and the whitespace policy hides it",
+  "Inline shows a re-indented line of a file without a grammar as one pale row, its indentation in the full colour, and the whitespace policy hides it",
   async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("commit_whitespace")
+    await commitPlainFormat(await setupRepo("simple"))
     await syncAndWaitForBranches()
-    const { format, choose } = await openFormatDiff(page)
+    const { format, choose } = await openFormatDiff(page, "format.txt", "text")
     const pairs = diffRows(format, "inline")
     const added = diffRows(format, "added")
 
     // Do Not Ignore: the two re-indented lines and the line of `second` are similar pairs, a row each; the blank line is
-    // an added row. A re-indented row is pale, its inserted indentation in the full colour, nothing deleted in it
+    // an added row. A re-indented row is pale, its inserted indentation in the full colour, nothing deleted in it. No
+    // grammar reads the file, so the diff says nothing of its lines: no note, no quiet line
     await expect(pairs).toHaveCount(3)
     const indentation = pairs.filter({ hasText: "val a = 1" })
     await expect(indentation.locator('[data-testid=diff-side][data-tint="pale"]')).toHaveCount(1)
     await expect(changedParts(indentation)).toHaveText(/^ +$/)
     await expect(deletedParts(indentation)).toHaveCount(0)
     await expect(added).toHaveCount(1)
+    await expect(remarks(format)).toHaveCount(0)
+    await expect(format.getByTestId("file-to-read")).toHaveCount(0)
     // the row of `second`: the deleted `3` struck through before the inserted `4`
     const second = pairs.filter({ hasText: "fun second()" })
     await expect(deletedParts(second)).toHaveText("3")
@@ -495,15 +513,18 @@ simpleTest.describe("Whitespace of the diffs in Split", () => {
     const tinted = format.locator("[data-testid=diff-side][data-tint]")
     const indentation = diffRows(format, "changed", { hasText: "val a = 1" })
 
-    // Do Not Ignore: the indentation, the blank line and `4` are changes. As in IntelliJ, the re-indented lines are pale
-    // and their inner ranges, the indentation, carry the full colour
-    await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
+    // Do Not Ignore: the indentation, the blank line and `4` are changes. The tokens of the Kotlin file prove the
+    // indentation a change of formatting alone: its lines are quiet on both sides, nothing in them strong, and two of
+    // the three changes are left to read
+    await expect(format).toHaveAttribute("aria-description", "modified, +4 −3, 2 of 3 changes to read")
     // the policy ignores no block: the counts have no mark
     const hidden = format.getByTestId("file-hidden-lines")
     await expect(hidden).toHaveCount(0)
     await expect(indentation).toHaveCount(1)
-    await expect(indentation.locator('[data-testid=diff-side][data-tint="pale"]')).toHaveCount(2)
-    await expect(indentation.locator('[data-testid=diff-side][data-side="1"] [data-change]')).toHaveText(/^ +$/)
+    await expect(quietSides(indentation)).toHaveCount(2)
+    await expect(remarks(format, "formatting")).toHaveText("Formatting only · 2 lines")
+    // the two lines of the run have no changed part; the line of `second` has its `4`
+    await expect(changedParts(diffRows(format, "changed"))).toHaveText(["3", "4"])
     // the engine counts 10 lines in the 9 lines and the final line end of Format.kt: the empty 10th line does not show
     await expect(format.locator('[data-testid=diff-side][data-side="1"] [data-testid=diff-line-number]', { hasText: /^9$/ })).toHaveCount(1)
     await expect(diffLineNumbers(format, { hasText: /^10$/ })).toHaveCount(0)
@@ -513,6 +534,7 @@ simpleTest.describe("Whitespace of the diffs in Split", () => {
     await choose("Trim Whitespace")
     await expect(format).toHaveAttribute("aria-description", "modified, +2 −1")
     await expect(indentation).toHaveCount(0)
+    await expect(remarks(format)).toHaveCount(0)
     const second = diffRows(format, "changed", { hasText: "fun second()" })
     await expect(tinted).toHaveCount(2)
     await expect(second.locator('[data-testid=diff-side][data-tint="pale"]')).toHaveCount(2)
@@ -538,7 +560,7 @@ simpleTest.describe("Whitespace of the diffs in Split", () => {
     await expect(src.getByTestId("directory-line-counts")).toHaveAttribute("title", "1 line hidden by Whitespace")
 
     await choose("Do Not Ignore")
-    await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
+    await expect(format).toHaveAttribute("aria-description", "modified, +4 −3, 2 of 3 changes to read")
     await expect(hidden).toHaveCount(0)
     await expect(src).toHaveAttribute("aria-description", "2 files, +5 −4")
     await expect(src.getByTestId("directory-line-counts")).not.toHaveAttribute("title")

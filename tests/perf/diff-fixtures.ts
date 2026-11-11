@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
 import type { BlobText, CommitFile } from "../../src/lib/bindings"
-import type { DiffBlock, FileDiff } from "../../src/lib/diff/file-diff-model"
+import type { DiffBlock, FileDiff, LineRun } from "../../src/lib/diff/file-diff-model"
 
 // Synthetic commits for the diff benchmark: Kotlin-like files whose lines each hold several tokens (a keyword, names,
-// a number, a string, a comment), so a highlighted line differs from a plain one, with the diffs of the engine
+// a number, a string, a comment), so a highlighted line differs from a plain one, with the diffs of the engine and
+// their marks: every fourth changed line of a file changes in its formatting alone, a quiet run with its note
 
 /** A file of a synthetic commit: its row in the files, its diff as the backend sends it, the blobs of both sides */
 export interface SyntheticFile {
@@ -19,8 +20,16 @@ export interface FileSpec {
   changeEvery: number
 }
 
-function codeLine(fileIndex: number, index: number, version: number): string {
-  return `  val value${index} = compute(${index + version}, "file${fileIndex}") // line ${index}`
+/**
+ * Of the changed lines of a file, every `QUIET_EVERY`-th changes in its formatting alone: the marks call it a quiet
+ * run. `PERF_QUIET_EVERY=0` gives a commit without a run, to tell the cost of the notes from the rest
+ */
+const QUIET_EVERY = Number(process.env.PERF_QUIET_EVERY ?? 4)
+
+/** `version`: 0 the old line, 1 the line with another number, `"formatted"` the old line with spaces inside its call */
+function codeLine(fileIndex: number, index: number, version: 0 | 1 | "formatted"): string {
+  const call = version === "formatted" ? `compute( ${index}, "file${fileIndex}" )` : `compute(${index + version}, "file${fileIndex}")`
+  return `  val value${index} = ${call} // line ${index}`
 }
 
 /** The offsets of the number argument of `codeLine`: the range the engine marks in a changed line, a modified one */
@@ -35,15 +44,18 @@ function blobId(path: string, side: string): string {
 
 /** A modified file with 1:1 changes, or a new file, as the engine sends its diff */
 export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile {
+  const changes = (index: number) => spec.changeEvery !== 0 && index % spec.changeEvery === spec.changeEvery - 1
+  /** The changed line `index` changes in its formatting alone: every `QUIET_EVERY`-th change of the file */
+  const formats = (index: number) => QUIET_EVERY > 0 && changes(index) && Math.floor(index / spec.changeEvery) % QUIET_EVERY === QUIET_EVERY - 1
   const oldLines = spec.changeEvery === 0 ? [] : Array.from({ length: spec.lines }, (_, index) => codeLine(fileIndex, index, 0))
-  const newLines = Array.from({ length: spec.lines }, (_, index) => codeLine(fileIndex, index, spec.changeEvery !== 0 && index % spec.changeEvery === spec.changeEvery - 1 ? 1 : 0))
+  const newLines = Array.from({ length: spec.lines }, (_, index) => codeLine(fileIndex, index, formats(index) ? "formatted" : changes(index) ? 1 : 0))
   const oldId = spec.changeEvery === 0 ? null : blobId(spec.path, "old")
   const newId = blobId(spec.path, "new")
   const blocks: DiffBlock[] =
     spec.changeEvery === 0
       ? [{ oldStart: 0, oldEnd: 0, newStart: 0, newEnd: spec.lines, kind: "changed", inlinePairs: false, oldRanges: [], newRanges: [] }]
       : newLines.flatMap((line, index) =>
-          index % spec.changeEvery === spec.changeEvery - 1
+          changes(index)
             ? [
                 {
                   oldStart: index,
@@ -51,13 +63,20 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
                   newStart: index,
                   newEnd: index + 1,
                   kind: "changed",
-                  inlinePairs: true,
-                  oldRanges: [numberRange(oldLines[index]!)],
-                  newRanges: [numberRange(line)],
+                  // a line that only gained spaces is no similar pair the views draw: its run shows it
+                  inlinePairs: !formats(index),
+                  oldRanges: formats(index) ? [] : [numberRange(oldLines[index]!)],
+                  newRanges: formats(index) ? [] : [numberRange(line)],
                 },
               ]
             : [],
         )
+  // the marks as the engine gives them: a quiet run for each line that changed in its formatting alone, and the start
+  // of the reading of every other block, its first new line
+  const runs: LineRun[] = blocks.flatMap(block =>
+    formats(block.newStart) ? [{ oldStart: block.oldStart, oldEnd: block.oldEnd, newStart: block.newStart, newEnd: block.newEnd, kind: "formatting", quiet: true }] : [],
+  )
+  const starts = blocks.flatMap((block, index) => (formats(block.newStart) ? [] : [index, 1, block.newStart]))
   const changed = spec.changeEvery === 0 ? 0 : blocks.length
   const additions = spec.changeEvery === 0 ? spec.lines : changed
   const text = (lines: string[]) => `${lines.join("\n")}\n`
@@ -90,7 +109,7 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
         oldScopes: [],
         newScopes: [{ startLine: 0, endLine: spec.lines, label: `class File${fileIndex}` }],
         importBlocks: [],
-        marks: { runs: [], moves: [], renames: [], starts: [] },
+        marks: { runs, moves: [], renames: [], starts },
       },
     },
     blobs,
@@ -99,7 +118,7 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
 
 /**
  * A large commit: 200 files in 20 directories, most of them small with a few changes, 4 of 2,000-5,000 lines with a
- * change every 12 lines, and 10 new files
+ * change every 12 lines, and 10 new files; every fourth change of a file a quiet run of formatting
  */
 export function largeCommit(): SyntheticFile[] {
   const specs: FileSpec[] = []
@@ -116,7 +135,7 @@ export function largeCommit(): SyntheticFile[] {
   return sortByPath(specs).map((spec, index) => syntheticFile(index, spec))
 }
 
-/** A commit of one file of 10,000 lines with a change every 20 lines */
+/** A commit of one file of 10,000 lines with a change every 20 lines, every fourth of them a quiet run of formatting */
 export function hugeFileCommit(): SyntheticFile[] {
   return [syntheticFile(0, { path: "core/src/main/kotlin/Huge.kt", lines: 10_000, changeEvery: 20 })]
 }

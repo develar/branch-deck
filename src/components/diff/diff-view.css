@@ -430,13 +430,25 @@
 }
 
 /*
+ * A line of a quiet run of the marks (docs/design/ui-theme.md, "Diffs"): Rust proved that nothing of it is to read, so
+ * it is played down, in one colour of its own whatever its type: `--diff-quiet`, weaker than every colour of a change.
+ * Inline shows such a line once (`data-cell="once"`); where every line stays (Unified, Split, an opened note of
+ * Inline) the old and the new lines have the one colour, told apart by their line numbers, and their text stays as
+ * readable as any: a reader opens them to check the mark. The ranges of a quiet line are not drawn (row-cells.ts)
+ */
+[data-tint="quiet"][data-cell] {
+  background: var(--diff-quiet);
+}
+
+/*
  * The number of a changed line reads on the colour of its line: LINE_NUMBERS_COLOR, made for the editor background,
  * is lost on a deleted or a modified line of the dark scheme (docs/design/ui-theme.md, "Gutter")
  */
 [data-cell="inserted"] > .dv-num,
 [data-cell="deleted"] > .dv-num,
 [data-cell="modified"] > .dv-num,
-[data-cell="conflict"] > .dv-num {
+[data-cell="conflict"] > .dv-num,
+[data-cell="once"] > .dv-num {
   color: var(--diff-line-number-changed);
 }
 
@@ -554,10 +566,13 @@
   user-select: none;
 }
 
-/* with a column per side a selection stays on the side it started on */
-[data-select-side="0"] .dv-half:not([data-side="0"]),
-[data-select-side="1"] .dv-half:not([data-side="1"]),
-[data-select-side="2"] .dv-half:not([data-side="2"]) {
+/*
+ * with a column per side a selection stays on the side it started on. The one column of a row is always selectable:
+ * the side of a press in Split outlives a switch to Inline or Unified, where a name a reveal selects is of the column
+ */
+[data-select-side="0"] .dv-half:not([data-side="0"], :only-child),
+[data-select-side="1"] .dv-half:not([data-side="1"], :only-child),
+[data-select-side="2"] .dv-half:not([data-side="2"], :only-child) {
   user-select: none;
 }
 
@@ -580,6 +595,39 @@
 
 [data-cell="conflict"][data-resolved] > .dv-code::before {
   content: "" / "resolved conflict";
+}
+
+/* a line of a quiet run of the marks: what it changed in, after what the line is (`data-run`, the kind of the run) */
+[data-run="formatting"] > .dv-code::before {
+  content: "" / "formatting only";
+}
+
+[data-cell="inserted"][data-run="formatting"] > .dv-code::before {
+  content: "" / "inserted, formatting only";
+}
+
+[data-cell="deleted"][data-run="formatting"] > .dv-code::before {
+  content: "" / "deleted, formatting only";
+}
+
+[data-cell="modified"][data-run="formatting"] > .dv-code::before {
+  content: "" / "modified, formatting only";
+}
+
+[data-run="renamed"] > .dv-code::before {
+  content: "" / "renamed only";
+}
+
+[data-cell="inserted"][data-run="renamed"] > .dv-code::before {
+  content: "" / "inserted, renamed only";
+}
+
+[data-cell="deleted"][data-run="renamed"] > .dv-code::before {
+  content: "" / "deleted, renamed only";
+}
+
+[data-cell="modified"][data-run="renamed"] > .dv-code::before {
+  content: "" / "modified, renamed only";
 }
 
 .dv-fold-button {
@@ -687,6 +735,108 @@
 }
 
 .dv-note-button:hover {
+  color: var(--foreground);
+}
+
+/*
+ * What the diff says of the lines after a note (a run of the marks, `NoteRow.remark`): its words in the font of the
+ * text, muted, as the words of a heading; before the lines of a quiet run on their colour, so the note reads as their
+ * first row. A note that opens (Inline shows its run once) is a button with a chevron, as quiet as a fold: it points
+ * right while the old lines are hidden, down while they show
+ */
+.dv-note[data-tone="remark"] {
+  /*
+   * its words start where the code of the first column does: after its line numbers (`--dv-numbers` of the row) and
+   * the padding of the code; the chevron of a note that opens stands in the 2ch before them
+   */
+  padding-inline-start: calc(var(--dv-numbers, 1) * var(--dv-gutter, 4ch) - 1ch);
+}
+
+.dv-note[data-tone="remark"] .dv-remark:not(.dv-remark-button) {
+  padding-inline-start: 2ch;
+}
+
+.dv-note[data-quiet] {
+  background: var(--diff-quiet);
+}
+
+.dv-note-heading {
+  color: var(--foreground);
+}
+
+.dv-remark {
+  /* the font of the rows: its `ch` is the column of the code the words align with */
+  font-family: inherit;
+  white-space: pre;
+  color: var(--muted-foreground);
+}
+
+.dv-remark-label,
+.dv-remark-detail {
+  font-family: var(--font-sans);
+}
+
+.dv-remark-label {
+  font-weight: 500;
+}
+
+.dv-remark-button {
+  cursor: pointer;
+}
+
+.dv-remark-button:hover {
+  color: var(--foreground);
+}
+
+/* 2ch before the words, in the room of the line numbers */
+.dv-remark-chevron {
+  display: inline-block;
+  width: 2ch;
+}
+
+.dv-remark-chevron::before {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.45em;
+  vertical-align: 0.1em;
+  content: "";
+  border-block-end: 1.5px solid currentcolor;
+  border-inline-end: 1.5px solid currentcolor;
+  transform: rotate(-45deg);
+}
+
+.dv-remark-button[aria-expanded="true"] > .dv-remark-chevron::before {
+  vertical-align: 0.2em;
+  transform: rotate(45deg);
+}
+
+/*
+ * The key that shows and hides the old lines of the notes in view, where the view has one (a review, `data-key`): a
+ * hint after the words of a note that opens, as the key of the line at the end of a card (`Kbd`)
+ */
+.dv-remark-button[data-key]::after {
+  display: inline-block;
+  min-width: 1rem;
+  height: 1rem;
+  padding-inline: 0.25rem;
+  margin-inline-start: 1.5ch;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  vertical-align: 0.05em;
+  color: var(--muted-foreground);
+  text-align: center;
+  content: attr(data-key);
+  background: var(--muted);
+  border-radius: var(--radius-lg);
+}
+
+/* the hits of the find in the old lines a note stands for: named after its words, marked as a hit of a line is */
+.dv-remark-hits {
+  padding-inline: 0.5ch;
+  margin-inline-start: 1.5ch;
+  font-family: var(--font-sans);
   color: var(--foreground);
 }
 

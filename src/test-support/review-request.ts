@@ -1,4 +1,5 @@
-import type { ReviewRequest } from "@/lib/bindings"
+import type { ActionState, ReviewRequest } from "@/lib/bindings"
+import type { ReviewRequestActionContext } from "@/lib/review-request-actions"
 
 /** A pull request of `acme/monorepo` that waits for the user's review, by alice, asked by bob; `waitingSince` grows with the number */
 export function reviewRequest(number: number, patch: Partial<ReviewRequest> = {}): ReviewRequest {
@@ -28,6 +29,28 @@ export function reviewRequest(number: number, patch: Partial<ReviewRequest> = {}
     baseRefOid: "base",
     isCrossRepository: false,
     baseIsDefault: true,
+    ...patch,
+  }
+}
+
+/** The commit of a pull request that the user reviewed in its window */
+export const REVIEWED_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+/**
+ * What the actions of a pull request are built from (`getReviewRequestActions`): a reviewed commit, the `actions` Rust
+ * offers, no write in flight, handlers that do nothing
+ */
+export function reviewRequestActionContext(actions: readonly ActionState[], patch: Partial<ReviewRequestActionContext> = {}): ReviewRequestActionContext {
+  return {
+    reviewedCommit: { id: REVIEWED_COMMIT },
+    actions,
+    words: { operations: {}, named: {} },
+    busy: undefined,
+    onReview: () => {},
+    onApprove: () => {},
+    onSafePush: () => {},
+    onRequestChanges: () => {},
+    onOpenPullRequest: () => {},
     ...patch,
   }
 }

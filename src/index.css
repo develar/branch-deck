@@ -519,6 +519,8 @@
   --diff-modified-pale: #e7effa;
   --diff-conflict: #ffd5cc;
   --diff-conflict-pale: #ffeeeb;
+  /* our own: a line the marks of the diff call quiet (formatting alone), played down; no colour of a change */
+  --diff-quiet: #f5f1e6;
   --diff-line-number: #aeb3c2;
   --diff-line-number-changed: #6c707e;
   --diff-separator: #e4e6eb;
@@ -642,6 +644,7 @@
   --diff-modified-pale: #25323e;
   --diff-conflict: #45302b;
   --diff-conflict-pale: #2b2322;
+  --diff-quiet: #2a2820;
   --diff-line-number: #4b5059;
   --diff-line-number-changed: #a8adbd;
   --diff-separator: #2b2d30;

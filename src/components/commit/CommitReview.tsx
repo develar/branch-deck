@@ -49,6 +49,7 @@ import type { FileTreeCommit, FileTreeNode, ReviewCommitItem } from "@/lib/file-
 import type { MenuItemGroups } from "@/lib/menu"
 import { isTypingTarget } from "@/lib/preview-keys"
 import { formatRangeWithoutChanges } from "@/lib/range-review"
+import { reviewKeyAction } from "@/lib/review-keys"
 import type { ReviewPlace } from "@/lib/review-place"
 import { readOutsideExcerpt, readOutsidePlace } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
@@ -319,7 +320,8 @@ export function CommitReview({
       // the selection and the collapsed directories belong to one commit or range; an owner chip keeps them
       key: subjectId,
       // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
-      files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined),
+      // with the plan a block of the imports alone is played down: no stop of N and P, nothing of it to read
+      files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined, reviewFacts !== null),
       totalCount: allFiles?.length ?? shownFiles.length,
       diffs: entry?.kind === "loaded" ? entry.files : null,
       diffsComplete: entry?.kind === "loaded" && entry.complete,
@@ -1419,27 +1421,28 @@ function ReviewLayout({
     if (loaded === null || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
       return
     }
-    // the physical keys, as E and F of the preview
-    switch (event.code) {
-      case "KeyJ":
-      case "KeyK": {
+    // the physical keys, as E and F of the preview; each a letter no action of the window names (`REVIEW_KEYS`)
+    const action = reviewKeyAction(event.code)
+    switch (action) {
+      case "nextSection":
+      case "previousSection": {
         // with the plan the diffs are the document: J and K step through the overview, the opening of each step and
         // the sections of the story from the stop at the top, else through the files from the selected one; the tree
         // follows; under an owner chip through its files only, nothing moves past the last one
         const from = reviewFacts !== null ? (code.current?.visibleStop() ?? null) : selectedPath === null ? null : { key: selectedPath, part: "card" as const }
-        const next = stepSection(from, event.code === "KeyJ" ? 1 : -1)
+        const next = stepSection(from, action === "nextSection" ? 1 : -1)
         if (next !== undefined) {
           showSection(next)
         }
         break
       }
-      case "KeyF":
+      case "sidebar":
         // the sidebar, as F shows the files of a preview
         setReviewSidebar(!sidebarShown)
         break
-      case "KeyN":
-      case "KeyP": {
-        const shown = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
+      case "nextChange":
+      case "previousChange": {
+        const shown = code.current?.moveChange(action === "nextChange" ? 1 : -1)
         if (shown !== undefined) {
           select(shown.path, null)
           // of a file in parts the part of the change
@@ -1449,6 +1452,10 @@ function ReviewLayout({
         }
         break
       }
+      case "notes":
+        // the old lines of the notes in view (Inline shows a quiet run once); with no such note there nothing changes
+        code.current?.toggleNotes()
+        break
       default:
         return
     }

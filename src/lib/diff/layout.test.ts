@@ -6,7 +6,7 @@ import { rowHeightOf } from "@/lib/diff/metrics"
 import { buildFileRows, EXPANDED, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
 import { visualLineCount, wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
-import { block, textDiff } from "@/test-support/diff-blocks"
+import { block, run, textDiff } from "@/test-support/diff-blocks"
 
 const METRICS = { rowHeight: 20, headerHeight: 36 }
 /** One px per column; a CJK ideograph two columns wide */
@@ -108,6 +108,73 @@ describe("DiffLayout", () => {
     expect(deleted.line).toEqual({ side: OLD, line: 20 })
     const split = new DiffLayout([file("a", buildFileRows(ONE_CHANGE, "split"))], METRICS)
     expect(split.scrollTopOf(deleted)).toBe(split.rowTop(0, 5))
+  })
+
+  it("keeps a note of a quiet run at the top by the old line it stands for, and lays a note and a line shown once out as a row each", () => {
+    // a call of one line wrapped over three, a quiet run of formatting: Inline shows a note and the three new lines
+    const diff = textDiff(10, 12, [block(3, 4, 3, 6)], { runs: [run(3, 4, 3, 6)] })
+    const closed = buildFileRows(diff, "inline", [EXPANDED, EXPANDED])
+    const layout = new DiffLayout([file("a", closed)], METRICS)
+    // the three context rows, the note, the three lines shown once: every row has the row height, before any text
+    expect([closed.rowCount, layout.rowsHeight(0), layout.rowTop(0, 3), layout.rowHeight(0, 3)]).toEqual([13, 13 * 20, 36 + 60, 20])
+    const atNote = layout.anchorAt(layout.rowTop(0, 3) + 5)!
+    expect(atNote).toEqual({ key: "a", line: { side: OLD, line: 3 }, offset: 5 })
+    expect(layout.scrollTopOf(atNote)).toBe(layout.rowTop(0, 3) + 5)
+    // the note opened: the old line it stood for is the row after it; the top stays at that line
+    const opened = new DiffLayout([file("a", buildFileRows(diff, "inline", [EXPANDED, EXPANDED], false, null, new Set([3])))], METRICS)
+    expect([opened.files[0]!.rows!.rowCount, opened.scrollTopOf(atNote)]).toEqual([14, opened.rowTop(0, 4) + 5])
+    // a line shown once is at the top by its new line, and stays there in Unified, below the old line of its run
+    const once = layout.anchorAt(layout.rowTop(0, 5))!
+    expect(once.line).toEqual({ side: NEW, line: 4 })
+    const unified = new DiffLayout([file("a", buildFileRows(diff, "unified", [EXPANDED, EXPANDED]))], METRICS)
+    expect(unified.scrollTopOf(once)).toBe(unified.rowTop(0, 6))
+    // with soft wraps a note is one visual line, a line shown once as many as its new line takes
+    const wrapped = new DiffLayout([file("a", closed, { visualLines: visualLinePrefix(closed.rowCount, row => (row === 5 ? 2 : 1)) })], METRICS)
+    expect([wrapped.rowHeight(0, 3), wrapped.rowHeight(0, 5), wrapped.rowTop(0, 6)]).toEqual([20, 40, 36 + 7 * 20])
+  })
+
+  it("keeps a row of words that stands for no line at the top across a new layout, by the row after it: a note of Unified and Split, an opened note, a label, a heading", () => {
+    const whole = (diff: ReturnType<typeof textDiff>, mode: "inline" | "unified" | "split", open: number[] = [], units: Parameters<typeof buildFileRows>[4] = null) =>
+      new DiffLayout([file("a", buildFileRows(diff, mode, [EXPANDED, EXPANDED], false, units, new Set(open)))], METRICS)
+    /** The anchor of a top 3 px into row `row`, and where the same rows laid out again put the top: nothing changed, nothing moves */
+    const held = (layout: DiffLayout, row: number) => {
+      const top = layout.rowTop(0, row) + 3
+      const anchor = layout.anchorAt(top)!
+      const again = new DiffLayout(layout.files, METRICS)
+      return { anchor, moved: again.scrollTopOf(anchor)! - top }
+    }
+    // the wrapped call: the note is row 3 in every layout; only the closed note of Inline stands for a line
+    const wrapped = textDiff(10, 12, [block(3, 4, 3, 6)], { runs: [run(3, 4, 3, 6)] })
+    // Unified: the note, the old line, the three new ones. The row after the note is the old line, 17 px below the top
+    expect(held(whole(wrapped, "unified"), 3)).toEqual({ anchor: { key: "a", line: { side: OLD, line: 3 }, offset: -17 }, moved: 0 })
+    // Split: the row after the note shows both lines
+    expect(held(whole(wrapped, "split"), 3)).toEqual({ anchor: { key: "a", line: { side: NEW, line: 3 }, offset: -17 }, moved: 0 })
+    // Inline, the note opened: as Unified
+    expect(held(whole(wrapped, "inline", [3]), 3)).toEqual({ anchor: { key: "a", line: { side: OLD, line: 3 }, offset: -17 }, moved: 0 })
+    // a comment of two lines worded again, a label: its note hides no line in any layout
+    const comment = textDiff(20, 20, [block(5, 7, 5, 7)], { runs: [run(5, 7, 5, 7, { kind: "comments", quiet: false })] })
+    for (const mode of ["inline", "unified", "split"] as const) {
+      expect([mode, held(whole(comment, mode), 5).moved]).toEqual([mode, 0])
+    }
+    // the heading of a change in a section of a review, alone in its row and with the words of a run that hides no line
+    const units = { marks: new Map([[0, [{ name: "record", words: "body changed" }]]]), elsewhere: new Map<number, string>() }
+    expect(held(whole(textDiff(10, 10, [block(3, 4, 3, 4)]), "unified", [], units), 3)).toEqual({ anchor: { key: "a", line: { side: OLD, line: 3 }, offset: -17 }, moved: 0 })
+    expect(held(whole(wrapped, "split", [], units), 3).moved).toBe(0)
+
+    // the top in the note of Unified, then Inline: its note stands for the old line, so the top is at the note, never
+    // in the row above it
+    const atNote = held(whole(wrapped, "unified"), 3).anchor
+    const inline = whole(wrapped, "inline")
+    expect(inline.scrollTopOf(atNote)).toBe(inline.rowTop(0, 3))
+    // and in a layout without the note (the marks of another policy) at the line itself
+    const plain = whole(textDiff(10, 12, [block(3, 4, 3, 6)]), "unified")
+    expect(plain.scrollTopOf(atNote)).toBe(plain.rowTop(0, 3))
+    // a note opened below the top moves nothing at the top; one opened above it moves the top by its old line
+    const two = textDiff(20, 24, [block(3, 4, 3, 6), block(10, 11, 12, 15)], { runs: [run(3, 4, 3, 6), run(10, 11, 12, 15)] })
+    const closed = whole(two, "inline")
+    const second = closed.anchorAt(closed.rowTop(0, 13) + 3)!
+    expect(second.line).toEqual({ side: OLD, line: 10 })
+    expect(whole(two, "inline", [3]).scrollTopOf(second)).toBe(closed.rowTop(0, 13) + 3 + 20)
   })
 
   it("keeps an anchor in a header, and finds a folded line in its fold", () => {

@@ -1,4 +1,6 @@
-import type { DiffBlock, Scope, TextDiff } from "@/lib/diff/file-diff-model"
+import { blockParts, isChangeBlock, partsLines, partsNotes, partsRow, partsRowOfLine, partsStopRow, runsByBlock, stopsOf } from "@/lib/diff/block-parts"
+import type { BlockParts, Remark } from "@/lib/diff/block-parts"
+import type { DiffBlock, RunKind, Scope, TextDiff } from "@/lib/diff/file-diff-model"
 import { middleLineCount } from "@/lib/diff/file-merge-model"
 import type { MergeBlock, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
@@ -29,9 +31,10 @@ export type RowsMode = DiffViewMode | "merge"
 /**
  * What a row shows: `context` an unchanged line; `deleted` and `added` the lines of a block in Unified; `inline` a
  * similar pair as one row; `changed` both sides of a block in Split; `merge` the sides of a block of a merge;
- * `ignored` a block the policy ignores, drawn unchanged
+ * `ignored` a block the policy ignores, drawn unchanged; `once` a line that Inline shows once, the new line standing
+ * for the old lines too (a quiet run of the marks, `block-parts.ts`)
  */
-export type LineRowKind = "context" | "deleted" | "added" | "inline" | "changed" | "merge" | "ignored"
+export type LineRowKind = "context" | "deleted" | "added" | "inline" | "changed" | "merge" | "ignored" | "once"
 
 export interface LineRow {
   kind: LineRowKind
@@ -45,12 +48,15 @@ export interface LineRow {
   blockRows: number
   /**
    * The tint of a changed line, as IntelliJ's `SimpleDiffChangeUi`: `full` for a block without inner ranges, `pale` for
-   * a block with them (the ranges carry the full colour), `whitespace` for a block that differs only in whitespace
+   * a block with them (the ranges carry the full colour), `whitespace` for a block that differs only in whitespace;
+   * our own `quiet` for a line of a quiet run of the marks, which is played down
    */
   tint: LineTint
+  /** The kind of the quiet run of the marks the line is of (`LineRun.kind`): nothing of it to read; null for any other line */
+  run: RunKind | null
 }
 
-export type LineTint = "full" | "pale" | "whitespace"
+export type LineTint = "full" | "pale" | "whitespace" | "quiet"
 
 export interface FoldRow {
   kind: "fold"
@@ -88,21 +94,27 @@ export function headingText(heading: Heading): string {
 }
 
 /**
- * A row of words between the lines of a section of a review: `unit` the heading of the change a block starts
+ * A row of words between the lines of a diff: `unit` the heading of the change a block starts in a section of a review
  * (`SectionUnits.marks`, its parts in `heading`), `elsewhere` a block another section shows (`SectionUnits.elsewhere`),
- * which a click opens
+ * which a click opens, `remark` what the diff says of the lines after it (a run of `TextDiff.marks`, in `remark`). A
+ * heading whose block starts with a run says the remark too, in one row
  */
 export interface NoteRow {
   kind: "note"
-  tone: "unit" | "elsewhere"
-  /** Its words as one line (`headingText` of a heading) */
+  tone: "unit" | "elsewhere" | "remark"
+  /** Its words as one line (`headingText` of a heading); a remark is worded by its presenter (`presentRemark`) */
   label: string
   /** Of a heading, its parts: the names in the code font, the words in the font of the text */
   heading: Heading | null
   /** The block it stands before or for */
   block: number
-  /** The lines of each side the row stands for: [start, end), empty for the heading of a change */
+  /**
+   * The lines of each side the row stands for: [start, end); the lines of a block another section shows, the old lines
+   * a remark hides while Inline shows its run once, empty for a heading and for a remark that hides none
+   */
   lines: readonly (readonly [number, number])[]
+  /** What the diff says of the lines after the row; null for a row without it */
+  remark: Remark | null
 }
 
 export type Row = LineRow | FoldRow | NoteRow
@@ -126,15 +138,15 @@ export interface SectionUnits {
 type Item =
   /** Lines equal on every side, from `starts`; `ignored` for the lines of an ignored block, a change the policy hides */
   | { kind: "equal"; starts: readonly number[]; count: number; ignored?: boolean }
-  /** A block of a diff; `quiet` for a block of the imports alone that a review plays down */
-  | { kind: "block"; block: DiffBlock; index: number; quiet: boolean }
+  /** A block of a diff, its rows by its parts */
+  | { kind: "block"; block: DiffBlock; index: number; parts: BlockParts }
   /** A block of a merge: its lines on each side, from `starts` */
   | { kind: "merge"; block: MergeBlock; index: number; starts: readonly number[]; counts: readonly number[] }
   /** A block another section shows: one row of words for its lines */
   | { kind: "elsewhere"; block: DiffBlock; index: number; label: string }
 
-/** Rows `[from, from + count)` of an item, a fold, or the heading of a change */
-type Segment = { kind: "lines"; item: Item; from: number; count: number } | { kind: "fold"; row: FoldRow } | { kind: "note"; row: NoteRow }
+/** Rows `[from, from + count)` of an item, or a fold */
+type Segment = { kind: "lines"; item: Item; from: number; count: number } | { kind: "fold"; row: FoldRow }
 
 /** The unchanged rows between two changes, which fold together */
 export interface FoldGap {
@@ -153,8 +165,22 @@ export interface FileRows {
   readonly segments: readonly Segment[]
   /** The first row of each segment, and the row count at the end */
   readonly segmentStarts: Uint32Array
-  /** The first row of each block of changed lines (not an ignored one), in order */
+  /**
+   * The stops of N and P, in order: of a diff the row the reading of each block starts at, the first row of lines of
+   * what Rust reads from the line it names (`TextDiff.marks.starts`, `partsStopRow`; a block without one, an ignored
+   * or a quiet one, is no stop, nor is a block of the imports alone a review plays down); of a merge the first row of
+   * each block
+   */
   readonly changeStarts: readonly number[]
+  /** The blocks of changed lines the rows show (`isChangeBlock`), a stop or not: what `changeStarts` is counted against ("2 of 3 changes to read") */
+  readonly changes: number
+  /**
+   * The notes that open (`Remark.open` not null), each by the old lines it hides or would hide, [start, end): its key
+   * is the start. What ⌥-click opens together, and what a reveal of one of those lines opens
+   */
+  readonly notes: readonly (readonly [number, number])[]
+  /** The row of each note of `notes`: what the key of the notes takes for the notes in view */
+  readonly noteRows: readonly number[]
 }
 
 interface Gap extends FoldGap {
@@ -177,23 +203,42 @@ function pushEqual(items: Item[], starts: readonly number[], count: number, igno
   }
 }
 
+/** What the rows of a diff depend on beside its blocks */
+interface DiffRowsOptions {
+  readonly mode: DiffViewMode
+  /** The blocks of the imports alone that a review plays down: pale, as a block of whitespace alone */
+  readonly playedImports: ReadonlySet<number>
+  readonly units: SectionUnits | null
+  /** The notes the user opened (`getOpenNotes`) */
+  readonly open: ReadonlySet<number>
+}
+
 /**
- * The items of a diff in order: runs of equal lines and the blocks; an ignored block with equal sides is equal text.
- * The empty last line that the engine counts and no block touches is left out.
+ * The items of a diff in order: runs of equal lines and the blocks, each block in its parts (`blockParts`); an ignored
+ * block with equal sides is equal text. The empty last line that the engine counts and no block touches is left out.
  */
-function itemsOf(diff: TextDiff, quiet: ReadonlySet<number>, elsewhere: ReadonlyMap<number, string>): Item[] {
+function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsOptions): Item[] {
   const items: Item[] = []
+  const runs = runsByBlock(diff)
   let oldLine = 0
   let newLine = 0
   diff.blocks.forEach((block, index) => {
     pushEqual(items, [oldLine, newLine], block.newStart - newLine)
-    const label = elsewhere.get(index)
+    const label = units?.elsewhere.get(index)
     if (label !== undefined) {
       items.push({ kind: "elsewhere", block, index, label })
     } else if (block.kind === "ignored" && block.oldEnd - block.oldStart === block.newEnd - block.newStart) {
       pushEqual(items, [block.oldStart, block.newStart], block.newEnd - block.newStart, true)
     } else {
-      items.push({ kind: "block", block, index, quiet: quiet.has(index) })
+      // the heading of the change the block starts, in a section of a review: the first row of the block
+      const heading = block.kind === "ignored" ? undefined : units?.marks.get(index)
+      const parts = blockParts(block, index, runs[index] ?? [], {
+        mode,
+        tint: playedImports.has(index) ? "whitespace" : tintOf(block),
+        open,
+        heading: heading === undefined ? null : { parts: heading, label: headingText(heading) },
+      })
+      items.push({ kind: "block", block, index, parts })
     }
     oldLine = block.oldEnd
     newLine = block.newEnd
@@ -233,7 +278,7 @@ function isChange(item: Item): boolean {
 }
 
 /** The unchanged items between the changes; there is one gap before each change and one after the last */
-function gapsOf(items: readonly Item[], mode: RowsMode): { gaps: Gap[]; changes: Item[] } {
+function gapsOf(items: readonly Item[]): { gaps: Gap[]; changes: Item[] } {
   const gaps: Gap[] = [{ items: [], rows: 0, changeBefore: false, changeAfter: false }]
   const changes: Item[] = []
   for (const item of items) {
@@ -244,14 +289,14 @@ function gapsOf(items: readonly Item[], mode: RowsMode): { gaps: Gap[]; changes:
     } else {
       const gap = gaps.at(-1)!
       gap.items.push(item)
-      gap.rows += itemRowCount(item, mode)
+      gap.rows += itemRowCount(item)
     }
   }
   return { gaps, changes }
 }
 
-/** The row count of an item in a mode */
-function itemRowCount(item: Item, mode: RowsMode): number {
+/** The row count of an item: of a block of a diff, of its parts in the layout they were made for */
+function itemRowCount(item: Item): number {
   if (item.kind === "equal") {
     return item.count
   }
@@ -261,48 +306,24 @@ function itemRowCount(item: Item, mode: RowsMode): number {
   if (item.kind === "merge") {
     return Math.max(...item.counts)
   }
-  const { block } = item
-  const deletions = block.oldEnd - block.oldStart
-  const additions = block.newEnd - block.newStart
-  if (mode === "split") {
-    return Math.max(deletions, additions)
-  }
-  if (block.kind === "ignored" || (mode === "inline" && block.inlinePairs && deletions === additions)) {
-    return additions
-  }
-  return deletions + additions
+  return item.parts.rowCount
 }
 
-/** Row `row` of an item in a mode */
-function itemRow(item: Item, row: number, mode: RowsMode): LineRow | NoteRow {
+/** Row `row` of an item */
+function itemRow(item: Item, row: number): LineRow | NoteRow {
   if (item.kind === "elsewhere") {
     const { block, index, label } = item
-    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block) }
+    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block), remark: null }
   }
   if (item.kind === "equal") {
-    return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full" }
+    return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full", run: null }
   }
   if (item.kind === "merge") {
     const { block, index, starts, counts } = item
     const lines = starts.map((start, side) => (row < counts[side]! ? start + row : null))
-    return { kind: "merge", lines, block: index, blockRow: row, blockRows: Math.max(...counts), tint: mergeTintOf(block) }
+    return { kind: "merge", lines, block: index, blockRow: row, blockRows: Math.max(...counts), tint: mergeTintOf(block), run: null }
   }
-  const { block, index } = item
-  const deletions = block.oldEnd - block.oldStart
-  const additions = block.newEnd - block.newStart
-  // a block of the imports alone is pale, as one of whitespace alone
-  const tint = item.quiet ? "whitespace" : tintOf(block)
-  const at = (kind: LineRowKind, lines: readonly (number | null)[]): LineRow => ({ kind, lines, block: index, blockRow: row, blockRows: itemRowCount(item, mode), tint })
-  if (mode === "split") {
-    return at(block.kind === "ignored" ? "ignored" : "changed", [row < deletions ? block.oldStart + row : null, row < additions ? block.newStart + row : null])
-  }
-  if (block.kind === "ignored") {
-    return at("ignored", [null, block.newStart + row])
-  }
-  if (mode === "inline" && block.inlinePairs && deletions === additions) {
-    return at("inline", [block.oldStart + row, block.newStart + row])
-  }
-  return row < deletions ? at("deleted", [block.oldStart + row, null]) : at("added", [null, block.newStart + row - deletions])
+  return partsRow(item.parts, row)
 }
 
 /** The tint of the lines of a block: pale where the inner ranges mark what changed */
@@ -330,22 +351,18 @@ function blockLines(block: DiffBlock): [number, number][] {
 }
 
 /** The lines of each side that rows `[from, from + count)` of an item cover */
-function itemLines(item: Item, from: number, count: number, mode: RowsMode): [number, number][] {
+function itemLines(item: Item, from: number, count: number): [number, number][] {
   if (item.kind === "equal") {
     return item.starts.map(start => [start + from, start + from + count])
   }
   if (item.kind === "elsewhere") {
     return blockLines(item.block)
   }
-  const clip = (start: number, length: number): [number, number] => [start + Math.min(from, length), start + Math.min(from + count, length)]
   if (item.kind === "merge") {
+    const clip = (start: number, length: number): [number, number] => [start + Math.min(from, length), start + Math.min(from + count, length)]
     return item.starts.map((start, side) => clip(start, item.counts[side]!))
   }
-  const { block } = item
-  if (from === 0 && count === itemRowCount(item, mode)) {
-    return blockLines(block)
-  }
-  return [clip(block.oldStart, block.oldEnd - block.oldStart), clip(block.newStart, block.newEnd - block.newStart)]
+  return partsLines(item.parts, from, count)
 }
 
 /** The context a fold of `level` keeps next to a change */
@@ -364,10 +381,10 @@ function foldedRows(gap: FoldGap, level: number): number {
 }
 
 /** Rows `[from, to)` of a gap, item by item: the rows of each item it overlaps */
-function forEachRows(gap: Gap, from: number, to: number, mode: RowsMode, action: (item: Item, start: number, count: number) => void): void {
+function forEachRows(gap: Gap, from: number, to: number, action: (item: Item, start: number, count: number) => void): void {
   let offset = 0
   for (const item of gap.items) {
-    const rows = itemRowCount(item, mode)
+    const rows = itemRowCount(item)
     const start = Math.max(from - offset, 0)
     const end = Math.min(to - offset, rows)
     if (start < end) {
@@ -388,29 +405,47 @@ interface Labels {
  * them: at `levels[gap]` 0, 1 and 2 they keep 4, 8 and 16 lines next to each change, at `EXPANDED` all. A file
  * without a change has no rows. With `quietImports` (the review plan), a block of the imports alone (`importBlocks`
  * of Rust) is pale and N and P pass it. `units` makes the rows of a section of a review: a heading before each block
- * it marks, one row for each block another section shows, which is no change of this section.
+ * it marks, one row for each block another section shows, which is no change of this section. A block shows by its
+ * parts (`blockParts`): what the marks of the diff say of its lines is a note before them, and Inline shows a quiet
+ * run once until its note is opened (`open`, the notes by the first old line each hides). N and P stop where Rust
+ * says the reading of a block starts (`TextDiff.marks.starts`).
  */
-export function buildFileRows(diff: TextDiff, mode: DiffViewMode, levels: ArrayLike<number> = [], quietImports = false, units: SectionUnits | null = null): FileRows {
-  const quiet = new Set(quietImports ? diff.importBlocks : [])
-  const items = itemsOf(diff, quiet, units?.elsewhere ?? NO_LABELS)
-  return rowsOf(items, mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] }, units?.marks ?? NO_MARKS)
+export function buildFileRows(
+  diff: TextDiff,
+  mode: DiffViewMode,
+  levels: ArrayLike<number> = [],
+  quietImports = false,
+  units: SectionUnits | null = null,
+  open: ReadonlySet<number> = NO_NOTES,
+): FileRows {
+  const playedImports = new Set(quietImports ? diff.importBlocks : [])
+  const items = itemsOf(diff, { mode, playedImports, units, open })
+  return rowsOf(items, mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] }, stopsOf(diff, quietImports))
 }
 
-const NO_LABELS: ReadonlyMap<number, string> = new Map()
-const NO_MARKS: ReadonlyMap<number, Heading> = new Map()
+const NO_NOTES: ReadonlySet<number> = new Set()
 
 /** The rows of a file's merge in three columns: left, the middle (`middle`), right. The gaps between the blocks fold as in a diff. */
 export function buildMergeRows(merge: TextMerge, middle: MergeMiddle, levels: ArrayLike<number> = []): FileRows {
   // the result has no scopes of its own
   const middleScopes = middle === "base" ? merge.baseScopes : []
-  return rowsOf(mergeItemsOf(merge, middle), "merge", levels, { scopes: [merge.leftScopes, middleScopes, merge.rightScopes], order: [MIDDLE, LEFT, RIGHT] })
+  return rowsOf(mergeItemsOf(merge, middle), "merge", levels, { scopes: [merge.leftScopes, middleScopes, merge.rightScopes], order: [MIDDLE, LEFT, RIGHT] }, null)
 }
 
-function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number>, labels: Labels, marks: ReadonlyMap<number, Heading> = NO_MARKS): FileRows {
-  const { gaps, changes } = gapsOf(items, mode)
+/** `stops`: of a diff the line the reading of each block starts at (`stopsOf`); null for a merge, whose every block is a stop */
+function rowsOf(
+  items: readonly Item[],
+  mode: RowsMode,
+  levels: ArrayLike<number>,
+  labels: Labels,
+  stops: ReadonlyMap<number, { readonly side: number; readonly line: number }> | null,
+): FileRows {
+  const { gaps, changes } = gapsOf(items)
   const segments: Segment[] = []
   const starts: number[] = []
   const changeStarts: number[] = []
+  const notes: (readonly [number, number])[] = []
+  const noteRows: number[] = []
   let rowCount = 0
   const push = (segment: Segment, rows: number) => {
     segments.push(segment)
@@ -418,7 +453,7 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
     rowCount += rows
   }
   const pushRows = (gap: Gap, from: number, to: number) => {
-    forEachRows(gap, from, to, mode, (item, start, count) => push({ kind: "lines", item, from: start, count }, count))
+    forEachRows(gap, from, to, (item, start, count) => push({ kind: "lines", item, from: start, count }, count))
   }
 
   if (changes.length > 0) {
@@ -430,25 +465,28 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
       } else {
         const before = gap.changeBefore ? contextOf(level) : 0
         pushRows(gap, 0, before)
-        push({ kind: "fold", row: foldRow(labels, gap, index, level, before, before + hidden, mode) }, 1)
+        push({ kind: "fold", row: foldRow(labels, gap, index, level, before, before + hidden) }, 1)
         pushRows(gap, before + hidden, gap.rows)
       }
       const change = changes[index]
-      const mark = change?.kind === "block" ? marks.get(change.index) : undefined
-      if (change?.kind === "block" && mark !== undefined) {
-        const at: [number, number][] = [
-          [change.block.oldStart, change.block.oldStart],
-          [change.block.newStart, change.block.newStart],
-        ]
-        push({ kind: "note", row: { kind: "note", tone: "unit", label: headingText(mark), heading: mark, block: change.index, lines: at } }, 1)
+      if (change === undefined) {
+        return
       }
-      if (change !== undefined) {
-        // N and P pass a block of the imports alone
-        if (!(change.kind === "block" && change.quiet)) {
-          changeStarts.push(rowCount)
+      const rows = itemRowCount(change)
+      if (change.kind === "block") {
+        // where Rust says the reading of the block starts: none for a block of the imports alone that a review plays down
+        const stop = stops?.get(change.index)
+        if (stop !== undefined && rows > 0) {
+          changeStarts.push(rowCount + Math.min(partsStopRow(change.parts, stop.side, stop.line), rows - 1))
         }
-        push({ kind: "lines", item: change, from: 0, count: itemRowCount(change, mode) }, itemRowCount(change, mode))
+        for (const note of partsNotes(change.parts)) {
+          notes.push(note.lines)
+          noteRows.push(rowCount + note.row)
+        }
+      } else {
+        changeStarts.push(rowCount)
       }
+      push({ kind: "lines", item: change, from: 0, count: rows }, rows)
     })
   } else {
     // a section of no change of its own (a declaration whose block another section holds): its rows for the blocks
@@ -459,13 +497,24 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
   }
   starts.push(rowCount)
   const foldGaps = gaps.map(({ rows, changeBefore, changeAfter }) => ({ rows, changeBefore, changeAfter }))
-  return { mode, rowCount, gapCount: gaps.length, gaps: foldGaps, segments, segmentStarts: Uint32Array.from(starts), changeStarts }
+  return {
+    mode,
+    rowCount,
+    gapCount: gaps.length,
+    gaps: foldGaps,
+    segments,
+    segmentStarts: Uint32Array.from(starts),
+    changeStarts,
+    changes: changes.filter(change => change.kind !== "block" || isChangeBlock(change.block)).length,
+    notes,
+    noteRows,
+  }
 }
 
-function foldRow(labels: Labels, gap: Gap, index: number, level: number, from: number, to: number, mode: RowsMode): FoldRow {
+function foldRow(labels: Labels, gap: Gap, index: number, level: number, from: number, to: number): FoldRow {
   let ranges: [number, number][] | undefined
-  forEachRows(gap, from, to, mode, (item, start, count) => {
-    const lines = itemLines(item, start, count, mode)
+  forEachRows(gap, from, to, (item, start, count) => {
+    const lines = itemLines(item, start, count)
     ranges = ranges === undefined ? lines : ranges.map((range, side) => [range[0], lines[side]![1]])
   })
   const lines = ranges ?? labels.scopes.map((): [number, number] => [0, 0])
@@ -473,20 +522,20 @@ function foldRow(labels: Labels, gap: Gap, index: number, level: number, from: n
   const around = (start: (side: number) => number) =>
     labels.order.reduce<Scope | undefined>((found, side) => found ?? innermostScope(labels.scopes[side] ?? [], start(side), lines[side]![1]), undefined)
   const label = around(side => lines[side]![0]) ?? around(side => lines[side]![1] - 1)
-  return { kind: "fold", gap: index, level, lines, label: label?.label ?? null, ...foldedOf(gap, from, to, mode) }
+  return { kind: "fold", gap: index, level, lines, label: label?.label ?? null, ...foldedOf(gap, from, to) }
 }
 
 /**
  * What rows `[from, to)` of a gap hide: its unchanged lines, the blocks other sections show, the lines of the blocks
  * the policy ignores (an ignored deletion has no row in Unified: it is in the fold whose rows surround it)
  */
-function foldedOf(gap: Gap, from: number, to: number, mode: RowsMode): Pick<FoldRow, "unchanged" | "elsewhere" | "ignored"> {
+function foldedOf(gap: Gap, from: number, to: number): Pick<FoldRow, "unchanged" | "elsewhere" | "ignored"> {
   let unchanged = 0
   let ignored = 0
   const elsewhere: { block: number; label: string }[] = []
   let offset = 0
   for (const item of gap.items) {
-    const rows = itemRowCount(item, mode)
+    const rows = itemRowCount(item)
     const overlap = Math.min(to, offset + rows) - Math.max(from, offset)
     if (overlap > 0 || (rows === 0 && offset >= from && offset < to)) {
       if (item.kind === "equal") {
@@ -563,11 +612,14 @@ function segmentAt(rows: FileRows, row: number): number {
 export function rowAt(rows: FileRows, row: number): Row {
   const index = segmentAt(rows, row)
   const segment = rows.segments[index]!
-  return segment.kind === "lines" ? itemRow(segment.item, segment.from + row - rows.segmentStarts[index]!, rows.mode) : segment.row
+  return segment.kind === "lines" ? itemRow(segment.item, segment.from + row - rows.segmentStarts[index]!) : segment.row
 }
 
-/** The row of an item where `line` of a side, or a later line of it, shows; the row count when no row does */
-function itemRowOfLine(item: Item, side: number, line: number, mode: RowsMode): number {
+/**
+ * The row of an item where `line` of a side, or a later line of it, shows; the row count when no row does. An old line
+ * of a block that has no row of its own gives the row that stands for it (`partsRowOfLine`)
+ */
+function itemRowOfLine(item: Item, side: number, line: number): number {
   if (item.kind === "equal") {
     return Math.max(line - item.starts[side]!, 0)
   }
@@ -576,29 +628,14 @@ function itemRowOfLine(item: Item, side: number, line: number, mode: RowsMode): 
   }
   if (item.kind === "merge") {
     const start = item.starts[side]!
-    return line >= start + item.counts[side]! ? itemRowCount(item, mode) : Math.max(line - start, 0)
+    return line >= start + item.counts[side]! ? itemRowCount(item) : Math.max(line - start, 0)
   }
-  const { block } = item
-  const deletions = block.oldEnd - block.oldStart
-  const start = side === OLD ? block.oldStart : block.newStart
-  const count = side === OLD ? deletions : block.newEnd - block.newStart
-  if (line >= start + count) {
-    return itemRowCount(item, mode)
-  }
-  const offset = Math.max(line - start, 0)
-  if (mode === "split" || (side === NEW && itemRowCount(item, mode) === count)) {
-    return offset
-  }
-  if (block.kind === "ignored") {
-    // Unified leaves the old lines of an ignored block out: its first row stands for them
-    return 0
-  }
-  return side === OLD ? offset : deletions + offset
+  return partsRowOfLine(item.parts, side, line)
 }
 
 /**
  * The row that shows `line` of a side, or the first row after it: the anchor of the scroll position across a new
- * layout. A folded line gives its fold.
+ * layout. A folded line gives its fold, an old line that Inline shows once by its new line the note that stands for it.
  */
 export function rowOfLine(rows: FileRows, side: number, line: number): number {
   for (const [index, segment] of rows.segments.entries()) {
@@ -607,17 +644,22 @@ export function rowOfLine(rows: FileRows, side: number, line: number): number {
       if (line < segment.row.lines[side]![1]) {
         return start
       }
-    } else if (segment.kind === "note") {
-      // the heading of a change: the lines of its block are on the rows after it
-      continue
     } else {
-      const offset = itemRowOfLine(segment.item, side, line, rows.mode)
+      const offset = itemRowOfLine(segment.item, side, line)
       if (offset < segment.from + segment.count) {
         return start + Math.max(offset - segment.from, 0)
       }
     }
   }
   return Math.max(rows.rowCount - 1, 0)
+}
+
+/**
+ * The note that hides `line` of the old side, or would once closed, by its key (the first old line it hides); null for
+ * a line no note of the rows stands for
+ */
+export function noteOfLine(rows: FileRows, line: number): number | null {
+  return rows.notes.find(([start, end]) => start <= line && line < end)?.[0] ?? null
 }
 
 /**
@@ -646,7 +688,7 @@ export type FoldKey = TextDiff | TextMerge | { readonly section: string }
 // the levels of the folds of a diff or a merge while the store keeps it, so the lines it expanded stay expanded
 const foldLevels = new WeakMap<FoldKey, readonly number[]>()
 // the key of the folds of each section of a review of a diff, while the store keeps the diff
-const sectionKeys = new WeakMap<TextDiff, Map<string, { readonly section: string }>>()
+const sectionKeys = new WeakMap<TextDiff | TextMerge, Map<string, { readonly section: string }>>()
 
 /** The key of the folds of the section `section` of `diff`: the same object while the store keeps the diff */
 export function sectionFoldKey(diff: TextDiff, section: string): FoldKey {
@@ -670,4 +712,37 @@ export function getFoldLevels(model: FoldKey): readonly number[] {
 
 export function setFoldLevels(model: FoldKey, levels: readonly number[]): void {
   foldLevels.set(model, levels)
+}
+
+// the notes of a diff or a section that the user opened, beside the levels of its folds: the old lines they showed
+// stay shown while the store keeps the diff
+const openNotes = new WeakMap<FoldKey, ReadonlySet<number>>()
+
+/** The notes of a diff or a section that are open, each by the first old line it hides (`Remark.open`) */
+export function getOpenNotes(model: FoldKey): ReadonlySet<number> {
+  return openNotes.get(model) ?? NO_NOTES
+}
+
+export function setOpenNotes(model: FoldKey, notes: ReadonlySet<number>): void {
+  openNotes.set(model, notes)
+}
+
+/**
+ * The same diff or merge as a new object (the store replaces the content of a file as its scopes come): what the
+ * views opened of it goes with it. The levels of its folds, its open notes, and the keys of its sections
+ * (`sectionFoldKey`), so the folds and the notes of each section of a review stay as they are too
+ */
+export function keepOpened(from: TextDiff | TextMerge, to: TextDiff | TextMerge): void {
+  const levels = foldLevels.get(from)
+  if (levels !== undefined) {
+    foldLevels.set(to, levels)
+  }
+  const notes = openNotes.get(from)
+  if (notes !== undefined) {
+    openNotes.set(to, notes)
+  }
+  const keys = sectionKeys.get(from)
+  if (keys !== undefined) {
+    sectionKeys.set(to, keys)
+  }
 }

@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { DiffFileHeader, FileDiffEvent, FileMergeEvent, FileMergeHeader, GetFileDiffsParams, GetFileMergesParams, MergeContent } from "@/lib/bindings"
 import type { DiffContent } from "@/lib/diff/file-diff-model"
 import type { MergeSource } from "@/lib/diff/file-merge-model"
-import { getFoldLevels, setFoldLevels } from "@/lib/diff/rows"
+import { getFoldLevels, getOpenNotes, sectionFoldKey, setFoldLevels, setOpenNotes } from "@/lib/diff/rows"
 import { dropFileDiffsOf, fileDiffOf, fileDiffsKey, fileDiffsStore, loadFileDiffs, MAX_CACHED_SUBJECTS, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { fileMergeOf, fileMergesKey, fileMergesStore, loadFileMerges } from "@/stores/file-merges"
-import { block, mergeBlock, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, mergeBlock, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const getFileDiffs = vi.hoisted(() => vi.fn())
 const getFileMerges = vi.hoisted(() => vi.fn())
@@ -96,6 +96,34 @@ describe("loadFileDiffs", () => {
     expect(labelled !== "pending" && labelled?.content.kind === "text" ? [labelled.content.newScopes, getFoldLevels(labelled.content)] : null).toEqual([scopes, [3]])
     // the stream ended without the content of a.kt: the engine has none for it
     expect(fileDiffOf(entryOf(subject), "a.kt")).toBeUndefined()
+  })
+
+  it("keeps the notes a view opened across the late scopes of a text, and the folds and the notes of its sections", async () => {
+    const { events, end } = holdNextStream()
+    const subject = { kind: "commit", id: "c9" } as const
+    loadFileDiffs(subject, "default")
+    events().onmessage({ kind: "files", files: [header("a.kt")] })
+    const text: DiffContent = { kind: "text", ...textDiff(10, 12, [block(5, 6, 5, 8)], { runs: [run(5, 6, 5, 8)] }) }
+    events().onmessage({ kind: "content", index: 0, content: text, collapse: null })
+    await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "a.kt")).toMatchObject({ content: text }))
+    // the note of the quiet run opened before the scopes came, and a fold and the note in a section of a review
+    setOpenNotes(text, new Set([5]))
+    const section = sectionFoldKey(text, "a.kt#1")
+    setFoldLevels(section, [2])
+    setOpenNotes(section, new Set([5]))
+    events().onmessage({ kind: "scopes", index: 0, oldScopes: [], newScopes: [{ startLine: 0, endLine: 12, label: "class A" }], importBlocks: [] })
+    end()
+    await settle()
+    const labelled = fileDiffOf(entryOf(subject), "a.kt")
+    const content = labelled !== "pending" && labelled?.content.kind === "text" ? labelled.content : null
+    // another object, the same diff with its marks: the note is as open as it was
+    expect(content).not.toBe(text)
+    expect([content?.newScopes.length, content?.marks.runs.length, [...getOpenNotes(content!)]]).toEqual([1, 1, [5]])
+    // its sections keep their keys, by which the views hold what they opened
+    expect(sectionFoldKey(content!, "a.kt#1")).toBe(section)
+    expect([getFoldLevels(sectionFoldKey(content!, "a.kt#1")), [...getOpenNotes(sectionFoldKey(content!, "a.kt#1"))]]).toEqual([[2], [5]])
+    // a diff nothing was opened of has nothing to keep
+    expect([getFoldLevels(textDiff(1, 1, [])), getOpenNotes(textDiff(1, 1, [])).size]).toEqual([[], 0])
   })
 
   it("tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it", async () => {

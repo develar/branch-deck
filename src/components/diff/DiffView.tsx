@@ -35,17 +35,20 @@ import {
   buildMergeRows,
   EXPANDED,
   getFoldLevels,
+  getOpenNotes,
   isLineRow,
   MIDDLE,
   NEW,
   nextFoldLevel,
+  noteOfLine,
   OLD,
   rowAt,
   rowOfLine,
   sectionFoldKey,
   setFoldLevels,
+  setOpenNotes,
 } from "@/lib/diff/rows"
-import type { FileRows, FoldKey, FoldRow, SectionUnits } from "@/lib/diff/rows"
+import type { FileRows, FoldKey, FoldRow, NoteRow, SectionUnits } from "@/lib/diff/rows"
 import { blobText, fileNotice, isEmptyNotice, languageOf, mergeNotice, startsCollapsed } from "@/lib/diff/view-files"
 import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
@@ -179,6 +182,11 @@ export interface DiffHeaderProps {
   onToggle: () => void
   /** Shows all the unchanged lines of the file; undefined when it folds none */
   onExpandAll?: () => void
+  /**
+   * What is left to read of the file, or of its section: the stops of N and P among its blocks of changed lines, as
+   * Rust says where the reading of each starts (`FileRows.changeStarts`); null where every block is a stop
+   */
+  toRead: { readonly toRead: number; readonly changes: number } | null
 }
 
 export interface DiffViewHandle {
@@ -198,6 +206,12 @@ export interface DiffViewHandle {
    * file it shows and the key of its section; undefined, and nothing moves, when no block is left in that direction
    */
   moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => { path: string; key: string } | undefined
+  /**
+   * The key of the notes (`REVIEW_KEYS.notes`): shows the old lines of every note in view that opens (Inline shows
+   * its run once), or hides them once they all show; the view stays at its top row. A note is in view when its row is
+   * whole below the stuck header. Nothing changes when no such note is in view
+   */
+  toggleNotes: () => void
   /**
    * The section at the top and its part there, at its opening the step whose opening it is: the one the view showed
    * last, or the one scrolled to (`onVisibleSectionChange`); undefined without files
@@ -299,6 +313,11 @@ export interface DiffViewProps {
   muted?: (path: string) => boolean
   /** "own": the view scrolls itself (the review windows); "parent": it is a block of the scroller it lies in */
   scroll?: "own" | "parent"
+  /**
+   * The key by which the surface around the view calls `toggleNotes` (H in a review): a note that opens shows it after
+   * its words and names it to a screen reader; absent where no key does, so no hint shows where none works
+   */
+  notesKey?: string
   /** The files are the uncommitted changes: the new side is read by its path in the working tree */
   worktree?: boolean
 }
@@ -350,13 +369,15 @@ interface PrepareOptions {
   mode: DiffViewMode
   middle: MergeMiddle
   folds: ReadonlyMap<FoldKey, readonly number[]>
+  /** The notes this view opened, by the key of the folds of their file (`getOpenNotes`) */
+  notes: ReadonlyMap<FoldKey, ReadonlySet<number>>
   /** The files start collapsed or open as `startsCollapsed` says, except these */
   toggled: ReadonlySet<string> | null
   worktree: boolean
 }
 
 /** What the view shows of a file: its rows, the texts of its sides, its cells */
-function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds, toggled, worktree }: PrepareOptions): PreparedFile {
+function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds, notes, toggled, worktree }: PrepareOptions): PreparedFile {
   const pending = entry.pending ?? false
   if ("merge" in entry) {
     const { merge } = entry
@@ -397,7 +418,17 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   const foldKey = text === null ? null : section === null ? text : sectionFoldKey(text, section.key)
   // an added or a deleted file shows its one side, as IntelliJ's one-sided viewer: no empty half beside it in Split
   const oneSide = diff === undefined ? null : oneSideOf(diff)
-  const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(foldKey!) ?? getFoldLevels(foldKey!), entry.quietImports, section?.units ?? null)
+  const rows =
+    text === null
+      ? null
+      : buildFileRows(
+          text,
+          fileLayoutOf(mode, oneSide),
+          folds.get(foldKey!) ?? getFoldLevels(foldKey!),
+          entry.quietImports,
+          section?.units ?? null,
+          notes.get(foldKey!) ?? getOpenNotes(foldKey!),
+        )
   const digits = String(Math.max(text?.oldLineCount ?? 0, text?.newLineCount ?? 0, 1)).length
   // without a header nothing collapses: the row above the view is the header
   const collapsed = toggled !== null && !pending && (startsCollapsed(diff) || entry.folded !== undefined) !== toggled.has(key)
@@ -499,6 +530,7 @@ export function DiffView({
   renderFooter,
   muted,
   scroll = "own",
+  notesKey,
   worktree = false,
   onGoToDeclaration,
   onFindUsages,
@@ -520,6 +552,8 @@ export function DiffView({
   const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set())
   // the fold levels this view changed; `setFoldLevels` keeps them for the next view of the same diff
   const [folds, setFolds] = useState<ReadonlyMap<FoldKey, readonly number[]>>(() => new Map())
+  // the notes of the marks this view opened, kept as the fold levels are (`setOpenNotes`)
+  const [notes, setNotes] = useState<ReadonlyMap<FoldKey, ReadonlySet<number>>>(() => new Map())
   const [windowRange, setWindowRange] = useState<readonly [number, number]>([0, 0])
   const [metrics, setMetrics] = useState<ViewMetrics>(() => ({ rowHeight: 20, columnWidth: 7.8, text: { columnWidth: 7.8, tabSize: DIFF_TAB_SIZE, widthOf: () => 7.8 } }))
   const [viewWidth, setWidth] = useState(0)
@@ -557,8 +591,8 @@ export function DiffView({
   const reveal = useRef<FindHitIdentity | null>(null)
 
   const prepared = useMemo(
-    () => files.map(entry => prepareFile(entry, { mode, middle, folds, toggled: renderHeader === undefined ? null : toggled, worktree })),
-    [files, mode, middle, toggled, folds, renderHeader, worktree],
+    () => files.map(entry => prepareFile(entry, { mode, middle, folds, notes, toggled: renderHeader === undefined ? null : toggled, worktree })),
+    [files, mode, middle, toggled, folds, notes, renderHeader, worktree],
   )
 
   // the texts this render reads: of the files in the window, and of every file the soft wraps lay out; a text of
@@ -808,8 +842,8 @@ export function DiffView({
       worktreePaths: file.worktreePaths,
       codeWidths: codeWidthsOf(file, width, metrics.columnWidth, split),
     }))
-    painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines })
-  }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split])
+    painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines, notesKey })
+  }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split, notesKey])
 
   // the hit a step chose: a third of the viewport below the header; a text hit waits until its folds open
   useLayoutEffect(() => {
@@ -960,6 +994,77 @@ export function DiffView({
     levels[fold.gap] = nextFoldLevel(file.rows, fold.gap, fold.level)
     setFoldLevels(text, levels)
     setFolds(previous => new Map(previous).set(text, levels))
+  }
+
+  /** The notes of a file that are open become `open`: its rows are built again, the old lines they stand for shown or not */
+  const openNotes = (file: PreparedFile, open: ReadonlySet<number>) => {
+    const key = file.foldKey
+    if (key !== null) {
+      setOpenNotes(key, open)
+      setNotes(previous => new Map(previous).set(key, open))
+    }
+  }
+
+  /**
+   * A click on a note that opens: the old lines of its run show, or go again; with `all` (⌥-click, as on a fold)
+   * every such note of the file follows it
+   */
+  const toggleNote = (file: PreparedFile | undefined, note: NoteRow, all: boolean) => {
+    const key = file?.foldKey ?? null
+    const remark = note.remark
+    if (file === undefined || key === null || remark === null || remark.open === null) {
+      return
+    }
+    const at = remark.lines[OLD]![0]
+    if (all) {
+      openNotes(file, new Set(remark.open ? [] : (file.rows?.notes ?? []).map(([start]) => start)))
+      return
+    }
+    const open = new Set(getOpenNotes(key))
+    if (!open.delete(at)) {
+      open.add(at)
+    }
+    openNotes(file, open)
+  }
+
+  /**
+   * The key of the notes: the notes in view that open show their old lines, or hide them once they all show. In view:
+   * the row whole below the header stuck at the top. A wholly quiet block is no stop of N and P, so the key takes
+   * what the view shows, not a change the keys stepped to
+   */
+  const toggleNotesInView = () => {
+    const view = scroller.current
+    if (view === null) {
+      return
+    }
+    const top = view.scrollTop + layout.stickyTop + headerHeight
+    const bottom = view.scrollTop + view.clientHeight
+    const inView: { file: PreparedFile; note: number }[] = []
+    for (let index = layout.fileAt(top), last = layout.fileAt(bottom); index <= last && index < prepared.length; index++) {
+      const file = prepared[index]!
+      const rows = layout.files[index]!.rows
+      for (const [at, row] of (rows?.noteRows ?? []).entries()) {
+        const rowTop = layout.rowTop(index, row)
+        if (rowTop >= top && rowTop + layout.rowHeight(index, row) <= bottom) {
+          inView.push({ file, note: rows!.notes[at]![0] })
+        }
+      }
+    }
+    const isOpen = ({ file, note }: { file: PreparedFile; note: number }) => file.foldKey !== null && getOpenNotes(file.foldKey).has(note)
+    const open = !inView.every(isOpen)
+    const byFile = new Map<PreparedFile, Set<number>>()
+    for (const { file, note } of inView) {
+      const notesOfFile = byFile.get(file) ?? new Set(file.foldKey === null ? [] : getOpenNotes(file.foldKey))
+      if (open) {
+        notesOfFile.add(note)
+      } else {
+        notesOfFile.delete(note)
+      }
+      byFile.set(file, notesOfFile)
+    }
+    for (const [file, notesOfFile] of byFile) {
+      openNotes(file, notesOfFile)
+    }
   }
 
   const toggleFile = (key: string) =>
@@ -1129,6 +1234,7 @@ export function DiffView({
         }
       },
       onFold: (index, fold, all) => (all ? expandAll(prepared[index]) : expandFold(prepared[index], fold)),
+      onNoteToggle: (index, note, all) => toggleNote(prepared[index], note, all),
       onNote: (index, note) => {
         const target = prepared[index]?.section?.targets.get(note.block)
         const shown = target === undefined ? -1 : layout.indexOf(target)
@@ -1281,6 +1387,11 @@ export function DiffView({
       levels[fold.row.gap] = EXPANDED
       setFoldLevels(text, levels)
       setFolds(previous => new Map(previous).set(text, levels))
+    }
+    // an old line that Inline shows once, by its new line: its note opens, as its fold does, so its name can be selected
+    const note = side === OLD && text !== null && file.rows !== null ? noteOfLine(file.rows, place.line) : null
+    if (note !== null && text !== null && !getOpenNotes(text).has(note)) {
+      openNotes(file, new Set(getOpenNotes(text)).add(note))
     }
     pendingReveal.current = place
     setRevealTick(tick => tick + 1)
@@ -1501,6 +1612,7 @@ export function DiffView({
         showPrologue(file)
       }
     },
+    toggleNotes: toggleNotesInView,
     visibleStop: visibleNow,
     focus: () => scroller.current?.focus(),
     openFind,
@@ -1866,6 +1978,8 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
               collapsed: file.collapsed,
               onToggle: () => onToggle(file.key),
               onExpandAll: rows !== null && rows.segments.some(segment => segment.kind === "fold") ? () => onExpandAll(file) : undefined,
+              // the rows of the file whether it is collapsed or not: a collapsed card says what it holds to read
+              toRead: file.rows === null || file.rows.changeStarts.length >= file.rows.changes ? null : { toRead: file.rows.changeStarts.length, changes: file.rows.changes },
             })}
           </div>
         )}
@@ -2038,6 +2152,7 @@ const EMPTY_CALLBACKS: PainterCallbacks = {
   onScroll: () => {},
   onFold: () => {},
   onNote: () => {},
+  onNoteToggle: () => {},
   onFirstScreen: () => {},
   onWidthsCorrected: () => {},
 }

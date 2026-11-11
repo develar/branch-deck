@@ -25,7 +25,8 @@ export interface RowCells {
   readonly typed: boolean
   /**
    * The kind of the cell of a side (`data-cell`): IntelliJ's diff types `inserted`, `deleted`, `modified`,
-   * `conflict`, or `context` and `filler`
+   * `conflict`, or `context` and `filler`; our own `once` for a line that Inline shows once (a quiet run of the marks:
+   * the new line stands for the old lines too, so it is neither inserted nor unchanged)
    */
   cell: (row: LineRow, side: number) => string
   /** The inner ranges of the line of a side, `[start, end, kind, ...]` (`RANGE_STRIDE`); null for none */
@@ -73,7 +74,8 @@ export function fileLayoutOf(mode: DiffViewMode, oneSide: number | null): DiffVi
  * side (`oneSide`) one column with its line numbers alone, in every layout. Split colours a block by its type on both
  * sides, as IntelliJ's `SimpleDiffChangeUi`: inserted when it has new lines only, deleted when it has old lines only,
  * modified when it has both. Unified and Inline colour a deleted line deleted and an inserted line inserted
- * (`DiffDrawUtil.createUnifiedChunkHighlighters`), and so does a file with one side, all of it one block.
+ * (`DiffDrawUtil.createUnifiedChunkHighlighters`), and so does a file with one side, all of it one block. A line of a
+ * quiet run of the marks (`tint: "quiet"`) is played down: it keeps its type and shows no inner range.
  */
 export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | null = null): RowCells {
   const split = fileLayoutOf(mode, oneSide) === "split"
@@ -92,12 +94,16 @@ export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | 
         }
         return block.oldStart === block.oldEnd ? "inserted" : block.newStart === block.newEnd ? "deleted" : "modified"
       }
+      if (row.kind === "once") {
+        return "once"
+      }
       return row.kind === "deleted" ? "deleted" : row.kind === "added" || row.kind === "inline" ? "inserted" : "context"
     },
     ranges: (row, side) => {
       const block = row.block < 0 ? undefined : diff.blocks[row.block]
       const line = row.lines[side]
-      if (block === undefined || block.kind === "ignored" || line == null) {
+      // the ranges of a quiet line are whitespace between the same tokens: nothing in it is strong
+      if (block === undefined || block.kind === "ignored" || line == null || row.tint === "quiet") {
         return null
       }
       return nonEmpty(side === OLD ? block.oldRanges[line - block.oldStart] : block.newRanges[line - block.newStart])

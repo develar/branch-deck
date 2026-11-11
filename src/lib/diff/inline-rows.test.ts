@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import { inlineRowText, widestInlineRow } from "@/lib/diff/inline-rows"
 import { buildLineTable } from "@/lib/diff/line-table"
-import { block, textDiff } from "@/test-support/diff-blocks"
+import { block, run, textDiff } from "@/test-support/diff-blocks"
 
 describe("inlineRowText", () => {
   it("is the new line with the deleted parts of the old line before the inserted parts", () => {
@@ -32,5 +32,24 @@ describe("widestInlineRow", () => {
     // nothing deleted: the row is the new line
     expect(widest({ inlinePairs: true, oldRanges: [[2, 2, 0]], newRanges: [[2, 6, 0]] })).toBe(0)
     expect(widest({ inlinePairs: true, oldRanges: [[2, 11, 1]], newRanges: [[2, 2, 1]] })).toBe(15)
+  })
+
+  it("counts no row of a pair in a quiet run, which Inline shows once by its new line", () => {
+    const tables = [buildLineTable("a long old line\nb old\n"), buildLineTable("a line\nb\n")] as const
+    const pairs = block(0, 2, 0, 2, {
+      inlinePairs: true,
+      oldRanges: [
+        [2, 11, 1],
+        [1, 5, 1],
+      ],
+      newRanges: [
+        [2, 2, 1],
+        [1, 1, 1],
+      ],
+    })
+    // both lines are rows of a pair: the first is the widest
+    expect(widestInlineRow(textDiff(3, 3, [pairs]), tables[0], tables[1], 4)).toBe(15)
+    // the first line in a quiet run: the row of the second pair alone
+    expect(widestInlineRow(textDiff(3, 3, [pairs], { runs: [run(0, 1, 0, 1)] }), tables[0], tables[1], 4)).toBe(5)
   })
 })

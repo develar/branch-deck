@@ -611,15 +611,22 @@ following ([Review Units](../../branch/review-units/spec.md#in-the-review-window
 
 ### Requirement: The sidebar and the diffs: N and P show the next and the previous change
 
-N and P MUST show the next and the previous block of changed lines, into the next or the previous file at the end of
-one; collapsed files are skipped.
+N and P MUST show the next and the previous stop: the line the reading of a block of changed lines starts at, as the
+marks of its diff say it ([Quiet Changes](../quiet-changes/spec.md#views)), into the next or the previous file at the
+end of one. A block with nothing to read is passed; collapsed files are skipped.
 
 #### Scenario: N and P through the blocks and the files
 - **WHEN** the user presses N or P
-- **THEN** the next or the previous block of changed lines is shown, into the next or the previous file at the end of one
+- **THEN** the next or the previous block of changed lines with something to read is shown, into the next or the previous file at the end of one
 - **AND** collapsed files are skipped
   [@test] src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `N and P skip a block the whitespace policy ignores`)
+
+#### Scenario: A block of formatting alone
+- **WHEN** a Kotlin file indents two lines again, adds a blank line and changes a value, under Do Not Ignore
+- **THEN** N stops at the blank line and at the value, and passes the indentation, a quiet run
+  [@test] tests/e2e/commit-files/commit-review.spec.ts (`N and P skip a block the whitespace policy ignores`)
+  [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`N and P stop where the reading of a block starts and pass the wrapped call; the header counts the same stops`)
 
 ### Requirement: The sidebar and the diffs: A long card and the last card end with what J shows next
 
@@ -970,9 +977,8 @@ applies to diff rows only.
 
 The diff search MUST remain model-based and find what the rows of the layout show: both sides of a change in Split, in
 one column a deleted row by its old line and the row of a similar pair of Inline by both its lines, the new side of an
-unchanged line, and with the checkbox folded diff lines too. A text Unified or Split finds, Inline finds too, but for
-the whitespace of an old line that a whitespace policy ignores: the row of a pair shows the text its lines share as
-the new line has it.
+unchanged line, and with the checkbox folded diff lines too. A text Unified or Split finds, Inline finds too, the old
+lines of a quiet run at their note, but for the whitespace of an old line that a whitespace policy ignores.
 
 #### Scenario: The rows, the sides and the folds
 - **WHEN** the query is in the diff rows
@@ -1011,6 +1017,12 @@ the new line has it.
 - **WHEN** the query is the lost argument
 - **THEN** it is found in its deleted row, as Unified finds it
   [@test] tests/e2e/commit-files/commit-review.spec.ts (`should show a call wrapped again line by line in Inline, and find the argument it lost`)
+
+#### Scenario: The old lines of a quiet run
+- **WHEN** the query is in an old line of a quiet run of the marks, which Inline shows once by its new lines
+- **THEN** it matches there, in the old line, and a step lands on the note that stands for the line ([Quiet Changes](../quiet-changes/spec.md#requirement-views-the-find-searches-the-old-lines-a-note-stands-for))
+  [@test] src/lib/diff/find.test.ts (`searches the old lines that Inline shows once, at the note that stands for them, before the new lines`)
+  [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`the find searches the old line a note stands for and lands on the note; opened, the hit is in the line`)
 
 #### Scenario: A line of very many hits
 - **WHEN** a line holds more hits than a call takes arguments (a minified file, one letter typed)
@@ -1087,7 +1099,8 @@ Escape MUST close the find bar, clear the marks and give the scroller the focus.
 ### Requirement: The sidebar and the diffs: The diffs and their texts come from the engine
 
 The diffs SHALL come from `get_file_diffs` and their texts from `get_blob_texts`
-([Commit Files](../commit-files/spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`.
+([Commit Files](../commit-files/spec.md#file-diffs)): N and P step through the starts of the blocks, which a block
+that is `Ignored` does not have.
 
 #### Scenario: Blocks the policy ignores
 - **WHEN** a file has a block of changed lines that is `Ignored`

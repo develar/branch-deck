@@ -1,4 +1,4 @@
-import type { DiffBlock, Scope, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffBlock, LineRun, Scope, TextDiff } from "@/lib/diff/file-diff-model"
 import type { MergeBlock, TextMerge } from "@/lib/diff/file-merge-model"
 
 /** A block of the diff engine: a change by default, without inner ranges */
@@ -6,12 +6,53 @@ export function block(oldStart: number, oldEnd: number, newStart: number, newEnd
   return { oldStart, oldEnd, newStart, newEnd, kind: "changed", inlinePairs: false, oldRanges: [], newRanges: [], ...extra }
 }
 
-/** The text diff of two texts of these line counts with these blocks */
+/** A run of the marks of a diff: lines of a block that changed in their formatting alone, quiet, by default */
+export function run(oldStart: number, oldEnd: number, newStart: number, newEnd: number, extra: Partial<LineRun> = {}): LineRun {
+  return { oldStart, oldEnd, newStart, newEnd, kind: "formatting", quiet: true, ...extra }
+}
+
+/**
+ * Where the reading of each block starts, as the engine says it (`text_diff::model::starts_of`): the quiet runs cut a
+ * block into parts, the start is the first new line of the first part with a line, else its first old line; an
+ * ignored block and one whose every line is in a quiet run have none. Flat `[block, side, line]`
+ */
+export function startsOf(blocks: readonly DiffBlock[], runs: readonly LineRun[]): number[] {
+  const starts: number[] = []
+  blocks.forEach((it, index) => {
+    if (it.kind === "ignored") {
+      return
+    }
+    const quiet = runs.filter(one => one.quiet && one.oldStart >= it.oldStart && one.oldEnd <= it.oldEnd && one.newStart >= it.newStart && one.newEnd <= it.newEnd)
+    let oldLine = it.oldStart
+    let newLine = it.newStart
+    for (const part of [...quiet, null]) {
+      if (newLine < (part?.newStart ?? it.newEnd)) {
+        starts.push(index, 1, newLine)
+        return
+      }
+      if (oldLine < (part?.oldStart ?? it.oldEnd)) {
+        starts.push(index, 0, oldLine)
+        return
+      }
+      oldLine = part?.oldEnd ?? oldLine
+      newLine = part?.newEnd ?? newLine
+    }
+  })
+  return starts
+}
+
+/** The text diff of two texts of these line counts with these blocks, and the runs of its marks; its starts as the engine gives them */
 export function textDiff(
   oldLineCount: number,
   newLineCount: number,
   blocks: DiffBlock[],
-  { oldScopes = [], newScopes = [], emptyLastLine = false, importBlocks = [] }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[] } = {},
+  {
+    oldScopes = [],
+    newScopes = [],
+    emptyLastLine = false,
+    importBlocks = [],
+    runs = [],
+  }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[]; runs?: LineRun[] } = {},
 ): TextDiff {
   return {
     oldLineCount,
@@ -26,7 +67,7 @@ export function textDiff(
     importBlocks,
     oldScopes,
     newScopes,
-    marks: { runs: [], moves: [], renames: [], starts: [] },
+    marks: { runs, moves: [], renames: [], starts: startsOf(blocks, runs) },
   }
 }
 

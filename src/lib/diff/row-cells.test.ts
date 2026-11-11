@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
 import { buildFileRows, buildMergeRows, LEFT, MIDDLE, NEW, OLD, RIGHT, rowAt } from "@/lib/diff/rows"
 import type { LineRow } from "@/lib/diff/rows"
-import { block, mergeBlock, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, mergeBlock, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const lineRow = (row: ReturnType<typeof rowAt>): LineRow => {
   if (row.kind === "fold" || row.kind === "note") {
@@ -65,6 +65,44 @@ describe("diffCells", () => {
     ])
     const deletedRow = lineRow(rowAt(buildFileRows(diff, "unified"), 1))
     expect(unified.cell(deletedRow, OLD)).toBe("deleted")
+  })
+
+  it("types a line that Inline shows once as its own cell, keeps the type of a quiet line elsewhere, and draws no range in a quiet line", () => {
+    // lines 2-3 indented again, a quiet run of formatting whose indentation the engine marks; line 4 really changed
+    const ranges = {
+      oldRanges: [
+        [0, 2, 2],
+        [0, 2, 2],
+        [4, 5, 2],
+      ],
+      newRanges: [
+        [0, 4, 2],
+        [0, 4, 2],
+        [4, 5, 2],
+      ],
+    }
+    const diff = textDiff(8, 8, [block(2, 5, 2, 5, { inlinePairs: true, ...ranges })], { runs: [run(2, 4, 2, 4)] })
+    const at = (mode: "inline" | "unified" | "split", row: number, open: number[] = []) => lineRow(rowAt(buildFileRows(diff, mode, [], false, null, new Set(open)), row))
+    // Inline: the note, then the two lines once
+    const inline = diffCells(diff, "inline")
+    const once = at("inline", 3)
+    expect([once.kind, inline.cell(once, NEW), inline.ranges(once, NEW)]).toEqual(["once", "once", null])
+    // the pair after the run is a row of the block, with its ranges
+    const pair = at("inline", 5)
+    expect([pair.kind, inline.cell(pair, NEW), inline.ranges(pair, OLD), inline.ranges(pair, NEW)]).toEqual(["inline", "inserted", [4, 5, 2], [4, 5, 2]])
+    // opened, and in Unified: a deleted and an inserted line, quiet, without their ranges
+    for (const [deleted, added] of [
+      [at("inline", 3, [2]), at("inline", 5, [2])],
+      [at("unified", 3), at("unified", 5)],
+    ]) {
+      expect([deleted!.tint, inline.cell(deleted!, OLD), inline.ranges(deleted!, OLD)]).toEqual(["quiet", "deleted", null])
+      expect([added!.tint, inline.cell(added!, NEW), inline.ranges(added!, NEW)]).toEqual(["quiet", "inserted", null])
+    }
+    // Split: both sides of the run in the type of the block, quiet, no range; the changed line keeps its typed ranges
+    const split = diffCells(diff, "split")
+    const quiet = at("split", 3)
+    expect([quiet.tint, split.cell(quiet, OLD), split.cell(quiet, NEW), split.ranges(quiet, OLD), split.ranges(quiet, NEW)]).toEqual(["quiet", "modified", "modified", null, null])
+    expect(split.ranges(at("split", 5), NEW)).toEqual([4, 5, 2])
   })
 
   it("shows a file with one side as that side alone in every layout, with its line numbers, as IntelliJ's one-sided viewer", () => {

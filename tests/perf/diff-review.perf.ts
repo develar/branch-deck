@@ -7,6 +7,7 @@
 //   pnpm perf:diff                      3 runs of each scenario, a table on stdout
 //   PERF_RUNS=5 pnpm perf:diff          more runs
 //   pnpm perf:diff --project=webkit     in WebKit, the engine of the app on macOS
+//   PERF_QUIET_EVERY=0 pnpm perf:diff   the commits without a quiet run of the marks (every 4th change is one)
 //
 // The table goes to tests/results/perf/diff-review.json too. The commits are routed answers of the review's commands
 // (`get_commit_files`, `get_file_diffs` (as SSE, the way the test server streams its channel), `get_blob_texts`) with the blocks of the diff engine; the window is the
@@ -58,11 +59,14 @@ function installProbes(measureBytes: boolean) {
     }
   }).observe({ type: "longtask", buffered: true })
 
-  /** The visible rows of the diffs with their text, and how many of them are highlighted: a token has a role */
+  /**
+   * The visible rows of the diffs with their text, and how many of them are highlighted: a token has a role. A fold
+   * and a note are rows of words, never highlighted
+   */
   function scanRows(): { rows: number; highlighted: number } {
     let rows = 0
     let highlighted = 0
-    for (const row of document.querySelectorAll("[data-testid=diff-row]:not([data-kind=fold])")) {
+    for (const row of document.querySelectorAll("[data-testid=diff-row]:not([data-kind=fold]):not([data-kind=note])")) {
       const box = row.getBoundingClientRect()
       if (box.bottom <= 0 || box.top >= innerHeight || box.height === 0 || (row.textContent ?? "").trim().length < 10) {
         continue

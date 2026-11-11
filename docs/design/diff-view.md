@@ -119,8 +119,9 @@ rest gets a label and stays a stop.
   dependencies, the patches of `brd` and the review plan read the blocks they read before.
 - **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
   at (`text_diff::model::starts_of`): the first line outside its quiet runs. A block without an entry has nothing to
-  read. The navigation of changes and the count of what is left to read take only this **(planned: the views still
-  stop at every block)**; the runs, the moves and the renames are for drawing.
+  read. The navigation of changes and the count of what is left to read take only this (`stopsOf` of
+  `src/lib/diff/block-parts.ts`); the runs, the moves and the renames are for drawing. What a view draws of the runs
+  is "The parts of a block" below.
 - **With the content.** The marks change the rows a view draws (the Inline view shows the new lines of a quiet run
   alone), so marks that came after the content would move a file already drawn. They are made in the worker of the
   file before its `content` goes out; the scopes still come after it.
@@ -187,12 +188,12 @@ A file is a list of segments. A segment holds its start line on each side and th
 |---|---|---|
 | `equal` | one per line | the context of a block, an expanded fold, an ignored block of equal length |
 | `fold` | one separator | the unchanged lines outside the context, with the scope label |
-| `block` | per mode, below | a `changed` or `whitespaceOnly` block |
+| `block` | per mode, below | a `changed` or `whitespaceOnly` block: its lines, the notes of its runs and, in a section of a review, the heading of the change it starts, all parts of the block ("The parts of a block" below) |
 | `ignored` | per mode, below | an `ignored` block with unequal sides |
-| `note` | one row of words | a section of a review: the heading of the change a block starts, or a block another section shows |
+| `elsewhere` | one row of words | a section of a review: a block another section shows |
 
-The rows of a block depend on the mode, in the order of the toggle (Inline · Unified · Split, from the most compact
-one):
+The rows of a block, and of each part of a block the marks cut ("The parts of a block" below), depend on the mode,
+in the order of the toggle (Inline · Unified · Split, from the most compact one):
 - **Inline:** one row per pair when `inlinePairs` is true. Each row is the new line, with the deleted parts of the old
   line before the inserted parts. Another block shows as in Unified. The engine pairs the lines of a block only when
   one row can show all of both ([Text Diff](text-diff.md), "Inline pairs"): each inner change lies in line i of both
@@ -230,6 +231,64 @@ reason.
 The rows of an `ignored` block show as unchanged lines. Unified and Inline show its new lines and leave out its old
 lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plain, the shorter side filled.
 
+**The parts of a block.** Rust says which rows of lines of a block changed in one way alone (`TextDiff.marks.runs`,
+"Marks" above), and a view shows a block part by part, in the order of both sides (`src/lib/diff/block-parts.ts`,
+[Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md#views)). The runs cut the block: the lines between
+two runs are a part that shows as the block did; a run is a row of words, its note, then its lines. A block without
+a run is one part, so its rows are what they were. Every function of `rows.ts` that maps the rows of a block to its
+lines asks the parts (`itemRowCount`, `itemRow`, `itemLines`, `itemRowOfLine`, through them `forEachRows`, `foldedOf`
+and `rowOfLine`): none counts the rows of a block by its line counts. The gaps, the levels of the folds and the
+segments are as before.
+
+| part | Inline | Unified | Split |
+|---|---|---|---|
+| lines in no run | a pair per row where the engine pairs line i of both sides, else as Unified | the old lines, then the new ones | a row per line of the longer side |
+| a quiet run (`formatting`) | its note, a button; its new lines once (`once` rows); opened: as Unified | its note; every line, quiet | its note; every line, quiet |
+| a run that is a label (`comments`) | its note; its lines as lines in no run | the same | the same |
+
+- **The note** is a `NoteRow` of the tone `remark` with its `Remark` (the kind of the run, its lines, whether it is
+  quiet, whether its old lines show). Its words are the presenter's (`presentRemark` of `src/presenters/diff-marks.ts`:
+  "Formatting only · 3 lines", the new lines of the run): the page words what Rust decided. They start where the code
+  does. A note costs a row, never a label at the end of a line: every height stays arithmetic.
+- **A line shown once.** Inline is the one layout that hides a line: the old lines of a quiet run. Its new lines are
+  rows of the kind `once`, the cell `once` (neither inserted nor unchanged), with the new line number alone. The
+  note is then a button with a chevron (`Remark.open` false): a click shows the old lines before the new ones, as
+  Unified does, a second click hides them, and ⌥-click opens or closes every such note of the file, as it expands
+  every fold. In a review H does it from the keys, for the notes in view ("Keys" below). So a mark can always be
+  checked without leaving the layout. The open notes are kept beside the levels of the folds (`getOpenNotes`, by the
+  key of the folds; a note by the first old line it hides), and go with them to the object that replaces a diff as
+  its scopes come (`keepOpened` of `rows.ts`, called by the stores): the levels, the open notes and the keys of the
+  sections of a review, so a note opened while a file was still parsed stays open, in a section too.
+- **Played down.** The lines of a quiet run have the tint `quiet` in every layout: one colour of their own
+  (`--diff-quiet`, [UI Theme](ui-theme.md#diffs)), whatever their type, and no inner range (`diffCells.ranges`): the
+  ranges of such a line are whitespace between the same tokens. Their text is as readable as any: a reader opens them
+  to check the mark. A run that is a label plays nothing down.
+- **In a section of a review** the heading of a change is the first part of its block (no segment of its own). A run
+  that starts the block says its words in that row, after the heading, and opens from there.
+- **An old line without a row** resolves to the row that stands for it (`partsRowOfLine`): the note of its quiet run,
+  as the first new line of an ignored block stands for its old lines. So `rowOfLine` of the old side gives the note:
+  the anchor of the scroll keeps a note at the top by that line (`DiffLayout.anchorAt` takes the side a row of words
+  stands for), a hit of the find in such a line lands on the note, and a reveal of a name there
+  (`DiffView.revealPlace`) opens the note first (`noteOfLine`), as it expands a fold, then selects the name.
+- **A row of words that stands for no line** (the note of a run whose lines all show: every note of Unified and
+  Split, a label, an opened note; the heading of a change) is found by no line, so the anchor of the scroll holds it
+  by the first row after it that has a line, with the offset counted from that row, a negative one
+  (`standsForNoLine` of `layout.ts`). A new layout of the same rows (another file's diff arrives, a fold expands
+  below, the window is resized) leaves it at the top; where the row of words is gone (another layout, a note that
+  stands for the line again) the top is the row of the line, never the row above it.
+- **Stops.** `FileRows.changeStarts` are the stops of `stopsOf(diff)`: of each block with a start the first row of
+  lines of what is read from the line Rust names (`partsStopRow`). Rust cuts a block by its quiet runs alone and
+  names the first new line of what is read first; a view cuts it at every run, a label too, and one column shows the
+  old lines of a part before its new ones. So the row is found from the part that shows the line back over the parts
+  of no quiet run (lines to read, the note of a label) to the one after the last quiet run: lines deleted before a
+  comment worded again are read from the first of them, as they were before the comment had a label, though Rust
+  names the comment. Which lines are read is Rust's, which row shows them first is the layout's.
+  `FileRows.changes` counts the blocks of changed lines (`isChangeBlock`), and a file says
+  "10 to read" beside its counts where its stops are fewer (`readingOf`, `formatToRead`): its row in the tree of the
+  files (`withEngineCounts`) and the header of its card in a review, which counts the stops of its section.
+- **A run in no block**, which no engine gives, is left out (`runsByBlock`): every line of every block shows whatever
+  the marks say.
+
 **Sections.** The review with its plan shows the story of its units (openspec/specs/branch/review-units/spec.md), in the order
 of its concerns (openspec/specs/branch/review-concerns/spec.md): a file may be several sections, a run of its units, its parts
 of each concern and its slices of groups, each a `DiffViewFile` with a `section` (`DiffSection`: its key, the headings
@@ -253,7 +312,8 @@ empty last row and a fold counts only real lines.
 **Tints.** The tints are IntelliJ's (`SimpleDiffChangeUi`, `TextDiffTypeImpl.getIgnoredColor`). A block with inner
 ranges draws its lines pale (the change colour mixed 0.6 with the background) and its ranges in the full colour. A
 block without inner ranges (`lineLevelOnly`, or ranges dropped) draws its lines in the full colour. A
-`whitespaceOnly` block draws its lines pale with nothing strong. So a re-indent under `Default` shows pale lines with
+`whitespaceOnly` block draws its lines pale with nothing strong. The tint `quiet` is our own: the lines of a quiet run
+of the marks ("The parts of a block" above). So a re-indent under `Default` shows pale lines with
 the indentation in the full colour. A review with its plan (`DiffViewFile::quietImports`) draws a block of the imports
 alone (`TextDiff::import_blocks`, from the syntax: each changed line an import or a package statement, or blank) as a
 `whitespaceOnly` one.
@@ -546,8 +606,10 @@ and that frame is blank. The painter does this work in about 1 ms, with no recon
 
 A component selects narrow slices of the stores, as `AGENTS.md` asks.
 
-**Row elements.** A row is a `div` with `data-row`, `data-kind` (`context`, `added`, `deleted`, `inline`, `fold`,
-`filler`) and `data-tint` (`pale` or `whitespace`) on a half that is not in the full tint. It holds a gutter cell per line number (`aria-hidden`, not
+**Row elements.** A row is a `div` with `data-row`, `data-kind` (`context`, `added`, `deleted`, `inline`, `once`,
+`fold`, `note`) and `data-tint` (`pale`, `whitespace` or `quiet`) on a half that is not in the full tint; a quiet half
+has `data-run`, the kind of its run. A note has `data-tone` (`unit`, `elsewhere`, `remark`) and, before the lines of a
+quiet run, `data-quiet`; the words of a remark are `diff-remark`, a `button` with `aria-expanded` where the note opens. It holds a gutter cell per line number (`aria-hidden`, not
 selectable) and a code cell. In Split, the row holds a half per side. A gutter has a fixed width: the digits of the
 largest line number of the file.
 
@@ -813,7 +875,11 @@ a deleted part, which is selectable (`data-revealed-old` on the row) for as long
 (`revealedOld`, checked at every `selectionchange` by the text of the row before each end of the selection). While it
 is, a copy takes the name, and ⌘B, ⌥F7 and Back read it as the name of the old line: the selection of the page alone
 cannot say it, since it may start in the text the row shows from the new line. A modifier alone and the copy keep the
-name selected; another key only stops a later paint from selecting it again. The menu of the code acts on the name
+name selected; another key only stops a later paint from selecting it again. A name of the old side on an unchanged
+line of one column has no cell of its own either: the row shows the line once, by its new line, and the name is
+selected there at the columns it has in that line (`sameTextOffset`), which under a policy that ignores whitespace
+are other columns than in the old line (a block the policy ignores is an unchanged row of another indent), found by
+the characters that are no whitespace. The menu of the code acts on the name
 it opened on. The pointer opens it on the name under it (the point of its `contextmenu`), whatever is selected
 elsewhere, and on none where it is on no name: a press that opens the menu selects no word in a part that is not
 selectable, and on Windows in no text, so the selection cannot say where the menu opened. The context menu key and
@@ -879,7 +945,8 @@ the current hit), and the rows, their sides, code cells and line numbers have te
 **Selection and copy.** The browser selects the text of the rows in the DOM:
 - The gutters are not selectable.
 - In Split, a press on a side makes the other side not selectable (`data-select-side` on the view), so a selection
-  stays on one side.
+  stays on one side. The one column of a row is always selectable (`:only-child`): the side of a press outlives a
+  switch to Inline or Unified, where a name a reveal selects is of the one column.
 - The painter keeps the row of the anchor of a selection in the DOM while the selection lives. So the browser does
   not lose the selection when that row leaves the view.
 
@@ -887,7 +954,7 @@ A `copy` event builds the text from the model, not from the DOM. It maps the two
 row, a side and an offset (from `data-row` and the text nodes of the code cell). Then it joins the lines between them
 from the texts. So a selection over rows that are no longer in the DOM copies all its lines. The copy does not take
 the breaks of soft wraps or the deleted parts of an Inline row. Unified copies its rows as shown, deleted and added
-lines. ⌘A in the diffs selects the side of the file at the top. The one selection that holds a deleted part is the
+lines. A quiet run of Inline is copied as it shows: its new lines, its old lines too once its note is opened. ⌘A in the diffs selects the side of the file at the top. The one selection that holds a deleted part is the
 name of the old line that a reveal selected in its Inline row: its copy is that name. A selection that holds no text
 of a line (a fold, a note) is left to the browser: the view never puts an empty text on the clipboard.
 
@@ -896,11 +963,29 @@ layout, so the scroll lands exactly at once:
 - A file goes to the top, its card below the gap above the first card.
 - A change goes to its first row, with its 4 rows of context visible below the sticky header.
 
-The targets of N and P are the `block` segments, so N and P skip an `ignored` block and a collapsed file. A
-`whitespaceOnly` block is a target: it is pale, and it counts, as in IntelliJ. A block of the imports alone that a
+The targets of N and P are the starts of the blocks, as the marks of the diff say them (`TextDiff.marks.starts`,
+"The parts of a block"): an `ignored` block has none, nor has a block whose every line is in a quiet run, so N and P
+pass them, and a collapsed file. A `whitespaceOnly` block the tokens do not prove formatting (a file of no grammar,
+a blank line added) is a target: it is pale, and it counts, as in IntelliJ. A block of the imports alone that a
 review plays down (`quietImports`) is not: it is pale, and N and P pass it.
 They are `FileRows.changeStarts`. The rule of the review stays: after a scroll that the view made, the file
 at the top changes the selection only after a wheel, touch, pointer or key event.
+
+H (the hidden lines) shows the old lines of the notes in view that open (Inline shows a quiet run once), and hides
+them again once they all show (`DiffViewHandle.toggleNotes`, `FileRows.noteRows`). In view: the row whole below the
+header stuck at the top. The key takes what the view shows, not a change N stepped to: a block that is quiet as a
+whole is no stop. The view stays at its top row (the anchor). It is a key of the review as N and P are
+(`CommitReview`), so it works from the tree of the files too; a note names it after its words (`notesKey`, the hint
+of `Kbd` as generated content, `aria-keyshortcuts`) only in a view whose surface has the key, so the preview of a
+commit shows none. With no such note in view the key does nothing.
+
+The keys of the review are one table, `REVIEW_KEYS` of `src/lib/review-keys.ts` (J, K, N, P, F, H), read by the
+handler, the hints of the footer and the hint of a note. The review takes its key before the window around it reads
+the event, and only while the diffs or the tree have the focus, so a letter of the table is the key of no action of
+a window that holds a review: O is the pull request's, S the Safe Push's, A, R, M and D a pull request's, I the
+details of a row. A letter that were both would run the action or the review by where the focus is and by what is in
+view: with O as the key of the notes, O would open the pull request only while no note is in view.
+`review-keys.test.ts` compares the table with the keys the actions name.
 
 **Find in the review.** ⌘F (Ctrl+F off macOS) in a review window opens a find bar above the document
 (`DiffFindBar.tsx`, labelled "Find in the review"). It combines two searches into one hit list:
@@ -917,8 +1002,12 @@ at the top changes the selection only after a wheel, touch, pointer or key event
   the row shows it as the new line has it, and an offset of the old line maps into it by the characters that are no
   whitespace (`sharedOffset`), so a hit that reaches out of a deleted part marks its own text, not the indent. So a
   text found in Unified or in Split is found in Inline too, but for the whitespace of an old line that the policy
-  ignores and the row does not show. A line may hold more hits than a call takes arguments (a minified file, one
-  letter typed): the hits and the parts of a line are added in loops, never spread into a call. "In folded
+  ignores and the row does not show. The old lines of a quiet run that Inline shows once are searched too, at the note
+  that stands for them, before its new lines: their hits are of the old side, a step lands on the note
+  (`rowOfLine`), which names the hits it holds ("1 match in the old line", `formatHiddenMatches`) and marks the
+  current one; the note opened, the same hits are in the old lines. A line may hold more hits than a call takes
+  arguments (a minified file, one letter typed): the hits and the parts of a line are added in loops, never spread
+  into a call. "In folded
   lines" searches folded diff lines only; it does not gate story text.
 
 Closed story-body parts and `Disclosure`s retain their text hidden in the page. A text hit opens each fold around it
@@ -944,7 +1033,11 @@ one pass over the texts it has. A review of many large files can make it a slice
 - A fold is a `button` with the label "Expand 120 unchanged lines in fun main()". It is not in the Tab order, because
   a review has hundreds of folds.
 - An added or a deleted row says so with CSS generated content with alternative text (`content: "" / "added"`). A
-  screen reader reads it, and a copy does not take it.
+  screen reader reads it, and a copy does not take it. A line of a quiet run says what it changed in after its type
+  ("inserted, formatting only"; a line shown once "formatting only"), by the kind of its run (`data-run`).
+- A note that opens is a `button` named by its words and by what a press does ("Formatting only, 3 lines: Show the
+  old line"), with `aria-expanded`; as a fold, it is not in the Tab order (a commit that formats a file has hundreds),
+  and in a review H opens the notes in view (`aria-keyshortcuts`). A note that opens nothing is its words.
 - The colours have the contrast of the app's tokens. No scroll is animated when the OS asks for reduced motion.
 
 ### One component for every view
@@ -1088,6 +1181,27 @@ the machine: 472 ms at a load of 25 and 490 ms at 45 to 55 (Split 582 and 591 ms
 Studio at a load of 35 beside the runs of other sessions (Split 830 ms). So that number is read on a quiet machine,
 or against the Split of the same run: a time over the target under load says nothing of the renderer.
 
+**With the marks (2026-11-11).** The commits of the benchmark hold a quiet run for every fourth changed line of a
+file (`PERF_QUIET_EVERY`), so a quarter of their changes are a note and a line shown once. No quiet machine was to
+be had, so the views of the marks were measured against master, the two checkouts in turns on the developer Mac at
+a load of 18 to 37 (WebKit, Inline, two rounds of 5 runs each; the fastest run of each, the nearest to a quiet
+machine):
+
+| metric | master | the marks, commits without a run | the marks, every fourth change a quiet run | target |
+|---|---|---|---|---|
+| 200 files, first rows after ready | 250 ms | 247 ms | 250 ms | ≤ 350 ms |
+| 200 files, highlighted | 455 ms | 447 ms | 456 ms | ≤ 450 ms |
+| 10k lines, first rows | 224 ms | 221 ms | 221 ms | ≤ 300 ms |
+| 10k lines, highlighted | 257 ms | 242 ms | 248 ms | ≤ 400 ms |
+| scroll, 20 viewports/s, a scroll event p95 (200 files, 10k lines) | 3, 3 ms | 3, 3 ms | 3, 3 ms | ≤ 4 ms |
+| DOM nodes of the view (200 files, 10k lines) | 697, 646 | 697, 646 | 699, 640 | ≤ 4,000 |
+
+The parts of a block and the notes cost nothing this load lets through: the three columns differ by less than two
+rounds of one of them do (the medians of the 200 files highlighted were 483 and 849 ms on master, 503 and 476 ms with
+the runs). The highlighted time of the 200 files stays the one metric at its target, 5 ms over it under this load on
+master and with the marks alike, as the paragraph above says of a loaded machine. No frame had an empty row, and no
+long task followed the first rows.
+
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized
 component, so a mount renders that section alone. The benchmark times the whole scroll event with the layout of the
@@ -1098,7 +1212,8 @@ leaves the layout to the next read and hides it.
 
 `pnpm perf:diff` (`tests/perf/diff-review.perf.ts`, `playwright.perf.config.ts`) opens the review window on the
 production build of the e2e setup, over two synthetic commits (`tests/perf/diff-fixtures.ts`): 200 files (four of
-3,000-5,000 lines), and one file of 10,000 lines, each changed line a similar pair. It runs each commit in Inline,
+3,000-5,000 lines), and one file of 10,000 lines, each changed line a similar pair but every fourth of a file, which
+changes in its formatting alone: a quiet run of the marks, with its note. It runs each commit in Inline,
 with nothing stored, so it follows the default and the targets gate the layout a user gets, and in Split, stored
 (the rows "…, Split" of its table); a run asserts the layout its numbers are of. Routed answers of `get_commit_files`, `get_file_diffs` and
 `get_blob_texts` give the diffs of the engine and the texts. `--project=chromium` and `--project=webkit` run one

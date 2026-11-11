@@ -245,6 +245,15 @@ function sharedOffset(from: string, fromStart: number, fromEnd: number, to: stri
 }
 
 /**
+ * The offset in `to` of the offset `offset` of `from`, a line that is the same text but for its whitespace: the old
+ * and the new line of a row the whitespace policy ignores, which one column shows once, by the new line. `end`: the
+ * offset ends a range. An unchanged line is the same text, so its offsets are the same
+ */
+export function sameTextOffset(from: string, to: string, offset: number, end = false): number {
+  return sharedOffset(from, 0, from.length, to, 0, to.length, offset, end)
+}
+
+/**
  * Calls `visit` with the text the lines of a pair share: before each range and after the last one, as `[oldFrom,
  * oldTo)` of the old line and `[newFrom, newTo)` of the new one
  */
