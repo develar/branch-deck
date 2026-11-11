@@ -846,7 +846,9 @@ test.describe("Next step", () => {
       for (const element of [withoutReview, onGitHub, submit, title]) {
         await expect(element).toBeVisible()
       }
-      // the dialog zooms in as it opens: measure it settled
+      // the code owner Patronus names comes as a chip of the reviewers, seconds under load, and the body grows by its
+      // line: the footer moved down between two reads of it once. Measure with it there, the zoom of the open settled
+      await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"], { timeout: 0 })
       await waitForTransitionsSettled(page)
 
       const box = async (element: Locator) => {
