@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
-import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
+import { tauriMockInitScript } from "../setup/tauri-mock-script"
 
 /**
  * How often an `expect.poll` asks: Playwright's default (100, 250 and 500 ms, then every second) is made for a remote
@@ -164,7 +164,7 @@ export const test = base.extend({
     }
 
     // Inject Tauri mocks before each navigation
-    await page.addInitScript(tauriMockScript, PAGE_COMMANDS)
+    await page.addInitScript(tauriMockInitScript())
 
     // a popup, a form, a card or a toast is in place from its first frame, in every window: its zoom and slide in are
     // off. Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in

@@ -116,10 +116,35 @@ sequenceDiagram
   `app-api` and keeps Tauri out of it.
 - Settings in two processes: a write under an inter-process lock merges only the changed keys, and a watch tells the
   other process ([Distributed Settings](distributed-settings.md)).
-- The page: `src/platform/air/` shims `__TAURI_INTERNALS__` (`invoke` → `bd_invoke`, `Channel` → call events,
-  `subscribe_view` → the mirror, `listen`/`emit` → events, the plugins → `ui/open-link`, `air_copy`, `notify`, the
-  log); `src/air-main.ts` awaits `bd_bootstrap`; `vite build --mode air` builds the files that `brd mcp` embeds and
-  serves as `ui://branch-deck/<path>`.
+- The page: `src/air-main.ts` answers `ui/initialize` with `x-air-app`, applies the theme of the host context, awaits
+  `bd_bootstrap {view}` (the globals of the init script of a window: `__TAURI_STORE__`, `__BD_MODEL__`,
+  `__INIT_DATA__`, `__SUB_WINDOW_OPEN__`, `__BD_TITLE_BAR__`), installs the shim and runs `src/main.tsx` on the page of
+  its view (`main` is `/`). `vite build --mode air` writes `dist-air/`, which `brd mcp` embeds and serves as
+  `ui://branch-deck/<path>`, `index.html` for every view; the chunks and the highlight worker stay files of their own
+  (no blob worker: the CSP of SEP-1865 refuses it).
+  - `src/platform/tauri-page.ts`: the internals of Tauri without the shell (`__TAURI_INTERNALS__`, the listeners of the
+    event plugin, the table of the channels of `crates/app-api/commands.json`), installed by the page of the IDE and by
+    the page mock of the E2E tests alike.
+  - `src/platform/air/shim.ts`: `invoke` → `tools/call bd_invoke {command, args}` with the arguments as the page sent
+    them; the `Channel` the table names gets the `x-air-app/callEvent` of its call (`callId` is the id of the
+    `tools/call`); `structuredContent.value`, `bytes` (base64) or `error`. `listen` hears `x-air-app/event`; `emit` and
+    `emit_to` are `bd_invoke` of `plugin:event|emit {event, payload, target}`, which `brd mcp` tells the views of the
+    app. The plugins: `ui/open-link` for a link, the host tools `air_copy`, `air_notify` (the browser's `Notification`
+    of the notification plugin), `air_set_badge` and `air_set_progress` (`view: "main"`), the log as
+    `notifications/message`; the size, the zoom, the theme and the close of a window are the place's, and do nothing.
+  - `src/platform/air/view-mirror.ts`: `subscribe_view` is `x-air-app/subscribe {params: {repositoryPath}}`. The state
+    of the mirror is the `RepositoryView` of the session, one part per field, with the part `version` (the page compares
+    the versions that commands answer, `SyncAnswer.version`, `Outcome.versionAfter`, with that of its view). Each
+    `x-air-app/action` of `x-air-app/viewChanged` becomes the `ViewPatch` from the version the page holds: a keyed part
+    (`branches`, `stacks`, `pushes`, … as `TableChanges` removes them) by `set` and `remove` (a `set` of `branches` holds
+    the whole `BranchView`), another part whole by `part`, and the sections, the Patronus view and the facts by the
+    entries that differ from the state before. A resync replaces the state and sends a patch from no base, so the page
+    asks `get_snapshot`, which the shim answers from the state of the mirror; the end of a mirror does the same, and the
+    snapshot then comes from `brd mcp`.
+  - `src/platform/air/theme.ts`: each variable of the host (`styles.variables`, `com.jetbrains.air/variables`) is set on
+    the root as `--air-host-<name>`, and the semantic tokens (`--background`, `--card`, `--primary`, `--border`, …) read
+    them while the page shows the theme of the IDE; the query of the system's dark appearance answers the theme of the
+    IDE, so the setting System follows it, and `host-context-changed` switches it without a reload.
 - The install: beside the agent CLI, "IntelliJ IDEA" writes `~/.air/apps/branch-deck.yaml` with `current_exe`
   (`crates/bd-cli/src/install.rs`), and Remove deletes it.
 

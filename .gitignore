@@ -34,6 +34,7 @@ node_modules
 target/
 test-optimized-prompt/
 dist
+dist-air
 
 # Rust workspace - only use root Cargo.lock
 src-tauri/Cargo.lock

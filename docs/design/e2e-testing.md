@@ -220,7 +220,8 @@ Mock implementation:
   `{ channel, open }`: the argument of the page that gets the events of the command, and whether it stays open after
   the answer), which `commands_json_test.rs` writes from `app_api::commands::COMMANDS` with
   `UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'` and which fails when it is stale. The
-  fixtures pass it to the init script (`page.addInitScript(tauriMockScript, PAGE_COMMANDS)`): for a command with a
+  fixtures pass it to the init script (`page.addInitScript(tauriMockInitScript())`, the mock bundled with the
+  internals it shares with the page of the IDE, `src/platform/tauri-page.ts`): for a command with a
   channel the mock keeps the `Channel` of the argument its entry names (`window.__progressChannels`), sends its key
   (`X-Progress-Channel`), hands each `{ progress }` of the answer to it, and reads on after the answer for an `open`
   one. No channel is guessed from the payload: the diffs and the merges of the views (`get_file_diffs`,
@@ -1038,8 +1039,9 @@ Optimizations:
   `crates/test-server/src/invoke.rs`, the wrappers of the app `src-tauri/src/api.rs`, the table of the page mock
   `crates/app-api/commands.json`; the routes of the server for the tests: [The routes of the server](#the-routes-of-the-server)
 - Test helpers: `tests/e2e/helpers/`
-- Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (injected with `page.addInitScript`, with the
-  table of the commands of app-api, `crates/app-api/commands.json`)
+- Mock layer and snapshot formatter: `tests/e2e/setup/tauri-mocks.ts` (bundled by `tauri-mock-script.ts` with
+  `src/platform/tauri-page.ts` and injected with `page.addInitScript`, with the table of the commands of app-api,
+  `crates/app-api/commands.json`)
 - Snapshot capture and transition settling: `tests/e2e/helpers/aria-snapshot-helpers.ts`
 - Frontend: the test server serves the `pnpm build` output from `dist/`, with an SPA fallback to `index.html` for client routes such as `/conflicting-files`
 - Templates: `crates/test-server/src/templates.rs` (the cache), `crates/test-utils/src/repo_template.rs` (the repositories)

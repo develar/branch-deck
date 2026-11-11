@@ -65,6 +65,28 @@ function preloadInterFont(): Plugin {
   }
 }
 
+/**
+ * The Air build (`vite build --mode air`, docs/design/ide-embedding.md): the page of a view of the IDE, the same page
+ * with the entry `src/air-main.ts`, into `dist-air/`. Its files stay separate (the lazy chunks, the highlight worker):
+ * `brd mcp` serves each as the resource `ui://branch-deck/<path>`, `index.html` the page of every view
+ */
+function airBuild(): Plugin {
+  let air = false
+  return {
+    name: "air-build",
+    config(_config, env) {
+      air = env.mode === "air"
+      return air ? { build: { outDir: "dist-air" } } : null
+    },
+    transformIndexHtml: {
+      order: "pre",
+      handler(html) {
+        return air ? html.replace('src="/src/main.tsx"', 'src="/src/air-main.ts"') : html
+      },
+    },
+  }
+}
+
 export default defineConfig({
   // React Compiler memoizes components and hooks (docs/design/rendering-performance.md); a component it would skip
   // fails the build instead of running unmemoized
@@ -77,6 +99,7 @@ export default defineConfig({
     tailwindcss(),
     shikiBundle(),
     preloadInterFont(),
+    airBuild(),
   ]),
   resolve: {
     alias: {
@@ -176,6 +199,7 @@ export default defineConfig({
     ignorePatterns: [
       "src/lib/bindings.ts",
       "dist/**",
+      "dist-air/**",
       "target/**",
       "src-tauri/target/**",
       "tests/results/**",

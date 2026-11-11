@@ -7,6 +7,14 @@ targets:
   - docs/design/ide-embedding/protocol/air-app.schema.json
   - docs/design/ide-embedding/protocol/corpus/branch-deck-app.ndjson
   - docs/design/ide-embedding/protocol/examples/branch-deck.yaml
+  - src/air-main.ts
+  - src/platform/tauri-page.ts
+  - src/platform/air/start.ts
+  - src/platform/air/shim.ts
+  - src/platform/air/view-mirror.ts
+  - src/platform/air/theme.ts
+  - src/platform/air/bootstrap.ts
+  - src/platform/air/frame-link.ts
 ---
 
 # Branch Deck in the IDE
@@ -269,8 +277,10 @@ not offered, because the roots name the repositories.
 
 ### Requirement: Page: The page in the IDE is the page of the desktop app
 
-The Air build (`vite build --mode air`, entry `src/air-main.ts`) MUST run the same page as the desktop app. It awaits
-`bd_bootstrap`, installs the globals of the shim, and then runs the usual main.
+The Air build (`vite build --mode air`, entry `src/air-main.ts`, into `dist-air/`) MUST run the same page as the desktop
+app. It awaits `bd_bootstrap`, installs the globals of the shim, and then runs the usual main on the page of its view
+(`main` is `/`, another view `/<view>`). Its chunks and its worker stay files of their own, and `index.html` is the page
+of every view.
 
 #### Scenario: The main window
 - **WHEN** the IDE opens the tool window of Branch Deck on a repository
@@ -279,15 +289,33 @@ The Air build (`vite build --mode air`, entry `src/air-main.ts`) MUST run the sa
 ### Requirement: Page: The shim maps the Tauri calls onto x-air-app
 
 The shim of `src/platform/air/` MUST map `invoke` to `bd_invoke`, a `Channel` to the call events and `subscribe_view`
-to the mirror. `listen` and `emit` map to the events of x-air-app.
+to the mirror. `listen` and `emit` map to the events of x-air-app, and each plugin of Tauri to what the IDE offers in
+its place. The page mock of the E2E tests installs the same internals of Tauri (`src/platform/tauri-page.ts`).
 
 #### Scenario: A command with a channel
 - **WHEN** the page invokes `get_file_diffs` with a `Channel`
 - **THEN** the channel gets each call event of the call, in order, before the promise resolves
+  [@test] src/platform/air/shim.test.ts (`A command with a channel: the channel gets each call event of the call, in order, before the promise resolves`)
+
+#### Scenario: The answers of a command
+- **WHEN** a command answers a value, raw bytes, an `ApiError`, or the link is lost
+- **THEN** the page gets the value, an `ArrayBuffer`, the `ApiError`, or an `internal` error with the reason
+  [@test] src/platform/air/shim.test.ts (`A JSON command answers its value, a raw one its bytes, a failed one its ApiError`)
 
 #### Scenario: A resync
 - **WHEN** the subscription of the page gets `x-air-app/resync`
 - **THEN** the page takes the state as a new snapshot of the view, without a reload
+  [@test] src/platform/air/shim.test.ts (`subscribe_view is the mirror of the repository: its state the view, each change a patch, a resync a snapshot without a reload`)
+
+#### Scenario: An event
+- **WHEN** `brd mcp` tells an event, and the page emits one to the main window
+- **THEN** the listeners of its name hear it, and the emit is `bd_invoke` of `plugin:event|emit` with its target
+  [@test] src/platform/air/shim.test.ts (`listen hears the events of x-air-app, and emit goes to the views of the app through brd mcp`)
+
+#### Scenario: The plugins
+- **WHEN** the page opens a link, copies, sets the badge and the progress of the Dock, logs, or sets the size of its window
+- **THEN** the host gets `ui/open-link`, its tools, `notifications/message`, and nothing for the size
+  [@test] src/platform/air/shim.test.ts (`The plugins of Tauri are what the IDE offers: a link, the clipboard, the badge, the progress, the log`)
 
 ### Requirement: Page: The theme of the IDE maps onto the tokens of the page
 
@@ -297,6 +325,22 @@ The page MUST map the theme and the styles of `hostContext` onto its semantic to
 #### Scenario: Light to Dark
 - **WHEN** the IDE switches from Light to Dark
 - **THEN** the page shows the dark tokens without a reload
+
+### Requirement: Page: The mirror is the view, and each change of it a patch of the session
+
+The state of the mirror MUST be the `RepositoryView` of the session with its part `version`. The page builds the
+`ViewPatch` of each `x-air-app/viewChanged` from its ops and the state before them, so its view after the patch is the
+view of the session.
+
+#### Scenario: A renamed branch
+- **WHEN** a change sets `branches/b`, removes `branches/a` and replaces `order`
+- **THEN** the patch of the page has the branch `b`, removes `a`, and its view is the view of the session
+  [@test] src/platform/air/view-mirror.test.ts (`A renamed branch: one change sets branches/b, removes branches/a and replaces order`)
+
+#### Scenario: The news and the nested parts
+- **WHEN** a change replaces the news, the sections, the Patronus view or the facts
+- **THEN** the view of the page after the patch is the view of the session
+  [@test] src/platform/air/view-mirror.test.ts (`The news: the part news of the kept list, of which the page tells those it has not told`, `A change of the parts that hold keyed entries of their own: the sections, the Patronus view and the facts`)
 
 ### Requirement: Contract: The copy of the contract is valid against its schema
 

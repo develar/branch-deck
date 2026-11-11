@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
+import { tauriMockInitScript } from "../setup/tauri-mock-script"
 import { TEST_SERVER_URL } from "./test-server-url"
 
 /** A sub-window the page opened (`open_sub_window`, recorded by the desktop of the test server, `TestDesktop`) */
@@ -147,7 +147,7 @@ export async function openLinkedSubWindow(main: Page, subWindow: OpenedSubWindow
     },
     { label: subWindow.windowId, data: subWindow.data, settings: store, version },
   )
-  await page.addInitScript(tauriMockScript, PAGE_COMMANDS)
+  await page.addInitScript(tauriMockInitScript())
   await observeWindowStages(page)
   await registerWindowBuild(repoId, { label: subWindow.windowId, page: "sub", storeVersion: version, openId: 1 })
   // the routes of the window's own commands (its fetch), before it asks

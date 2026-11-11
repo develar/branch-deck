@@ -1,24 +1,17 @@
+import type { PageCommand } from "@/platform/tauri-page"
+import { channelArgument, commandChannels, commandError, installTauriInternals, PageEvents } from "@/platform/tauri-page"
 /* eslint-disable */
 import commands from "../../../crates/app-api/commands.json" with { type: "json" }
 
-/**
- * A command of app-api as the page mock sends it, an entry of the table of its registry (`crates/app-api/commands.json`,
- * written from `app_api::commands::COMMANDS` by `commands_json_test.rs`): its class, and whether it answers JSON, raw
- * bytes, or tells the page its events on the channel argument `channel` first, which stays open after the answer while
- * `open` (the patches of `subscribe_view`)
- */
-export interface PageCommand {
-  name: string
-  class: "read" | "engine" | "app"
-  transport: "json" | "raw" | { channel: string; open: boolean }
-}
+export type { PageCommand }
 
-/** The commands of app-api, the argument of `tauriMockScript` (`page.addInitScript(tauriMockScript, PAGE_COMMANDS)`) */
+/** The commands of app-api, the argument of `tauriMockScript` (bundled with it by `tauriMockInitScript`) */
 export const PAGE_COMMANDS = commands as PageCommand[]
 
 /**
  * Tauri mock script to be injected into the browser context, with the commands of app-api (`PAGE_COMMANDS`): it proxies
- * every Tauri command to the test server
+ * every Tauri command to the test server. It runs as the bundle of `tauri-mock-script.ts` (`tauriMockInitScript`), with
+ * the internals the page of the IDE installs too (`@/platform/tauri-page`)
  */
 export const tauriMockScript = (pageCommands: PageCommand[]) => {
   // Debug logging function - only logs when debug flag is set via window property
@@ -186,12 +179,7 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
   }
 
   /** The channel of each command that has one, by its name: the argument of the page that gets its events, and `open` */
-  const commandChannels = new Map<string, { channel: string; open: boolean }>()
-  for (const command of pageCommands) {
-    if (typeof command.transport === "object") {
-      commandChannels.set(command.name, command.transport)
-    }
-  }
+  const channelsOfCommands = commandChannels(pageCommands)
 
   // the keys of the channels of a page: the pages of tests that run at once never share one, so each page counts from a
   // random start
@@ -202,7 +190,7 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
    * `execute` and of the diffs), so the server's messages and a test reach its `onmessage`; null without one
    */
   function registerProgressChannel(channel: any): number | null {
-    if (channel === null || typeof channel !== "object" || typeof channel.onmessage !== "function") {
+    if (channel === null) {
       return null
     }
     const channels = ((window as any).__progressChannels ??= {})
@@ -222,8 +210,8 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     // the channel of the command (`commandChannels`) stays in the page: the server sends its messages as SSE events
     // before the answer (`invoke.rs`), a test route by its key (`window.__progressChannels`, `sendProgress` of
     // wait-helpers.ts)
-    const transport = commandChannels.get(cmd)
-    const channel = transport === undefined ? null : payload?.[transport.channel]
+    const transport = channelsOfCommands.get(cmd)
+    const channel = transport === undefined ? null : channelArgument(payload, transport.channel)
     const channelId = registerProgressChannel(channel)
 
     // the window of the page, as the app names the calling window by its webview: the subscriptions and the review
@@ -262,20 +250,6 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
       throw commandError(data.error)
     }
     return data.data
-  }
-
-  /**
-   * The rejection of a failed command: Tauri rejects with its `ApiError`, which the bindings return as
-   * `{ status: "error", error }` (an Error instance they would throw instead), passed through whole: the code the page
-   * branches on, the message, the data of the code, the retry class and the operation that failed (null unless the
-   * server names one). `name` tells the mock's own rejection from a failure of the mock; an answer that is no object is
-   * an `internal` error with its words.
-   */
-  function commandError(error: any): { name: "ApiError" } & Record<string, unknown> {
-    if (typeof error === "object" && error !== null) {
-      return { ...error, name: "ApiError" }
-    }
-    return { name: "ApiError", code: "internal", message: String(error), details: null, retry: "no", operation_id: null }
   }
 
   /**
@@ -338,17 +312,12 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
   // sync-helpers). An event the test names a window for (`tauri://destroyed` of a sub-window) reaches the listeners of
   // any target and those of that window (`target: { label }`); one without a window reaches every listener of its name,
   // as the events of the page's own window (`tauri://focus`, `tauri://resize`) do.
-  const eventListeners = new Map<number, { event: string; label: string | null; handler: (event: any) => void }>()
-  let nextEventId = 1
+  const pageEvents = new PageEvents()
   ;(window as any).__e2eEmitTauriEvent = (event: string, payload: unknown, label: string | null = null) => {
     if (event === "settings_changed") {
       rememberStoreChange(payload as { version: number; key: string; value: unknown })
     }
-    for (const [id, listener] of eventListeners) {
-      if (listener.event === event && (label === null || listener.label === null || listener.label === label)) {
-        listener.handler({ event, id, payload })
-      }
-    }
+    pageEvents.dispatch(event, payload, label)
   }
 
   /** An event this page heard or emitted, which a test reads (`getEmittedEvents`) */
@@ -393,12 +362,8 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     }
   }
 
-  // what `unlisten` of @tauri-apps/api/event calls before it asks the backend: a component that unmounts (a page of
-  // Settings left) stops listening
-  ;(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ ??= { unregisterListener: () => {} }
-
   // how many listeners an event has: a test waits for the page to listen before it fires the event (`waitForTauriListener`)
-  ;(window as any).__e2eTauriListenerCount = (event: string) => [...eventListeners.values()].filter(listener => listener.event === event).length
+  ;(window as any).__e2eTauriListenerCount = (event: string) => pageEvents.count(event)
 
   // the window of the page, for a toolbar that draws the title bar (`__BD_TITLE_BAR__`): a test sets
   // `__e2eWindowState` and fires `tauri://resize`; the actions are recorded in `__e2eWindowCalls`, the minimum size
@@ -435,38 +400,14 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
     return null
   }
 
-  function handleEventCommand(cmd: string, payload: any): any {
-    const [, action] = cmd.split("|")
-
-    switch (action) {
-      case "listen": {
-        const id = nextEventId++
-        if (typeof payload?.handler === "function") {
-          const target = payload.target
-          eventListeners.set(id, { event: payload.event, label: target === undefined || target.kind === "Any" ? null : target.label, handler: payload.handler })
-        }
-        return id
-      }
-
-      case "unlisten":
-        eventListeners.delete(payload?.eventId)
-        return null
-
-      // an event for the windows (a sub-window asks the main window, the main window tells a sub-window): recorded in
-      // `__e2eEmittedEvents`, and sent through the test server to the pages of the repository it goes to, this one
-      // included, as the event plugin of Tauri sends it (`emit_page_event` of host.rs); a page alone is one window
-      case "emit":
-      case "emit_to": {
-        recordEvent(payload?.event, payload?.payload)
-        const target = action === "emit_to" ? (payload?.target?.label ?? null) : null
-        const body = JSON.stringify({ event: payload?.event, payload: payload?.payload ?? null, window: target, source: windowLabel })
-        return fetch(`${serverUrl}/repositories/${repoId}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(() => null)
-      }
-
-      default:
-        throw new Error(`Unimplemented event action: ${action}`)
-    }
-  }
+  // an event for the windows (a sub-window asks the main window, the main window tells a sub-window): recorded in
+  // `__e2eEmittedEvents`, and sent through the test server to the pages of the repository it goes to, this one
+  // included, as the event plugin of Tauri sends it (`emit_page_event` of host.rs); a page alone is one window
+  const handleEventCommand = pageEvents.plugin((event, payload, target) => {
+    recordEvent(event, payload)
+    const body = JSON.stringify({ event, payload, window: target, source: windowLabel })
+    return fetch(`${serverUrl}/repositories/${repoId}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(() => null)
+  })
 
   /**
    * Handle path plugin commands
@@ -527,17 +468,10 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
   }
 
   /**
-   * Main command handler: a plugin of Tauri in the page (`PAGE_PLUGINS`), every command of the app on the test server
+   * A command of the app on the test server; the plugins of Tauri are the page's (`PAGE_PLUGINS`)
    */
   const handleMockCommand = async (cmd: string, payload: any): Promise<any> => {
     debug(`[Test Mock] Handling command: ${cmd}`, payload)
-
-    const prefix = cmd.split("|")[0] as `plugin:${string}`
-    const plugin = cmd.startsWith("plugin:") ? PAGE_PLUGINS[prefix] : undefined
-    if (plugin) {
-      return plugin(cmd, payload)
-    }
-
     try {
       return await proxyToTestServer(cmd, payload)
     } catch (error: any) {
@@ -554,49 +488,8 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
   // The internals that @tauri-apps/api calls: its invoke is the mock's, nothing replaces it. No poll waits for a
   // `mockIPC` of them: a 10 ms interval for the first 5 s of every window ran on the Playwright clock, one real timer
   // per tick, and under load starved the timers a window opened right then waits for (the focus of a dialog, the end
-  // of its exit)
-  if (!(window as any).__TAURI_INTERNALS__) {
-    debug("[Test Mock] Creating Tauri internals structure")
-    ;(window as any).__TAURI_INTERNALS__ = {
-      // transformCallback is what's missing in the error
-      transformCallback: (callback: any, once: boolean) => {
-        debug("[Test Mock] transformCallback called", { callback, once })
-        // If this is a channel's onmessage handler, we need to wrap it
-        if (callback && typeof callback === "function") {
-          return (payload: any) => {
-            // For channel callbacks, we get the raw message
-            if (payload && typeof payload === "object" && "message" in payload) {
-              return callback(payload.message)
-            }
-            return callback(payload)
-          }
-        }
-        return callback
-      },
-      invoke: async (cmd: string, args: any) => {
-        debug("[Test Mock] Direct invoke called", { cmd, args })
-        return handleMockCommand(cmd, args)
-      },
-      metadata: {
-        // `main`, or the label of a linked sub-window (`__e2eWindowLabel`, `openLinkedSubWindow`)
-        currentWindow: {
-          label: windowLabel,
-        },
-        currentWebview: {
-          windowLabel,
-          label: windowLabel,
-        },
-      },
-    }
-
-    // Also override the window.invoke if it exists
-    if ((window as any).invoke) {
-      ;(window as any).invoke = async (cmd: string, args: any) => {
-        debug("[Test Mock] Window invoke intercepted", { cmd, args })
-        return handleMockCommand(cmd, args)
-      }
-    }
-  }
+  // of its exit). The label is `main`, or that of a linked sub-window (`__e2eWindowLabel`, `openLinkedSubWindow`)
+  installTauriInternals(window, { label: windowLabel, invoke: handleMockCommand, plugins: PAGE_PLUGINS })
 
   // Mock window API for pages that use getCurrentWindow
   ;(window as any).__TAURI__ = (window as any).__TAURI__ || {}
