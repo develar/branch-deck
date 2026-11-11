@@ -98,6 +98,21 @@ impl FakeGate {
     self.arrived_times(1).await;
   }
 
+  /// Drives `request` until a request reached the gate, where it is held: for a test of what a caller does while its
+  /// own request waits (a timeout). Such a test stops the clock only after this (`tokio::time::pause`), never from its
+  /// start: a paused clock runs ahead whenever the runtime waits, for the socket of a request on its way too, so
+  /// under load the request times out before it reaches the fake
+  ///
+  /// # Panics
+  /// When `request` ends before it reached the gate
+  pub async fn reached_by<F: Future + Unpin>(&self, request: &mut F) {
+    tokio::select! {
+      biased;
+      () = self.arrived() => {}
+      _ = request => panic!("the request ended before it reached the gate"),
+    }
+  }
+
   /// Resolves once `count` requests reached the gate
   pub async fn arrived_times(&self, count: usize) {
     loop {

@@ -1,4 +1,4 @@
-use crate::client::{YouTrackClient, YouTrackError};
+use crate::client::{REQUEST_TIMEOUT, YouTrackClient, YouTrackError};
 use crate::issue::{apply_command, fetch_issue, fetch_me, set_field_command};
 use domain_types::youtrack::{YouTrackField, YouTrackIssue, YouTrackState, YouTrackUser};
 use github::fake_github::{FakeAnswer, start_fake_server};
@@ -32,13 +32,18 @@ pub(crate) fn state_values() -> serde_json::Value {
 }
 
 /// A read that timed out is not asked again: it already waited all the time a read has (the clock of the test runs ahead
-/// while the answer is held)
-#[tokio::test(start_paused = true)]
+/// while the answer is held, and stops only once the request reached the fake: `FakeGate::reached_by`)
+#[tokio::test]
 async fn an_issue_read_that_timed_out_is_not_asked_again() {
   let (fake, url) = start_fake_server().await;
   fake.answer("GET", "/api/issues/ABC-1", FakeAnswer::ok(open_issue()));
   let held = fake.hold("GET", "/api/issues/ABC-1");
-  let error = fetch_issue(&client(), &url, "perm-secret", "ABC-1").await.unwrap_err();
+  let client = client();
+  let mut read = std::pin::pin!(fetch_issue(&client, &url, "perm-secret", "ABC-1"));
+  held.reached_by(&mut read).await;
+  tokio::time::pause();
+  tokio::time::advance(REQUEST_TIMEOUT).await;
+  let error = read.await.unwrap_err();
   assert!(matches!(error, YouTrackError::Timeout), "{error:?}");
   assert_eq!(held.arrivals(), 1);
 }

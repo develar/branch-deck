@@ -257,16 +257,17 @@ async fn a_write_by_its_status_keeps_the_body_of_the_statuses_asked_for() {
 }
 
 /// A read that timed out is not asked again: it already waited all the time a read has (the clock of the test runs
-/// ahead while the answer is held)
-#[tokio::test(start_paused = true)]
+/// ahead while the answer is held, and stops only once the request reached the fake: `FakeGate::reached_by`)
+#[tokio::test]
 async fn a_get_that_timed_out_is_not_asked_again() {
   let (fake, client) = start_fake().await;
   fake.answer("GET", "/repos/o/r", FakeAnswer::ok(json!({"id": 1})));
   let held = fake.hold("GET", "/repos/o/r");
-  let request = tokio::spawn(async move { client.get::<serde_json::Value>("t", &["repos", "o", "r"], &[]).await });
-  held.arrived().await;
+  let mut request = std::pin::pin!(client.get::<serde_json::Value>("t", &["repos", "o", "r"], &[]));
+  held.reached_by(&mut request).await;
+  tokio::time::pause();
   tokio::time::advance(REQUEST_TIMEOUT).await;
-  let error = request.await.unwrap().unwrap_err();
+  let error = request.await.unwrap_err();
   assert!(matches!(error, GitHubError::Timeout), "{error:?}");
   assert_eq!(held.arrivals(), 1);
 }

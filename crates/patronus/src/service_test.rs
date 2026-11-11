@@ -1,4 +1,4 @@
-use crate::client::{PatronusClient, RobotDto};
+use crate::client::{LIST_TIMEOUT, PatronusClient, RobotDto};
 use crate::fake_patronus::{robot_json, start_fake};
 use crate::service::{PatronusService, robot_profile, to_robot};
 use crate::token::{Token, TokenLookup, TokenStamp};
@@ -236,13 +236,18 @@ async fn background_requests_back_off_after_a_server_failure() {
 }
 
 /// A list that timed out is not asked again, as it already waited all the time a list has, and still backs the background
-/// requests off (the clock of the test runs ahead while the answer is held)
-#[tokio::test(start_paused = true)]
+/// requests off (the clock of the test runs ahead while the answer is held, and stops only once the request reached
+/// the fake: `FakeGate::reached_by`)
+#[tokio::test]
 async fn a_list_that_timed_out_is_not_asked_again_and_backs_off() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   let held = fake.hold("GET", "/app/rest/v1/robots");
-  let failed = service.robots("ultimate", "me", Some(1), true, false).await;
+  let mut list = std::pin::pin!(service.robots("ultimate", "me", Some(1), true, false));
+  held.reached_by(&mut list).await;
+  tokio::time::pause();
+  tokio::time::advance(LIST_TIMEOUT).await;
+  let failed = list.await;
   assert!(matches!(failed.availability, PatronusAvailability::Error { .. }), "{failed:?}");
   assert_eq!(held.arrivals(), 1);
   service.robots("ultimate", "me", Some(1), true, false).await;

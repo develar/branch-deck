@@ -86,6 +86,13 @@ machine.
   disk that hangs, keeps the writer open until the reader took a part of what it writes: `answer_hung_read` of
   `crates/operations/src/journal_test.rs` writes past what a pipe holds, and `during_fast_import` of a wrapped git
   keeps its writer until git read the stream.
+- **A paused clock runs ahead of a socket**: the clock of `#[tokio::test(start_paused = true)]` jumps to the next
+  timer whenever the runtime waits, for the socket of a request on its way too. A test of the timeout of a request to
+  a fake over HTTP that starts paused times the request out before it reaches the fake when the machine is loaded
+  (the wait for its arrival then hangs until nextest kills the test, or its count of arrivals is 0). Such a test
+  starts with the real clock, drives its request until it reached the gate of the fake (`FakeGate::reached_by`),
+  and only then calls `tokio::time::pause()` and `advance`s past the timeout:
+  `a_get_that_timed_out_is_not_asked_again` (`crates/github/src/client_test.rs`), the same of YouTrack and Patronus.
 - **Commit times are the fixture's**: commits that must fall into different seconds, or a rewrite that must have a
   later committer time, get their dates (`create_commit_with_timestamp`, `GIT_COMMITTER_DATE` of the rewrite's git)
   instead of a wait for the clock. Two commits of one author with one subject share a `CommitKey` only within one
