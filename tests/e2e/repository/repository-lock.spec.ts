@@ -12,8 +12,8 @@ import {
   verifyCommitCount,
 } from "../helpers/branch-helpers"
 import { expectPushedToast, remotePushes } from "../helpers/push-helpers"
-import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
-import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { clickContextMenuItem, multiSelectCommit, openContextMenu, openSubmenu, selectCommit } from "../helpers/selection-helpers"
+import { runAndWaitForSync, syncFromMenu, runAndWaitForAnswer, waitForFactsAnswered } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, recordRewrites, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -27,6 +27,8 @@ async function setup(page: Page, setupRepo: (template: string) => Promise<TestRe
   const repo = await setupRepo("issue_split")
   await syncAndWaitForBranches()
   await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+  // the menus a test opens show what the facts of the first sync decided, and keep their items under the pointer
+  await waitForFactsAnswered(page, repo)
   await expandBranch(page, findBranchRow(page, ISSUE))
   return repo
 }
@@ -45,7 +47,7 @@ async function squashTwo(page: Page): Promise<Locator> {
 /** Moves "Add parser" of the issue branch to docs through Move to Existing of its context menu */
 async function moveParserToDocsFromMenu(page: Page): Promise<void> {
   await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
-  await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
+  await openSubmenu(page, "Move to Existing")
   await clickContextMenuItem(page, "docs")
 }
 

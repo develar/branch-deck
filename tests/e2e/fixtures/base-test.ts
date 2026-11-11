@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
 
@@ -97,11 +97,52 @@ export const expect = new Proxy(playwrightExpect, {
   },
 })
 
+type HoverOptions = Parameters<Locator["hover"]>[0]
+type Hover = (this: Locator, options?: HoverOptions) => Promise<void>
+
+/** The `hover` of Playwright's locators, kept by `refuseSubmenuHovers`: the move of `hoverSubmenuTrigger` */
+let plainHover: Hover | null = null
+
+/**
+ * Makes `hover()` of every locator refuse a menu item that opens a submenu (`aria-haspopup="menu"`): the submenu opens
+ * by `openSubmenu` (helpers/selection-helpers.ts), which asserts the open and says when the menu moved the item from
+ * under the pointer before it opened (its items changed as it showed: the facts of the first sync came,
+ * `waitForFactsAnswered`). A hover that opened nothing failed later, on an item of the submenu
+ */
+function refuseSubmenuHovers(page: Page): void {
+  if (plainHover !== null) {
+    return
+  }
+  const prototype = Object.getPrototypeOf(page.locator("html")) as object
+  const hover = Reflect.get(prototype, "hover") as Hover
+  plainHover = hover
+  const refusing: Hover = async function (options) {
+    const opensSubmenu = await this.evaluate(element => element.getAttribute("role") === "menuitem" && element.getAttribute("aria-haspopup") === "menu")
+    if (opensSubmenu) {
+      throw new Error(`${String(this)} opens a submenu: open it with openSubmenu (tests/e2e/helpers/selection-helpers.ts), or move with hoverSubmenuTrigger`)
+    }
+    return hover.call(this, options)
+  }
+  Reflect.set(prototype, "hover", refusing)
+}
+
+/**
+ * The plain `hover()` of a menu item that opens a submenu (`refuseSubmenuHovers`): `openSubmenu`, and a test that moves
+ * onto the item without the open (its delay held by a clock that stands still)
+ */
+export function hoverSubmenuTrigger(trigger: Locator, options?: HoverOptions): Promise<void> {
+  if (plainHover === null) {
+    throw new Error("hoverSubmenuTrigger before the page fixture")
+  }
+  return plainHover.call(trigger, options)
+}
+
 /**
  * Custom test fixture that automatically sets up Tauri mocks
  */
 export const test = base.extend({
   page: async ({ page, context }, use, testInfo) => {
+    refuseSubmenuHovers(page)
     // the console of the pages: every line live with DEBUG_E2E=1; otherwise their errors and uncaught exceptions, attached
     // to a failed test only, because an error-path test makes the app log its expected errors
     const pageErrors: string[] = []

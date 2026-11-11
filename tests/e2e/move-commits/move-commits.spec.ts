@@ -11,11 +11,12 @@ import {
   dropOn,
   multiSelectCommit,
   openContextMenu,
+  openSubmenu,
   selectCommit,
   shiftSelectCommit,
   startDrag,
 } from "../helpers/selection-helpers"
-import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
+import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu, waitForFactsAnswered } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
@@ -28,7 +29,7 @@ const ISSUE = "ABC-123"
 async function moveParserToDocs(page: Page): Promise<void> {
   await expandBranch(page, findBranchRow(page, ISSUE))
   await openContextMenu(page, getBranchCommitRow(page, ISSUE, "Add parser"))
-  await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
+  await openSubmenu(page, "Move to Existing")
   await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
 }
 
@@ -122,6 +123,8 @@ test.describe("Move commits", () => {
     repo = await setupRepo("issue_split")
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, ISSUE), 3)
+    // the menus a test opens show what the facts of the first sync decided, and keep their items under the pointer
+    await waitForFactsAnswered(page, repo)
   })
 
   test("should split commits out of an issue branch into a new branch nested under the issue", async ({ page }) => {

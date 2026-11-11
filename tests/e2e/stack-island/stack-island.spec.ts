@@ -21,7 +21,7 @@ import {
 import { closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { runAndWaitForAnswer, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import { runAndWaitForAnswer, runAndWaitForSync, syncBranches, waitForFactsAnswered } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommandError, waitForStorePersistence, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -500,6 +500,7 @@ test.describe("Stack island", () => {
   }) => {
     const repo = await setupRepo("stack_side_conflict", { patronus: availableRobots() })
     await syncAndWaitForBranches()
+    await waitForFactsAnswered(page, repo)
     await routeCommandError(page, "get_stack_independence", { code: "internal", message: "The trial build failed" })
     const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
     const conflict = /^The stack branch conflicts at [0-9a-f]{8} in config\.js: the stack lands in pieces$/

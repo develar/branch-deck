@@ -61,7 +61,7 @@ import {
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, runAndWaitForAnswer, runAndWaitForSync, syncBranches, syncFromMenu, waitForFactsAnswered } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import type { RewriteCall } from "../helpers/wait-helpers"
@@ -419,12 +419,14 @@ test.describe("Stacked branches", () => {
   })
 
   test("should stack a branch on another one and unstack it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_branches")
+    const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
+    // the Safe Push of docs leaves its menu once Patronus answers: Stack On… would move from under the pointer
+    await waitForFactsAnswered(page, repo)
 
     await openContextMenu(page, findBranchRow(page, "docs"))
     // the submenu lists the other branches
-    await page.getByRole("menuitem", { name: "Stack On…" }).hover()
+    await openSubmenu(page, "Stack On…")
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "oauth"))
     // the toast comes once the sync showed the result
     await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
@@ -478,13 +480,14 @@ test.describe("Stacked branches", () => {
   })
 
   test("should stack an issue branch without a rewrite and undo it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_issues")
+    const repo = await setupRepo("stacked_issues")
     await syncAndWaitForBranches()
     // docs is stacked on ABC-1 by the stack parents, its prefix names no parent
     expect(await branchTree(page)).toEqual(["ABC-2@0", "ABC-1@0", "docs@1"])
+    await waitForFactsAnswered(page, repo)
 
     await openContextMenu(page, findBranchRow(page, "ABC-2"))
-    await page.getByRole("menuitem", { name: "Stack On…" }).hover()
+    await openSubmenu(page, "Stack On…")
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "ABC-1"))
     // no commit moved: the toast names no count
     await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
@@ -498,11 +501,12 @@ test.describe("Stacked branches", () => {
   })
 
   test("should not offer a branch's own descendants to stack on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_branches")
+    const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
+    await waitForFactsAnswered(page, repo)
 
     await openContextMenu(page, findBranchRow(page, "auth"))
-    await page.getByRole("menuitem", { name: "Stack On…" }).hover()
+    await openSubmenu(page, "Stack On…")
     await expect(page.getByRole("menuitem", { name: "docs" })).toBeVisible()
     for (const descendant of ["login", "oauth", "session"]) {
       await expect(page.getByRole("menuitem", { name: descendant, exact: true })).toHaveCount(0)
@@ -1615,10 +1619,11 @@ test.describe("Stacked branches", () => {
         pullRequests: { ...availablePullRequests(), nextNumber: 901 },
       })
       await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
+      await waitForFactsAnswered(page, repo)
 
       // docs below auth, after the Safe Push of oauth took its commit: the robot lands none of docs
       await openContextMenu(page, findBranchRow(page, "auth"))
-      await page.getByRole("menuitem", { name: "Stack On…" }).hover()
+      await openSubmenu(page, "Stack On…")
       await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
       await expect.poll(() => branchTree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
       // auth and login stay held: the robot's commit has their commits, the reason counts them

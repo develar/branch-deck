@@ -9,6 +9,7 @@ import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, availableRobots, failedFas
 import { availablePullRequests, createPullRequestDialog, gitHubRequests, pullRequest, reviewer, unavailablePullRequests } from "../helpers/pull-request-helpers"
 import { hoverStatusChip, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { openSubmenu } from "../helpers/selection-helpers"
 import { oneCommitUnpushedRemote, pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
@@ -133,7 +134,7 @@ async function expectRobotSurfacesWait(page: Page, branch: string, reason: strin
 /** Check Approvals Again of the row's "Patronus ›": GitHub is asked for the pull requests, then Patronus again */
 async function checkApprovalsAgain(page: Page, branch = BRANCH): Promise<void> {
   await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Patronus", exact: true }).hover()
+  await openSubmenu(page, "Patronus")
   await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
   await expectClosed(page.getByRole("menu"))
 }

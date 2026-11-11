@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import type { RepositoryView } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/base-test"
 import { findBranchRow } from "./branch-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "./test-repository"
@@ -282,6 +283,24 @@ async function focusWindowAnswer(page: Page): Promise<unknown> {
   const focusResponse = page.waitForResponse(response => response.url().endsWith("/invoke/set_window_focus") && (response.request().postDataJSON() as { focused: boolean }).focused)
   await emitTauriEvent(page, "tauri://focus")
   return (await focusResponse).json()
+}
+
+/**
+ * Waits until the page holds the view in which the session answered the facts its first sync asked for: no node waits
+ * for a first answer (the permission of Patronus, the route, the pull requests). They come after the run, each in a
+ * patch of every next step, so what the page built before them changes: a row renders again, and a menu that shows
+ * changes under the pointer (the Safe Push item leaves the top of the branch menu, the items below move up a row, and
+ * the item that was under a still pointer hears it leave, which cancels the open of its submenu or tooltip). Never
+ * with an answer held: a node waits for it until its release. A node waits only for the first answer of a fact, so the
+ * view read again after an answered one is answered too
+ */
+export async function waitForFactsAnswered(page: Page, repo: TestRepositoryBuilder): Promise<void> {
+  const answered = async (): Promise<RepositoryView | null> => {
+    const view = await repo.sessionView()
+    return view !== null && view.sync.kind === "idle" && Object.values(view.nextSteps).every(step => !step.node.pending) ? view : null
+  }
+  await expect.poll(async () => (await answered()) !== null, { message: "the session answers the facts of its first sync" }).toBe(true)
+  await waitForViewVersion(page, (await answered())!.version)
 }
 
 /** Waits until the page holds the view of its session at `version` or past it (`data-view-version` of Sync) */

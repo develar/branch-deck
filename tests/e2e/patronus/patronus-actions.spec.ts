@@ -48,7 +48,7 @@ import { clickContextMenuItem, closeMenus, openContextMenu, openSubmenu } from "
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer, syncFromMenu, waitForFactsAnswered } from "../helpers/sync-helpers"
 import type { HeldAnswer, PatronusLog, RemoteCommit, SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, holdIntent, recordCommand, recordRewrites, openTooltip } from "../helpers/wait-helpers"
 
@@ -339,6 +339,7 @@ test.describe("Patronus actions", () => {
 
   test("should run two Safe Pushes and a move started while another process holds the repository lock once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    await waitForFactsAnswered(page, repo)
     const moves = await recordRewrites(page, "move")
     await repo.holdRepositoryLock(true)
     await slotSafePush(page, "JIRA-456").click()
@@ -349,7 +350,7 @@ test.describe("Patronus actions", () => {
     const docs = findBranchRow(page, "feature-docs")
     await expandBranch(page, docs)
     await openContextMenu(page, getBranchCommitRow(page, "feature-docs", "Update documentation"))
-    await page.getByRole("menuitem", { name: "Move to Existing" }).hover()
+    await openSubmenu(page, "Move to Existing")
     await clickContextMenuItem(page, "feature-ui")
     await expect(getMoreButton(docs)).toHaveAttribute("aria-busy", "true")
     expect(moves).toHaveLength(1)

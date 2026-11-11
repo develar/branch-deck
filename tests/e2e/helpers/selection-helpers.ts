@@ -1,5 +1,5 @@
 import type { Page, Locator } from "@playwright/test"
-import { expect } from "../fixtures/base-test"
+import { expect, hoverSubmenuTrigger } from "../fixtures/base-test"
 import { animationsEnded, expectClosed } from "./wait-helpers"
 
 /**
@@ -61,7 +61,10 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
 
 /**
  * Open the submenu `name` of the open menu ("Patronus", "Copy" of the branch menu) as the user does, by hovering its
- * item; resolves once it is open
+ * item; resolves once it is open. The one way a test opens a submenu: `hover()` of its item is refused
+ * (`refuseSubmenuHovers` of fixtures/base-test.ts). A menu whose items still change as it shows (the facts of the first
+ * sync, `waitForFactsAnswered`) moves the item from under the pointer before the delay ran out, and nothing opens: the
+ * error says so
  */
 export async function openSubmenu(page: Page, name: string): Promise<void> {
   const trigger = page.getByRole("menuitem", { name, exact: true })
@@ -71,8 +74,15 @@ export async function openSubmenu(page: Page, name: string): Promise<void> {
   const open = page.getByRole("menu").and(page.locator(":not([data-closed])"))
   await expect(trigger).toBeVisible()
   await animationsEnded(open)
-  await trigger.hover()
-  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+  await hoverSubmenuTrigger(trigger)
+  try {
+    await expect(trigger).toHaveAttribute("aria-expanded", "true")
+  } catch (error) {
+    if (error instanceof Error && !(await trigger.evaluate(element => element.matches(":hover")))) {
+      error.message = `${error.message}\n\nThe menu moved "${name}" from under the pointer before its submenu opened: its items changed as it showed. Anchor on the state the menu shows first (the facts of the first sync: waitForFactsAnswered of tests/e2e/helpers/sync-helpers.ts)`
+    }
+    throw error
+  }
   await animationsEnded(open)
 }
 

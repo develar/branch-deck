@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 // @spec openspec/specs/branch/branch-row/spec.md
+import { hoverSubmenuTrigger } from "../fixtures/base-test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
 import {
@@ -530,7 +531,8 @@ test.describe("Hover back over a trigger whose popup closed", () => {
       await page.getByRole("menuitem", { name: /^Copy Branch Name/ }).click()
       await expect(closed).toBeAttached()
       await openContextMenu(page, docs)
-      await page.getByRole("menuitem", { name: "Copy", exact: true }).hover()
+      // onto Copy without the open its delay holds: the time stands still
+      await hoverSubmenuTrigger(page.getByRole("menuitem", { name: "Copy", exact: true }))
       await goesThenDelayRunsOut(page, closed)
       await expect(submenu.and(page.locator("[data-open]"))).toBeVisible()
     },
