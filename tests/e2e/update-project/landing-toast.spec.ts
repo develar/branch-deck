@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "../fixtures/test-fixtures"
 import { availableRobots, mergeRunningRobot, robot } from "../helpers/patronus-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
-import { emitTauriEvent } from "../helpers/sync-helpers"
+import { emitTauriEvent, nextAnswer, runAndWaitForUpdate } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
 import { holdIntent, recordCommand } from "../helpers/wait-helpers"
@@ -64,7 +64,7 @@ test.describe("The toast of a landing", () => {
     // the update runs: the same toast stays and offers no second one
     await expect(toast.getByRole("button", { name: "Updating…" })).toBeDisabled()
     await expect(toast.locator("[data-slot=toast-title]")).toHaveText("feature-auth merged into master")
-    release()
+    await runAndWaitForUpdate(page, async () => release())
     await expectLandedInPlace(page, toast)
   })
 
@@ -74,7 +74,7 @@ test.describe("The toast of a landing", () => {
     await page.getByTestId("update-project-button").click()
     // a surface of the same update: its Update Project shows it running
     await expect(toast.getByRole("button", { name: "Updating…" })).toBeDisabled()
-    release()
+    await runAndWaitForUpdate(page, async () => release())
     await expectLandedInPlace(page, toast)
     // the header's update archived the branch the robot landed
     await expect(page.getByTestId("landed-card")).toBeVisible()
@@ -98,7 +98,10 @@ test.describe("The toast of a landing", () => {
     await emitTauriEvent(page, "update_project")
     await expect.poll(() => executions.length).toBe(2)
     await expect(toast.getByRole("button", { name: "Fetching…" })).toBeDisabled()
+    // the fetch and the update that went on from it both answer once the lock is free
+    const answered = nextAnswer(page, "execute", 2)
     await repo.holdFetchLock(false)
+    await answered
     await expectLandedInPlace(page, toast)
     expect(executions.map(call => call.intent)).toEqual([{ kind: "fetchBaseline" }, { kind: "updateProject", fetch: true }])
   })

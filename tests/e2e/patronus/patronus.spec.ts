@@ -409,8 +409,8 @@ test.describe("Patronus merge", () => {
     // the second action opens the robot, the toast stays for Update Project
     await toast.getByRole("button", { name: "Open in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual(["https://patronus.labs.jb.gg/robot/running-robot"])
-    await toast.getByRole("button", { name: "Update Project" }).click()
-    await expect.poll(() => updates().length).toBe(1)
+    await runAndWaitForAnswer(page, "execute", () => toast.getByRole("button", { name: "Update Project" }).click())
+    expect(updates()).toHaveLength(1)
     expect(updates()[0]).toMatchObject({ intent: { kind: "updateProject", fetch: true } })
     await expectClosed(toast)
   })

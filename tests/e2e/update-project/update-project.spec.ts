@@ -155,6 +155,8 @@ test.describe("Update Project", () => {
     // bar goes on
     await repo.holdRemoteAnswers({ hold: ["sync"] })
     update.release()
+    // the update applied once its sync asks the remote: the answer of the update itself waits for that sync
+    await repo.arrival("sync")
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(progress).toHaveAttribute("data-step", "sync")
     await expect(button).toHaveAttribute("aria-busy", "true")
@@ -286,7 +288,7 @@ test.describe("Update Project", () => {
 
     // the update ends with its check, the sync the session asks after its fetch is Sync's
     await repo.holdRemoteAnswers({ hold: ["sync"] })
-    update.release()
+    await runAndWaitForUpdate(page, async () => update.release())
     await expect(page.getByText("master is already up to date with origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")
     await expect(updateButton(page)).not.toHaveAttribute("aria-busy")
@@ -304,7 +306,7 @@ test.describe("Update Project", () => {
     await expect(line.getByTestId("update-state-icon")).toBeVisible()
     await expect(line.getByTestId("update-state-icon")).not.toHaveAttribute("data-landing")
 
-    await line.getByTestId("update-state-line-button").click()
+    await runAndWaitForUpdate(page, () => line.getByTestId("update-state-line-button").click())
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
   })
 
@@ -354,7 +356,7 @@ test.describe("Update Project", () => {
   test("should run from the Update Project menu item", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    await emitTauriEvent(page, "update_project")
+    await runAndWaitForUpdate(page, () => emitTauriEvent(page, "update_project"))
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
   })
 

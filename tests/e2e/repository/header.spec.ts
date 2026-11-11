@@ -12,7 +12,7 @@ import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_H
 import { availableRobots } from "../helpers/patronus-helpers"
 import { expectPushedToast } from "../helpers/push-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, runAndWaitForAnswer, waitForSyncComplete } from "../helpers/sync-helpers"
+import { emitTauriEvent, finishedSyncCount, focusWindow, nextAnswer, runAndWaitForAnswer, runAndWaitForUpdate, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { holdCommand, holdIntent, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -41,7 +41,8 @@ test.describe("Header", () => {
     await update.send({ kind: "progress", op: "held", percent: 99, transferred: null, speed: null, line: "Receiving objects:  99% (99/100)" })
     await expect(page.getByTestId("update-project-button")).toHaveText(/^Updating \d+%$/)
     await expectHeaderControlsOnOneLine(page, HEADER_CONTROLS)
-    update.release()
+    // the update is git on a real repository: its end is its answer, however long the machine takes
+    await runAndWaitForUpdate(page, async () => update.release())
     await expect(page.getByTestId("update-project-button")).toHaveText("Update")
   })
 
