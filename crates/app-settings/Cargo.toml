@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 domain-types = { path = "../domain-types" }
+# the watch of the app data directory for the saves of the writer of another process (`watch`)
+notify.workspace = true
 serde_json.workspace = true
 # the writer thread carries the span of the service's opener (`span::in_current_span`); the atomic save of a file
 # (`atomic_file`)

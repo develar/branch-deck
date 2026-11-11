@@ -211,6 +211,7 @@ pub fn run() {
       let app_data_dir = app.path().app_data_dir().unwrap_or_default();
       let settings_service = Arc::new(settings::open_settings(&app_data_dir)?);
       settings::report_save_errors(&settings_service, app.handle().clone());
+      settings::report_external_changes(&settings_service, app.handle().clone());
       let app_settings = settings_service.app();
 
       // the title bar of every window, before the menu: a custom one has no native menu bar on Windows and Linux

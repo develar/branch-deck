@@ -1,7 +1,7 @@
 # Distributed Settings Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-24  
+**Updated:** 2026-11-11  
 **Tags:** [settings, zustand, tauri]
 
 ## Problem
@@ -14,7 +14,9 @@ check of Auto-sync on Focus in the native menu, and `brd` the branch prefix of t
 
 `settings.json` needs one writer. Several writers race and overwrite each other; a write in place (truncate, then
 write) gives a reader a cut file; and a naive "write, then apply the change notification" loop echoes values back and
-rolls the state back to a stale value while several writes are in flight.
+rolls the state back to a stale value while several writes are in flight. Branch Deck in an IDE (`brd mcp`, the
+backend of its views in IntelliJ IDEA) is a second process with a backend of its own on the same app data directory, so
+the files have one writer per process, and neither may drop or miss what the other saved.
 
 ## Solution Overview
 
@@ -24,7 +26,9 @@ change a version and saves the file at most 500 ms after the first unsaved chang
 `src-tauri` opens it on the app data directory in `setup` (`src-tauri/src/settings.rs`). It writes two files there: the
 key `repositoryState`, what each sync, fetch and update records of a repository, in `repository-state.json`, every
 other key in `settings.json`, so the file of the user's settings, which `brd` reads, changes only when the user changes
-a setting or the list of projects.
+a setting or the list of projects. A second process on the directory has a writer of its own: a save merges into the
+file what its process changed, under a lock of the directory, and each writer takes the changes of the other from the
+file into memory and sends them to its windows as changes of its own (decision 11).
 
 Each setting group of the page is a zustand vanilla store created by `createPersistentStore`
 (`src/stores/settings/persistent-store.ts`). It starts synchronously from `window.__TAURI_STORE__`, the writer's copy
@@ -60,6 +64,7 @@ flowchart TD
     Snapshot --> MS
     Snapshot --> SS
     File -.->|read, no write| BD[bd]
+    Other["SettingsService of brd mcp (an IDE)"] <-->|settings.lock: read, merge, rename; watch| File
 ```
 
 ### Data Flow
@@ -171,11 +176,32 @@ sequenceDiagram
     state file is saved before `settings.json` in a pass, so the moved values are on disk before `settings.json` drops
     them. The cached prefix stays in the recent projects: it changes only with the prefix.
 
+11. **Decision**: One writer per process, and the writers of two processes on one directory (the app, `brd mcp` of an
+    IDE) merge by key and by field. A writer remembers what its process changed and has not saved, a key whole (a
+    `Value` patch) or its fields (a `Fields` patch), with the version of each (`Unsaved` of
+    `crates/app-settings/src/merge.rs`). A save takes the lock of the directory (`settings.lock`,
+    `file::lock_directory`), reads the file as it is, puts only those keys and fields on top (`Unsaved::overlay`) and
+    renames that over the file; a missing or broken file is the copy in memory, as before. What the file has beside
+    them is the other process's: the save takes it into memory, and so does a read that the watch of the directory
+    asks for when a file is renamed over (`watch.rs`, `notify`); its own writes are read again too and find nothing
+    new. Each key that differs is a change of its own, with the next version and the origin `other-process`
+    (`OTHER_PROCESS_ORIGIN`): `changes_since` answers it and `on_external_change` tells it on the writer thread, before
+    the flush whose save took it returns, and the app sends it to the windows as `settings_changed`
+    (`report_external_changes` of `src-tauri/src/settings.rs`), so a page takes it by its version as any other.
+    **Rationale**: Each process's windows already go through their own writer, so the writer is the one place that
+    knows what its process changed. A save of the whole copy would drop a change the other process saved after this
+    one loaded, and a key the other removed would come back; the lock makes each read, merge and write one step, so
+    two saves at once lose nothing. A change the other process made to the same field while this one has it unsaved
+    is overwritten by the later save: the last change of a field wins, as it does between two windows. Without a watch
+    (the system refused one) the next save takes the other's changes. The versions stay per process: a page talks only
+    to the writer of its process.
+
 ### Implementation Notes
 
 - Writer: `SettingsService` (`crates/app-settings/src/service.rs`), opened on the app data directory:
   `set(patch, origin)` answers the change at once, `snapshot()` (the keys of both files) and `changes_since(version)`
-  for the windows, `flush()` (a pass of the writer that started after it), `on_save_error`. A file:
+  for the windows, `flush()` (a pass of the writer that started after it), `on_save_error`, `on_external_change` (a
+  change of another process, decision 11; the merge `merge.rs`, the watch `watch.rs`). A file:
   `SettingsFile` (`file.rs`): a tolerant load (a missing or broken file is the defaults, a field of the wrong type its
   default), the stored form, the atomic save. Which window gets which key: `windows.rs`.
 - Backend: `src-tauri/src/settings.rs` opens the writer and builds the settings part of every init script
@@ -240,7 +266,8 @@ Optimizations:
 
 - Types that cross a window or a process: `crates/domain-types/src/settings.rs` (`AppSettings`, `SettingsPatch`,
   `SettingsChange`, `GitBranchPrefix`, `ResolvedBranchPrefix`)
-- Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`
+- Writer: `crates/app-settings/src/service.rs`, `crates/app-settings/src/file.rs`, `crates/app-settings/src/windows.rs`,
+  two processes: `crates/app-settings/src/merge.rs`, `crates/app-settings/src/watch.rs`
 - Branch prefix: `crates/app-settings/src/resolve.rs`, `crates/app-settings/src/branch_prefixes.rs`,
   `crates/app-api/src/context.rs`, `crates/app-api/src/reads/repository.rs`
 - Backend: `src-tauri/src/settings.rs`, `crates/app-api/src/app/settings.rs`, `crates/app-api/src/events.rs`,

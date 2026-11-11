@@ -18,9 +18,21 @@
 //! A `settings.json` of before keeps the fields of `repositoryState` in its recent projects: the load moves them
 //! (`SettingsFile::take_repository_state`) into `repository-state.json`, which is saved within the debounce, and
 //! `settings.json` loses them with its next save, not before.
+//!
+//! Two processes may share the directory, each with its one writer (the app, and `brd mcp` of an IDE beside it), so a
+//! save never writes the copy in memory over the file: under the lock of the directory (`file::lock_directory`) it reads
+//! the file as it is, puts on top only what this process changed and has not saved yet, by key and by field
+//! (`merge::Unsaved`), and renames that over the file; a change of the other process to another key or field stays.
+//! What the file has beside the unsaved changes of this process is the other's change: the save takes it into memory,
+//! and so does a read of the file that its watch asks for (`watch`) when the other process renamed a file over it.
+//! Each such key is a change of its own (the next version, origin `OTHER_PROCESS_ORIGIN`), which `changes_since`
+//! answers and `on_external_change` tells, as `set` answers a change of a window, so the pages take it the same way.
 
-use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile};
+use crate::file::{REPOSITORY_STATE_FILE_NAME, REPOSITORY_STATE_KEY, REPOSITORY_STATE_KEYS, SETTINGS_FILE_NAME, SettingsFile, lock_directory};
+use crate::merge::{Unsaved, changed_keys};
+use crate::watch::{Changed, watch};
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings, SettingsChange, SettingsPatch};
+use notify::RecommendedWatcher;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -28,13 +40,16 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use sync_utils::span::in_current_span;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// How long the writer waits after the first unsaved change before it saves, so a burst of changes is one write
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// The longest delay between two retries of a failed save, unless the debounce is longer
 pub const MAX_RETRY_DELAY: Duration = Duration::from_mins(1);
+
+/// The origin of a change the writer of another process made, which this one read from the file
+pub const OTHER_PROCESS_ORIGIN: &str = "other-process";
 
 /// A save of the settings file that failed
 #[derive(Debug, Clone, thiserror::Error)]
@@ -65,6 +80,8 @@ pub enum SettingsError {
 }
 
 type SaveErrorListener = Arc<dyn Fn(&SaveError) + Send + Sync>;
+
+type ChangeListener = Arc<dyn Fn(&SettingsChange) + Send + Sync>;
 
 /// The version of the last change of a key and who asked for it
 #[derive(Debug, Clone)]
@@ -97,6 +114,44 @@ impl StoreFile {
       Self::RepositoryState => REPOSITORY_STATE_FILE_NAME,
     }
   }
+
+  /// Whether the watch asked to read this file again
+  const fn is_named_by(self, changed: Changed) -> bool {
+    match self {
+      Self::Settings => changed.settings,
+      Self::RepositoryState => changed.repository_state,
+    }
+  }
+
+  /// `content` with only the keys that live in this file
+  fn confined(self, mut content: SettingsFile) -> SettingsFile {
+    match self {
+      Self::Settings => {
+        for key in REPOSITORY_STATE_KEYS {
+          content.other.remove(key);
+        }
+      }
+      Self::RepositoryState => {
+        content.app = AppSettings::default();
+        content.other.retain(|key, _| REPOSITORY_STATE_KEYS.contains(&key.as_str()));
+      }
+    }
+    content
+  }
+
+  /// This file in `directory` as it is now, with only its keys and, for `settings.json`, without the fields of a sync
+  /// that a file of before kept in its recent projects (the load moved them); none when it is missing, an error when it
+  /// can't be read or does not parse
+  fn read(self, directory: &Path) -> std::io::Result<Option<SettingsFile>> {
+    let content = SettingsFile::read(&directory.join(self.name()))?;
+    Ok(content.map(|content| {
+      let mut content = self.confined(content);
+      if self == Self::Settings {
+        content.take_repository_state();
+      }
+      content
+    }))
+  }
 }
 
 /// A file in memory, with the versions of its last change and of its last save
@@ -108,6 +163,8 @@ struct StoredFile {
   changed: Option<u32>,
   /// The version of the last change the last successful save had; none before the first
   saved: Option<u32>,
+  /// What this process changed and no save has taken yet, which a save puts on top of the file as it is
+  unsaved: Unsaved,
 }
 
 impl StoredFile {
@@ -132,6 +189,8 @@ struct State {
   retry_delay: Duration,
   /// A flush waits for a save of every change before it
   flush_requested: bool,
+  /// The files the watch asked to read again
+  reread: Changed,
   /// The passes of the writer that started and that finished: a flush waits for a pass that started after it asked
   passes_started: u64,
   passes_finished: u64,
@@ -159,17 +218,14 @@ impl State {
   /// `settings.json` of before keeps in its recent projects move into `repository-state.json`, where a value of the
   /// same repository wins, being newer, and that file is due for a save
   fn load(directory: &Path) -> Self {
-    let mut settings = SettingsFile::load(&directory.join(SETTINGS_FILE_NAME));
-    for key in REPOSITORY_STATE_KEYS {
-      settings.other.remove(key);
-    }
-    let mut repository_state = SettingsFile::load(&directory.join(REPOSITORY_STATE_FILE_NAME));
-    repository_state.app = AppSettings::default();
-    repository_state.other.retain(|key, _| REPOSITORY_STATE_KEYS.contains(&key.as_str()));
+    let mut settings = StoreFile::Settings.confined(SettingsFile::load(&directory.join(SETTINGS_FILE_NAME)));
+    let mut repository_state = StoreFile::RepositoryState.confined(SettingsFile::load(&directory.join(REPOSITORY_STATE_FILE_NAME)));
 
     let moved = settings.take_repository_state();
     let mut state = Self::default();
     if !moved.is_empty() {
+      // a field of each repository, so the save keeps the repositories another process recorded meanwhile
+      state.repository_state_file.unsaved.record(REPOSITORY_STATE_KEY, Some(moved.keys().cloned().collect()), 0);
       let entries = repository_state.other.entry(REPOSITORY_STATE_KEY).or_insert_with(|| Value::Object(Map::new()));
       if !entries.is_object() {
         *entries = Value::Object(Map::new());
@@ -186,6 +242,38 @@ impl State {
     state.repository_state_file.content = repository_state;
     state
   }
+
+  /// Take `disk`, the file `file` as the other process left it, with the unsaved changes of this process on top, into
+  /// memory: each key that differs is a change of the other process, with the next version. Answers those changes
+  fn take_disk(&mut self, file: StoreFile, disk: SettingsFile) -> Vec<SettingsChange> {
+    let stored = self.file_mut(file);
+    let merged = stored.unsaved.overlay(disk, &stored.content);
+    let keys = changed_keys(&stored.content, &merged);
+    if keys.is_empty() {
+      return Vec::new();
+    }
+    stored.content = merged;
+    keys
+      .into_iter()
+      .map(|key| {
+        self.version += 1;
+        let version = self.version;
+        self.changes.insert(
+          key.clone(),
+          KeyChange {
+            version,
+            origin: OTHER_PROCESS_ORIGIN.to_owned(),
+          },
+        );
+        SettingsChange {
+          version,
+          value: key_value(self, &key),
+          key,
+          origin: OTHER_PROCESS_ORIGIN.to_owned(),
+        }
+      })
+      .collect()
+  }
 }
 
 struct Shared {
@@ -198,6 +286,7 @@ struct Shared {
   /// Wakes a flush: a save finished
   saved: Condvar,
   on_save_error: Mutex<Option<SaveErrorListener>>,
+  on_external_change: Mutex<Option<ChangeListener>>,
 }
 
 impl Shared {
@@ -214,6 +303,8 @@ impl Shared {
 pub struct SettingsService {
   shared: Arc<Shared>,
   writer: Option<JoinHandle<()>>,
+  /// The watch of the directory for the writes of another process; none when the system refused it
+  watcher: Option<RecommendedWatcher>,
 }
 
 impl SettingsService {
@@ -234,6 +325,7 @@ impl SettingsService {
       wake: Condvar::new(),
       saved: Condvar::new(),
       on_save_error: Mutex::new(None),
+      on_external_change: Mutex::new(None),
     });
     let writer_shared = Arc::clone(&shared);
     let writer = std::thread::Builder::new()
@@ -241,7 +333,27 @@ impl SettingsService {
       .spawn(in_current_span(move || write_loop(&writer_shared)))?;
     // values the load moved wait for the debounce, as a change does
     shared.wake.notify_one();
-    Ok(Self { shared, writer: Some(writer) })
+    let woken = Arc::downgrade(&shared);
+    let watcher = watch(&shared.directory, move |changed| {
+      let Some(shared) = woken.upgrade() else {
+        return;
+      };
+      let mut state = shared.lock();
+      state.reread.settings |= changed.settings;
+      state.reread.repository_state |= changed.repository_state;
+      drop(state);
+      shared.wake.notify_one();
+    });
+    if watcher.is_some() {
+      // what another process saved between the load and the start of the watch
+      shared.lock().reread = Changed::BOTH;
+      shared.wake.notify_one();
+    }
+    Ok(Self {
+      shared,
+      writer: Some(writer),
+      watcher,
+    })
   }
 
   /// Apply `patch` from `origin` to the settings in memory and answer the change for the windows; the save of the
@@ -251,10 +363,16 @@ impl SettingsService {
     let mut state = self.shared.lock();
     let key = patch.key().to_owned();
     let file = StoreFile::of(&key);
+    let fields = match &patch {
+      SettingsPatch::Fields { fields, .. } => Some(fields.keys().cloned().collect()),
+      SettingsPatch::Value { .. } => None,
+    };
     let value = apply_patch(&mut state.file_mut(file).content, patch)?;
     state.version += 1;
     let version = state.version;
-    state.file_mut(file).changed = Some(version);
+    let stored = state.file_mut(file);
+    stored.changed = Some(version);
+    stored.unsaved.record(&key, fields, version);
     state.changes.insert(
       key.clone(),
       KeyChange {
@@ -357,11 +475,19 @@ impl SettingsService {
   pub fn on_save_error(&self, listener: impl Fn(&SaveError) + Send + Sync + 'static) {
     *self.shared.on_save_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(listener));
   }
+
+  /// Call `listener` with each change of another process this writer takes from the file (origin
+  /// `OTHER_PROCESS_ORIGIN`), on the writer thread, in the order of their versions, before the flush that took it returns;
+  /// the caller sends it to the windows as it sends the answer of `set`
+  pub fn on_external_change(&self, listener: impl Fn(&SettingsChange) + Send + Sync + 'static) {
+    *self.shared.on_external_change.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(listener));
+  }
 }
 
 impl Drop for SettingsService {
-  /// Save what is unsaved and stop the writer
+  /// Stop the watch, save what is unsaved and stop the writer
   fn drop(&mut self) {
+    drop(self.watcher.take());
     self.shared.lock().shutdown = true;
     self.shared.wake.notify_one();
     if let Some(writer) = self.writer.take()
@@ -372,8 +498,27 @@ impl Drop for SettingsService {
   }
 }
 
-/// The writer thread: wait for a change that is `debounce` old, a flush or the shutdown; save a copy of each changed
-/// file taken under the lock, outside it; record the outcome and wake the flushes
+/// A save the writer makes of a file: the version of its last change, its copy and its unsaved changes as they were
+/// when the pass took them
+struct PendingSave {
+  file: StoreFile,
+  changed: Option<u32>,
+  content: SettingsFile,
+  unsaved: Unsaved,
+}
+
+/// What a save of a file did: its outcome, and the file as it is on disk after it, when the save knows
+struct SaveOutcome {
+  file: StoreFile,
+  changed: Option<u32>,
+  result: std::io::Result<()>,
+  disk: Option<SettingsFile>,
+}
+
+/// The writer thread: wait for a change that is `debounce` old, a flush, the shutdown or a read the watch asked for;
+/// save each changed file (its copy taken under the lock, merged into the file under the lock of the directory, outside
+/// the lock of the memory) and read each file the watch named; take what another process changed into memory, record
+/// the outcome, tell the changes of the other process and wake the flushes
 fn write_loop(shared: &Shared) {
   let mut state = shared.lock();
   loop {
@@ -382,7 +527,8 @@ fn write_loop(shared: &Shared) {
       (changed, retry) => changed.or(retry),
     };
     let write_now = state.flush_requested || (state.shutdown && due.is_some()) || due.is_some_and(|due| due <= Instant::now());
-    if !write_now {
+    let reread = std::mem::take(&mut state.reread);
+    if !write_now && reread == Changed::default() {
       if state.shutdown {
         return;
       }
@@ -399,73 +545,152 @@ fn write_loop(shared: &Shared) {
       continue;
     }
 
-    state.passes_started += 1;
-    state.dirty_since = None;
-    state.retry_at = None;
-    state.flush_requested = false;
-    #[expect(clippy::needless_collect, reason = "the copies are taken under the lock, the saves run outside it")]
-    let unsaved: Vec<(StoreFile, Option<u32>, SettingsFile)> = StoreFile::SAVE_ORDER
-      .into_iter()
-      .filter(|&file| state.file(file).is_unsaved())
-      .map(|file| (file, state.file(file).changed, state.file(file).content.clone()))
-      .collect();
+    // a pass that only reads is no pass a flush waits for, and leaves the debounce of the changes as it is
+    let mut saves = Vec::new();
+    if write_now {
+      state.passes_started += 1;
+      state.dirty_since = None;
+      state.retry_at = None;
+      state.flush_requested = false;
+      saves.extend(StoreFile::SAVE_ORDER.into_iter().filter(|&file| state.file(file).is_unsaved()).map(|file| {
+        let stored = state.file(file);
+        PendingSave {
+          file,
+          changed: stored.changed,
+          content: stored.content.clone(),
+          unsaved: stored.unsaved.clone(),
+        }
+      }));
+    }
     drop(state);
 
-    let results: Vec<(StoreFile, Option<u32>, std::io::Result<()>)> = unsaved
+    let outcomes = save_files(shared, saves);
+    // a file the pass saved is known as it is on disk now
+    let read: Vec<(StoreFile, Option<SettingsFile>)> = StoreFile::SAVE_ORDER
       .into_iter()
-      .map(|(file, changed, content)| (file, changed, content.save(&shared.path_of(file))))
+      .filter(|&file| file.is_named_by(reread) && !outcomes.iter().any(|outcome| outcome.file == file))
+      .map(|file| (file, read_file(shared, file)))
       .collect();
 
     state = shared.lock();
     let mut failure = None;
-    for (file, changed, result) in results {
-      match result {
+    let mut taken = Vec::new();
+    for outcome in outcomes {
+      match outcome.result {
         Ok(()) => {
-          let stored = state.file_mut(file);
-          stored.saved = stored.saved.max(changed);
+          let stored = state.file_mut(outcome.file);
+          stored.saved = stored.saved.max(outcome.changed);
+          if let Some(changed) = outcome.changed {
+            stored.unsaved.forget_saved(changed);
+          }
         }
         Err(error) => {
           let error = SaveError {
-            path: shared.path_of(file),
+            path: shared.path_of(outcome.file),
             error: Arc::new(error),
           };
-          warn!(%error, version = changed, "the settings stay in memory until a save succeeds");
+          warn!(%error, version = outcome.changed, "the settings stay in memory until a save succeeds");
           failure.get_or_insert(error);
         }
       }
+      taken.extend(outcome.disk.map(|disk| (outcome.file, disk)));
     }
-    let report = match failure {
-      None => {
-        state.last_error = None;
-        None
-      }
-      Some(error) => {
-        let first_of_streak = state.last_error.replace(error.clone()).is_none();
-        // a transient failure (a handle of an indexer on Windows) must not wait for a change that may never come; the
-        // last pass of a shutdown gives up
-        if !state.shutdown {
-          state.retry_delay = if first_of_streak {
-            shared.debounce
-          } else {
-            (state.retry_delay * 2).min(MAX_RETRY_DELAY.max(shared.debounce))
-          };
-          state.retry_at = Some(Instant::now() + state.retry_delay);
-        }
-        first_of_streak.then_some(error)
-      }
-    };
-    // the report goes out before the pass ends, so a `flush` that waits for this pass returns after it
-    if let Some(error) = report {
+    taken.extend(read.into_iter().filter_map(|(file, disk)| disk.map(|disk| (file, disk))));
+    let external: Vec<SettingsChange> = taken.into_iter().flat_map(|(file, disk)| state.take_disk(file, disk)).collect();
+
+    let report = if write_now { record_failure(shared, &mut state, failure) } else { None };
+    // the reports go out before the pass ends, so a `flush` that waits for this pass returns after them
+    if report.is_some() || !external.is_empty() {
       drop(state);
-      let listener = shared.on_save_error.lock().unwrap_or_else(PoisonError::into_inner).clone();
+      if let Some(error) = report {
+        let listener = shared.on_save_error.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(listener) = listener {
+          listener(&error);
+        }
+      }
+      let listener = shared.on_external_change.lock().unwrap_or_else(PoisonError::into_inner).clone();
       if let Some(listener) = listener {
-        listener(&error);
+        for change in &external {
+          listener(change);
+        }
       }
       state = shared.lock();
     }
-    state.passes_finished += 1;
-    shared.saved.notify_all();
+    if write_now {
+      state.passes_finished += 1;
+      shared.saved.notify_all();
+    }
   }
+}
+
+/// Record the failure of a pass that saved, or the end of a streak of failures, and schedule the retry; answers the
+/// error to report, the first of a streak
+fn record_failure(shared: &Shared, state: &mut State, failure: Option<SaveError>) -> Option<SaveError> {
+  let Some(error) = failure else {
+    state.last_error = None;
+    return None;
+  };
+  let first_of_streak = state.last_error.replace(error.clone()).is_none();
+  // a transient failure (a handle of an indexer on Windows) must not wait for a change that may never come; the last
+  // pass of a shutdown gives up
+  if !state.shutdown {
+    state.retry_delay = if first_of_streak {
+      shared.debounce
+    } else {
+      (state.retry_delay * 2).min(MAX_RETRY_DELAY.max(shared.debounce))
+    };
+    state.retry_at = Some(Instant::now() + state.retry_delay);
+  }
+  first_of_streak.then_some(error)
+}
+
+/// Save each of `saves` under the lock of the directory, which the writer of another process takes too: read the file
+/// as it is (a missing or broken one is the copy in memory), put the unsaved changes of this process on top and rename
+/// that over the file. A failure of the lock fails every save
+fn save_files(shared: &Shared, saves: Vec<PendingSave>) -> Vec<SaveOutcome> {
+  if saves.is_empty() {
+    return Vec::new();
+  }
+  let lock = lock_directory(&shared.directory);
+  saves
+    .into_iter()
+    .map(|save| {
+      let PendingSave { file, changed, content, unsaved } = save;
+      if let Err(error) = &lock {
+        let lock_path = shared.directory.join(crate::file::LOCK_FILE_NAME);
+        let error = std::io::Error::new(error.kind(), format!("cannot lock {}: {error}", lock_path.display()));
+        return SaveOutcome {
+          file,
+          changed,
+          result: Err(error),
+          disk: None,
+        };
+      }
+      let base = file.read(&shared.directory).unwrap_or_else(|error| {
+        warn!(file = %shared.path_of(file).display(), %error, "the file is written again from memory");
+        None
+      });
+      let merged = match base {
+        Some(base) => unsaved.overlay(base, &content),
+        None => content,
+      };
+      let (result, disk) = match merged.save(&shared.path_of(file)) {
+        Ok(()) => (Ok(()), Some(merged)),
+        Err(error) => (Err(error), None),
+      };
+      SaveOutcome { file, changed, result, disk }
+    })
+    .collect()
+}
+
+/// The file `file` as the watch found it changed; none when it is missing or can't be read, which takes nothing into
+/// memory
+fn read_file(shared: &Shared, file: StoreFile) -> Option<SettingsFile> {
+  file
+    .read(&shared.directory)
+    .inspect_err(|error| debug!(file = %shared.path_of(file).display(), %error, "the changed settings file is not read"))
+    .ok()
+    .flatten()
 }
 
 /// Apply `patch` to `file` and answer the whole value of its key after it; on an error `file` is unchanged

@@ -11,10 +11,12 @@
 //!   applied;
 //! - the keys only the main window keeps (`app_settings::windows::MAIN_ONLY_KEYS`) go only to the main window, and no
 //!   sub-window starts with them;
-//! - a save that fails reaches the main window as `settings_save_failed`, which says so.
+//! - a save that fails reaches the main window as `settings_save_failed`, which says so;
+//! - a change the writer of another process (`brd mcp` of an IDE) saved in the same files reaches the windows as a
+//!   `settings_changed` of its own (`SettingsService::on_external_change`), as a change of a window does.
 
 use crate::api::TauriEvents;
-use app_api::events::settings_save_failed;
+use app_api::events::{settings_changed, settings_save_failed};
 use app_settings::service::SettingsService;
 use std::path::Path;
 use tauri::AppHandle;
@@ -28,4 +30,10 @@ pub fn open_settings(app_data_dir: &Path) -> std::io::Result<SettingsService> {
 pub fn report_save_errors(service: &SettingsService, app: AppHandle) {
   let events = TauriEvents(app);
   service.on_save_error(move |error| settings_save_failed(&events, error.to_string()));
+}
+
+/// Send every window that gets its key each change the writer of another process saved (`SettingsService::on_external_change`)
+pub fn report_external_changes(service: &SettingsService, app: AppHandle) {
+  let events = TauriEvents(app);
+  service.on_external_change(move |change| settings_changed(&events, change));
 }

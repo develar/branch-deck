@@ -5,7 +5,9 @@
 //! missing file is the defaults, a file that does not parse is the defaults with a warning, a field of the wrong type
 //! is its default. A save writes the stored form (only the fields that differ from their defaults, decision 5 of
 //! `docs/design/distributed-settings.md`) to a temporary file beside it and renames it over the file
-//! (`sync_utils::atomic_file`), so a reader never sees a cut file and never fails the save.
+//! (`sync_utils::atomic_file`), so a reader never sees a cut file and never fails the save. The writers of the processes
+//! that share the directory (the app, `brd mcp` of an IDE) take turns at `settings.lock` beside the files
+//! (`lock_directory`), so each one's read, merge and write of a file is one step.
 
 use domain_types::settings::{APP_SETTINGS_KEY, AppSettings};
 use serde_json::{Map, Value};
@@ -19,6 +21,10 @@ pub const SETTINGS_FILE_NAME: &str = "settings.json";
 
 /// The name of the file beside `settings.json` that keeps `repositoryState` (`REPOSITORY_STATE_KEY`)
 pub const REPOSITORY_STATE_FILE_NAME: &str = "repository-state.json";
+
+/// The name of the lock file beside the settings files: a writer holds it while it reads, merges and writes them
+/// (`lock_directory`); it is never removed
+pub const LOCK_FILE_NAME: &str = "settings.lock";
 
 /// The key of what the syncs and the updates record of each repository, by its path, in `repository-state.json`
 pub const REPOSITORY_STATE_KEY: &str = "repositoryState";
@@ -75,16 +81,24 @@ impl SettingsFile {
   /// not parse
   #[must_use]
   pub fn load(path: &Path) -> Self {
-    match std::fs::read_to_string(path) {
-      Ok(text) => Self::parse(&text).unwrap_or_else(|error| {
-        warn!(file = %path.display(), %error, "the settings file does not parse, using the defaults");
-        Self::default()
-      }),
-      Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self::default(),
-      Err(error) => {
+    Self::read(path).map_or_else(
+      |error| {
         warn!(file = %path.display(), %error, "cannot read the settings file, using the defaults");
         Self::default()
-      }
+      },
+      Option::unwrap_or_default,
+    )
+  }
+
+  /// The settings of `path` as the file is now: none when it is missing, an error when it can't be read or does not
+  /// parse (`ErrorKind::InvalidData`), so a writer that merges into the file tells a missing file from an empty one
+  pub fn read(path: &Path) -> std::io::Result<Option<Self>> {
+    match std::fs::read_to_string(path) {
+      Ok(text) => Self::parse(&text)
+        .map(Some)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("the settings file does not parse: {error}"))),
+      Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+      Err(error) => Err(error),
     }
   }
 
@@ -161,6 +175,16 @@ impl SettingsFile {
     text.push(b'\n');
     write_atomically(path, &text, AtomicWrite { private: true, durable: true })
   }
+}
+
+/// Hold the lock of the settings files of `directory` (`LOCK_FILE_NAME`, created with the directory when missing) until
+/// the answered file is dropped: a writer of another process that shares the directory waits for it. The writers hold it
+/// only while they read, merge and write a file, which takes a moment
+pub fn lock_directory(directory: &Path) -> std::io::Result<std::fs::File> {
+  std::fs::create_dir_all(directory)?;
+  let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(directory.join(LOCK_FILE_NAME))?;
+  file.lock()?;
+  Ok(file)
 }
 
 const fn json_kind(value: &Value) -> &'static str {

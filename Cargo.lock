@@ -212,6 +212,7 @@ name = "app-settings"
 version = "0.1.0"
 dependencies = [
  "domain-types",
+ "notify",
  "pretty_assertions",
  "serde_json",
  "sync-utils",
