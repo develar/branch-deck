@@ -336,7 +336,8 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN
 }
 
-type ScenarioResult = Record<"open" | "expand" | "still" | "scroll3" | "scroll20", Record<string, number>>
+/** `openFastest`: the open of the run with the least highlighted time, the nearest of the runs to a quiet machine; the others are medians */
+type ScenarioResult = Record<"open" | "openFastest" | "expand" | "still" | "scroll3" | "scroll20", Record<string, number>>
 
 async function measure(page: Page, files: SyntheticFile[], expandPath: string, layout: Layout): Promise<ScenarioResult> {
   const opened = await openReviewData(page)
@@ -351,6 +352,13 @@ async function measure(page: Page, files: SyntheticFile[], expandPath: string, l
     result[phase] = Object.fromEntries(keys.map(key => [key, Math.round(median(runs.map(run => run[phase][key] ?? Number.NaN)))]))
     result[phase].bytesToWorker = bytes[phase].bytesToWorker ?? 0
     result[phase].bytesFromWorker = bytes[phase].bytesFromWorker ?? 0
+  }
+  // the load of the machine only adds time: beside the medians, the open of the fastest run
+  const fastest = runs.toSorted((a, b) => (a.open.highlightedMs ?? Number.NaN) - (b.open.highlightedMs ?? Number.NaN))[0]!.open
+  result.openFastest = {
+    readyMs: Math.round(fastest.readyMs ?? Number.NaN),
+    firstRowsMs: Math.round(fastest.firstRowsMs ?? Number.NaN),
+    highlightedMs: Math.round(fastest.highlightedMs ?? Number.NaN),
   }
   for (const phase of ["still", "scroll3", "scroll20"] as const) {
     const keys = Object.keys(runs[0]![phase])

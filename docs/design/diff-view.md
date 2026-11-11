@@ -965,27 +965,29 @@ task, apart from this renderer: in WebKit it is 322 ms of the 412 ms of the 200 
 The fork did not finish the open of the 200 files in WebKit: the benchmark stopped it after its 20 minutes.
 
 **Inline, the default (2026-11-11).** The benchmark runs each commit in Inline, with nothing stored, and in Split.
-WebKit, the medians of 3 runs, on the developer Mac at a load of 45 to 55, where the table above had about 30:
+WebKit, the medians of 7 runs on the developer Mac while it was quiet (a load of 3 as the runs began, 14 as they
+ended, the benchmark's own among it), where the table above had about 30:
 
 | scenario | metric | Inline | Split | target |
 |---|---|---|---|---|
-| 200 files, open | ready | 150 ms | 191 ms | — |
-| 200 files, open | first rows after ready | 252 ms | 306 ms | ≤ 350 ms |
-| 200 files, open | highlighted | 490 ms | 591 ms | ≤ 450 ms |
-| 10k lines, open | first rows | 282 ms | 272 ms | ≤ 300 ms |
-| 10k lines, open | highlighted | 317 ms | 310 ms | ≤ 400 ms |
-| 200 files, expand a fold | highlighted | 95 ms | 108 ms | in the same frame |
-| scroll, 20 viewports/s | a scroll event with its layout, p95 (200 files, 10k lines) | 3, 3 ms | 5, 4 ms | ≤ 4 ms |
+| 200 files, open | ready | 145 ms | 142 ms | — |
+| 200 files, open | first rows after ready | 239 ms | 245 ms | ≤ 350 ms |
+| 200 files, open | highlighted | 444 ms | 466 ms | ≤ 450 ms |
+| 200 files, open | highlighted, the fastest run | 433 ms | 449 ms | ≤ 450 ms |
+| 10k lines, open | first rows | 217 ms | 226 ms | ≤ 300 ms |
+| 10k lines, open | highlighted | 248 ms | 339 ms | ≤ 400 ms |
+| 200 files, expand a fold | highlighted | 71 ms | 91 ms | in the same frame |
+| scroll, 20 viewports/s | a scroll event with its layout, p95 (200 files, 10k lines) | 3, 3 ms | 4, 4 ms | ≤ 4 ms |
 | scroll | frames with an empty row | 0 | 0 | 0 |
 | any | DOM nodes of the view (200 files, 10k lines) | 697, 646 | 1075, 1045 | ≤ 4,000 |
 | any | long tasks after the first rows | none | none | none over 50 ms |
 
-Inline is within the targets but for the highlighted time of the 200 files, 40 ms past it at that load as the 452 ms
-of the table above were 2 ms past it at a lower one, and 100 ms less than Split in the same run. A row of Inline has
-one code cell where Split has two, so the view holds a third fewer nodes and a scroll event is shorter. The same
-benchmark on the Mac Studio beside the runs of other sessions (a load of 40 to 90), against the commit before the
-change, where it ran in Split: the first rows of the 200 files 398 and 414 ms after ready in Inline against 441 ms,
-those of the 10,000 lines 378 and 437 ms against 628 ms, the scroll event 5 and 4 ms against 9 and 7 ms.
+Inline is within every target, and no slower than Split in any metric. A row of Inline has one code cell where Split
+has two, so the view holds a third fewer nodes, and the open of the 10,000 lines is highlighted 90 ms sooner. The
+highlighted time of the 200 files is the one metric near its target, and it is the one that rises with the load of
+the machine: 472 ms at a load of 25 and 490 ms at 45 to 55 (Split 582 and 591 ms in those runs), 759 ms on the Mac
+Studio at a load of 35 beside the runs of other sessions (Split 830 ms). So that number is read on a quiet machine,
+or against the Split of the same run: a time over the target under load says nothing of the renderer.
 
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized
@@ -1001,7 +1003,9 @@ production build of the e2e setup, over two synthetic commits (`tests/perf/diff-
 with nothing stored, so it follows the default and the targets gate the layout a user gets, and in Split, stored
 (the rows "…, Split" of its table); a run asserts the layout its numbers are of. Routed answers of `get_commit_files`, `get_file_diffs` and
 `get_blob_texts` give the diffs of the engine and the texts. `--project=chromium` and `--project=webkit` run one
-engine; `PERF_RUNS` sets the runs (3). The medians go to stdout and to `tests/results/perf/diff-review-<project>.json`.
+engine; `PERF_RUNS` sets the runs (3). The medians go to stdout and to `tests/results/perf/diff-review-<project>.json`,
+and beside them the open of the fastest run (`openFastest`): the load of the machine only adds time, so under load the
+fastest run is the nearest to a quiet machine.
 
 - **The clock.** An open is timed from the request of the opener (`__SUB_WINDOW_OPEN__.openedAt`). A review window
   can be reused or made before its open, so the clock of the page does not start with the open. The first numbers of
