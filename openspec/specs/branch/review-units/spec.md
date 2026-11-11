@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - crates/review-plan/src/units.rs
   - crates/review-plan/src/pair.rs
+  - crates/review-plan/src/whitespace.rs
   - crates/trial-check/src/declaration_checks.rs
   - crates/file-diffs/src/service.rs
   - crates/bd-rewrite/src/review_plan_command.rs
@@ -113,9 +114,9 @@ Every block of every file of the pair MUST be in exactly one unit, and every fil
 ### Requirement: Units: A block goes to the first unit it fits
 
 A block MUST go to the repeated edit of its file's group when the block is that edit; else to the imports when its
-changed lines are each of an import statement or blank, one at least; else to the whitespace when its text without
-whitespace is the same on both sides, in a file where the indentation has no meaning; else to the declaration that
-holds most of its changed lines; else to the change outside any declaration, one unit per run of such blocks.
+changed lines are each of an import statement or blank, one at least; else to the whitespace when it changes
+whitespace alone, in a file of a grammar its lines equal by tokens; else to the declaration that holds most of its
+changed lines; else to the change outside any declaration, one unit per run of such blocks.
 
 #### Scenario: A block that is the repeated edit
 - **WHEN** a block is the repeated edit of its file's group
@@ -129,10 +130,11 @@ holds most of its changed lines; else to the change outside any declaration, one
   [@test] crates/review-plan/src/units_test.rs (`each_change_of_a_file_is_one_unit_and_every_block_is_in_one`)
 
 #### Scenario: A block of whitespace alone
-- **WHEN** a block is neither of those and its text without whitespace is the same on both sides, in a file where the
-  indentation has no meaning
+- **WHEN** a block is neither of those and changes whitespace alone ([Review Plan](../review-plan/spec.md#requirement-mechanical-changes-whitespace-is-told-by-the-tokens-of-a-grammar)):
+  its lines are equal by tokens, as those of a call wrapped inside its brackets
 - **THEN** it goes to the whitespace
-  [@test] crates/review-plan/src/units_test.rs (`a_repeated_edit_and_the_whitespace_are_one_unit_each_over_their_files`)
+- **AND** a block that changes the spaces inside a string does not
+  [@test] crates/review-plan/src/units_test.rs (`a_repeated_edit_and_the_whitespace_are_one_unit_each_over_their_files`, `a_block_of_whitespace_is_told_by_its_tokens`)
 
 #### Scenario: A block inside declarations
 - **WHEN** a block is none of those and declarations hold its changed lines
@@ -147,13 +149,21 @@ holds most of its changed lines; else to the change outside any declaration, one
 ### Requirement: Units: The declarations of a file are its spanned declarations
 
 The declarations of a file MUST be those of its summary that are no `Binding`, none the parser may have misread
-(`in_error`) and none inside a function or a value (a local): `spanned_declarations`.
+(`in_error`) and none inside a function or a value (a local): `spanned_declarations`. Their lines and those of the
+import statements, which a summary counts as git does, MUST be read as lines of the diffs, which the blocks name: a
+lone `\r` ends a line there too.
 
 #### Scenario: A binding, a misread declaration and a local
 - **GIVEN** a summary with a `Binding`, a declaration the parser may have misread (`in_error`) and a declaration inside
   a function or a value (a local)
 - **WHEN** the declarations of the file are read (`spanned_declarations`)
 - **THEN** none of the three is a declaration of the file
+
+#### Scenario: A block below a lone carriage return
+- **GIVEN** a file with a lone `\r` above its declarations
+- **WHEN** a block changes the code of a declaration below it, and another wraps a call of a declaration
+- **THEN** the first goes to its declaration, a change of its behaviour, and the second to the whitespace
+  [@test] crates/review-plan/src/units_test.rs (`a_block_below_a_lone_carriage_return_goes_to_the_declaration_of_its_lines`)
 
 ### Requirement: Units: A file without a full summary is one unit other
 
@@ -177,9 +187,10 @@ in order.
 
 ### Requirement: Units: A pair is shape, behaviour or whitespace
 
-A pair whose form differs MUST be `shape`, with the parts that changed; one whose form is the same and whose text
-without whitespace is not MUST be `behaviour`; one whose text is the same too is whitespace, and its blocks MUST go to
-the unit of whitespace.
+A pair whose form differs MUST be `shape`, with the parts that changed; one whose form is the same and whose lines
+differ by more than whitespace MUST be `behaviour`; one whose lines are equal by tokens too is whitespace, and its
+blocks MUST go to the unit of whitespace. The lines of a pair MUST be those of the declaration and of every block of
+its unit, from the first to the last on each side: a block may reach past the declaration that holds most of it.
 
 #### Scenario: A change of a form and a change of a body
 - **WHEN** the form of a paired declaration differs, and of another only its body changed
@@ -187,9 +198,19 @@ the unit of whitespace.
 - **AND** the second is `behaviour`
   [@test] crates/review-plan/src/units_test.rs (`each_change_of_a_file_is_one_unit_and_every_block_is_in_one`)
 
-#### Scenario: A pair whose text is the same without whitespace
-- **WHEN** the form and the text without whitespace of a paired declaration are the same
+#### Scenario: A pair whose lines are equal by tokens
+- **WHEN** the form of a paired declaration is the same and its lines are equal by tokens
 - **THEN** it is whitespace, and its blocks go to the unit of whitespace
+
+#### Scenario: A space inside a string of a body
+- **WHEN** the body of a paired declaration differs only by the spaces inside a string
+- **THEN** it is `behaviour`
+  [@test] crates/review-plan/src/units_test.rs (`a_block_of_whitespace_is_told_by_its_tokens`)
+
+#### Scenario: A block that reaches past its declaration
+- **WHEN** a block joins the two lines of a declaration and changes the comment after it, and the lines of the declaration alone are equal by tokens
+- **THEN** the declaration is `behaviour`: the lines of its block are not
+  [@test] crates/review-plan/src/units_test.rs (`a_declaration_is_whitespace_only_with_every_line_of_its_blocks`)
 
 ### Requirement: Units: A declaration of one side alone is added or removed
 
@@ -385,9 +406,10 @@ or module), after the commits, before them for a removal.
 
 ### Requirement: Identity: The fingerprint names the change across plans
 
-`fingerprint` MUST name the change across plans: of a declaration a digest of its key, its signature and its text
-without whitespace on both sides; of the blocks of a slice their file and their text without whitespace; of a file
-taken whole its path and blobs; of a group the set of the fingerprints of its slices.
+`fingerprint` MUST name the change across plans: of a declaration a digest of its key, its signature and the content
+of its tokens on both sides ([Equal by Tokens](../../commit/equal-by-tokens/spec.md)); of the blocks of a slice
+their file and the content of their tokens; of a file taken whole its path and blobs; of a group the set of the
+fingerprints of its slices. A side without tokens MUST be read by its text without whitespace.
 
 #### Scenario: The same change on another base, and another change
 - **GIVEN** a change of the body of a declaration
@@ -398,9 +420,16 @@ taken whole its path and blobs; of a group the set of the fingerprints of its sl
 
 #### Scenario: A slice, a file taken whole and a group
 - **WHEN** a unit is of the blocks of a slice, of a file taken whole, or a group
-- **THEN** the fingerprint of the blocks of a slice is of their file and their text without whitespace
+- **THEN** the fingerprint of the blocks of a slice is of their file and the content of their tokens
 - **AND** that of a file taken whole of its path and blobs
 - **AND** that of a group of the set of the fingerprints of its slices
+
+#### Scenario: The same change with other whitespace
+- **WHEN** the same change of a body is written with other whitespace: wrapped, indented again
+- **THEN** its unit has the same `fingerprint`
+- **AND** so has the same change of a function that is the last of its file: the content is the texts of the tokens and the tree between them
+- **AND** a change that differs by the spaces inside a string, or by a line break that ends a statement, has another one
+  [@test] crates/review-plan/src/units_test.rs (`the_fingerprint_is_the_same_after_a_change_of_whitespace_alone`)
 
 ### Requirement: Identity: A digest is the first 16 bytes of a SHA-256
 
@@ -422,12 +451,12 @@ MUST NOT change with it.
 
 ### Requirement: In `brd`: `brd review-plan` prints the units
 
-`brd review-plan` MUST print `units` (`"schema": 31`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
+`brd review-plan` MUST print `units` (`"schema": 32`): per unit its `id`, `kind`, `name`, `key`, `signature`, `api`,
 `test`, `line`, its `slices` and its `fingerprint`.
 
 #### Scenario: The units of a range
 - **WHEN** `brd review-plan` runs on a range
-- **THEN** it prints `units` (`"schema": 31`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
+- **THEN** it prints `units` (`"schema": 32`), per unit its `id`, `kind`, `name`, `key`, `signature`, `api`, `test`,
   `line`, its `slices` and its `fingerprint`
 - **AND** `kind` is `shape` with `changes`, `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles`
   with `directory`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, or `other` with `reason`

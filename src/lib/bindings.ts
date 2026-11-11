@@ -9634,7 +9634,7 @@ export type UnitSlice = {
 	whole: boolean,
 	/**  Its blocks, in order: every block of the file for `whole`; none for a declaration whose block another unit holds */
 	blocks: UnitBlock[],
-	/**  The change this slice makes, by its text without whitespace or its blobs (`units`, "Identity") */
+	/**  The change this slice makes, by the content of its tokens or its blobs (`units`, "Identity") */
 	fingerprint: string,
 };
 

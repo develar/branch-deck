@@ -1,0 +1,33 @@
+import org.gradle.api.tasks.testing.Test @2
+Value ktorVersion in - Public TopLevel 9-9 @9 `val ktorVersion`
+Value isCi in - Public TopLevel 10-10 @10 `val isCi`
+Function configureLogging in - Public TopLevel 27-32 @27 receiver Test (showStreams: Boolean) `fun Test . configureLogging`
+@2 ^org.gradle.api.tasks.testing.Test
+@4 plugins(Lambda)
+@5 kotlin(Text){}@co? ?.version()@co?
+@6 id(Text){}@co?
+@10 System System.getenv(Text)
+@12 group
+@13 isCi version
+@15 repositories(Lambda)
+@16 mavenCentral(){}@co?
+@19 dependencies(Lambda)
+@20 implementation(Text){}@co? ktorVersion@co?
+@21 implementation(Text){}@co?
+@22 ktorVersion@co?
+@24 kotlin(Text){}@co? testImplementation(_){}@co?
+@27 :Boolean :Test
+@28 testLogging(Lambda)
+@29 showStandardStreams@co?
+@30 events(Text,Text){}@co?
+@34 :Test ?.configureEach(Lambda) tasks tasks.withType()
+@35 useJUnitPlatform(){}@co?
+@36 configureLogging(showStreams=_){}@co? isCi@co?
+@37 Runtime@co? ?.availableProcessors(){}@co? Runtime.getRuntime(){}@co? maxParallelForks@co?
+@38 ?.coerceAtLeast(Number){}@co?
+@42 tasks.register(Text,Lambda) tasks
+@43 doLast(Lambda){}@co?
+@44 println(_){}@co?
+@47 version@co?
+@48 ?.trimIndent(){}@co?
+@53 application application.mainClass application.mainClass.set(Text)

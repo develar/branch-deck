@@ -26,6 +26,8 @@ mod navigate_test;
 #[cfg(test)]
 mod summary_test;
 
+pub(crate) mod tokens;
+
 use rust_syntax::ra_ap_syntax::{AstNode, SyntaxKind, SyntaxNode, TextRange, ast};
 
 /// The 1-based line of each byte offset of a file: rowan's tree gives offsets, a summary records lines

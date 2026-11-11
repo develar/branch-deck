@@ -20,6 +20,7 @@
 pub(crate) mod highlight;
 pub(crate) mod navigate;
 pub(crate) mod summary;
+pub(crate) mod tokens;
 
 #[cfg(test)]
 mod highlight_test;

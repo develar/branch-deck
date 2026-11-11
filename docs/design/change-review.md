@@ -1,7 +1,7 @@
 # Change Review
 
 **Status:** Experimental
-**Updated:** 2026-11-08
+**Updated:** 2026-11-11
 **Tags:** [review, review-plan, units, concerns, agents]
 
 The vision of how Branch Deck reviews a change, what landed, what failed and what is next. The contracts are the
@@ -87,6 +87,84 @@ of the reader and its part seen, the one mark of a row and its card (`FileRowMar
 tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns are the next part
 ([Next](#next)).
 
+### Equal by tokens
+
+"Only the formatting changed" is the one fold a reader takes on trust, in the plan (`whitespace`) and in the diffs (a
+block of formatting), so both ask one rule that proves its answer
+([Equal by Tokens](../../openspec/specs/commit/equal-by-tokens/spec.md), `code_symbols::tokens`): two pieces of two
+texts are the same when their tokens are, and two texts with the same tokens parse to the same tree.
+
+- **A token is a leaf of the tree the parser made**, not a role of the highlighting (its runs hold only the changes of
+  style) and not a lexer's token where the parser decides: psi-syntax's builders join `?.`, `?:`, `!!` (Kotlin) and
+  `>>` (Java, C#) only when nothing stands between the characters, oxc lexes a `/` and a `}` by the parse.
+- **The tree is in the token.** A token carries the nodes that open before it (`Token::opens`) and those that close
+  after it (`closes`), by their names: the events of the tree between two tokens are cut after the last close of a
+  node that was open at the first one. A sequence of tokens with their shapes is the tree written out, so the proof
+  holds by construction and no rule names a grammar's line breaks or brackets: `return⏎foo()` closes the `return`
+  before `foo`, a line break inside `()` changes no node. A statement carries its own nodes whole, so a body wrapped
+  into `if {}` and indented keeps its tokens; what a token does not carry is where its statement hangs, which only the
+  tokens around it change.
+- **The errors are in the tokens.** A tree alone is no proof where the parser keeps its errors beside it: oxc reads
+  a line break before the `=>` of an arrow function and after a `throw` into the same nodes and reports a syntax error
+  in a list, Roslyn does so for `#line (1, 2) - (3, 4)"a.cs"` without the space (CS9028), and an error node of PSI has
+  a message its kind does not say. So every error the parser reported is an event of the tree at its place, by its
+  message: of oxc and rust-analyzer before the token it stands at, of psi-syntax and Roslyn at its node, one on a
+  comment (the XML of a documentation comment of C# that does not close) part of what that comment compares by. Two
+  texts with the same tokens are the same tree with the same errors: broken alike. Not where the tree stops being
+  the parser's: past the nesting limit of psi-syntax the leaves are the lexer's (`> >` and `>>` alike), Roslyn gives
+  the text up as one token, and a script oxc reads only after a recovery has blanked regions; such a text has no
+  tokens and is never the same. rust-analyzer and oxc read as deep as a text nests, on a stack of its size.
+- **What the tree does not say is said by the lexer's own rule**: the indent of a logical line of Starlark is part of
+  its first token (the plugin's lexer reads a tab as up to 8 columns, Bazel refuses it), counted by the brackets as
+  its lexer counts them; a mark of the input of a Rust macro compares by what follows it (`Spacing::Joint`); a
+  directive of C# and a branch of `#if` not taken are code, trivia only to Roslyn.
+- **Text**: a token compares by its bytes; the text of a JSX element as Babel and TypeScript both read it; a comment
+  by its text without the indent it shares with its line, so a block comment that moved with its code is the same.
+- **Only blanks stand between two tokens**, checked for every text (`build::Builder`): whitespace, or one of the five
+  characters a parser skips as such and Unicode does not call whitespace (`is_blank`: a byte order mark, the zero
+  width space oxc skips, the two direction marks of Rust, the Ctrl-Z of C#; found by asking every parser about every
+  character). A text where anything else stands there has no tokens: a C# token Roslyn cut inside a character of two
+  UTF-16 units, whitespace of Java written as a Unicode escape. The `\` that continues a line of Starlark is a token
+  for that reason, though its lexer calls it whitespace. So texts with the same tokens are the same text without its
+  blanks (`same_without_blanks`), the cheap question a reader asks before it reads tokens, and the plan and the diffs
+  cannot answer one change two ways: before, a byte order mark removed was the same by tokens and real work by
+  characters.
+- **A blank is not always whitespace of the language.** Each parser was asked about each blank against the rule of
+  its language: Kotlin, Java, Starlark, Rust and C# skip what their languages call whitespace (Roslyn and rustc's
+  lexer are the reference of theirs). oxc skips two characters more, U+0085 and the zero width space (U+200B), its
+  "irregular whitespace", as the scanner of TypeScript does; ECMAScript calls neither whitespace, so V8, esbuild
+  and Babel refuse the file, a `.ts` one too. A parser that reports no error there says nothing of it, so such a
+  blank is an error of the text at its place (`Builder::irregular`, in what opens before the next token of the
+  code): the text with it is another than the text without it, in every dialect, since a TypeScript file is read
+  by more than `tsc`.
+- **A range of lines is asked with the code around it** (`equal_by_tokens`). A line without a token can change the
+  tokens of the lines around it, which no range of changed lines holds: a blank line after the `\` that continues a
+  line of Starlark ends the statement, one before a `#!` makes code of it. So the last token of the code before the
+  range must close the same nodes (`same_before`) and the first one after it be the same token with the same nodes
+  opening before it (`same_after`); two ranges without a token are the same only then. A lexer reads forward: what
+  stands before a token can change what it is, what stands after it only what closes after it; a comment is outside
+  the tree and is not asked. The price is a block of formatting right before or after another changed block, with
+  only blank lines or comments between them: when that block changed the token next to it, the first one is
+  `Different`, a stop more and never one less. A part of a changed block (the lines of a body wrapped into `if {}`)
+  is asked by `compare`, the runs alone: its neighbours changed with it.
+- **Hashes of names**: a shape hashes the names of the kinds, not their numbers, and a text its bytes, so the keys are
+  the same in every run and a parser that gains a kind moves none.
+- **The content of a run** (`content`) is what the fingerprint of a unit reads: each token by its kind and its text
+  and the tree between the tokens, without what opens before the first token and closes after the last, which the
+  code around the run decides (a declaration that becomes the last of its file closes the file). So a fingerprint
+  follows the rule: the same after a change of formatting and wherever the lines stand, another after a line break
+  that ends a statement, which the texts of the tokens alone did not see.
+
+Measured (release, one thread, load 30 to 45): the tokens of a Kotlin or Java file of idea-1's `platform-impl` (910
+tokens on average) in 0.3 ms, of a TypeScript file of this repository in 0.2 ms, of a Rust file of it (13 KiB on
+average) in 0.7 ms, a quarter of it the errors of rust-analyzer's validation; so the pair of each of 141 files of a
+plan in about 0.1 s. `cargo run --release -p code-symbols --example tokens` checks the rule on real files: formatted
+again (indents, spaces at line ends, blank lines), 2 474 files of this repository, 7 388 Kotlin and Java files of
+idea-1, 61 447 files of the test data of its Java and Kotlin plugins, 8 124 of psi-syntax's C#, Java and Starlark
+test data and 4 460 of JavaScript and TypeScript packages have the same tokens, the same content and the same text
+without its blanks, each token is in the lines it names, and a renamed name is another one. Without tokens among
+them: two scripts over 1 MiB, one Java file nested too deeply and three whose whitespace is a Unicode escape.
+
 ### Prefetch after a rewrite
 
 On `develar/virtual/terminal-file-hyperlinks` at HEAD `1994e826` (34 places; accio `0.16.0`), the warm
@@ -159,7 +237,7 @@ the review.
 | Mark Reviewed, Since Your Review of a local branch | Landed | 1db3d3d4f, 4c0986ecb | the reviewed pair in `refs/branch-deck/reviewed/`; after a rebase with an amend the diff from the carried change shows the amend alone | a carry that conflicts falls back to the commits one at a time; a drop alone offers nothing |
 | Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked |
 | Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | |
-| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; no whitespace where the indent has a meaning | a move of a block, "rename A→B, N sites" not started; no second oracle yet |
+| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none | a move of a block, "rename A→B, N sites" not started; no second oracle yet |
 | Folding: generated files | Landed | 46faf0108, b57c2e95b | by name, attributes or the header a tool wrote; the renderer's echo is no repeated edit | |
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
@@ -344,6 +422,28 @@ the review.
    that review (0.27 MiB) parse in 21 to 32 ms, lost in the noise of a 0.2 to 0.6 s plan; the 2707 blobs of a sync of
    217 commits of idea-1 (52 MiB) in 0.14 to 0.30 s, plus up to 1.2 s of blob reads, beside a graph of 1 to 9 s. So
    the summary keeps the text: a byte range into the blob would need the same rebuild.
+25. **Whitespace is told by the tokens** (2026-11-11). The plan folded a change whose text without whitespace was the
+   same: a space inside a string, `a - -b` turned into `a--b`, a `return` joined with the call of the next line of
+   Kotlin went to the mechanical group, and the fingerprint of a unit, which keeps a reader's mark across plans, did
+   not see a string's spaces change. A file of a grammar is compared by its tokens ([Equal by tokens](#equal-by-tokens)),
+   the rule the diffs mark formatting by; the fingerprint reads the content of the tokens, their texts and the tree
+   between them, so a line break that ends a statement is another change to it too. The first design named the
+   places a line break counts (Kotlin, JavaScript, Starlark, never inside `()` and `[]`); the parsers answered
+   otherwise: Kotlin reads a lambda on the line after `foo()` as its argument and one after `foo` not, a label only
+   without a space before its `@`, JavaScript a `static` over a line break and an `async` not. So the tree of the
+   parse went into the tokens and no rule of line breaks stayed. The review of that design found what a tree does not
+   hold: the errors oxc and Roslyn report beside it (a line break before `=>` is a syntax error of the same nodes), so
+   the errors went into the tokens as well; and that "the same without whitespace", asked before the tokens are read,
+   was no consequence of "the same tokens" (a byte order mark), so what may stand between two tokens became a rule of
+   its own, checked for every text. A Starlark file can now be `whitespace`: a call wrapped inside its brackets. A
+   file of no grammar keeps the rule of characters. The second review found three ways a proof of the lines of a
+   hunk said nothing of the change. Lines without a token had no tokens to differ, while the blank line they added
+   changed the tokens around it (after the `\` of Starlark, before a `#!`): a range is asked with the code around it
+   now. A hunk is a block of the diffs, whose lines end at a lone `\r` too, and was read by the lines of git, so
+   below a lone `\r` the plan compared the line after the change: the plan reads the lines of the diffs everywhere
+   (`whitespace::TextLines`) and translates the lines of a summary, which are git's. And a blank oxc skips is not
+   whitespace to an engine of JavaScript (U+0085, U+200B): it is an error in the tokens. A declaration paired with
+   itself is whitespace only with every line its blocks change, which may reach past it.
 
 ## Review Rounds
 

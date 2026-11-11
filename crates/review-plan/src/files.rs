@@ -14,10 +14,12 @@
 //!   dependencies, is no `BuildModel` (an `*.iml` that parses is one by name). `ModuleList` for a file of no language
 //!   whose every line the commits add or remove names whole a module they add or delete (the directory of its build
 //!   file, the name of its `*.iml`): the list of module directories a tool regenerates, the wiring of that module. Else each change a pure rename
-//!   (status `R`, no line added or removed), or each of its hunks the same text without
-//!   its whitespace, line ends included, so a wrapped or joined line too (`Whitespace`), or, in a source file, only
-//!   blank lines and lines of import statements, at least one (`ImportsOnly`). A file whose whitespace has a meaning
-//!   (Python, Starlark, YAML, a Makefile: `indentation_matters`) is never `Whitespace`. An import statement starts
+//!   (status `R`, no line added or removed), or each of its hunks a change of whitespace alone, a wrapped or joined
+//!   line too (`Whitespace`; `whitespace::Sides`: the lines of a file of a grammar equal by tokens, those of a file of
+//!   none the same text without its whitespace, line ends included), or, in a source file, only
+//!   blank lines and lines of import statements, at least one (`ImportsOnly`). A file of no grammar whose whitespace
+//!   has a meaning (Python, YAML, a Makefile: `code_symbols::tokens::indentation_matters`) is never `Whitespace`, nor
+//!   is an indent of Starlark, which is in its tokens. An import statement starts
 //!   with an `import`, `use` or `package` line and runs until the brackets it opens close, so a Rust `use a::{` block
 //!   or a TypeScript `import {` over several lines counts whole; a bracket in a string or a comment counts not, and a
 //!   statement that a `;`, the next import line or the end of the text ends with its brackets open counts as its first
@@ -46,7 +48,9 @@
 use crate::api::{ApiChange, ApiChangeKind};
 use crate::dependencies::ManifestState;
 use crate::links::{FileLink, LinkState};
+use crate::whitespace::{TextLines, TextTokens};
 use code_symbols::language::language_of;
+use code_symbols::tokens::indentation_matters;
 use file_diffs::service::compare_tree_paths;
 use generated_files::generated_by::GeneratedBy;
 use generated_files::header::{HEADER_BYTES, generated_header};
@@ -362,11 +366,13 @@ fn line_range(start: u32, count: u32, len: usize) -> Range<usize> {
   start..(start + count as usize).min(len)
 }
 
-/// The text of each hunk of `change`; `None` without the text of a side
+/// The text of each hunk of `change`; `None` without the text of a side. A hunk is a block of the diffs
+/// (`trial_check::diff_scan`), so its lines are theirs (`TextLines`): a lone `\r` ends a line too
 fn hunk_lines<'t>(change: &FileChange, texts: &'t HashMap<String, String>) -> Option<Vec<HunkText<'t>>> {
-  let lines = |blob: Option<&str>| -> Option<Vec<&'t str>> { Some(texts.get(blob?)?.lines().collect()) };
+  let lines = |blob: Option<&str>| -> Option<TextLines<'t>> { Some(TextLines::of(texts.get(blob?)?)) };
   let (old, new) = (lines(change.old_blob.as_deref())?, lines(change.new_blob.as_deref())?);
-  let (old_imports, new_imports) = (import_lines(&old), import_lines(&new));
+  let (old, new) = (old.all(), new.all());
+  let (old_imports, new_imports) = (import_lines(old), import_lines(new));
   let hunk_text = |hunk: &Hunk| {
     let old_range = line_range(hunk.old_start, hunk.old_lines, old.len());
     let new_range = line_range(hunk.new_start, hunk.new_lines, new.len());
@@ -505,30 +511,36 @@ enum HunkKind {
   Imports,
 }
 
-/// The extensions of the files whose indentation has a meaning: Python, Starlark (`MODULE.bazel` too), YAML, Makefiles
-const INDENTED_EXTENSIONS: [&str; 8] = ["py", "pyi", "bzl", "star", "bazel", "yml", "yaml", "mk"];
-/// The names of the files whose indentation has a meaning, beside `INDENTED_EXTENSIONS`
-const INDENTED_NAMES: [&str; 5] = ["Makefile", "makefile", "GNUmakefile", "BUILD", "WORKSPACE"];
-
-/// Whether the whitespace of `path` has a meaning, so a change of it is no `Whitespace` change
-pub(crate) fn indentation_matters(path: &str) -> bool {
-  let name = path.rsplit('/').next().unwrap_or(path);
-  let extension = name.rsplit_once('.').map(|(_, extension)| extension);
-  INDENTED_NAMES.contains(&name) || extension.is_some_and(|extension| INDENTED_EXTENSIONS.iter().any(|known| extension.eq_ignore_ascii_case(known)))
+/// The lines of the old and of the new side of `hunk`, the block of the diffs it was made of
+/// (`trial_check::diff_scan`): lines of the diffs, from 0, the end excluded; a side without lines is the place between
+/// two lines
+fn hunk_ranges(hunk: &Hunk) -> (Range<u32>, Range<u32>) {
+  let range = |start: u32, count: u32| {
+    let start = if count == 0 { start } else { start.saturating_sub(1) };
+    start..start + count
+  };
+  (range(hunk.old_start, hunk.old_lines), range(hunk.new_start, hunk.new_lines))
 }
 
-/// The kind of `hunk`; `source`: of a file of a known language; `indented`: of a file whose whitespace has a meaning
-fn hunk_kind(hunk: &HunkText<'_>, source: bool, indented: bool) -> Option<HunkKind> {
-  if !indented && without_whitespace(&hunk.removed) == without_whitespace(&hunk.added) {
+/// The kind of a hunk of the text `hunk`; `whitespace`: it changes whitespace alone (`whitespace::Sides`); `source`: of
+/// a file of a known language
+fn hunk_kind(hunk: &HunkText<'_>, whitespace: bool, source: bool) -> Option<HunkKind> {
+  if whitespace {
     return Some(HunkKind::Whitespace);
   }
   (source && hunk.imports).then_some(HunkKind::Imports)
 }
 
 /// Why the change of `file` is mechanical, `None` when it is not: whether it is `generated`, the state of its manifest
-/// (`manifest`), its name, or the text of each hunk. A deletion is a decision of its author, real work unless the file
-/// is generated or of the build model by its name
-pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, String>, manifest: Option<ManifestState>, generated: bool) -> Option<MechanicalKind> {
+/// (`manifest`), its name, or the text of each hunk (`texts`, and its tokens `tokens`). A deletion is a decision of its
+/// author, real work unless the file is generated or of the build model by its name
+pub(crate) fn mechanical_kind(
+  file: &ChangedFile<'_>,
+  texts: &HashMap<String, String>,
+  tokens: &TextTokens<'_>,
+  manifest: Option<ManifestState>,
+  generated: bool,
+) -> Option<MechanicalKind> {
   if generated {
     return Some(MechanicalKind::Generated);
   }
@@ -554,8 +566,16 @@ pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, St
     if !has_hunk_text(file, change) {
       return None;
     }
-    for hunk in hunk_lines(change, texts)? {
-      kinds.insert(hunk_kind(&hunk, source, indented)?);
+    let sides = tokens.sides(
+      change.old_path.as_deref().unwrap_or(&change.path),
+      change.old_blob.as_deref(),
+      &change.path,
+      change.new_blob.as_deref(),
+    );
+    for (hunk, text) in change.hunks.iter().zip(hunk_lines(change, texts)?) {
+      let (old, new) = hunk_ranges(hunk);
+      let whitespace = sides.whitespace_only(old, new, indented, &text.removed, &text.added);
+      kinds.insert(hunk_kind(&text, whitespace, source)?);
     }
   }
   Some(if kinds.contains(&HunkKind::Imports) {
@@ -686,15 +706,22 @@ pub(crate) struct FileKinds {
 }
 
 /// The kinds of `files` (`changed_files`): whether each is generated (`generated`, by place; none past its end), their
-/// hunk text (`texts`) and the states of their manifests (`manifests`, by place; none past its end)
-pub(crate) fn file_kinds(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, manifests: &[Option<ManifestState>], generated: &[Option<GeneratedBy>]) -> FileKinds {
+/// hunk text (`texts`) with its tokens (`tokens`) and the states of their manifests (`manifests`, by place; none past
+/// its end)
+pub(crate) fn file_kinds(
+  files: &[ChangedFile<'_>],
+  texts: &HashMap<String, String>,
+  tokens: &TextTokens<'_>,
+  manifests: &[Option<ManifestState>],
+  generated: &[Option<GeneratedBy>],
+) -> FileKinds {
   let generated: Vec<Option<GeneratedBy>> = (0..files.len()).map(|index| generated.get(index).cloned().flatten()).collect();
   let markers = module_markers(files);
   let mechanical: Vec<Option<MechanicalKind>> = files
     .iter()
     .enumerate()
     .map(|(index, file)| {
-      mechanical_kind(file, texts, manifests.get(index).copied().flatten(), generated[index].is_some())
+      mechanical_kind(file, texts, tokens, manifests.get(index).copied().flatten(), generated[index].is_some())
         .or_else(|| is_module_list(file, texts, &markers).then_some(MechanicalKind::ModuleList))
     })
     .collect();

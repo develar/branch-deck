@@ -8,9 +8,11 @@
 //!   no known declarations is one unit as a whole; `MIN_DELETED_GROUP` or more files deleted from one directory are one
 //!   unit `DeletedFiles`.
 //! - **A declaration** is paired with itself across the two sides by its key and, among overloads, by an equal form,
-//!   then in order: a pair whose form differs is `Shape`, one whose form is the same and whose text is not (without
-//!   whitespace) `Behaviour`, one whose text is the same too whitespace; a declaration of one side alone, its lines
-//!   changed, is `Added` or `Removed`, also when another unit holds its block.
+//!   then in order: a pair whose form differs is `Shape`, one whose form is the same and whose lines differ by more
+//!   than whitespace `Behaviour`, one whose lines differ by whitespace alone whitespace (`whitespace::Sides`: equal by
+//!   tokens), its lines being those of the declaration and of every block it holds, so a block that reaches past the
+//!   declaration is whitespace only when all of it is; a declaration of one side alone, its lines changed, is `Added`
+//!   or `Removed`, also when another unit holds its block.
 //!   A declaration of one side alone inside another of that side alone is part of the unit of the outermost one.
 //! - **API and tests**: a unit of a declaration is `api` when the API of the plan lists it, or would by a change of its
 //!   form (`api::listed`, by the `Surface` of each side), and `test` when it is test code (`DeclarationForm::test`);
@@ -21,13 +23,18 @@
 //!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
 //!   first file; the mechanical units last.
 //! - **Identity**: `id` names a unit within a plan; `fingerprint` names the change across plans, from the key, the
-//!   signature and the text of a declaration without whitespace on both sides, or the text of the blocks of a slice,
-//!   or the blobs of a file taken whole. Neither depends on the whitespace policy of the window.
+//!   signature and the text of a declaration on both sides, or the text of the blocks of a slice, or the blobs of a
+//!   file taken whole. The text is the content of the tokens (`Sides::fingerprint_text`: the tokens and the tree
+//!   between them), so a change of whitespace alone leaves a fingerprint, wherever the lines stand, and a space inside
+//!   a string or a line break that ends a statement does not; of a side without tokens, its characters without
+//!   whitespace. Neither depends on the whitespace policy of the window.
 
 use crate::api::{FormChange, form_changes, listed};
-use crate::files::{ChangedFile, FileKinds, MechanicalKind, indentation_matters, lines_edit_key, without_whitespace};
+use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
 use crate::pair::{LineBlock, PairBlocks};
+use crate::whitespace::{Sides, TextLines, TextTokens};
 use code_symbols::language::language_of;
+use code_symbols::tokens::indentation_matters;
 use file_diffs::service::imports_only;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -117,7 +124,7 @@ pub struct UnitSlice {
   pub whole: bool,
   /// Its blocks, in order: every block of the file for `whole`; none for a declaration whose block another unit holds
   pub blocks: Vec<UnitBlock>,
-  /// The change this slice makes, by its text without whitespace or its blobs (`units`, "Identity")
+  /// The change this slice makes, by the content of its tokens or its blobs (`units`, "Identity")
   pub fingerprint: String,
 }
 
@@ -174,15 +181,32 @@ pub(crate) fn digest<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
   })
 }
 
-/// The text of `lines` (by line from 0, the end excluded) of `text`, without whitespace
-fn text_of(text: &[&str], lines: Range<u32>) -> String {
-  let (start, end) = ((lines.start as usize).min(text.len()), (lines.end as usize).min(text.len()));
-  without_whitespace(&text[start..end])
-}
-
 /// The lines of `declaration` from 0, the end excluded
 const fn lines_of(declaration: &SpannedDeclaration) -> Range<u32> {
   declaration.start_line.saturating_sub(1)..declaration.end_line
+}
+
+/// `declarations`, whose lines are git's as their summary counts them (a line ends at `\n` alone), with the lines of
+/// the diffs (`TextLines::of_git`), which the blocks of the file name: in a file with a lone `\r` a declaration and
+/// a block of the same lines would else name others
+fn in_lines_of_diffs(mut declarations: FileDeclarations, lines: &TextLines<'_>) -> FileDeclarations {
+  // from 1, both included, to the same of the diffs
+  let translate = |start: &mut u32, end: &mut u32| {
+    let range = lines.of_git(start.saturating_sub(1)..*end);
+    (*start, *end) = (range.start + 1, range.end);
+  };
+  for declaration in &mut declarations.declarations {
+    translate(&mut declaration.start_line, &mut declaration.end_line);
+  }
+  for span in &mut declarations.import_lines {
+    translate(&mut span.start, &mut span.end);
+  }
+  declarations
+}
+
+/// The lines from the first of `lines` and of the lines `side` gives of each of `blocks` to the last of them
+fn reach(lines: Range<u32>, blocks: &[UnitBlock], side: fn(&UnitBlock) -> Range<u32>) -> Range<u32> {
+  blocks.iter().map(side).fold(lines, |reach, block| reach.start.min(block.start)..reach.end.max(block.end))
 }
 
 fn unit_block(index: usize, block: &LineBlock) -> UnitBlock {
@@ -363,6 +387,7 @@ pub(crate) fn review_units(
   files: &[ChangedFile<'_>],
   pairs: &[PairBlocks],
   texts: &HashMap<String, String>,
+  tokens: &TextTokens<'_>,
   kinds: &FileKinds,
   order: &[String],
 ) -> (Vec<ReviewUnit>, HashSet<String>) {
@@ -413,12 +438,14 @@ pub(crate) fn review_units(
         match sides {
           _ if language_of(file.path).is_none() => cut.placed.push(other(OtherReason::NoLanguage)),
           (Some(old_text), Some(new_text), Some(before), Some(after)) => {
+            let (old, new) = (TextLines::of(old_text), TextLines::of(new_text));
             let source = SourceFile {
               pair_file: &pair_file,
-              old: old_text.split('\n').collect(),
-              new: new_text.split('\n').collect(),
-              before,
-              after,
+              sides: tokens.sides(file.first_path, file.before, file.path, file.after),
+              before: in_lines_of_diffs(before, &old),
+              after: in_lines_of_diffs(after, &new),
+              old,
+              new,
               repeated: group_of.get(&index).copied(),
             };
             source.cut(blocks, &mut cut);
@@ -566,40 +593,67 @@ fn group_fingerprint(slices: &[UnitSlice]) -> String {
 }
 
 /// A source file of the pair whose two sides have text and known declarations
-struct SourceFile<'a> {
+struct SourceFile<'a, 't> {
   pair_file: &'a PairFile<'a>,
-  old: Vec<&'a str>,
-  new: Vec<&'a str>,
+  /// The lines of its two sides as the diffs count them, which the blocks name
+  old: TextLines<'a>,
+  new: TextLines<'a>,
+  /// Its two sides as a change of whitespace is told of them: by their tokens
+  sides: Sides<'a, 't>,
+  /// The declarations and the imports of each side, by the lines of the diffs too (`in_lines_of_diffs`)
   before: FileDeclarations,
   after: FileDeclarations,
   /// Its group of repeated edits and the edit, when it is in one
   repeated: Option<(u32, &'a (String, String))>,
 }
 
-impl SourceFile<'_> {
-  /// The fingerprint of `blocks` of this file: its path and their text without whitespace
+impl SourceFile<'_, '_> {
+  /// Whether the lines `old` and `new` of the two sides (lines of the diffs) differ in whitespace alone
+  /// (`Sides::whitespace_only`)
+  fn whitespace_only(&self, old: Range<u32>, new: Range<u32>) -> bool {
+    let indented = indentation_matters(self.pair_file.file.path);
+    let (old_text, new_text) = (self.old.text(&old), self.new.text(&new));
+    self.sides.whitespace_only(old, new, indented, old_text, new_text)
+  }
+
+  /// Whether the declaration `before` became `after` by a change of whitespace alone, with every line the blocks of
+  /// its unit (`blocks`) change: the lines from the first to the last of them on each side. A block that reaches
+  /// past the declaration (the comment after it changed with its last line) is whitespace only when all of it is
+  fn whitespace_pair(&self, before: &SpannedDeclaration, after: &SpannedDeclaration, blocks: &[UnitBlock]) -> bool {
+    let old = reach(lines_of(before), blocks, |block| block.old_start..block.old_end);
+    let new = reach(lines_of(after), blocks, |block| block.new_start..block.new_end);
+    self.whitespace_only(old, new)
+  }
+
+  /// The text of `lines` (of the diffs) of a side as a fingerprint reads it, the same after a change of whitespace
+  /// alone: the content of its tokens (`Sides::fingerprint_text`), without them its characters without whitespace
+  fn side_text(&self, new_side: bool, lines: Range<u32>) -> String {
+    let characters = || without_whitespace(if new_side { &self.new } else { &self.old }.text(&lines));
+    self.sides.fingerprint_text(new_side, lines.clone()).unwrap_or_else(characters)
+  }
+
+  /// The fingerprint of `blocks` of this file: its path and their text as `side_text` reads it
   fn blocks_fingerprint(&self, tag: &str, blocks: &[UnitBlock]) -> String {
     let texts: Vec<String> = blocks
       .iter()
-      .flat_map(|block| [text_of(&self.old, block.old_start..block.old_end), text_of(&self.new, block.new_start..block.new_end)])
+      .flat_map(|block| [self.side_text(false, block.old_start..block.old_end), self.side_text(true, block.new_start..block.new_end)])
       .collect();
     digest([tag, self.pair_file.file.path].into_iter().chain(texts.iter().map(String::as_str)))
   }
 
   /// Where `block` goes (`units`, "A block")
   fn owner(&self, block: &LineBlock, of_before: &HashMap<usize, usize>, of_after: &HashMap<usize, usize>, folded: &[usize]) -> Owner {
-    let removed = &self.old[(block.old.start as usize).min(self.old.len())..(block.old.end as usize).min(self.old.len())];
-    let added = &self.new[(block.new.start as usize).min(self.new.len())..(block.new.end as usize).min(self.new.len())];
+    let (removed, added) = (self.old.text(&block.old), self.new.text(&block.new));
     if let Some((group, key)) = self.repeated
       && lines_edit_key(removed, added).as_ref() == Some(key)
     {
       return Owner::Repeated(group);
     }
     let imports = [Some(self.before.import_lines.as_slice()), Some(self.after.import_lines.as_slice())];
-    if imports_only([block.old.clone(), block.new.clone()], [&self.old, &self.new], imports) {
+    if imports_only([block.old.clone(), block.new.clone()], [self.old.all(), self.new.all()], imports) {
       return Owner::Mechanical(MechanicalKind::ImportsOnly);
     }
-    if !indentation_matters(self.pair_file.file.path) && without_whitespace(removed) == without_whitespace(added) {
+    if self.whitespace_only(block.old.clone(), block.new.clone()) {
       return Owner::Mechanical(MechanicalKind::Whitespace);
     }
     let owner = if block.new.is_empty() {
@@ -719,17 +773,19 @@ impl SourceFile<'_> {
       let paired = pairs[pair];
       let before = paired.before.map(|index| &self.before.declarations[index]);
       let after = paired.after.map(|index| &self.after.declarations[index]);
-      let old_text = before.map_or_else(String::new, |declaration| text_of(&self.old, lines_of(declaration)));
-      let new_text = after.map_or_else(String::new, |declaration| text_of(&self.new, lines_of(declaration)));
+      let old_text = before.map_or_else(String::new, |declaration| self.side_text(false, lines_of(declaration)));
+      let new_text = after.map_or_else(String::new, |declaration| self.side_text(true, lines_of(declaration)));
       let kind = match (before, after) {
         (Some(before), Some(after)) if before.form.form != after.form.form => UnitKind::Shape {
           changes: form_changes(&before.form.form, &after.form.form),
         },
-        (Some(_), Some(_)) if old_text != new_text || indentation_matters(pair_file.file.path) => UnitKind::Behaviour,
-        (Some(_), Some(_)) => {
-          // the same text without whitespace: a change of whitespace across lines
-          mechanical.entry(mechanical_place(MechanicalKind::Whitespace)).or_default().extend(unit_blocks);
-          continue;
+        (Some(before), Some(after)) => {
+          if self.whitespace_pair(before, after, &unit_blocks) {
+            // the same declaration but for its whitespace: a change of whitespace across lines
+            mechanical.entry(mechanical_place(MechanicalKind::Whitespace)).or_default().extend(unit_blocks);
+            continue;
+          }
+          UnitKind::Behaviour
         }
         (None, _) => UnitKind::Added,
         (_, None) => UnitKind::Removed,

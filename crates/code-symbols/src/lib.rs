@@ -1,7 +1,8 @@
 //! The declarations, imports and references of one source file (Kotlin, Java, C#, Rust, TypeScript and JavaScript), for
 //! relating the commits of a branch: which declarations a commit adds or removes, which commit's lines use a name
-//! another commit declares, and whether a word on a line is a real reference at all; and the highlighting
-//! (`highlight`) and the navigation (`navigate`: Go to Declaration, Find Usages) of a file of a diff.
+//! another commit declares, and whether a word on a line is a real reference at all; the highlighting
+//! (`highlight`) and the navigation (`navigate`: Go to Declaration, Find Usages) of a file of a diff; and the tokens
+//! of a file with the one rule of "only the formatting changed" (`tokens`: `equal_by_tokens`).
 //!
 //! A pure function of the file's bytes (`extract::summarize`): no git, no cache. A reference is a name the syntax tree
 //! uses outside comments and strings (but inside interpolations), that is no declaration name, label or key, and is not
@@ -10,16 +11,21 @@
 //!
 //! Two parsers: Kotlin, Java and C# are read by psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own
 //! parsers, whose trees are their PSI and Roslyn's syntax tree (`kotlin`, `java`, `csharp`: a module per language with a
-//! walk per consumer, `summary`, `highlight` and `navigate`), TypeScript, TSX and JavaScript by psi-syntax's
+//! walk per consumer, `summary`, `highlight`, `navigate` and `tokens`), TypeScript, TSX and JavaScript by psi-syntax's
 //! `js-syntax`, oxc's parser (`js`), and Rust by psi-syntax's `rust-syntax`, rust-analyzer's parser (`rust`), each with
 //! its summary, navigation and highlighting, the parse accio reads them with. Both build their answers by the same parser-neutral code: `summary_builder`,
-//! `highlight::lines` and `highlight::paint`, the answers of `navigate`. `examples/facts.rs` prints every fact of the
-//! three consumers of a list of files, the oracle of a change of parser or rules.
+//! `highlight::lines` and `highlight::paint`, the answers of `navigate`, `tokens::build`. `examples/facts.rs` prints
+//! every fact of the three consumers of a list of files, the oracle of a change of parser or rules; `examples/tokens.rs`
+//! checks the tokens of real files.
 
 #![cfg_attr(
   not(all(feature = "kotlin", feature = "java", feature = "csharp", feature = "rust", feature = "typescript")),
   allow(dead_code, unused_imports, reason = "a build without every grammar leaves the rules only the others use")
 )]
+
+// the checks the examples share with the tests (`examples/shared/token_checks.rs`) name the crate as an example does
+#[cfg(test)]
+extern crate self as code_symbols;
 
 pub mod extract;
 pub mod highlight;
@@ -27,6 +33,7 @@ pub mod language;
 pub mod navigate;
 pub mod summary;
 pub mod summary_text;
+pub mod tokens;
 
 mod summary_builder;
 
@@ -67,3 +74,5 @@ mod summary_builder_test;
 mod summary_test;
 #[cfg(test)]
 mod test_support;
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark", feature = "rust", feature = "typescript"))]
+mod tokens_test;

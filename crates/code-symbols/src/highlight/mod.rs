@@ -230,14 +230,7 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
     #[cfg(feature = "csharp")]
     Grammar::CSharp => Some(crate::csharp::highlight::highlight(text)),
     #[cfg(feature = "starlark")]
-    Grammar::Starlark | Grammar::StarlarkBuild => {
-      let kind = if grammar == Grammar::StarlarkBuild {
-        starlark_syntax::FileKind::Build
-      } else {
-        starlark_syntax::FileKind::Bzl
-      };
-      Some(crate::starlark::highlight::highlight(text, kind))
-    }
+    Grammar::Starlark | Grammar::StarlarkBuild => Some(crate::starlark::highlight::highlight(text, crate::starlark::file_kind(grammar))),
     #[cfg(feature = "rust")]
     Grammar::Rust => crate::rust::highlight::highlight(text),
     #[cfg(feature = "typescript")]

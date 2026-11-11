@@ -54,6 +54,7 @@ pub mod steps;
 pub mod story;
 pub mod texts;
 pub mod units;
+mod whitespace;
 
 use crate::api::{ApiChange, ApiChangeKind, BreakVerdict, api_changes};
 use crate::brief::{ReviewBrief, review_brief};
@@ -73,6 +74,7 @@ use crate::registrations::{Registration, RegistrationsInput, changed_descriptors
 use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
 use crate::texts::{UiText, bundle_blobs, ui_texts};
 use crate::units::{ReviewUnit, review_units};
+use crate::whitespace::TextTokens;
 use anyhow::Result;
 use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
 use file_diffs::accio::SymbolIndex;
@@ -481,7 +483,9 @@ pub fn review_plan_of(
     added: added_manifests,
   } = dependency_changes(&changed, &texts);
   let generated = generated_of(&changed, &known, &texts);
-  let kinds = file_kinds(&changed, &texts, &states, &generated);
+  // the tokens of the texts, read once: what tells a change of whitespace alone in a file of a grammar
+  let tokens = TextTokens::new(&texts);
+  let kinds = file_kinds(&changed, &texts, &tokens, &states, &generated);
   let modules = module_shapes(&ModulesInput {
     changed: &changed,
     roots: input.as_ref().map(|input| &input.roots),
@@ -496,7 +500,7 @@ pub fn review_plan_of(
   // the paths whose commits change a test inside them, for `untested`
   let (units, inline_tests) = input
     .as_ref()
-    .map_or_else(Default::default, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
+    .map_or_else(Default::default, |input| review_units(input, &changed, &pairs, &texts, &tokens, &kinds, &order));
   let declared = input.as_ref().map_or_else(HashSet::new, |input| declared_names(input, &changed));
   let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, &declared, params.concern_edges);
   let brief = review_brief(reviewed.iter().map(|(_, message)| message.as_str()), &units, &changed, &texts);
@@ -682,3 +686,5 @@ mod test_support;
 mod texts_test;
 #[cfg(test)]
 mod units_test;
+#[cfg(test)]
+mod whitespace_test;

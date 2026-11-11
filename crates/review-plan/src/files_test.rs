@@ -2,6 +2,7 @@ use crate::ReviewPlan;
 use crate::api::{ApiChange, ApiChangeKind, Usages};
 use crate::files::{FileFacts, MechanicalKind, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, header_blobs, hunk_blobs, test_subject};
 use crate::test_support::{plan_of, range};
+use crate::whitespace::TextTokens;
 use generated_files::generated_by::GeneratedBy;
 use generated_files::names::GeneratedName;
 use object_cache::commit_diff::FileChange;
@@ -36,7 +37,8 @@ fn commit(files: Vec<FileChange>) -> CommitDiff {
 /// The facts of `diffs` with no text, no link, and `api`
 fn facts_of(diffs: &[CommitDiff], api: &[ApiChange]) -> Vec<FileFacts> {
   let files = changed_files(diffs);
-  file_facts(&files, &file_kinds(&files, &HashMap::new(), &[], &[]), &[], api, &HashSet::new()).0
+  let texts = HashMap::new();
+  file_facts(&files, &file_kinds(&files, &texts, &TextTokens::new(&texts), &[], &[]), &[], api, &HashSet::new()).0
 }
 
 /// The paths of the facts that are untested
@@ -449,6 +451,15 @@ fn a_wrapped_line_and_a_line_in_an_import_block_are_mechanical() {
   assert_eq!(plan.repeated_edits, []);
 }
 
+/// Why the change of each of `files` (its path, its text before and after one commit) is mechanical, by path
+fn mechanical_of<S: AsRef<str>>(files: &[(&str, S, S)]) -> Vec<(String, Option<MechanicalKind>)> {
+  let side = |new: bool| -> Vec<(&str, &str)> { files.iter().map(|(path, old, after)| (*path, if new { after.as_ref() } else { old.as_ref() })).collect() };
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add files", &side(false));
+  let head = repo.create_commit_with_files("Change", &side(true));
+  mechanical(&repo, &base, &head)
+}
+
 /// A bracket inside a string or a comment of an import line opens no statement, and a statement whose brackets never
 /// close counts as its first line only: a change of code after such a line keeps the file in the tree
 #[test]
@@ -508,6 +519,194 @@ fn an_indent_where_the_indentation_has_a_meaning_is_no_whitespace_change() {
       ("src/a/Indent.kt".to_string(), Some(MechanicalKind::Whitespace)),
       ("tools/defs.bzl".to_string(), None),
       ("tools/run.py".to_string(), None),
+    ]
+  );
+}
+
+/// A file of a grammar is compared by its tokens: a space inside a string or the text of a JSX element, a line break
+/// that ends a statement, operators that join and the text of a comment are no whitespace; a call wrapped inside its
+/// brackets is, in Starlark too, and so are the text of a JSX element on lines of its own and a byte order mark
+/// removed. A line break that is a syntax error and changes no node of the tree (before the `=>` of an arrow function)
+/// is none. A file of no grammar keeps the rule of characters, and a script the parser reads only after a recovery has
+/// no tokens to tell by
+#[test]
+fn a_change_of_whitespace_is_told_by_the_tokens_of_a_grammar() {
+  let kotlin = |body: &str| format!("package a\n\nfun run(first: Int, second: Int): Any {{\n{body}\n}}\n");
+  let files = [
+    ("src/a/Text.kt", kotlin("  return \"a  b\""), kotlin("  return \"a b\"")),
+    ("src/a/Break.kt", kotlin("  return\n    compute(first)"), kotlin("  return compute(first)")),
+    ("src/a/Minus.kt", kotlin("  return first - -second"), kotlin("  return first--second")),
+    ("src/a/Comment.kt", kotlin("  //go:build x\n  return 1"), kotlin("  // go:build x\n  return 1")),
+    (
+      "src/a/Wrap.kt",
+      kotlin("  return compute(first, second)"),
+      kotlin("  return compute(\n    first,\n    second\n  )"),
+    ),
+    (
+      "src/a/Chain.kt",
+      kotlin("  return first.plus(1).plus(second)"),
+      kotlin("  return first\n    .plus(1)\n    .plus(second)"),
+    ),
+    ("src/a/Mark.kt", format!("\u{feff}{}", kotlin("  return 1")), kotlin("  return 1")),
+    ("tools/defs.bzl", "x = call(a, b)\n".to_string(), "x = call(\n    a,\n    b\n)\n".to_string()),
+    ("docs/notes.txt", "the  notes\n".to_string(), "the notes\n".to_string()),
+    (
+      "src/arrow.ts",
+      "export const next = (a: number) => a + 1;\n".to_string(),
+      "export const next = (a: number)\n  => a + 1;\n".to_string(),
+    ),
+    (
+      "src/label.tsx",
+      "export const label = <p>a  b</p>;\n".to_string(),
+      "export const label = <p>a b</p>;\n".to_string(),
+    ),
+    (
+      "src/view.tsx",
+      "export const view = <p>a b</p>;\n".to_string(),
+      "export const view = <p>\n  a b\n</p>;\n".to_string(),
+    ),
+    (
+      "src/broken.ts",
+      "function f() {}\nclass {{{\nfunction g() {}\n".to_string(),
+      "function f() {}\n\nclass {{{\nfunction g() {}\n".to_string(),
+    ),
+  ];
+  assert_eq!(
+    mechanical_of(&files),
+    [
+      ("docs/notes.txt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Break.kt".to_string(), None),
+      ("src/a/Chain.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Comment.kt".to_string(), None),
+      ("src/a/Mark.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Minus.kt".to_string(), None),
+      ("src/a/Text.kt".to_string(), None),
+      ("src/a/Wrap.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/arrow.ts".to_string(), None),
+      ("src/broken.ts".to_string(), None),
+      ("src/label.tsx".to_string(), None),
+      ("src/view.tsx".to_string(), Some(MechanicalKind::Whitespace)),
+      ("tools/defs.bzl".to_string(), Some(MechanicalKind::Whitespace)),
+    ]
+  );
+}
+
+/// A line without a token is whitespace only where the lines around it read the same: a blank line after the `\\` that
+/// continues a line of Starlark ends the statement, one before a `#!` makes code of it, and the tokens that change
+/// are of lines no hunk holds. A blank line between two statements, or inside the brackets of Starlark, is whitespace
+#[test]
+fn a_blank_line_is_whitespace_only_where_the_lines_around_it_read_the_same() {
+  let files = [
+    (
+      "tools/continued.bzl",
+      "def f(a):\n    x = a + \\\n        2\n    return x\n",
+      "def f(a):\n    x = a + \\\n\n        2\n    return x\n",
+    ),
+    ("tools/brackets.bzl", "x = (a +\n    2)\n", "x = (a +\n\n    2)\n"),
+    ("tools/run.main.kts", "#!/usr/bin/env kotlin\nprintln(1)\n", "\n#!/usr/bin/env kotlin\nprintln(1)\n"),
+    ("tools/after.main.kts", "#!/usr/bin/env kotlin\nprintln(1)\n", "#!/usr/bin/env kotlin\n\nprintln(1)\n"),
+    ("tools/run.rs", "#!/usr/bin/env run\nfn main() {}\n", "\n#!/usr/bin/env run\nfn main() {}\n"),
+    ("tools/Run.cs", "#!/usr/bin/env dotnet\nclass A {}\n", "\n#!/usr/bin/env dotnet\nclass A {}\n"),
+    ("tools/run.js", "#!/usr/bin/env node\nconsole.log(1);\n", "\n#!/usr/bin/env node\nconsole.log(1);\n"),
+    (
+      "src/a/Blank.kt",
+      "package a\n\nfun one() = 1\nfun two() = 2\n",
+      "\npackage a\n\nfun one() = 1\n\n\nfun two() = 2\n\n",
+    ),
+    // what oxc skips and no engine of JavaScript reads as whitespace is a syntax error of the new text
+    ("src/zero.js", "x = a + b;\ny = 2;\n", "x = a\u{200b}+ b;\ny = 2;\n"),
+    ("src/next.ts", "x = a + b;\ny = 2;\n", "x = a\u{85}+ b;\ny = 2;\n"),
+  ];
+  assert_eq!(
+    mechanical_of(&files),
+    [
+      ("src/a/Blank.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/next.ts".to_string(), None),
+      ("src/zero.js".to_string(), None),
+      ("tools/Run.cs".to_string(), None),
+      ("tools/after.main.kts".to_string(), Some(MechanicalKind::Whitespace)),
+      ("tools/brackets.bzl".to_string(), Some(MechanicalKind::Whitespace)),
+      ("tools/continued.bzl".to_string(), None),
+      ("tools/run.js".to_string(), None),
+      ("tools/run.main.kts".to_string(), None),
+      ("tools/run.rs".to_string(), None),
+    ]
+  );
+}
+
+/// A hunk is a block of the diffs, whose lines end at a lone `\r` too: its text and its tokens are read by those
+/// lines. Read by the lines of git, a change of code below a lone `\r` (or in a file whose lines end with `\r\r\n`)
+/// would be compared by the blank line after it and be whitespace
+#[test]
+fn a_hunk_is_read_by_the_lines_of_the_diffs() {
+  let comment = |body: &str| format!("/* a\rb */\npackage a\n\n{body}\n\nfun two() = 2\n\nfun three() = 3\n");
+  let value = |body: &str| format!("package a\n\nval first = 1\rval second = 2\n\nfun run(): Int {{\n{body}\n}}\n\nfun other(): Int {{\n  return 5\n}}\n");
+  let ends = |body: &str| format!("package a\n\n{body}\n\nfun two() = 2\n\nfun three() = 3\n").replace('\n', "\r\r\n");
+  let files = [
+    ("src/a/Comment.kt", comment("fun one() = 1"), comment("fun one() = 100")),
+    ("src/a/Value.kt", value("  return 1"), value("  return 2")),
+    ("src/a/Ends.kt", ends("fun one() = 1"), ends("fun one() = 100")),
+    // the same lines with a change of whitespace alone are whitespace
+    ("src/a/Wrapped.kt", comment("fun one() = compute(1, 2)"), comment("fun one() = compute(\n  1,\n  2\n)")),
+    ("src/a/Spaced.kt", ends("fun one() = compute(1, 2)"), ends("fun one() = compute( 1, 2 )")),
+    // a file of no grammar is read by the same lines
+    ("docs/notes.txt", "a\rb\nthe notes\nthe end\n".to_string(), "a\rb\nthe  notes\nthe end\n".to_string()),
+    ("docs/words.txt", "a\rb\nthe notes\nthe end\n".to_string(), "a\rb\nthe words\nthe end\n".to_string()),
+  ];
+  assert_eq!(
+    mechanical_of(&files),
+    [
+      ("docs/notes.txt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("docs/words.txt".to_string(), None),
+      ("src/a/Comment.kt".to_string(), None),
+      ("src/a/Ends.kt".to_string(), None),
+      ("src/a/Spaced.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Value.kt".to_string(), None),
+      ("src/a/Wrapped.kt".to_string(), Some(MechanicalKind::Whitespace)),
+    ]
+  );
+}
+
+/// A renamed file whose lines changed their whitespace is told by what both of its names are: two files of no grammar
+/// by their characters, two of a grammar by their tokens, and one of a grammar on one side alone is real work, nothing
+/// proves its two sides the same
+#[test]
+fn a_file_of_a_grammar_on_one_side_alone_has_no_change_of_whitespace() {
+  let text = |name: &str| {
+    let body: Vec<String> = (0..6)
+      .map(|index| format!("fun {name}{index}(first: Int, second: Int) = first + second + {index}\n"))
+      .collect();
+    format!("package a\n\nfun {name}(first: Int, second: Int) = compute(first, second)\n\n{}", body.join("\n"))
+  };
+  let wrapped = |name: &str| text(name).replace("compute(first, second)\n", "compute(\n  first,\n  second\n)\n");
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add files",
+    &[
+      ("docs/plain.txt", text("plain").as_str()),
+      ("docs/notes.txt", text("notes").as_str()),
+      ("src/a/Old.kt", text("old").as_str()),
+      ("src/a/Source.kt", text("source").as_str()),
+    ],
+  );
+  for (from, to, name) in [
+    ("docs/plain.txt", "docs/moved.txt", "plain"),
+    ("docs/notes.txt", "src/a/Notes.kt", "notes"),
+    ("src/a/Old.kt", "src/a/New.kt", "old"),
+    ("src/a/Source.kt", "docs/source.txt", "source"),
+  ] {
+    repo.git(&["mv", from, to]);
+    std::fs::write(repo.path().join(to), wrapped(name)).unwrap();
+  }
+  repo.git(&["add", "-A"]);
+  let head = repo.commit_with(&["-m", "Rename and wrap"], &[]);
+  assert_eq!(
+    mechanical(&repo, &base, &head),
+    [
+      ("docs/moved.txt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("docs/source.txt".to_string(), None),
+      ("src/a/New.kt".to_string(), Some(MechanicalKind::Whitespace)),
+      ("src/a/Notes.kt".to_string(), None),
     ]
   );
 }

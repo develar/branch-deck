@@ -308,6 +308,108 @@ fn the_fingerprint_names_the_change_wherever_it_sits() {
   assert_eq!(first.id, second.id);
 }
 
+/// A block and a declaration are whitespace when their tokens are the same: a call wrapped inside its brackets goes to
+/// the whitespace of the plan, a space inside a string is a change of the behaviour
+#[test]
+fn a_block_of_whitespace_is_told_by_its_tokens() {
+  let source = |wrap: &str, text: &str| format!("package a\n\nfun wrap(x: Int): Int {{\n  return {wrap}\n}}\n\nfun text(): String {{\n  return {text}\n}}\n");
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Add", "src/a/Open.kt", &source("compute(x, 1)", "\"a  b\""));
+  let head = repo.create_commit("Format", "src/a/Open.kt", &source("compute(\n    x,\n    1\n  )", "\"a b\""));
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    units(&plan),
+    [
+      (UnitKind::Behaviour, Some("text"), vec![("src/a/Open.kt", vec![1])]),
+      (
+        UnitKind::Mechanical {
+          mechanical: MechanicalKind::Whitespace
+        },
+        None,
+        vec![("src/a/Open.kt", vec![0])]
+      ),
+    ]
+  );
+}
+
+/// A declaration whose lines differ by whitespace alone is whitespace with every line its blocks change: a block that
+/// reaches past it, into the comment after it that changed too, is a change of the behaviour and not of whitespace
+#[test]
+fn a_declaration_is_whitespace_only_with_every_line_of_its_blocks() {
+  let source = |one: &str, comment: &str| format!("package a\n\nfun one() ={one}compute(1)\n// {comment}\n\nfun two() = 2\n");
+  let repo = TestRepo::new();
+  let files = |one: &str, comment: &str| [("src/a/Reach.kt", source(one, comment)), ("src/a/Joined.kt", source(one, "a"))];
+  let base = repo.create_commit_with_files("Add", &as_refs(&files("\n  ", "a").map(|(path, text)| (path.to_string(), text))));
+  let head = repo.create_commit_with_files("Join", &as_refs(&files(" ", "b").map(|(path, text)| (path.to_string(), text))));
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    units(&plan),
+    [
+      (UnitKind::Behaviour, Some("one"), vec![("src/a/Reach.kt", vec![0])]),
+      (
+        UnitKind::Mechanical {
+          mechanical: MechanicalKind::Whitespace
+        },
+        None,
+        vec![("src/a/Joined.kt", vec![0])]
+      ),
+    ]
+  );
+}
+
+/// The blocks name the lines of the diffs, where a lone `\r` ends a line, and the declarations of a summary those of
+/// git: a block below a lone `\r` goes to the declaration of its lines, a change of its code is a change of its
+/// behaviour and one of its whitespace whitespace, not what the line after it is
+#[test]
+fn a_block_below_a_lone_carriage_return_goes_to_the_declaration_of_its_lines() {
+  let source = |one: &str, three: &str| format!("/* a\rb */\npackage a\n\nfun one() = {one}\n\nfun two() = 2\n\nfun three() = {three}\n\nfun four() = 4\n");
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Add", "src/a/Cr.kt", &source("1", "compute(3, 4)"));
+  let head = repo.create_commit("Change", "src/a/Cr.kt", &source("100", "compute(\n  3,\n  4\n)"));
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    units(&plan),
+    [
+      (UnitKind::Behaviour, Some("one"), vec![("src/a/Cr.kt", vec![0])]),
+      (
+        UnitKind::Mechanical {
+          mechanical: MechanicalKind::Whitespace
+        },
+        None,
+        vec![("src/a/Cr.kt", vec![1])]
+      ),
+    ]
+  );
+  let block = &plan.units[0].slices[0].blocks[0];
+  assert_eq!((block.old_start, block.old_end, block.new_start, block.new_end), (4, 5, 4, 5));
+}
+
+/// The fingerprint of a change reads the tokens of a file of a grammar and the tree between them: the same change
+/// written with other whitespace, or in a function that is the last of its file, has the same fingerprint; one that
+/// differs by a space inside a string, or by a line break that ends a statement, another
+#[test]
+fn the_fingerprint_is_the_same_after_a_change_of_whitespace_alone() {
+  let source = |body: &str, last: &str| format!("package a\n\nfun open(x: Int): Any {{\n{body}\n}}\n{last}");
+  let repo = TestRepo::new();
+  // each change is a pair of commits of the one file: the plan of the pair
+  let fingerprint_in = |before: &str, after: &str, last: &str| -> String {
+    let base = repo.create_commit("Add open", "src/a/Open.kt", &source(before, last));
+    let head = repo.create_commit("Change open", "src/a/Open.kt", &source(after, last));
+    let plan = plan(&repo, &base, &head);
+    plan.units.into_iter().find(|unit| unit.kind == UnitKind::Behaviour).unwrap().fingerprint
+  };
+  let fingerprint = |before: &str, after: &str| fingerprint_in(before, after, "\nfun last() = 1\n");
+  let change = fingerprint("  return x", "  return compute(x, \"a b\")");
+  assert_eq!(change, fingerprint("  return x", "  return compute(\n    x,\n    \"a b\"\n  )"));
+  assert_eq!(change, fingerprint("      return  x", "  return compute( x,\"a b\" )"));
+  // the function is the last of its file: the file closes after its last token, the change is the same
+  assert_eq!(change, fingerprint_in("  return x", "  return compute(x, \"a b\")", ""));
+  assert_ne!(change, fingerprint("  return x", "  return compute(x, \"a  b\")"));
+  assert_ne!(change, fingerprint("  return x", "  return compute(x, \"ab\")"));
+  // the same words, another program: the `return` ends at its line break
+  assert_ne!(change, fingerprint("  return x", "  return\n    compute(x, \"a b\")"));
+}
+
 /// A file that two commits change is cut by the blocks of its first blob against its last, and the files come in the
 /// order of the plan: the one that declares before the one that uses
 #[test]

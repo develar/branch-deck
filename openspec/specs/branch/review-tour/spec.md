@@ -585,7 +585,7 @@ Every stop MUST be in one group, once.
 ### Requirement: Groups of a Step: Each group knows the tests that reach its code
 
 Each group MUST know the tests of the change that reach the code of its files and its code none reaches (`tested`, in
-the form of the tests of a step, `"schema": 31`), from the same answer of accio as its step; a declaration MUST be of
+the form of the tests of a step, `"schema": 32`), from the same answer of accio as its step; a declaration MUST be of
 the group of the first stop of its file outside the mechanical group.
 
 #### Scenario: A test of one group that reaches the code of another
@@ -1339,7 +1339,7 @@ Each quoted paragraph MUST carry its spans of code (`code`, of a row those of ea
 
 ### Requirement: In `brd`: `brd review-plan` prints the steps and the brief with no git process
 
-`brd review-plan` MUST print `steps` and `brief` (`"schema": 31`), the ids of the commits of the steps and of the
+`brd review-plan` MUST print `steps` and `brief` (`"schema": 32`), the ids of the commits of the steps and of the
 story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
 nothing), and run no git process for them.
 
