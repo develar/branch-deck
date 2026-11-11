@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { bringUnderStillPointer, findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
-import { emitTauriEvent, pressSyncHeld, releaseHeldSync, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast, holdToast } from "../helpers/toast-helpers"
 import { expectClosed } from "../helpers/wait-helpers"
@@ -234,8 +234,7 @@ test.describe("YouTrack issue popover", () => {
 
     // a later read of the session fails (a focus two minutes after the last answer): said again, and no sign-out
     await repo.holdRemoteAnswers({ fail: ["authStatus"] })
-    await repo.advanceBackendClock(121_000)
-    await emitTauriEvent(page, "tauri://focus")
+    await moveClockUntil(repo, 121_000, () => toast.isVisible(), { focus: page })
     await expect(toast).toContainText("the fixture fails this read")
     await expect(link).toHaveAttribute("data-issue-key", "JIRA-456")
     await findBranchRow(page, "JIRA-456").click({ button: "right" })

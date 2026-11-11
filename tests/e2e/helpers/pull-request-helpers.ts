@@ -67,13 +67,17 @@ export async function stepSessionClockUntil(repo: { advanceBackendClock(ms: numb
   void settled.then(() => {
     done = true
   })
+  // however long the test lets it take: a start under load answers in seconds, past the 5 s of a poll
   await expect
-    .poll(async () => {
-      if (!done) {
-        await repo.advanceBackendClock(stepMs)
-      }
-      return done
-    })
+    .poll(
+      async () => {
+        if (!done) {
+          await repo.advanceBackendClock(stepMs)
+        }
+        return done
+      },
+      { timeout: 0 },
+    )
     .toBe(true)
 }
 

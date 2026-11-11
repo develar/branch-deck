@@ -25,7 +25,7 @@ rules in one line each and links here.
 - **Wait for the state, never for time**: wait for the element or the event a state comes with (`runAndWaitForSync`,
   `data-sync-count`, the patch of a version a command answered by `data-view-version`, `waitForViewVersion`, an
   `aria-busy` that clears); an app timer runs with `page.clock.fastForward`, a timer of the session (a poll, a
-  retry, the sweep) with `repo.advanceBackendClock(ms)`, a debounced
+  retry, the sweep) with `moveClockUntil(repo, ms, done)` (`repo.advanceBackendClock(ms)` until the state), a debounced
   settings change with `waitForStorePersistence` (the key as the writer answered it, as a reload reads it). No
   `waitForTimeout`: under load
   (several checkouts running e2e and cargo) any fixed wait is too short; Oxlint refuses it in `tests/`, and a
@@ -118,9 +118,12 @@ rules in one line each and links here.
 - **A move of the session clock after a call the fake counted** comes before the answer ended in the session: a fake
   counts a call as it answers, the session applies the answer seconds later under load and counts the age of the list
   from that end, past the move, or takes the focus of the move into the list in flight. One move and one focus then ask
-  nothing (`review-requests.spec.ts`, 2 of 40 under load): move and focus until the state shows
-  (`focusPastReviewRequestsAge`). Likewise a toast or a row after an operation is checked once it answered
-  (`runAndWaitForAnswer(page, "execute", …)` before `expectPushedToast`).
+  nothing (`review-requests.spec.ts`, 2 of 40 under load): move, and focus, until the state shows (`moveClockUntil` of
+  sync-helpers.ts, with `focus` and `asked`; `focusPastReviewRequestsAge` for the review requests). A loop that moves the
+  clock is no `expect.poll` of 5 s either: the answers it waits for take seconds each under load. Likewise a toast or a
+  row after an operation is checked once it answered (`runAndWaitForAnswer(page, "execute", …)` before
+  `expectPushedToast`), or once the state its sync shows is there (`releaseTheSyncOfTheUnstack`), and the facts of the
+  steps are waited for as long as the test lets them take (`waitForStepFacts`).
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config

@@ -5,7 +5,7 @@ import { expect } from "../fixtures/base-test"
 import { openedReview } from "./review-window-helpers"
 import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
-import { focusWindow } from "./sync-helpers"
+import { moveClockUntil } from "./sync-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 import { sendProgress } from "./wait-helpers"
 
@@ -99,14 +99,34 @@ export async function openRequestReview(
   page: Page,
   number: number,
   { count = 1, beforeLoad }: { count?: number; beforeLoad?: (window: Page) => Promise<unknown> } = {},
-): Promise<{ window: Page; review: Locator; opened: OpenedSubWindow<PullRequestReviewWindowData> }> {
+): Promise<{ window: Page; review: Locator; opened: OpenedSubWindow<PullRequestReviewWindowData>; fetched: Promise<unknown> }> {
   await getReviewRow(page, number).getByTestId("review-request-title").click()
   const opened = await openedReview<PullRequestReviewWindowData>(page, count)
   expect(opened.data).toMatchObject({ kind: "pullRequest", number })
-  const window = await openLinkedSubWindow(page, opened, { beforeLoad })
+  let fetched!: Promise<unknown>
+  const window = await openLinkedSubWindow(page, opened, {
+    beforeLoad: async window => {
+      fetched = reviewFetched(window)
+      // a test that never asks for it ends with the window closed, which ends the wait: no unhandled rejection
+      void fetched.catch(() => undefined)
+      await beforeLoad?.(window)
+    },
+  })
   const review = window.getByTestId("review-window")
   await expect(review.getByTestId("review-dialog-body")).toBeFocused()
-  return { window, review, opened }
+  return { window, review, opened, fetched }
+}
+
+/**
+ * The answer of the review fetch of `window` (the intent `fetchReview` of `execute`), which the window asks as it opens
+ * and after which Changes (D) is enabled, however long the fetch takes: under load seconds, past the 5 s of a look at
+ * the tab. Asked before the window loads, so a fetch that answered before the call is not missed
+ */
+export function reviewFetched(window: Page): Promise<unknown> {
+  return window.waitForEvent("requestfinished", {
+    predicate: request => request.url().endsWith("/invoke/execute") && ((request.postDataJSON() as { intent?: { kind?: string } } | null)?.intent?.kind ?? null) === "fetchReview",
+    timeout: 0,
+  })
 }
 
 /** The button of each key of a decision of the review window */
@@ -153,32 +173,8 @@ export async function routeReviewFetch(page: Page, answer: { progress: number[];
 /**
  * Moves the clock of the session of `repo` past the age at which a focus asks the review requests again (two minutes
  * after the last answer, `FOCUS_REFRESH_AGE` of `domain_policy::refresh`) and gives the window the focus, until `done`
- * holds, however long the test lets it take. One move and one focus ask nothing when the list before them has not
- * ended in the session yet: a list in flight takes the focus in, and a list that ends after the move counts its two
- * minutes from the time it ended, past the move. The fake GitHub counts a call as it answers, before the session applies
- * the answer, and under load the apply comes seconds later. So the clock moves again only while no list was asked since
- * its last move; once one was, its answer is awaited
+ * holds (`moveClockUntil`), the clock moved no more once a list was asked
  */
 export async function focusPastReviewRequestsAge(page: Page, repo: TestRepositoryBuilder, done: () => Promise<boolean>): Promise<void> {
-  // the calls of the fake at the last move, before the first none
-  let calls: number | null = null
-  await expect
-    .poll(
-      async () => {
-        if (await done()) {
-          return true
-        }
-        const now = await repo.getReviewRequestCalls()
-        if (calls !== null && now > calls) {
-          return false
-        }
-        calls = now
-        await repo.advanceBackendClock(121_000)
-        // the session took the focus in: a loaded server answers it late, and the next move waits for it
-        await focusWindow(page)
-        return done()
-      },
-      { timeout: 0 },
-    )
-    .toBe(true)
+  await moveClockUntil(repo, 121_000, done, { focus: page, asked: () => repo.getReviewRequestCalls() })
 }

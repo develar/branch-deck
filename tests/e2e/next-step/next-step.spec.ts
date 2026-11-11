@@ -26,7 +26,7 @@ import { openReviewWindow } from "../helpers/review-window-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
 import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { moveClockUntil, pushedRemote, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
 import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
@@ -113,18 +113,12 @@ const SAFE_PUSH_ITEM = { name: /^Safe Push( S)?$/ }
  * then the toast of the started robot, with Open in Patronus and Cancel Safe Push
  */
 async function expectStartedFromPullRequest(page: Page, repo: TestRepositoryBuilder) {
-  await expect.poll(() => gitHubRequests(repo, "POST", "issues", 1078, "comments")).toEqual([{ body: "/patronus merge --keep-source-branch" }])
+  // the start posts the comment once it ran its checks, seconds under load
+  await expect.poll(() => gitHubRequests(repo, "POST", "issues", 1078, "comments"), { timeout: 0 }).toEqual([{ body: "/patronus merge --keep-source-branch" }])
   const started = robot(BRANCH, "pr-robot", { sourceRevision: null, startTime: Math.floor(Date.now() / 1000), pullRequest: { number: 1078, url: AWAITED.url } })
   await repo.setPatronus(availableRobots(started))
   const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push started" })
-  await expect
-    .poll(async () => {
-      if ((await toast.count()) === 0) {
-        await repo.advanceBackendClock(3000)
-      }
-      return toast.count()
-    })
-    .toBe(1)
+  await moveClockUntil(repo, 3000, async () => (await toast.count()) === 1)
   await expectStartedToast(page)
 }
 
@@ -334,8 +328,8 @@ test.describe("Next step", () => {
     // ikorennoy approves: GitHub waits for nobody, Patronus still can't judge, the approval is news
     await repo.setPullRequests(availablePullRequests(pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })))
     // the session's poll of the review requests lists the pull requests while a subject waits for approvals
-    await repo.advanceBackendClock(300_000)
     const toast = page.locator("[data-slot=toast]", { hasText: `ikorennoy approved ${BRANCH}` })
+    await moveClockUntil(repo, 300_000, () => toast.isVisible())
     await expect(toast).toBeVisible()
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     // nobody judged it yet: the user's step, not "Ready to land"
@@ -694,8 +688,8 @@ test.describe("Next step", () => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
     await repo.setPullRequests(availablePullRequests(approved))
     await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
-    await repo.advanceBackendClock(300_000)
     const toast = page.locator("[data-slot=toast]", { hasText: `Ilya Korennoy approved ${BRANCH}` })
+    await moveClockUntil(repo, 300_000, () => toast.isVisible())
     await expect(toast).toBeVisible()
     await expect(toast).toContainText("#1078 · IJPL Code Platform")
     await expect(toast.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
@@ -716,8 +710,9 @@ test.describe("Next step", () => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("ikorennoy", "approved")] })
     await repo.setPullRequests(availablePullRequests(approved))
     await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
-    await repo.advanceBackendClock(300_000)
-    const toast = await holdToast(page.locator("[data-slot=toast]", { hasText: `Ilya Korennoy approved ${BRANCH}` }))
+    const approval = page.locator("[data-slot=toast]", { hasText: `Ilya Korennoy approved ${BRANCH}` })
+    await moveClockUntil(repo, 300_000, () => approval.isVisible())
+    const toast = await holdToast(approval)
     await expect(toast.getByRole("button", { name: "Safe Push", exact: true })).toBeVisible()
 
     // the row's Safe Push, not the toast's: the start is the next state of the approvals of the branch

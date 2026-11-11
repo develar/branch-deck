@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { finishedSyncCount, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { finishedSyncCount, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { resizeReportsDelivered, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
@@ -121,13 +121,8 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     // the robot fails while a sync runs: its chip is narrower, the column keeps its width
     const syncs = await pressSyncHeld(page, repo)
     await repo.setPatronus(availableRobots({ ...running, status: "failure", finishTime: 1704189000 }))
-    await expect
-      .poll(async () => {
-        // the session polls a running robot once a minute of its clock
-        await repo.advanceBackendClock(61_000)
-        return chip.getAttribute("data-kind")
-      })
-      .toBe("failed")
+    // the session polls a running robot once a minute of its clock
+    await moveClockUntil(repo, 61_000, async () => (await chip.getAttribute("data-kind")) === "failed")
     const failedWidth = (await content.boundingBox())!.width
     expect(failedWidth).toBeLessThan(runningWidth)
     // the observer reported the narrower chip: without the hold the track would follow it now

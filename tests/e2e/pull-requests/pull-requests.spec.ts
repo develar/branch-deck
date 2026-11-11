@@ -29,7 +29,7 @@ import {
 } from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
-import { emitTauriEvent, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { moveClockUntil, pressSyncHeld, releaseHeldSync, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { recordCommand, expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -407,8 +407,7 @@ test.describe("Pull request chip", () => {
 
     // a refresh on focus finds the pull request someone made meanwhile: the session lists them on a focus two minutes on
     await repo.setPullRequests(availablePullRequests(APPROVED, CHANGES_REQUESTED, DRAFT, MERGED, CLOSED, OUTDATED, pullRequest("feature-auth", 905)))
-    await repo.advanceBackendClock(121_000)
-    await emitTauriEvent(page, "tauri://focus")
+    await moveClockUntil(repo, 121_000, () => dialog.getByTestId("create-pull-request-exists").isVisible(), { focus: page })
     await expect(dialog.getByTestId("create-pull-request-exists")).toContainText("feature-auth already has pull request #905.")
     await expect(submit).toBeDisabled()
     // GitHub's form would open nothing: disabled with the reason, the alert opens the pull request

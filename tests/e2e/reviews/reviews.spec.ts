@@ -11,7 +11,7 @@ import type { ReviewRequestsFixture } from "../helpers/review-request-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer, waitForTauriListener } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { TITLE_BARS, useTitleBar } from "../helpers/title-bar-helpers"
 import { openTooltip } from "../helpers/wait-helpers"
@@ -120,8 +120,11 @@ test.describe("Reviews view", () => {
     await emitTauriEvent(page, "show_branches")
     await expect(reviewsView(page)).toBeHidden()
     await hidden
-    await repo.advanceBackendClock(300_000)
-    await expect.poll(() => repo.getReviewRequestCalls()).toBeGreaterThan(1)
+    // the poll of the move, past the lists before it (two already: the one of the start, the one of the view), and the
+    // move itself makes the rest of Reviews older than two minutes for the show below; a wait for "more than one" was
+    // there before the move and moved nothing
+    const listed = await repo.getReviewRequestCalls()
+    await moveClockUntil(repo, 300_000, async () => (await repo.getReviewRequestCalls()) > listed)
     expect(await repo.getReviewsCalls()).toBe(1)
 
     // ⌘2 of the native View menu shows it again: read once more, its rest older than two minutes

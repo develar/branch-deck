@@ -23,15 +23,17 @@ export async function expectTeamSessionSyncedOnOpen(page: Page, repo: TestReposi
 }
 
 /**
- * Sync branches and wait for specific elements to appear
+ * Sync branches and wait for specific elements to appear, the sync as long as the test lets it take: a sync of a test
+ * repository takes 1 s alone and 7 s at 30 workers (review-plan.spec.ts), so a wait of its own (15 s) failed the setup of
+ * a test whose budget had room for it
  * @param waitForSelectors - Optional selectors to wait for after starting sync
  */
 export async function syncBranches(page: Page, waitForSelectors?: string[]): Promise<void> {
   // Click sync button to load branches
   const syncButton = page.locator('[data-testid="sync-button"]')
 
-  // Wait for the button to be enabled
-  await expect(syncButton).toBeEnabled()
+  // Wait for the button to be enabled: the first sync of the page may still run
+  await expect(syncButton).toBeEnabled({ timeout: 0 })
 
   await syncButton.click()
 
@@ -40,18 +42,18 @@ export async function syncBranches(page: Page, waitForSelectors?: string[]): Pro
     // Wait for all specified selectors in parallel
     await Promise.all(
       waitForSelectors.map(selector =>
-        page.waitForSelector(selector, { timeout: 15000 }).catch(err => {
+        page.waitForSelector(selector, { timeout: 0 }).catch(err => {
           console.error(`[Sync] Failed to find selector: ${selector}`, err.message)
           throw err
         }),
       ),
     )
     // what the selectors name comes with the first patches of the sync: the rest moves it until the sync ends
-    await expect(syncButton).toBeEnabled({ timeout: 15000 })
+    await expect(syncButton).toBeEnabled({ timeout: 0 })
   } else {
     // Default behavior: wait for sync to complete
     // Wait for sync to complete (button becomes enabled again)
-    await expect(syncButton).toBeEnabled({ timeout: 15000 })
+    await expect(syncButton).toBeEnabled({ timeout: 0 })
 
     // Wait for sync results - look for either branch rows or unassigned commits
     // This replaces the need for an arbitrary timeout as it waits for actual content
@@ -65,7 +67,7 @@ export async function syncBranches(page: Page, waitForSelectors?: string[]): Pro
         )
         return branchRows > 0 || unassignedSection !== null || emptyState !== null
       },
-      { timeout: 10000 },
+      { timeout: 0 },
     )
   }
 }
@@ -296,6 +298,49 @@ export async function waitForViewVersion(page: Page, version: { epoch: number; s
     })
     .toBe(true)
   await expect(syncButton).toBeEnabled()
+}
+
+/**
+ * Moves the clock of the sessions of `repo` by `ms` (`advanceBackendClock`), with `focus` a focus of that window after
+ * it (`focusWindow`, which paces the next move by the session's answer), again after each look, until `done` holds,
+ * however long the test lets it take: never one move and a 5 s look. A move right after an answer of a fake comes
+ * before the session ended what it read: a fake answers (and counts the call) before the session applies the answer,
+ * seconds later under load, and the session counts the age of a list, which a poll or a focus waits for, from the end
+ * of the list, past a move made before, and takes a focus into a list in flight; then one move asks nothing.
+ * `asked`, the calls of the fake the move is for: once they grew since the last move, the answer is on its way and the
+ * clock moves no more. `done` is a state the move brings (a count past the one before it, not "more than one"): one that
+ * holds already moves nothing
+ */
+export async function moveClockUntil(
+  repo: TestRepositoryBuilder,
+  ms: number,
+  done: () => Promise<boolean>,
+  { focus, asked }: { focus?: Page; asked?: () => Promise<number> } = {},
+): Promise<void> {
+  // the calls at the last move, before the first none
+  let calls: number | null = null
+  await expect
+    .poll(
+      async () => {
+        if (await done()) {
+          return true
+        }
+        if (asked !== undefined) {
+          const now = await asked()
+          if (calls !== null && now > calls) {
+            return false
+          }
+          calls = now
+        }
+        await repo.advanceBackendClock(ms)
+        if (focus !== undefined) {
+          await focusWindow(focus)
+        }
+        return done()
+      },
+      { timeout: 0 },
+    )
+    .toBe(true)
 }
 
 /** Gives the window the focus and waits for the sync it starts, which a focus starts only when what a sync reads changed */

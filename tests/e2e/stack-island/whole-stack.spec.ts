@@ -38,7 +38,7 @@ import { expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverS
 import { openSubmenu } from "../helpers/selection-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { HeldAnswer, TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
 import { expectClosed, waitForStepFacts, openTooltip } from "../helpers/wait-helpers"
@@ -1062,12 +1062,7 @@ test.describe("Whole stack", () => {
     // minute of its clock
     await repo.setPatronus(availableRobots(merged, mergedWholeAuthStack(1704146400)))
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })
-    await expect
-      .poll(async () => {
-        await repo.advanceBackendClock(61_000)
-        return toast.count()
-      })
-      .toBe(1)
+    await moveClockUntil(repo, 61_000, async () => (await toast.count()) === 1)
     await expect(findBranchRow(page, "session").getByTestId("landed-with")).toHaveText("Landed with the whole auth stack")
     await expect(findBranchRow(page, "login").getByTestId("landed-with")).toHaveText("Landed with oauth")
     const reason = "Landed in master with oauth and the whole auth stack"

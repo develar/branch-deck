@@ -179,7 +179,7 @@ In full: [Writing E2E Tests](docs/contributing/e2e-tests.md); the infrastructure
   negatives**: anchor a "nothing happened" on something that existed first.
 - **Wait for the state, never for time**: `runAndWaitForSync`, `waitForViewVersion`, `runAndWaitForAnswer(page,
   command, () => button.click())`; app timers with `page.clock.fastForward`, session timers with
-  `repo.advanceBackendClock(ms)`.
+  `moveClockUntil`.
 - **Close a read toast** (`closeToast`) before acting where it lies; **a few starts per test**: past 20 s under load, split it.
 - **Locators**: role and accessible name, then `getByTestId`; never CSS classes or DOM shape.
 - **Through the user's path**; an error path fails the command with `routeCommandError`.

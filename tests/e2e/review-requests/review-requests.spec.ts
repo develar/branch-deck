@@ -26,7 +26,7 @@ import { openedReview } from "../helpers/review-window-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
+import { emitTauriEvent, moveClockUntil, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { expectClosed, openTooltip } from "../helpers/wait-helpers"
 
@@ -180,7 +180,7 @@ test.describe("Your Turn card", () => {
     // two listed of 63: no Show More, and the list still says it
     await repo.setReviewRequests(availableReviewRequests([OLD, RECENT], 63))
     // the poll five minutes after the last answer
-    await repo.advanceBackendClock(300_000)
+    await moveClockUntil(repo, 300_000, async () => (await card.getByTestId("review-request-row").count()) === 2)
     await expect(card.getByTestId("review-request-row")).toHaveCount(2)
     await expect(card.getByTestId("review-requests-show-more")).toHaveCount(0)
     await expect(more).toHaveText("2 of 63Open All on GitHub")
@@ -286,8 +286,8 @@ test.describe("New review requests", () => {
 
     await repo.setReviewRequests(availableReviewRequests([OLD, RECENT, RELEASE, FOURTH]))
     // the session polls five minutes after the last answer, focused or not
-    await repo.advanceBackendClock(300_000)
     const toast = reviewToast(page, "dave requested your review")
+    await moveClockUntil(repo, 300_000, () => toast.isVisible())
     await expect(toast).toBeVisible()
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("#104 Document the CLI")
     // the unread row is shown above the cap, in the place of a read one
@@ -712,8 +712,7 @@ test.describe("Review window", () => {
     // the user reviewed the second of the four commits of ABC-123, and the request came again
     const reviewed = await repo.revision("user-name/virtual/ABC-123~2")
     await repo.setReviewRequests(availableReviewRequests([{ ...OLD, reRequested: true, reviewedCommit: reviewed }]))
-    await repo.advanceBackendClock(121_000)
-    await emitTauriEvent(page, "tauri://focus")
+    await focusPastReviewRequestsAge(page, repo, () => getReviewRow(page, 101).isVisible())
     await expect(getReviewRow(page, 101)).toBeVisible()
     await getReviewRow(page, 101).focus()
     await page.keyboard.press("d")
@@ -924,12 +923,7 @@ test.describe("Review window", () => {
     expect(await gitHubRequests(repo, "POST", "pulls", "*", "reviews")).toEqual([])
     await reviewPage.keyboard.press("Enter")
     // the bot's 👍 is the start: the engine looks for its robot among the user's for 10 s of the session's clock
-    await expect
-      .poll(async () => {
-        await repo.advanceBackendClock(3000)
-        return reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()
-      })
-      .toBe(1)
+    await moveClockUntil(repo, 3000, async () => (await reviewPage.locator("[data-slot=toast]", { hasText: "Safe Push started" }).count()) === 1)
     // the approval, the head GitHub shows, then the plain command: Patronus deletes the branch of a reviewed pull request
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
     expect(await gitHubRequests(repo, "GET", "pulls", 101)).toHaveLength(1)
@@ -971,12 +965,7 @@ test.describe("Review window", () => {
     // the session polls it while it runs, every minute of its clock: its merge is told by what it tested
     await repo.setPatronus(availableRobots({ ...started, status: "success", finishTime: 1704189700 }))
     const merged = page.locator("[data-slot=toast]", { hasText: "#101 Rework the session store merged into master" })
-    await expect
-      .poll(async () => {
-        await repo.advanceBackendClock(60_000)
-        return merged.count()
-      })
-      .toBe(1)
+    await moveClockUntil(repo, 60_000, async () => (await merged.count()) === 1)
     expect((await repo.getPatronusLog()).pollCalls).toBeGreaterThan(0)
   })
 
@@ -1003,7 +992,7 @@ test.describe("Review window", () => {
     // the window shows #101: the session prunes the review refs of every other pull request, an earlier start's too
     await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[101]])
     await repo.setReviewRequests(availableReviewRequests([RECENT]))
-    await repo.advanceBackendClock(300_000)
+    await moveClockUntil(repo, 300_000, () => review.getByTestId("review-withdrawn").isVisible())
     await expect(review.getByTestId("review-withdrawn")).toHaveText("No longer waiting for your review")
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveCount(0)
@@ -1120,12 +1109,15 @@ async function showOtherRequest(window: Page, review: ReturnType<Page["getByTest
   await showChanges(window, review)
 }
 
-/** A new head of `login` (#7 and #8) with ui/button.css, which the next focus polls and the open window fetches */
+/**
+ * A new head of `login` (#7 and #8) with ui/button.css, which the next focus polls and the open window fetches: the
+ * focus two minutes past the last answer, until the session listed the requests again (`focusPastReviewRequestsAge`)
+ */
 async function commitNewHead(page: Page, repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<void>): Promise<void> {
   await repo.commit("(login) Style the button", { "ui/button.css": "button {}\n" }, 1704124800)
   await syncAndWaitForBranches()
-  await repo.advanceBackendClock(121_000)
-  await emitTauriEvent(page, "tauri://focus")
+  const listed = await repo.getReviewRequestCalls()
+  await focusPastReviewRequestsAge(page, repo, async () => (await repo.getReviewRequestCalls()) > listed)
 }
 
 test.describe("Owner chips", () => {
@@ -1331,7 +1323,8 @@ test.describe("Owner chips", () => {
       },
     })
     await commitNewHead(page, repo, syncAndWaitForBranches)
-    await expect.poll(() => ownerChips(window)).toEqual(["All3", "Design· You2", "Auth Team0", "Monorepo1"])
+    // the window fetches the new head and reads its groups, however long that takes
+    await expect.poll(() => ownerChips(window), { timeout: 0 }).toEqual(["All3", "Design· You2", "Auth Team0", "Monorepo1"])
     await expect(column.nth(1)).toHaveAttribute("aria-selected", "true")
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
   })
@@ -1463,7 +1456,8 @@ test.describe("Owner part and Approve", () => {
       answers: { "request:7": loginGroupsWithDesign(["ui/button.css", "ui/login.css", "ui/login.js"]), "request:8": loginGroupsWithDesign(["ui/login.css"], "bob") },
     })
     await commitNewHead(page, repo, syncAndWaitForBranches)
-    await expect.poll(() => ownerChips(window)).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
+    // the window fetches the new head and reads its groups, however long that takes
+    await expect.poll(() => ownerChips(window), { timeout: 0 }).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
     // the review stays at the file on screen by its path, also while the chip of the new head showed fewer files, the
     // groups of the new head not told yet: login.js, after the new button.css and login.css
     const tree = window.getByRole("tree", { name: "Changed files" })

@@ -325,7 +325,9 @@ test.describe("The review plan in the branch review", () => {
     const repo = await setupRepo("symbol_navigation", { reviewRequests: availableReviewRequests([reviewRequest("plan", 301, 1, { title: "Scale the helper" })]) })
     await setupPlan(repo, { experimental: true })
     await syncAndWaitForBranches()
-    const { window, review } = await openRequestReview(page, 301)
+    const { window, review, fetched } = await openRequestReview(page, 301)
+    // Changes waits for the fetch of the pull request: its answer, then the tab
+    await fetched
     await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
     await expect(review.getByTestId("review-overview")).toHaveCount(0)
     await window.keyboard.press("d")

@@ -93,19 +93,20 @@ const STEP_FACTS = Object.keys({
 } satisfies Record<StepFact, true>)
 
 /**
- * Waits until no step of the next-step `slots` waits for a fact (`data-waits-for` of "Checking…"), each fact with an
- * assertion's time of its own: under load every answer takes seconds and they come one after another (the landing needs
- * after the sync, the approvals after the robots), so one assertion over all of them failed at a load of 150-200. A
- * second round takes a fact asked once another answered. A step pending on a failed read (no fact) is the caller's
+ * Waits until no step of the next-step `slots` waits for a fact (`data-waits-for` of "Checking…"), however long the test
+ * lets it take: under load every answer takes seconds and they come one after another (the landing needs after the
+ * sync, the approvals after the robots), so one assertion over all of them failed at a load of 150-200, and the 5 s of
+ * each fact failed at 30 workers (the readiness, in the setup of `next-step.spec.ts`). A second round takes a fact
+ * asked once another answered. A step pending on a failed read (no fact) is the caller's
  */
 export async function waitForStepFacts(slots: Locator): Promise<void> {
   const waiting = (fact?: string) => slots.and(slots.page().locator(fact === undefined ? "[data-waits-for]" : `[data-waits-for="${fact}"]`))
   for (let round = 0; round < 2; round++) {
     for (const fact of STEP_FACTS) {
-      await expect(waiting(fact)).toHaveCount(0)
+      await expect(waiting(fact)).toHaveCount(0, { timeout: 0 })
     }
   }
-  await expect(waiting()).toHaveCount(0)
+  await expect(waiting()).toHaveCount(0, { timeout: 0 })
 }
 
 /**
