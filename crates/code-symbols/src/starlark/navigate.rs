@@ -50,6 +50,8 @@ pub(crate) const NAVIGATION: Reading<starlark_syntax::Starlark, Tree> = Reading 
   is_implicit: |_| false,
   access_of,
   name_start,
+  // a text with an error of its parser: what stands where the parser gave up is no name of the tree
+  reads_in_part: |tree| tree.errors().len() > 0,
 };
 
 /// What holds the targets of an assignment or a `for` beside the statement itself: `a, b = pair`, `[a, b] = pair`
@@ -68,9 +70,9 @@ fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
         _ => return LocalBinding::OTHER,
       };
       LocalBinding {
-        kind: kind_of_parameter,
         // `*args` and `**kwargs` take what no parameter names
         named_by_calls: matches!(kind, NodeKind::MANDATORY_PARAMETER | NodeKind::OPTIONAL_PARAMETER),
+        ..LocalBinding::of(kind_of_parameter)
       }
     }
     NodeKind::TARGET_EXPRESSION => {

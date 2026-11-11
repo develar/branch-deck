@@ -6,9 +6,10 @@
 //! such a walk (`Frame`, `declaration_in`). What a name is and which scopes a language has are the language's
 //! (`java::navigate`, `csharp::navigate`, `starlark::navigate`).
 
-use crate::navigate::{Access, Bound, LocalBinding, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
+use crate::navigate::{Access, Bound, Leaves, LocalBinding, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
 use psi_builder::language::TreeLanguage;
 use psi_builder::{NodeId, Tree};
+use std::cell::OnceCell;
 
 /// A name of a language's walk: its leaf, its kind and the name of the declaration it is bound to
 pub(crate) struct Named {
@@ -105,6 +106,9 @@ pub(crate) struct Reading<L: TreeLanguage, T> {
   pub(crate) access_of: fn(&T, NodeId, ReferenceKind) -> Access,
   /// Where the name of a leaf starts: the leaf's start but where its text spells more than the name (C#'s `@`)
   pub(crate) name_start: fn(&T, NodeId) -> usize,
+  /// Whether the scopes read only a part of the code of the tree (`navigate::Names::reads_in_part`): its parser
+  /// reported an error, or the language compiles the text by conditions
+  pub(crate) reads_in_part: fn(&T) -> bool,
 }
 
 /// A language's scopes for `resolve_names`: the walk asks them what a node is to the name it resolves
@@ -272,6 +276,8 @@ pub(crate) fn with_names<L: TreeLanguage, T, R>(reading: &Reading<L, T>, text: &
   read(&TreeNames {
     reading,
     tree: (reading.parse)(text),
+    leaves: Leaves::default(),
+    in_part: OnceCell::new(),
   })
 }
 
@@ -279,11 +285,14 @@ pub(crate) fn with_names<L: TreeLanguage, T, R>(reading: &Reading<L, T>, text: &
 struct TreeNames<'r, L: TreeLanguage, T> {
   reading: &'r Reading<L, T>,
   tree: T,
+  leaves: Leaves,
+  /// `Reading::reads_in_part` of the tree, read once
+  in_part: OnceCell<bool>,
 }
 
 impl<L: TreeLanguage, T> Names for TreeNames<'_, L, T> {
   fn name_at(&self, offset: usize) -> Option<(usize, &str)> {
-    let leaf = name_leaf_at(self.reading, &self.tree, offset)?;
+    let leaf = name_leaf_at(self.reading, &self.tree, &self.leaves, offset)?;
     Some(((self.reading.name_start)(&self.tree, leaf), (self.reading.name)(&self.tree, leaf)))
   }
 
@@ -309,25 +318,29 @@ impl<L: TreeLanguage, T> Names for TreeNames<'_, L, T> {
   fn is_implicit(&self, name: &str) -> bool {
     (self.reading.is_implicit)(name)
   }
+
+  fn reads_in_part(&self) -> bool {
+    *self.in_part.get_or_init(|| (self.reading.reads_in_part)(&self.tree))
+  }
 }
 
 /// The tree of a text and the leaf of the name at `position` in it
 fn parse_with_name_at<L: TreeLanguage, T>(reading: &Reading<L, T>, text: &str, position: Position) -> Option<(T, NodeId)> {
   let offset = byte_offset(text, position)?;
   let tree = (reading.parse)(text);
-  let leaf = name_leaf_at(reading, &tree, offset)?;
+  let leaf = name_leaf_at(reading, &tree, &Leaves::default(), offset)?;
   Some((tree, leaf))
 }
 
 /// The leaf of the name at the byte `offset` of a tree: the character at the place, else the one before it, as the end
 /// of a name is still the name (`foo|`)
-fn name_leaf_at<L: TreeLanguage, T>(reading: &Reading<L, T>, tree: &T, offset: usize) -> Option<NodeId> {
-  let leaves = (reading.psi)(tree).leaf_index();
+fn name_leaf_at<L: TreeLanguage, T>(reading: &Reading<L, T>, tree: &T, leaves: &Leaves, offset: usize) -> Option<NodeId> {
+  let psi = (reading.psi)(tree);
   let is_name = |leaf: &NodeId| (reading.is_name)(tree, *leaf);
   leaves
-    .at(offset)
+    .at(psi, offset)
     .filter(is_name)
-    .or_else(|| offset.checked_sub(1).and_then(|before| leaves.at(before)).filter(is_name))
+    .or_else(|| offset.checked_sub(1).and_then(|before| leaves.at(psi, before)).filter(is_name))
 }
 
 /// The kind of a name by the node around it, and its qualifier: of a declaration's name, else as the language reads the

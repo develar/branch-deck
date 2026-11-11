@@ -16,9 +16,19 @@
 //! own scope rules), TypeScript and JavaScript from oxc's tree (`js::navigate`), Rust from rust-analyzer's
 //! (`rust::navigate`). Each gives the names of one spelling with their bindings (`Names::resolve`); the answers are
 //! made here (`reference_answer`, `answer`), with the positions of the view.
+//!
+//! A reader may keep what it made of the answers of `names_at` (the diffs keep their renames and the runs those
+//! allow): **a change of any rule here or in the `navigate.rs` of a language that changes an answer bumps
+//! `RULES_VERSION`**, or a stored answer of the old rule outlives its fix.
 
 use crate::highlight::Grammar;
 use std::collections::HashMap;
+
+/// The version of the rules of the names: the scopes of each language, what a local is (`LocalBinding`), what a site
+/// makes of a name (`Site`) and what another name clashes with. Bump it on any change of an answer of `names_at`, so
+/// that what was stored of the answers is made again (`file_diffs::service::model_version`); the parsers of the
+/// build have their own version (`tokens::tokens_version`)
+pub const RULES_VERSION: u32 = 1;
 
 /// A place in a text: a line from 0 and a UTF-16 column, as the view counts them
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +133,8 @@ impl LocalKind {
   }
 }
 
-/// A declaration inside code, which no other file sees: what declares it, and whether other code may still spell its name
+/// A declaration inside code, which no other file sees: what declares it, and whether the names its scopes bind to it
+/// are all that name it
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalBinding {
   pub kind: LocalKind,
@@ -132,14 +143,38 @@ pub struct LocalBinding {
   /// attribute macro on a Rust function, a framework that reads the annotations of a Java method or its class and
   /// binds by the names of the parameters
   pub named_by_calls: bool,
+  /// The scopes read only a part of the code that may name the declaration, so the uses they bind are not all there
+  /// may be, and the declaration itself may be another one where the code runs: the parser reported an error in the
+  /// text (what stands in the region it gave up on is no name to the scopes), the text is compiled by conditions (a
+  /// C# file with an `#if`, whose other branch is no code here; a Rust item with a `#[cfg]` inside it, whose two
+  /// declarations of a name are one scope here), or it runs code it holds as text where the declaration is seen (a
+  /// direct `eval` of a script)
+  pub read_in_part: bool,
 }
 
 impl LocalBinding {
   pub(crate) const fn of(kind: LocalKind) -> Self {
-    Self { kind, named_by_calls: false }
+    Self {
+      kind,
+      named_by_calls: false,
+      read_in_part: false,
+    }
   }
 
+  /// A parameter that a call, or what reads the names of a function, may name
+  pub(crate) const NAMED_PARAMETER: Self = Self {
+    named_by_calls: true,
+    ..Self::of(LocalKind::Parameter)
+  };
+
   pub(crate) const OTHER: Self = Self::of(LocalKind::Other);
+
+  /// Whether the declaration is a value of its body alone, every name of which the scopes bind: a value
+  /// (`LocalKind::is_value`) that no code outside its body may name and whose text the scopes read whole. Only of
+  /// such a declaration do the scopes of the two sides of a change prove that another name for it changes nothing
+  pub const fn is_of_body_alone(self) -> bool {
+    self.kind.is_value() && !self.named_by_calls && !self.read_in_part
+  }
 }
 
 /// What the site of a name makes of it beside the binding the scopes give it: another name there changes more than the
@@ -160,9 +195,12 @@ pub enum Site {
   /// Kotlin (its `invoke`, or a function of its spelling), a name that is all of a `case` label of Java (a constant of
   /// the enum the `switch` is over), a name in a Java class with a supertype inside the body of the binding (a member
   /// the class inherits hides it), a name that is all of the right side of a C# `is` (a type of that name, declared
-  /// anywhere, comes before the constant)
+  /// anywhere, comes before the constant). Or only what runs tells: a name inside the body of a JavaScript `with` (a
+  /// property of its object comes before the binding)
   Namesake,
-  /// The spelling of the name is a value there: `nameof(total)`
+  /// The spelling of the name is a value there: `nameof(total)`; the declaration of a Kotlin property with a delegate,
+  /// which gets the name (`val total by map` reads the key "total"); the variable of TypeScript or JavaScript that a
+  /// function or a class written without a name is given to, which takes the name as its own (`const total = () => 1`)
   Spelled,
   /// Among the tokens of a macro, which may read the name as it likes
   Macro,
@@ -234,6 +272,8 @@ pub struct NamesAt {
   /// binding asked with the same new name share an entry, as the places of one text that no local binds
   pub asked: Vec<Option<usize>>,
   pub names: Vec<NameAt>,
+  /// The resolutions the answers took: one per spelling asked, one more per binding asked with another name
+  pub resolutions: usize,
 }
 
 impl NamesAt {
@@ -379,7 +419,8 @@ pub(crate) fn site_by_binding(syntactic: Site, apart: bool, binding: Option<Loca
 /// A parse of a text read for its names: what each language gives the answers of `names_at`, `usages_at` and `usages_of`
 pub(crate) trait Names {
   /// The name whose text holds the byte `offset`, else the one that ends there (`foo|`): the byte where it starts and
-  /// the name as names compare
+  /// the name as names compare. Asked for every place of `names_at`, thousands of a reader of renames: it must not
+  /// read the tree again for each
   fn name_at(&self, offset: usize) -> Option<(usize, &str)>;
 
   /// Every name the resolution looks for, in the order of the text, each bound by the scopes of the language over the
@@ -388,6 +429,11 @@ pub(crate) trait Names {
 
   /// Whether the language gives a name a meaning no declaration shows (Kotlin's `it`)
   fn is_implicit(&self, name: &str) -> bool;
+
+  /// Whether the scopes read only a part of the code of the text, whatever the declaration
+  /// (`LocalBinding::read_in_part`): its parser reported an error, it is compiled by conditions or it evaluates text.
+  /// Asked once per local answered: an answer that reads the tree for it keeps it
+  fn reads_in_part(&self) -> bool;
 }
 
 /// Whether a name is a use of the declaration `local`, else of the text that no local binds: the rule of Find Usages
@@ -398,22 +444,40 @@ fn is_use(name: &Resolved, local: Option<Bound>) -> bool {
   }
 }
 
-/// The answers of `names_at` from a parse: one resolution per spelling asked, one per binding asked with a new name
-fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>]) -> NamesAt {
+/// The answers of `names_at_within` from a parse: one resolution per spelling asked, one per binding asked with a
+/// new name, `limit` of them at most. A place whose answer needs one more has none
+fn answer(names: &dyn Names, text: &str, questions: &[NameQuestion<'_>], limit: usize) -> NamesAt {
   let mut resolutions: HashMap<&str, Vec<Resolved>> = HashMap::new();
   // the entry of a binding (the byte of its declaration) or of a text no local binds, asked with a new name or none
   let mut entries: HashMap<(Option<usize>, &str, Option<&str>), usize> = HashMap::new();
   let mut found = NamesAt::default();
+  let lines = Lines::of(text);
   for question in questions {
-    let entry = byte_offset(text, question.position).and_then(|offset| names.name_at(offset)).and_then(|(start, name)| {
-      let resolved = resolutions.entry(name).or_insert_with(|| names.resolve(&Wanted::named(name)));
+    let entry = lines.byte_offset(question.position).and_then(|offset| names.name_at(offset)).and_then(|(start, name)| {
+      if !resolutions.contains_key(name) {
+        if found.resolutions == limit {
+          return None;
+        }
+        found.resolutions += 1;
+        resolutions.insert(name, names.resolve(&Wanted::named(name)));
+      }
+      let resolved = &resolutions[name];
       let local = resolved.iter().find(|it| it.start == start)?.binding.filter(|it| it.local.is_some());
       let renamed_to = question.renamed_to.filter(|_| local.is_some());
       let key = (local.map(|it| it.start), name, renamed_to);
-      Some(*entries.entry(key).or_insert_with(|| {
-        found.names.push(entry_of(names, text, name, resolved, local, renamed_to));
-        found.names.len() - 1
-      }))
+      if let Some(entry) = entries.get(&key) {
+        return Some(*entry);
+      }
+      // what the new name clashes with is one resolution more
+      if renamed_to.is_some_and(|new_name| new_name != name) {
+        if found.resolutions == limit {
+          return None;
+        }
+        found.resolutions += 1;
+      }
+      found.names.push(entry_of(names, text, name, resolved, local, renamed_to));
+      entries.insert(key, found.names.len() - 1);
+      Some(found.names.len() - 1)
     });
     found.asked.push(entry);
   }
@@ -436,7 +500,11 @@ fn entry_of(names: &dyn Names, text: &str, name: &str, resolved: &[Resolved], lo
   });
   NameAt {
     name: name.to_string(),
-    local: local.and_then(|it| it.local),
+    // what holds of the whole text holds of each of its locals
+    local: local.and_then(|it| it.local).map(|it| LocalBinding {
+      read_in_part: it.read_in_part || names.reads_in_part(),
+      ..it
+    }),
     uses: uses.collect(),
     clashes: local.zip(renamed_to).map(|(local, new_name)| clashes(names, text, name, resolved, local, new_name)),
   }
@@ -504,14 +572,35 @@ fn with_names<R: Send>(grammar: Grammar, text: &str, read: impl FnOnce(&dyn Name
 /// what their sites make of them, and what the new name asked would clash with. No place has an answer where the
 /// grammar is not in this build or the text has no tree
 pub fn names_at(grammar: Grammar, text: &str, questions: &[NameQuestion<'_>]) -> NamesAt {
+  names_at_within(grammar, text, questions, usize::MAX)
+}
+
+/// `names_at` within `resolutions` resolutions of a name: one per spelling asked and one more per binding asked
+/// with another name, in the order of the questions. A place whose answer needs a resolution past them has no
+/// answer (`NamesAt::asked` is `None` there), as a place without a name: the limit of a reader that asks of many
+/// names before it knows how many bindings they are, the same on every machine
+pub fn names_at_within(grammar: Grammar, text: &str, questions: &[NameQuestion<'_>], resolutions: usize) -> NamesAt {
   let none = || NamesAt {
     asked: vec![None; questions.len()],
-    names: Vec::new(),
+    ..NamesAt::default()
   };
-  if questions.is_empty() {
+  if questions.is_empty() || resolutions == 0 {
     return none();
   }
-  with_names(grammar, text, |names| answer(names, text, questions)).unwrap_or_else(none)
+  with_names(grammar, text, |names| answer(names, text, questions, resolutions)).unwrap_or_else(none)
+}
+
+/// What a resolution of a name costs in a text of `grammar`, as a part of the tokens of the text, for a reader that
+/// bounds its resolutions by work: all of them where a resolution walks the tree with its scopes (Java, C#,
+/// Starlark), an eighth where it reads the names of one spelling (Kotlin, Rust, TypeScript, JavaScript). The measure
+/// is `benches/names_bench.rs`: 0.4 to 1 ms a resolution of the first in a file of 2,500 lines, 0.06 to 0.08 ms of
+/// the others
+pub const fn resolution_work(grammar: Grammar, tokens: usize) -> u64 {
+  let tokens = tokens as u64;
+  match grammar {
+    Grammar::Java | Grammar::CSharp | Grammar::Starlark | Grammar::StarlarkBuild => tokens,
+    Grammar::Kotlin | Grammar::KotlinScript | Grammar::Rust | Grammar::TypeScript | Grammar::Tsx | Grammar::JavaScript => tokens / 8,
+  }
 }
 
 /// The usages of the name at `position`: those of its declaration for a local, else those of every name of that text that
@@ -546,6 +635,55 @@ const fn usage_of(found: &NameUse) -> Usage {
     start: found.start,
     end_column: found.end_column,
     access: found.access,
+  }
+}
+
+/// The leaves of a PSI tree in the order of its text, read once, for the leaf at each of many bytes:
+/// `Tree::leaf_index` collects them at every call, the whole tree again for each place of a reader that asks of
+/// thousands
+#[cfg(any(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark"))]
+#[derive(Default)]
+pub(crate) struct Leaves(std::cell::OnceCell<Vec<psi_builder::NodeId>>);
+
+#[cfg(any(feature = "kotlin", feature = "java", feature = "csharp", feature = "starlark"))]
+impl Leaves {
+  /// The leaf of `tree` whose range holds the byte at `offset`, as `LeafIndex::at` finds it; `tree` is the same at
+  /// every call
+  pub(crate) fn at<L: psi_builder::language::TreeLanguage>(&self, tree: &psi_builder::Tree<L>, offset: usize) -> Option<psi_builder::NodeId> {
+    let leaves = self.0.get_or_init(|| tree.tokens().collect());
+    let index = leaves.partition_point(|&leaf| tree.range(leaf).end <= offset);
+    leaves.get(index).copied().filter(|&leaf| tree.range(leaf).start <= offset)
+  }
+}
+
+/// The lines of a text as the view splits them, for the bytes of many places of it: `byte_offset` reads the text from
+/// its start for each place, which is the whole text again for every place of a reader that asks of thousands
+pub(crate) struct Lines<'t> {
+  text: &'t str,
+  /// The byte each line starts at
+  starts: Vec<usize>,
+}
+
+impl<'t> Lines<'t> {
+  pub(crate) fn of(text: &'t str) -> Self {
+    let bytes = text.as_bytes();
+    // a line ends at a `\n`, and at a `\r` that no `\n` follows
+    let ends = |&(index, byte): &(usize, &u8)| *byte == b'\n' || (*byte == b'\r' && bytes.get(index + 1) != Some(&b'\n'));
+    let starts = std::iter::once(0).chain(bytes.iter().enumerate().filter(ends).map(|(index, _)| index + 1)).collect();
+    Self { text, starts }
+  }
+
+  /// The byte offset of a line and UTF-16 column, as `byte_offset` gives it; `None` past the last line
+  pub(crate) fn byte_offset(&self, position: Position) -> Option<usize> {
+    let start = *self.starts.get(position.line as usize)?;
+    let mut column = 0;
+    for (offset, character) in self.text.get(start..)?.char_indices() {
+      if column >= position.column || character == '\n' || character == '\r' {
+        return Some(start + offset);
+      }
+      column += utf16_length_of(character);
+    }
+    Some(self.text.len())
   }
 }
 

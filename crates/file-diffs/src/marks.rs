@@ -1,6 +1,7 @@
 //! The marks of a diff (openspec/specs/commit/quiet-changes/spec.md; docs/design/diff-view.md, "Marks"): the runs of
-//! lines that changed in their formatting or their comments alone, the lines that moved within the file, and the
-//! line the reading of each block starts at (`text_diff::model::DiffMarks`). They change no block of the diff.
+//! lines that changed in their formatting, their comments or a renamed name alone, the names the change renamed, the
+//! lines that moved within the file, and the line the reading of each block starts at
+//! (`text_diff::model::DiffMarks`). They change no block of the diff.
 //!
 //! - **Proof, not a guess.** A run is quiet only when the tokens of its lines are the same on both sides
 //!   (`code_symbols::tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
@@ -9,31 +10,41 @@
 //! - **What is never marked**: a block the policy cut off (`Ignored`); a block with a side of no lines; lines that are
 //!   blank on both sides. A pale block (`WhitespaceOnly`) passes the same test of tokens as any other, with no
 //!   shortcut: a space inside a string is equal under the `Ignore` policy and is no formatting.
-//! - **Before the tokens**, a block is asked a question of its characters alone (`may_have_run`) that every block with
-//!   a run answers with yes, so a file whose blocks all answer no is never parsed for its marks.
+//! - **Before the tokens**, a block is asked a question of its characters alone (`may_have_run`,
+//!   `marks_renames::may_hold_rename`) that every block with a run answers with yes, so a file whose blocks all answer
+//!   no is never parsed for its marks.
 //! - **Limits by work, never by time**: the size of a side (`MAX_INNER_BYTES`, `MAX_INNER_LINES` of the comparison),
 //!   the tokens of a block (`MAX_BLOCK_TOKENS`), the tokens that differ in it (`MAX_TOKEN_EDITS`), the comparisons of
-//!   a file (`MAX_FILE_TOKEN_WORK`) and the line pairs of the question before the tokens (`MAX_LINE_PAIRS`). The runs
-//!   read the blocks and the tokens, never the inner ranges, so a diff whose inner ranges ran out of their time
-//!   (`line_level_only` within the size) has the runs of its blocks: the same blocks have the same marks on every
-//!   machine and under every load.
-//! - **Quiet** is decided for a kind in one place, `is_quiet`.
+//!   a file (`MAX_FILE_TOKEN_WORK`), the line pairs of the question before the tokens (`MAX_LINE_PAIRS`) and the names
+//!   asked of a file (`MAX_RENAME_WORK`). The runs read the blocks and the tokens, never the inner ranges, so a diff
+//!   whose inner ranges ran out of their time (`line_level_only` within the size) has the runs of its blocks: the
+//!   same blocks have the same marks on every machine and under every load.
+//! - **Quiet** is decided for a kind in one place, `is_quiet`: a kind is switched on there once a sample of its runs
+//!   of real ranges was read and held no change of behaviour. Until then its runs are labels: `PairMarks::proven`
+//!   names those whose proof holds (`has_proof`), and `PairMarks::as_proven` gives the marks as they will be: what
+//!   that measurement reads, and what the tests of a proof ask.
+//! - **Renames** (`marks_renames`) are read from the names the alignment of the tokens put at one place and proven by
+//!   the bindings of both texts; the blocks that hold a place of one are then read again with the two names read as
+//!   one, which adds the runs of the lines that hold a place and takes no run the first reading found: a line that
+//!   changed in its formatting alone is a line of formatting beside a rename too. A run of a renamed name is proven
+//!   only for a value of its body alone, and its kind is not switched on yet: every run of it is a label.
 //! - **Moves** (`text_diff::moves::find_moves`) need no grammar: every pair of texts has them, from its lines alone,
 //!   after the runs, whose lines no move takes. A move is never quiet: its new lines are in no run, so the block they
 //!   stand in always has a start; its old lines are nothing to read where they left (`starts_of`). Whether the
 //!   indentation of the file has a meaning (`code_symbols::tokens::indentation_matters`, of either path) decides what
 //!   a line at another indent is in a move, so it is in the key of the diff (`service::diff_options`).
 //!
-//! `marks_runs` reads the runs of one block from its tokens.
+//! `marks_runs` reads the runs of one block from its tokens, `marks_renames` the renames of a file.
 
-use crate::marks_runs::{BlockLines, runs_of_block};
+use crate::marks_renames::{Candidates, may_hold_rename, renames_of};
+use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::service::{FileDiffs, fits_inner};
 use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::tokens::{Tokens, indentation_matters, is_blank, tokens};
 use std::cell::OnceCell;
 use std::ops::Range;
 use std::sync::Arc;
-use text_diff::model::{BlockKind, DiffMarks, LineRun, RunKind, TextDiff, starts_of};
+use text_diff::model::{BlockKind, DiffBlock, DiffMarks, LineRun, Rename, RunKind, TextDiff, starts_of};
 use text_diff::moves::find_moves;
 use text_diff::policy::WhitespacePolicy;
 
@@ -47,6 +58,14 @@ pub const MAX_TOKEN_EDITS: usize = 2_048;
 pub const MAX_FILE_TOKEN_WORK: u64 = 2 * (MAX_BLOCK_TOKENS as u64) * (MAX_TOKEN_EDITS as u64);
 /// The question before the tokens compares at most this many pairs of lines of a block; a block with more is parsed
 pub const MAX_LINE_PAIRS: usize = 4_096;
+/// The work of the names of one file, for its renames: a resolution of a name, one per spelling asked and one more
+/// per binding, costs the tokens of its text where it walks the tree (Java, C#, Starlark) and an eighth of them where
+/// it reads the names of one spelling (`code_symbols::navigate::resolution_work`). A Java file of 2,500 lines has
+/// some twenty-six resolutions of each side (thirteen renamed locals), a Kotlin file of that size some two hundred,
+/// a file of 250 lines ten times as many; a place past them is not answered, and its name is no rename. Set by
+/// what the names of a file may cost before its content goes out (`benches/marks_bench.rs`, "renamed locals at the
+/// limit of their work")
+pub const MAX_RENAME_WORK: u64 = 1 << 20;
 
 /// The tokens that memory keeps, weighed by their size (64 bytes a token): the sides of some three hundred files of
 /// 200 lines, for the next commit of a branch and another whitespace policy
@@ -61,7 +80,7 @@ impl FileDiffs {
   /// The marks of `diff`, the diff of a file whose sides are at `paths` (the old one first), have the blob `ids` and
   /// the `texts`. The tokens of a side are read once per blob and grammar and kept in memory: the next pair with the
   /// blob (the next commit of a branch, another whitespace policy) parses nothing
-  pub(crate) fn marks(&self, diff: &TextDiff, policy: WhitespacePolicy, paths: [&str; 2], ids: [Option<&str>; 2], texts: [&str; 2]) -> DiffMarks {
+  pub(crate) fn marks(&self, diff: &TextDiff, policy: WhitespacePolicy, paths: [&str; 2], ids: [Option<&str>; 2], texts: [&str; 2]) -> PairMarks {
     let grammar = pair_grammar(paths[0], paths[1]);
     marks_of(diff, texts[0], texts[1], grammar, policy, pair_indented(paths[0], paths[1]), |new_side| {
       let (side, grammar) = (usize::from(new_side), grammar?);
@@ -75,9 +94,24 @@ impl FileDiffs {
 
 /// Whether a run of `kind` is quiet: a reader passes it, the navigation of changes does not stop in it, the Inline
 /// view shows its new lines alone. The one place that decides it, for every kind: a kind that is not quiet here is a
-/// label wherever it is marked, and one that is, is quiet where its lines are proven (the tokens of a run of
-/// formatting; of a rename, a name bound inside the body of a function)
+/// label wherever it is marked, and one that is, is quiet where its lines are proven (`has_proof`).
+///
+/// A kind is switched on by a measurement, never by its proof alone: a sample of its proven runs of real ranges of a
+/// large repository, read by a person, with no change of behaviour among them (`PairMarks::proven` names the runs).
+/// `Renamed` waits for it: the scopes its proof reads are read without types and without the other files
+/// (openspec/specs/commit/name-bindings/spec.md, Open Questions)
 pub const fn is_quiet(kind: RunKind) -> bool {
+  match kind {
+    RunKind::Formatting => true,
+    RunKind::Renamed | RunKind::Comments => false,
+  }
+}
+
+/// Whether a run of `kind` can be proven to change no behaviour: by the tokens of its lines for formatting, for a
+/// renamed name by places of a value of its body alone (`marks_renames`). No proof says that of a comment: a tool may
+/// read it. What `is_quiet` may switch on: a run of such a kind whose proof holds is quiet then, and one of
+/// `PairMarks::proven` until then
+pub const fn has_proof(kind: RunKind) -> bool {
   match kind {
     RunKind::Formatting | RunKind::Renamed => true,
     RunKind::Comments => false,
@@ -97,11 +131,43 @@ pub fn pair_indented(old_path: &str, new_path: &str) -> bool {
   indentation_matters(new_path) || (old_path != new_path && indentation_matters(old_path))
 }
 
-/// The marks of `diff`, the diff of `old` and `new`, both read by `grammar` (`pair_grammar`; `None` has no runs).
-/// `tokens` reads the tokens of a side, `false` the old one and `true` the new one, `None` for a text without tokens;
-/// each side is asked once at most, and only when a block may have a run. `policy` is the whitespace policy the diff
-/// was made under and `indented` whether the indentation of the file has a meaning (`pair_indented`): what the
-/// whitespace at the ends of a line is to a move. The moves and `starts` are filled for every diff.
+/// The marks of a pair of texts, and what the pair leaves to a reader of the other files of its change and to the
+/// measurement of its proofs
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PairMarks {
+  pub marks: DiffMarks,
+  /// The names that changed at every place of the file and are declared in none of them (`Rename::declared` is
+  /// empty), by their first place: nothing of them is marked, since only the file of the declaration says what was
+  /// renamed. For the pass over the files of a change, which has the declaration
+  pub undeclared: Vec<Rename>,
+  /// The runs of `marks.runs`, by their numbers, that are proven and are labels all the same, since their kind is not
+  /// switched on (`is_quiet`): what the measurement that decides the kind reads a sample of
+  pub proven: Vec<u32>,
+}
+
+impl PairMarks {
+  /// The marks as they are once every kind with a proof is switched on: the proven runs quiet, and the starts of
+  /// `blocks`, the blocks of the diff, that follow from them. For the measurement that decides `is_quiet` and for the
+  /// tests of a proof; no view shows them
+  #[must_use]
+  pub fn as_proven(&self, blocks: &[DiffBlock]) -> DiffMarks {
+    let mut marks = self.marks.clone();
+    for run in &self.proven {
+      if let Some(run) = marks.runs.get_mut(*run as usize) {
+        run.quiet = true;
+      }
+    }
+    marks.starts = starts_of(blocks, &marks.runs, &marks.moves);
+    marks
+  }
+}
+
+/// The marks of `diff`, the diff of `old` and `new`, both read by `grammar` (`pair_grammar`; `None` has no runs and no
+/// renames). `tokens` reads the tokens of a side, `false` the old one and `true` the new one, `None` for a text
+/// without tokens; each side is asked once at most, and only when a block may have a run. `policy` is the whitespace
+/// policy the diff was made under and `indented` whether the indentation of the file has a meaning
+/// (`pair_indented`): what the whitespace at the ends of a line is to a move. The moves and `starts` are filled for
+/// every diff.
 ///
 /// A pair with a side over the size the inner ranges are compared for has no runs: a limit of work. What the time
 /// did to the diff changes nothing here: the runs read its blocks and the tokens, the moves its blocks and the lines
@@ -115,30 +181,100 @@ pub fn marks_of(
   policy: WhitespacePolicy,
   indented: bool,
   tokens: impl Fn(bool) -> Option<Arc<Tokens>>,
-) -> DiffMarks {
-  let runs = match grammar {
+) -> PairMarks {
+  let PairRuns { mut runs, renames, undeclared } = match grammar {
     Some(grammar) if fits_inner(old, diff.old_line_count) && fits_inner(new, diff.new_line_count) => {
       runs_of(diff, &SideText::new(grammar, old), &SideText::new(grammar, new), true, &tokens)
     }
-    _ => Vec::new(),
+    _ => PairRuns::default(),
   };
+  // the one place a kind is asked: a proven run of a kind that is not switched on is a label
+  let mut proven = Vec::new();
+  for (index, run) in (0u32..).zip(&mut runs) {
+    if run.quiet && !is_quiet(run.kind) {
+      run.quiet = false;
+      proven.push(index);
+    }
+  }
   // after the runs: a line of a run is in no move
   let moves = find_moves(old, new, &diff.blocks, &runs, policy, indented);
-  DiffMarks {
-    starts: starts_of(&diff.blocks, &runs, &moves),
-    runs,
-    moves,
-    ..DiffMarks::default()
+  PairMarks {
+    marks: DiffMarks {
+      starts: starts_of(&diff.blocks, &runs, &moves),
+      runs,
+      moves,
+      renames,
+    },
+    undeclared,
+    proven,
   }
 }
 
-/// The runs of the blocks of `diff`; `ask_first` leaves a block out that answers no before the tokens are read
-/// (`may_have_run`), which changes no answer: without it every block of two sides is read from the tokens
-pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> Vec<LineRun> {
-  let mut runs = Vec::new();
+/// The runs of a pair, each quiet when its lines are proven (`has_proof`), and the renames some of them were cut by
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct PairRuns {
+  pub(crate) runs: Vec<LineRun>,
+  pub(crate) renames: Vec<Rename>,
+  pub(crate) undeclared: Vec<Rename>,
+}
+
+/// The runs of the blocks of `diff` and its renames; `ask_first` leaves a block out that answers no before the tokens
+/// are read (`may_have_run`), which changes no answer: without it every block of two sides is read from the tokens.
+///
+/// The blocks are read twice at most: once for their runs of formatting and of comments and for the names the
+/// alignment of their tokens put at one place (`read_blocks`), then, where those names are a rename
+/// (`marks_renames`), the blocks that hold a place of one again, with the two names of each place read as one. The
+/// second reading adds runs, those of the lines that changed in such a name alone first of all, and takes none:
+/// every run the first reading found lies in a run of its kind. Both readings spend the one work of the file
+/// (`MAX_FILE_TOKEN_WORK`). A run comes out of them quiet when its lines are proven; whether its kind is quiet,
+/// `marks_of` asks
+pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> PairRuns {
+  let FirstReading {
+    mut runs,
+    candidates,
+    tokens,
+    mut work,
+  } = read_blocks(diff, old, new, ask_first, tokens);
+  let (mut renames, mut undeclared) = (Vec::new(), Vec::new());
+  if let Some([old_tokens, new_tokens]) = &tokens
+    && !candidates.is_empty()
+  {
+    let found = renames_of(old.grammar, [old.text, new.text], [old_tokens, new_tokens], &diff.blocks, &candidates);
+    found.cut(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work, &mut runs);
+    renames = found.found.into_iter().map(|found| found.rename).collect();
+    undeclared = found.undeclared;
+  }
+  PairRuns {
+    runs: runs.into_iter().flatten().collect(),
+    renames,
+    undeclared,
+  }
+}
+
+/// The blocks of a diff after their first reading, from the tokens of the two texts as they are
+pub(crate) struct FirstReading {
+  /// The runs of each block: of formatting and of comments
+  pub(crate) runs: Vec<Vec<LineRun>>,
+  /// The names the alignment of the tokens put at one place
+  candidates: Candidates,
+  /// The tokens of the two sides, when a block was read from them and their lines are the lines of the blocks
+  tokens: Option<[Arc<Tokens>; 2]>,
+  /// What the reading left of the work of the file
+  work: u64,
+}
+
+/// The first reading of the blocks of `diff` (`runs_of`, which says what `ask_first` and `tokens` are)
+pub(crate) fn read_blocks(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> FirstReading {
+  let mut runs: Vec<Vec<LineRun>> = vec![Vec::new(); diff.blocks.len()];
+  let mut candidates = Candidates::default();
   let mut read: Option<Option<[Arc<Tokens>; 2]>> = None;
   let mut work = MAX_FILE_TOKEN_WORK;
-  for block in &diff.blocks {
+  let has_text = has_text(old, new);
+  let asked = Asked {
+    has_text: &has_text,
+    renamed: NO_RENAME,
+  };
+  for (block, runs) in diff.blocks.iter().zip(&mut runs) {
     let lines = BlockLines {
       old: block.old_start..block.old_end,
       new: block.new_start..block.new_end,
@@ -146,7 +282,9 @@ pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, a
     if block.kind == BlockKind::Ignored || lines.old.is_empty() || lines.new.is_empty() {
       continue;
     }
-    if ask_first && !may_have_run(old, new, &lines) {
+    // asked of every block that is read too: a block that answers no gives no name
+    let renamed = may_hold_rename(old.lines(lines.old.clone()), new.lines(lines.new.clone()));
+    if ask_first && !renamed && !may_have_run(old, new, &lines) {
       continue;
     }
     let read = read.get_or_insert_with(|| {
@@ -155,10 +293,24 @@ pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, a
       (read[0].line_count() == diff.old_line_count && read[1].line_count() == diff.new_line_count).then_some(read)
     });
     let Some([old_tokens, new_tokens]) = read else { break };
-    let has_text = |new_side: bool, lines: Range<u32>| !(if new_side { new } else { old }).is_blank(lines);
-    runs.extend(runs_of_block(old_tokens, new_tokens, &lines, &has_text, &mut work));
+    let cut = runs_of_block(old_tokens, new_tokens, &lines, &asked, &mut work, &mut |old_token, new_token| {
+      if renamed {
+        candidates.take(old_token, new_token);
+      }
+    });
+    *runs = cut.unwrap_or_default();
   }
-  runs
+  FirstReading {
+    runs,
+    candidates,
+    tokens: read.flatten(),
+    work,
+  }
+}
+
+/// Whether lines of a side of a pair (`true` the new one) hold a character that is no blank
+fn has_text<'t>(old: &'t SideText<'t>, new: &'t SideText<'t>) -> impl Fn(bool, Range<u32>) -> bool + 't {
+  move |new_side: bool, lines: Range<u32>| !(if new_side { new } else { old }).is_blank(lines)
 }
 
 /// One side of a pair before its tokens: its text, the grammar it is read by and its lines as the view counts them
@@ -248,8 +400,9 @@ impl<'t> SideText<'t> {
   }
 }
 
-/// The question a block is asked before the tokens of its file are read: whether its lines may hold a run. Every
-/// block with a run answers yes (the tests ask every block both ways), from its characters alone:
+/// The question a block is asked before the tokens of its file are read, beside the one of a rename
+/// (`marks_renames::may_hold_rename`): whether its lines may hold a run of formatting or of comments. Every block with
+/// such a run answers yes (the tests ask every block both ways), from its characters alone:
 ///
 /// - a run of formatting has the same text on both sides without its blanks, so the first line of it that is not
 ///   blank starts on one side as it does on the other, and its last such line ends as the other

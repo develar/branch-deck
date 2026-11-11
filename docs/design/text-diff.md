@@ -144,10 +144,12 @@ flowchart TD
 - **Marks.** `marks` (`DiffMarks`, [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)) says what a
   reader may pass and what a view labels, and changes no block: `runs`, rows of lines inside one block that changed
   in one way alone (`LineRun`: formatting, comments, a renamed name; `quiet` when the run provably changes no
-  behaviour), `moves` (`LineMove`: the lines that moved within the file, [Moves](#moves)) and `renames` (`Rename`),
-  and `starts`. The comparison knows no grammar, so it fills `starts` alone; the file-diffs service fills the runs
-  from the tokens of the texts ([Diff View](diff-view.md#marks)), then the moves from their lines, and the renames
-  with their stage.
+  behaviour), `moves` (`LineMove`: the lines that moved within the file, [Moves](#moves)) and `renames` (`Rename`:
+  the two names of a binding the change renamed, whether it is bound inside a body, its places on both sides as
+  flat `[line, start, end]`, place `i` of the old text beside place `i` of the new one, and `declared`, the numbers
+  of the places that declare it), and `starts`. The comparison knows no grammar, so it fills `starts` alone; the
+  file-diffs service fills the runs and the renames from the tokens and the bindings of the texts
+  ([Diff View](diff-view.md#marks)), then the moves from their lines.
 - **Starts.** `starts` is flat `[block, side, line]` for each block with something to read, the one source of where
   a reader stops (`starts_of`): the quiet runs cut a block into parts, and the reading starts at the first part with
   a line to read, at its first new line (side 1), at its first old line that no move took (side 0) when it has no

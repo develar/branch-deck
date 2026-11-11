@@ -31,10 +31,13 @@
 //!   of a function type are `Other`.
 //! - **Its site** (`Site`): the name of a named argument; a namesake where only the types tell whether the name is
 //!   the value the scopes give it: a name after `::` without a receiver, a name called (the `invoke` of the value, or
-//!   a function of its spelling), a name before `::` or after `this@`; an entry of a destructuring. `it` and `field`
-//!   are bound without a declaration.
+//!   a function of its spelling), a name before `::` or after `this@`; an entry of a destructuring; the declaration
+//!   of a property with a delegate (`val total by lazy { … }`), which hands its name to the delegate. `it` and `field`
+//!   are bound without a declaration. A text with an error of its parser is read in part.
 
-use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding};
+use crate::navigate::{
+  Access, Bound, Leaves, LocalBinding, LocalKind, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer, site_by_binding,
+};
 use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
@@ -56,7 +59,7 @@ pub(crate) fn reference_at(kind: FileKind, text: &str, position: Position) -> Op
 fn with_name_at<T>(kind: FileKind, text: &str, position: Position, answer: impl FnOnce(&Names<'_>, NodeId, String, &Declarations) -> T) -> Option<T> {
   let offset = byte_offset(text, position)?;
   let tree = super::parse(text.as_bytes(), kind);
-  let names = Names { tree: &tree, text };
+  let names = Names::of(&tree, text);
   let leaf = names.name_at(offset)?;
   let name = names.text_of(leaf).to_string();
   let declarations = Declarations::of(&names, &Wanted::named(&name));
@@ -67,7 +70,7 @@ fn with_name_at<T>(kind: FileKind, text: &str, position: Position, answer: impl 
 /// `usages_of`)
 pub(crate) fn with_names<R>(kind: FileKind, text: &str, read: impl FnOnce(&dyn crate::navigate::Names) -> R) -> R {
   let tree = super::parse(text.as_bytes(), kind);
-  read(&Names { tree: &tree, text })
+  read(&Names::of(&tree, text))
 }
 
 impl crate::navigate::Names for Names<'_> {
@@ -98,15 +101,30 @@ impl crate::navigate::Names for Names<'_> {
   fn is_implicit(&self, name: &str) -> bool {
     matches!(name, "it" | "field")
   }
+
+  /// A text with an error of its parser: what stands where the parser gave up is no name of the tree
+  fn reads_in_part(&self) -> bool {
+    self.tree.errors().len() > 0
+  }
 }
 
 /// The names of a tree and what its syntax says of each
 struct Names<'t> {
   tree: &'t Tree,
   text: &'t str,
+  /// The leaves of the tree by their place, read once: a reader of many places asks the leaf of each
+  leaves: Leaves,
 }
 
-impl Names<'_> {
+impl<'t> Names<'t> {
+  fn of(tree: &'t Tree, text: &'t str) -> Self {
+    Self {
+      tree,
+      text,
+      leaves: Leaves::default(),
+    }
+  }
+
   fn text_of(&self, id: NodeId) -> &str {
     self.text.get(self.tree.range(id)).unwrap_or_default()
   }
@@ -126,8 +144,7 @@ impl Names<'_> {
 
   /// The name at `offset`: the character there, else the one before it, as the end of a name is still the name (`foo|`)
   fn name_at(&self, offset: usize) -> Option<NodeId> {
-    let index = self.tree.leaf_index();
-    let at = |offset: usize| index.at(offset).filter(|&leaf| self.is_name(leaf));
+    let at = |offset: usize| self.leaves.at(self.tree, offset).filter(|&leaf| self.is_name(leaf));
     at(offset).or_else(|| offset.checked_sub(1).and_then(at))
   }
 
@@ -432,10 +449,7 @@ impl Names<'_> {
       return LocalBinding::of(LocalKind::LoopVariable);
     }
     let owner = tree.parent(parent).filter(|_| self.kind(parent) == Some(NodeKind::VALUE_PARAMETER_LIST));
-    let named = LocalBinding {
-      kind: LocalKind::Parameter,
-      named_by_calls: true,
-    };
+    let named = LocalBinding::NAMED_PARAMETER;
     match owner.and_then(|it| self.kind(it).map(|kind| (it, kind))) {
       Some((_, NodeKind::CATCH)) => LocalBinding::of(LocalKind::CatchParameter),
       Some((_, NodeKind::FUNCTION_LITERAL)) => LocalBinding::of(LocalKind::LambdaParameter),
@@ -457,6 +471,8 @@ impl Names<'_> {
       // `::total` is a function or a property, never a variable or a parameter of a body
       (Some(NodeKind::REFERENCE_EXPRESSION), Some(NodeKind::CALLABLE_REFERENCE_EXPRESSION)) if kind == ReferenceKind::Value => Site::Namesake,
       (Some(NodeKind::DESTRUCTURING_DECLARATION_ENTRY), _) => Site::Destructured,
+      // `val total by map`: the delegate gets the name of the property (`KProperty.name`), where it is declared
+      (Some(NodeKind::PROPERTY), _) if kind == ReferenceKind::Declaration && psi::kt_property_has_delegate(tree, parent) => Site::Spelled,
       _ => Site::Plain,
     };
     // a call of a value is its `invoke` or a function of its spelling; a name before `::` or after `this@` is a

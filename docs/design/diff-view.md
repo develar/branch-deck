@@ -113,11 +113,11 @@ rest gets a label and stays a stop.
 | comments alone (`comments`) | yes | no |
 | a file without a grammar | no | no: its block of whitespace stays the pale stop it is; it has its moves |
 | moved lines (`moves`) | yes | never: where lines stand is behaviour. The lines are read where they stand now, and are nothing to read where they left |
-| a renamed name **(planned)** | yes | a name bound inside a function body |
+| a renamed name (`renamed`, `renames`) | yes | not yet: a label until its measurement. Proven are the lines that changed in the name alone, for a value of its body alone, every name of which the scopes bind: a variable, a parameter that no call may name and no annotation or macro may read, in a text the scopes read whole. Never the declaration of a name that is not local, never a place that makes more of the name than its binding |
 
 - **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
-  changed in one way alone), `moves` (the lines that moved within the file), `renames` (empty until its stage) and
-  `starts`. The scans of the dependencies, the patches of `brd` and the review plan read the blocks they read before.
+  changed in one way alone), `moves` (the lines that moved within the file), `renames` (the names the change renamed
+  within the file) and `starts`. The scans of the dependencies, the patches of `brd` and the review plan read the blocks they read before.
 - **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
   at (`text_diff::model::starts_of`): the first line outside its quiet runs that, of its old lines, no move took. A
   block without an entry has nothing to read. The navigation of changes and the count of what is left to read take
@@ -137,6 +137,76 @@ rest gets a label and stays a stop.
   proves. A subsequence pairs a token with any of its likes (the `)` of `b(1, 2)` with the `)` of the call after it),
   so tokens only one side has are put on whole lines where it leaves the choice; a wrong choice loses a run, never
   makes one.
+- **A rename is a binding under two names** (`marks_renames.rs`). Where the alignment of the tokens of a block
+  put a name of the new side at the place of a name of the old one, the two are a candidate: two names that stand
+  alike in the tree, each one plain word. One parse of each side then answers for all of them
+  (`code_symbols::navigate::names_at`, "The bindings of many names" below): each place of the
+  old text is asked with the new name, each of the new text with the old one. A rename is one binding of each text
+  with the same places: as many names on both sides, name `i` of the old text in the block of name `i` of the new
+  one and nowhere the alignment put another name, the declarations at the same places, and for a declaration inside
+  a body no clash of the other name on either side. So a use the change left behind, a name it took from another
+  declaration, two locals that became one and two that took the name of each other in one body are no rename, and
+  nothing of them is marked: such a change is a change of the code. One side alone proves nothing: only the new text
+  shows a use that kept the old name bound elsewhere, only the old one a name the new one took. The unit is the
+  binding, not the spelling: `i` → `index` in one loop and `i` → `row` in the next are two renames.
+- **The runs of a rename are cut by the tokens, again.** The tokens of each place get one text on both sides, a
+  text of that place alone (`Tokens::with_texts`), and the blocks that hold a place are read as before: lines that
+  are then the same tokens, comments too, and hold a place are a run of the kind `renamed`, however the call with
+  the name was wrapped. The proof is the one of formatting, of the old text with its binding renamed: a text that is
+  the same program by its scopes. A place on a line with another change, or with a comment that changed, is in no
+  run, and that line is read; the rename still has the place. This second reading spends what the first left of
+  the work of the file (`MAX_FILE_TOKEN_WORK` is the work of both); a block it does not pay for keeps the runs it
+  has.
+- **A rename takes no line of formatting.** With the names read as one, a wrapped call beside a line of the name is
+  the same tokens as that line is, and one group with it. A run is of one kind, so the group is cut where it may be
+  (`marks_runs::Rows::runs_of_group`: at each end of a segment that as many of the same tokens stand before on both
+  sides): its parts that hold a place are runs of the kind `renamed`, those that hold none the runs of formatting
+  they are without the rename, the blank lines between the two with the formatting. Forty lines indented inside a
+  new `if`, one of them a use of the renamed local, are two quiet runs around one line of the rename, whether that
+  rename is proven, a label until its measurement or a label for good (a member, a parameter a call may name). The
+  second reading adds runs and takes none (`marks_renames::with_the_first`): the two readings align the tokens of a
+  block each by itself, and where a line stands twice they may pair it with two lines (the names read as one pair a
+  line of three places with itself, where the tokens as they are paired the call that changed places with it).
+  There the run the first reading found stays, in place of the runs of the second that share a line with it or
+  cross it: what the tokens of the texts prove of a line never depends on a rename beside it.
+- **What of a rename is proven.** A run is proven when every place in it is of a value of its body alone, on both
+  sides, every name of which the scopes bind (`LocalBinding::is_of_body_alone`). A parameter of a named function of
+  Kotlin, C# or Starlark (a call may name it), one an annotation of Java or an attribute macro of Rust may read, a
+  declaration that is no value (a function or a class declared in a body), and a local of a text the scopes read
+  in part are renames whose runs are labels. Read in part is a text with an error of its parser (what stands where
+  the parser gave up is no name to the scopes), a C# file with an `#if` (the branch not taken is no code of the
+  tree, and a declaration in the branch taken is none where the other is compiled), a Rust function or closure
+  with a `#[cfg]` inside it (two declarations under two conditions are one scope to the reading), and a script
+  with a direct `eval` (its text names the variables around the call). A place that makes more of
+  the name than its binding never gets the one text, so its line is read: a shorthand property (`{ total }`), a
+  pattern that takes a value apart, a call of a value (only the types tell it from a function of that name),
+  `nameof(total)`, a name among the tokens of a macro, a name a format string captures, a name inside a `with`, and
+  a name whose spelling is a value where the code runs: the declaration of a Kotlin property with a delegate
+  (`val integrationTest by registering(…)` registers a task of that name, `val total by map` reads the key
+  "total"), a variable that is given a function or a class written without a name, which takes it
+  (`const total = () => 1`). The reader stops at that line, where the behaviour changes, and the uses of the name
+  stay proven (`Site` of the navigation, anything but `Plain`). A name that no body binds (a member, a declaration of the file) is every name of its
+  spelling, tied by nothing but that: with its declaration in the file it is a rename whose uses are labels and
+  whose declaration is in no run, until the pass over the files of a change asks the index of the repository
+  (accio) whether every use is one of them. Declared in another file, it is no rename of this one: nothing is
+  marked, and the pair hands the name out with its places (`PairMarks::undeclared`), which that pass will keep
+  beside the diff; nothing reads it yet.
+- **Proven is not yet quiet.** A kind of run is passed only after its measurement (the rule at the top of this
+  section): a sample of its proven runs of real ranges, read by a person, with no change of behaviour among them.
+  The proof of a rename reads scopes without types and without the other files, and its first review found changes
+  it had passed (the delegate, the branch of `#if`, the two `#[cfg]`, the `eval`: each is a rule above now). So
+  `is_quiet` says no for `renamed`, every run of it is a label with its note, and every block of it a stop.
+  `has_proof` names the kinds that can be proven; the marks of a pair name the runs that are proven and labels all
+  the same (`PairMarks::proven`), and `PairMarks::as_proven` gives the marks with those runs quiet: what the
+  measurement samples, and what the tests of a proof read (they also ask that a view gets the same marks with the
+  kind as labels). Switching the kind on is one line of `is_quiet`; the stage that confirms the uses
+  of a name that is not local makes its runs proven the same way.
+- **How a view reads a rename (planned: no view words one yet).** `renames` holds `{old, new, sites, local,
+  declared, oldSites, newSites}`: place `i` is `[line, start, end]` of each text (UTF-16), in the order of the
+  texts, `declared` the numbers of the places that declare the name: where the one note of the rename stands
+  ("Renamed total → sum · 12 sites"). The runs of the kind `renamed` say which lines changed in the name alone, and
+  `quiet` which of them are passed: none while the kind is off. A view already draws them as any label, with the
+  note of its kind. A place in no run is on a line that is read as it is.
 - **Moves need no grammar.** The lines that one block deletes and another block adds are a move
   (`text_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
   whitespace at their ends, with at most a quarter of edited lines between exact ones, from 24 characters of exact
@@ -172,9 +242,11 @@ rest gets a label and stays a stop.
     before a function and added after it). They are lines of the move on both sides: the note where the lines left
     stands for them too, and they have the colour of the move where they stand now.
 - **Before the tokens.** A file is parsed for its marks only when a block of it may hold a run, asked of its
-  characters alone (`may_have_run`): some line of one side starts as a line of the other and some line ends as one,
-  their blanks aside (a run of formatting is the same text without its blanks), or a comment may have a character in
-  the lines: what starts a comment of the grammar (the `@*` of Razor too, a comment to the parser of C#), in the
+  characters alone (`may_have_run`, `may_hold_rename`): one side holds a word the other has not, or has more often
+  (a name that stands where another stood; a block whose sides hold the same words gives no candidate of a rename,
+  with the tokens too, so the question changes nothing), some line of one side starts as a line of the other and
+  some line ends as one, their blanks aside (a run of formatting is the same text without its blanks), or a comment
+  may have a character in the lines: what starts a comment of the grammar (the `@*` of Razor too, a comment to the parser of C#), in the
   lines or before them since the last `\n` (a view ends a line at a lone `\r`, where the lexer of Rust reads a line
   comment on), or a `/*` before the block that the text does not close. Every block with a run answers
   yes: the tests read the runs both ways, for every case and for files of every grammar edited at random, with every
@@ -187,7 +259,15 @@ rest gets a label and stays a stop.
   have no run cut out of them; lines of the same code need no comparison and have no limit. The time of the
   comparison changes none of this: the runs read the blocks and the tokens, the moves the blocks and the lines,
   never the inner ranges, so a diff whose inner ranges ran out of their 100 ms (`lineLevelOnly`) has the marks of its
-  blocks, the rows and the stops of a quiet machine. The moves have their own limits by work: 65,536 lines a side
+  blocks, the rows and the stops of a quiet machine. The names asked of a file for its renames are bound by work
+  too (`MAX_RENAME_WORK`, 1,048,576): what an answer costs is its resolutions of a name, one per spelling asked and
+  one more per binding asked with the other name, and only the navigation knows how many bindings the places are,
+  so it counts them (`names_at_within`). A resolution costs the tokens of its text where it walks the tree with its
+  scopes (Java, C#, Starlark) and an eighth of them where it reads the names of one spelling (Kotlin, Rust,
+  TypeScript, JavaScript: `resolution_work`). Every candidate is asked, the first place of each pair of names before
+  the second of any; a place past the work has no answer, its name is no rename, and its lines stay stops. A Java
+  file of 2,500 lines has some twenty-six resolutions of each side (thirteen renamed locals), a Kotlin file of that
+  size some two hundred, a file of 250 lines ten times as many. The moves have their own limits by work: 65,536 lines a side
   that a move may take, 16 new lines of a key that starts a move, and 262,144 pairs of lines read
   ([Text Diff Engine](text-diff.md#moves)), set by what the worst file costs (below).
 
@@ -200,7 +280,7 @@ Measured (`cargo bench -p file-diffs --bench marks_bench`, release, the Mac Stud
 | the diff of the pair alone (60 blocks) | 1.7 ms |
 | the marks, every block a wrapped call and a comment worded again, both sides parsed | 6.8 ms |
 | the same, the tokens in memory | 0.3 ms |
-| the marks, every block a changed name: the question alone, nothing parsed | 0.3 ms |
+| the marks, every block a changed operator (a changed name, measured here at first, is a candidate of a rename now and is parsed: the renames below): the question alone, nothing parsed | 0.3 ms |
 | the marks, every function indented again (300 blocks, 301 runs), both sides parsed | 8.3 ms |
 | the same, the tokens in memory | 1.7 ms |
 | one block of 29,800 tokens a side, 1,900 of them different | 9.6 ms |
@@ -213,9 +293,66 @@ that can be measured to its first content (38 ms without the parses, 34 ms with 
 the two git processes before it). The same benchmark on the Studio at a load of 53: 38 ms and 73 ms without the
 parses, 40 ms and 82 ms with them. The question before the tokens is kept as it is and not made stronger: it costs 0.3 ms for a pair of 3,300 lines against 6.5 ms of parsing, and on the last 400
 commits of this repository it left 41 % of the files of a grammar unparsed (1,960 of 3,339 parsed; 4,601 of 9,572
-blocks of two sides asked). There the tokens found 257 runs of formatting (2,489 of 104,084 changed lines) and 3,337
+blocks of two sides asked). That was before the question of a rename: a block with a word the other side has not is
+read from the tokens too now, so the question leaves out only the blocks that changed in their numbers, their marks
+or the order of their words (measured again below, with the renames). There the tokens found 257 runs of formatting (2,489 of 104,084 changed lines) and 3,337
 runs of comments: this repository words its comments with its code. The worst block costs 10 ms, once per blob pair:
 the diff with its marks is kept in memory and in the `file_diff` store.
+
+The renames (the groups `marks_of`, "renamed locals at the limit of their work" and `stream` of the same benchmark;
+the Mac Studio at a load of 4 to 8 of its 20 cores; the same Kotlin pair of 3,300 lines, and files of 3,400 lines
+with 200 renamed locals):
+
+| what | time |
+|---|---|
+| the tokens of one side, in this run | 3.4 ms |
+| the marks, an operator changed in every block: the question alone, nothing parsed | 0.7 ms |
+| the marks, a wrapped call and a comment in every block: both sides parsed for their tokens | 7.1 ms |
+| the marks, the name of a member changed in every block (a candidate the file does not declare): both sides parsed for their tokens and for their names | 13 ms |
+| the same, the tokens in memory: the names of both sides alone, one resolution each | 7.5 ms |
+| the marks, a local renamed at its four places in 60 functions (60 renames, 120 runs of them): both sides parsed for their tokens and their names, 61 resolutions a side, the blocks read again | 46 ms |
+| the same, the tokens in memory | 39 ms |
+| at the limit of the work, Kotlin: 200 renamed locals, 243 resolutions a side, 121 of them renames | 55 ms |
+| at the limit, Java: 26 resolutions a side, 13 renames | 51 ms |
+| at the limit, C#: 26 resolutions a side, 13 renames | 94 ms |
+| the stream of 200 files, an operator changed in every fifth function, no file parsed: first content, end of the stream | 38 ms, 74 ms |
+| the same, the name of a member changed: every file parsed for its tokens and its names | 41 ms, 87 ms |
+| the same, a wrapped call and a comment: every file parsed for its tokens | 41 ms, 83 ms |
+| the same, a local renamed at four places in every fifth function: 828 renames | 35 ms, 122 ms |
+| the same, a function moved in every file | 44 ms, 64 ms |
+
+So a file with a name that stands where another stood pays one parse more a side, for its names, about what its
+tokens cost (3.4 ms a side of 3,300 lines), and a renamed local 0.7 ms in a Kotlin file of that size: two
+resolutions a side, of its spelling and of its binding under the other name. **The first content of a subject does
+not move**: 35 to 44 ms in every case, the files in view first and each with its own marks, so the names are read
+before the content of their file, as the tokens are, and no parse moves to a later event. What the names cost is the
+end of the stream (122 ms with 828 renames against 74 to 87 ms without one) and the content of the one file that
+holds them: a file at the limit of its names waits 51 to 94 ms for it, which is what `MAX_RENAME_WORK` bounds. The
+run of the fixed bindings (a local read in part, the sites of a delegate and of a function's name) under a load of
+7 to 17 measured the same where it could be read: 58 ms for the 60 renames with the tokens in memory, 38 to 48 ms to
+the first content.
+
+The question before the tokens, measured again on the 400 commits before this stage (3,269 files of a grammar
+changed on both sides, 9,959 blocks of two sides): the question of the runs alone asks 4,812 blocks and parses 2,013
+files (62 %); with the question of a rename it asks 9,739 blocks (98 %) and parses 2,716 files (83 %). Nearly every
+changed block has a word the other side has not, so the question now saves the parse of one file in six: those
+whose blocks changed in their numbers, their marks or the order of their words. A stronger question (a word more on
+each side, which a line that only gains or loses a word fails) would ask 7,653 blocks and parse 2,385 files (73 %).
+It is not taken: it would cost answers (a rename whose only aligned places stand in blocks that gain a word beside
+them), and the parse it saves is not what a reader waits for, as the first content above says.
+
+- **The limit of the names is set by what a resolution costs, and counted where it is known.** The first limit
+  counted the places asked, since a place may be a binding of its own: a local of one name in 60 functions, 240
+  places, was cut after its tenth function, though it is 61 resolutions. The navigation counts its resolutions now
+  (`names_at_within`), and `MAX_RENAME_WORK` (1,048,576 tokens walked) pays for 26 resolutions a side of a Java or
+  C# file of 2,500 lines and for some two hundred of a Kotlin file: 51 to 94 ms for a file at the limit.
+- **A place asked must not read its text or its tree again.** The same benchmark found three reads that grew with
+  the places times the file, which a file with 2,800 candidate places (200 locals, each read on twelve lines) paid
+  0.3 to 0.5 s for at the limit: the byte of a place was counted from the start of the text (`byte_offset`; now
+  `navigate::Lines`, the line starts read once), the leaf at a byte of a PSI tree collected every leaf of the tree
+  (`Tree::leaf_index`; now `navigate::Leaves`, read once per parse), and the name at a byte of a script walked its
+  program (now `js::navigate::every_name`, read once from the second place on). Find Usages asks one place and pays
+  what it did.
 
 The moves (`bench_moves` and the groups after it of the same benchmark; the Mac Studio at a load of 10 to 21, never
 quiet while the lanes of this work ran, so the numbers of one thread are the ones to read; a Kotlin pair of 10,000
@@ -1086,8 +1223,11 @@ declaration its scopes bind it to; one implementation per parser, the one `usage
 Usages is the same answer without its sites). An entry says what a body declares the local as (a variable, a
 parameter, a lambda parameter, a loop variable, a catch parameter, else `other`; whether code outside its body may
 name it: a call by a named argument, an attribute macro of Rust, a framework that reads the annotations of a Java
-method and binds by the names of its parameters), its uses with what each site makes of the name
-beside the binding (`{ total }`, `nameof(total)`, the tokens of a macro), and for a new name asked with the place its
+method and binds by the names of its parameters; whether the scopes read only a part of the code that may name it:
+a text with a parser error, a C# file with an `#if`, a Rust body with a `#[cfg]` inside, a script with a direct
+`eval`), its uses with what each site makes of the name
+beside the binding (`{ total }`, `nameof(total)`, the tokens of a macro, the declaration of a Kotlin property with a
+delegate, a variable given a function without a name), and for a new name asked with the place its
 clashes. The clashes are one more resolution, of the names of the new spelling and the uses of the local as one name:
 a use that then binds to another declaration is shadowed, a name of the new spelling that binds to the local is
 captured. The answer is data; what is quiet is the reader's.
@@ -1099,7 +1239,9 @@ So `S { total: total }` → `S { total: sum }` reads as the rename of one local,
 `sum::run(sum)` does not. And where only the types tell whether a name is the local its scopes give it, the use says
 so (`Site::Namesake`): a called Kotlin value, a name that is all of a Java `case` label, a name in a Java class that
 may inherit a member of that spelling, a name that is all of the right side of a C# `is` (a constant only while no
-type has the name).
+type has the name), a name inside the body of a JavaScript `with` (a property of the object comes first). A
+parameter of a TypeScript constructor with a modifier (`public total`) is the property it declares: no local, and
+one name with `this.total`.
 
 Such a reader proves a rename by the scopes, so they read code as each language does, and a difference is a defect
 whichever way it goes: a scope too wide binds a name to a local the language reads as another, a scope too narrow
@@ -1118,21 +1260,24 @@ its line declares, and the two take types of their own: the file compiles only a
 of the test that reads it (`test_support::readings_unlike_the_compiler`) are javac's, csc's, kotlinc's, rustc's and
 tsc's; the Starlark fixture checks itself when run as Python. A new rule of scope starts as a line of such a file.
 The differences that are left need types, another file or the flow of the code;
-[Name Bindings](../../openspec/specs/commit/name-bindings/spec.md) lists them, and the quiet of a rename waits for
-its measurement on real ranges.
+[Name Bindings](../../openspec/specs/commit/name-bindings/spec.md) lists them. The renames of a diff read these
+answers ([Marks](#marks)), and the quiet of a rename waits for its measurement on real ranges: `is_quiet` of the
+marks says no for the kind until then. A stored diff holds the renames those answers allowed, so the rules of the
+names have a version (`navigate::RULES_VERSION`, bumped with any rule that changes an answer) in the version the
+store keeps the diffs under (`file_diffs::service::model_version`): a scope that was fixed takes its renames with it.
 
-| 200 places of a file of 250 functions, each a local asked with a new name (`benches/names_bench.rs`, the Studio at load 9 of 20 cores) | together | one by one |
+| 200 places of a file of 250 functions, each a local asked with a new name (`benches/names_bench.rs`, the Studio at load 4 to 8 of 20 cores) | together | one by one |
 |---|---|---|
-| Kotlin, 2 504 lines | 37 ms | 341 ms |
-| Java, 2 505 lines | 199 ms | 655 ms |
-| C#, 2 505 lines | 383 ms | 992 ms |
-| Starlark, 2 002 lines | 154 ms | 640 ms |
-| Rust, 2 502 lines | 29 ms | 1 159 ms |
-| TypeScript, 2 502 lines | 37 ms | 223 ms |
+| Kotlin, 2 504 lines | 26 ms | 316 ms |
+| Java, 2 505 lines | 169 ms | 576 ms |
+| C#, 2 505 lines | 358 ms | 921 ms |
+| Starlark, 2 002 lines | 125 ms | 549 ms |
+| Rust, 2 502 lines | 23 ms | 991 ms |
+| TypeScript, 2 502 lines | 19 ms | 196 ms |
 
 One by one is a parse per place; together is one parse, a resolution of the spelling and one more per entry for its
-clashes. A resolution of Kotlin, Rust and TypeScript reads the names of the spelling (0.15 ms here); one of Java, C#
-and Starlark walks the tree with its scopes (1 to 2 ms here), so their cost grows with the entries asked with a new
+clashes. A resolution of Kotlin, Rust and TypeScript reads the names of the spelling (0.1 ms here); one of Java, C#
+and Starlark walks the tree with its scopes (0.5 to 1 ms here), so their cost grows with the entries asked with a new
 name: a reader bounds its candidates by count. Rust collects its name tokens once per parse, where a walk of
 rust-analyzer's tree per resolution cost several times the resolution.
 

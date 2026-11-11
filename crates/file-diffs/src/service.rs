@@ -38,6 +38,7 @@ use code_symbols::extract::{extractor_version, summarize};
 use code_symbols::highlight::grammar_of;
 use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of, summary_key};
+use code_symbols::navigate::RULES_VERSION;
 use code_symbols::summary::{FileSummary, LineSpan};
 use code_symbols::tokens::{Tokens, indentation_matters, tokens_version};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -63,18 +64,21 @@ use tracing::{debug, instrument};
 
 /// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison, the scopes or the marks
 /// change
-pub const MODEL_VERSION: u32 = 9;
+pub const MODEL_VERSION: u32 = 10;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
-/// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens), so
-/// a stored diff is never read with marks of other tokens
+/// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
+/// the version of the rules the names of the renames are bound by (`code_symbols::navigate::RULES_VERSION`: the
+/// scopes, the locals, the sites, the clashes), so a stored diff is never read with marks of other tokens or of
+/// other bindings: a rule of a scope that was fixed takes the renames and the quiet runs it had allowed with it
 pub fn model_version() -> u32 {
-  store_version(MODEL_VERSION, tokens_version())
+  store_version(MODEL_VERSION, tokens_version(), RULES_VERSION)
 }
 
-/// The version of the store for a version of the model and one of the tokens: another for another of either
-pub(crate) const fn store_version(model: u32, tokens: u32) -> u32 {
-  model.wrapping_mul(0x9e37_79b9) ^ tokens
+/// The version of the store for a version of the model, one of the tokens and one of the rules of the names:
+/// another for another of any
+pub(crate) const fn store_version(model: u32, tokens: u32, names: u32) -> u32 {
+  model.wrapping_mul(0x9e37_79b9) ^ tokens ^ names.wrapping_mul(0xc2b2_ae35)
 }
 
 /// The diffs that memory keeps, weighed by the size of their model
@@ -673,9 +677,12 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     let mut diff = diff_texts(old_text, new_text, context.policy, &budget);
     // the marks before the content: they change the rows of the file
     let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
+    // what the pair leaves to the other files of its change (`PairMarks::undeclared`) and to the measurement of its
+    // proofs (`PairMarks::proven`) has no reader yet
     diff.marks = context
       .service
-      .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
+      .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text])
+      .marks;
     let cut_short = diff.line_level_only && fits_inner(old_text, diff.old_line_count) && fits_inner(new_text, diff.new_line_count);
     let old_side = entry.old_language().zip(entry.old_id.as_deref());
     let new_side = language_of(&entry.path).zip(entry.new_id.as_deref());
@@ -980,7 +987,7 @@ fn marks_weight(marks: &DiffMarks) -> usize {
   let renames: usize = marks
     .renames
     .iter()
-    .map(|it| 64 + it.old.len() + it.new.len() + (it.old_sites.len() + it.new_sites.len()) * 4)
+    .map(|it| 88 + it.old.len() + it.new.len() + (it.declared.len() + it.old_sites.len() + it.new_sites.len()) * 4)
     .sum();
   marks.runs.len() * size_of::<LineRun>() + moves + renames + marks.starts.len() * 4
 }

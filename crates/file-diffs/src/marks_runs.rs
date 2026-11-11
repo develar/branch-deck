@@ -19,8 +19,18 @@
 //!    `same_after`): at its other ends stand lines of the same block that are no quiet run, where the reader stops.
 //!
 //! A run of formatting has a character that is no blank; a run always has lines on both sides.
+//!
+//! **A reading with the two names of a rename read as one** (`marks_renames`, the second reading of a block) says
+//! which lines hold a place of a rename (`renamed`), and a run is of one kind there too: a group of the same tokens
+//! is cut where it may be (`runs_of_group`) into the lines that hold a place, a run of the kind `Renamed`, and the
+//! lines that hold none, a run of formatting as without the rename; lines that hold a place and differ in their
+//! comments are in no run and end the run of comments beside them. The first reading of a block has no such lines.
+//!
+//! The alignment also hands out the tokens it put at the same place of the two sides without pairing them: where as
+//! many tokens of each side stand between two paired ones, the first of one side with the first of the other, and so
+//! on. Two names among them are what a rename is looked for in (`marks_renames`).
 
-use crate::marks::{MAX_BLOCK_TOKENS, MAX_TOKEN_EDITS, is_quiet};
+use crate::marks::{MAX_BLOCK_TOKENS, MAX_TOKEN_EDITS, has_proof};
 use code_symbols::tokens::{Equality, Token, Tokens, compare, same_after, same_before};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -51,15 +61,29 @@ struct Found {
   last: usize,
 }
 
-/// The runs of the block at `lines` of two texts with the tokens `old` and `new`, in the order of the lines.
-/// `has_text` says whether lines of a side (`true` the new one) hold a character that is no blank; `work` is what is
-/// left of `MAX_FILE_TOKEN_WORK`, which a comparison of tokens takes its part of
-pub(crate) fn runs_of_block(old: &Tokens, new: &Tokens, lines: &BlockLines, has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> Vec<LineRun> {
+/// What a reading of a block asks of its lines beside their tokens
+pub(crate) struct Asked<'a> {
+  /// Whether lines of a side (`true` the new one) hold a character that is no blank
+  pub has_text: &'a dyn Fn(bool, Range<u32>) -> bool,
+  /// Whether lines of the old side hold a place of a rename, a name the tokens read as one with its name of the
+  /// new side: never in the first reading of a block (`NO_RENAME`)
+  pub renamed: &'a dyn Fn(Range<u32>) -> bool,
+}
+
+/// No line holds a place of a rename: the tokens are those of the texts
+pub(crate) const NO_RENAME: &dyn Fn(Range<u32>) -> bool = &|_| false;
+
+/// The runs of the block at `lines` of two texts with the tokens `old` and `new`, in the order of the lines; `None`
+/// for a block over a limit of work, which is not compared: nothing is cut out of it. `asked` answers for the lines
+/// what the tokens do not say; `work` is what is left of `MAX_FILE_TOKEN_WORK`, which a comparison of tokens takes
+/// its part of. `replaced` is given each token of the old side with the token of the new side the alignment put at
+/// its place without pairing the two. A run is quiet when its lines are proven (`has_proof`: every run of
+/// formatting, and a run of a renamed name as far as the tokens go: its reader asks the places); whether its kind is
+/// quiet its caller says
+pub(crate) fn runs_of_block(old: &Tokens, new: &Tokens, lines: &BlockLines, asked: &Asked<'_>, work: &mut u64, replaced: &mut dyn FnMut(&Token, &Token)) -> Option<Vec<LineRun>> {
   let (old_at, new_at) = (old.places_in_lines(lines.old.clone()), new.places_in_lines(lines.new.clone()));
   let (old_tokens, new_tokens) = (&old.all()[old_at.clone()], &new.all()[new_at.clone()]);
-  let Some([old_paired, new_paired]) = paired(old_tokens, new_tokens, work) else {
-    return Vec::new();
-  };
+  let [old_paired, new_paired] = paired(old_tokens, new_tokens, work, replaced)?;
   let segments = segments(
     &cuts(old, lines.old.clone(), old_at.start, old_tokens, &old_paired),
     &cuts(new, lines.new.clone(), new_at.start, new_tokens, &new_paired),
@@ -79,11 +103,18 @@ pub(crate) fn runs_of_block(old: &Tokens, new: &Tokens, lines: &BlockLines, has_
     .collect();
 
   // the runs of each row of segments with the same code
+  let rows = Rows {
+    old,
+    new,
+    segments: &segments,
+    classes: &classes,
+    asked,
+  };
   let mut found = Vec::new();
   let mut from = 0;
   for index in 0..=segments.len() {
     if classes.get(index).is_none_or(|class| *class == Class::Different) {
-      runs_of_same_code(old, new, &segments, &classes, from..index, has_text, &mut found);
+      rows.runs_of_same_code(from..index, &mut found);
       from = index + 1;
     }
   }
@@ -120,91 +151,144 @@ pub(crate) fn runs_of_block(old: &Tokens, new: &Tokens, lines: &BlockLines, has_
       new_start: run.new.start,
       new_end: run.new.end,
       kind,
-      quiet: is_quiet(kind),
+      quiet: has_proof(kind),
     });
   }
-  runs
+  Some(runs)
 }
 
-/// The runs among the segments `row` of a block, a row of segments with the same code on both sides (none is
-/// `Different`), added to `found`. From each segment with tokens, the longest group of segments whose tokens are
-/// the same on both sides, comments too, is a run of formatting, the blank lines inside it with it: a comment that
-/// moved to the line before is in it, though the two lines by themselves differ in their comments. What stands
-/// between two such groups differs in its comments alone: a run of comments, when it has lines on both sides
-fn runs_of_same_code(
-  old: &Tokens,
-  new: &Tokens,
-  segments: &[BlockLines],
-  classes: &[Class],
-  row: Range<usize>,
-  has_text: &dyn Fn(bool, Range<u32>) -> bool,
-  found: &mut Vec<Found>,
-) {
-  if row.is_empty() {
-    return;
-  }
-  let (old_start, new_start) = (segments[row.start].old.start, segments[row.start].new.start);
-  let row_end = &segments[row.end - 1];
-  let (old_tokens, new_tokens) = (tokens_of(old, &(old_start..row_end.old.end)), tokens_of(new, &(new_start..row_end.new.end)));
-  // the tokens of each side before the start of each segment of the row, and before its end
-  let before = |index: usize| -> (usize, usize) {
-    let (old_line, new_line) = segments
-      .get(index)
-      .filter(|_| index < row.end)
-      .map_or((row_end.old.end, row_end.new.end), |it| (it.old.start, it.new.start));
-    (tokens_of(old, &(old_start..old_line)).len(), tokens_of(new, &(new_start..new_line)).len())
-  };
+/// The segments of a block with what each is, and what its reading asks of their lines
+struct Rows<'a> {
+  old: &'a Tokens,
+  new: &'a Tokens,
+  segments: &'a [BlockLines],
+  classes: &'a [Class],
+  asked: &'a Asked<'a>,
+}
 
-  // the segments since the last run of formatting
-  let mut between: Option<usize> = None;
-  let comments = |between: &mut Option<usize>, end: usize, found: &mut Vec<Found>| {
-    let Some(first) = between.take() else { return };
-    let Some(last) = (first..end).rev().find(|index| classes[*index] != Class::Blank) else {
+impl Rows<'_> {
+  /// The runs among the segments `row` of the block, a row of segments with the same code on both sides (none is
+  /// `Different`), added to `found`. From each segment with tokens, the longest group of segments whose tokens are
+  /// the same on both sides, comments too, is a run of formatting, the blank lines inside it with it: a comment that
+  /// moved to the line before is in it, though the two lines by themselves differ in their comments. What stands
+  /// between two such groups differs in its comments alone: a run of comments, when it has lines on both sides. A
+  /// segment that holds a place of a rename is in no run of comments, and ends the one before it: its code is the
+  /// same only by the rename
+  fn runs_of_same_code(&self, row: Range<usize>, found: &mut Vec<Found>) {
+    let Self {
+      old,
+      new,
+      segments,
+      classes,
+      asked,
+    } = *self;
+    if row.is_empty() {
       return;
+    }
+    let (old_start, new_start) = (segments[row.start].old.start, segments[row.start].new.start);
+    let row_end = &segments[row.end - 1];
+    let (old_tokens, new_tokens) = (tokens_of(old, &(old_start..row_end.old.end)), tokens_of(new, &(new_start..row_end.new.end)));
+    // the tokens of each side before the start of each segment of the row, and before its end
+    let before = |index: usize| -> (usize, usize) {
+      let (old_line, new_line) = segments
+        .get(index)
+        .filter(|_| index < row.end)
+        .map_or((row_end.old.end, row_end.new.end), |it| (it.old.start, it.new.start));
+      (tokens_of(old, &(old_start..old_line)).len(), tokens_of(new, &(new_start..new_line)).len())
     };
-    let (old_lines, new_lines) = (segments[first].old.start..segments[last].old.end, segments[first].new.start..segments[last].new.end);
-    if !old_lines.is_empty() && !new_lines.is_empty() && compare(tokens_of(old, &old_lines), tokens_of(new, &new_lines)) == Equality::CodeOnly {
-      found.push(Found {
-        kind: RunKind::Comments,
-        first,
-        last,
-      });
-    }
-  };
 
-  let mut index = row.start;
-  while index < row.end {
-    if classes[index] == Class::Blank {
-      index += 1;
-      continue;
-    }
-    let (old_from, new_from) = before(index);
-    let same = old_tokens[old_from..].iter().zip(&new_tokens[new_from..]).take_while(|(old, new)| old.same(new)).count();
-    // the last end of a segment with tokens that as many tokens of both sides stand before, all of them the same
-    let mut end = None;
-    for next in index + 1..=row.end {
-      let (old_to, new_to) = before(next);
-      if old_to - old_from > same {
-        break;
+    // the segments since the last run of formatting
+    let mut between: Option<usize> = None;
+    let comments = |between: &mut Option<usize>, end: usize, found: &mut Vec<Found>| {
+      let Some(first) = between.take() else { return };
+      let Some(last) = (first..end).rev().find(|index| classes[*index] != Class::Blank) else {
+        return;
+      };
+      let (old_lines, new_lines) = (segments[first].old.start..segments[last].old.end, segments[first].new.start..segments[last].new.end);
+      if !old_lines.is_empty() && !new_lines.is_empty() && compare(tokens_of(old, &old_lines), tokens_of(new, &new_lines)) == Equality::CodeOnly {
+        found.push(Found {
+          kind: RunKind::Comments,
+          first,
+          last,
+        });
       }
-      if old_to - old_from == new_to - new_from && classes[next - 1] != Class::Blank {
-        end = Some(next);
+    };
+
+    let mut index = row.start;
+    while index < row.end {
+      if classes[index] == Class::Blank {
+        index += 1;
+        continue;
+      }
+      let (old_from, new_from) = before(index);
+      let same = old_tokens[old_from..].iter().zip(&new_tokens[new_from..]).take_while(|(old, new)| old.same(new)).count();
+      // the ends of the segments with tokens that as many tokens of both sides stand before, all of them the same:
+      // the last one ends the group, and at each the group may be cut into two that are the same tokens too
+      let mut ends = Vec::new();
+      for next in index + 1..=row.end {
+        let (old_to, new_to) = before(next);
+        if old_to - old_from > same {
+          break;
+        }
+        if old_to - old_from == new_to - new_from && classes[next - 1] != Class::Blank {
+          ends.push(next);
+        }
+      }
+      match ends.last() {
+        Some(&end) if (asked.has_text)(false, segments[index].old.start..segments[end - 1].old.end) => {
+          comments(&mut between, index, found);
+          self.runs_of_group(index, &ends, found);
+          index = end;
+        }
+        _ => {
+          if (asked.renamed)(segments[index].old.clone()) {
+            comments(&mut between, index, found);
+          } else {
+            between.get_or_insert(index);
+          }
+          index += 1;
+        }
       }
     }
-    if let Some(end) = end.filter(|end| has_text(false, segments[index].old.start..segments[end - 1].old.end)) {
-      comments(&mut between, index, found);
-      found.push(Found {
-        kind: RunKind::Formatting,
-        first: index,
-        last: end - 1,
-      });
-      index = end;
-    } else {
-      between.get_or_insert(index);
-      index += 1;
-    }
+    comments(&mut between, row.end, found);
   }
-  comments(&mut between, row.end, found);
+
+  /// The runs of a group of segments whose tokens are the same on both sides, added to `found`: `first` is its first
+  /// segment and `ends` are the ends of its parts, the smallest rows of its segments that are the same tokens by
+  /// themselves, the last one its own end. The group is one run of formatting when none of its lines holds a place
+  /// of a rename: every group of a first reading. Else its parts that hold a place, in a row, are a run of the kind
+  /// `Renamed`, and those that hold none a run of formatting, as they are without the rename: a line that changed in
+  /// its formatting alone is no line of a rename for standing beside one. The blank lines between two such runs go
+  /// with the formatting
+  fn runs_of_group(&self, first: usize, ends: &[usize], found: &mut Vec<Found>) {
+    let Self { segments, classes, asked, .. } = *self;
+    let mut push = |from: usize, to: usize, renamed: bool| {
+      if renamed || (asked.has_text)(false, segments[from].old.start..segments[to - 1].old.end) {
+        found.push(Found {
+          kind: if renamed { RunKind::Renamed } else { RunKind::Formatting },
+          first: from,
+          last: to - 1,
+        });
+      }
+    };
+    // where the run in the making starts, where the part does, and whether the parts of that run hold a place
+    let (mut from, mut part, mut renamed) = (first, first, None);
+    for &end in ends {
+      let holds = (asked.renamed)(segments[part].old.start..segments[end - 1].old.end);
+      if let Some(renamed) = renamed.filter(|renamed| *renamed != holds) {
+        // a part ends at a segment with tokens, so the blank lines between the two start the later one
+        let cut = if holds {
+          (part..end).find(|index| classes[*index] != Class::Blank).unwrap_or(part)
+        } else {
+          part
+        };
+        push(from, cut, renamed);
+        from = cut;
+      }
+      (part, renamed) = (end, Some(holds));
+    }
+    push(from, part, renamed == Some(true));
+  }
 }
 
 /// The tokens of `lines` of a side; none of no lines (`Tokens::in_lines` of an empty range is the token across it)
@@ -213,8 +297,9 @@ fn tokens_of<'t>(tokens: &'t Tokens, lines: &Range<u32>) -> &'t [Token] {
 }
 
 /// For each token of the code of each side, in order, whether the alignment pairs it with a token of the other side;
-/// `None` when the block is over a limit. Sides with the same code pair token by token, without a comparison
-fn paired(old: &[Token], new: &[Token], work: &mut u64) -> Option<[Vec<bool>; 2]> {
+/// `None` when the block is over a limit. Sides with the same code pair token by token, without a comparison.
+/// `replaced` is given the tokens of a change of as many tokens on each side, the first with the first and so on
+fn paired(old: &[Token], new: &[Token], work: &mut u64, replaced: &mut dyn FnMut(&Token, &Token)) -> Option<[Vec<bool>; 2]> {
   let code = |tokens: &[Token]| tokens.iter().filter(|token| !token.is_comment()).count();
   let (old_count, new_count) = (code(old), code(new));
   if compare(old, new) != Equality::Different {
@@ -241,6 +326,14 @@ fn paired(old: &[Token], new: &[Token], work: &mut u64) -> Option<[Vec<bool>; 2]
   };
   let (old_numbers, new_numbers) = (number(old), number(new));
   let changes = build_changes_ints_within(&old_numbers, &new_numbers, MAX_TOKEN_EDITS).ok()?;
+  if changes.iter().any(|change| change.deleted == change.inserted) {
+    let (old_code, new_code) = (code_of(old), code_of(new));
+    for change in changes.iter().filter(|change| change.deleted == change.inserted) {
+      for offset in 0..change.deleted {
+        replaced(old_code[change.line0 + offset], new_code[change.line1 + offset]);
+      }
+    }
+  }
   let (mut old_paired, mut new_paired) = (vec![true; old_count], vec![true; new_count]);
   let (old_lines, new_lines) = (LineEnds::of(old), LineEnds::of(new));
   // where the change before ends on each side
@@ -261,6 +354,11 @@ fn paired(old: &[Token], new: &[Token], work: &mut u64) -> Option<[Vec<bool>; 2]
   Some([old_paired, new_paired])
 }
 
+/// The tokens of the code among `tokens`: those that are no comments
+fn code_of(tokens: &[Token]) -> Vec<&Token> {
+  tokens.iter().filter(|token| !token.is_comment()).collect()
+}
+
 /// Where the lines of the tokens of the code of one side of a block start and end
 struct LineEnds {
   /// For each token, whether it is the first of its line, and whether it is the last
@@ -269,7 +367,7 @@ struct LineEnds {
 
 impl LineEnds {
   fn of(tokens: &[Token]) -> Self {
-    let code: Vec<&Token> = tokens.iter().filter(|token| !token.is_comment()).collect();
+    let code = code_of(tokens);
     let ends = (0..code.len())
       .map(|index| {
         let first = index == 0 || code[index - 1].end_line < code[index].line;

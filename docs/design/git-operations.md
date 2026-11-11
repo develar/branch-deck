@@ -3349,7 +3349,8 @@ git plumbing does not depend on.
   indent while its move shifted is an edited line in a `.py` file and the same line in a `.txt` file. Blobs never
   change, so one entry serves every commit, range and window that shows the pair. Memory first (64 MiB), then the
   `file_diff` store, under `model_version()`: `MODEL_VERSION` with the version of the tokens (`store_version`,
-  `code_symbols::tokens::tokens_version`), so a diff made with other parsers is never read. The store never keeps a
+  `code_symbols::tokens::tokens_version`) and that of the rules the names of its renames are bound by
+  (`code_symbols::navigate::RULES_VERSION`), so a diff made with other parsers or other rules is never read. The store never keeps a
   diff that the time cut short; memory keeps it for the run, with the marks of its blocks. The blobs that a diff
   read stay in a memory cache (128 MiB), so the texts that a view asks for next
   (`blob_texts`) cost no process. A text of the working tree is read again by its path, and only when its bytes still

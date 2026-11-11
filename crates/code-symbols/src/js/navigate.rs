@@ -32,26 +32,31 @@
 //!   else read.
 //! - **What a local is** (`LocalBinding`): a `var`, `let` or `const` a variable, the one of the head of a `for` a loop
 //!   variable, the parameter of a `catch`, of an arrow or a function expression, and of a function declaration or a
-//!   method; no call names a parameter. A parameter with a modifier (`private total`) declares a property; it, the
-//!   parameter of a signature without a body, a function, a class, a type and a type parameter are `Other`.
+//!   method; no call names a parameter. The parameter of a signature without a body, a function, a class, a type and
+//!   a type parameter are `Other`. A parameter with a modifier (`private total`) declares a property of its class: no
+//!   local unless a function is around the class, and one of the names `this.total` spells. A text with a syntax
+//!   error and a script that calls `eval` by its name are read in part (`Names::reads_in_part`).
 //! - **Its site** (`Site`): `{ total }` of an object, of a pattern and of the target of an assignment names the
-//!   property too; any other name a pattern declares or a destructuring assigns is destructured.
+//!   property too; any other name a pattern declares or a destructuring assigns is destructured; a variable or a
+//!   parameter that is given a function or a class written without a name spells the name that one takes
+//!   (`takes_name`); and inside the body of a `with` only what runs tells a variable from a property of the object.
 
 use crate::js;
 use crate::js::field_of;
 use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
 use js_syntax::Dialect;
+use std::cell::{Cell, OnceCell};
 // jscpd:ignore-start: the names of oxc's tree and visitor each walk reads
 use js_syntax::oxc_ast::ast::{
-  ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty, BindingIdentifier, BindingPattern,
-  BlockStatement, CallExpression, CatchClause, Class, ClassElement, ClassType, ExportAllDeclaration, ExportFromDeclaration, ExportNamedDeclaration, Expression, ForInStatement,
-  ForOfStatement, ForStatement, ForStatementInit, ForStatementLeft, FormalParameter, FormalParameterRest, Function, FunctionType, IdentifierReference, ImportDeclaration,
-  ImportDeclarationSpecifier, JSXAttributeName, JSXElementName, JSXMemberExpression, JSXMemberExpressionObject, MethodDefinition, ModuleExportName, NewExpression, ObjectProperty,
-  PrivateFieldExpression, PrivateInExpression, Program, PropertyKey, SimpleAssignmentTarget, StaticBlock, StaticMemberExpression, SwitchStatement, TSCallSignatureDeclaration,
-  TSConditionalType, TSConstructSignatureDeclaration, TSConstructorType, TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSFunctionType, TSGlobalDeclaration,
-  TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSIndexSignature, TSInterfaceDeclaration, TSMappedType, TSMethodSignature, TSModuleReference,
-  TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSPropertySignature, TSQualifiedName, TSTypeAliasDeclaration, TSTypeName, TSTypeParameter, TSTypePredicate,
-  TSTypePredicateName, TSTypeQuery, TaggedTemplateExpression, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+  ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, AssignmentTarget, AssignmentTargetMaybeDefault, AssignmentTargetProperty,
+  BindingIdentifier, BindingPattern, BlockStatement, CallExpression, CatchClause, Class, ClassElement, ClassType, ExportAllDeclaration, ExportFromDeclaration,
+  ExportNamedDeclaration, Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit, ForStatementLeft, FormalParameter, FormalParameterRest, Function,
+  FunctionType, IdentifierReference, ImportDeclaration, ImportDeclarationSpecifier, JSXAttributeName, JSXElementName, JSXMemberExpression, JSXMemberExpressionObject,
+  MethodDefinition, ModuleExportName, NewExpression, ObjectProperty, PrivateFieldExpression, PrivateInExpression, Program, PropertyKey, SimpleAssignmentTarget, StaticBlock,
+  StaticMemberExpression, SwitchStatement, TSCallSignatureDeclaration, TSConditionalType, TSConstructSignatureDeclaration, TSConstructorType, TSEnumDeclaration, TSEnumMemberName,
+  TSExternalModuleDeclaration, TSFunctionType, TSGlobalDeclaration, TSImportEqualsDeclaration, TSImportType, TSImportTypeQualifier, TSIndexSignature, TSInterfaceDeclaration,
+  TSMappedType, TSMethodSignature, TSModuleReference, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSPropertySignature, TSQualifiedName, TSTypeAliasDeclaration, TSTypeName,
+  TSTypeParameter, TSTypePredicate, TSTypePredicateName, TSTypeQuery, TaggedTemplateExpression, UpdateExpression, VariableDeclaration, VariableDeclarationKind, WithStatement,
 };
 use js_syntax::oxc_ast_visit::{Visit, walk};
 use js_syntax::oxc_span::{GetSpan, Span};
@@ -79,19 +84,68 @@ pub(crate) fn reference_at(dialect: Dialect, text: &str, position: Position) -> 
 /// The answer of `read` for the names of a parse of `text` (`navigate::names_at`, `usages_at`, `usages_of`); `None`
 /// for a text without a program
 pub(crate) fn with_names<R: Send>(dialect: Dialect, text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
-  super::with_program(dialect, text.as_bytes(), |parsed| Some(read(&ProgramNames { program: parsed.program()?, text }))).flatten()
+  super::with_program(dialect, text.as_bytes(), |parsed| {
+    let names = ProgramNames {
+      program: parsed.program()?,
+      text,
+      asked: Cell::new(false),
+      every: OnceCell::new(),
+      // a region a recovery blanked and a syntax error of the parse that made the tree; an early error (strict mode)
+      // leaves the tree whole
+      broken: parsed.recovered || parsed.diagnostics.iter().any(js_syntax::is_syntax_error),
+      evaluates: OnceCell::new(),
+    };
+    Some(read(&names))
+  })
+  .flatten()
 }
 
 /// A program and its text, for the names of `navigate::Names`
 struct ProgramNames<'p, 'a> {
   program: &'p Program<'a>,
   text: &'p str,
+  /// A place was asked before
+  asked: Cell<bool>,
+  /// Every name of the program, by its start: read once, when a second place is asked
+  every: OnceCell<Vec<Span>>,
+  /// The parser reported a syntax error, or read the program only with a region of the text blanked
+  broken: bool,
+  /// The program calls `eval` by its name (`evaluates`), read once
+  evaluates: OnceCell<bool>,
+}
+
+/// Whether a program calls `eval` by its name, a direct `eval`: the text it is given runs in the scope of the call,
+/// where it reads and declares the variables of the functions around it by their names
+fn evaluates(program: &Program<'_>, text: &str) -> bool {
+  struct Calls(bool);
+  impl<'a> Visit<'a> for Calls {
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+      if matches!(it.callee.get_inner_expression(), Expression::Identifier(callee) if callee.name == "eval") {
+        self.0 = true;
+      } else {
+        walk::walk_call_expression(self, it);
+      }
+    }
+  }
+  if !text.contains("eval") {
+    return false;
+  }
+  let mut calls = Calls(false);
+  calls.visit_program(program);
+  calls.0
 }
 
 impl Names for ProgramNames<'_, '_> {
+  /// One place is one walk of the program; from the second place on, the names of the program are read once and each
+  /// place is looked up among them
   fn name_at(&self, offset: usize) -> Option<(usize, &str)> {
-    let (span, name) = name_at(self.program, self.text, u32::try_from(offset).ok()?)?;
-    Some((span.start as usize, name))
+    let offset = u32::try_from(offset).ok()?;
+    let span = if self.asked.replace(true) {
+      name_among(self.every.get_or_init(|| every_name(self.program, self.text)), offset)?
+    } else {
+      name_at(self.program, self.text, offset)?.0
+    };
+    Some((span.start as usize, self.text.get(span.start as usize..span.end as usize)?))
   }
 
   fn resolve(&self, wanted: &Wanted<'_>) -> Vec<Resolved> {
@@ -111,6 +165,12 @@ impl Names for ProgramNames<'_, '_> {
   fn is_implicit(&self, _name: &str) -> bool {
     false
   }
+
+  /// A text with a syntax error (what stands where the parser gave up is no name of the tree), and a script with a
+  /// direct `eval`, which names the variables around its call in a text no scope reads
+  fn reads_in_part(&self) -> bool {
+    self.broken || *self.evaluates.get_or_init(|| evaluates(self.program, self.text))
+  }
 }
 
 /// The name whose text holds the byte at `offset`, else the one that ends there (`foo|`), and its text
@@ -121,6 +181,24 @@ fn name_at<'t>(program: &Program<'_>, text: &'t str, offset: u32) -> Option<(Spa
   Some((span, text.get(span.start as usize..span.end as usize)?))
 }
 
+/// Every name of a program, by its start
+pub(crate) fn every_name(program: &Program<'_>, text: &str) -> Vec<Span> {
+  let mut walk = Walk::new(text, Want::Every);
+  walk.visit_program(program);
+  let mut every = walk.every;
+  every.sort_unstable_by_key(|span| (span.start, span.end));
+  every.dedup();
+  every
+}
+
+/// The name among `every` (`every_name`) whose text holds the byte at `offset`, else the one that ends there: the
+/// answer of `name_at` without its walk
+pub(crate) fn name_among(every: &[Span], offset: u32) -> Option<Span> {
+  let after = every.partition_point(|span| span.start <= offset);
+  let last = *every.get(after.checked_sub(1)?)?;
+  (offset < last.end || (last.start < offset && offset == last.end)).then_some(last)
+}
+
 /// Every name the resolution looks for in the order of the text, with its kind, its access, its site and its declaration
 fn resolve<'t>(program: &Program<'_>, text: &'t str, wanted: Wanted<'t>) -> Vec<Named> {
   let mut walk = Walk::new(text, Want::Named(wanted));
@@ -129,6 +207,18 @@ fn resolve<'t>(program: &Program<'_>, text: &'t str, wanted: Wanted<'t>) -> Vec<
   names.sort_by_key(|it| it.span.start);
   names.dedup_by_key(|it| it.span);
   names
+}
+
+/// Whether an expression is a function or a class written without a name, which takes the name of the variable it is
+/// given to as its own `name` (the parentheses and the types around it aside): another name for the variable is
+/// another name of the function, which a stack trace, a log and a framework read
+fn takes_name(value: &Expression<'_>) -> bool {
+  match value.get_inner_expression() {
+    Expression::ArrowFunctionExpression(_) => true,
+    Expression::FunctionExpression(function) => function.id.is_none(),
+    Expression::ClassExpression(class) => class.id.is_none(),
+    _ => false,
+  }
 }
 
 /// What may name a declaration, as the language keeps values and types apart: a value alone (a variable, a parameter,
@@ -163,10 +253,11 @@ struct Named {
   binding: Option<Declared>,
 }
 
-/// What a walk looks for: the name at an offset, or the names of a resolution
+/// What a walk looks for: the name at an offset, every name, or the names of a resolution
 #[derive(Clone, Copy)]
 enum Want<'t> {
   At(u32),
+  Every,
   Named(Wanted<'t>),
 }
 
@@ -179,6 +270,8 @@ enum Binder {
   Var { assigns: bool },
   /// The name of a function declaration: a variable of the function whose body declares it
   Function,
+  /// A parameter with a modifier (`private total`): a property of the class around its constructor
+  Property,
 }
 
 /// Whether the `var`, `let` or `const` the walk meets next is the head's of a loop
@@ -213,6 +306,8 @@ struct Walk<'t> {
   want: Want<'t>,
   at: Option<Span>,
   before: Option<Span>,
+  /// Every name met, for `Want::Every`
+  every: Vec<Span>,
   names: Vec<Named>,
   scopes: Vec<Scope>,
   /// Inside an import: its names are imports
@@ -229,6 +324,8 @@ struct Walk<'t> {
   declares: LocalKind,
   /// What the site of the names the walk meets makes of them: set around a pattern or a shorthand, `Plain` elsewhere
   site: Site,
+  /// Inside the body of a `with`: a property of its object comes before every name around it
+  within_with: bool,
 }
 
 impl<'t> Walk<'t> {
@@ -238,6 +335,7 @@ impl<'t> Walk<'t> {
       want,
       at: None,
       before: None,
+      every: Vec::new(),
       names: Vec::new(),
       scopes: Vec::new(),
       importing: false,
@@ -247,6 +345,7 @@ impl<'t> Walk<'t> {
       parameters: LocalKind::Other,
       declares: LocalKind::Other,
       site: Site::Plain,
+      within_with: false,
     }
   }
 
@@ -333,6 +432,7 @@ impl<'t> Walk<'t> {
           self.before.get_or_insert(span);
         }
       }
+      Want::Every => self.every.push(span),
       Want::Named(wanted) => {
         if !wanted.takes(self.text_of(span), span.start as usize) {
           return;
@@ -344,12 +444,14 @@ impl<'t> Walk<'t> {
           _ => access,
         };
         let index = self.names.len();
+        // in a `with` only what runs tells whether a name is a variable or a property of the object
+        let site = if self.within_with && self.site == Site::Plain { Site::Namesake } else { self.site };
         self.names.push(Named {
           span,
           kind,
           qualifier,
           access,
-          site: self.site,
+          site,
           of_type: kind == ReferenceKind::Type || self.namespace,
           binding: None,
         });
@@ -366,11 +468,19 @@ impl<'t> Walk<'t> {
   /// name it. A function has one variable of a name: where its scope has one already (a parameter, a `var`, a function
   /// it declares), such a declaration is a use of that one, a write when it comes with a value
   fn declaration(&mut self, span: Span, scope: Option<usize>, space: Space) {
-    // inside a function a declaration is a local: what the pattern around it declares, a member `Other`
-    let in_function = self.in_function(scope.unwrap_or_else(|| self.scopes.len().saturating_sub(1)));
-    let kind = if scope.is_some() { self.declares } else { LocalKind::Other };
+    // inside a function a declaration is a local: what the pattern around it declares, a member `Other`. A parameter
+    // that declares a property is a member of its class: a local only when a function is around the class, which is
+    // around the scope of its constructor
+    let innermost = scope.unwrap_or_else(|| self.scopes.len().saturating_sub(1));
     let binder = self.binder;
-    let of_function = scope.is_some_and(|it| self.scopes[it].function) && (binder != Binder::Scope || matches!(kind, LocalKind::Parameter | LocalKind::LambdaParameter));
+    let in_function = if binder == Binder::Property {
+      innermost.checked_sub(1).is_some_and(|around| self.in_function(around))
+    } else {
+      self.in_function(innermost)
+    };
+    let kind = if scope.is_some() { self.declares } else { LocalKind::Other };
+    let of_function = scope.is_some_and(|it| self.scopes[it].function)
+      && (matches!(binder, Binder::Var { .. } | Binder::Function) || matches!(kind, LocalKind::Parameter | LocalKind::LambdaParameter));
     let declared = Declared {
       start: span.start,
       local: in_function.then(|| LocalBinding::of(kind)),
@@ -688,8 +798,22 @@ impl<'a> Visit<'a> for Walk<'_> {
   }
 
   fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-    self.target(&it.left);
+    // `total = () => 1`: the function takes the name of the variable it is given to
+    let names = matches!(it.left, AssignmentTarget::AssignmentTargetIdentifier(_))
+      && matches!(
+        it.operator,
+        AssignmentOperator::Assign | AssignmentOperator::LogicalOr | AssignmentOperator::LogicalAnd | AssignmentOperator::LogicalNullish
+      )
+      && takes_name(&it.right);
+    self.at_site(if names { Site::Spelled } else { self.site }, |walk| walk.target(&it.left));
     self.visit_expression(&it.right);
+  }
+
+  fn visit_with_statement(&mut self, it: &WithStatement<'a>) {
+    self.visit_expression(&it.object);
+    let around = std::mem::replace(&mut self.within_with, true);
+    self.visit_statement(&it.body);
+    self.within_with = around;
   }
 
   fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
@@ -767,13 +891,18 @@ impl<'a> Visit<'a> for Walk<'_> {
 
   fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
     js::walk_decorators(self, &it.decorators);
-    // a parameter with a modifier (`private total`) declares a property of its class
-    let kind = if it.accessibility.is_some() || it.readonly || it.r#override {
-      LocalKind::Other
-    } else {
-      self.parameters
-    };
-    self.declaring(kind, |walk| walk.visit_binding_pattern(&it.pattern));
+    // a parameter with a modifier (`private total`) declares a property of its class, which `this.total` names
+    let property = it.accessibility.is_some() || it.readonly || it.r#override;
+    let kind = if property { LocalKind::Other } else { self.parameters };
+    // `(total = () => 1)`: the function takes the name of the parameter it is the default of
+    let names = matches!(it.pattern, BindingPattern::BindingIdentifier(_)) && it.initializer.as_deref().is_some_and(takes_name);
+    let around = self.binder;
+    if property {
+      self.binder = Binder::Property;
+    }
+    let site = if names { Site::Spelled } else { self.site };
+    self.declaring(kind, |walk| walk.at_site(site, |walk| walk.visit_binding_pattern(&it.pattern)));
+    self.binder = around;
     js::walk_parameter_type(self, it.type_annotation.as_deref(), it.initializer.as_deref());
   }
 
@@ -794,7 +923,10 @@ impl<'a> Visit<'a> for Walk<'_> {
         Binder::Scope
       };
       let around = std::mem::replace(&mut self.binder, binder);
-      self.declaring(kind, |walk| walk.visit_binding_pattern(&declarator.id));
+      // `const total = () => 1`: the function takes the name of the variable it is the value of
+      let names = matches!(declarator.id, BindingPattern::BindingIdentifier(_)) && declarator.init.as_ref().is_some_and(takes_name);
+      let site = if names { Site::Spelled } else { self.site };
+      self.declaring(kind, |walk| walk.at_site(site, |walk| walk.visit_binding_pattern(&declarator.id)));
       self.binder = around;
       if let Some(annotation) = &declarator.type_annotation {
         self.visit_ts_type_annotation(annotation);

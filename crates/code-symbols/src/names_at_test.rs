@@ -3,12 +3,15 @@
 //! it as, what each site makes of it and what another name for it would clash with
 
 use crate::highlight::Grammar;
-use crate::navigate::{Access, ClashKind, LocalKind, NameAt, NameQuestion, Position, Site, names_at, usages_at};
+use crate::navigate::{
+  Access, ClashKind, Lines, LocalBinding, LocalKind, NameAt, NameQuestion, Position, Site, byte_offset, names_at, names_at_within, resolution_work, usages_at,
+};
 use crate::test_support::place;
 use pretty_assertions::assert_eq;
 
-/// An answer as text: what declares the local (`-` for any other name), its uses as `line:column access site`, then
-/// after `|` the clashes of the new name asked, `no clash` where it has none
+/// An answer as text: what declares the local (`-` for any other name), `named by calls` and `read in part` where it
+/// says so, its uses as `line:column access site`, then after `|` the clashes of the new name asked, `no clash` where
+/// it has none
 fn describe(found: &NameAt) -> String {
   let local = found.local.map_or_else(
     || "-".to_string(),
@@ -21,7 +24,9 @@ fn describe(found: &NameAt) -> String {
         LocalKind::CatchParameter => "catch parameter",
         LocalKind::Other => "other",
       };
-      if it.named_by_calls { format!("{kind} named by calls") } else { kind.to_string() }
+      let named = if it.named_by_calls { " named by calls" } else { "" };
+      let read = if it.read_in_part { " read in part" } else { "" };
+      format!("{kind}{named}{read}")
     },
   );
   let uses: Vec<String> = found
@@ -561,8 +566,8 @@ fn typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
       ("size }", 0, None, "parameter: 18:21 declaration shorthand, 18:62 read"),
       // a parameter of an array pattern
       ("width]", 0, None, "parameter: 18:35 declaration destructured, 18:69 read"),
-      // a parameter with a modifier declares a property
-      ("scale: number,", 0, None, "other: 2:22 declaration"),
+      // a parameter with a modifier declares a property: no local
+      ("scale: number,", 0, None, "-: 2:22 declaration"),
       // a parameter of a constructor
       ("plain", 0, None, "parameter: 2:37 declaration, 2:58 read"),
       // a function inside a function
@@ -628,38 +633,39 @@ fn a_text_with_a_syntax_error_still_answers_the_names_its_tree_holds() {
     (
       Grammar::Kotlin,
       "fun f(scale: Int) {\n  val total = 1\n  val broken = (\n  use(total, scale)\n}\n",
-      "variable: 1:6 declaration, 3:6 read | 3:13 captured",
+      "variable read in part: 1:6 declaration, 3:6 read | 3:13 captured",
     ),
     (
       Grammar::Java,
       "class A { void f(int scale) {\n  int total = 1;\n  int broken = (;\n  use(total, scale);\n} }\n",
-      "variable: 1:6 declaration, 3:6 read | 3:13 captured",
+      "variable read in part: 1:6 declaration, 3:6 read | 3:13 captured",
     ),
     (
       Grammar::CSharp,
       "class A { void F(int scale) {\n  var total = 1;\n  var broken = (;\n  Use(total, scale);\n} }\n",
-      "variable: 1:6 declaration, 3:6 read | 3:13 captured",
+      "variable read in part: 1:6 declaration, 3:6 read | 3:13 captured",
     ),
     (
       Grammar::Starlark,
       "def f(scale):\n    total = 1\n    broken = (\n    use(total, scale)\n",
       // in a def the new name is the variable of the parameter: the names of the local would be its
-      "variable: 1:4 declaration, 3:8 read | 1:4 shadowed, 3:8 shadowed",
+      "variable read in part: 1:4 declaration, 3:8 read | 1:4 shadowed, 3:8 shadowed",
     ),
     (
       Grammar::Rust,
       "fn f(scale: u32) {\n  let total = 1;\n  let broken = (;\n  use_it(total, scale);\n}\n",
-      "variable: 1:6 declaration, 3:9 read | 3:16 captured",
+      "variable read in part: 1:6 declaration, 3:9 read | 3:16 captured",
     ),
     (
       Grammar::TypeScript,
+      // an early error (a `break` outside a loop, a name declared twice) leaves the tree whole: every name is read
       "function f(scale: number) {\n  const total = 1\n  break\n  use(total, scale)\n}\n",
       "variable: 1:8 declaration, 3:6 read | 3:13 captured",
     ),
     (
       Grammar::Tsx,
       "function f(scale: number) {\n  const total = 1\n  const broken = <div></span>\n  use(total, scale)\n}\n",
-      "variable: 1:8 declaration, 3:6 read | 3:13 captured",
+      "variable read in part: 1:8 declaration, 3:6 read | 3:13 captured",
     ),
     (
       Grammar::JavaScript,
@@ -672,20 +678,327 @@ fn a_text_with_a_syntax_error_still_answers_the_names_its_tree_holds() {
       "none",
     ),
   ];
-  for &(grammar, text, expected) in cases {
-    // the local `total`, asked whether `scale` (the parameter its last line reads beside it) could name it; the last
-    // row is a text oxc reads no program of: no name is answered rather than a guess
-    assert_eq!(ask(grammar, text, "total", 0, Some("scale")), expected, "{grammar:?}\n{text}");
-  }
+  // the local `total`, asked whether `scale` (the parameter its last line reads beside it) could name it: each answer
+  // says that the text is read in part. The last row is a text oxc reads no program of: no name is answered rather
+  // than a guess
+  let found: Vec<_> = cases
+    .iter()
+    .map(|&(grammar, text, _)| (grammar, text, ask(grammar, text, "total", 0, Some("scale"))))
+    .collect();
+  let expected: Vec<_> = cases.iter().map(|&(grammar, text, answer)| (grammar, text, answer.to_string())).collect();
+  assert_eq!(found, expected);
 }
 
-/// Every start of a word of a text: the places a caller may ask, a name or not
+/// A text of a grammar, the `occurrence`-th `needle` of it, a new name for it or none, and its answer
+type TextRow<'a> = (Grammar, &'a str, &'a str, usize, Option<&'a str>, &'a str);
+
+/// Each row against the answer of its place
+fn check_texts(rows: &[TextRow<'_>]) {
+  let found: Vec<_> = rows
+    .iter()
+    .map(|&(grammar, text, needle, occurrence, renamed_to, _)| (text, ask(grammar, text, needle, occurrence, renamed_to)))
+    .collect();
+  let expected: Vec<_> = rows.iter().map(|&(_, text, _, _, _, answer)| (text, answer.to_string())).collect();
+  assert_eq!(found, expected);
+}
+
+/// A local says that the scopes read only a part of the code that may name it: in a C# file with an `#if`, whatever
+/// branch the parser takes; in a Rust function or closure with a `#[cfg]` inside it; in a script that calls `eval` by
+/// its name. A condition on the whole function, one in another function and a call of a member named `eval` say
+/// nothing of the local
+#[test]
+fn a_local_says_when_the_scopes_read_its_code_in_part() {
+  check_texts(&[
+    // a use the parser does not read: the text of the branch is no code
+    (
+      Grammar::CSharp,
+      "class A {\n  int F() {\n    int total = 1;\n#if DEBUG\n    Log(total);\n#endif\n    return total;\n  }\n}\n",
+      "total = 1",
+      0,
+      Some("sum"),
+      "variable read in part: 2:8 declaration, 6:11 read | no clash",
+    ),
+    // the branch taken is no code where the other is compiled
+    (
+      Grammar::CSharp,
+      "class A {\n  int F() {\n#if !DEBUG\n    int total = 1;\n#else\n    int total = 2;\n#endif\n    return total;\n  }\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable read in part: 3:8 declaration, 7:11 read",
+    ),
+    // a condition anywhere in the file: a brace in a branch may move every scope
+    (
+      Grammar::CSharp,
+      "#if NET8_0\nusing System.Text;\n#endif\nclass A {\n  int F() {\n    int total = 1;\n    return total;\n  }\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable read in part: 5:8 declaration, 6:11 read",
+    ),
+    // another directive is no condition
+    (
+      Grammar::CSharp,
+      "#nullable enable\nclass A {\n  int F() {\n#region body\n    int total = 1;\n    return total;\n#endregion\n  }\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable: 4:8 declaration, 5:11 read",
+    ),
+    // two declarations by two conditions are one scope to the reading, the second hiding the first
+    (
+      Grammar::Rust,
+      "fn f() -> u32 {\n  #[cfg(unix)]\n  let total = 1;\n  #[cfg(windows)]\n  let total = 2;\n  total\n}\n",
+      "total = 2",
+      0,
+      Some("sum"),
+      "variable read in part: 4:6 declaration, 5:2 read | no clash",
+    ),
+    // a condition on a parameter, on an expression of a closure, under `cfg_attr`
+    (
+      Grammar::Rust,
+      "fn f(#[cfg(unix)] total: u32, #[cfg(windows)] total: u64) -> u64 {\n  total.into()\n}\n",
+      "total: u64",
+      0,
+      None,
+      "parameter read in part: 0:46 declaration, 1:2 read",
+    ),
+    (
+      Grammar::Rust,
+      "static RUN: fn() -> u32 = || {\n  let total = 1;\n  #[cfg(test)]\n  log(total);\n  total\n};\n",
+      "total = 1",
+      0,
+      None,
+      "variable read in part: 1:6 declaration, 3:6 read, 4:2 read",
+    ),
+    (
+      Grammar::Rust,
+      "fn f() -> u32 {\n  let total = 1;\n  #[cfg_attr(test, cfg(unix))]\n  log(total);\n  total\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable read in part: 1:6 declaration, 3:6 read, 4:2 read",
+    ),
+    // a condition on the function compiles all of it or nothing; one in another function is not its
+    (
+      Grammar::Rust,
+      "#[cfg(unix)]\nfn f() -> u32 {\n  let total = 1;\n  total\n}\n\nfn g() {\n  #[cfg(test)]\n  log(1);\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable: 2:6 declaration, 3:2 read",
+    ),
+    // `cfg_attr` without a `cfg` among what it adds, and `cfg!`, compile every line
+    (
+      Grammar::Rust,
+      "fn f() -> u32 {\n  let total = 1;\n  #[cfg_attr(test, allow(unused))]\n  let other = cfg!(unix);\n  total\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable: 1:6 declaration, 4:2 read",
+    ),
+    // the text a direct `eval` runs names the variables around its call
+    (
+      Grammar::JavaScript,
+      "function f(code) {\n  const total = 1\n  keep(total)\n  return eval(code)\n}\n",
+      "total = 1",
+      0,
+      Some("sum"),
+      "variable read in part: 1:8 declaration, 2:7 read | no clash",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f(code: string) {\n  const total = 1\n  keep(total)\n  return () => (eval)(code)\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable read in part: 1:8 declaration, 2:7 read",
+    ),
+    // a member named `eval`, and the word in a string, run no text here
+    (
+      Grammar::JavaScript,
+      "function f(code) {\n  const total = 1\n  keep(total, 'eval')\n  return vm.eval(code)\n}\n",
+      "total = 1",
+      0,
+      None,
+      "variable: 1:8 declaration, 2:7 read",
+    ),
+  ]);
+}
+
+/// A name whose spelling is a value where the code runs says so at that place: the declaration of a Kotlin property
+/// with a delegate, which gets the name; a variable or a parameter of TypeScript and JavaScript that is given a
+/// function or a class written without a name, which takes it. Inside the body of a `with` a name is a property of
+/// the object first: a namesake
+#[test]
+fn a_name_that_is_handed_on_as_text_is_spelled_where_it_is() {
+  check_texts(&[
+    (
+      Grammar::Kotlin,
+      "fun f(m: Map<String, Int>): Int {\n  val total by m\n  println(total)\n  return total\n}\n",
+      "total by",
+      0,
+      Some("sum"),
+      "variable: 1:6 declaration spelled, 2:10 read, 3:9 read | no clash",
+    ),
+    (
+      Grammar::KotlinScript,
+      "tasks {\n  val integrationTest by registering(Test::class) {\n    group = \"verification\"\n  }\n  check {\n    dependsOn(integrationTest)\n  }\n}\n",
+      "integrationTest by",
+      0,
+      None,
+      "variable: 1:6 declaration spelled, 5:14 read",
+    ),
+    // a delegate of a member is its declaration too; a value after `=` gets no name
+    (
+      Grammar::Kotlin,
+      "class A {\n  val total by lazy { 1 }\n  fun f(): Int {\n    val other = lazy { 2 }\n    return total + other.value\n  }\n}\n",
+      "total by",
+      0,
+      None,
+      "-: 1:6 declaration spelled, 4:11 read",
+    ),
+    (
+      Grammar::Kotlin,
+      "class A {\n  val total by lazy { 1 }\n  fun f(): Int {\n    val other = lazy { 2 }\n    return total + other.value\n  }\n}\n",
+      "other =",
+      0,
+      None,
+      "variable: 3:8 declaration, 4:19 read",
+    ),
+    // a function and a class without a name take the name of the variable they are the value of
+    (
+      Grammar::TypeScript,
+      "function f() {\n  const total = () => 1\n  log(total)\n  return total\n}\n",
+      "total =",
+      0,
+      Some("sum"),
+      "variable: 1:8 declaration spelled, 2:6 read, 3:9 read | no clash",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f() {\n  const total = (function () { return 1 }) as Fn\n  return total\n}\n",
+      "total =",
+      0,
+      None,
+      "variable: 1:8 declaration spelled, 2:9 read",
+    ),
+    (
+      Grammar::JavaScript,
+      "function f() {\n  let Total = class {}\n  return Total\n}\n",
+      "Total =",
+      0,
+      None,
+      "variable: 1:6 declaration spelled, 2:9 read",
+    ),
+    // given later, by an assignment that names it; and as the default of a parameter
+    (
+      Grammar::JavaScript,
+      "function f() {\n  let total\n  total = () => 1\n  total ??= function () {}\n  total += 1\n  return total\n}\n",
+      "total\n",
+      0,
+      None,
+      "variable: 1:6 declaration, 2:2 write spelled, 3:2 write spelled, 4:2 write, 5:9 read",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f(total = () => 1, other = 2) {\n  return total() + other\n}\n",
+      "total =",
+      0,
+      None,
+      "parameter: 0:11 declaration spelled, 1:9 call",
+    ),
+    // a function with a name of its own, a call that gives a function, and a pattern take none
+    (
+      Grammar::TypeScript,
+      "function f() {\n  const total = function named() {}\n  const made = make(() => 1)\n  return [total, made]\n}\n",
+      "total =",
+      0,
+      None,
+      "variable: 1:8 declaration, 3:10 read",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f() {\n  const total = function named() {}\n  const made = make(() => 1)\n  return [total, made]\n}\n",
+      "made =",
+      0,
+      None,
+      "variable: 2:8 declaration, 3:17 read",
+    ),
+    // in a `with`, a property of the object comes before the variable
+    (
+      Grammar::JavaScript,
+      "function f(o) {\n  const total = 1\n  with (o) {\n    use(total)\n  }\n  return total\n}\n",
+      "total = 1",
+      0,
+      Some("sum"),
+      "variable: 1:8 declaration, 3:8 read namesake, 5:9 read | no clash",
+    ),
+    // and a name the `with` reads would be the variable's under the new name
+    (
+      Grammar::JavaScript,
+      "function f(o) {\n  const total = 1\n  with (o) {\n    use(sum)\n  }\n  return total\n}\n",
+      "total = 1",
+      0,
+      Some("sum"),
+      "variable: 1:8 declaration, 5:9 read | 3:8 captured",
+    ),
+  ]);
+}
+
+/// A parameter of a TypeScript constructor with a modifier declares a property of its class: no local, and one of
+/// the names of its spelling that no local binds, with `this.total`. Inside a function the class and its property are
+/// its locals
+#[test]
+fn a_parameter_that_declares_a_property_is_a_member_of_its_class() {
+  check_texts(&[
+    (
+      Grammar::TypeScript,
+      "export class A {\n  constructor(public total: number, plain: number) {\n    use(total, plain)\n  }\n  f() { return this.total + 1 }\n}\n",
+      "total:",
+      0,
+      Some("sum"),
+      "-: 1:21 declaration, 2:8 read, 4:20 read",
+    ),
+    (
+      Grammar::TypeScript,
+      "export class A {\n  constructor(public total: number, plain: number) {\n    use(total, plain)\n  }\n  f() { return this.total + 1 }\n}\n",
+      "plain:",
+      0,
+      None,
+      "parameter: 1:36 declaration, 2:15 read",
+    ),
+    (
+      Grammar::TypeScript,
+      "class A {\n  constructor(private readonly total: number) {}\n}\nclass B {\n  constructor(readonly total = 1) {}\n}\n",
+      "total:",
+      0,
+      None,
+      "-: 1:31 declaration, 4:23 declaration",
+    ),
+    (
+      Grammar::TypeScript,
+      "function make() {\n  class A {\n    constructor(public total: number) {}\n    f() { return this.total }\n  }\n  return A\n}\n",
+      "total:",
+      0,
+      None,
+      "other: 2:23 declaration",
+    ),
+  ]);
+}
+
+/// Every start of a word of a text, and the end of every third one: the places a caller may ask, a name or not
+/// (the end of a name is still the name)
 fn word_starts(text: &str) -> Vec<Position> {
   let is_word = |it: char| it == '_' || it.is_alphanumeric();
   let mut starts = Vec::new();
   let mut previous = ' ';
+  let mut words = 0;
   for (offset, character) in text.char_indices() {
     if is_word(character) && !is_word(previous) && !character.is_numeric() {
+      starts.push(crate::navigate::position_of(text, offset));
+      words += 1;
+    } else if !is_word(character) && is_word(previous) && words % 3 == 0 {
       starts.push(crate::navigate::position_of(text, offset));
     }
     previous = character;
@@ -781,6 +1094,65 @@ fn the_places_of_one_binding_share_an_entry_and_a_place_of_no_name_has_none() {
   assert_eq!(names_at(Grammar::Kotlin, text, &[]), crate::navigate::NamesAt::default());
 }
 
+/// The bytes of many places of a text are found from its lines read once (`Lines`), as `byte_offset` finds each
+/// from the start of the text: at every line and column of a text with `\n`, `\r\n`, a lone `\r`, a character of
+/// two UTF-16 units and no last line end, past the end of a line and past the last line
+#[test]
+fn the_bytes_of_many_places_are_those_of_each_place() {
+  for text in ["", "a\n", "fun f() {\r\n  val \u{1d4b3} = 1\rreturn x\n\n}", "\r\r\n\n\r", "a\r\nb\rc\nd"] {
+    let lines = Lines::of(text);
+    for line in 0..8 {
+      for column in 0..16 {
+        let position = Position { line, column };
+        assert_eq!(lines.byte_offset(position), byte_offset(text, position), "{text:?} at {position:?}");
+      }
+    }
+  }
+}
+
+/// The places are answered within a number of resolutions, one per spelling asked and one more per binding asked
+/// with another name, in the order asked: a place whose answer needs a resolution past them has none, a place of a
+/// binding answered before it has that answer, and the answers within the limit are those without one
+#[test]
+fn the_places_are_answered_within_a_number_of_resolutions() {
+  let text = "fun f(scale: Int) {\n  val total = scale\n  use(total, total, other)\n}\n\nfun g() {\n  val total = 1\n  use(total)\n}\n";
+  let at = |needle: &str, occurrence: usize, renamed_to: Option<&'static str>| NameQuestion {
+    position: place(text, needle, occurrence),
+    renamed_to,
+  };
+  // the local of `f` at two places, the local of `g`, a name no local binds, and `scale` with no new name
+  let questions = [
+    at("total", 0, Some("sum")),
+    at("total", 2, Some("sum")),
+    at("total", 3, Some("sum")),
+    at("other", 0, Some("sum")),
+    at("scale", 0, None),
+    at("total", 4, Some("sum")),
+  ];
+  let whole = names_at(Grammar::Kotlin, text, &questions);
+  // the spelling `total`, the clashes of the two locals, the spellings `other` and `scale`
+  assert_eq!((&whole.asked[..], whole.resolutions), (&[Some(0), Some(0), Some(1), Some(2), Some(3), Some(1)][..], 5));
+  assert_eq!(names_at_within(Grammar::Kotlin, text, &questions, 5), whole);
+  for (limit, asked) in [
+    (0, [None; 6]),
+    // the spelling alone: the clashes of no local
+    (1, [None; 6]),
+    (2, [Some(0), Some(0), None, None, None, None]),
+    // the second local of the spelling; then a place of it asked again has its answer
+    (3, [Some(0), Some(0), Some(1), None, None, Some(1)]),
+    (4, [Some(0), Some(0), Some(1), Some(2), None, Some(1)]),
+  ] {
+    let found = names_at_within(Grammar::Kotlin, text, &questions, limit);
+    assert_eq!((found.asked.as_slice(), found.resolutions), (&asked[..], limit), "within {limit}");
+    assert_eq!(found.names, whole.names[..found.names.len()], "within {limit}");
+  }
+  // a walk of the tree is the whole of the tokens of a text, a read of the names of one spelling an eighth
+  assert_eq!(
+    [Grammar::Java, Grammar::CSharp, Grammar::Starlark, Grammar::Kotlin, Grammar::Rust, Grammar::TypeScript].map(|grammar| resolution_work(grammar, 800)),
+    [800, 800, 800, 100, 100, 100]
+  );
+}
+
 /// The words of a text with the bytes they start at
 fn words(text: &str) -> Vec<(usize, &str)> {
   let is_word = |it: char| it == '_' || it.is_alphanumeric();
@@ -813,7 +1185,7 @@ fn is_one_local(grammar: Grammar, text: &str, sites: &[Position], new_name: &str
   let Some(&Some(entry)) = found.asked.first() else { return false };
   let name = &found.names[entry];
   found.asked.iter().all(|it| *it == Some(entry))
-    && name.local.is_some_and(|it| it.kind.is_value() && !it.named_by_calls)
+    && name.local.is_some_and(LocalBinding::is_of_body_alone)
     && name.clashes.as_ref().is_some_and(Vec::is_empty)
     && name.uses.len() == sites.len()
     && name.uses.iter().zip(sites).all(|(used, site)| used.start == *site && used.site == Site::Plain)
@@ -1383,6 +1755,99 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "function outer(total, sum) {\n  function f(a = sum) { let sum = a + 1; return sum }\n  return f()\n}\n",
       false,
       "the default reads another parameter of the function around now",
+    ),
+    // the name is a value where the code runs
+    (
+      Grammar::Kotlin,
+      "fun f(m: Map<String, Int>): Int {\n  val total by m\n  return total\n}\n",
+      "fun f(m: Map<String, Int>): Int {\n  val sum by m\n  return sum\n}\n",
+      false,
+      "the delegate reads the key of the new name",
+    ),
+    (
+      Grammar::KotlinScript,
+      "tasks {\n  val integrationTest by registering(Test::class)\n  check { dependsOn(integrationTest) }\n}\n",
+      "tasks {\n  val integTest by registering(Test::class)\n  check { dependsOn(integTest) }\n}\n",
+      false,
+      "the task is registered under the new name",
+    ),
+    (
+      Grammar::Kotlin,
+      "class A {\n  init {\n    val total by lazy { 1 }\n    use(total)\n  }\n}\n",
+      "class A {\n  init {\n    val sum by lazy { 1 }\n    use(sum)\n  }\n}\n",
+      false,
+      "the delegate gets the new name",
+    ),
+    (
+      Grammar::TypeScript,
+      "function f() {\n  const total = () => 1\n  return total\n}\n",
+      "function f() {\n  const sum = () => 1\n  return sum\n}\n",
+      false,
+      "the function takes the new name as its own",
+    ),
+    (
+      Grammar::JavaScript,
+      "function f() {\n  const Total = class {}\n  return Total\n}\n",
+      "function f() {\n  const Sum = class {}\n  return Sum\n}\n",
+      false,
+      "the class takes the new name as its own",
+    ),
+    // the scopes read a part of the code
+    (
+      Grammar::CSharp,
+      "class A {\n  int total = 5;\n  int F() {\n    int total = 1;\n#if DEBUG\n    Log(total);\n#endif\n    return total;\n  }\n}\n",
+      "class A {\n  int total = 5;\n  int F() {\n    int sum = 1;\n#if DEBUG\n    Log(total);\n#endif\n    return sum;\n  }\n}\n",
+      false,
+      "the branch not taken logs the field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int sum = 5;\n  int F() {\n    int total = 1;\n#if NET8_0_OR_GREATER\n    Fast(sum);\n#else\n    Slow(sum);\n#endif\n    return total;\n  }\n}\n",
+      "class A {\n  int sum = 5;\n  int F() {\n    int sum = 1;\n#if NET8_0_OR_GREATER\n    Fast(sum);\n#else\n    Slow(sum);\n#endif\n    return sum;\n  }\n}\n",
+      false,
+      "both branches read the local now, and one of them is no code here",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int total = 5, sum = 6;\n  int F() {\n#if !DEBUG\n    int total = 1;\n#endif\n    return total;\n  }\n}\n",
+      "class A {\n  int total = 5, sum = 6;\n  int F() {\n#if !DEBUG\n    int sum = 1;\n#endif\n    return sum;\n  }\n}\n",
+      false,
+      "where the branch is not compiled, the method returns another field now",
+    ),
+    (
+      Grammar::Rust,
+      "fn f(sum: u32) -> u32 {\n  #[cfg(unix)]\n  let total = 1;\n  #[cfg(windows)]\n  let total = 2;\n  total\n}\n",
+      "fn f(sum: u32) -> u32 {\n  #[cfg(unix)]\n  let total = 1;\n  #[cfg(windows)]\n  let sum = 2;\n  sum\n}\n",
+      false,
+      "where the first condition holds, the function returns its parameter now",
+    ),
+    (
+      Grammar::JavaScript,
+      "function f(code) {\n  const total = 1\n  keep(total)\n  return eval(code)\n}\n",
+      "function f(code) {\n  const sum = 1\n  keep(sum)\n  return eval(code)\n}\n",
+      false,
+      "the text the eval runs may name the variable",
+    ),
+    (
+      Grammar::JavaScript,
+      "function f(o) {\n  const total = 1\n  with (o) { use(total) }\n}\n",
+      "function f(o) {\n  const sum = 1\n  with (o) { use(sum) }\n}\n",
+      false,
+      "in the with, the new name may be a property of the object",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  int total = 5;\n  int f() {\n    int total = 1;\n    x = ) total (;\n    return total;\n  }\n}\n",
+      "class A {\n  int total = 5;\n  int f() {\n    int sum = 1;\n    x = ) total (;\n    return sum;\n  }\n}\n",
+      false,
+      "what the parser gave up on still names the variable",
+    ),
+    (
+      Grammar::Kotlin,
+      "fun f(): Int {\n  val total = 1\n  return total\n}\n\nfun broken( {\n",
+      "fun f(): Int {\n  val sum = 1\n  return sum\n}\n\nfun broken( {\n",
+      false,
+      "a text with an error is read in part",
     ),
   ];
   // every case is read, so that a change of the scopes shows all it moves

@@ -216,6 +216,31 @@ impl Tokens {
     from..to
   }
 
+  /// The same tokens with another `Token::text` at some places of `all`: what a reader compares that takes two
+  /// spellings for one name (the places of a rename, which get one text on both sides). Nothing else of a token
+  /// changes, so two such tokens are the same only where the tree around them is; a place past the tokens is left out
+  #[must_use]
+  pub fn with_texts(&self, texts: impl IntoIterator<Item = (usize, u64)>) -> Self {
+    let mut tokens = self.clone();
+    for (place, text) in texts {
+      if let Some(token) = tokens.all.get_mut(place) {
+        token.text = text;
+      }
+    }
+    tokens
+  }
+
+  /// The place in `all` of the token that starts at `column` of `line` (a line of the view, a UTF-16 column), if one does
+  pub fn place_at(&self, line: u32, column: u32) -> Option<usize> {
+    let start = self.line_starts.get(line as usize).copied()?;
+    let from = self.all.partition_point(|token| token.byte_end <= start);
+    self.all[from..]
+      .iter()
+      .take_while(|token| token.line <= line)
+      .position(|token| token.line == line && token.start == column)
+      .map(|index| from + index)
+  }
+
   /// The heap bytes it holds, for the weight of a cache entry
   pub const fn heap_bytes(&self) -> usize {
     self.all.capacity() * size_of::<Token>() + self.line_starts.capacity() * size_of::<u32>()

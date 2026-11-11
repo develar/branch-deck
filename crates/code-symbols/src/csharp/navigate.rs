@@ -39,13 +39,15 @@
 //!   a member of an anonymous type and an element of a tuple named by the expression (`new { total }`, `(total, 1)`);
 //!   a variable of a deconstruction; and a namesake where the name is all of the right side of an `is`, a constant
 //!   only while no type of the name is in sight. `value` and `field` are bound without a declaration, in an accessor.
+//! - **A file read in part** (`reads_in_part`): one with an error of its parser, and one with an `#if`, whose locals
+//!   are bound as one build of the file binds them.
 
 use crate::csharp::{is_block_scope, is_code, is_type_declaration};
 use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site};
 use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in, is_within, parent_kind};
 use csharp_syntax::read;
 use csharp_syntax::syntax_getters as sg;
-use csharp_syntax::{NodeId, NodeKind, TokenKind, Tree, facts};
+use csharp_syntax::{NodeId, NodeKind, Severity, TokenKind, Tree, facts};
 
 /// C#'s reading of Roslyn's tree for Go to Declaration and Find Usages (`psi_navigate`)
 pub(crate) const NAVIGATION: Reading<csharp_syntax::CSharp, Tree> = Reading {
@@ -67,7 +69,24 @@ pub(crate) const NAVIGATION: Reading<csharp_syntax::CSharp, Tree> = Reading {
   is_implicit: |name| matches!(name, "value" | "field"),
   access_of,
   name_start,
+  reads_in_part,
 };
+
+/// Whether the scopes read only a part of the code of a file: the parser reported an error (what stands where it gave
+/// up is no name of the tree), or the file is compiled by conditions. The text of a branch of `#if` that the parser
+/// does not take is no code of the tree, so a use left there, and a name another name would take there, are unseen;
+/// and a declaration inside a branch it does take is no declaration where the other is compiled, so the names the
+/// scopes bind to it are bound to another there. Either way the bindings of the tree are those of one build of many
+fn reads_in_part(tree: &Tree) -> bool {
+  let broken = tree.diagnostics().iter().any(|diagnostic| diagnostic.severity() == Severity::Error);
+  broken
+    || (0..u32::try_from(tree.len()).unwrap_or(u32::MAX)).any(|id| {
+      matches!(
+        tree.node_kind(NodeId(id)),
+        Some(NodeKind::IfDirectiveTrivia | NodeKind::ElifDirectiveTrivia | NodeKind::ElseDirectiveTrivia)
+      )
+    })
+}
 
 /// The node around `node` and its kind, a composite's
 fn around(tree: &Tree, node: NodeId) -> Option<(NodeId, NodeKind)> {
@@ -96,10 +115,7 @@ fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
       };
       return match owner {
         Some((_, NodeKind::SimpleLambdaExpression | NodeKind::ParenthesizedLambdaExpression | NodeKind::AnonymousMethodExpression)) => LocalBinding::of(LocalKind::LambdaParameter),
-        Some(_) => LocalBinding {
-          kind: LocalKind::Parameter,
-          named_by_calls: true,
-        },
+        Some(_) => LocalBinding::NAMED_PARAMETER,
         None => LocalBinding::OTHER,
       };
     }

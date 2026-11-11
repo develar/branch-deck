@@ -68,6 +68,8 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   is_implicit: |_| false,
   access_of,
   name_start: |tree, leaf| tree.range(leaf).start,
+  // a text with an error of its parser: what stands where the parser gave up is no name of the tree
+  reads_in_part: |tree| tree.errors().len() > 0,
 };
 
 /// What a local declares, by its declaration and what it is a part of. No call names a parameter; code that reads
@@ -88,8 +90,8 @@ fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
         Some((_, NodeKind::LAMBDA_EXPRESSION)) => LocalKind::LambdaParameter,
         Some((_, NodeKind::METHOD)) => {
           return LocalBinding {
-            kind: LocalKind::Parameter,
             named_by_calls: is_read_by_annotation(tree, declaration),
+            ..LocalBinding::of(LocalKind::Parameter)
           };
         }
         _ => LocalKind::Other,

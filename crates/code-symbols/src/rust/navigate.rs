@@ -29,7 +29,9 @@
 //!   the one of a `for` a loop variable, of a parameter of a closure or of a function; an item and a type or const
 //!   parameter inside a function are `Other`. No call names a parameter, but an attribute macro reads the names of
 //!   the function it stands on (`#[tauri::command]`, `#[instrument]`): the parameter of a function under an
-//!   attribute that is not one of the language's own says other code may name it.
+//!   attribute that is not one of the language's own says other code may name it. A local of a function or a closure
+//!   with a `#[cfg]` inside it is read in part (`TreeNames::is_compiled_by_conditions`), as every local of a text
+//!   with an error is.
 //! - **Its site** (`Site`): `Point { total }` of a struct expression and of a pattern names the field too; a name
 //!   among the tokens of a macro is the macro's to read; any other binding inside a pattern that takes a value apart
 //!   is destructured.
@@ -41,6 +43,7 @@ use super::{CONTEXTUAL_KEYWORDS, PRIMITIVES, is_callee, span};
 use crate::navigate::{Access, Bound, LocalBinding, LocalKind, Names, Position, ReferenceAt, ReferenceKind, Resolved, Site, Wanted, byte_offset, reference_answer};
 use rust_syntax::ra_ap_syntax::ast::HasLoopBody;
 use rust_syntax::ra_ap_syntax::{AstNode, NodeOrToken, SyntaxKind as K, SyntaxNode, SyntaxToken, TextRange, TextSize, TokenAtOffset, ast};
+use std::cell::OnceCell;
 use std::collections::HashMap;
 
 /// The name at `position` of `text` and what its syntax says; `None` where no name is
@@ -72,9 +75,16 @@ fn with_name_at<T: Send>(text: &str, position: Position, answer: impl FnOnce(&Sy
 /// `rust_syntax::guarded`; `None` for a text nested deeper than any code
 pub(crate) fn with_names<R: Send>(text: &str, read: impl FnOnce(&dyn Names) -> R + Send) -> Option<R> {
   rust_syntax::guarded(text.as_bytes(), || {
-    let root = rust_syntax::parse(text.as_bytes());
+    // with the errors, as the tokens of the text are read: what a text with one is, the two must say alike
+    let (root, errors) = rust_syntax::parse_with_errors(text.as_bytes());
     let tokens = name_tokens(&root);
-    read(&TreeNames { root, tokens, text })
+    read(&TreeNames {
+      root,
+      tokens,
+      text,
+      broken: !errors.is_empty(),
+      conditions: OnceCell::new(),
+    })
   })
 }
 
@@ -84,6 +94,49 @@ struct TreeNames<'t> {
   /// The tokens every resolution reads (`name_tokens`)
   tokens: Vec<SyntaxToken>,
   text: &'t str,
+  /// The lexer, the parser or the validation reported an error
+  broken: bool,
+  /// The attributes of the tree that compile what they stand on by a condition (`conditions`), read once
+  conditions: OnceCell<Vec<Condition>>,
+}
+
+/// An attribute that compiles what it stands on by a condition (`#[cfg(unix)]`): its range and the range of what it
+/// stands on
+struct Condition {
+  attribute: TextRange,
+  on: TextRange,
+}
+
+/// The attributes of a tree with a `cfg` in them (`#[cfg(…)]`, `#[cfg_attr(…, cfg(…))]`), in the order of the text
+fn conditions(root: &SyntaxNode, text: &str) -> Vec<Condition> {
+  if !text.contains("cfg") {
+    return Vec::new();
+  }
+  let attributes = root.descendants().filter(|it| it.kind() == K::ATTR && it.descendants().any(|it| it.kind() == K::CFG_META));
+  let condition = |attribute: SyntaxNode| {
+    Some(Condition {
+      attribute: attribute.text_range(),
+      on: attribute.parent()?.text_range(),
+    })
+  };
+  attributes.filter_map(condition).collect()
+}
+
+impl TreeNames<'_> {
+  /// Whether code around the declaration of a local is compiled by a condition: a `#[cfg]` stands inside the
+  /// outermost function or closure around it, on a statement, an expression, a parameter or an arm (on the function
+  /// itself it compiles all of it or nothing). The scopes read both of `#[cfg(unix)] let total = 1;` and
+  /// `#[cfg(windows)] let total = 2;` as declarations of one block, the second hiding the first, where each build has
+  /// one of them: the names they bind to a local of such a body are those of no build
+  fn is_compiled_by_conditions(&self, declared: &SyntaxToken) -> bool {
+    let Some(body) = declared.parent_ancestors().filter(|it| matches!(it.kind(), K::FN | K::CLOSURE_EXPR)).last() else {
+      return false;
+    };
+    let body = body.text_range();
+    let conditions = self.conditions.get_or_init(|| conditions(&self.root, self.text));
+    let from = conditions.partition_point(|it| it.attribute.start() < body.start());
+    conditions[from..].iter().take_while(|it| it.attribute.start() < body.end()).any(|it| it.on != body)
+  }
 }
 
 /// The tokens a resolution reads, in the order of the text: the identifiers of the tree and the strings among the
@@ -110,7 +163,10 @@ impl Names for TreeNames<'_> {
     let mut resolved = Vec::new();
     let bound = |declared: SyntaxToken| Bound {
       start: usize::from(declared.text_range().start()),
-      local: local_of(&declared),
+      local: local_of(&declared).map(|it| LocalBinding {
+        read_in_part: self.is_compiled_by_conditions(&declared),
+        ..it
+      }),
     };
     for token in &self.tokens {
       let start = usize::from(token.text_range().start());
@@ -145,6 +201,11 @@ impl Names for TreeNames<'_> {
   /// `self` and `Self` are keywords, no names
   fn is_implicit(&self, _name: &str) -> bool {
     false
+  }
+
+  /// A text with an error: what stands where the parser gave up is no name of the tree
+  fn reads_in_part(&self) -> bool {
+    self.broken
   }
 }
 
@@ -449,8 +510,8 @@ fn local_of(declared: &SyntaxToken) -> Option<LocalBinding> {
     _ => LocalKind::Other,
   };
   Some(LocalBinding {
-    kind,
     named_by_calls: kind == LocalKind::Parameter && holder.is_some_and(|it| is_read_by_attribute(&it)),
+    ..LocalBinding::of(kind)
   })
 }
 

@@ -571,7 +571,7 @@ The diff of a commit MUST cost one file list and one `cat-file --batch`, and not
 The caches MUST key a diff by its blob pair, the policy and how each side is read: by its grammar, else by whether
 its indentation has a meaning. So two commits with the same blob pair share one diff, and the same pair at a path
 read another way is another diff. The store MUST NOT keep a diff that the time cut short, and MUST NOT answer a diff
-made with the tokens of other parsers: it keeps the diffs under a version made of the model's and of the tokens'.
+made with other parsers or other rules of the names: its version is the model's, the tokens' and those rules'.
 
 #### Scenario: Two commits with the same blob pair
 - **WHEN** two commits change a file from the same blob to the same blob
@@ -604,9 +604,9 @@ made with the tokens of other parsers: it keeps the diffs under a version made o
   [@test] crates/file-diffs/src/service_test.rs (`a_diff_out_of_time_is_by_line_and_not_stored`)
 
 #### Scenario: Other parsers
-- **WHEN** the store holds a diff of the pair that an app with other parsers, or other rules of the tokens, made
-- **THEN** a view and a scan do not answer it: they compare the pair, and the view keeps its diff under the version of its own tokens, which drops the other one
-- **AND** the same diff stored under the version of these tokens is answered to both
+- **WHEN** the store holds a diff of the pair that an app with other parsers, other rules of the tokens, or other rules of the names (a scope that was fixed since) made
+- **THEN** a view and a scan do not answer it: they compare the pair, and the view keeps its diff under the version of its own tokens and rules, which drops the other one
+- **AND** the same diff stored under the version of this app is answered to both
   [@test] crates/file-diffs/src/service_test.rs (`a_diff_stored_with_the_tokens_of_other_parsers_is_not_read`)
 
 ### Requirement: File diffs: The working tree is compared with HEAD

@@ -1,20 +1,26 @@
 //! What the marks of a diff cost (docs/design/diff-view.md, "Marks"): the tokens of a text, the rule of the tokens,
-//! `marks_of` of a pair, the moves of a file of 10,000 lines, of the file a search costs most in and of a chain of
-//! many short moves, and a subject of 200 files, with and without moved functions: its moves alone, and through the
-//! service to its first content and to the end of its stream. `cargo bench -p file-diffs --bench marks_bench`, on a
-//! quiet machine.
+//! `marks_of` of a pair, the renames of a file at the limit of their work, the moves of a file of 10,000 lines, of
+//! the file a search costs most in and of a chain of many short moves, and a subject of 200 files, with and without
+//! renamed locals and moved functions: its moves alone, and through the service to its first content and to the end
+//! of its stream. `cargo bench -p file-diffs --bench marks_bench`, on a quiet machine.
 //!
 //! The pair is two states of a Kotlin file of 3,300 lines, 300 functions of which every fifth changed:
 //! - `formatted`: a call wrapped over three lines and a comment worded again, so every changed block is a run and both
 //!   sides are parsed;
-//! - `changed`: a name changed, so no block may hold a run and nothing is parsed;
+//! - `operator`: an operator changed, so no block may hold a run or a renamed name and nothing is parsed;
+//! - `changed`: a name of a member changed, which may be a rename: both sides are parsed for their tokens and, since
+//!   the name stands where another stood, for their names; the file declares neither, so nothing is marked;
+//! - `renamed`: a local renamed at its four places, so both sides are parsed for their tokens and their names, and
+//!   the blocks are cut again: every changed block is a run of the rename (a label while its kind is off, so every
+//!   block is still read: the cost is the same);
 //! - `indented`: every function indented again, a name changed in the first: 300 blocks, one of them with a line to
 //!   read beside its run.
 
 use code_symbols::highlight::Grammar;
+use code_symbols::navigate::resolution_work;
 use code_symbols::tokens::{Tokens, compare, equal_by_tokens, tokens};
 use criterion::{Criterion, criterion_group, criterion_main};
-use file_diffs::marks::{MAX_BLOCK_TOKENS, MAX_TOKEN_EDITS, marks_of};
+use file_diffs::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};
 use file_diffs::model::{DiffSource, FileDiffEvent, GetFileDiffsParams};
 use file_diffs::service::{DiffLimits, FileDiffs};
 use object_cache::cache::ObjectCache;
@@ -33,8 +39,12 @@ enum Edit {
   None,
   /// A call wrapped inside its brackets, and its comment worded again
   Formatted,
-  /// A name changed
+  /// The name of a member changed
   Changed,
+  /// An operator changed
+  Operator,
+  /// A local renamed at its four places
+  Renamed,
 }
 
 /// A Kotlin class of `functions` functions of eleven lines, `edit` saying how each differs
@@ -59,13 +69,15 @@ fn source_of(name: &str, functions: impl Iterator<Item = usize>, indent: &str, e
       writeln!(text, "{indent}    val items = repository.find(request.id, limit)").unwrap();
       writeln!(text, "{indent}    // Keeps the items that are still open.").unwrap();
     }
-    writeln!(text, "{indent}    val open = items.filter {{ it.state == State.OPEN }}").unwrap();
-    writeln!(text, "{indent}    if (open.isEmpty()) {{").unwrap();
+    let open = if edit == Edit::Renamed { "kept" } else { "open" };
+    let equal = if edit == Edit::Operator { "!=" } else { "==" };
+    writeln!(text, "{indent}    val {open} = items.filter {{ it.state {equal} State.OPEN }}").unwrap();
+    writeln!(text, "{indent}    if ({open}.isEmpty()) {{").unwrap();
     writeln!(text, "{indent}      return Response.empty(request.id)").unwrap();
     writeln!(text, "{indent}    }}").unwrap();
     let amount = if edit == Edit::Changed { "price" } else { "amount" };
-    writeln!(text, "{indent}    val total = open.sumOf {{ it.{amount} }}").unwrap();
-    writeln!(text, "{indent}    return Response(request.id, open, total)").unwrap();
+    writeln!(text, "{indent}    val total = {open}.sumOf {{ it.{amount} }}").unwrap();
+    writeln!(text, "{indent}    return Response(request.id, {open}, total)").unwrap();
     writeln!(text, "{indent}  }}\n").unwrap();
   }
   text.push_str("}\n");
@@ -113,17 +125,31 @@ fn bench_marks(c: &mut Criterion) {
   let old = source("Service", 300, "", |_| Edit::None);
   let formatted = source("Service", 300, "", every_fifth(Edit::Formatted));
   let changed = source("Service", 300, "", every_fifth(Edit::Changed));
+  let operator = source("Service", 300, "", every_fifth(Edit::Operator));
+  let renamed = source("Service", 300, "", every_fifth(Edit::Renamed));
   // every function indented again, a name changed in the first
   let indented = source("Service", 300, "  ", |index| if index == 0 { Edit::Changed } else { Edit::None });
 
   let mut group = c.benchmark_group("marks_of");
   group.bench_function("the diff alone, formatted", |b| b.iter(|| diff_of(black_box(&old), black_box(&formatted))));
-  for (name, new) in [("formatted", &formatted), ("changed", &changed), ("indented", &indented)] {
+  for (name, new) in [
+    ("formatted", &formatted),
+    ("operator", &operator),
+    ("changed", &changed),
+    ("renamed", &renamed),
+    ("indented", &indented),
+  ] {
     let diff = diff_of(&old, new);
     let (old_tokens, new_tokens) = (kotlin(&old), kotlin(new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept);
-    println!("{name}: {} blocks, {} runs, {} blocks to read", diff.blocks.len(), marks.runs.len(), marks.starts.len() / 3);
+    let marks = marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept).marks;
+    println!(
+      "{name}: {} blocks, {} runs, {} renames, {} blocks to read",
+      diff.blocks.len(),
+      marks.runs.len(),
+      marks.renames.len(),
+      marks.starts.len() / 3
+    );
     // the tokens of both sides read for the marks: what a file costs before its content goes out
     group.bench_function(format!("{name}, tokens read"), |b| {
       b.iter(|| {
@@ -135,6 +161,59 @@ fn bench_marks(c: &mut Criterion) {
     // the tokens in memory already: the question before the tokens and the runs alone
     group.bench_function(format!("{name}, tokens kept"), |b| {
       b.iter(|| marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept));
+    });
+  }
+  group.finish();
+}
+
+/// A file of `functions` functions of `grammar` (Kotlin, Java or C#), each with a local of its own named `name` and
+/// its number: declared, then read on `uses` lines and returned
+fn locals_source(grammar: Grammar, functions: usize, uses: usize, name: &str) -> String {
+  let kotlin = grammar == Grammar::Kotlin;
+  let mut text = String::from(if kotlin { "package bench\n\n" } else { "class Bench {\n" });
+  for index in 0..functions {
+    if kotlin {
+      writeln!(text, "fun handle{index}(): Int {{\n  val {name}{index} = {index}").unwrap();
+    } else {
+      writeln!(text, "  int handle{index}() {{\n    int {name}{index} = {index};").unwrap();
+    }
+    for _ in 0..uses {
+      writeln!(text, "    log({name}{index}, {index}){}", if kotlin { "" } else { ";" }).unwrap();
+    }
+    writeln!(text, "    return {name}{index}{}\n  }}\n", if kotlin { "" } else { ";" }).unwrap();
+  }
+  if !kotlin {
+    text.push_str("}\n");
+  }
+  text
+}
+
+/// The renames of a file at the limit of their work (`MAX_RENAME_WORK`): 200 locals renamed, each read on twelve
+/// lines, in a file of some 3,400 lines. Each local is a spelling and a binding of its own, two resolutions of each
+/// text; the work pays for some two hundred resolutions of a Kotlin text, where a resolution reads the names of
+/// one spelling, and for some twenty-six of a Java or a C# text, where it walks the tree: the most the names of one
+/// file cost before its content goes out
+fn bench_renames(c: &mut Criterion) {
+  let mut group = c.benchmark_group("marks_of, renamed locals at the limit of their work");
+  group.sample_size(20);
+  for (name, grammar) in [("Kotlin", Grammar::Kotlin), ("Java", Grammar::Java), ("C#", Grammar::CSharp)] {
+    let (old, new) = (locals_source(grammar, 200, 12, "total"), locals_source(grammar, 200, 12, "sum"));
+    let diff = diff_of(&old, &new);
+    let read = |text: &str| Arc::new(tokens(grammar, text).expect("a text with tokens"));
+    let (old_tokens, new_tokens) = (read(&old), read(&new));
+    let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
+    let marks = marks_of(&diff, &old, &new, Some(grammar), WhitespacePolicy::Default, false, kept).marks;
+    println!(
+      "{name}: {} lines, {} tokens a side, {} blocks, {} renames by {} resolutions a side, {} blocks to read",
+      old.lines().count(),
+      old_tokens.all().len(),
+      diff.blocks.len(),
+      marks.renames.len(),
+      MAX_RENAME_WORK / (resolution_work(grammar, old_tokens.all().len()) + resolution_work(grammar, new_tokens.all().len())),
+      marks.starts.len() / 3
+    );
+    group.bench_function(format!("{name}, tokens kept"), |b| {
+      b.iter(|| marks_of(&diff, &old, &new, Some(grammar), WhitespacePolicy::Default, false, kept));
     });
   }
   group.finish();
@@ -361,7 +440,7 @@ fn bench_limits(c: &mut Criterion) {
     let diff = diff_of(&old, &new);
     let (old_tokens, new_tokens) = (kotlin(&old), kotlin(&new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept);
+    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept).marks;
     println!("{name}: {} blocks, {} tokens a side, {} runs", diff.blocks.len(), old_tokens.all().len(), marks.runs.len());
     group.bench_function(name, |b| {
       b.iter(|| marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept));
@@ -424,11 +503,12 @@ fn stream(repo: &TestRepo, commit: &str) -> (Duration, Duration) {
 /// The two texts of a file of a subject, by the name of its class and the number of its functions
 type Sides = Box<dyn Fn(&str, usize) -> [String; 2]>;
 
-/// The subjects of the stream. `changed` parses no file for its marks (the question before the tokens answers no for
-/// every block), `formatted` parses both sides of every file: the difference is what the marks cost when nothing is
-/// left out before the tokens. `moved` has every fifth function of each file at the end of its class, the lines of
-/// a function its own: three moves of eleven lines a file, sixty in the four large ones
-fn subjects() -> [(&'static str, Sides); 3] {
+/// The subjects of the stream. `operator` parses no file for its marks (the question before the tokens answers no
+/// for every block), `formatted` parses both sides of every file for their tokens, `changed` and `renamed` for their
+/// tokens and their names: the difference is what the marks cost when nothing is left out before the tokens, and what
+/// the names add. `moved` has every fifth function of each file at the end of its class, the lines of a function its
+/// own: three moves of eleven lines a file, sixty in the four large ones
+fn subjects() -> [(&'static str, Sides); 5] {
   let edited = |edit: Edit| -> Sides { Box::new(move |name, functions| [source(name, functions, "", |_| Edit::None), source(name, functions, "", every_fifth(edit))]) };
   let moved: Sides = Box::new(|_, functions| {
     let (stay, leave) = (|index: &usize| index % 5 != 2, |index: &usize| index % 5 == 2);
@@ -437,7 +517,13 @@ fn subjects() -> [(&'static str, Sides); 3] {
       own_source((0..functions).filter(stay).chain((0..functions).filter(leave)), |_| false),
     ]
   });
-  [("changed", edited(Edit::Changed)), ("formatted", edited(Edit::Formatted)), ("moved", moved)]
+  [
+    ("operator", edited(Edit::Operator)),
+    ("changed", edited(Edit::Changed)),
+    ("formatted", edited(Edit::Formatted)),
+    ("renamed", edited(Edit::Renamed)),
+    ("moved", moved),
+  ]
 }
 
 /// The moves of every file of a subject, one file after another on one thread, from the blocks of its diff: what
@@ -496,6 +582,7 @@ criterion_group!(
   benches,
   bench_tokens,
   bench_marks,
+  bench_renames,
   bench_moves,
   bench_moves_limits,
   bench_moves_short,

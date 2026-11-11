@@ -151,8 +151,13 @@ impl LineMove {
   }
 }
 
-/// A name that the change renamed
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A name that the change renamed: one declaration inside the body of a function with every name bound to it
+/// (`local`), else every name of that spelling in the file that no such declaration binds. Its places are the same
+/// on both sides, in the order of the texts: place `i` of the old text is place `i` of the new one, both in one
+/// block. A place whose line changed in nothing else is in a run of the kind `Renamed`; a place that makes more of
+/// the name than its binding (a shorthand property, a destructuring), the declaration of a name that is not local
+/// and a place on a line with another change are in none, and are read
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct Rename {
@@ -162,6 +167,9 @@ pub struct Rename {
   pub sites: u32,
   /// The name is bound inside the body of a function
   pub local: bool,
+  /// The places that declare the name, by their number among the places from 0, in order: where the words of the
+  /// rename stand. A rename among the marks of a diff has one at least
+  pub declared: Vec<u32>,
   /// Flat `[line, start, end]` of each place: the 0-based line and the UTF-16 offsets inside it, the end exclusive
   pub old_sites: Vec<u32>,
   pub new_sites: Vec<u32>,

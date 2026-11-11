@@ -1,6 +1,6 @@
 ---
 name: Name Bindings
-description: Requirements for the bindings of the names of a file as a reader of a change asks them, many places from one parse; what a body declares a local as and whether other code may name it, every name bound to it with what its site makes of the name beside the binding (a shorthand property, a label, a namesake only the types tell apart, a spelled name, the tokens of a macro, a destructuring), the names of its spelling that are no variable kept apart, and what another name for the local would clash with.
+description: Requirements for the bindings of the names of a file as a reader of a change asks them, many places from one parse; what a body declares a local as, whether other code may name it and whether the scopes read its code whole, every name bound to it with what its site makes of the name beside the binding (a shorthand property, a label, a namesake only the types or what runs tell apart, a name that is a value where the code runs, the tokens of a macro, a destructuring), the names of its spelling that are no variable kept apart, and what another name for the local would clash with.
 style: plain-1
 targets:
   - crates/code-symbols/src/navigate.rs
@@ -52,7 +52,10 @@ many places from one parse. It decides nothing: which local may be quiet, and at
 
 - **A local** is a declaration inside code, which no other file sees: the local of Find Usages. Its **kind** says what
   declares it; `other` is everything that is no value of its body alone (a local function, a local class and its
-  members, a type parameter, a label).
+  members, a type parameter, a label). A local **read in part** is one of a text of which the scopes read only a
+  part of what may name it: a text with a parser error, one compiled by conditions, a script that evaluates text.
+  **A value of its body alone** (`LocalBinding::is_of_body_alone`) is a local that is a value, that no code outside
+  its body may name, and whose code is read whole: the only local whose uses a reader may take for all of them.
 - **A use** is a name the scopes bind to the declaration, the declaration itself among them, with how it uses the name
   (declared, read, written, called) and its **site**. A name its place reads as another kind of thing than a variable
   (a type, a Java call, the name of a named argument, a field before its colon) is bound to no local, whatever it
@@ -118,18 +121,20 @@ place, with their accesses: of its declaration for a local, else of every name o
 ### Requirement: Answers: A text with a syntax error answers the names its tree holds
 
 A text with a syntax error MUST be answered by the tree its parser left: a local declared and read around the error
-has its uses.
+has its uses. Every local of such a text MUST say that the scopes read its code in part: what stands where the
+parser gave up is no name of the tree.
 
 #### Scenario: A broken statement between a declaration and its use
 - **WHEN** a statement between the declaration of a local and its use is broken, in Kotlin, Java, C#, Starlark, Rust, TypeScript, TSX and JavaScript
-- **THEN** the local has its declaration and its use, and the clash of a new name is found
+- **THEN** the local has its declaration and its use, the clash of a new name is found, and the local says that its code is read in part
+- **AND** an early error of a script (a `break` outside a loop, a name declared twice) leaves the tree whole: its locals say nothing of it
   [@test] crates/code-symbols/src/names_at_test.rs (`a_text_with_a_syntax_error_still_answers_the_names_its_tree_holds`)
 
 ### Requirement: Answers: A change of names reads as one local only where both sides bind alike
 
 The answers MUST tell the rename of one local from a change of what the code means: read on each side of a change
-(every changed name one entry, a value of its body that no call names, its uses the changed names alone and each
-plain, no clash with the other name), a rename of one local holds on both sides, and a change that reads another
+(every changed name one entry, a value of its body alone that no call names and whose code the scopes read whole,
+its uses the changed names alone and each plain, no clash with the other name), a rename of one local holds on both sides, and a change that reads another
 declaration, sets another property or lets other code spell the name fails on one.
 
 #### Scenario: Renames of one local
@@ -142,10 +147,28 @@ declaration, sets another property or lets other code spell the name fails on on
 - **THEN** one side does not read as one local
   [@test] crates/code-symbols/src/names_at_test.rs (`a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
 
+#### Scenario: A name that is a value, and a text read in part
+- **WHEN** the change renames a Kotlin local declared with a delegate (of a map, of `registering` in a build script, `by lazy`), a variable of TypeScript or JavaScript that is given a function or a class without a name, a local of a C# file with an `#if` (a use left in the branch not taken, a read of the new name in both branches, a declaration under the condition), a local of a Rust function declared twice under two `#[cfg]`, a local of a script with a direct `eval`, a use inside a `with`, or a local of a Java or a Kotlin text with a syntax error
+- **THEN** one side does not read as one local
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
+
 #### Scenario: Changes of meaning the scopes of a statement tell
 - **WHEN** the change renames the variable of a Java pattern with a read in the branch or the operand its test did not match in, a resource of a Java `try` with a read in its `catch` or its `finally`, the variable of a C# `lock` but not its read after the `lock`, a local constant that the right side of a C# `is` reads, a range variable with the source of a `join` after it, a variable of a clause of a query with a read in a later clause, or a parameter of a Java method that an annotation lets a framework bind by its name
 - **THEN** one side does not read as one local
   [@test] crates/code-symbols/src/names_at_test.rs (`a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
+
+### Requirement: Answers: The places are answered within a number of resolutions
+
+A reader MUST be able to ask the names of many places within a number of resolutions of a name: one per spelling
+asked and one more per binding asked with another name, in the order of the questions. A place whose answer needs a
+resolution past them MUST have no answer, and the answers within the limit MUST be those without one. What a
+resolution costs MUST be a part of the tokens of its text by its grammar, the same on every machine.
+
+#### Scenario: Two locals of one spelling and two other names
+- **WHEN** two places of a local, a place of another local of its spelling, a name no local binds and a parameter are asked, the locals with a new name, within zero to five resolutions
+- **THEN** five resolutions answer every place, as without a limit; one resolution, the spelling alone, answers no local; each one more answers the next binding or spelling asked, and a later place of a binding answered before
+- **AND** a resolution costs the tokens of the text in Java, C# and Starlark, an eighth of them in Kotlin, Rust and TypeScript
+  [@test] crates/code-symbols/src/names_at_test.rs (`the_places_are_answered_within_a_number_of_resolutions`)
 
 ### Requirement: Locals: A local says what declares it
 
@@ -183,8 +206,14 @@ parameter that declares a member, a type parameter, a label, a parameter of a fu
 #### Scenario: TypeScript, TSX and JavaScript
 - **WHEN** the locals of a function of TypeScript, TSX or JavaScript are asked
 - **THEN** a `let`, `const` or `var` is a variable, the one of the head of a `for` a loop variable, the parameter of a `catch`, of an arrow or a function expression and of a method or a function declaration what they are
-- **AND** a parameter with a modifier (`private scale`), which declares a property, and a function inside a function are `other`
+- **AND** a function inside a function is `other`
   [@test] crates/code-symbols/src/names_at_test.rs (`typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `tsx_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+
+#### Scenario: A parameter that declares a property
+- **WHEN** a parameter of a TypeScript constructor with a modifier (`public total`, `private readonly total`, `readonly total = 1`) is asked
+- **THEN** it is no local: it declares a property of its class, and its uses are the names of its spelling that no local binds, the reads in the constructor and `this.total` among them
+- **AND** the parameter beside it without a modifier is a parameter, and in a class declared in a function the property is `other`, as the class is
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_parameter_that_declares_a_property_is_a_member_of_its_class`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 ### Requirement: Locals: A parameter a call may name says so
 
@@ -226,12 +255,37 @@ checks: a framework that reads annotations binds by the names the compiler keeps
 - **THEN** only the last reads as the rename of one local
   [@test] crates/code-symbols/src/names_at_test.rs (`a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike`)
 
+### Requirement: Locals: A local says when the scopes read its code in part
+
+A local MUST say that the scopes read only a part of the code that may name it: in a text with an error of its
+parser, in a C# file with an `#if`, in a Rust function or closure with a `#[cfg]` inside it, and in a script that
+calls `eval` by its name. The names bound to such a local are those of one build of the text, or of a part of what
+runs: a reader MUST NOT take them for every use of the declaration.
+
+#### Scenario: A C# file compiled by conditions
+- **WHEN** a local of a C# method is asked whose use stands in a branch of `#if` the parser does not take, whose declaration stands in a branch it does take, or whose file has an `#if` around a `using` alone
+- **THEN** the local says its code is read in part; with `#nullable` and `#region` alone it does not
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_local_says_when_the_scopes_read_its_code_in_part`)
+
+#### Scenario: A Rust body with a condition inside
+- **WHEN** a local of a Rust function is declared twice under two `#[cfg]`, a parameter stands under one, a statement of a closure of a `static` does, or an attribute is a `cfg_attr` that adds a `cfg`
+- **THEN** the local says its code is read in part
+- **AND** a `#[cfg]` on the function itself or in another function, a `cfg_attr` that adds no `cfg` and `cfg!` say nothing of it
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_local_says_when_the_scopes_read_its_code_in_part`)
+
+#### Scenario: A script that evaluates text
+- **WHEN** a function of JavaScript or TypeScript calls `eval` by its name, in parentheses and inside an arrow function too
+- **THEN** the locals of the script say their code is read in part: the text names the variables around the call
+- **AND** a call of a member named `eval` and the word in a string say nothing
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_local_says_when_the_scopes_read_its_code_in_part`)
+
 ### Requirement: Sites: A use says what its site makes of the name beside its binding
 
 Each use MUST say what its site makes of the name beside the binding the scopes give it, the first of: `shorthand`
-(the name is also a property there), `named argument`, `label`, `namesake` (only the types tell whether the name is
-the binding), `spelled` (the spelling is a value), `macro` (among the tokens of a macro), `destructured` (a pattern
-that takes a value apart declares or assigns it); else it is plain, a string template that reads it too.
+(the name is also a property there), `named argument`, `label`, `namesake` (only the types, or what runs, tell
+whether the name is the binding), `spelled` (the spelling is a value where the code runs), `macro` (among the tokens
+of a macro), `destructured` (a pattern that takes a value apart declares or assigns it); else it is plain, a string
+template that reads it too.
 
 #### Scenario: Shorthand
 - **WHEN** a local is written as `{ total }` in an object, a pattern or the target of an assignment of TypeScript, TSX or JavaScript, as `Ledger { total }` of Rust, or as `new { total }` and `(total, scale)` of C#
@@ -248,12 +302,19 @@ that takes a value apart declares or assigns it); else it is plain, a string tem
 - **WHEN** a name bound to a variable or a parameter is called in Kotlin or written after `::` there, is all of a `case` label of Java, stands in an anonymous class of Java inside the body of the variable, or is all of the right side of a C# `is`
 - **THEN** the use is a namesake
 - **AND** a call of a local of C#, Rust, Starlark, TypeScript or JavaScript, where a call names a value, is plain
-  [@test] crates/code-symbols/src/names_at_test.rs (`kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+- **AND** a name inside the body of a `with` of JavaScript is a namesake: a property of the object comes before the variable, and a name the body reads would be the variable's under that name
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_name_that_is_handed_on_as_text_is_spelled_where_it_is`, `kotlin_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `java_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `starlark_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `typescript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `javascript_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
 
 #### Scenario: Spelled, and the tokens of a macro
 - **WHEN** a local is the argument of `nameof` of C#, or stands among the tokens of a Rust macro or in a format string of one
 - **THEN** the use is spelled, or of a macro
   [@test] crates/code-symbols/src/names_at_test.rs (`csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes`, `rust_names_are_bound_by_their_scopes_with_their_sites_and_clashes`)
+
+#### Scenario: A name handed on as text
+- **WHEN** a Kotlin property is declared with a delegate (`val total by map`, `val integrationTest by registering(…)`, a member `by lazy`), or a variable or a parameter of TypeScript or JavaScript is given a function or a class written without a name: as its value (`const total = () => 1`, also in parentheses and under `as`), by an assignment that names it (`total = () => 1`, `total ??= function () {}`), as its default
+- **THEN** the name is spelled there: the delegate gets it, the function takes it as its own `name`; the other uses of the name are plain
+- **AND** a value after `=` of Kotlin, a function with a name of its own, a call that gives a function and `total += 1` spell nothing
+  [@test] crates/code-symbols/src/names_at_test.rs (`a_name_that_is_handed_on_as_text_is_spelled_where_it_is`)
 
 #### Scenario: Destructured
 - **WHEN** a local is declared by an entry of a destructuring of Kotlin, a record pattern of Java, a deconstruction of C#, a tuple of targets of Starlark, a pattern of Rust, or a pattern or a destructuring assignment of TypeScript and JavaScript that names no property by it
@@ -317,7 +378,7 @@ of `crates/code-symbols/testdata/navigate/` give every read of a name to a funct
 the file compiles only as it is tagged ([Symbol Navigation](../symbol-navigation/spec.md)). They differ from the
 languages in the places below, which need types, another file or the flow of the code. None is conservative by
 itself: a reader that hides what it proves by the bindings keeps the quiet of a rename behind its measurement on
-real ranges.
+real ranges ([Quiet Changes](../quiet-changes/spec.md): the kind `renamed` is not switched on).
 
 - A Rust pattern that is a lower-case name alone is read as a binding; where a constant of that name is in sight
   (which Rust warns about) it is a constant pattern, and the names after it are the constant's.
@@ -333,6 +394,17 @@ real ranges.
   annotation (`-parameters`), a JavaScript function injected by the names of its parameters. Only an annotation of
   Java and an attribute of Rust say that other code may name a parameter, and the annotations that read no name are
   known by their last name alone.
+- C#: a method may take the text of an argument, or of its receiver, as a value (`[CallerArgumentExpression]`:
+  `ArgumentNullException.ThrowIfNull(total)` names `total` in its message, an assertion library the expression it
+  checks). Only the declaration of the method called says so, in another file: a local passed to a call is a plain
+  use. A parameter of C# is named by calls either way; for a variable the measurement says how often it counts.
+- The text of a function is a value too where code asks for it (`Function.prototype.toString` of JavaScript, an
+  expression tree of C# printed with the names of its variables): no file says so.
+- A text compiled by conditions is read as one build of it. A C# file with an `#if` and a Rust body with a `#[cfg]`
+  inside say that their locals are read in part; a condition a build script sets for a whole file, and a macro that
+  compiles its tokens by a condition (`cfg_if!`), say nothing in the tree.
+- A script evaluates text in the scope of a call only by a direct `eval`; a file with one says so of every local,
+  also of those the call does not see.
 - Kotlin: a property declared by a `val` of a primary constructor and read in an initializer of its class is the
   parameter there; the scopes give it the property. C#: a parameter of a primary constructor read in an initializer
   beside a member of its name is the parameter; the scopes give it the member. Neither is a local.

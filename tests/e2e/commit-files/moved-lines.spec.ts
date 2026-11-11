@@ -64,6 +64,15 @@ async function expectLandedOn(note: Locator): Promise<void> {
   await expect(note).toBeInViewport()
 }
 
+/**
+ * The view went to `note` and the mark went with it: no other row of `scope` has it. The note the jump left may be
+ * outside the painted rows by then, so the mark is counted, not asked of that note
+ */
+async function expectLandedAloneOn(scope: Locator, note: Locator): Promise<void> {
+  await expectLandedOn(note)
+  await expect(scope.locator("[data-landed]")).toHaveCount(1)
+}
+
 /** Back and Forward of the diffs: Chromium of the tests says it runs on Windows (Ctrl+Alt+← and →), WebKit on macOS (⌘[ and ⌘]) */
 function historyKeys(browserName: string): { back: string; forward: string } {
   return browserName === "webkit" ? { back: "Meta+BracketLeft", forward: "Meta+BracketRight" } : { back: "Control+Alt+ArrowLeft", forward: "Control+Alt+ArrowRight" }
@@ -242,8 +251,7 @@ test.describe("The moves of a diff in the preview of a commit", () => {
     await expect(stand).toHaveText("to line 6")
     await expect(stand).toHaveAccessibleName("Go to line 6, where the lines stand now")
     await stand.click()
-    await expectLandedOn(destination)
-    await expect(source).not.toHaveAttribute("data-landed")
+    await expectLandedAloneOn(ledger, destination)
 
     // Unified and Split keep the lines at both ends, each after its note: the same click goes there and back
     for (const mode of ["Unified", "Split"]) {
@@ -253,8 +261,7 @@ test.describe("The moves of a diff in the preview of a commit", () => {
       await expectLandedOn(source)
       await expect(movedSides(ledger, "source").first()).toBeInViewport()
       await moveTargets(source).click()
-      await expectLandedOn(destination)
-      await expect(source).not.toHaveAttribute("data-landed")
+      await expectLandedAloneOn(ledger, destination)
     }
   })
 })

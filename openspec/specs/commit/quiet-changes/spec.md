@@ -1,6 +1,6 @@
 ---
 name: Quiet Changes
-description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour and the colour of a move.
+description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the names renamed within a file and the lines that changed in such a name alone, proven by the bindings of both sides for a value of its body alone and labels until a measurement switches their kind on, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour and the colour of a move.
 style: plain-1
 targets:
   - crates/text-diff/src/model.rs
@@ -9,6 +9,7 @@ targets:
   - crates/text-diff/src/lcs/diff.rs
   - crates/file-diffs/src/marks.rs
   - crates/file-diffs/src/marks_runs.rs
+  - crates/file-diffs/src/marks_renames.rs
   - crates/file-diffs/src/service.rs
   - crates/file-diffs/benches/marks_bench.rs
   - crates/test-utils/src/repo_template.rs
@@ -36,20 +37,29 @@ A reviewer reads every changed block of a diff, also the one that only wrapped a
 forty lines inside a new `if`. Such lines can be passed, but only when they provably are no change of the program: a
 reviewer who passes a quiet block that hid a change has reviewed nothing. This spec is what the diff says of its own
 blocks, decided in Rust for every view: which lines changed in their formatting alone (quiet), which in their
-comments alone (a label), which lines moved within the file (a label: where lines stand is behaviour), and where the
-reading of each block starts; and what a view draws of it (the group Views): a note before the lines of each run, a
-quiet run played down, the lines of a move in a colour of their own with a note at each end that shows the other,
-the stops of N and P and the count of what is left to read. The page words what Rust decided and decides nothing.
-The marks of renamed names are the next stage of [Diff View](../../../../docs/design/diff-view.md#marks).
+comments alone (a label), which names the change renamed and which lines changed in such a name alone (a label;
+proven for a value of its body alone, which a reader will pass once a measurement of real ranges switched the kind
+on), which lines moved within the file (a label: where lines stand is behaviour), and where the reading of each
+block starts; and what a view draws of it (the group Views): a note before the lines of each run, a quiet run played
+down, the lines of a move in a colour of their own with a note at each end that shows the other, the stops of N and P
+and the count of what is left to read. The page words what Rust decided and decides nothing. A run of a renamed name
+shows as any label: a note before its lines; the words of a rename ("Renamed total → sum · 12 sites" at its
+declaration) are not drawn yet. What a view draws of a rename, and the renames across the files of a change, are the
+next stages of [Diff View](../../../../docs/design/diff-view.md#marks).
 
 ## Goals
 
 - Quiet only by proof: the tokens of the lines are the same on both sides
-  ([Equal by Tokens](../equal-by-tokens/spec.md)). Everything else is a label or nothing, and stays a stop.
+  ([Equal by Tokens](../equal-by-tokens/spec.md)), for a renamed name once its two spellings are read as one, which
+  the bindings of both texts allow only for a value of its body alone ([Name Bindings](../name-bindings/spec.md)).
+  And only of a kind a measurement has switched on: a sample of its proven runs of real ranges, read by a person,
+  with no change of behaviour among them. The runs of a renamed name wait for theirs as labels. Everything else is a
+  label or nothing, and stays a stop.
 - One source of where a reader stops, `starts`, for the navigation of changes and the count of what is left to read.
 - The marks change no block: the scans, the patches and the review plan read the blocks they read before.
 - The same marks of the same blocks on every machine and under every load: limits by work, never by time.
-- A file that cannot hold a run costs no parse, and the moves of a file cost none at all.
+- A file that cannot hold a run costs no parse, a file without a name that stands where another stood no parse of
+  its names, and the moves of a file cost none at all.
 - A function that moved is read once, where it stands now, with what changed in it on the way.
 - Every line that is hidden can be shown where it is: only Inline hides a line, the old form of a quiet run and the
   lines a move took, each behind a note that opens.
@@ -62,6 +72,9 @@ The marks of renamed names are the next stage of [Diff View](../../../../docs/de
   has its moves.
 - A move between two files of a commit, and a move that the comparison shows as one block: lines that cross no line
   that stays.
+- A rename across files: a name the file does not declare is handed out unmarked, for the pass over the files of a
+  change. The uses of a name that is not local stay labels until that pass confirms them. A name renamed in lines
+  that moved.
 - A block with a side of no lines: an added comment is an added line.
 - The one-sided diffs of a conflict: they have their starts and no runs.
 - The marks in the patches of `brd` for agents.
@@ -69,10 +82,16 @@ The marks of renamed names are the next stage of [Diff View](../../../../docs/de
 ## Concepts
 
 - **A run** is a row of lines inside one block, with lines on both sides, that changed in one way alone
-  (`formatting`, `comments`; `renamed` with its stage).
+  (`formatting`, `comments`, `renamed`).
+- **A rename** is one binding of each text with the same places, under two names: a declaration inside a body with
+  every name bound to it (`local`), else every name of a spelling that no body binds. **A place** of it is a name
+  of the binding in each text; a place whose line changed in nothing else is in a run of the kind `renamed`.
 - **Quiet** is a run that provably changes no behaviour: what the navigation of changes passes and the Inline view
   shows by its new lines alone. Whether a kind is quiet is decided in one function (`is_quiet`); a run that is not
-  quiet is a label.
+  quiet is a label. **Proven** is a run whose lines are shown to be the same program (`has_proof`: every run of
+  formatting, a run of a renamed name whose places are values of their bodies alone); a proven run is quiet once its
+  kind is switched on; until then the pair names it (`PairMarks::proven`), and `PairMarks::as_proven` gives the
+  marks as they are then.
 - **A move** is a row of lines one block deletes and another block adds: the same lines by their text without the
   whitespace at their ends, with at most a quarter of edited lines between exact ones, and the blank lines that left
   with them counted beside them. Never quiet: the lines are read where they stand now, and are nothing to read where
@@ -98,6 +117,7 @@ draws.
 - **WHEN** a text diff is written as JSON
 - **THEN** `marks` holds `runs`, `moves`, `renames` and `starts`, in camel case, an empty list as `[]`
 - **AND** a run is `oldStart`, `oldEnd`, `newStart`, `newEnd`, its `kind` (`formatting`, `comments`, `renamed`) and `quiet`
+- **AND** a rename is `old`, `new`, `sites`, `local`, `declared`, `oldSites` and `newSites`
 - **AND** nothing beside the tag of the content is named `kind` at the top of the diff
   [@test] crates/text-diff/src/model_test.rs (`the_marks_are_camel_case_json_with_every_field`)
 
@@ -226,6 +246,183 @@ run, where the reader stops.
 - **THEN** they are no run
 - **AND** with the lines that differ inside the block, the call is a run in it
   [@test] crates/file-diffs/src/marks_test.rs (`a_run_at_an_end_of_its_block_needs_the_code_around_the_block_to_read_the_same`)
+
+### Requirement: Renames: A binding whose every name changed alike is a rename
+
+A rename MUST be one binding of each text with the same places: as many names on both sides, name `i` of the old text
+in the block of name `i` of the new one and nowhere the alignment of the tokens put another name, the declarations at
+the same places. A name bound inside a body is `local`; any other is every name of its spelling that no body binds.
+A rename MUST name its two names, its places on both sides and which of them declare it.
+
+#### Scenario: A local in each grammar
+- **WHEN** a local of a function is renamed at its five places, in Kotlin, a Kotlin script, Java, C#, Starlark, Rust, TypeScript, TSX and JavaScript
+- **THEN** the diff has one rename, `local`, of five places, declared at its first
+- **AND** every changed line is in a run of the kind `renamed` that is proven: with the kind switched on, no block has a start
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_local_renamed_at_every_place_is_proven_in_each_grammar`)
+
+#### Scenario: The places
+- **WHEN** a local is renamed on a line with a character of two UTF-16 units before it, and its call is wrapped
+- **THEN** each place is `[line, start, end]` of its text, in UTF-16 columns, place `i` of the old text beside place `i` of the new one, and `declared` names the first
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`the_places_of_a_rename_are_lines_and_columns_of_both_texts`)
+
+#### Scenario: Two bindings of one spelling
+- **WHEN** two loop variables of one name get two names, or the same name, or the locals of two functions take the name of each other
+- **THEN** each binding is a rename of its own, with its own places
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`two_bindings_of_one_spelling_are_two_renames`)
+
+#### Scenario: With the content
+- **WHEN** the diffs of a commit that renames a local stream, and are read again from memory and from the store of another app
+- **THEN** the content of the file has the rename and its three runs, labels with a start each, before the event of its scopes, the same at each read
+  [@test] crates/file-diffs/src/service_test.rs (`the_renames_of_a_text_come_with_its_content`)
+
+#### Scenario: The template of the marks
+- **WHEN** the diffs of the `commit_marks` template are read
+- **THEN** `Ledger.kt` has the rename of its local `total` with three places, each a run that is a label with its start, and `Store.kt` the rename of `openStore` with its declaration alone, which is read
+  [@test] crates/file-diffs/src/marks_test.rs (`the_marks_template_has_each_case_in_a_block_of_its_own`)
+
+### Requirement: Renames: A use left behind, a name taken and two names swapped are no rename
+
+A change MUST be no rename, and mark nothing, when the old name still stands at a place of the binding, when a place
+got a third name, when two bindings became one, or when the other name changes a binding of either text: it takes a
+name of another declaration, a nearer declaration takes a name of this one, or the language binds it without a
+declaration. Every block of such a change MUST stay a stop.
+
+#### Scenario: A use left behind in each grammar
+- **WHEN** a local is renamed at four of its five places, in each grammar
+- **THEN** the diff has no rename and no run, and every block its start
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_local_with_a_use_left_behind_is_no_rename_in_each_grammar`)
+
+#### Scenario: A name taken
+- **WHEN** two locals of one body take the name of each other, each declared and read in a block of its own, in Kotlin, Java, C#, Starlark, TypeScript and Rust; a local gets the name of a parameter, a field or a constant its body reads; a nearer declaration of the new name takes a use; two locals become one name; a use gets a third name; the new name is `it`; a member keeps its old name at one use; one of two calls of a function declared elsewhere changes
+- **THEN** nothing is a rename, and every block has its start
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_use_left_behind_a_name_taken_and_two_names_swapped_are_no_rename`)
+
+### Requirement: Renames: Lines that changed in a renamed name alone are a run
+
+The blocks that hold a place of a rename MUST be read again with the two names of each place read as one. Lines whose
+tokens are then the same, comments too, and that hold a place MUST be a run of the kind `renamed`, however the lines
+were wrapped. A place on a line with another change, or with a comment that changed, MUST be in no run: that line is
+read.
+
+#### Scenario: A line with another change
+- **WHEN** a local is renamed at its five places and the line of one of them changes in an operator too, in each grammar
+- **THEN** the rename has its five places, the line of the other change is in no run and starts the reading of its block, and the other lines are proven runs
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_on_a_line_with_another_change_is_read_in_each_grammar`)
+
+#### Scenario: Wrapped lines
+- **WHEN** a call with the renamed name is wrapped over four lines, the name stands in a string template, or a blank line is put between two lines of the name
+- **THEN** the lines are one run of the kind `renamed`
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`lines_wrapped_with_a_renamed_name_are_one_run`)
+
+#### Scenario: A comment that changed
+- **WHEN** the comment at the end of the line of a place changes with the name
+- **THEN** the line is in no run and is read; a comment on a line of its own is a run of comments beside the run of the rename, also beside such a line
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_comment_that_changed_beside_a_renamed_name_is_read`)
+
+### Requirement: Renames: A run of a renamed name takes no line of formatting
+
+Lines that are the same tokens with the names of a rename read as one and hold no place MUST be the run of formatting
+they are without the rename, quiet whatever the rename is, with the blank lines beside them. The second reading of a
+block MUST take no run: a run the first reading found MUST lie in a run of its kind, and a run of the second reading
+that shares a line with it without holding it, or crosses it, is none.
+
+#### Scenario: Lines of formatting beside the name
+- **WHEN** a call is wrapped between or before the lines of a renamed local, two calls are wrapped each before a line of it, or twelve statements are indented inside a new `if`, one of them a use of the local
+- **THEN** the wrapped calls and the indented lines are quiet runs of formatting, each row of lines of the name between them is a run of the kind `renamed`, and the reading of the last block starts at the `if`
+- **AND** a blank line put before or after the wrapped call is in its run of formatting
+- **AND** beside a rename that is a label for good (the use of a member, a parameter a call may name, a local of a C# file with an `#if`, a local of a text with a syntax error) the wrapped call is a quiet run of formatting too, and the reading of the block starts at the line of the name
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`lines_of_formatting_beside_a_renamed_name_are_a_run_of_their_own`)
+
+#### Scenario: The two readings pair the lines otherwise
+- **WHEN** a line with three places of a renamed local changes places with a call that is wrapped: the tokens of the texts pair the call, and with the names read as one the line of the places pairs with itself
+- **THEN** the wrapped call is the quiet run of formatting the first reading found, and the line of the places is in no run and is read
+- **AND** of the runs of two readings, a run of the second that holds a run of the first in its kind stays with it, and one that shares a line with a run of the first it does not hold, or crosses it, is none
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_run_of_the_first_reading_stays_where_the_second_aligns_the_lines_otherwise`)
+
+#### Scenario: The runs of the first reading
+- **WHEN** the files of the corpus are edited at random, or have a name renamed, and the blocks of each diff are read once more from the tokens of the texts as they are
+- **THEN** every run that reading finds lies in a run of its kind of the marks
+  [@test] crates/file-diffs/src/marks_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
+
+### Requirement: Renames: A run of a renamed name is quiet only for a value of its body alone
+
+A run of the kind `renamed` MUST be proven, and so quiet once its kind is, only when every place in it is of a name
+bound inside a body that is a value of that body alone on both sides, every name of which the scopes bind: a
+variable, a parameter no call may name and no annotation or attribute macro may read, the variable of a loop, a
+`catch` or a lambda, in a text the scopes read whole. Any other rename MUST have runs that are labels.
+
+#### Scenario: A local other code may name
+- **WHEN** a parameter of a named function of Kotlin, C# or Starlark, a Java parameter under an annotation a framework may read, a Rust parameter under an attribute macro, or a function declared in a body is renamed
+- **THEN** its runs are labels and every block of them has its start
+- **AND** the parameter of a lambda of Kotlin and a parameter of Java, TypeScript and Rust without such a reader are proven
+- **AND** the name of a named argument is no name of the parameter: it is left to the other files
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_local_that_code_outside_its_body_may_name_is_a_label`)
+
+#### Scenario: A text the scopes read in part
+- **WHEN** a local is renamed in a C# file with an `#if`, where a branch the parser does not take reads the new name, or holds nothing of either name; in a Rust function whose two declarations of the name stand under two `#[cfg]`; in a script that calls `eval` by its name
+- **THEN** its runs are labels and every block of them has its start: the bindings of such a text are those of one build of it, or of a part of what runs
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_local_that_code_outside_its_body_may_name_is_a_label`)
+
+#### Scenario: Files with a name renamed
+- **WHEN** a word of a file of each grammar is written otherwise wherever it stands, alone and beside random edits, sometimes but for one place, sometimes as a word the file has
+- **THEN** each rename holds when the navigation is asked again of each side, each run of the kind `renamed` has the same tokens with its places read as one and holds no place that makes more of its name, and a proven one only places of values of their bodies alone
+- **AND** the marks are the same with and without the question before the tokens
+  [@test] crates/file-diffs/src/marks_test.rs (`the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
+
+### Requirement: Renames: The runs of a renamed name are labels until their kind is switched on
+
+The kind `renamed` MUST NOT be quiet before a measurement of real ranges has read a sample of its proven runs and
+found no change of behaviour among them: until `is_quiet` switches it on, every run of it MUST be a label and every
+block of it a stop. The pair MUST name the proven runs that are labels so (`PairMarks::proven`), and the marks of
+a view MUST be the marks as they are proven (`PairMarks::as_proven`) but for the quiet of those runs and the starts
+that follow.
+
+#### Scenario: A renamed local as a view gets it
+- **WHEN** a local renamed at its five places is read as a view reads it, in each grammar
+- **THEN** the diff has the rename and its runs, none of them quiet and each named as proven, and every block its start at its first line
+- **AND** as proven the same runs are quiet, and no block has a start
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`the_runs_of_a_renamed_local_are_labels_until_their_kind_is_switched_on`)
+
+#### Scenario: Every diff of the tests
+- **WHEN** the files of the corpus are edited at random, or have a name renamed, and each diff is read as proven and as a view reads it
+- **THEN** the marks of the view are the proven ones with the runs of a kind that is not switched on as labels, and the starts of those runs
+  [@test] crates/file-diffs/src/marks_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`)
+
+### Requirement: Renames: A place that makes more of its name than its binding is read
+
+A place where the name is more than the name of its binding MUST be a place of the rename and in no run: a shorthand
+property, a pattern that takes a value apart, a name only the types or what runs tell apart, a name whose spelling is
+a value where the code runs (`nameof`, a delegate, the name a function takes), a name among the tokens of a macro or
+captured by a format string. The other places of the rename keep their runs.
+
+#### Scenario: Such places
+- **WHEN** a local declared by a destructuring, a record pattern, an array pattern or a tuple pattern, read by a shorthand property of TypeScript, Rust or C#, passed to a macro, captured by a format string, called as a value or spelled by `nameof` is renamed
+- **THEN** the line of that place is in no run and is read, and the lines of its other places are proven runs
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
+
+#### Scenario: A name that is a value where the code runs
+- **WHEN** a Kotlin local declared with a delegate is renamed (`val total by map`, `val integrationTest by registering(…)` of a build script, `by lazy` in an `init`), or a local of TypeScript or JavaScript that is given a function or a class written without a name (`const total = () => 1`, `const Total = class {}`)
+- **THEN** the line of its declaration is in no run and is read: the delegate reads another key, the task is registered under another name, the function has another `name`; the lines of its uses are proven runs
+- **AND** a use of a JavaScript local inside the body of a `with` is in no run and is read: there the name may be a property of the object
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_place_that_makes_more_of_its_name_than_its_binding_is_read`)
+
+### Requirement: Renames: A name that is not local is a label, and its declaration is read
+
+A name no body binds, declared in the file, MUST be a rename that is not `local` when every name of its spelling
+changed: its uses are runs that are labels, its declaration is in no run. A name that changed at every place of the
+file and is declared in none of them MUST mark nothing, and the pair MUST hand it out for a reader of the other files.
+
+#### Scenario: A member, a function, a class
+- **WHEN** a property, a field, a function or a class is renamed with its uses in the file, in Kotlin, Java, TypeScript and Rust
+- **THEN** the rename is not `local`, `declared` names its declaration, each use is a run that is a label, and the block of the declaration has its start
+- **AND** a parameter of a TypeScript constructor that declares a property (`public total`) is such a rename, with its uses in the constructor and through `this`
+- **AND** a property and a local of its spelling renamed alike are two renames, the local one proven
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_name_that_is_not_local_is_a_label_and_its_declaration_is_read`)
+
+#### Scenario: A name the file does not declare
+- **WHEN** the two calls of a function declared in another file get another name
+- **THEN** the diff has no rename and no run, and the pair names the two names with their places, without a declaration
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_name_the_file_does_not_declare_is_left_to_the_other_files`)
 
 ### Requirement: Moves: Lines deleted in one block and added in another are a move
 
@@ -433,6 +630,24 @@ without a grammar keeps its pale block of whitespace.
 - **AND** the same change in texts of ten lines less is a run
   [@test] crates/file-diffs/src/marks_test.rs (`a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_runs`)
 
+### Requirement: Never marked: A file of no grammar, a pair of two grammars and lines that moved have no rename
+
+A rename MUST be read from the tokens and the bindings of one grammar: a file of no grammar and a pair of two grammars
+have none, by no rule of characters. A name renamed in lines that moved stands in another block than it did and MUST
+be none. A text with a syntax error has the renames its parser reads, none of them proven; a text its parser reads
+no program of has none.
+
+#### Scenario: No grammar, moved lines
+- **WHEN** a name changes at every place of a text file and of a Python file, or in a function that moved
+- **THEN** the diff has no rename
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_file_of_no_grammar_and_lines_that_moved_have_no_rename`, `a_pair_of_two_grammars_has_no_rename`)
+
+#### Scenario: A syntax error
+- **WHEN** a local is renamed in a Java file where the old name still stands in what the parser gave up on, in a Kotlin, a Java and a Rust file with a broken function after it, in a Kotlin file on a line that is broken on both sides, and in a TypeScript file oxc reads no program of
+- **THEN** the first five have the rename with runs that are labels, every block of them with its start: what stands where a parser gave up is no name to the scopes
+- **AND** the TypeScript file has none
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_file_with_a_syntax_error_is_read_as_its_parser_reads_it`)
+
 ### Requirement: Limits: The time of a comparison changes no mark
 
 The marks of a diff MUST be a function of its blocks, its two texts, its whitespace policy and how its paths are read
@@ -451,13 +666,21 @@ the tokens, the moves the blocks and the lines, never the inner ranges.
 
 The limits of the marks MUST be of work, never of time. A block whose sides are the same code needs no comparison.
 Else the tokens of its code are compared only within `MAX_BLOCK_TOKENS` a side, `MAX_TOKEN_EDITS` tokens that differ
-and the work left of its file (`MAX_FILE_TOKEN_WORK`); a block over a limit MUST have no run cut out of it.
+and the work left of its file (`MAX_FILE_TOKEN_WORK`); a block over a limit MUST have no run cut out of it. The
+blocks of a rename are compared again within what the first reading left of that work.
 
 #### Scenario: A block over a limit
 - **WHEN** the sides of a block differ in more tokens than the limit, a side has more tokens than the limit, or the work of the file is spent
 - **THEN** no run is cut out of the block, and its reading starts at its first line
 - **AND** the same block within the limits has its run, and lines of the same code are a run without a comparison
   [@test] crates/file-diffs/src/marks_test.rs (`a_block_over_a_limit_of_work_has_no_run_cut_out_of_it`)
+
+#### Scenario: The blocks of a rename
+- **WHEN** a block holds a renamed name, a wrapped call and a line with another change, and is read again with the names read as one
+- **THEN** with the work of the file it has its run of the rename beside the run of the wrapped call; with one step less than the comparison costs it keeps the run of the wrapped call the first reading found, and no run of the rename
+- **AND** a block that is the same code once the names are read as one has its runs without a comparison, with no work left too
+- **AND** a block the first reading cut nothing out of has the same runs: the wrapped call is a run of formatting there too
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`the_blocks_of_a_rename_are_cut_again_within_the_work_the_file_has_left`)
 
 #### Scenario: The comparison gives up by its edits
 - **WHEN** two sequences differ in more elements than the edits allowed
@@ -515,24 +738,50 @@ pair of other keys is apart.
 - **AND** a pair of lines in a row that is no move whatever the pair is, an edited line at the end of its row, is not compared at all
   [@test] crates/text-diff/src/moves_test.rs (`a_side_over_its_lines_and_pairs_over_their_number_are_not_read`)
 
+### Requirement: Limits: The names of a file are asked within a limit of work
+
+The names asked of a file for its renames MUST be bound by work, never by time: a resolution of a name, one per
+spelling and one more per binding, costs a part of the tokens of its text by its grammar, within `MAX_RENAME_WORK`.
+The first place of each pair of names MUST be asked before the second of any; a name without an answer is no
+rename, and its blocks stay stops. The names MUST be read on the stack of a worker of the diffs.
+
+#### Scenario: Two hundred locals
+- **WHEN** 200 locals of a Kotlin file are renamed, 400 places, each local a spelling and a binding of each text
+- **THEN** the 200 are renames, by 400 resolutions of each text; with work for 150 resolutions the first 75 locals of the text are, and with work for less than one none is asked
+- **AND** in a Java file whose work pays fewer resolutions than its 100 locals need, the first locals of the text are renames and, of their proven runs, the blocks of the others alone have their starts
+- **AND** a local of one name in each of 60 functions, renamed alike, is 60 renames by 61 resolutions of each text
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`the_names_asked_are_bound_by_work`)
+
+#### Scenario: A deeply nested file
+- **WHEN** a local is renamed in a block nested 60 to 3,600 times, in each grammar, on a stack of 2 MiB
+- **THEN** a text with tokens has its rename and a text nested deeper than its parser reads has none
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_deeply_nested_file_is_read_on_the_stack_of_a_worker`)
+
 ### Requirement: Before the tokens: A file whose blocks cannot hold a run is not parsed
 
 A block MUST be asked a question of its characters before the tokens of its file are read: whether a line of one side
-starts and a line ends as a line of the other, their blanks aside, or a comment may have a character in its lines.
-Every block with a run answers yes, so the question MUST change no mark; a file whose blocks all answer no is not
-parsed for its marks. The tokens of a blob MUST be read once per grammar and kept in memory.
+starts and a line ends as a line of the other, their blanks aside, a comment may be in its lines, or one side holds
+a word the other has not. The question MUST change no mark: every block with a run answers yes, and a block of the
+same words gives no name of a rename. A file whose blocks all answer no is not parsed, and the tokens of a blob MUST
+be read once per grammar.
 
 #### Scenario: Blocks that cannot hold a run
-- **WHEN** the blocks of a file change values and names, or add and delete lines
+- **WHEN** the blocks of a file change values and an operator, or add and delete lines
 - **THEN** the tokens of neither side are read
-- **AND** a wrapped call and a comment worded again read each side once, whatever the number of blocks
+- **AND** a wrapped call, a comment worded again and a changed name read each side once, whatever the number of blocks
   [@test] crates/file-diffs/src/marks_test.rs (`a_file_whose_blocks_cannot_hold_a_run_is_not_parsed`)
 
+#### Scenario: The same words
+- **WHEN** the two sides of a block hold the same words: in another order, with other numbers or other marks between them
+- **THEN** the block gives no name of a rename, and two locals that took the name of each other in one block parse no side
+- **AND** a word one side has more often, or with another letter, `_` or `$`, is a word the other has not
+  [@test] crates/file-diffs/src/marks_renames_test.rs (`a_block_whose_sides_hold_the_same_words_gives_no_candidate`)
+
 #### Scenario: The question changes no answer
-- **WHEN** the runs of a diff are read with the question and without it, for every case of the tests and for files of every grammar edited at random, with their own line ends, with `\r\n`, with lone `\r` among them and without the last one
-- **THEN** the runs are the same
+- **WHEN** the runs and the renames of a diff are read with the question and without it, for every case of the tests and for files of every grammar edited at random, with their own line ends, with `\r\n`, with lone `\r` among them and without the last one
+- **THEN** the runs and the renames are the same
 - **AND** every line a comment of a grammar is in answers that it may hold a comment: a line of a block comment, of a nested one, after a `/*/`, a `#!` line, an HTML-like comment of a script, a line of a comment of Razor in a C# file, the line after a lone `\r` that a line comment runs over
-  [@test] crates/file-diffs/src/marks_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `every_line_of_a_comment_may_hold_a_comment_before_the_tokens_are_read`)
+  [@test] crates/file-diffs/src/marks_test.rs (`the_marks_of_edited_files_are_proven_by_their_tokens`, `the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings`, `every_line_of_a_comment_may_hold_a_comment_before_the_tokens_are_read`)
 
 #### Scenario: The tokens of a blob are kept
 - **WHEN** a commit is read under another whitespace policy, and then the next commit of its file
@@ -1255,23 +1504,38 @@ of the lines of a move and of its notes, which no other line has, MUST mark a mo
 `pnpm test:unit src/lib/diff src/stores/file-diffs.test.ts src/presenters/diff-marks.test.ts` and
 `pnpm e2e tests/e2e/commit-files/quiet-changes.spec.ts tests/e2e/commit-files/moved-lines.spec.ts` for the views
 (`pnpm e2e:webkit` with the same files for the focus after a jump and a click on a note).
-`cargo nextest run -p file-diffs -E 'test(/marks_test/)'` and `-p text-diff -E 'test(/model_test|moves_test/)'`.
+`cargo nextest run -p file-diffs -E 'test(/marks_test|marks_renames_test/)'` and
+`-p text-diff -E 'test(/model_test|moves_test/)'`.
 `MARKS_EDITS=600 cargo nextest run --release -p file-diffs -E 'test(the_marks_of_edited_files)'` edits each file of
-the corpus 600 times (12 by default). The E2E template of the marks is `commit_marks` (`crates/test-utils/src/repo_template.rs`):
+the corpus 600 times (12 by default), `MARKS_RENAMES=200 … -E 'test(the_renames_of_files)'` renames a word of each
+200 times, alone and beside edits (twice by default). The E2E template of the marks is `commit_marks` (`crates/test-utils/src/repo_template.rs`):
 `src/Ledger.kt`, `src/Report.kt` and `src/Store.kt` with a case of every kind of mark, each in a block of its own.
 
 ## Measurements
 
-`cargo bench -p file-diffs --bench marks_bench`: the tokens of a text, `marks_of` of a pair, the moves of a file of
-10,000 lines and of the file a search costs most in, a block at its limits and a subject of 200 files through the
-service, with moved functions too; the numbers and what they decide (the limit of the search for moves by them) are
+`cargo bench -p file-diffs --bench marks_bench`: the tokens of a text, `marks_of` of a pair, the renames of a file at
+the limit of their work, the moves of a file of 10,000 lines and of the file a search costs most in, a block at its
+limits and a subject of 200 files through the service, with renamed locals and moved functions too; the numbers and what they decide (the limit of the search for moves by them) are
 in
 [Diff View](../../../../docs/design/diff-view.md#marks).
 
 ## Open Questions / Risks
 
-- Quiet is switched on for formatting alone. A measurement on real ranges of a large repository (a sample of the
-  quiet runs read by a person) may switch a kind off in `is_quiet`.
+- Quiet is switched on for formatting. The kind `renamed` waits for its measurement: a sample of its proven runs
+  (`PairMarks::proven`) of real ranges of a large repository, read by a person. `is_quiet` switches it on when the
+  sample holds no change of behaviour; the three places of the local of the `commit_marks` template are passed then
+  ("5 to read" of `Ledger.kt`), and the uses of a name that is not local follow with the pass that confirms them.
+  The same measurement may switch a kind off.
+- A rename is proven by scopes read without types and without the other files
+  ([Name Bindings](../name-bindings/spec.md), Open Questions): a bare read of a member a class inherits that a renamed
+  local would take is not seen, and neither is a reader of names outside the file that leaves no trace in it
+  (reflection over the names of the parameters of a Java method under no annotation, a C# method that takes the text
+  of its argument by `[CallerArgumentExpression]`).
+- The places of a rename are asked to be in one block each and in the order of the texts; only within a run are
+  the two tokens of a place proven to stand at one place of the code. A rename with a place on a rewritten line is
+  still a rename, and that line is read.
+- A file with more names to ask than its work pays for has the renames of the first of them in the text; the others
+  stay stops. One of two renames of a file can be marked while the other is not.
 - A run inside a block is proven by its own tokens; the lines beside it changed and are read. A run at an end of
   its block is asked with the two tokens of the code around the block, not with the whole text
   ([Equal by Tokens](../equal-by-tokens/spec.md#requirement-equality-a-range-of-lines-is-asked-with-the-code-around-it)).

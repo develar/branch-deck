@@ -1107,6 +1107,41 @@ fn a_token_has_its_class_and_a_renamed_name_keeps_its_shape() {
   }
 }
 
+/// A reader that takes two spellings for one name (a rename) gives the tokens of its places one text on both sides
+/// (`Tokens::with_texts`, the places found by `Tokens::place_at`): the two texts then compare as the same where the
+/// tree around the names is the same, and no other token changed. A name that stands otherwise in the tree stays
+/// another token under one text
+#[test]
+fn two_names_read_as_one_compare_as_the_same_where_the_tree_is() {
+  let old = "fun f(): Int {\n  val total = 1\n  return total + \"\u{1d4b3}\".length + total\n}\n";
+  let new = old.replace("total", "sum");
+  let (old_tokens, new_tokens) = (stream(KOTLIN, old), stream(KOTLIN, &new));
+  assert_eq!(compare(old_tokens.all(), new_tokens.all()), Different);
+  // the places of the name, by the line and the UTF-16 column of the view: after a character of two units too
+  let places = |tokens: &Tokens, last: u32| [tokens.place_at(1, 6), tokens.place_at(2, 9), tokens.place_at(2, last)].map(Option::unwrap);
+  let (old_places, new_places) = (places(&old_tokens, 31), places(&new_tokens, 29));
+  assert_eq!(old_places.map(|place| old_tokens.all()[place].text_in(old)), ["total"; 3]);
+  assert_eq!(new_places.map(|place| new_tokens.all()[place].text_in(&new)), ["sum"; 3]);
+  // no token starts inside a name, at a blank or past the text
+  assert_eq!([old_tokens.place_at(1, 7), old_tokens.place_at(1, 5), old_tokens.place_at(9, 0)], [None; 3]);
+
+  let as_one = |tokens: &Tokens, places: [usize; 3]| tokens.with_texts(places.into_iter().zip(7..));
+  let (old_one, new_one) = (as_one(&old_tokens, old_places), as_one(&new_tokens, new_places));
+  assert_eq!(compare(old_one.all(), new_one.all()), Same);
+  // nothing but the text of those tokens changed, and a place past the tokens is left out
+  assert_eq!(old_one.all().len(), old_tokens.all().len());
+  assert_eq!(old_one.all()[0], old_tokens.all()[0]);
+  assert_eq!(old_tokens.with_texts([(usize::MAX, 1)]), old_tokens);
+  // the same name read as one where it stands otherwise in the tree, an argument of a call: another token
+  let moved = "fun f(): Int {\n  val sum = 1\n  return sum + \"\u{1d4b3}\".length + g(sum)\n}\n";
+  let moved_tokens = stream(KOTLIN, moved);
+  let moved_one = as_one(
+    &moved_tokens,
+    [moved_tokens.place_at(1, 6), moved_tokens.place_at(2, 9), moved_tokens.place_at(2, 31)].map(Option::unwrap),
+  );
+  assert_eq!(compare(old_one.all(), moved_one.all()), Different);
+}
+
 #[test]
 fn the_keys_are_the_same_in_every_run() {
   // a key is a hash of names and bytes, the same across runs, machines and compilers: a stored fingerprint reads the

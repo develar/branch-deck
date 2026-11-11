@@ -444,6 +444,7 @@ fn the_marks_are_camel_case_json_with_every_field() {
       new: "sum".to_string(),
       sites: 1,
       local: true,
+      declared: vec![0],
       old_sites: vec![3, 4, 9],
       new_sites: vec![3, 4, 7],
     }],
@@ -458,7 +459,7 @@ fn the_marks_are_camel_case_json_with_every_field() {
         "oldStart": 4, "newStart": 9, "len": 2, "indent": -2, "blanksBefore": 1, "blanksAfter": 0, "edited": [0],
         "oldRanges": [[0, 1, 2], []], "newRanges": [[0, 2, 2], []],
       }],
-      "renames": [{ "old": "total", "new": "sum", "sites": 1, "local": true, "oldSites": [3, 4, 9], "newSites": [3, 4, 7] }],
+      "renames": [{ "old": "total", "new": "sum", "sites": 1, "local": true, "declared": [0], "oldSites": [3, 4, 9], "newSites": [3, 4, 7] }],
       "starts": [],
     })
   );

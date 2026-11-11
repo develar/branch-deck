@@ -2,10 +2,14 @@
 //! limits, and that the question a block is asked before the tokens changes no answer.
 
 use crate::fixture_test::unhurried;
-use crate::marks::{MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, is_quiet, marks_of, may_hold_comment, pair_grammar, pair_indented, runs_of};
-use crate::marks_runs::{BlockLines, runs_of_block};
+use crate::marks::{
+  MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, has_proof, is_quiet, marks_of, may_hold_comment, pair_grammar, pair_indented, read_blocks, runs_of,
+};
+use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::model::{DiffContent, DiffSource};
+use crate::service::fits_inner;
 use code_symbols::highlight::{Grammar, grammar_of};
+use code_symbols::navigate::{Access, LocalBinding, NameQuestion, Position, Site, names_at};
 use code_symbols::tokens::{Equality, Tokens, compare, tokens};
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -16,14 +20,23 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 use text_diff::cancellation::Deadline;
-use text_diff::model::{BlockKind, DiffBudget, MAX_INNER_LINES, RunKind, TextDiff, diff_texts};
+use text_diff::model::{BlockKind, DiffBudget, DiffMarks, MAX_INNER_LINES, Rename, RunKind, TextDiff, diff_texts, starts_of};
 use text_diff::policy::WhitespacePolicy;
 
 use WhitespacePolicy::{Default as Exact, Ignore, IgnoreBlankLines};
 
-/// The diff of two texts of a file at `path` with its marks, and how often the tokens of each side were read. The
-/// runs are also read without the question before the tokens: it must change no answer
-fn read_counted(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (TextDiff, [u32; 2]) {
+/// What a reading of a block asks of its lines where every line has text and no name is renamed
+pub(crate) const ANY_TEXT: Asked<'static> = Asked {
+  has_text: &|_, _| true,
+  renamed: NO_RENAME,
+};
+
+/// The diff of two texts of a file at `path` with its marks as they are proven (`PairMarks::as_proven`: a run of a kind
+/// that is not switched on yet is quiet where its proof holds, so the tests ask the proof), the names it leaves to
+/// the other files of its change, and how often the tokens of each side were read. The marks a view gets
+/// (`marks_of`) must be these with the runs of a kind that is not switched on as labels, and the starts that follow.
+/// The runs and the renames are also read without the question before the tokens: it must change no answer
+pub(crate) fn read_pair(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (TextDiff, Vec<Rename>, [u32; 2]) {
   let mut diff = diff_texts(old, new, policy, &DiffBudget::NONE);
   let grammar = pair_grammar(path, path);
   let asked = [Cell::new(0), Cell::new(0)];
@@ -34,25 +47,69 @@ fn read_counted(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (
       .get_or_init(|| tokens(grammar?, if new_side { new } else { old }).map(Arc::new))
       .clone()
   };
-  diff.marks = marks_of(&diff, old, new, grammar, policy, pair_indented(path, path), |new_side| {
+  let shown = marks_of(&diff, old, new, grammar, policy, pair_indented(path, path), |new_side| {
     let side = &asked[usize::from(new_side)];
     side.set(side.get() + 1);
     parse(new_side)
   });
-  if let Some(grammar) = grammar {
-    let unasked = runs_of(&diff, &SideText::new(grammar, old), &SideText::new(grammar, new), false, &parse);
-    assert_eq!(diff.marks.runs, unasked, "{path}: {old:?} -> {new:?}: the question before the tokens changed the answer");
+  let (marks, undeclared) = (shown.as_proven(&diff.blocks), shown.undeclared.clone());
+  // what a view gets: the proven marks with the runs of a kind that is not switched on as labels, and their starts
+  let mut labelled = marks.clone();
+  let mut off = Vec::new();
+  for (index, run) in (0u32..).zip(&mut labelled.runs) {
+    if run.quiet && !is_quiet(run.kind) {
+      run.quiet = false;
+      off.push(index);
+    }
   }
-  (diff, asked.map(|side| side.get()))
+  labelled.starts = starts_of(&diff.blocks, &labelled.runs, &labelled.moves);
+  assert_eq!(
+    (&shown.marks, &shown.proven),
+    (&labelled, &off),
+    "{path}: {old:?} -> {new:?}: the marks of a view are not the proven ones with the kinds that are off as labels"
+  );
+  diff.marks = marks;
+  if let Some(grammar) = grammar.filter(|_| fits_inner(old, diff.old_line_count) && fits_inner(new, diff.new_line_count)) {
+    let unasked = runs_of(&diff, &SideText::new(grammar, old), &SideText::new(grammar, new), false, &parse);
+    assert_eq!(
+      (&diff.marks.runs, &diff.marks.renames, &undeclared),
+      (&unasked.runs, &unasked.renames, &unasked.undeclared),
+      "{path}: {old:?} -> {new:?}: the question before the tokens changed the answer"
+    );
+  }
+  (diff, undeclared, asked.map(|side| side.get()))
+}
+
+fn read_counted(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (TextDiff, [u32; 2]) {
+  let (diff, _, asked) = read_pair(path, old, new, policy);
+  (diff, asked)
 }
 
 fn read(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> TextDiff {
   read_counted(path, old, new, policy).0
 }
 
-/// The blocks, the runs, the moves and the starts of a diff as one line: `old/new` lines of each block and each run,
-/// `old->new` lines of each move
-fn show(diff: &TextDiff) -> String {
+/// A rename as words: its names, `local` for a name bound inside a body, the numbers of the places that declare it,
+/// and `line:column` of each place of the old text, then of the new one
+pub(crate) fn show_rename(rename: &Rename) -> String {
+  let places = |sites: &[u32]| -> String {
+    let places: Vec<String> = sites.as_chunks::<3>().0.iter().map(|site| format!("{}:{}", site[0], site[1])).collect();
+    places.join(" ")
+  };
+  format!(
+    "{}->{}{} declared {:?} at {} / {}",
+    rename.old,
+    rename.new,
+    if rename.local { " local" } else { "" },
+    rename.declared,
+    places(&rename.old_sites),
+    places(&rename.new_sites)
+  )
+}
+
+/// The blocks, the runs, the moves, the renames and the starts of a diff as one line: `old/new` lines of each block
+/// and each run, `old->new` lines of each move
+pub(crate) fn show(diff: &TextDiff) -> String {
   let blocks: Vec<String> = diff
     .blocks
     .iter()
@@ -113,7 +170,14 @@ fn show(diff: &TextDiff) -> String {
     .collect();
   // the moves only where a diff has them: most cases of the runs have none
   let moves = if moves.is_empty() { String::new() } else { format!(" moves [{}]", moves.join(", ")) };
-  format!("blocks [{}] runs [{}]{moves} starts {:?}", blocks.join(", "), runs.join(", "), diff.marks.starts)
+  // the renames likewise
+  let renames: Vec<String> = diff.marks.renames.iter().map(show_rename).collect();
+  let renames = if renames.is_empty() {
+    String::new()
+  } else {
+    format!(" renames [{}]", renames.join(", "))
+  };
+  format!("blocks [{}] runs [{}]{moves}{renames} starts {:?}", blocks.join(", "), runs.join(", "), diff.marks.starts)
 }
 
 /// Each case against what `show` gives for it; every failure in one message
@@ -413,12 +477,12 @@ fn what_changes_the_code_is_never_formatting() {
       "// go:build a\nfn a() {}\n",
       "blocks [0..1/0..1] runs [0..1/0..1 comments] starts [0, 1, 0]",
     ),
-    // a renamed name
+    // another name, which the file does not declare: no rename the file can prove (`marks_renames_test.rs`)
     (
       "a.kt",
       Exact,
-      "fun f() {\n  val total = 1\n}\n",
-      "fun f() {\n    val sum = 1\n}\n",
+      "fun f() {\n  total(1)\n}\n",
+      "fun f() {\n    sum(1)\n}\n",
       "blocks [1..2/1..2] runs [] starts [0, 1, 1]",
     ),
   ]);
@@ -711,6 +775,7 @@ fn a_file_without_a_grammar_and_a_pair_of_two_grammars_have_no_runs() {
     marks_of(&diff, old, new, grammar, Exact, false, |new_side| {
       tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new)
     })
+    .marks
   };
   assert_eq!(read(Some(Grammar::Kotlin)).runs.len(), 1);
   assert_eq!((read(None).runs.len(), read(None).starts), (0, vec![0, 1, 1]));
@@ -726,7 +791,8 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
   for missing in [false, true] {
     let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
       if new_side == missing { None } else { kotlin(if new_side { new } else { old }) }
-    });
+    })
+    .marks;
     assert_eq!(
       (marks.runs.len(), marks.starts),
       (0, vec![0, 1, 1]),
@@ -737,7 +803,8 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
   // tokens of another text than the diff's prove nothing
   let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
     kotlin(if new_side { "fun f() {\n  call(a, b)\n}\n\n\n" } else { old })
-  });
+  })
+  .marks;
   assert_eq!(marks.runs.len(), 0);
 
   // the same change in texts of more lines than the inner ranges are compared for, and of ten lines less: the first
@@ -749,7 +816,8 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
     let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), Exact, false, |new_side| {
       asked.set(asked.get() + 1);
       kotlin(if new_side { &new } else { &old })
-    });
+    })
+    .marks;
     (diff.line_level_only, marks.runs.len(), marks.starts, asked.get())
   };
   assert_eq!(read(MAX_INNER_LINES), (true, 0, vec![0, 1, 1], 0));
@@ -766,7 +834,8 @@ fn a_diff_the_time_cut_short_has_the_marks_of_its_blocks() {
     let mut diff = diff_texts(old, new, Exact, budget);
     diff.marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
       tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new)
-    });
+    })
+    .marks;
     (diff.line_level_only, show(&diff))
   };
   let in_time = "blocks [1..3/1..2] runs [1..3/1..2 formatting quiet] starts []";
@@ -790,7 +859,8 @@ fn a_run_at_an_end_of_its_block_needs_the_code_around_the_block_to_read_the_same
   let runs = |old: &str, old_lines: Range<u32>, new: &str, new_lines: Range<u32>| {
     let lines = BlockLines { old: old_lines, new: new_lines };
     let mut work = MAX_FILE_TOKEN_WORK;
-    runs_of_block(&kotlin(old), &kotlin(new), &lines, &|_, _| true, &mut work)
+    runs_of_block(&kotlin(old), &kotlin(new), &lines, &ANY_TEXT, &mut work, &mut |_, _| {})
+      .unwrap()
       .iter()
       .map(|run| format!("{}..{}/{}..{}", run.old_start, run.old_end, run.new_start, run.new_end))
       .collect::<Vec<_>>()
@@ -808,8 +878,15 @@ fn a_run_at_an_end_of_its_block_needs_the_code_around_the_block_to_read_the_same
 #[test]
 fn a_file_whose_blocks_cannot_hold_a_run_is_not_parsed() {
   let asked = |path: &str, old: &str, new: &str| read_counted(path, old, new, Exact).1;
-  // a changed value, a changed name, an added line: no line of one side starts and ends as a line of the other
-  assert_eq!(asked("a.kt", "fun f() {\n  val a = 1\n  b(2)\n}\n", "fun f() {\n  val a = 2\n  c(2)\n  d()\n}\n"), [0, 0]);
+  // changed values, an operator, a line without a word added: no line of one side starts and ends as a line of the
+  // other, and both sides hold the same words
+  assert_eq!(
+    asked("a.kt", "fun f() {\n  val a = 1\n  b(2 + a)\n}\n", "fun f() {\n  val a = 2\n  b(3 - a)\n  }\n}\n"),
+    [0, 0]
+  );
+  // a changed name: it may be a rename. Asked, and it is none
+  let (diff, asked_sides) = read_counted("a.kt", "fun f() {\n  val a = 1\n  b(2)\n}\n", "fun f() {\n  val a = 2\n  c(2)\n}\n", Exact);
+  assert_eq!((diff.marks.runs.len(), diff.marks.renames.len(), asked_sides), (0, 0, [1, 1]));
   // lines added and deleted alone
   assert_eq!(asked("a.kt", "fun f() {\n  a()\n}\n", "fun f() {\n  a()\n  // note\n  b()\n}\n"), [0, 0]);
   // a file of no grammar
@@ -1030,6 +1107,38 @@ fn moved(text: &str, random: &mut Random) -> String {
   text
 }
 
+/// `text` with one of its words written otherwise wherever it stands as a word: a name renamed in the whole file, a
+/// local among them now and then. One time in four a place of it keeps the old word (a use left behind), one time
+/// in four the new word is one the text has already (a name taken)
+fn renamed(text: &str, random: &mut Random) -> String {
+  let is_word = |character: char| character.is_alphanumeric() || character == '_';
+  // the words of the text with what stands between them, in order
+  let mut pieces: Vec<&str> = Vec::new();
+  let mut rest = text;
+  while !rest.is_empty() {
+    let word = rest.chars().next().is_some_and(is_word);
+    let end = rest.find(|character: char| is_word(character) != word).unwrap_or(rest.len());
+    pieces.push(&rest[..end]);
+    rest = &rest[end..];
+  }
+  let words: Vec<usize> = (0..pieces.len())
+    .filter(|index| pieces[*index].chars().next().is_some_and(|first| is_word(first) && !first.is_numeric()))
+    .collect();
+  if words.is_empty() {
+    return text.to_string();
+  }
+  let word = pieces[words[random.below(words.len())]];
+  let taken = pieces[words[random.below(words.len())]];
+  let new_word = if random.below(4) == 0 { taken.to_string() } else { format!("{word}Q") };
+  let places: Vec<usize> = words.iter().copied().filter(|index| pieces[*index] == word).collect();
+  let left = (random.below(4) == 0).then(|| places[random.below(places.len())]);
+  let mut renamed = String::with_capacity(text.len() + places.len());
+  for (index, piece) in pieces.iter().enumerate() {
+    renamed.push_str(if *piece == word && Some(index) != left { &new_word } else { piece });
+  }
+  renamed
+}
+
 /// `text` with the line ends of `style`: 0 and 1 its own, 2 `\r\n` for each `\n`, 3 a lone `\r` after the lines
 /// that hold a line comment or whose bytes add up to a multiple of three (by the line alone: a line both sides have
 /// ends the same on both); `cut`: without its last line end
@@ -1055,14 +1164,118 @@ fn with_line_ends(text: &str, style: usize, cut: bool) -> String {
   styled
 }
 
-/// What holds of the marks of every diff: each run is in one block of two sides that is not cut off, in order and
+/// What the navigation says of a rename of a diff, read apart from the code that found it: the places of each side
+/// asked with the other name (the reading of `code_symbols::names_at_test::is_one_local`)
+struct RenameFacts {
+  /// The places of both sides are a value of its body alone, every name of which the scopes bind
+  value: bool,
+  /// For each place, whether it is the name of the binding and nothing else on both sides
+  plain: Vec<bool>,
+}
+
+/// The facts of each rename of `diff`, a diff of the texts `texts` of a file at `path`. A rename holds when each
+/// side says: every place is the same binding, its names are the places and no other, the places that declare it
+/// are those the rename names, and for a name bound inside a body the other name changes no binding
+fn rename_facts(path: &str, diff: &TextDiff, texts: [&str; 2]) -> Vec<RenameFacts> {
+  let grammar = grammar_of(path).unwrap();
+  diff
+    .marks
+    .renames
+    .iter()
+    .map(|rename| {
+      let context = format!("{path}: {} of {}", show_rename(rename), show(diff));
+      let count = rename.sites as usize;
+      assert!(count > 0 && rename.old != rename.new && !rename.declared.is_empty(), "{context}");
+      let mut facts = RenameFacts {
+        value: rename.local,
+        plain: vec![true; count],
+      };
+      for (side, (sites, other)) in [(&rename.old_sites, &rename.new), (&rename.new_sites, &rename.old)].into_iter().enumerate() {
+        let sites = sites.as_chunks::<3>().0;
+        assert_eq!(sites.len(), count, "{context}");
+        let questions: Vec<NameQuestion<'_>> = sites
+          .iter()
+          .map(|site| NameQuestion {
+            position: Position { line: site[0], column: site[1] },
+            renamed_to: Some(other),
+          })
+          .collect();
+        let found = names_at(grammar, texts[side], &questions);
+        // a place inside a string (a name a format string captures) is a name of the binding and no place to ask at
+        let entry = found
+          .asked
+          .iter()
+          .flatten()
+          .next()
+          .copied()
+          .unwrap_or_else(|| panic!("{context}: no name at a place of side {side}"));
+        assert!(
+          found.asked.iter().flatten().all(|asked| *asked == entry),
+          "{context}: the places of side {side} are not one binding"
+        );
+        let name = &found.names[entry];
+        for (asked, used) in found.asked.iter().zip(&name.uses) {
+          assert!(asked.is_some() || used.site != Site::Plain, "{context}: no name at a plain place of side {side}");
+        }
+        assert_eq!(name.local.is_some(), rename.local, "{context}: side {side}");
+        assert_eq!(
+          name.clashes.as_ref().is_some_and(Vec::is_empty),
+          rename.local,
+          "{context}: side {side} clashes {:?}",
+          name.clashes
+        );
+        let used: Vec<[u32; 3]> = name.uses.iter().map(|used| [used.start.line, used.start.column, used.end_column]).collect();
+        assert_eq!(used, sites, "{context}: the names of side {side}");
+        let declared: Vec<u32> = (0u32..)
+          .zip(&name.uses)
+          .filter(|(_, used)| used.access == Access::Declaration)
+          .map(|(index, _)| index)
+          .collect();
+        assert_eq!(declared, rename.declared, "{context}: side {side}");
+        facts.value &= name.local.is_some_and(LocalBinding::is_of_body_alone);
+        for (plain, used) in facts.plain.iter_mut().zip(&name.uses) {
+          *plain &= used.site == Site::Plain;
+        }
+      }
+      facts
+    })
+    .collect()
+}
+
+/// The tokens of the two texts with the two names of every place of every rename of `marks` read as one: a text of
+/// that place alone on both sides
+fn renames_read_as_one(marks: &DiffMarks, old: &Tokens, new: &Tokens) -> [Tokens; 2] {
+  let side = |tokens: &Tokens, new_side: bool| {
+    let mut texts = Vec::new();
+    for (number, rename) in (0u64..).zip(&marks.renames) {
+      let sites = if new_side { &rename.new_sites } else { &rename.old_sites };
+      for (place, site) in (0u64..).zip(sites.as_chunks::<3>().0) {
+        // a place inside a string (a name a format string captures) is no token of its own, and in no run
+        if let Some(token) = tokens.place_at(site[0], site[1]) {
+          texts.push((token, 0x5eed_0000_0000_0000 | (number << 24) | place));
+        }
+      }
+    }
+    tokens.with_texts(texts)
+  };
+  [side(old, false), side(new, true)]
+}
+
+/// What holds of the marks of every diff as they are proven (`read_pair`): each run is in one block of two sides that is not cut off, in order and
 /// without overlap, with lines on both sides; a run of formatting has the same tokens, a run of comments the same
-/// code; a move has its old lines in one block that is a change and its new lines in another, none of them in a run
-/// or in another move, and the block of its new lines has a start; a block has a start exactly when a line of it is
-/// to read, a new line in no quiet run or an old line in no quiet run that no move took; and when no block of a diff
-/// that ignores nothing (`exact`) has a start, the two texts are the same program
-fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: bool) {
+/// code; a run of the kind `Renamed` has the same tokens once the two names of each place of a rename are read as
+/// one, holds such a place, holds none that makes more of its name or declares a name that is not local, and is
+/// quiet only when each of its places is a value of its body alone (`rename_facts`, the navigation asked again);
+/// every run the first reading of the blocks finds, from the tokens of the texts as they are, lies in a run of its
+/// kind: a rename takes no line that changed in its formatting or its comments alone; a
+/// move has its old lines in one block that is a change and its new lines in another, none of them in a run or in
+/// another move, and the block of its new lines has a start; a block has a start exactly when a line of it is to
+/// read, a new line in no quiet run or an old line in no quiet run that no move took; and when no block of a diff
+/// that ignores nothing (`exact`) has a start, the two texts are the same program but for the names of its renames
+pub(crate) fn check_marks(path: &str, diff: &TextDiff, texts: [&str; 2], old: &Tokens, new: &Tokens, exact: bool) {
   let marks = &diff.marks;
+  let facts = rename_facts(path, diff, texts);
+  let [old_as_one, new_as_one] = renames_read_as_one(marks, old, new);
   let (mut old_end, mut new_end) = (0, 0);
   for run in &marks.runs {
     let context = format!("{path}: {run:?} of {}", show(diff));
@@ -1074,9 +1287,52 @@ fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: b
       .iter()
       .find(|block| block.old_start <= run.old_start && run.old_end <= block.old_end && block.new_start <= run.new_start && run.new_end <= block.new_end);
     assert!(block.is_some_and(|block| block.kind != BlockKind::Ignored), "{context}");
-    let answer = compare(old.in_lines(run.old_start..run.old_end), new.in_lines(run.new_start..run.new_end));
-    let expected = if run.kind == RunKind::Formatting { Equality::Same } else { Equality::CodeOnly };
-    assert_eq!((answer, run.quiet), (expected, is_quiet(run.kind)), "{context}");
+    if run.kind == RunKind::Renamed {
+      let answer = compare(old_as_one.in_lines(run.old_start..run.old_end), new_as_one.in_lines(run.new_start..run.new_end));
+      assert_eq!(answer, Equality::Same, "{context}");
+      // the places in the run: each is the rename and nothing else, on the line of the run on both sides
+      let mut proven = true;
+      let mut places = 0;
+      for (rename, facts) in marks.renames.iter().zip(&facts) {
+        for (place, (old_site, new_site)) in rename.old_sites.as_chunks::<3>().0.iter().zip(rename.new_sites.as_chunks::<3>().0).enumerate() {
+          let inside = run.old_start <= old_site[0] && old_site[0] < run.old_end;
+          assert_eq!(
+            inside,
+            run.new_start <= new_site[0] && new_site[0] < run.new_end,
+            "{context}: place {place} of {}",
+            show_rename(rename)
+          );
+          if inside {
+            assert!(facts.plain[place], "{context}: place {place} of {} makes more of its name", show_rename(rename));
+            assert!(
+              rename.local || !rename.declared.contains(&u32::try_from(place).unwrap()),
+              "{context}: a declaration of {}",
+              show_rename(rename)
+            );
+            places += 1;
+            proven &= facts.value;
+          }
+        }
+      }
+      assert!(places > 0, "{context}: no place of a rename");
+      assert!(!run.quiet || (proven && has_proof(run.kind)), "{context}: quiet without a proof");
+    } else {
+      let answer = compare(old.in_lines(run.old_start..run.old_end), new.in_lines(run.new_start..run.new_end));
+      let expected = if run.kind == RunKind::Formatting { Equality::Same } else { Equality::CodeOnly };
+      assert_eq!((answer, run.quiet), (expected, has_proof(run.kind)), "{context}");
+    }
+  }
+  // the first reading of the blocks, where the pair has runs at all
+  if let Some(grammar) = pair_grammar(path, path).filter(|_| fits_inner(texts[0], diff.old_line_count) && fits_inner(texts[1], diff.new_line_count)) {
+    let read = |new_side: bool| Some(Arc::new(if new_side { new.clone() } else { old.clone() }));
+    let first = read_blocks(diff, &SideText::new(grammar, texts[0]), &SideText::new(grammar, texts[1]), false, &read);
+    for run in first.runs.iter().flatten() {
+      let held = marks
+        .runs
+        .iter()
+        .any(|held| held.kind == run.kind && held.old_start <= run.old_start && run.old_end <= held.old_end && held.new_start <= run.new_start && run.new_end <= held.new_end);
+      assert!(held, "{path}: {run:?} of the first reading is in no run of its kind of {}", show(diff));
+    }
   }
   let in_run = |new_side: bool, line: u32, quiet_only: bool| {
     marks.runs.iter().filter(|run| run.quiet || !quiet_only).any(|run| {
@@ -1131,13 +1387,14 @@ fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: b
   }
   assert_eq!(starts.next(), None, "{path}: {}", show(diff));
   if exact && marks.starts.is_empty() {
-    assert_eq!(compare(old.all(), new.all()), Equality::Same, "{path}: nothing to read of {}", show(diff));
+    assert_eq!(compare(old_as_one.all(), new_as_one.all()), Equality::Same, "{path}: nothing to read of {}", show(diff));
   }
 }
 
 /// Every file of the corpus against itself after random edits, under each policy, with its own line ends, with
 /// `\r\n`, with lone `\r` among them and without the last one, and after the edits with some lines at another
-/// place: the question before the tokens changes no run (`read`), and the marks hold what `check_marks` asks
+/// place: the question before the tokens changes no run and no rename (`read`), and the marks hold what
+/// `check_marks` asks
 #[test]
 fn the_marks_of_edited_files_are_proven_by_their_tokens() {
   let mut random = Random(0x9e37_79b9_7f4a_7c15);
@@ -1158,7 +1415,7 @@ fn the_marks_of_edited_files_are_proven_by_their_tokens() {
       };
       for policy in [Exact, Ignore, IgnoreBlankLines] {
         let diff = read(&path, &text, &new, policy);
-        check_marks(&path, &diff, &old_tokens, &new_tokens, policy == Exact);
+        check_marks(&path, &diff, [&text, &new], &old_tokens, &new_tokens, policy == Exact);
         runs += diff.marks.runs.len();
         quiet_files += usize::from(!diff.blocks.is_empty() && diff.marks.starts.is_empty());
       }
@@ -1166,7 +1423,7 @@ fn the_marks_of_edited_files_are_proven_by_their_tokens() {
       let new = with_line_ends(&moved(&new.replace("\r\n", "\n").replace('\r', "\n"), &mut moves_random), ends, false);
       let Some(new_tokens) = tokens(grammar, &new) else { continue };
       let diff = read(&path, &text, &new, Exact);
-      check_marks(&path, &diff, &old_tokens, &new_tokens, true);
+      check_marks(&path, &diff, [&text, &new], &old_tokens, &new_tokens, true);
       moves += diff.marks.moves.len();
       moves_with_runs += usize::from(!diff.marks.moves.is_empty() && !diff.marks.runs.is_empty());
     }
@@ -1174,6 +1431,44 @@ fn the_marks_of_edited_files_are_proven_by_their_tokens() {
   // the edits do make runs, files with nothing left to read, moves, and files with moves beside runs
   assert!(runs > 100 && quiet_files > 5, "{runs} runs, {quiet_files} files without a start");
   assert!(moves > 100 && moves_with_runs > 20, "{moves} moves, {moves_with_runs} files with moves and runs");
+}
+
+/// Every file of the corpus against itself with a name renamed in all of it (`renamed`), alone and beside random
+/// edits, with its own line ends, with `\r\n` and with lone `\r` among them: the question before the tokens changes
+/// no run and no rename (`read`), and the marks hold what `check_marks` asks, the navigation asked again of each
+/// rename among it
+#[test]
+fn the_renames_of_files_with_a_name_renamed_are_proven_by_their_bindings() {
+  let mut random = Random(0x6a09_e667_f3bc_c908);
+  // `MARKS_RENAMES=200 cargo nextest run --release -p file-diffs -E 'test(the_renames_of_files)'` asks more of them
+  let count = std::env::var("MARKS_RENAMES").ok().and_then(|count| count.parse().ok()).unwrap_or(2);
+  let (mut renames, mut local_renames, mut quiet_runs, mut labels) = (0, 0, 0, 0);
+  for (path, text) in corpus() {
+    let grammar = grammar_of(&path).unwrap();
+    for _ in 0..count {
+      let ends = random.below(4);
+      for edits in [false, true] {
+        let base = if edits { edited(&text, &mut random) } else { text.clone() };
+        let new = with_line_ends(&renamed(&base, &mut random), ends, false);
+        let old = with_line_ends(&text, ends, false);
+        let (Some(old_tokens), Some(new_tokens)) = (tokens(grammar, &old), tokens(grammar, &new)) else {
+          continue;
+        };
+        let diff = read(&path, &old, &new, Exact);
+        check_marks(&path, &diff, [&old, &new], &old_tokens, &new_tokens, true);
+        renames += diff.marks.renames.len();
+        local_renames += diff.marks.renames.iter().filter(|rename| rename.local).count();
+        quiet_runs += diff.marks.runs.iter().filter(|run| run.kind == RunKind::Renamed && run.quiet).count();
+        labels += diff.marks.runs.iter().filter(|run| run.kind == RunKind::Renamed && !run.quiet).count();
+      }
+    }
+  }
+  // the renamed words do make renames, of names bound inside a body and of others, with runs that are passed and
+  // runs that are labels
+  assert!(
+    renames > 100 && local_renames > 100 && quiet_runs > 10 && labels > 40,
+    "{renames} renames, {local_renames} of them local, {quiet_runs} quiet runs and {labels} labels of renamed lines"
+  );
 }
 
 /// `count` statements of Kotlin in a function, each a call of four arguments
@@ -1207,14 +1502,17 @@ fn a_block_over_a_limit_of_work_has_no_run_cut_out_of_it() {
   let kotlin = |text: &str| tokens(Grammar::Kotlin, text).unwrap();
   let (old, new) = ("fun f() {\n  first()\n  call(a, b)\n}\n", "fun f() {\n    first()\n    call(b, a)\n}\n");
   let lines = BlockLines { old: 1..3, new: 1..3 };
-  let runs = |work: &mut u64| runs_of_block(&kotlin(old), &kotlin(new), &lines, &|_, _| true, work).len();
+  let runs = |work: &mut u64| runs_of_block(&kotlin(old), &kotlin(new), &lines, &ANY_TEXT, work, &mut |_, _| {}).map(|runs| runs.len());
   let mut work = MAX_FILE_TOKEN_WORK;
-  assert_eq!(runs(&mut work), 1);
+  assert_eq!(runs(&mut work), Some(1));
   let spent = MAX_FILE_TOKEN_WORK - work;
   assert!(spent > 0);
-  assert_eq!(runs(&mut (spent - 1)), 0);
+  assert_eq!(runs(&mut (spent - 1)), None);
   let same = BlockLines { old: 1..2, new: 1..2 };
-  assert_eq!(runs_of_block(&kotlin(old), &kotlin(new), &same, &|_, _| true, &mut 0).len(), 1);
+  assert_eq!(
+    runs_of_block(&kotlin(old), &kotlin(new), &same, &ANY_TEXT, &mut 0, &mut |_, _| {}).map(|runs| runs.len()),
+    Some(1)
+  );
 
   // a side of more tokens than the limit, a real change at its end: nothing is cut out of it
   let lines = MAX_BLOCK_TOKENS / 9 + 1;
@@ -1246,19 +1544,25 @@ fn the_marks_template_has_each_case_in_a_block_of_its_own() {
       // `accounts` moved in, the wrapped call, `describe` moved in, the three places of `total`, `accounts` moved
       // out, the comment, `isEmpty`, `describe` moved out, `reportTitle` moved out. `accounts` moved with the blank
       // line that was before it and is after it now; `describe` moved with the one after it, was indented and has an
-      // edited line. The blocks the two left have no start
+      // edited line. The blocks the two left have no start. The three of the local `total`, which is `sum` now, are
+      // each a run of a renamed name: a label with its start, until the kind is switched on (`is_quiet`)
       "blocks [5..5/5..10, 6..7/11..14, 11..11/18..25, 13..14/27..28, 16..17/30..31, 19..20/33..34, 21..26/35..35, 27..28/36..37, 32..33/41..42, 45..52/54..54, 53..58/55..55] \
-       runs [6..7/11..14 formatting quiet, 27..28/36..37 comments] \
+       runs [6..7/11..14 formatting quiet, 13..14/27..28 renamed, 16..17/30..31 renamed, 19..20/33..34 renamed, 27..28/36..37 comments] \
        moves [22..26->5..9 blanks 1+0, 45..52->18..25 indent +2 edited 1] \
+       renames [total->sum local declared [0] at 13:8 16:8 19:11 / 27:8 30:8 33:11] \
        starts [0, 1, 5, 2, 1, 18, 3, 1, 27, 4, 1, 30, 5, 1, 33, 7, 1, 36, 8, 1, 41, 10, 0, 53]"
         .to_string(),
     ),
-    // the two calls of `openStore`, `reportTitle` moved in
+    // the two calls of `openStore`, which the file does not declare: no rename of its own; `reportTitle` moved in
     (
       "src/Report.kt",
       "blocks [4..5/4..5, 10..11/10..11, 16..16/16..21] runs [] starts [0, 1, 4, 1, 1, 10, 2, 1, 16]".to_string(),
     ),
-    ("src/Store.kt", "blocks [18..19/18..19] runs [] starts [0, 1, 18]".to_string()),
+    // the declaration of `openStore`, which is `connectStore` now: a rename with one place, read
+    (
+      "src/Store.kt",
+      "blocks [18..19/18..19] runs [] renames [openStore->connectStore declared [0] at 18:4 / 18:4] starts [0, 1, 18]".to_string(),
+    ),
   ];
   assert_eq!(shown, expected);
 }
