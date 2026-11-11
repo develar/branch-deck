@@ -190,3 +190,26 @@ fn a_name_is_of_its_namespace_and_an_item_sees_no_binding_around_it() {
     (true, vec![(4, Access::Declaration), (6, Access::Read), (9, Access::Read)])
   );
 }
+
+/// The argument of a generic that is one name is written as a type and may be a constant: a const parameter, a
+/// constant of the file; never a binding
+#[test]
+fn an_argument_of_a_generic_is_a_constant_or_a_const_parameter() {
+  let text = "struct Array<const N: usize>([u8; N]);\nimpl<const N: usize> Array<N> { fn len(&self) -> usize { N } }\nconst CAP: usize = 4;\nfn f() -> Array<CAP> { todo!() }\nfn g<const M: usize>(a: Array<M>) -> usize { M }\nfn h(n: usize) { let a: Array<n> = todo!(); }\n";
+  let found = |needle: &str, occurrence: usize| kind_and_local(RUST, text, needle, occurrence);
+  assert_eq!(found("N> {", 0), (ReferenceKind::Type, Some((1, 11))));
+  assert_eq!(found("CAP>", 0), (ReferenceKind::Type, Some((2, 6))));
+  assert_eq!(found("M>", 0), (ReferenceKind::Type, Some((4, 11))));
+  assert_eq!(found("n>", 0), (ReferenceKind::Type, None));
+  assert_eq!(usages(RUST, text, "M:", 0), (true, vec![(4, Access::Declaration), (4, Access::Read), (4, Access::Read)]));
+}
+
+/// A name goes to the binding the compiler binds it to: a `let` after its statement, an `if let` and a `while let`
+/// in what they guard, a `let … else` after it, an arm in its guard and its value, an item in an item. The readings
+/// of `testdata/navigate/scopes.rs` are rustc's (edition 2024)
+#[test]
+fn a_name_is_bound_where_the_compiler_binds_it() {
+  let (wrong, reads) = crate::test_support::readings_unlike_the_compiler(RUST, "scopes.rs", (2, 3));
+  assert!(wrong.is_empty(), "{} of {reads} reads go wrong:\n{}", wrong.len(), wrong.join("\n"));
+  assert_eq!(reads, 70);
+}

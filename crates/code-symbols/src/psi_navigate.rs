@@ -134,6 +134,12 @@ pub(crate) trait Scoping<L: TreeLanguage> {
     true
   }
 
+  /// The kind a name of the kind is read as where the scopes declare nothing of that kind for it: a constant for the
+  /// type of C#'s `x is Max`
+  fn else_reads(&self, _leaf: NodeId, _kind: ReferenceKind) -> Option<ReferenceKind> {
+    None
+  }
+
   /// The node whose scope a leaf opens (Java's `{` of an anonymous class)
   fn opens_at(&self, _leaf: NodeId) -> Option<NodeId> {
     None
@@ -201,7 +207,10 @@ pub(crate) fn resolve<L: TreeLanguage, T>(reading: &Reading<L, T>, language_tree
           },
           ReferenceKind::Declaration => (syntactic, Some(node)),
           ReferenceKind::Member | ReferenceKind::MemberCall => (syntactic, None),
-          _ => (syntactic, given.unwrap_or_else(|| by_scopes(syntactic))),
+          _ => (
+            syntactic,
+            given.unwrap_or_else(|| by_scopes(syntactic).or_else(|| scoping.else_reads(node, syntactic).and_then(by_scopes))),
+          ),
         };
         names.push(Named { leaf: node, kind, binding });
         if until == Some(node) {

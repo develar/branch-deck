@@ -19,8 +19,9 @@
 //!   use); the binding of a `let` after its statement (`let total = total + 1` reads the `total` before it), the one of
 //!   an `if let` or a `while let` in the rest of the condition and the block it guards, the one of a `for` in its
 //!   body; a binding shadows an item. A name sees the declarations of its namespace (`Space`): a type, and a segment
-//!   before `::`, a type, a module or a type parameter; the name of a macro call and of an attribute a macro; any
-//!   other name everything but a macro. A member binds to nothing.
+//!   before `::`, a type, a module, a type parameter, or a constant or a const parameter (the argument of a generic,
+//!   `Array<N>`, is written as a type); the name of a macro call and of an attribute a macro; any other name
+//!   everything but a macro. A member binds to nothing.
 //! - **Locals**: a declaration in a function or a closure, which no other file sees.
 //! - **Access**: a declaration, a call, a name in a `use` (`Import`), the end of the left side of an assignment
 //!   (`Write`), else `Read`.
@@ -276,7 +277,8 @@ const fn is_scope(kind: K) -> bool {
 /// What a name may be, as Rust keeps its namespaces apart
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Space {
-  /// A type, a module, a type parameter: a name in a type, and a segment of a path before `::`
+  /// A type, a module, a type parameter, and the constant or the const parameter a generic takes as an argument: a
+  /// name in a type, and a segment of a path before `::`
   Type,
   /// A macro: the name of a macro call and of an attribute
   Macro,
@@ -306,9 +308,10 @@ impl Space {
   fn holds(self, declaration: K) -> bool {
     let is_macro = matches!(declaration, K::MACRO_RULES | K::MACRO_DEF);
     match self {
+      // an argument of a generic that is one name is parsed as a type, and may be a constant: `Array<N>`, `Array<CAP>`
       Self::Type => matches!(
         declaration,
-        K::STRUCT | K::UNION | K::ENUM | K::VARIANT | K::TRAIT | K::TYPE_ALIAS | K::MODULE | K::TYPE_PARAM | K::RENAME
+        K::STRUCT | K::UNION | K::ENUM | K::VARIANT | K::TRAIT | K::TYPE_ALIAS | K::MODULE | K::TYPE_PARAM | K::CONST_PARAM | K::CONST | K::RENAME
       ),
       Self::Macro => is_macro || declaration == K::RENAME,
       Self::Value => !is_macro,

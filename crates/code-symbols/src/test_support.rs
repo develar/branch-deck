@@ -191,6 +191,45 @@ pub(crate) fn usages(grammar: crate::highlight::Grammar, text: &str, needle: &st
   (found.local, found.usages.iter().map(|it| (it.start.line, it.access)).collect())
 }
 
+/// The readings of the name `s` in a fixture of `testdata/navigate/` that differ from the compiler's, and how many
+/// it has. Such a file gives every read of `s` to a function of what it reads: `f` of the declaration of the file at
+/// `outer`, `p` (or `r`) of the `s` its own line declares, the first `s` of the line that is no such argument. The
+/// functions take types of their own, so the file compiles only as it is tagged: the expectations are the
+/// compiler's, not the test's. The header of each test names the compiler
+pub(crate) fn readings_unlike_the_compiler(grammar: crate::highlight::Grammar, name: &str, outer: (u32, u32)) -> (Vec<String>, usize) {
+  use crate::navigate::{Position, reference_at};
+  let (_, source) = fixture(&format!("navigate/{name}"));
+  let text = String::from_utf8(source).unwrap();
+  let is_word = |it: Option<char>| it.is_some_and(|it| it == '_' || it.is_alphanumeric());
+  let (mut wrong, mut reads) = (Vec::new(), 0);
+  for (number, line) in text.lines().enumerate() {
+    let number = u32::try_from(number).unwrap();
+    let words = line
+      .match_indices('s')
+      .map(|it| it.0)
+      .filter(|&at| !is_word(line[..at].chars().next_back()) && !is_word(line[at + 1..].chars().next()));
+    let is_read = |at: &usize| {
+      ["f(", "p(", "r("]
+        .iter()
+        .any(|it| line[..*at].strip_suffix(it).is_some_and(|before| !is_word(before.chars().next_back())))
+    };
+    let declared = words.clone().find(|at| !is_read(at)).map(|at| (number, u32::try_from(at).unwrap()));
+    for at in words.filter(is_read) {
+      let expected = if line[..at].ends_with("f(") { Some(outer) } else { declared };
+      let position = Position {
+        line: number,
+        column: u32::try_from(at).unwrap(),
+      };
+      let found = reference_at(grammar, &text, position).and_then(|it| it.local).map(|it| (it.line, it.column));
+      if found != expected {
+        wrong.push(format!("{found:?}, not {expected:?}, at column {at} of\n{line}"));
+      }
+      reads += 1;
+    }
+  }
+  (wrong, reads)
+}
+
 /// The references of a line as `text#container`, sorted
 pub(crate) fn line_references(summary: &FileSummary, line: u32) -> Vec<String> {
   let mut texts: Vec<String> = summary

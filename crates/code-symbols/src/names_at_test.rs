@@ -130,6 +130,8 @@ const JAVA: &str = "class Ledger {
     Runnable task = new Runnable() { public void run() { use(total, scale); } };
     return total;
   }
+  @GetMapping(USER) User get(@PathVariable String id) { return find(id); }
+  @Override public String name(@NotNull String plain) { return plain; }
 }
 ";
 const CSHARP: &str = r#"class Ledger {
@@ -151,7 +153,7 @@ const CSHARP: &str = r#"class Ledger {
     Func<int, int> twice = item => item * 2;
     int Local(int size) => size + total;
     total other = default;
-    var doubled = twice(total);
+    var doubled = twice(total); var same = scale is total;
     again: scale--; if (scale > 0) goto again;
     return total;
   }
@@ -334,7 +336,7 @@ fn java_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
       ),
       // the field of the same spelling, with the call and the type no variable is
       ("total;", 0, None, "-: 1:7 declaration, 11:31 call, 11:76 read, 15:4 read"),
-      // a parameter: Java has no named arguments; its use in the anonymous class may be a member the class inherits
+      // a parameter under no annotation: no call names it; its use in the anonymous class may be a member the class inherits
       (
         "scale)",
         0,
@@ -361,6 +363,10 @@ fn java_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
       ("text)", 0, None, "variable: 13:72 declaration, 13:87 read"),
       // the element of an annotation
       ("scale =", 0, None, "-: 14:11 read named argument"),
+      // a parameter under an annotation of a framework, which may bind by its name
+      ("id)", 0, None, "parameter named by calls: 20:50 declaration, 20:68 read"),
+      // the annotations of the language and of nullability read no name
+      ("plain)", 0, None, "parameter: 21:47 declaration, 21:63 read"),
     ],
   );
 }
@@ -371,12 +377,12 @@ fn csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
     Grammar::CSharp,
     CSHARP,
     &[
-      // a local with several uses: an element of a tuple and a member of an anonymous type it names, `nameof`, an interpolation, the argument of a call of a delegate; not the member an initializer names, not a type
+      // a local with several uses: an element of a tuple and a member of an anonymous type it names, `nameof`, an interpolation, the argument of a call of a delegate, the right side of an `is` (a constant while no type has the name); not the member an initializer names, not a type
       (
         "total = 0",
         0,
         Some("sum"),
-        "variable: 3:9 declaration, 5:6 write, 6:23 write, 8:38 write, 9:16 read shorthand, 10:21 read shorthand, 11:32 read, 12:18 read, 13:22 read spelled, 13:34 read, 17:34 read, 19:24 read, 21:11 read | 15:60 captured",
+        "variable: 3:9 declaration, 5:6 write, 6:23 write, 8:38 write, 9:16 read shorthand, 10:21 read shorthand, 11:32 read, 12:18 read, 13:22 read spelled, 13:34 read, 17:34 read, 19:24 read, 19:52 read namesake, 21:11 read | 15:60 captured",
       ),
       // the field of the same spelling, with what no variable is: the member an initializer names, the named argument, the type
       ("total;", 0, None, "-: 1:7 declaration, 11:24 write, 12:11 read named argument, 12:35 read, 18:4 read"),
@@ -385,7 +391,7 @@ fn csharp_names_are_bound_by_their_scopes_with_their_sites_and_clashes() {
         "scale)",
         0,
         Some("entry"),
-        "parameter named by calls: 2:40 declaration, 5:30 read, 8:24 read, 9:23 read shorthand, 10:35 read shorthand, 20:11 write, 20:24 read | 5:30 shadowed",
+        "parameter named by calls: 2:40 declaration, 5:30 read, 8:24 read, 9:23 read shorthand, 10:35 read shorthand, 19:43 read, 20:11 write, 20:24 read | 5:30 shadowed",
       ),
       // the local of a nested block
       ("inner = 2", 0, Some("total"), "variable: 6:12 declaration, 6:32 read | 6:23 captured"),
@@ -945,6 +951,90 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "the label may be a constant of the enum",
     ),
     (
+      Grammar::Java,
+      "class A {\n  Res total, sum;\n  String f(Object o) {\n    if (o instanceof Res total) { return \"then \" + total; } else { return \"else \" + total; }\n  }\n}\n",
+      "class A {\n  Res total, sum;\n  String f(Object o) {\n    if (o instanceof Res sum) { return \"then \" + sum; } else { return \"else \" + sum; }\n  }\n}\n",
+      false,
+      "the else reads another field now: the variable of the pattern is not in it",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  Res total, sum;\n  String f(Object o) {\n    if (!(o instanceof Res total)) { return \"then \" + total; }\n    return \"after \" + total;\n  }\n}\n",
+      "class A {\n  Res total, sum;\n  String f(Object o) {\n    if (!(o instanceof Res sum)) { return \"then \" + sum; }\n    return \"after \" + sum;\n  }\n}\n",
+      false,
+      "the branch of the test that did not match reads another field now",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  Res total, sum;\n  boolean f(Object o) { return o instanceof Res total || total.ok(); }\n}\n",
+      "class A {\n  Res total, sum;\n  boolean f(Object o) { return o instanceof Res sum || sum.ok(); }\n}\n",
+      false,
+      "the operand after || reads another field now",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  Res total, sum;\n  String f(Object o) { return o instanceof Res total ? \"t \" + total : \"f \" + total; }\n}\n",
+      "class A {\n  Res total, sum;\n  String f(Object o) { return o instanceof Res sum ? \"t \" + sum : \"f \" + sum; }\n}\n",
+      false,
+      "the third operand reads another field now",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  boolean f(Object o) {\n    if (!(o instanceof String total)) return false;\n    return total.isEmpty();\n  }\n}\n",
+      "class A {\n  boolean f(Object o) {\n    if (!(o instanceof String sum)) return false;\n    return sum.isEmpty();\n  }\n}\n",
+      true,
+      "the variable of a pattern and its use after the statement that leaves without it",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  Res total, sum;\n  void f(StringBuilder b) {\n    try (Res total = open()) { b.append(total); }\n    finally { b.append(total); }\n  }\n}\n",
+      "class A {\n  Res total, sum;\n  void f(StringBuilder b) {\n    try (Res sum = open()) { b.append(sum); }\n    finally { b.append(sum); }\n  }\n}\n",
+      false,
+      "the finally reads another field now: the resource is not in it",
+    ),
+    (
+      Grammar::Java,
+      "class A {\n  Res total, sum;\n  void f(StringBuilder b) {\n    try (Res total = open()) { b.append(total); }\n    catch (RuntimeException e) { b.append(total); }\n  }\n}\n",
+      "class A {\n  Res total, sum;\n  void f(StringBuilder b) {\n    try (Res sum = open()) { b.append(sum); }\n    catch (RuntimeException e) { b.append(sum); }\n  }\n}\n",
+      false,
+      "the catch reads another field now",
+    ),
+    (
+      Grammar::Java,
+      "class A { void f() { try (Res total = open()) { use(total); } finally { done(); } } }\n",
+      "class A { void f() { try (Res sum = open()) { use(sum); } finally { done(); } } }\n",
+      true,
+      "a resource and its use in the block of the try",
+    ),
+    (
+      Grammar::Java,
+      "class Users {\n  @GetMapping(\"/users/{id}\")\n  User get(@PathVariable String id) {\n    return repo.find(id);\n  }\n}\n",
+      "class Users {\n  @GetMapping(\"/users/{id}\")\n  User get(@PathVariable String userId) {\n    return repo.find(userId);\n  }\n}\n",
+      false,
+      "the framework binds the variable of the path by the name of the parameter",
+    ),
+    (
+      Grammar::Java,
+      "interface Users {\n  @Query(\"select u from User u where u.name = :name\")\n  User find(String name);\n}\n",
+      "interface Users {\n  @Query(\"select u from User u where u.name = :name\")\n  User find(String label);\n}\n",
+      false,
+      "the query names the parameter",
+    ),
+    (
+      Grammar::Java,
+      "@Service class Users { User get(String id) { return repo.find(id); } }\n",
+      "@Service class Users { User get(String key) { return repo.find(key); } }\n",
+      false,
+      "a framework may read the parameters of a class it manages",
+    ),
+    (
+      Grammar::Java,
+      "class Users { @Override public User get(@NotNull String id) { return repo.find(id); } }\n",
+      "class Users { @Override public User get(@NotNull String key) { return repo.find(key); } }\n",
+      true,
+      "the annotations of the language and of nullability read no name",
+    ),
+    (
       Grammar::CSharp,
       "class A { void F() { var total = 1; Use(total, $\"{total}\"); } }\n",
       "class A { void F() { var sum = 1; Use(sum, $\"{sum}\"); } }\n",
@@ -1020,6 +1110,41 @@ fn a_change_of_names_is_the_rename_of_one_local_only_where_both_sides_bind_alike
       "class A {\n  int total, sum;\n  object F(int[] xs) { return from x in xs let sum = sum + x select sum; }\n}\n",
       false,
       "the value of the let reads another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { string x = \"field\"; string y; string F() {\n  lock (Get(out var x)) { Use(x); }\n  return x;\n} }\n",
+      "class A { string x = \"field\"; string y; string F() {\n  lock (Get(out var y)) { Use(y); }\n  return x;\n} }\n",
+      false,
+      "the statement after the lock read the variable, and reads the field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { const int Max = 5; bool F(int x) { const int Max = 1; Use(Max); return x is Max; } }\n",
+      "class A { const int Max = 5; bool F(int x) { const int Top = 1; Use(Top); return x is Max; } }\n",
+      false,
+      "the pattern reads the constant of the class now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A { bool F(int x) { const int Max = 1; return x is Max; } }\n",
+      "class A { bool F(int x) { const int Top = 1; return x is Top; } }\n",
+      false,
+      "a type of the new name, declared anywhere, would take the pattern",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  int[] item, part;\n  object F(int[] xs) { return from item in xs join y in item on item equals y select y; }\n}\n",
+      "class A {\n  int[] item, part;\n  object F(int[] xs) { return from part in xs join y in part on part equals y select y; }\n}\n",
+      false,
+      "the source of the join is another field now",
+    ),
+    (
+      Grammar::CSharp,
+      "class A {\n  Row s, t;\n  object F(int[] xs) { return from x in xs where Get(out var s) && s.Ok select s; }\n}\n",
+      "class A {\n  Row s, t;\n  object F(int[] xs) { return from x in xs where Get(out var t) && t.Ok select t; }\n}\n",
+      false,
+      "the select reads another field now: the variable of the where ends with it",
     ),
     (
       Grammar::CSharp,

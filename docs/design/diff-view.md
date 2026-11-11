@@ -1029,7 +1029,8 @@ spelling asked once (`navigate::Names::resolve`: every name of a spelling with i
 declaration its scopes bind it to; one implementation per parser, the one `usages_at` and `usages_of` read, so Find
 Usages is the same answer without its sites). An entry says what a body declares the local as (a variable, a
 parameter, a lambda parameter, a loop variable, a catch parameter, else `other`; whether code outside its body may
-name it: a call by a named argument, an attribute macro of Rust), its uses with what each site makes of the name
+name it: a call by a named argument, an attribute macro of Rust, a framework that reads the annotations of a Java
+method and binds by the names of its parameters), its uses with what each site makes of the name
 beside the binding (`{ total }`, `nameof(total)`, the tokens of a macro), and for a new name asked with the place its
 clashes. The clashes are one more resolution, of the names of the new spelling and the uses of the local as one name:
 a use that then binds to another declaration is shadowed, a name of the new spelling that binds to the local is
@@ -1041,7 +1042,8 @@ argument, the field of a Rust struct before its colon, the member a C# initializ
 So `S { total: total }` → `S { total: sum }` reads as the rename of one local, and `total::run(total)` →
 `sum::run(sum)` does not. And where only the types tell whether a name is the local its scopes give it, the use says
 so (`Site::Namesake`): a called Kotlin value, a name that is all of a Java `case` label, a name in a Java class that
-may inherit a member of that spelling.
+may inherit a member of that spelling, a name that is all of the right side of a C# `is` (a constant only while no
+type has the name).
 
 Such a reader proves a rename by the scopes, so they read code as each language does, and a difference is a defect
 whichever way it goes: a scope too wide binds a name to a local the language reads as another, a scope too narrow
@@ -1049,10 +1051,19 @@ loses a use, and a change that leaves that use in place then passes in silence (
 neither side sees it). Hence the value of a Kotlin or a Rust variable reads the name before it
 (`let total = total + 1`); a name a Starlark `def` binds is one variable in all of it, as a parameter and the `var`s of
 its name are in a JavaScript function; the default of a parameter is read outside the body; a Kotlin local comes
-before a member of a class inside its body; the statements of the sections of a C# `switch` share its block and a
-query reads its clauses in their order; a Rust item sees no binding around it. The differences that are left need
-types or another file; [Name Bindings](../../openspec/specs/commit/name-bindings/spec.md) lists them, and the quiet
-of a rename waits for its measurement on real ranges.
+before a member of a class inside its body, and a parameter of its primary constructor is seen by its initializers
+alone; the statements of the sections of a C# `switch` share its block, a query reads its clauses in their order and
+each of its lambdas ends what it declares; the variable of a Java pattern is seen where its test is known to have
+matched (`java/pattern_scope.rs`, JLS 6.3), a resource of a `try` by its block; a Rust item sees no binding around it.
+
+The scopes are checked against the compilers. A fixture per language (`crates/code-symbols/testdata/navigate/`)
+gives every read of a name `s` to a function of what it reads, `f` of the declaration of the file and `p` of the one
+its line declares, and the two take types of their own: the file compiles only as it is tagged, so the expectations
+of the test that reads it (`test_support::readings_unlike_the_compiler`) are javac's, csc's, kotlinc's, rustc's and
+tsc's; the Starlark fixture checks itself when run as Python. A new rule of scope starts as a line of such a file.
+The differences that are left need types, another file or the flow of the code;
+[Name Bindings](../../openspec/specs/commit/name-bindings/spec.md) lists them, and the quiet of a rename waits for
+its measurement on real ranges.
 
 | 200 places of a file of 250 functions, each a local asked with a new name (`benches/names_bench.rs`, the Studio at load 9 of 20 cores) | together | one by one |
 |---|---|---|

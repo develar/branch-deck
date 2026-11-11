@@ -12,25 +12,31 @@
 //! - **Its declaration** by the scopes around it, in one walk of the tree that keeps only the declarations of that
 //!   name: a class sees its members, its record components and its type parameters wherever they are declared (the
 //!   last one before the name, else the first), a method its type parameters, and a method, a lambda, a block, a `for`,
-//!   a `catch`, a `try` and a switch rule the parameters and locals declared before the name, a statement the pattern
-//!   variables of its condition (`highlight::is_pattern_scope`). The collection of a `for (T item : items)` is read
-//!   before its variable is, the variable of a pattern of a `case …:` is of the statements of its label alone, and a
-//!   name is of the kind of thing its place reads, as Java keeps them apart: a call is of a method (a record
+//!   a `catch`, a `try` and a switch rule the parameters and locals declared before the name. The collection of a
+//!   `for (T item : items)` is read before its variable is; a resource of a `try` is seen by the resources after it
+//!   and the block of the `try`, not by a `catch` or the `finally`; the variable of the pattern of an `instanceof`
+//!   where the test is known to have matched (`pattern_scope::PatternScope`: the branch, the operands and the
+//!   statements Java sees it in); the variable of a pattern of a `case …:` is of the statements of its label alone;
+//!   and a name is of the kind of thing its place reads, as Java keeps them apart: a call is of a method (a record
 //!   component too), a type of a class or a type parameter, a value of no method (`Scoping::sees`). `break` and
 //!   `continue` go to their label. A member after a qualifier has none.
 //! - **The usages** of a local (declared in a method, a lambda or an initializer) are the names bound to it; those of
 //!   any other name are its names that no local binds, each with how it uses the name (`access_of`).
 //! - **What a local is** (`local_of`, openspec/specs/commit/name-bindings/spec.md): a local variable, a resource and a
 //!   pattern variable a variable, the variable of a `for` of either form, the parameter of a `catch`, of a lambda and
-//!   of a method, which no call names (Java has no named arguments); a label, a local class, the members of a local or
-//!   an anonymous class and a type parameter are `Other`.
+//!   of a method; a label, a local class, the members of a local or an anonymous class and a type parameter are
+//!   `Other`. No call names a parameter (Java has no named arguments), but a framework that reads annotations binds
+//!   by the names the compiler keeps: the parameter of a method or a constructor says so where it, its method or a
+//!   class around it has an annotation that is not one of the language, of nullability or of the static checks
+//!   (`is_read_by_annotation`).
 //! - **Its site** (`site_of`): a label and the name of a `break` or a `continue`, the name of an element of an
 //!   annotation, a variable of a record pattern; and a namesake where only the types tell whether the name is the
 //!   variable the scopes give it: a name that is all of a `case` label (a constant of the enum the `switch` is over,
 //!   whatever is in scope) and a name in a class that has a supertype and stands inside the body of the variable (a
 //!   member it inherits would hide the variable).
 
-use super::highlight::{anonymous_body, is_callee, is_class, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
+use super::highlight::{anonymous_body, is_callee, is_class, is_local_scope, is_path_owner, name_leaf, qualifier, reference_owner, text_of};
+use super::pattern_scope::{PatternScope, is_pattern_scope, test_of};
 use crate::navigate::{Access, LocalBinding, LocalKind, ReferenceKind, Site};
 use crate::psi_navigate::{Binding, IsNamed, Reading, Scoping, access_by_kind, is_local_in, is_within, parent_kind};
 use java_syntax::psi;
@@ -64,7 +70,8 @@ pub(crate) const NAVIGATION: Reading<java_syntax::Java, Tree> = Reading {
   name_start: |tree, leaf| tree.range(leaf).start,
 };
 
-/// What a local declares, by its declaration and what it is a part of
+/// What a local declares, by its declaration and what it is a part of. No call names a parameter; code that reads
+/// annotations may (`is_read_by_annotation`)
 fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
   let around = |node: NodeId| parent_kind(tree, node);
   LocalBinding::of(match kind {
@@ -79,13 +86,90 @@ fn local_of(tree: &Tree, declaration: NodeId, kind: NodeKind) -> LocalBinding {
       Some((_, NodeKind::CATCH_SECTION)) => LocalKind::CatchParameter,
       Some((list, NodeKind::PARAMETER_LIST)) => match around(list) {
         Some((_, NodeKind::LAMBDA_EXPRESSION)) => LocalKind::LambdaParameter,
-        Some((_, NodeKind::METHOD)) => LocalKind::Parameter,
+        Some((_, NodeKind::METHOD)) => {
+          return LocalBinding {
+            kind: LocalKind::Parameter,
+            named_by_calls: is_read_by_annotation(tree, declaration),
+          };
+        }
         _ => LocalKind::Other,
       },
       _ => LocalKind::Other,
     },
     _ => LocalKind::Other,
   })
+}
+
+/// The annotations of the language, of nullability and of the static checks, which make no code read the name of a
+/// parameter: by their last name, however they are qualified (`ApiStatus.Internal`)
+const INERT_ANNOTATIONS: [&str; 51] = [
+  "AvailableSince",
+  "Blocking",
+  "CanIgnoreReturnValue",
+  "CheckForNull",
+  "CheckReturnValue",
+  "Contract",
+  "Deprecated",
+  "Experimental",
+  "FunctionalInterface",
+  "Generated",
+  "GuardedBy",
+  "Immutable",
+  "Internal",
+  "Language",
+  "MagicConstant",
+  "MonotonicNonNull",
+  "MustBeInvokedByOverriders",
+  "Nls",
+  "NlsSafe",
+  "NonBlocking",
+  "NonExtendable",
+  "NonNls",
+  "NonNull",
+  "NonNullApi",
+  "NonNullByDefault",
+  "NonNullFields",
+  "Nonnull",
+  "NotNull",
+  "NotNullByDefault",
+  "NotThreadSafe",
+  "NullMarked",
+  "NullUnmarked",
+  "Nullable",
+  "Obsolete",
+  "Override",
+  "OverrideOnly",
+  "ParametersAreNonnullByDefault",
+  "ParametersAreNullableByDefault",
+  "PolyNull",
+  "PropertyKey",
+  "RegExp",
+  "SafeVarargs",
+  "ScheduledForRemoval",
+  "Serial",
+  "SuppressWarnings",
+  "TestOnly",
+  "ThreadSafe",
+  "UnknownNullability",
+  "Unmodifiable",
+  "UnmodifiableView",
+  "VisibleForTesting",
+];
+
+/// Whether code outside the body may read the name of a parameter of a method or a constructor: the parameter, its
+/// method or a class around it stands under an annotation that is not one of the language or its checks. A framework
+/// that reads annotations binds by the names the compiler keeps (`-parameters`): a request's `@PathVariable String
+/// id`, the `:name` of a `@Query`, the properties of a constructor
+fn is_read_by_annotation(tree: &Tree, parameter: NodeId) -> bool {
+  let annotated = |node: &NodeId| matches!(tree.node_kind(*node), Some(NodeKind::PARAMETER | NodeKind::METHOD | NodeKind::CLASS));
+  let is_inert = |annotation: NodeId| {
+    let name = psi::annotation::get_name_reference_element(tree, annotation).and_then(|it| name_leaf(tree, it));
+    name.is_some_and(|it| INERT_ANNOTATIONS.contains(&text_of(tree, it)))
+  };
+  std::iter::successors(Some(parameter), |&it| tree.parent(it))
+    .filter(annotated)
+    .filter_map(|it| tree.first_child_of_kind(it, NodeKind::MODIFIER_LIST))
+    .any(|list| psi::modifier_list::get_annotations(tree, list).any(|it| !is_inert(it)))
 }
 
 /// What the site of a name makes of it beside its binding (`Site`)
@@ -244,6 +328,13 @@ impl Scoping<java_syntax::Java> for JavaScopes<'_> {
     name_leaf(self.tree, node).filter(|&it| declares && (self.is_named)(it))
   }
 
+  /// A pattern variable its statement introduces to the statements after it is declared in the block of that
+  /// statement (`PatternScope::after`)
+  fn declares_in(&self, node: NodeId) -> Option<NodeId> {
+    let after = test_of(self.tree, node).and_then(|test| PatternScope::of(self.tree, test).after)?;
+    self.tree.parent(after)
+  }
+
   fn is_scope(&self, node: NodeId, kind: NodeKind) -> bool {
     // an anonymous class opens its scope at its `{` (`anonymous_body`)
     (is_scope(kind) && kind != NodeKind::ANONYMOUS_CLASS) || is_pattern_scope(self.tree, node, kind)
@@ -255,11 +346,14 @@ impl Scoping<java_syntax::Java> for JavaScopes<'_> {
 
   /// A name sees the declarations of the kind of thing its place reads: a call a method (the accessor of a record
   /// component too), a type a class or a type parameter, a value no method. The collection of a
-  /// `for (T item : items)`, the expression after its colon, is read before its variable is, and the variable of a
-  /// pattern of a `case …:` is seen by the statements of its label alone
+  /// `for (T item : items)`, the expression after its colon, is read before its variable is; a resource of a `try`
+  /// is seen by the resources after it and by the block of the `try`, not by a `catch` or the `finally`; the variable
+  /// of the pattern of an `instanceof` where the test is known to have matched (`PatternScope`); and the variable of
+  /// a pattern of a `case …:` by the statements of its label alone
   fn sees(&self, scope: NodeId, declared: NodeId, leaf: NodeId, kind: ReferenceKind) -> bool {
     let tree = self.tree;
-    let declares = parent_kind(tree, declared).map(|it| it.1);
+    let declaration = parent_kind(tree, declared);
+    let declares = declaration.map(|it| it.1);
     let method = matches!(declares, Some(NodeKind::METHOD | NodeKind::ANNOTATION_METHOD));
     let of_kind = match kind {
       ReferenceKind::Call => method || declares == Some(NodeKind::RECORD_COMPONENT),
@@ -273,6 +367,15 @@ impl Scoping<java_syntax::Java> for JavaScopes<'_> {
       let colon = tree.children(scope).find(|&it| tree.token_kind(it) == Some(TokenKind::COLON));
       let collection = colon.and_then(|it| std::iter::successors(tree.next_sibling(it), |&it| tree.next_sibling(it)).find(|&it| !tree.is_leaf(it)));
       return !collection.is_some_and(|it| is_within(tree, leaf, it));
+    }
+    if declares == Some(NodeKind::RESOURCE_VARIABLE) && tree.node_kind(scope) == Some(NodeKind::TRY_STATEMENT) {
+      let block = tree.first_child_of_kind(scope, NodeKind::CODE_BLOCK);
+      let resources = tree.first_child_of_kind(scope, NodeKind::RESOURCE_LIST);
+      return [block, resources].into_iter().flatten().any(|it| is_within(tree, leaf, it));
+    }
+    let pattern = declaration.filter(|it| matches!(it.1, NodeKind::PATTERN_VARIABLE | NodeKind::DECONSTRUCTION_PATTERN_VARIABLE));
+    if let Some(test) = pattern.and_then(|it| test_of(tree, it.0)) {
+      return PatternScope::of(tree, test).holds(tree, leaf);
     }
     // the variable of a pattern of a `case …:` is of the statements of its label alone, up to the next label
     let in_scope = |node: NodeId| std::iter::successors(Some(node), |&it| tree.parent(it)).find(|&it| tree.parent(it) == Some(scope));

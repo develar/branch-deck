@@ -223,3 +223,13 @@ fn a_type_is_of_no_variable_and_an_enum_sees_its_members() {
     (true, vec![(2, 8, Access::Declaration), (6, 21, Access::Read), (7, 10, Access::Read)])
   );
 }
+
+/// A name goes to the declaration the compiler binds it to: a `const` in its block, a `var` in its function, a
+/// parameter in its defaults and its body, the parameter of a `catch` in its block alone, never a member of a class.
+/// The readings of `testdata/navigate/scopes.ts` are tsc's (7.0)
+#[test]
+fn a_name_is_bound_where_the_compiler_binds_it() {
+  let (wrong, reads) = crate::test_support::readings_unlike_the_compiler(Grammar::TypeScript, "scopes.ts", (2, 14));
+  assert!(wrong.is_empty(), "{} of {reads} reads go wrong:\n{}", wrong.len(), wrong.join("\n"));
+  assert_eq!(reads, 69);
+}

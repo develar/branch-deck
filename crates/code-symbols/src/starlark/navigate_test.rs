@@ -164,3 +164,13 @@ fn the_name_of_a_named_argument_is_bound_to_no_local() {
   assert_eq!(kind_and_local(Grammar::Starlark, text, "name)", 1), (ReferenceKind::Value, Some((0, 6))));
   assert_eq!(usages(Grammar::Starlark, text, "name)", 0), (true, vec![(0, Access::Declaration), (1, Access::Read)]));
 }
+
+/// A name goes to what the language binds it to: the variable of a comprehension in all of it but its first
+/// collection, the parameter of a `lambda` in its body, a default and a first collection outside their scope. The
+/// readings of `testdata/navigate/scopes.bzl` are checked by running it (as Python 3, whose scopes these are)
+#[test]
+fn a_name_is_bound_where_the_language_binds_it() {
+  let (wrong, reads) = crate::test_support::readings_unlike_the_compiler(Grammar::Starlark, "scopes.bzl", (2, 0));
+  assert!(wrong.is_empty(), "{} of {reads} reads go wrong:\n{}", wrong.len(), wrong.join("\n"));
+  assert_eq!(reads, 41);
+}

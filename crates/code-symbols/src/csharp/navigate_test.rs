@@ -3,7 +3,7 @@
 
 use crate::highlight::Grammar;
 use crate::navigate::{Access, ReferenceKind, reference_at, usages_at, usages_of};
-use crate::test_support::{at, kind_and_local, place, usages};
+use crate::test_support::{at, kind_and_local, place, readings_unlike_the_compiler, usages};
 use pretty_assertions::assert_eq;
 
 const SCOPES: &str = "class A<T> {
@@ -141,18 +141,25 @@ fn the_sections_of_a_switch_share_its_block() {
   );
 }
 
-/// A loop, a `lock` and a statement that is the body of another without a block end the variables their expressions
-/// declare; the variable of an `if` is of the statements around it
+/// A loop and a statement that is the body of another without a block end the variables their expressions declare;
+/// the variable of an `if` and of a `lock` is of the statements around it
 #[test]
 fn a_loop_and_an_embedded_statement_end_the_variables_of_their_expressions() {
-  let text = "class A {\n  int x, y, z, w;\n  void F(object o, bool c) {\n    while (o is int x) { Use(x); }\n    Use(x);\n    if (c) Use(out var y);\n    Use(y);\n    do { } while (Next(out var z));\n    Use(z);\n    lock (Get(out var w)) { Use(w); }\n    Use(w);\n    if (o is string s) { }\n    Use(s);\n  }\n}\n";
+  let text = "class A {\n  int x, y, z, w, v;\n  void F(object o, bool c) {\n    while (o is int x) { Use(x); }\n    Use(x);\n    if (c) Use(out var y);\n    Use(y);\n    do { } while (Next(out var z));\n    Use(z);\n    lock (Get(out var w)) { Use(w); }\n    Use(w);\n    if (o is string s) { }\n    Use(s);\n    lock (o) Use(out var v);\n    Use(v);\n  }\n}\n";
   let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence).1;
   assert_eq!((local("x); }", 0), local("x);\n", 0)), (Some((3, 20)), Some((1, 6))));
   assert_eq!(local("y);\n    do", 0), Some((1, 9)));
   assert_eq!(local("z);\n    lock", 0), Some((1, 12)));
-  assert_eq!((local("w); }", 0), local("w);\n    if", 0)), (Some((9, 22)), Some((1, 15))));
+  // what the expression of a `lock` declares lives on after it, as what the condition of an `if` does
+  assert_eq!((local("w); }", 0), local("w);\n    if", 0)), (Some((9, 22)), Some((9, 22))));
   assert_eq!(local("s);", 0), Some((11, 20)));
+  // but not what its body without a block declares
+  assert_eq!(local("v);\n  }", 0), Some((1, 18)));
   assert_eq!(usages(Grammar::CSharp, text, "x)", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
+  assert_eq!(
+    usages(Grammar::CSharp, text, "w)", 0),
+    (true, vec![(9, Access::Declaration), (9, Access::Read), (10, Access::Read)])
+  );
 }
 
 /// The top-level statements of a file share one scope: a local of one is read by the next and by a local function
@@ -170,12 +177,13 @@ fn the_top_level_statements_of_a_file_share_a_scope() {
   );
 }
 
-/// A query reads its clauses in their order: the source of a `from`, the value of a `let` and the source and the left
-/// key of a `join` before their own variable, the right key that variable alone; `into` ends the variables before it.
-/// The collection of a `foreach` is read before the variables of its deconstruction
+/// A query reads its clauses in their order: the source of a `from`, the value of a `let` and the left key of a `join`
+/// before their own variable, the source of a `join` before every variable of the query, the right key the variable
+/// of the `join` alone; `into` ends the variables before it. The collection of a `foreach` is read before the
+/// variables of its deconstruction
 #[test]
 fn a_query_reads_its_clauses_in_their_order() {
-  let text = "class A {\n  Box item, part;\n  object F(int[] xs) {\n    var a = from item in item.Parts let part = part + item select part;\n    var b = from x in xs join item in item.Parts on item equals item into g select g;\n    var c = from x in xs group x by x into g select item;\n    foreach (var (item, n) in item.Pairs) { Use(item, n); }\n    return from x in xs group x by x into g select x;\n  }\n}\n";
+  let text = "class A {\n  Box item, part;\n  object F(int[] xs) {\n    var a = from item in item.Parts let part = part + item select part;\n    var b = from x in xs join item in item.Parts on item equals item into g select g;\n    var c = from x in xs group x by x into g select item;\n    foreach (var (item, n) in item.Pairs) { Use(item, n); }\n    var d = from item in xs join y in item.Parts on item equals y select item;\n    return from x in xs group x by x into g select x;\n  }\n}\n";
   let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence).1;
   // the source of the `from` and the value of the `let` read the fields, what follows the range variables
   assert_eq!(
@@ -193,6 +201,12 @@ fn a_query_reads_its_clauses_in_their_order() {
   assert_eq!((local("item;", 0), local("x;", 0)), (Some((1, 6)), None));
   // the collection of the `foreach` is the field's, its body reads the variable
   assert_eq!((local("item.Pairs", 0), local("item, n);", 0)), (Some((1, 6)), Some((6, 18))));
+  // the source of a `join` sees no variable of its query, the `from` before it either: the field; its keys and
+  // what follows read the variables
+  assert_eq!(
+    (local("item.Parts on", 1), local("item equals", 1), local("item;", 1)),
+    (Some((1, 6)), Some((7, 17)), Some((7, 17)))
+  );
 }
 
 /// A name where C# reads a type is of a type, never of a variable; the member an initializer names and the name of
@@ -215,4 +229,32 @@ fn a_type_and_a_member_an_initializer_names_are_of_no_variable() {
     usages(Grammar::CSharp, text, "total = 1", 0),
     (true, vec![(3, Access::Declaration), (5, Access::Read), (6, Access::Read)])
   );
+}
+
+/// The right side of an `is` is a type where one of the name is declared, else a constant, a constant pattern: a
+/// constant of the class, a local constant
+#[test]
+fn the_right_side_of_an_is_is_a_constant_where_no_type_of_the_name_is_declared() {
+  let text = "class Max {}\nclass A {\n  const int Top = 5;\n  bool F(object x) {\n    const int Limit = 1, Max = 2;\n    return x is Top || x is Limit || x is Max || x is not Limit || x is Other;\n  }\n}\n";
+  let found = |needle: &str, occurrence: usize| kind_and_local(Grammar::CSharp, text, needle, occurrence);
+  assert_eq!(found("Top ||", 0), (ReferenceKind::Type, Some((2, 12))));
+  assert_eq!(found("Limit ||", 0), (ReferenceKind::Type, Some((4, 14))));
+  // a type of the name comes before a constant of it, a local one too
+  assert_eq!(found("Max ||", 0), (ReferenceKind::Type, Some((0, 6))));
+  // a pattern after `not` is a constant by its syntax; a name nothing declares has no declaration
+  assert_eq!(found("Limit ||", 1), (ReferenceKind::Value, Some((4, 14))));
+  assert_eq!(found("Other", 0), (ReferenceKind::Type, None));
+  assert_eq!(
+    usages(Grammar::CSharp, text, "Limit", 0),
+    (true, vec![(4, Access::Declaration), (5, Access::Read), (5, Access::Read)])
+  );
+}
+
+/// A variable an expression declares, and any other local, is seen where C# scopes it, in every statement, member
+/// and clause that may hold one. The readings of `testdata/navigate/Scopes.cs` are the compiler's (csc 3.9)
+#[test]
+fn a_variable_of_an_expression_is_seen_where_the_compiler_sees_it() {
+  let (wrong, reads) = readings_unlike_the_compiler(Grammar::CSharp, "Scopes.cs", (3, 13));
+  assert!(wrong.is_empty(), "{} of {reads} reads go wrong:\n{}", wrong.len(), wrong.join("\n"));
+  assert_eq!(reads, 141);
 }

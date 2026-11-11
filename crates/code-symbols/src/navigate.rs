@@ -127,8 +127,10 @@ impl LocalKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LocalBinding {
   pub kind: LocalKind,
-  /// A call may write the name, as a named argument: a parameter of a function with a name, a method or a constructor
-  /// of Kotlin, C# and Starlark. Such a call is no use the scopes bind, so the uses are not all that spell the name
+  /// Code outside the body may name the parameter, so the uses the scopes bind are not all that spell the name: a
+  /// call by a named argument (a function with a name, a method or a constructor of Kotlin, C# and Starlark), an
+  /// attribute macro on a Rust function, a framework that reads the annotations of a Java method or its class and
+  /// binds by the names of the parameters
   pub named_by_calls: bool,
 }
 
@@ -157,7 +159,8 @@ pub enum Site {
   /// Only the types tell whether the name is the binding the scopes give it: a value called or written after `::` in
   /// Kotlin (its `invoke`, or a function of its spelling), a name that is all of a `case` label of Java (a constant of
   /// the enum the `switch` is over), a name in a Java class with a supertype inside the body of the binding (a member
-  /// the class inherits hides it)
+  /// the class inherits hides it), a name that is all of the right side of a C# `is` (a type of that name, declared
+  /// anywhere, comes before the constant)
   Namesake,
   /// The spelling of the name is a value there: `nameof(total)`
   Spelled,

@@ -13,8 +13,12 @@
 //!   (`val name = name.trim()` reads another `name`), the variable of a `for` after its range, and a name before the
 //!   declarations of its block is of a scope around it; the condition of a `do … while` sees what the block of its
 //!   body declares. As Kotlin finds a local before a member of an implicit receiver, a member of a class or an object
-//!   gives way to a variable, a parameter or a function that code around the class declares; and a name where a
-//!   type is written is of a class, an object, a type alias or a type parameter, never of a value. The declarations
+//!   gives way to a variable, a parameter or a function that code around the class declares; a parameter of a
+//!   primary constructor that declares no property is seen only by the header, the initializers and the `init`
+//!   blocks of its class, never by a function of it; the members of a companion are seen in all of its class; a
+//!   class that is not `inner` and an object in the body of a class see no property or function of the instances
+//!   around them; and a name where a type is written is of a class, an object, a type alias or a type parameter,
+//!   never of a value. The declarations
 //!   of the name are found in one pass over the leaves and filed under the scopes that see them (`Declarations`), so
 //!   the usages of a name cost a pass and a climb per usage, not a walk of the scopes per name.
 //! - **A local** is a declaration inside code (a function, an `init` block, a block or a `catch` of an initializer) or
@@ -314,6 +318,66 @@ impl Names<'_> {
         .any(|it| matches!(tree.token_kind(it), Some(TokenKind::VAL_KEYWORD | TokenKind::VAR_KEYWORD)))
   }
 
+  /// Whether the name `leaf` sees the declared name where it stands in the scope that declares it. A parameter of a
+  /// primary constructor that declares no property is seen only by what runs as the constructor does: the header of
+  /// its class (a default, the call of a supertype, a delegate), the initializers and the delegates of its properties
+  /// and its `init` blocks, with the lambdas and the objects inside them; a function, an accessor, a secondary
+  /// constructor and a class of the body of the class never see it
+  fn is_seen(&self, declared: NodeId, leaf: NodeId) -> bool {
+    let tree = self.tree;
+    let parameter = tree.parent(declared).filter(|&it| self.kind(it) == Some(NodeKind::VALUE_PARAMETER));
+    let constructor = parameter
+      .and_then(|it| tree.parent(it))
+      .and_then(|it| tree.parent(it))
+      .filter(|&it| self.kind(it) == Some(NodeKind::PRIMARY_CONSTRUCTOR));
+    let (Some(parameter), Some(class)) = (parameter, constructor.and_then(|it| tree.parent(it))) else {
+      return true;
+    };
+    if self.is_property_parameter(parameter) {
+      return true;
+    }
+    let Some(body) = tree.children(class).find(|&it| self.kind(it) == Some(NodeKind::CLASS_BODY)) else {
+      return true;
+    };
+    // the member of the body the name stands in, and the nodes from the name up to it; none in the header
+    let mut inside = std::iter::successors(Some(leaf), |&it| tree.parent(it)).take_while(|&it| it != body && it != class);
+    let Some(member) = inside.clone().find(|&it| tree.parent(it) == Some(body)) else {
+      return true;
+    };
+    match self.kind(member) {
+      Some(NodeKind::CLASS_INITIALIZER) => true,
+      Some(NodeKind::PROPERTY) => !inside.any(|it| self.kind(it) == Some(NodeKind::PROPERTY_ACCESSOR)),
+      _ => false,
+    }
+  }
+
+  /// Whether a class or an object declared in the body of a class sees no instance of that class: a class that is
+  /// not `inner`, an object, a companion. A name inside reads the classes, the objects and the companion of the
+  /// classes around it, never their properties and functions
+  fn is_nested(&self, class: NodeId) -> bool {
+    let nested = match self.kind(class) {
+      Some(NodeKind::CLASS) => !psi::kt_class_is_inner(self.tree, class),
+      Some(NodeKind::OBJECT_DECLARATION) => true,
+      _ => false,
+    };
+    nested && self.parent_kind(class) == Some(NodeKind::CLASS_BODY)
+  }
+
+  /// Whether a declared name is a property or a function of an instance of a class: of its body or of its
+  /// constructor, not of an object or a companion in it
+  fn is_of_instance(&self, declared: NodeId) -> bool {
+    let tree = self.tree;
+    let Some(declaration) = tree.parent(declared) else { return false };
+    match self.kind(declaration) {
+      Some(NodeKind::VALUE_PARAMETER) => self.is_property_parameter(declaration),
+      Some(NodeKind::PROPERTY | NodeKind::FUN) => {
+        let body = tree.parent(declaration).filter(|&it| self.kind(it) == Some(NodeKind::CLASS_BODY));
+        body.is_some_and(|it| self.parent_kind(it) == Some(NodeKind::CLASS))
+      }
+      _ => false,
+    }
+  }
+
   /// Whether a declared name is a classifier, which a type may name: a class, an object, a type alias, a type parameter
   fn declares_type(&self, declared: NodeId) -> bool {
     matches!(
@@ -487,7 +551,11 @@ impl Declarations {
           if let Some(condition) = names.condition_after(node) {
             found.by_scope.entry(condition.0).or_default().push(leaf);
           }
-          break;
+          // the members of a companion are seen in all of the class it is the companion of
+          let companion = kind == Some(NodeKind::OBJECT_DECLARATION) && psi::kt_object_declaration_is_companion(tree, node);
+          if !companion {
+            break;
+          }
         }
         current = tree.parent(node);
       }
@@ -509,8 +577,9 @@ impl Declarations {
   /// the last such before the name; else the first where the order of the scope does not count (a member declared
   /// after its use). A scope of code that declares the name only later is no scope of the name. A member of a class
   /// or an object gives way to what code around the class declares (a local is found before an implicit receiver),
-  /// but not to a declaration of the top level; where a type is written only a classifier is seen, and a value or
-  /// a call is of no type parameter
+  /// a parameter of a primary constructor where the name sees it (`is_seen`: `val name = name.trim()` reads the
+  /// parameter, a function of the class the property), but not to a declaration of the top level; where a type is
+  /// written only a classifier is seen, and a value or a call is of no type parameter
   fn binding(&self, names: &Names<'_>, leaf: NodeId, kind: ReferenceKind) -> Option<NodeId> {
     let tree = names.tree;
     let start = tree.range(leaf).start;
@@ -523,21 +592,32 @@ impl Declarations {
       }
     };
     let mut member = None;
+    // past a class that is not `inner`, an object or a companion: no instance of the classes around is in sight
+    let mut nested = false;
     let mut current = tree.parent(leaf);
     while let Some(node) = current {
       if let Some(found) = self.by_scope.get(&node.0) {
-        let mut seen = found.iter().copied().filter(|&it| of_kind(it));
-        let before = seen.clone().rev().find(|&it| names.seen_from(it) <= start);
-        let declared = before.or_else(|| seen.next().filter(|_| !names.reads_in_order(node)));
-        match declared {
-          Some(declared) if !of_type && names.is_member(declared) => {
-            member.get_or_insert(declared);
-          }
+        // of the members of the scope or of its other declarations: the last the name sees before it, else the first
+        // where the order does not count
+        let declared = |members: bool| {
+          let mut seen = found
+            .iter()
+            .copied()
+            .filter(|&it| of_kind(it) && names.is_seen(it, leaf) && !(nested && names.is_of_instance(it)) && (!of_type && names.is_member(it)) == members);
+          let before = seen.clone().rev().find(|&it| names.seen_from(it) <= start);
+          before.or_else(|| seen.next().filter(|_| !names.reads_in_order(node)))
+        };
+        // what is no member comes before a member, of this scope too: a parameter of the constructor of the class
+        match declared(false) {
           Some(declared) if member.is_none() || !names.is_top_level(node) => return Some(declared),
           Some(_) => return member,
           None => {}
         }
+        if let Some(declared) = declared(true) {
+          member.get_or_insert(declared);
+        }
       }
+      nested |= names.is_nested(node);
       current = tree.parent(node);
     }
     member

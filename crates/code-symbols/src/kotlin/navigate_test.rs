@@ -196,6 +196,29 @@ fn a_member_of_a_class_inside_a_body_gives_way_to_a_local_of_the_body() {
   );
 }
 
+/// A parameter of a primary constructor that declares no property is seen by what runs as the constructor does: a
+/// default, the call of the supertype, the initializers and the delegates of the properties, an `init` block, with
+/// the lambdas and the objects inside them, where it comes before a member; a function, an accessor, a class of the
+/// body and a secondary constructor read the name of a scope around the class. The readings are kotlinc's (2.4.20)
+#[test]
+fn a_parameter_of_a_primary_constructor_is_seen_by_the_initializers_of_its_class() {
+  let text = "val total = \"top\"\nopen class Base(val b: String)\nclass C(total: String, val other: String = total) : Base(total) {\n  fun g() = total\n  val own = total\n  val viaGetter: String get() = total\n  val init: String\n  init { init = total }\n  inner class I { val t = total }\n  val anon = object { val total = \"member\"; fun g() = total }.g()\n  val f = fun(): String = total\n  val l by lazy { total }\n  var viaSecondary = \"\"\n  constructor() : this(total) { viaSecondary = total }\n}\nclass Greeter(name: String) {\n  fun greet() = \"Hello, \" + name\n  private val name = name.trim() + \"!\"\n}\nclass Registry(project: String) {\n  class Entry(val project: String) {\n    fun f() = project\n  }\n}\n";
+  let local = |needle: &str, occurrence: usize| at(text, needle, occurrence).local.map(|it| (it.line, it.column));
+  let (file, parameter) = (Some((0, 4)), Some((2, 8)));
+  // the default, the call of the supertype, an initializer, an `init`, an object, a function and a lambda of an initializer
+  for occurrence in [2, 3, 5, 7, 10, 11, 12] {
+    assert_eq!(local("total", occurrence), parameter, "total {occurrence}");
+  }
+  // a function, a getter, a class of the body, the call and the body of a secondary constructor
+  for occurrence in [4, 6, 8, 13, 14] {
+    assert_eq!(local("total", occurrence), file, "total {occurrence}");
+  }
+  // a property of the name of the parameter: a function reads the property, its own initializer the parameter
+  assert_eq!((local("name", 1), local("name.trim", 0)), (Some((17, 14)), Some((15, 14))));
+  // the `val` of the constructor of a class inside, not the parameter of the class around it
+  assert_eq!(local("project\n", 0), Some((20, 18)));
+}
+
 /// The condition of a `do … while` sees what the block of its body declares; a name where a type is written is of no
 /// value, and the name of a named argument of no local
 #[test]
@@ -213,4 +236,14 @@ fn a_do_while_condition_sees_its_body_and_a_type_or_a_named_argument_is_no_local
   assert_eq!(found("total = report", 0), (ReferenceKind::Type, None));
   assert_eq!(found("total = total", 0), (ReferenceKind::Member, None));
   assert_eq!(places(&usages(text, "total:", 0)), [(1, 6, Access::Declaration), (4, 36, Access::Read)]);
+}
+
+/// A name goes to the declaration the compiler binds it to: a local where its scope has begun, a member of the class
+/// around it, of its companion, of the class an inner class is in, else the property of the file. The readings of
+/// `testdata/navigate/Scopes.kt` are kotlinc's (2.4.20)
+#[test]
+fn a_name_is_bound_where_the_compiler_binds_it() {
+  let (wrong, reads) = crate::test_support::readings_unlike_the_compiler(Grammar::Kotlin, "Scopes.kt", (2, 4));
+  assert!(wrong.is_empty(), "{} of {reads} reads go wrong:\n{}", wrong.len(), wrong.join("\n"));
+  assert_eq!(reads, 75);
 }

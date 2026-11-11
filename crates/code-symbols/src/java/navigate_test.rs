@@ -3,7 +3,7 @@
 
 use crate::highlight::Grammar;
 use crate::navigate::{Access, Position, ReferenceKind, reference_at, usages_of};
-use crate::test_support::{at, kind_and_local, place, usages};
+use crate::test_support::{at, kind_and_local, place, readings_unlike_the_compiler, usages};
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -153,7 +153,7 @@ fn a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere() {
   assert_eq!(kind_and_local(Grammar::Java, text, "name.isEmpty", 1).1, Some((5, 36)));
   // after them, and where the condition does not introduce it (`name == null` when false): the field
   assert_eq!(kind_and_local(Grammar::Java, text, "name.trim", 0).1, Some((1, 9)));
-  assert_eq!(kind_and_local(Grammar::Java, text, "name == null", 0).1, Some((5, 36)));
+  assert_eq!(kind_and_local(Grammar::Java, text, "name == null", 0).1, Some((1, 9)));
   assert_eq!(kind_and_local(Grammar::Java, text, "name.trim", 1).1, Some((1, 9)));
   // after an `if` that returns when it does not match, after a loop until it matches: the pattern variable
   assert_eq!(kind_and_local(Grammar::Java, text, "name.strip", 0).1, Some((7, 30)));
@@ -161,7 +161,7 @@ fn a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere() {
   // the field's usages are its own
   assert_eq!(
     usages(Grammar::Java, text, "name", 0),
-    (false, vec![(1, Access::Declaration), (4, Access::Read), (6, Access::Read)])
+    (false, vec![(1, Access::Declaration), (4, Access::Read), (5, Access::Read), (6, Access::Read)])
   );
 }
 
@@ -211,4 +211,19 @@ fn the_variable_of_a_case_pattern_ends_at_the_next_label() {
   let text = "class A {\n  Object i;\n  void f(Object o) {\n    switch (o) {\n      case Integer i when i > 0: use(i); break;\n      default: use(i);\n    }\n  }\n}\n";
   let local = |needle: &str, occurrence: usize| kind_and_local(Grammar::Java, text, needle, occurrence).1;
   assert_eq!((local("i > 0", 0), local("i); break", 0), local("i);\n", 0)), (Some((4, 19)), Some((4, 19)), Some((1, 9))));
+}
+
+/// The variable of the pattern of an `instanceof` is seen where the test is known to have matched (JLS 6.3): the
+/// operands after it, the branch and the body of its outcome, and the statements after a statement that leaves when
+/// it did not match; a resource of a `try` by the resources after it and the block of the `try`. The readings of
+/// `testdata/navigate/Scopes.java` are javac's (26)
+#[test]
+fn a_pattern_variable_and_a_resource_are_seen_where_java_sees_them() {
+  let (wrong, reads) = readings_unlike_the_compiler(Grammar::Java, "Scopes.java", (2, 8));
+  assert!(wrong.is_empty(), "{} of {reads} reads go wrong:\n{}", wrong.len(), wrong.join("\n"));
+  assert_eq!(reads, 140);
+  // the usages of the variable of a pattern are its reads, and the field keeps the others
+  let text = "class A {\n  String name;\n  void f(Object o) {\n    if (o instanceof String name) { use(name); } else { use(name); }\n  }\n}\n";
+  assert_eq!(usages(Grammar::Java, text, "name)", 0), (true, vec![(3, Access::Declaration), (3, Access::Read)]));
+  assert_eq!(usages(Grammar::Java, text, "name", 0), (false, vec![(1, Access::Declaration), (3, Access::Read)]));
 }

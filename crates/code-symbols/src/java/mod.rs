@@ -21,6 +21,7 @@
 
 pub(crate) mod highlight;
 pub(crate) mod navigate;
+mod pattern_scope;
 pub(crate) mod summary;
 pub(crate) mod tokens;
 
