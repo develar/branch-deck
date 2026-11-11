@@ -610,9 +610,10 @@ test.describe("Next step", () => {
     await expectClosed(popover)
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", SAFE_PUSH_ITEM).click()
-    // the retarget first, then the comment on the pull request it moved into master
+    // the retarget first, then the comment on the pull request it moved into master, once the start ran its checks:
+    // seconds under load (its answer waits for Patronus to report the robot of the comment, which the fake never starts)
     await expect
-      .poll(async () => gitHubWrites(await repo.getGitHubLog()))
+      .poll(async () => gitHubWrites(await repo.getGitHubLog()), { timeout: 0 })
       .toEqual([
         ["PATCH", repoPath("pulls", 7), { base: "master" }],
         ["POST", repoPath("issues", 7, "comments"), { body: "/patronus merge --keep-source-branch" }],
