@@ -5,7 +5,7 @@ import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { finishedSyncCount, moveClockUntil, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
-import { resizeReportsDelivered, waitForStorePersistence } from "../helpers/wait-helpers"
+import { resizeReportsDelivered, waitForStepFacts, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
 async function trackWidth(page: Page, track: string): Promise<number> {
@@ -58,6 +58,8 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
       patronus: availableRobots(robot("JIRA-456", "running-robot"), robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })),
     })
     await syncAndWaitForBranches()
+    // the restart comes once Patronus told why the robot failed, seconds under load
+    await waitForStepFacts(page.getByTestId("next-step-slot"))
     await expect(findBranchRow(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })).toBeVisible()
     await expect(findBranchRow(page, "feature-auth").getByRole("button", { name: "Safe Push", exact: true })).toBeVisible()
     await expect(page.getByTestId("push-button")).toHaveCount(0)
@@ -72,6 +74,8 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
   test("fits every label of a step in its column, so none truncates", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", { patronus: availableRobots(robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })) })
     await syncAndWaitForBranches()
+    // the restart comes once Patronus told why the robot failed, seconds under load
+    await waitForStepFacts(findBranchRow(page, "ABC-123").getByTestId("next-step-slot"))
     const step = findBranchRow(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
     await expect(step).toBeVisible()
     // the labels a step shows in its column (`compactLabel`, else `label`), with long numbers: each in the button of a
