@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { APP_COMMAND_CALLERS, STARTUP_MODULES, findProblems, lintArchitecture, readRegistry } from "./lint-arch.mjs"
+import { APP_COMMAND_CALLERS, START_TRUNCATED_MODULE, STARTUP_MODULES, findProblems, lintArchitecture, readRegistry } from "./lint-arch.mjs"
 
 /** The rules each line of `source` breaks, by line */
 function rulesOf(source) {
@@ -469,4 +469,24 @@ test("the focus token, a removed outline, a ring that is no focus and a test are
   assert.deepEqual(findProblems("src/components/Example.tsx", source), [])
   assert.deepEqual(findProblems("src/components/Example.test.tsx", 'const ring = "focus-visible:ring-3"'), [])
   assert.deepEqual(findProblems("tests/e2e/example.spec.ts", 'const ring = "focus-visible:ring-3"'), [])
+})
+
+test("a direction of rtl outside StartTruncatedText is refused: a dir, a style, a class", () => {
+  const source = [
+    '<span dir="rtl">{path}</span>',
+    "<span dir={wide ? 'rtl' : undefined}>{path}</span>",
+    'const style = { direction: "rtl" }',
+    'const cut = "min-w-0 truncate [direction:rtl]"',
+  ].join("\n")
+  assert.deepEqual(
+    findProblems("src/components/Example.tsx", source).map(problem => `${problem.line} ${problem.rule}`),
+    Array.from({ length: 4 }, (_, index) => `${index + 1} rtl-cut`),
+  )
+})
+
+test("the component of a cut path, a left-to-right direction, a comment and a test set no direction of rtl", () => {
+  assert.deepEqual(findProblems(START_TRUNCATED_MODULE, '<span dir="rtl"><bdi dir="ltr">{children}</bdi></span>'), [])
+  const source = ['<bdi dir="ltr">{path}</bdi>', '<span dir="auto">{name}</span>', '// dir="rtl" in a comment', 'const word = "rtl"'].join("\n")
+  assert.deepEqual(findProblems("src/components/Example.tsx", source), [])
+  assert.deepEqual(findProblems("src/components/Example.test.tsx", '<span dir="rtl" />'), [])
 })

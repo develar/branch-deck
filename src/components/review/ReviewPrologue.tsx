@@ -20,6 +20,7 @@ import { Disclosure } from "@/components/shared/Disclosure"
 import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { RowCardState } from "@/components/shared/RowCard"
 import { SectionLabel } from "@/components/shared/SectionLabel"
+import { StartTruncatedText } from "@/components/shared/StartTruncatedText"
 import { useHeadingCard } from "@/hooks/useHeadingCard"
 import { useRowCardHover } from "@/hooks/useRowCardHover"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
@@ -341,9 +342,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
       </div>
       <DottedParts className="text-xs text-muted-foreground" testId="review-plan-entry-facts">
         <DottedPart className="min-w-0 shrink">
-          <span className="min-w-0 truncate" title={entry.location} dir="rtl">
-            <bdi dir="ltr">{entry.location}</bdi>
-          </span>
+          <StartTruncatedText title={entry.location}>{entry.location}</StartTruncatedText>
         </DottedPart>
         {entry.changed !== null && (
           <DottedPart>
@@ -372,11 +371,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
               onClick={() => navigator?.showOutside(site.place)}
             >
               <span className="shrink-0 text-foreground">{site.name}</span>
-              {site.directory !== "" && (
-                <span className="min-w-0 truncate" dir="rtl">
-                  <bdi dir="ltr">{site.directory}</bdi>
-                </span>
-              )}
+              {site.directory !== "" && <StartTruncatedText>{site.directory}</StartTruncatedText>}
             </button>
           ))}
           {counts.length > 0 && (

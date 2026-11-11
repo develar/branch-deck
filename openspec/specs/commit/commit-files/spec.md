@@ -18,6 +18,7 @@ targets:
   - src/components/branch/BranchPreviewDialog.tsx
   - src/components/commit/InlineCommitFileDiff.tsx
   - src/components/files/FileTree.tsx
+  - src/components/shared/StartTruncatedText.tsx
   - src/components/files/FileContextMenu.tsx
   - src/lib/file-actions.ts
   - src/lib/file-tree.ts
@@ -814,6 +815,17 @@ A directory row MUST show the sums of the line counts of its subtree.
 - **WHEN** a directory holds files, some in its subdirectories
 - **THEN** its row shows the sums of the files and the line counts of its subtree
   [@test] src/lib/file-tree.test.ts (`sums the files and the line counts of each directory over its subtree`)
+
+### Requirement: Files section: A directory row starts its path at its icon, a long one cut from its start
+
+The path of a directory row MUST start right after its folder icon, however wide its row; a path wider than its row
+MUST give way from its start ("…"), so that its last folder stays in view by the counts.
+
+#### Scenario: A short and a long directory
+- **WHEN** the tree shows a directory one word long and a directory whose path is wider than its row
+- **THEN** the short path starts right after its icon, the room after it empty up to the counts
+- **AND** the long path is cut at its start, its end in view at the right of its box
+  [@test] tests/e2e/commit-files/commit-files.spec.ts (`should start the path of a directory at its icon and cut a long one from its start, its last folder kept`)
 
 ### Requirement: Files section: Directories start open, below the top level of a large commit collapsed
 
@@ -1945,8 +1957,8 @@ When the files cannot be read, the copy MUST show an error toast and copy nothin
 - The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, the focus outline
   inside the focused row (`bd-focus-inset`). A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).
-- A directory shows `FolderIcon` (`FolderOpenIcon` when open, `size-4` muted), its name (truncated, the full path in
-  its title) and its counts muted in `text-xs`.
+- A directory shows `FolderIcon` (`FolderOpenIcon` when open, `size-4` muted), its name right after it (cut from its
+  start by `StartTruncatedText`, its last folder kept, the full path in its title) and its counts muted in `text-xs`.
 - A file shows its status letter in `font-mono text-xs` in the status colour, where a directory has its folder icon,
   then its name in its status colour, IntelliJ's: added `text-success`, deleted muted and struck through (the letter
   never), the others `text-primary` (`FilePathLabel`). A rename adds `← api/Old.kt` muted, which gives way first. On

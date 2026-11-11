@@ -67,6 +67,11 @@
 //   shadow or the ring colour (`ring-3`, `ring-ring/30`, `outline-1`, `shadow-md`, `border-ring`), or the ring colour
 //   or a ring offset under any variant (`ring-ring`, `outline-ring/50`, `ring-offset-background`); `outline-none` and
 //   `outline-hidden` under a focus take the outline away and pass.
+// A path cut from its start is one component, `StartTruncatedText` of src/components/shared (docs/contributing/frontend.md,
+// "Paths"): a box of `dir="rtl"` starts its text at its right edge, so a box wider than its path pushed the path to the
+// right (the folders of the Files tree, 1.8.0):
+// - `rtl-cut`: a `dir` of `"rtl"` or a `direction` of rtl (`direction: "rtl"`, `[direction:rtl]`) in src (its tests
+//   aside) outside `StartTruncatedText.tsx`.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`) and of a write a test polls
 // (`e2e-remote-poll`, with the exact `count` of its findings in the file; `EXCEPTED_RULES`): every other rule holds
@@ -404,6 +409,13 @@ const FOCUS_REMOVING = /^outline-(?:none|hidden)$/
 /** The ring colour or a ring offset under any variant: the colour of the focus is the token's */
 const RING_COLOUR = /^(?:ring|inset-ring|outline|border(?:-[trblxyse])?|bg|text|shadow|decoration|fill|stroke)-ring(?:\/|$)|^ring-offset-/
 
+/** The sources whose paths are cut from their start only by `StartTruncatedText`: the page, its tests aside */
+const CUTTING = /^src\/(?!.*\.test\.tsx?$)/
+/** The one component that sets the direction of a path */
+export const START_TRUNCATED_MODULE = "src/components/shared/StartTruncatedText.tsx"
+/** A direction of rtl: `dir="rtl"`, `dir={wide ? "rtl" : undefined}`, `direction: "rtl"`, `[direction:rtl]` */
+const RTL = /\bdir\s*=\s*(?:["'`]rtl["'`]|\{[^}\n]*["'`]rtl["'`])|\bdirection\s*:\s*["'`]?rtl\b|\[direction:rtl\]/
+
 /** The variants and the utility of a class, split at the colons outside its brackets: `has-[a:b]:c` is `has-[a:b]`, `c` */
 function classParts(token) {
   const parts = []
@@ -554,6 +566,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     }
     if (FOCUSING.test(file) && (line.match(CLASS_TOKEN) ?? []).some(ownFocus)) {
       problems.push({ ...at, rule: "focus-ring" })
+    }
+    if (CUTTING.test(file) && file !== START_TRUNCATED_MODULE && RTL.test(line)) {
+      problems.push({ ...at, rule: "rtl-cut" })
     }
   })
   if (PRESENTING.test(file)) {

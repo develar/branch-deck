@@ -26,6 +26,7 @@ import { BreakableCode } from "@/components/shared/CodeText"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import type { RowCardState } from "@/components/shared/RowCard"
+import { StartTruncatedText } from "@/components/shared/StartTruncatedText"
 import { useRowCardHover } from "@/hooks/useRowCardHover"
 import type { RowCardHover } from "@/hooks/useRowCardHover"
 import type { CommitFile } from "@/lib/bindings"
@@ -884,32 +885,29 @@ function DirectoryRowContent({
       <Icon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
       {/* the number of a step hangs before its title, which wraps under its own start with the whole width left */}
       {node.lead !== undefined && <span className="shrink-0 font-medium tabular-nums">{node.lead.trimEnd()}</span>}
-      <span
-        className={cn(
-          "min-w-0 flex-1",
-          // the title of a step or a task wraps as many lines as needed; a path is cut
-          node.group === "concern" ? "font-medium" : "truncate",
-          // a code name at the size of the row: JetBrains Mono has the x-height of Inter (docs/design/ui-theme.md)
-          node.code === true && "font-mono",
-        )}
-        dir={path ? "rtl" : undefined}
-        data-testid={path ? "review-directory-path" : undefined}
-        // the card of a commit says its subject and hash: no native hover over it
-        title={titleHover === undefined ? groupTitle(node) : undefined}
-        data-group={node.group}
-        {...titleHover}
-      >
-        {/* a code name wraps at its dots, never inside a word but one wider than the row */}
-        {node.code === true ? (
-          <BreakableCode text={name} humps />
-        ) : path ? (
-          <bdi dir="ltr">{name}</bdi>
-        ) : node.commit !== undefined ? (
-          <ReviewTitleText title={node.commit.commit.title} />
-        ) : (
-          name
-        )}
-      </span>
+      {path ? (
+        // a path is cut from its start, its last folder kept; a short one stands right after the icon
+        <StartTruncatedText className="flex-1" data-testid="review-directory-path" title={groupTitle(node)}>
+          {name}
+        </StartTruncatedText>
+      ) : (
+        <span
+          className={cn(
+            "min-w-0 flex-1",
+            // the title of a step or a task wraps as many lines as needed
+            node.group === "concern" ? "font-medium" : "truncate",
+            // a code name at the size of the row: JetBrains Mono has the x-height of Inter (docs/design/ui-theme.md)
+            node.code === true && "font-mono",
+          )}
+          // the card of a commit says its subject and hash: no native hover over it
+          title={titleHover === undefined ? groupTitle(node) : undefined}
+          data-group={node.group}
+          {...titleHover}
+        >
+          {/* a code name wraps at its dots, never inside a word but one wider than the row */}
+          {node.code === true ? <BreakableCode text={name} humps /> : node.commit !== undefined ? <ReviewTitleText title={node.commit.commit.title} /> : name}
+        </span>
+      )}
     </>
   )
 }

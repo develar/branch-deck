@@ -2,9 +2,9 @@ import { defineConfig, devices } from "@playwright/test"
 import base from "./playwright.config"
 
 // The drag and drop tests in WebKit, the engine of the app on macOS (WKWebView), beside Chromium of `pnpm e2e`, and the
-// tests tagged `@webkit` for focus, popups, the item under a resting pointer, branch-column widths and review
-// navigation, where WebKit differs. It drops focus of a hidden element only at a later layout and times
-// `ResizeObserver` reports its own way.
+// tests tagged `@webkit` for focus, popups, the item under a resting pointer, branch-column widths, review navigation
+// and a path cut from its start (`StartTruncatedText`), where WebKit differs. It drops focus of a hidden element only
+// at a later layout and times `ResizeObserver` reports its own way.
 // Run `pnpm e2e:webkit` by hand after changes to a drag, focus, popup, column or review navigation. Snapshots are
 // Chromium's, so none is compared here. What only WKWebView does (the drag image, the autoscroll, the outline of a row)
 // is the check of the real app (docs/contributing/real-app-checks.md).
@@ -33,6 +33,7 @@ export default defineConfig({
     "branch-review/review-parts.spec.ts",
     "review-requests/review-requests.spec.ts",
     "review-window/review-window.spec.ts",
+    "commit-files/commit-files.spec.ts",
     "commit-files/commit-review.spec.ts",
     "commit-files/quiet-changes.spec.ts",
     "commit-files/symbol-navigation.spec.ts",

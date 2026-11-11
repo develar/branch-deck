@@ -192,6 +192,17 @@ async function openTreePreview(page: Page) {
   return { preview, tree: await openCommitFilesSection(preview) }
 }
 
+/** Where the text of a path stands in its box: its left and right gaps (negative where it overflows), and whether it overflows */
+async function pathBox(path: Locator): Promise<{ textLeft: number; textRight: number; overflows: boolean }> {
+  return await path.evaluate(element => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const text = range.getBoundingClientRect()
+    const box = element.getBoundingClientRect()
+    return { textLeft: text.left - box.left, textRight: box.right - text.right, overflows: element.scrollWidth > element.clientWidth }
+  })
+}
+
 simpleTest.describe("Commit files in nested directories", () => {
   simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("commit_tree")
@@ -460,6 +471,38 @@ simpleTest(
     await expect(format).toHaveAttribute("aria-description", "modified, +1 −1, 1 line hidden by Whitespace")
     await expect(added).toHaveCount(0)
     await expect(pairs).toHaveCount(1)
+  },
+)
+
+simpleTest(
+  "should start the path of a directory at its icon and cut a long one from its start, its last folder kept",
+  { tag: "@webkit" },
+  async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple")
+    // one directory a word long, one whose single folders merge into a path wider than the row
+    const deep =
+      "community/platform/platform-impl/src/com/intellij/openapi/application/impl/processWatcher/daemon/applications/uri-handler/src/main/kotlin/com/jetbrains/daemon/watcher"
+    await repo.commit("(paths) watch the daemon", { "src/App.kt": "class App\n", [`${deep}/Watcher.kt`]: "class Watcher\n" }, 1704120600)
+    await syncAndWaitForBranches()
+    await expandBranch(page, findBranchRow(page, "paths"))
+    const tree = await openCommitFilesSection(await openPreview(page, getBranchCommitRow(page, "paths", "watch the daemon")))
+
+    // a short path starts at the left of its box, which runs to the counts of the row: never by the counts
+    const short = tree.getByRole("treeitem", { name: "src", exact: true }).getByTestId("review-directory-path")
+    await expect(short).toHaveText("src")
+    const shortBox = await pathBox(short)
+    expect(shortBox.overflows).toBe(false)
+    expect(Math.abs(shortBox.textLeft)).toBeLessThanOrEqual(1)
+    expect(shortBox.textRight).toBeGreaterThan(50)
+
+    // a path wider than its row gives way from its start: its end, the last folder, stays at the right of its box
+    const long = tree.getByRole("treeitem", { name: deep, exact: true }).getByTestId("review-directory-path")
+    await expect(long).toHaveText(deep)
+    const longBox = await pathBox(long)
+    expect(longBox.overflows).toBe(true)
+    expect(longBox.textLeft).toBeLessThan(0)
+    // WebKit rounds the edge of the text to a whole pixel
+    expect(Math.abs(longBox.textRight)).toBeLessThanOrEqual(1)
   },
 )
 

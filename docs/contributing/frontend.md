@@ -1,7 +1,7 @@
 # Frontend Rules
 
 **Status:** Active  
-**Updated:** 2026-11-10  
+**Updated:** 2026-11-11  
 **Tags:** [frontend, react, ui, tailwind, shadcn]
 
 ## Summary
@@ -31,6 +31,10 @@ imports and naming, the patched dependencies, and the React and WebKit behaviour
   (`pnpm lint:arch`, `focus-ring`); the background is the hover and the selection, never the focus
   ([UI Theme](../design/ui-theme.md)).
 - **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
+- **Paths**: a path that gives way from its start (`…src/main/kotlin`, its last folder kept) is `StartTruncatedText`
+  (`src/components/shared/`), never a `dir="rtl"` of its own (`pnpm lint:arch`, `rtl-cut`): the start of a rtl box is
+  its right edge, so a box wider than its path (`flex-1`) put a short path at the right, by the counts of a row of the
+  Files tree; the component aligns it left, and a path wider than its box still overflows from its start.
 - **Prose in a wide pane** is a `ReadingColumn` (one measure, `max-w-measure`, in the middle, `text-md`); a block in
   it sets no width of its own ([UI Theme → Reading column](../design/ui-theme.md)).
 - **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*`

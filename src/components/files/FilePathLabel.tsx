@@ -1,4 +1,5 @@
 import { cn } from "cn"
+import { StartTruncatedText } from "@/components/shared/StartTruncatedText"
 import type { FileStatus } from "@/lib/bindings"
 import { getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
 import { formatTreeFileLabel } from "@/lib/file-tree"
@@ -34,7 +35,7 @@ export interface FilePathLabelProps {
  * A changed file wherever it is listed: the status letter, the name in the colour of its status, where it came from, then
  * its directory muted, in the size around it, right after the name. The name comes first, as IntelliJ lists a change: it
  * stays whole while the directory gives way, and only a name wider than the label truncates; nothing of it ever paints
- * over the directory. The directory loses its start (`dir="rtl"`, the path itself kept left to right by `bdi`) down to
+ * over the directory. The directory loses its start (`StartTruncatedText`) down to
  * its last folder, and a directory whose last folder does not fit after the name wraps out of sight, never cut to its
  * last letters ("…n"); a row of a tree shows it whole or not at all (`wholeDirectory`).
  */
@@ -56,15 +57,14 @@ export function FilePathLabel({ path, oldPath = null, status, directory = true, 
             {parent}
           </span>
         ) : (
-          <span
-            className="max-w-max min-w-0 grow truncate text-muted-foreground"
+          <StartTruncatedText
+            className="max-w-max grow text-muted-foreground"
             // on the line of the name only with room for "…" and its last folder, then as much more as fits
             style={{ flexBasis: `${parent.length - parent.lastIndexOf("/") + 1}ch` }}
-            dir="rtl"
             data-testid="file-label-directory"
           >
-            <bdi dir="ltr">{emphasis ? <EmphasizedDirectory directory={parent} /> : parent}</bdi>
-          </span>
+            {emphasis ? <EmphasizedDirectory directory={parent} /> : parent}
+          </StartTruncatedText>
         ))}
     </span>
   )

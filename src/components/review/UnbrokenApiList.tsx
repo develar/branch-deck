@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge"
 import { FileButton } from "@/components/review/ContractList"
+import { StartTruncatedText } from "@/components/shared/StartTruncatedText"
 import type { BreakageEntry } from "@/presenters/review-plan"
 
 /**
@@ -17,9 +18,7 @@ export function UnbrokenApiList({ entries }: { entries: readonly BreakageEntry[]
           </Badge>
           <FileButton place={entry.place} title={entry.location}>
             <code className="shrink-0 font-mono">{entry.name}</code>
-            <span className="min-w-0 truncate text-xs text-muted-foreground" dir="rtl">
-              <bdi dir="ltr">{entry.location}</bdi>
-            </span>
+            <StartTruncatedText className="text-xs text-muted-foreground">{entry.location}</StartTruncatedText>
           </FileButton>
         </li>
       ))}

@@ -6,6 +6,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader } from "@/components/shared/PreviewDialogFrame"
+import { StartTruncatedText } from "@/components/shared/StartTruncatedText"
 import { useAgentCliCommand } from "@/hooks/useAgentCliCommand"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { buildAgentPrompt } from "@/lib/agent-prompt"
@@ -33,10 +34,9 @@ function PathLabel({ path }: { path: string }) {
     <span className="group/path flex min-w-0 items-center gap-2 font-mono text-xs">
       <span className="shrink-0 text-foreground">{name}</span>
       {directory !== "" && (
-        // rtl clips the start; bdi keeps the path itself left to right
-        <span dir="rtl" title={path} className="min-w-0 truncate text-muted-foreground">
-          <bdi>{directory}</bdi>
-        </span>
+        <StartTruncatedText title={path} className="text-muted-foreground">
+          {directory}
+        </StartTruncatedText>
       )}
       <CopyButton text={() => path} tooltip="Copy path" className="-my-1 shrink-0 group-hover/path:opacity-100" />
     </span>
