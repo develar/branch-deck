@@ -132,6 +132,14 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   of "nothing here" cannot be told from a deleted line of Inline. The text of a quiet line is not dimmed: a reader
   opens such lines to check the mark. `--diff-line-number-changed` is 4.4:1 on it in the light theme and 6.5:1 in
   the dark one. Never a `dark:` variant: the token has a value per theme.
+- **A renamed name.** The name at a site of a rename of the marks is no change to read word by word, so it has no
+  colour of a change and no token of its own: the quiet colour a step nearer the text (`--diff-quiet` with 12% of
+  `--foreground`), which shows on a quiet line and on the pale form of every type, and a dotted line along its
+  lower edge (`--foreground` at 60%, 2 px on and 2 px off), which no changed range has, so the mark does not rest
+  on its colour. The line is a layer of the background, never a text decoration: the syntax underlines a
+  reassigned variable (`tu`), a name a change often renames, and both lines show then. The old name that the row of
+  a pair of Inline strikes through before the new one has the same colour, without the dotted line: the strike says
+  which of the two it is. A hit of the find keeps its own colour on a name.
 - **Moved.** Our own too: `--diff-moved` is the colour of a line that moved within its file, where it left and
   where it stands now, and of the note at each end; `--diff-moved-pale` (the colour mixed 0.6 with the editor
   background, as the pale form of a type) the colour of a line of a move that was edited on the way, its edited words

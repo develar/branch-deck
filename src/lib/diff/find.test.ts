@@ -1,12 +1,12 @@
 // @spec openspec/specs/commit/commit-review/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { findHits, findInSegments, hitsByLine, lineKey, mergeHits } from "@/lib/diff/find"
+import { findHits, findInSegments, hitsByLine, lineKey, mergeHits, rowOfHit } from "@/lib/diff/find"
 import type { DiffFindHit, FindFile, TextFindHit } from "@/lib/diff/find"
 import { buildLineTable } from "@/lib/diff/line-table"
 import { diffCells } from "@/lib/diff/row-cells"
 import { buildFileRows, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, move, run, textDiff } from "@/test-support/diff-blocks"
+import { block, move, rename, run, textDiff } from "@/test-support/diff-blocks"
 
 const OLD_TEXT = Array.from({ length: 30 }, (_, index) => (index === 20 ? "val Total = 1" : `val total${index} = ${index}`)).join("\n")
 const NEW_TEXT = OLD_TEXT.replace("val Total = 1", "val total = 2")
@@ -229,6 +229,177 @@ describe("the find in the lines of a move", () => {
     expect(lost.map(hit => rowOfLine(open.rows!, hit.side, hit.line))).toEqual([8])
     expect(lines(findHits([shown("unified")], "first", { sideBySide: false, folded: false }))).toEqual(["-3:6"])
     expect(lines(findHits([shown("split")], "total", { sideBySide: true, folded: false }))).toEqual(["+0:4", "-2:4"])
+  })
+})
+
+describe("the find in the lines of a renamed name", () => {
+  // the local `total` is `sum` on three lines, the name alone at each (a run of the kind `renamed` a block), twice on the last
+  const OLD_LINES = ["fun balance(): Long {", "  var total = 0L", "  total += amount", "  return total + total", "}"]
+  const NEW_LINES = OLD_LINES.map(line => line.replaceAll("total", "sum"))
+  const renamedFile = (quiet: boolean, mode: DiffViewMode, open: number[] = []): FindFile => {
+    const pair = (line: number, ...columns: number[]) =>
+      block(line, line + 1, line, line + 1, {
+        inlinePairs: true,
+        oldRanges: [columns.flatMap(at => [at, at + 5, 2])],
+        newRanges: [columns.flatMap((at, index) => [at - 2 * index, at - 2 * index + 3, 2])],
+      })
+    const diff = textDiff(5, 5, [pair(1, 6), pair(2, 2), pair(3, 9, 17)], {
+      runs: [1, 2, 3].map(line => run(line, line + 1, line, line + 1, { kind: "renamed", quiet })),
+      renames: [
+        rename("total", "sum", [
+          [1, 6, 1, 6],
+          [2, 2, 2, 2],
+          [3, 9, 3, 9],
+          [3, 17, 3, 15],
+        ]),
+      ],
+    })
+    const cells = diffCells(diff, mode)
+    return {
+      rows: buildFileRows(diff, mode, [], false, null, new Set(open)),
+      tables: [buildLineTable(OLD_LINES.join("\n")), buildLineTable(NEW_LINES.join("\n"))],
+      ranges: cells.ranges,
+      renamed: cells.renamed,
+      renamedRun: cells.renamedRun,
+    }
+  }
+  /** The hits as `-line:start` or `+line:start`, in the order the find steps through them */
+  const lines = (hits: readonly DiffFindHit[]) => hits.map(hit => `${hit.side === OLD ? "-" : "+"}${hit.line}:${hit.start}`)
+  const search = (file: FindFile, query: string, sideBySide = false) => findHits([file], query, { sideBySide, folded: false })
+
+  it("finds the old name where the row of a pair of Inline strikes it through, and at the row of a quiet line shown once, whose new name stands for it", () => {
+    for (const quiet of [false, true]) {
+      const file = renamedFile(quiet, "inline")
+      // one hit a site, of the old line, at the row that shows its new line (rows 1 to 4 after the note)
+      const old = search(file, "total")
+      expect(lines(old), String(quiet)).toEqual(["-1:6", "-2:2", "-3:9", "-3:17"])
+      expect(old.map(hit => rowOfHit(file.rows!, hit))).toEqual([2, 3, 4, 4])
+      // where no row shows the old line, each hit says the new name that stands for it: its line and its columns
+      expect(old.map(hit => hit.stand)).toEqual(
+        quiet
+          ? [
+              { line: 1, start: 6, end: 9 },
+              { line: 2, start: 2, end: 5 },
+              { line: 3, start: 9, end: 12 },
+              { line: 3, start: 15, end: 18 },
+            ]
+          : [undefined, undefined, undefined, undefined],
+      )
+      // the new name is a hit of the new line, as any text of it
+      expect(lines(search(file, "sum"))).toEqual(["+1:6", "+2:2", "+3:9", "+3:15"])
+      // the text both lines have is found once, in the new line: the old line has no row
+      expect(lines(search(file, "return"))).toEqual(["+3:2"])
+      expect(lines(search(file, "balance"))).toEqual(["+0:4"])
+      // a hit that reaches from that text into the old name is the old line's, placed where the name stands in the row
+      expect(lines(search(file, "var total"))).toEqual(["-1:2"])
+      // and one over two old names is one hit, at the first of them
+      expect(lines(search(file, "total + total"))).toEqual(["-3:9"])
+      // a search of the old and the new spelling at once steps through the row in the order of its text
+      expect(lines(search(file, "t"))).toEqual(["-1:6", "-1:8", "-2:2", "-2:4", "+2:14", "+3:4", "-3:9", "-3:11", "-3:17", "-3:19"])
+    }
+  })
+
+  it("finds the old name in its own lines where they show: under the opened note of Inline, in Unified and on the old side of Split", () => {
+    const old = ["-1:6", "-2:2", "-3:9", "-3:17"]
+    const opened = renamedFile(true, "inline", [1])
+    expect(lines(search(opened, "total"))).toEqual(old)
+    // each in the row of its old line, before the row of the new one
+    expect(search(opened, "total").map(hit => rowOfHit(opened.rows!, hit))).toEqual([2, 4, 6, 6])
+    expect(search(opened, "total").every(hit => hit.stand === undefined)).toBe(true)
+    // the text both lines have is found in both, as wherever both show
+    expect(lines(search(opened, "return"))).toEqual(["-3:2", "+3:2"])
+    for (const quiet of [false, true]) {
+      expect(lines(search(renamedFile(quiet, "unified"), "total")), String(quiet)).toEqual(old)
+      expect(lines(search(renamedFile(quiet, "split"), "total", true))).toEqual(old)
+      expect(lines(search(renamedFile(quiet, "split"), "sum", true))).toEqual(["+1:6", "+2:2", "+3:9", "+3:15"])
+    }
+  })
+
+  it("gives the painter the hits of the hidden old lines as marks of the new lines that stand for them, the current one marked, two in one name as one", () => {
+    const file = renamedFile(true, "inline")
+    const hits = search(file, "total")
+    const byLine = hitsByLine(hits, 3).get(0)!
+    // a mark of the new line, on its new name; no hit of an old line that no row shows
+    expect([byLine.get(lineKey(NEW, 1)), byLine.get(lineKey(NEW, 3)), byLine.get(lineKey(OLD, 1)), byLine.get(lineKey(OLD, 3))]).toEqual([
+      { ranges: [], current: -1, stands: [6, 9, 1] },
+      { ranges: [], current: -1, stands: [9, 12, 1, 15, 18, 2] },
+      undefined,
+      undefined,
+    ])
+    // no hit comes twice
+    expect(new Set(hits.map(hit => `${hit.side}:${hit.line}:${hit.start}`)).size).toBe(hits.length)
+    // two hits in one old name are two hits and one mark of its new name, the current hit where either is; the hits
+    // of the new line itself stay its own
+    const letters = search(file, "t")
+    expect(lines(letters).slice(0, 5)).toEqual(["-1:6", "-1:8", "-2:2", "-2:4", "+2:14"])
+    expect([hitsByLine(letters, 1).get(0)!.get(lineKey(NEW, 1)), hitsByLine(letters, 4).get(0)!.get(lineKey(NEW, 2))]).toEqual([
+      { ranges: [], current: -1, stands: [6, 9, 2] },
+      { ranges: [14, 15], current: 0, stands: [2, 5, 1] },
+    ])
+    // where the old lines show, the hits are their own: no line stands for another
+    const shown = hitsByLine(search(renamedFile(false, "inline"), "total"), 0).get(0)!
+    expect([shown.get(lineKey(OLD, 1)), shown.get(lineKey(NEW, 1))]).toEqual([{ ranges: [6, 11], current: 0 }, undefined])
+  })
+})
+
+describe("the find in a run of a renamed name whose lines were wrapped otherwise", () => {
+  // `  foo(a, total)` is `  foo(a,` and `    sum)`: a quiet run of one old line and two new ones, the name on the second
+  const OLD_LINES = ["fun f() {", "  foo(a, total)", "}"]
+  const NEW_LINES = ["fun f() {", "  foo(a,", "    sum)", "}"]
+  const wrappedFile = (open: number[] = [], oldLines = OLD_LINES): FindFile => {
+    const diff = textDiff(3, 4, [block(1, 2, 1, 3)], { runs: [run(1, 2, 1, 3, { kind: "renamed" })], renames: [rename("total", "sum", [[1, 9, 2, 4]])] })
+    const cells = diffCells(diff, "inline")
+    return {
+      rows: buildFileRows(diff, "inline", [], false, null, new Set(open)),
+      tables: [buildLineTable(oldLines.join("\n")), buildLineTable(NEW_LINES.join("\n"))],
+      ranges: cells.ranges,
+      renamed: cells.renamed,
+      renamedRun: cells.renamedRun,
+    }
+  }
+  const search = (file: FindFile, query: string) => findHits([file], query, { sideBySide: false, folded: false })
+  /** The hits with where each stands and the row it is revealed at: `-1:9 > 2:4..7 @3` */
+  const stood = (file: FindFile, query: string) =>
+    search(file, query).map(hit => `${lines([hit])[0]}${hit.stand === undefined ? "" : ` > ${hit.stand.line}:${hit.stand.start}..${hit.stand.end}`} @${rowOfHit(file.rows!, hit)}`)
+
+  it("finds the old name at the row whose new line holds the new name, not at the first row of the run", () => {
+    // the rows: an unchanged line, the first new line, the note at the line of the name, the second new line
+    const file = wrappedFile()
+    expect(stood(file, "total")).toEqual(["-1:9 > 2:4..7 @3"])
+    expect(stood(file, "a, total")).toEqual(["-1:6 > 2:4..7 @3"])
+    expect(hitsByLine(search(file, "total"), 0).get(0)!.get(lineKey(NEW, 2))).toEqual({ ranges: [], current: -1, stands: [4, 7, 2] })
+  })
+
+  it("finds text that only the hidden old line holds in one piece at the code of the new lines that stands for it, and text both sides hold once", () => {
+    const file = wrappedFile()
+    // `(a, ` ends with a space the new line has not: found, at `(a,` of the first new line, marked there
+    expect(stood(file, "(a, ")).toEqual(["-1:5 > 1:5..8 @1"])
+    expect(hitsByLine(search(file, "(a, "), 0).get(0)!.get(lineKey(NEW, 1))).toEqual({ ranges: [], current: -1, stands: [5, 8, 2] })
+    // `, ` likewise; a text that spans the place of the wrap stands as far as its first line holds it
+    expect(stood(file, ", ")).toEqual(["-1:7 > 1:7..8 @1"])
+    // text the new lines hold at the same place is the hit of the new line alone
+    expect([stood(file, "foo(a"), stood(file, ")"), stood(file, "(a,")]).toEqual([["+1:2 @1"], ["+0:6 @0", "+2:7 @3"], ["+1:5 @1"]])
+    // whitespace alone before code that the new lines have whitespace before too (the indent, the space the wrap
+    // turned into an indent) is the new line's
+    expect(stood(file, "  ")).toEqual(["+1:0 @1", "+2:0 @3", "+2:2 @3"])
+    expect(stood(file, " ").filter(hit => hit.startsWith("-"))).toEqual([])
+    // a space the new lines have none for, before `)`: found where that code stands, with nothing to mark
+    const spaced = wrappedFile([], ["fun f() {", "  foo(a, total )", "}"])
+    expect(stood(spaced, " ").filter(hit => hit.startsWith("-"))).toEqual(["-1:14 > 2:7..7 @3"])
+    expect(hitsByLine(search(spaced, " "), 0).get(0)!.get(lineKey(NEW, 2))?.stands).toBeUndefined()
+  })
+
+  it("finds every hit of the old line in its own row once the note of the rename is opened", () => {
+    const opened = wrappedFile([1])
+    expect(stood(opened, "total")).toEqual(["-1:9 @3"])
+    expect(stood(opened, "(a, ")).toEqual(["-1:5 @3"])
+    expect(stood(opened, "foo(a")).toEqual(["+1:2 @1", "-1:2 @3"])
+  })
+
+  it("counts every hit of an old line whose code is not the code of the new lines, which no engine gives, at the first row of the run", () => {
+    const other = wrappedFile([], ["fun f() {", "  bar(b, total)", "}"])
+    expect(stood(other, "(b")).toEqual(["-1:5 > 1:0..0 @1"])
+    expect(stood(other, "total")).toEqual(["-1:9 > 2:4..7 @3"])
   })
 })
 

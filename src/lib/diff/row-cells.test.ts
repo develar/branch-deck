@@ -1,9 +1,12 @@
 // @spec openspec/specs/commit/commit-row/spec.md
 import { describe, expect, it } from "vite-plus/test"
+import type { TextDiff } from "@/lib/diff/file-diff-model"
+import { RENAMED_RANGE } from "@/lib/diff/line-parts"
 import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
 import { buildFileRows, buildMergeRows, EXPANDED, LEFT, MIDDLE, NEW, OLD, RIGHT, rowAt } from "@/lib/diff/rows"
 import type { LineRow } from "@/lib/diff/rows"
-import { block, mergeBlock, move, run, textDiff, textMerge } from "@/test-support/diff-blocks"
+import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
+import { block, mergeBlock, move, rename, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const lineRow = (row: ReturnType<typeof rowAt>): LineRow => {
   if (row.kind === "fold" || row.kind === "note") {
@@ -171,5 +174,198 @@ describe("diffCells", () => {
     // a file with both sides keeps its layout: two columns in Split, both line numbers in one column otherwise
     const changed = textDiff(1, 1, [block(0, 1, 0, 1)])
     expect([diffCells(changed, "split").numbers, diffCells(changed, "unified").numbers]).toEqual([[], [OLD, NEW]])
+  })
+})
+
+describe("the names a change renamed in the cells of a diff", () => {
+  const R = RENAMED_RANGE
+  // `var total = 0` is `var sum = 0` (line 1, the name alone: a run of the kind `renamed`), and `total += 1` is
+  // `sum += 2` (line 3, another change beside the name: no run); the engine marked the names and the number as modified
+  const renamed = (quiet: boolean) =>
+    textDiff(
+      6,
+      6,
+      [
+        block(1, 2, 1, 2, { inlinePairs: true, oldRanges: [[4, 9, 2]], newRanges: [[4, 7, 2]] }),
+        block(3, 4, 3, 4, { inlinePairs: true, oldRanges: [[0, 5, 2, 9, 10, 2]], newRanges: [[0, 3, 2, 7, 8, 2]] }),
+      ],
+      {
+        runs: [run(1, 2, 1, 2, { kind: "renamed", quiet })],
+        renames: [
+          rename("total", "sum", [
+            [1, 4, 1, 4],
+            [3, 0, 3, 0],
+          ]),
+        ],
+      },
+    )
+  /** The line rows of a layout as `kind tint` with the ranges of each side that has a line */
+  const cellsOf = (quiet: boolean, mode: DiffViewMode, open: number[] = []) => {
+    const diff = renamed(quiet)
+    const cells = diffCells(diff, mode)
+    const rows = buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED], false, null, new Set(open))
+    return Array.from({ length: rows.rowCount }, (_, index) => rowAt(rows, index)).flatMap(row =>
+      row.kind === "fold" || row.kind === "note" || row.kind === "context" ? [] : [[`${row.kind} ${row.tint}`, ...[OLD, NEW].map(side => cells.ranges(row, side))]],
+    )
+  }
+
+  /** The line rows of a diff in a layout, each as its kind with the ranges of each side that has a line */
+  const rangesOf = (diff: TextDiff, mode: DiffViewMode) => {
+    const cells = diffCells(diff, mode)
+    const rows = buildFileRows(diff, mode)
+    return Array.from({ length: rows.rowCount }, (_, index) => rowAt(rows, index)).flatMap(row =>
+      row.kind === "fold" || row.kind === "note" ? [] : [[row.kind, ...[OLD, NEW].map(side => cells.ranges(row, side))]],
+    )
+  }
+
+  it("gives a renamed name a range of its own kind in place of what the engine marked in it, on both sides, and keeps the other changes of its line", () => {
+    // a label: the lines keep the tint of their block, the name alone is no change
+    expect(cellsOf(false, "split")).toEqual([
+      ["changed pale", [4, 9, R], [4, 7, R]],
+      ["changed pale", [0, 5, R, 9, 10, 2], [0, 3, R, 7, 8, 2]],
+    ])
+    expect(cellsOf(false, "unified")).toEqual([
+      ["deleted pale", [4, 9, R], null],
+      ["added pale", null, [4, 7, R]],
+      ["deleted pale", [0, 5, R, 9, 10, 2], null],
+      ["added pale", null, [0, 3, R, 7, 8, 2]],
+    ])
+  })
+
+  it("gives the row of a pair of Inline the name of both lines as one range, so the row strikes the whole old name through before the new one", () => {
+    expect(cellsOf(false, "inline")).toEqual([
+      ["inline pale", [4, 9, R], [4, 7, R]],
+      ["inline pale", [0, 5, R, 9, 10, 2], [0, 3, R, 7, 8, 2]],
+    ])
+  })
+
+  it("draws the name on a line of a quiet run, which shows no other range: once in Inline, on both lines elsewhere and under an opened note", () => {
+    expect(cellsOf(true, "inline")).toEqual([
+      ["once quiet", null, [4, 7, R]],
+      ["inline pale", [0, 5, R, 9, 10, 2], [0, 3, R, 7, 8, 2]],
+    ])
+    const both = [
+      ["deleted quiet", [4, 9, R], null],
+      ["added quiet", null, [4, 7, R]],
+    ]
+    expect(cellsOf(true, "unified").slice(0, 2)).toEqual(both)
+    expect(cellsOf(true, "inline", [1]).slice(0, 2)).toEqual(both)
+    expect(cellsOf(true, "split")[0]).toEqual(["changed quiet", [4, 9, R], [4, 7, R]])
+  })
+
+  it("marks the names alone on a line of a run of a renamed name, a label too: what the engine marked between two names there is the same code", () => {
+    // `val both = low + high` is `val all = small + large`: the word diff of the engine joined the three names and the
+    // text between them into one range; the line is a run of the kind `renamed`, so its names are all that changed
+    const joined = (how: "label" | "quiet" | "none", inlinePairs: boolean) =>
+      textDiff(1, 1, [block(0, 1, 0, 1, { inlinePairs, oldRanges: [[4, 21, 2]], newRanges: [[4, 23, 2]] })], {
+        runs: how === "none" ? [] : [run(0, 1, 0, 1, { kind: "renamed", quiet: how === "quiet" })],
+        renames: [rename("both", "all", [[0, 4, 0, 4]]), rename("low", "small", [[0, 11, 0, 10]]), rename("high", "large", [[0, 17, 0, 18]])],
+      })
+    const marked = rangesOf
+    const names = [
+      [4, 8, R, 11, 14, R, 17, 21, R],
+      [4, 7, R, 10, 15, R, 18, 23, R],
+    ]
+    for (const how of ["label", "quiet"] as const) {
+      expect(marked(joined(how, false), "unified"), how).toEqual([
+        ["deleted", names[0], null],
+        ["added", null, names[1]],
+      ])
+      expect(marked(joined(how, false), "split")).toEqual([["changed", ...names]])
+    }
+    // the row of a pair of Inline strikes each old name through before its new one, and nothing between them
+    expect(marked(joined("label", true), "inline")).toEqual([["inline", ...names]])
+    // a line in no run has another change, which only the engine knows: what it marked beside the names stays
+    expect(marked(joined("none", false), "unified")).toEqual([
+      ["deleted", [4, 8, R, 8, 11, 2, 11, 14, R, 14, 17, 2, 17, 21, R], null],
+      ["added", null, [4, 7, R, 7, 10, 2, 10, 15, R, 15, 18, 2, 18, 23, R]],
+    ])
+  })
+
+  it("draws the name of a place on a line of no run in its mark and keeps that line a stop, whatever the place makes of the name: the marks name no such place", () => {
+    // `const total = 1` / `return { total }` is `const sum = 1` / `return { sum }`: the second place is a shorthand
+    // property, more than the name, so Rust keeps its line out of every run and N stops at it. `Rename` lists the place
+    // as any other, so the page draws the name there as on a line with another change (Open Questions of the spec)
+    const diff = textDiff(
+      2,
+      2,
+      [
+        block(0, 2, 0, 2, {
+          inlinePairs: true,
+          oldRanges: [
+            [6, 11, 2],
+            [9, 14, 2],
+          ],
+          newRanges: [
+            [6, 9, 2],
+            [9, 12, 2],
+          ],
+        }),
+      ],
+      {
+        runs: [run(0, 1, 0, 1, { kind: "renamed", quiet: true })],
+        renames: [
+          rename("total", "sum", [
+            [0, 6, 0, 6],
+            [1, 9, 1, 9],
+          ]),
+        ],
+      },
+    )
+    const rows = buildFileRows(diff, "inline")
+    expect(rangesOf(diff, "inline")).toEqual([
+      ["once", null, [6, 9, R]],
+      ["inline", [9, 14, R], [9, 12, R]],
+    ])
+    // the line of the shorthand is read: the one stop of the block, a row of its two lines, never shown once
+    expect(rows.changeStarts.map(row => lineRow(rowAt(rows, row)).lines)).toEqual([[1, 1]])
+  })
+
+  it("marks a name that stands on two lines the engine does not pair on both of them in Inline, as Unified and Split do, never as a deletion in one row and an insertion in another", () => {
+    // `val a = total` / `  + 1` is `val a =` / `  sum + 1`: the engine pairs line i with line i, the name moved a line down
+    const diff = textDiff(
+      2,
+      2,
+      [
+        block(0, 2, 0, 2, {
+          inlinePairs: true,
+          oldRanges: [
+            [7, 13, 1],
+            [2, 2, 0],
+          ],
+          newRanges: [
+            [7, 7, 1],
+            [2, 6, 0],
+          ],
+        }),
+      ],
+      { renames: [rename("total", "sum", [[0, 8, 1, 2]])] },
+    )
+    const marked = (mode: DiffViewMode) => rangesOf(diff, mode)
+    // the old name in its line, the new one in its line: each a range of the kind of a renamed name, what is left of the engine's range beside it
+    const lines = [
+      ["added", null, [7, 7, 1]],
+      ["deleted", [7, 8, 1, 8, 13, R], null],
+      ["deleted", [2, 2, 0], null],
+      ["added", null, [2, 5, R, 5, 6, 0]],
+    ]
+    expect(marked("inline")).toEqual(lines)
+    expect(marked("unified")).toEqual(lines)
+    expect(marked("split")).toEqual([
+      ["changed", null, [7, 7, 1]],
+      ["changed", [7, 8, 1, 8, 13, R], [2, 5, R, 5, 6, 0]],
+      ["changed", [2, 2, 0], null],
+    ])
+  })
+
+  it("names the sites of a line of a side and the run of a renamed name that holds a line, for the hover of a name and the find; a merge has none", () => {
+    const cells = diffCells(renamed(false), "inline")
+    expect(cells.renamed(NEW, 3).map(site => [site.rename.old, site.start, site.end, site.twin.line, site.twin.start, site.twin.end])).toEqual([["total", 0, 3, 3, 0, 5]])
+    expect(cells.renamed(OLD, 1).map(site => [site.rename.new, site.start, site.end])).toEqual([["sum", 4, 9]])
+    expect([cells.renamed(NEW, 2), mergeCells(textMerge([1, 1, 1], []), "result").renamed(NEW, 1)]).toEqual([[], []])
+    // the run of a renamed name that holds a new line: the first block is one, the line with another change is in none
+    const diff = renamed(true)
+    expect([1, 3].map(line => diffCells(diff, "inline").renamedRun(line))).toEqual([diff.marks.runs[0], null])
+    expect(mergeCells(textMerge([1, 1, 1], []), "result").renamedRun(1)).toBeNull()
   })
 })

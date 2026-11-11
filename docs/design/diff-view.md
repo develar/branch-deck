@@ -311,12 +311,14 @@ rest gets a label and stays a stop.
   numbers among `runs`, that are passed once the kind is on (`quiet` then, and the starts without them) and shown
   line by line all the same. A `marks` event, and the answer of the index, replace the marks of their file whole;
   the blocks are those of the content.
-- **How a view reads a rename (planned: no view words one yet).** `renames` holds `{old, new, sites, local,
-  declared, oldSites, newSites}`: place `i` is `[line, start, end]` of each text (UTF-16), in the order of the
-  texts, `declared` the numbers of the places that declare the name: where the one note of the rename stands
-  ("Renamed total → sum · 12 sites"). The runs of the kind `renamed` say which lines changed in the name alone, and
-  `quiet` which of them are passed: none while the kind is off. A view already draws them as any label, with the
-  note of its kind. A place in no run is on a line that is read as it is.
+- **How a view reads a rename.** `renames` holds `{old, new, sites, local, declared, oldSites, newSites}`: place
+  `i` is `[line, start, end]` of each text (UTF-16), in the order of the texts, `declared` the numbers of the places
+  that declare the name: where the one note of the rename stands ("Renamed total → sum · 12 sites"). The runs of the
+  kind `renamed` say which lines changed in the name alone, and `quiet` which of them are passed: none while the
+  kind is off. A view draws the name at every place in a mark of its own, never as a change, names the rename once
+  and gives its runs no note of their own; what it shows once and what N and P pass it reads from `quiet` and
+  `starts`, so the switch of the kind changes no code of the page ("The sites of a rename" under "The row model").
+  A place in no run is on a line that is read as it is, its name in the mark all the same.
 - **Moves need no grammar.** The lines that one block deletes and another block adds are a move
   (`text_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
   whitespace at their ends, with at most a quarter of edited lines between exact ones, from 24 characters of exact
@@ -582,11 +584,12 @@ The rows of an `ignored` block show as unchanged lines. Unified and Inline show 
 lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plain, the shorter side filled.
 
 **The parts of a block.** Rust says which rows of lines of a block changed in one way alone (`TextDiff.marks.runs`,
-"Marks" above) and which lines moved within the file (`TextDiff.marks.moves`), and a view shows a block part by
-part, in the order of both sides (`src/lib/diff/block-parts.ts`,
+"Marks" above), which lines moved within the file (`TextDiff.marks.moves`) and which names the change renamed
+(`TextDiff.marks.renames`), and a view shows a block part by part, in the order of both sides (`src/lib/diff/block-parts.ts`,
 [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md#views)). The runs cut the block: the lines between
 two runs are a part that shows as the block did; a run is a row of words, its note, then its lines. The ends of the
-moves cut the lines between two runs once more, each on its own side ("The ends of a move" below). A block the marks
+moves cut the lines between two runs once more, each on its own side ("The ends of a move" below). A run of a
+renamed name is cut as any run and has no note of its own: its rename has one ("The sites of a rename" below). A block the marks
 say nothing of is one part, so its rows are what they were. Every function of `rows.ts` that maps the rows of a block to its
 lines asks the parts (`itemRowCount`, `itemRow`, `itemLines`, `itemRowOfLine`, through them `forEachRows`, `foldedOf`
 and `rowOfLine`): none counts the rows of a block by its line counts. The gaps, the levels of the folds and the
@@ -659,11 +662,77 @@ segments are as before.
     its lines are lines of that block, each with its row in every layout, read as the block is. A note that hides
     the lines where they left would have nothing where they stand now to say that they moved, or to show what an
     edited one was.
-- **In a section of a review** the heading of a change is the first part of its block (no segment of its own). A run
-  or an end of a move that starts the block says its words in that row, after the heading, and opens from there.
+- **The sites of a rename.** `renameSites(diff)` of `src/lib/diff/rename-sites.ts` reads the places of the renames
+  once per diff: by side and line, each site with its twin, the same place on the other side. Three things are
+  drawn of them, none of them decided on the page.
+  - *The name.* `diffCells.ranges` gives the name at a site a range of its own kind (`RENAMED_RANGE`, the page's
+    own beside the `RangeKind` of the engine) on both sides, in every layout, in place of what the engine marked
+    inside it (`withSites`): the letters two spellings do not share are no change to read. The other ranges of the
+    line stay, and a range that reaches out of a name is cut at it. A quiet line, which shows no range, shows this
+    one, and so does every line of a run of a renamed name, a label too (`lineRanges`, `renamedRunOf`): its names
+    are all that changed, so what the word diff of the engine joined to a name there (`both = low + high` as one
+    range) is the same code. The mark is a colour of its own with a dotted line along its lower edge
+    ([UI Theme](ui-theme.md#diffs)), and its hover says what the name was, or on the old side what it became
+    (`describeRenamedName`). A name is several parts where a hit of the find, a syntax run or a visual line cuts
+    it; the part it starts with has `data-name-start`, where a screen reader hears "renamed", once a name.
+    *Open:* a place that makes more of its name than its binding (a shorthand property, a destructuring, a named
+    argument) is read, in no run, and its name is drawn in this mark too: `Rename` says where the places are and
+    not which of them are more than the name, so the page cannot keep the range of the engine there (Open
+    Questions of the spec).
+  - *The row of a pair.* Where Inline shows a similar pair as one row, the name of both lines is one range of the
+    pair (`pairedWithSites`: the ranges of the engine inside it are taken, what is left of one outside it is a
+    range of its own, and both lines keep as many ranges, so `inlinePair` still aligns them). The row strikes the
+    whole old name through before the whole new one, as any deleted part, both on the colour of a renamed name
+    (`data-renamed` on the struck part), and `widestInlineRow` counts the row so (`pairRanges`), wider than the
+    letters the engine marked. It is not left out: a line of such a row is read, and only what a note
+    opens may be hidden; the old name is still what a reveal selects there (a removed declaration of Possible
+    Breakage), what ⌘-click and Find Usages read and where the find marks it. Lines the engine pairs that hold a
+    name on two lines it does not pair (the name went to the next line with a wrap: `BlockMarks.apart`, read once
+    per diff in `marksByBlock`) are no rows of pairs: they show apart, the old ones and the new ones, as lines the
+    engine does not pair, so both lines mark the name (`withSites`); the row of a pair would draw it as a deletion
+    in one row and an insertion in another.
+  - *The note.* A rename has one note in the rows of a view (`renameNotesOf(diff, shown, played)`, a `RenameNote`):
+    before the lines that hold its declaration, or its first site where the rows do not show that block (a section
+    of a review shows some blocks of its file); a block of the imports alone that a review plays down has it only
+    when no other block holds a site, and draws the name in its mark as any block. The renames whose notes stand
+    in one block share one note, at the first of their sites, worded as a cut list of the app is (`cutList`,
+    [UX Writing](../contributing/ux-writing.md)): two renames both ("Renamed total → sum · 3 sites · count → size ·
+    2 sites"), of three or more the first and the count of the others ("and 2 more"), which a hover lists and a
+    screen reader hears after the count (`RemarkWords.more.said`, visually hidden), in a note of plain words as in
+    the name of one that opens. `blockParts` puts the note right above the line of the site: it cuts the lines
+    that hold the site there, the old side at the old line of the site and the new side at its new line (`cutAt`:
+    place `i` of a rename is the same place on both sides, so what stands before it on one side stands before it
+    on the other), so in a block of twenty lines the note is the row above the declaration, never a screen above
+    it; in the row of the heading when the site starts the block. The lines of a move are not cut. A run of the
+    kind `renamed` with a site of a named rename has no note (`RenameNotes.ofRun`); one the marks name no rename
+    for, which no engine gives, keeps the note of its kind ("Renamed only"), so nothing Inline hides is ever
+    without a note that opens it.
+  - *What the note opens.* Inline shows a quiet run of a renamed name once, as any quiet run, and the note of its
+    rename is then the button: it opens the old lines of the quiet runs that are its to open, in its block and in
+    the others (`RenameNote.hides`). A run has one note that opens it, the note of the first rename with a site in
+    it (`RenameNotes.ofRun`): where a line holds a name of two notes, the other note does not open it, so a note
+    never says it hides a line that shows, and a note with no run of its own is plain words. The key of a note
+    among the open notes is `noteKey`: the first old line a run or a move hides, the old line of its site for a
+    note of renames, which is a line of no other note. `FileRows.notes` lists each note that opens with its key
+    and every range it hides, so ⌥-click and `noteOfLine` (the reveal of a name in a hidden line) take it as any
+    note. The rows of the lines a note hides or shows carry its key (`LinesPart.note`, `partsNoteOfRow`), so H
+    takes the note for a line of it in view, wherever the note stands ("Keys" below).
+  - *Until the kind is switched on* every run of a renamed name is a label: its lines are lines of their block,
+    read and never shown once, with the name in its mark, and the note is plain words. The quiet form is tested in
+    a browser all the same, on the answers of the engine with the kind switched on: `switchRenamedOn` of
+    `tests/e2e/helpers/marks-helpers.ts` lets `get_file_diffs` run on the test server and rewrites its answer on
+    the way (the runs of a renamed local quiet, their blocks without a start, as `PairMarks::as_proven` answers),
+    which is a rewrite of the answer of the server and no page answer
+    ([E2E Testing](e2e-testing.md)). It goes with the switch; its tests stay.
+- **In a section of a review** the heading of a change is the first part of its block (no segment of its own). A run,
+  an end of a move or the note of a rename that starts the block says its words in that row, after the heading, and
+  opens from there.
 - **An old line without a row** resolves to the row that stands for it (`partsRowOfLine`): the note of its quiet run
-  or of the move it left with, as the first new line of an ignored block stands for its old lines. The old line of
-  an edited line of a move is found where the lines left, never in the row of its pair where they stand now. So `rowOfLine` of the old side gives the note:
+  or of the move it left with. In lines that one column shows by the new ones alone (a block the whitespace policy
+  ignores with other line counts on its sides; a quiet run of a renamed name, which has no note of its own) the row
+  of the new line at its place stands for an old line where both sides have as many lines, else the first row of
+  those lines. The old line of an edited line of a move is found where the lines left, never in the row of its pair
+  where they stand now. So `rowOfLine` of the old side gives the note:
   the anchor of the scroll keeps a note at the top by that line (`DiffLayout.anchorAt` takes the side a row of words
   stands for), a hit of the find in such a line lands on the note, and a reveal of a name there
   (`DiffView.revealPlace`) opens the note first (`noteOfLine`), as it expands a fold, then selects the name.
@@ -713,7 +782,8 @@ empty last row and a fold counts only real lines.
 ranges draws its lines pale (the change colour mixed 0.6 with the background) and its ranges in the full colour. A
 block without inner ranges (`lineLevelOnly`, or ranges dropped) draws its lines in the full colour. A
 `whitespaceOnly` block draws its lines pale with nothing strong. The tint `quiet` is our own: the lines of a quiet run
-of the marks ("The parts of a block" above). A line of a move follows the same rule in its own colour: full as it
+of the marks ("The parts of a block" above). A renamed name is a range of its own on a line of any tint, in no
+colour of a change ("The sites of a rename" above). A line of a move follows the same rule in its own colour: full as it
 was, pale with its ranges in the full colour where it was edited on the way. So a re-indent under `Default` shows pale lines with
 the indentation in the full colour. A review with its plan (`DiffViewFile::quietImports`) draws a block of the imports
 alone (`TextDiff::import_blocks`, from the syntax: each changed line an import or a package statement, or blank) as a
@@ -954,7 +1024,10 @@ the start of the next section, not in the last row: a scroll to a file keeps its
 file above changes, and the clamp of an offset to its row (for a row that shows fewer visual lines) never moves it. After the change, the view sets `scrollTop`
 to the new offset of the same anchor, in the same task, before the paint. The browser's own anchoring is off
 (`overflow-anchor: none`). It chooses an anchor among the rows in the DOM, and those change with every frame. An
-expansion keeps the clicked separator at its place, so the new lines go below it. With wraps on, a resize first
+expansion keeps the clicked separator at its place, so the new lines go below it. The anchor is read at every scroll
+event and paint, and at a press or a key in the view (`DiffPainter.readAnchor`): the event of a scroll comes with the
+next frame, and a press right after the scroll (a note that opens, a fold) would lay the rows out by the row the view
+had at its top before it, so the note pressed left the view. With wraps on, a resize first
 computes the files in view and paints them. It computes the other files in idle slices, and keeps the anchor at each
 step.
 
@@ -1012,7 +1085,10 @@ A component selects narrow slices of the stores, as `AGENTS.md` asks.
 **Row elements.** A row is a `div` with `data-row`, `data-kind` (`context`, `added`, `deleted`, `inline`, `once`,
 `fold`, `note`) and `data-tint` (`pale`, `whitespace` or `quiet`) on a half that is not in the full tint; a quiet half
 has `data-run`, the kind of its run, a half of a line of a move `data-cell="moved"` and `data-move`, its end (`source`,
-`destination`). A note has `data-tone` (`unit`, `elsewhere`, `remark`) and, before the lines of a
+`destination`). A part of a renamed name has `data-change="3"` and its hover (`title`), the old name an Inline row
+strikes through `data-renamed` beside `data-inline-deleted`; the part a renamed name starts with has
+`data-name-start`; the renames a note counts beside the ones it words are `diff-remark-more`, with theirs as its
+hover and, visually hidden, as its words for a screen reader. A note has `data-tone` (`unit`, `elsewhere`, `remark`) and, before the lines of a
 quiet run, `data-quiet`; the words of a remark are `diff-remark`, a `button` with `aria-expanded` where the note opens.
 The note at an end of a move has `data-move` too, with a column per side `data-over` (`old`, `new`: the column it
 lies over), and the place it names is `diff-move-target`, a `button`, with `aria-keyshortcuts` and `data-key` on the
@@ -1402,9 +1478,11 @@ rust-analyzer's tree per resolution cost several times the resolution.
 
 A code cell can show up to four layers:
 - the syntax runs;
-- the changed ranges of the engine (`oldRanges`, `newRanges`), on the emphasis colour;
+- the changed ranges of the engine (`oldRanges`, `newRanges`), on the emphasis colour, and the renamed names of the
+  marks, each a range of its own kind in its own mark (`RENAMED_RANGE`);
 - in Inline, the deleted parts of the old line, in a `data-inline-deleted` span that is not selectable; the value of
-  the attribute is where the part starts in the old line;
+  the attribute is where the part starts in the old line; the old name of a rename is such a part too, on the colour
+  of a renamed name (`data-renamed`);
 - the hits of the find, on the find colour; in an Inline row the hits of both its lines, a hit of the old line in its
   deleted parts and on in the text the row shows from the new line (`sharedHitsOf` of `line-parts.ts`).
 
@@ -1448,9 +1526,12 @@ They are `FileRows.changeStarts`. The rule of the review stays: after a scroll t
 at the top changes the selection only after a wheel, touch, pointer or key event.
 
 H (the hidden lines) shows the old lines of the notes in view that open (Inline shows a quiet run once), and hides
-them again once they all show (`DiffViewHandle.toggleNotes`, `FileRows.noteRows`). In view: the row whole below the
-header stuck at the top. The key takes what the view shows, not a change N stepped to: a block that is quiet as a
-whole is no stop. The view stays at its top row (the anchor). It is a key of the review as N and P are
+them again once they all show (`DiffViewHandle.toggleNotes`). In view: the row whole below the header stuck at the
+top (`DiffLayout.rowsInView`). A note is in view with its own row, and with a line it hides or shows (`notesOfRows`:
+a line shown once, a line under an opened note): the one note of a rename stands at its declaration and may be
+screens above a quiet line of the name, and the note of a long run above its last lines; the reader at such a line
+opens its old line from there, and hides it again. The key takes what the view shows, not a change N stepped to: a
+block that is quiet as a whole is no stop. The view stays at its top row (the anchor). It is a key of the review as N and P are
 (`CommitReview`), so it works from the tree of the files too; a note names it after its words (`notesKey`, the hint
 of `Kbd` as generated content, `aria-keyshortcuts`) only in a view whose surface has the key, so the preview of a
 commit shows none. With no such note in view the key does nothing.
@@ -1514,7 +1595,20 @@ scroller of its parent, the jump scrolls that scroller, keeps no history and mov
   its old line is a line of where the lines left (`rowOfLine`), found there once, behind the note or in its own
   row, so a word the edited line lost is one hit, the note counts it once, and a step lands where the count says.
   The row of the pair still marks what it shows of that line, the struck-through parts (`ownOldHits`); the text
-  both lines share is marked by the hits of the new line. A line may hold more hits than a call takes
+  both lines share is marked by the hits of the new line. A quiet run of a renamed name that Inline shows once
+  has no note of its own to count hits at, so every old line of it is searched and a hit is found at the text of
+  the new lines that stands for it (`onceRunHits` of `find.ts`; the hit says where, `DiffFindHit.stand`, the row
+  is `rowOfHit` and the painter marks `LineHits.stands`). A hit that holds a part of an old name stands at the new
+  name of that place, one hit at the first name it holds, on the row of the new line that holds the name, which a
+  wrap may have put lines below the first row of the run. Any other hit is in code both sides hold: the two sides
+  of such a run are the same units in the same order, a unit a character outside whitespace or a renamed name
+  (`RunUnits` of `rename-sites.ts`), so the hit stands at the same units of the new lines, as far as the line it
+  starts on holds them, and is no hit where a hit of the new lines starts at that unit: the row shows the same
+  text there, found once. What is left are the texts only the old lines hold in one piece (`(a, ` before a wrap
+  that took the space), found and marked at the code that stands for them. A hit of whitespace alone stands
+  before the code after it, with nothing to mark, unless whitespace of the new lines stands there. Where the old
+  name shows (struck through in the row of a pair, in the old lines of Unified, Split and the opened note of the
+  rename) the hits are in it. A line may hold more hits than a call takes
   arguments (a minified file, one letter typed): the hits and the parts of a line are added in loops, never spread
   into a call. "In folded
   lines" searches folded diff lines only; it does not gate story text.
@@ -1547,6 +1641,12 @@ one pass over the texts it has. A review of many large files can make it a slice
 - A note that opens is a `button` named by its words and by what a press does ("Formatting only, 3 lines: Show the
   old line"), with `aria-expanded`; as a fold, it is not in the Tab order (a commit that formats a file has hundreds),
   and in a review H opens the notes in view (`aria-keyshortcuts`). A note that opens nothing is its words.
+- A renamed name says "renamed" before the name, once: the generated content of the part it starts with
+  (`data-name-start`), though a hit of the find or a syntax run cuts the name into several parts. A line of a quiet
+  run of one says "renamed only" after its type. The note of a rename is its words, with the renames it counts
+  said after the count in text no eye sees ("and 2 more: count to size, 3 sites; flag to on, 1 site"); where it
+  opens, a `button` named by them as one sentence and by what a press does ("Renamed total to sum, 12 sites: Show
+  the 4 old lines").
 - A line of a move says which end it is at, and that it was edited on the way ("moved away", "moved here, edited on
   the way"), by `data-move` and its tint. The place its note names is a `button` named by where it goes ("Go to
   line 210, where the lines stand now"); the one the key of the review takes names that key (`aria-keyshortcuts`).
@@ -1762,6 +1862,55 @@ views of a move cost a commit without one nothing this benchmark can tell. The S
 the developer Mac at any load (759 and 831 ms for the 200 files in the rounds of the changes before this one), so
 its numbers are read against the parent of the same round, not against the targets.
 
+**With the renames (2026-11-12).** The commits of the benchmark hold renames: of every eight changes of a file the
+third changes in the name of its value alone (`PERF_RENAME_EVERY`), a rename of one site with its note, the name a
+range of its own, in a run that is a label, as the engine gives it; the file of 10,000 lines has 63. The commits with
+the renames and without (`PERF_RENAME_EVERY=0`) were measured in turns on the Mac Studio at the commit of the views
+(WebKit, two rounds of 5 runs each, the fastest run; a load of 10 to 24):
+
+| metric | commits without a rename | every eighth change a rename | target |
+|---|---|---|---|
+| 200 files, first rows after ready (Inline, Split) | 610, 649 ms | 619, 652 ms | ≤ 350 ms |
+| 200 files, highlighted (Inline, Split) | 697, 796 ms | 702, 791 ms | ≤ 450 ms |
+| 10k lines, first rows (Inline, Split) | 346, 353 ms | 356, 355 ms | ≤ 300 ms |
+| 10k lines, highlighted (Inline, Split) | 396, 426 ms | 403, 425 ms | ≤ 400 ms |
+| 200 files, expand a fold, highlighted (Inline, Split) | 124, 159 ms | 137, 159 ms | in the same frame |
+| scroll, 20 viewports/s, a scroll event p95 (200 files, 10k lines; Inline, Split) | 5, 4; 9, 6 ms | 5, 5; 10, 6 ms | ≤ 4 ms |
+| DOM nodes of the view (200 files, 10k lines; Split) | 681, 627; 971, 996 | 633, 624; 960, 985 | ≤ 4,000 |
+
+The two columns differ by less than two rounds of one of them (the first round read 766 and 728 ms for the 200
+files, 416 and 482 ms for the 10,000 lines): the renames cost nothing this benchmark can tell, as two rounds on the
+developer Mac at a load of 62 to 76 say too (the 200 files highlighted in 529 and 572 ms without, in 561 and 588 ms
+with; a scroll event p95 3 to 4 ms in Inline both ways). Measured apart, the rows of the file of 10,000 lines are
+built in 0.31 to 0.42 ms with its 63 renames and in 0.22 to 0.33 ms without one (the sites of the renames read, the
+note of each placed), and every row with the ranges of both its sides is made in 0.23 to 0.39 ms either way. No
+frame had an empty row, and no long task followed the first rows. The Studio opens a review slower than the targets
+at any load, as in the rounds before, and the developer Mac was never quiet, so the absolute targets were not read:
+at a load of 23 its one round with the renames highlighted the 200 files in 501 ms and the 10,000 lines in 287 ms.
+
+The views of a rename against the parent commit, the two in turns on the developer Mac (WebKit, 5 runs each in the
+order views, parent, parent, views; the fastest run of each; a load of 37 to 189, never quiet):
+
+| metric | the parent | the views of a rename | target |
+|---|---|---|---|
+| 200 files, first rows after ready (Inline, Split) | 281, 295 ms | 253, 291 ms | ≤ 350 ms |
+| 200 files, highlighted (Inline, Split) | 511, 587 ms | 514, 507 ms | ≤ 450 ms |
+| 10k lines, first rows (Inline, Split) | 291, 331 ms | 283, 255 ms | ≤ 300 ms |
+| 10k lines, highlighted (Inline, Split) | 324, 357 ms | 305, 299 ms | ≤ 400 ms |
+| 200 files, expand a fold, highlighted (Inline, Split) | 109, 149 ms | 102, 110 ms | in the same frame |
+| scroll, 20 viewports/s, a scroll event p95 (200 files, 10k lines; Inline, Split) | 3, 3; 5, 5 ms | 3, 3; 5, 5 ms | ≤ 4 ms |
+| DOM nodes of the view (200 files, 10k lines; Split) | 681, 627; 971, 996 | 633, 624; 960, 985 | ≤ 4,000 |
+
+Inline is within every target but the highlighted time of the 200 files, the one that rises with the load, and
+there the views read what their parent reads under the same load (514 and 511 ms; the views ran at 37 to 106, the
+parent at 106 to 189). No frame had an empty row and no long task followed the first rows. The same in turns on the
+Mac Studio, with the commits without a rename too, said nothing more at a load of 15 to 100: the 200 files in 725,
+756 and 744 ms (the parent, the views without a rename, with them) in one round and in 868, 858 and 851 ms in the
+next. Its one round at a load of 65 to 100 had frames with an empty row in the fast scroll (3 of the 10,000 lines,
+2 and 1 in Split) and a quarter to a third fewer scroll events than a calmer round; the round after it, at 66 to
+29, had none: a browser starved of frames, not rows that were not there. The 450 ms of the 200 files are still to be read on a
+quiet machine.
+
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized
 component, so a mount renders that section alone. The benchmark times the whole scroll event with the layout of the
@@ -1775,7 +1924,8 @@ production build of the e2e setup, over two synthetic commits (`tests/perf/diff-
 3,000-5,000 lines), and one file of 10,000 lines, each changed line a similar pair but every fourth of a file, which
 changes in its formatting alone: a quiet run of the marks, with its note; and two of every eight, which are the ends
 of a move: a line that leaves one change and stands before the next, every second one edited on the way
-(`PERF_QUIET_EVERY=0` and `PERF_MOVE_EVERY=0` give the commits without the one or the other). It runs each commit in Inline,
+and one of every eight in the name of its value alone, a rename with its note
+(`PERF_QUIET_EVERY=0`, `PERF_MOVE_EVERY=0` and `PERF_RENAME_EVERY=0` give the commits without the one or the other). It runs each commit in Inline,
 with nothing stored, so it follows the default and the targets gate the layout a user gets, and in Split, stored
 (the rows "…, Split" of its table); a run asserts the layout its numbers are of. Routed answers of `get_commit_files`, `get_file_diffs` and
 `get_blob_texts` give the diffs of the engine and the texts. `--project=chromium` and `--project=webkit` run one

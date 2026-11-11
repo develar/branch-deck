@@ -1,7 +1,8 @@
 // @spec openspec/specs/commit/quiet-changes/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { LineMove } from "@/lib/bindings"
-import { describeMoveEnd, describeToRead, formatHiddenMatches, formatToRead, MOVE_END_LABEL, presentRemark } from "@/presenters/diff-marks"
+import { describeMoveEnd, describeRenamedName, describeToRead, formatHiddenMatches, formatToRead, MOVE_END_LABEL, presentRemark } from "@/presenters/diff-marks"
+import type { RenamedName } from "@/presenters/diff-marks"
 
 const lines = (oldStart: number, oldEnd: number, newStart: number, newEnd: number) =>
   [
@@ -13,8 +14,10 @@ describe("presentRemark", () => {
   it("says what the lines of a run changed in and how far it reaches, by the new lines", () => {
     expect(presentRemark({ kind: "formatting", lines: lines(6, 7, 11, 14), open: null, move: null })).toEqual({
       label: "Formatting only",
+      renamed: null,
       target: null,
       detail: "3 lines",
+      more: null,
       name: "Formatting only, 3 lines",
       toggle: null,
     })
@@ -54,8 +57,10 @@ describe("the words of a move", () => {
     const source = (open: boolean | null) => presentRemark({ kind: "moved", lines: lines(119, 133, 300, 300), open, move: { at: "source", move: move(), other: [209, 223] } })
     expect(source(false)).toEqual({
       label: "14 lines moved",
+      renamed: null,
       target: { words: "to line 210", name: "Go to line 210, where the lines stand now" },
       detail: "",
+      more: null,
       name: "14 lines moved to line 210",
       toggle: "Show the 14 old lines",
     })
@@ -84,8 +89,10 @@ describe("the words of a move", () => {
       presentRemark({ kind: "moved", lines: lines(300, 300, 209, 223), open: null, move: { at: "destination", move: move(extra), other: [119, 133] } })
     expect(destination()).toEqual({
       label: "Moved",
+      renamed: null,
       target: { words: "from line 120", name: "Go to line 120, where the lines were" },
       detail: "",
+      more: null,
       name: "Moved from line 120",
       toggle: null,
     })
@@ -99,6 +106,73 @@ describe("the words of a move", () => {
       "Show where the moved lines stand now",
       "Show where the moved lines were",
     ])
+  })
+})
+
+describe("the words of a rename", () => {
+  const total: RenamedName = { old: "total", new: "sum", sites: 12 }
+  const count: RenamedName = { old: "count", new: "size", sites: 3 }
+  const flag: RenamedName = { old: "flag", new: "enabled", sites: 1 }
+  const note = (renames: RenamedName[], open: boolean | null = null, hides: [number, number][] = []) =>
+    presentRemark({ kind: "renamed", lines: lines(13, 13, 27, 27), open, move: null, renames: { renames, hides } })
+
+  it("says the two spellings of a renamed name and how many places hold it, one site or many", () => {
+    expect(note([total])).toEqual({
+      label: "Renamed",
+      renamed: [{ old: "total", new: "sum", sites: "12 sites" }],
+      target: null,
+      detail: "",
+      more: null,
+      name: "Renamed total to sum, 12 sites",
+      toggle: null,
+    })
+    expect(note([flag])).toMatchObject({ renamed: [{ old: "flag", new: "enabled", sites: "1 site" }], name: "Renamed flag to enabled, 1 site" })
+  })
+
+  it("words both renames of a note of two, and of three or more the first with the count of the others, each told for a hover, to a screen reader and in the name of the note", () => {
+    // two: both worded, never "and 1 more" where the one name would stand
+    expect(note([total, count])).toMatchObject({
+      renamed: [
+        { old: "total", new: "sum", sites: "12 sites" },
+        { old: "count", new: "size", sites: "3 sites" },
+      ],
+      more: null,
+      name: "Renamed total to sum, 12 sites, and count to size, 3 sites",
+    })
+    // three: the first worded, the two others counted
+    expect(note([total, count, flag])).toMatchObject({
+      renamed: [{ old: "total", new: "sum", sites: "12 sites" }],
+      more: { words: "and 2 more", names: "count → size · 3 sites\nflag → enabled · 1 site", said: ": count to size, 3 sites; flag to enabled, 1 site" },
+      name: "Renamed total to sum, 12 sites, and 2 more: count to size, 3 sites; flag to enabled, 1 site",
+    })
+    expect(note([total, count, flag, total]).more?.words).toBe("and 3 more")
+  })
+
+  it("names the button of a note that opens by the old lines of every quiet run of its renames, one line or many", () => {
+    const hides: [number, number][] = [
+      [13, 14],
+      [16, 17],
+      [19, 21],
+    ]
+    expect([note([total], false, hides).toggle, note([total], true, hides).toggle, note([total], false, [[13, 14]]).toggle]).toEqual([
+      "Show the 4 old lines",
+      "Hide the 4 old lines",
+      "Show the old line",
+    ])
+    // a rename whose every line is read opens nothing
+    expect(note([total], null).toggle).toBeNull()
+  })
+
+  it("says what a renamed name of a line was on the new side, and what it became on the old one", () => {
+    expect([describeRenamedName("new", total), describeRenamedName("old", total)]).toEqual(["Renamed from total", "Renamed to sum"])
+  })
+
+  it("words a run of the kind renamed that names no rename by its kind, as any run", () => {
+    expect(presentRemark({ kind: "renamed", lines: lines(2, 4, 2, 4), open: null, move: null, renames: null })).toMatchObject({
+      label: "Renamed only",
+      renamed: null,
+      detail: "2 lines",
+    })
   })
 })
 

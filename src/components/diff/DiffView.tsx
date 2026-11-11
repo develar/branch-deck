@@ -14,13 +14,14 @@ import { useMeasuredHeights } from "@/components/diff/use-measured-heights"
 import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite, ReviewTitle } from "@/lib/bindings"
+import { noteKey } from "@/lib/diff/block-parts"
 import type { MoveEnd } from "@/lib/diff/block-parts"
 import { codeMenuItems, codeMenuKeyPoint } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
-import { findHits, hitsByLine, mergeHits } from "@/lib/diff/find"
+import { findHits, hitsByLine, mergeHits, rowOfHit } from "@/lib/diff/find"
 import type { DiffFindHit, FindHit, TextFindHit } from "@/lib/diff/find"
 import { findTextHits, revealTextHit } from "@/lib/diff/find-text"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
@@ -42,6 +43,7 @@ import {
   NEW,
   nextFoldLevel,
   noteOfLine,
+  notesOfRows,
   OLD,
   rowAt,
   rowOfLine,
@@ -806,7 +808,7 @@ export function DiffView({
         const text = blobText(texts, id)
         return id === null || text === null ? null : getLineTable(id, text)
       })
-      return { rows: layout.files[index]!.rows, tables, ranges: file.cells?.ranges ?? NO_RANGES }
+      return { rows: layout.files[index]!.rows, tables, ranges: file.cells?.ranges ?? NO_RANGES, renamed: file.cells?.renamed, renamedRun: file.cells?.renamedRun }
     })
     const sideBySide = mode === "split" || prepared.some(file => file.kind === "merge")
     return findHits(searched, find.query, { sideBySide, folded: find.folded })
@@ -883,7 +885,7 @@ export function DiffView({
         return
       }
       reveal.current = null
-      const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
+      const top = layout.rowTop(hit.file, rowOfHit(rows, hit)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
       painter.scrollTo(Math.max(top, layout.stopTop(hit.file)))
       return
     }
@@ -1037,9 +1039,9 @@ export function DiffView({
     if (file === undefined || key === null || remark === null || remark.open === null) {
       return
     }
-    const at = remark.lines[OLD]![0]
+    const at = noteKey(remark)
     if (all) {
-      openNotes(file, new Set(remark.open ? [] : (file.rows?.notes ?? []).map(([start]) => start)))
+      openNotes(file, new Set(remark.open ? [] : (file.rows?.notes ?? []).map(it => it.key)))
       return
     }
     const open = new Set(getOpenNotes(key))
@@ -1050,37 +1052,29 @@ export function DiffView({
   }
 
   /**
-   * The rows in view among those `pick` gives of each file (the rows of its notes), in the order of the view, each by
-   * its place among them. In view: the row whole below the header stuck at the top
+   * The key of the notes: the notes in view that open show their old lines, or hide them once they all show. In view:
+   * the row whole below the header stuck at the top; a note counts as in view with a line it hides or shows (a line
+   * that Inline shows once, a line under an opened note), wherever it stands itself: the one note of a rename may be
+   * screens above a site of it (`notesOfRows`). A wholly quiet block is no stop of N and P, so the key takes what the
+   * view shows, not a change the keys stepped to
    */
-  const forEachRowInView = (pick: (rows: FileRows) => readonly number[], visit: (file: PreparedFile, rows: FileRows, at: number) => void) => {
+  const toggleNotesInView = () => {
     const view = scroller.current
     if (view === null) {
       return
     }
+    const inView: { file: PreparedFile; note: number }[] = []
     const top = view.scrollTop + layout.stickyTop + headerHeight
     const bottom = view.scrollTop + view.clientHeight
     for (let index = layout.fileAt(top), last = layout.fileAt(bottom); index <= last && index < prepared.length; index++) {
       const rows = layout.files[index]!.rows
-      for (const [at, row] of (rows === null ? [] : pick(rows)).entries()) {
-        if (layout.rowInView(index, row, view.scrollTop, view.clientHeight)) {
-          visit(prepared[index]!, rows!, at)
+      if (rows !== null) {
+        const [from, to] = layout.rowsInView(index, view.scrollTop, view.clientHeight)
+        for (const note of notesOfRows(rows, from, to)) {
+          inView.push({ file: prepared[index]!, note })
         }
       }
     }
-  }
-
-  /**
-   * The key of the notes: the notes in view that open show their old lines, or hide them once they all show. In view:
-   * the row whole below the header stuck at the top. A wholly quiet block is no stop of N and P, so the key takes
-   * what the view shows, not a change the keys stepped to
-   */
-  const toggleNotesInView = () => {
-    const inView: { file: PreparedFile; note: number }[] = []
-    forEachRowInView(
-      rows => rows.noteRows,
-      (file, rows, at) => inView.push({ file, note: rows.notes[at]![0] }),
-    )
     const isOpen = ({ file, note }: { file: PreparedFile; note: number }) => file.foldKey !== null && getOpenNotes(file.foldKey).has(note)
     const open = !inView.every(isOpen)
     const byFile = new Map<PreparedFile, Set<number>>()

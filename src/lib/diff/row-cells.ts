@@ -1,6 +1,8 @@
-import type { TextDiff } from "@/lib/diff/file-diff-model"
+import type { LineRun, TextDiff } from "@/lib/diff/file-diff-model"
 import { resultSourceOf } from "@/lib/diff/file-merge-model"
 import type { MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
+import { lineRanges, pairRanges, renamedRunOf, renameSites, sitesOfLine, withSites } from "@/lib/diff/rename-sites"
+import type { RenameSite } from "@/lib/diff/rename-sites"
 import { LEFT, MIDDLE, NEW, OLD, RIGHT } from "@/lib/diff/rows"
 import type { LineRow } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
@@ -30,8 +32,15 @@ export interface RowCells {
    * move, at either end of it
    */
   cell: (row: LineRow, side: number) => string
-  /** The inner ranges of the line of a side, `[start, end, kind, ...]` (`RANGE_STRIDE`); null for none */
+  /**
+   * The inner ranges of the line of a side, `[start, end, kind, ...]` (`RANGE_STRIDE`); null for none. A renamed name
+   * (`renamed`) is a range of its own kind, `RENAMED_RANGE`, in place of the ranges of the engine inside it
+   */
   ranges: (row: LineRow, side: number) => readonly number[] | null
+  /** The sites of the renames on a line of a side, in the order of their columns (`TextDiff.marks.renames`); none in a merge */
+  renamed: (side: number, line: number) => readonly RenameSite[]
+  /** The run of a renamed name (`LineRun.kind` `renamed`) that holds a line of the new side; null for a line of none, and in a merge */
+  renamedRun: (line: number) => LineRun | null
   /** The cell shows a conflict that the engine resolves (`data-resolved`) */
   resolved: (row: LineRow, side: number) => boolean
 }
@@ -79,10 +88,15 @@ export function fileLayoutOf(mode: DiffViewMode, oneSide: number | null): DiffVi
  * quiet run of the marks (`tint: "quiet"`) is played down: it keeps its type and shows no inner range. A line of a
  * move (`LineRow.move`) is `moved` in every layout, where it left and where it stands now, and its inner ranges are
  * those of the move: what an edited line changed in on the way, never the ranges of its block, which compare it with
- * lines it has nothing to do with.
+ * lines it has nothing to do with. A renamed name (a site of `TextDiff.marks.renames`) is a range of its own kind on
+ * any line, a quiet one too, and the ranges of the engine inside it are left out (`withSites`); in the row of a pair
+ * of lines of Inline the name of both lines is one range, so the row strikes the whole old name through before the
+ * whole new one (`pairedWithSites`). A line of a run of a renamed name, a label too, shows its names alone
+ * (`lineRanges`): nothing else of it changed.
  */
 export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | null = null): RowCells {
   const split = fileLayoutOf(mode, oneSide) === "split"
+  const sites = renameSites(diff)
   return {
     columns: split ? [OLD, NEW] : [NEW],
     numbers: split ? [] : oneSide === null ? [OLD, NEW] : [oneSide],
@@ -110,17 +124,31 @@ export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | 
     ranges: (row, side) => {
       const block = row.block < 0 ? undefined : diff.blocks[row.block]
       const line = row.lines[side]
-      // the ranges of a quiet line are whitespace between the same tokens: nothing in it is strong
-      if (block === undefined || block.kind === "ignored" || line == null || row.tint === "quiet") {
+      if (block === undefined || block.kind === "ignored" || line == null) {
         return null
+      }
+      const named = sitesOfLine(sites, side, line)
+      // the ranges of a quiet line are whitespace between the same tokens: nothing in it is strong but a renamed name
+      if (row.tint === "quiet") {
+        return nonEmpty(withSites(null, named) ?? undefined)
       }
       if (row.move !== null) {
         // the ranges of line i of the move, both lists empty when no line of it has one; none for a blank line beside it
         const { move } = row.move
         return nonEmpty(side === OLD ? move.oldRanges[line - move.oldStart] : move.newRanges[line - move.newStart])
       }
-      return nonEmpty(side === OLD ? block.oldRanges[line - block.oldStart] : block.newRanges[line - block.newStart])
+      const own = side === OLD ? block.oldRanges[line - block.oldStart] : block.newRanges[line - block.newStart]
+      const [oldLine, newLine] = [row.lines[OLD], row.lines[NEW]]
+      if (row.kind === "inline" && oldLine != null && newLine != null) {
+        // one row for the pair: the names both lines hold at one site are one range of both
+        return nonEmpty(
+          pairRanges(diff, [oldLine, newLine], block.oldRanges[oldLine - block.oldStart] ?? [], block.newRanges[newLine - block.newStart] ?? [])[side === OLD ? 0 : 1],
+        )
+      }
+      return nonEmpty(lineRanges(diff, side, line, own ?? null) ?? undefined)
     },
+    renamed: (side, line) => sitesOfLine(sites, side, line),
+    renamedRun: line => renamedRunOf(diff, line),
     resolved: () => false,
   }
 }
@@ -167,6 +195,8 @@ export function mergeCells(merge: TextMerge, middle: MergeMiddle): RowCells {
           return null
       }
     },
+    renamed: () => [],
+    renamedRun: () => null,
     resolved: (row, side) => {
       const block = changes(row, side)
       return side === MIDDLE && middle === "result" && block?.kind === "conflict" && block.resolution !== null

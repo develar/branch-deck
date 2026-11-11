@@ -14,6 +14,7 @@ import {
   NEW,
   nextFoldLevel,
   noteOfLine,
+  notesOfRows,
   OLD,
   RIGHT,
   rowAt,
@@ -24,7 +25,7 @@ import {
 } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, Heading, LineRow, Row } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, mergeBlock, move, NESTED_SCOPES, run, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, mergeBlock, move, NESTED_SCOPES, rename, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 /**
  * A row as text: `4:4` context, `-4` deleted, `+4` added, `~4:4` inline, `4|_` split, `=_:4` ignored, `1x4` a line
@@ -331,7 +332,7 @@ describe("the marks of a diff in its rows", () => {
     expect(changed(whole(WRAPPED, "split"))).toEqual(["remark formatting 3-3", "3|3 quiet", "_|4 quiet", "_|5 quiet"])
     // an opened note of Inline changes nothing where no line is hidden
     expect(changed(whole(WRAPPED, "unified", [3]))).toEqual(changed(whole(WRAPPED, "unified")))
-    expect([whole(WRAPPED, "unified").notes, whole(WRAPPED, "split").notes, whole(WRAPPED, "inline").notes]).toEqual([[], [], [[3, 4]]])
+    expect([whole(WRAPPED, "unified").notes, whole(WRAPPED, "split").notes, whole(WRAPPED, "inline").notes]).toEqual([[], [], [{ key: 3, lines: [[3, 4]] }]])
     // a note that opens has its row, opened too: what the key of the notes takes for the notes in view
     const two = textDiff(20, 24, [block(3, 4, 3, 6), block(10, 11, 12, 15)], { runs: [run(3, 4, 3, 6), run(10, 11, 12, 15)] })
     expect([whole(WRAPPED, "unified").noteRows, whole(two, "inline").noteRows, whole(two, "inline", [3]).noteRows, whole(two, "inline", [3]).notes]).toEqual([
@@ -339,8 +340,8 @@ describe("the marks of a diff in its rows", () => {
       [3, 13],
       [3, 14],
       [
-        [3, 4],
-        [10, 11],
+        { key: 3, lines: [[3, 4]] },
+        { key: 10, lines: [[10, 11]] },
       ],
     ])
   })
@@ -468,6 +469,17 @@ describe("the marks of a diff in its rows", () => {
     expect([2, 3, 4].map(line => rowOfLine(whole(INDENTED, "inline"), OLD, line))).toEqual([3, 3, 3])
   })
 
+  it("finds an old line of a block the policy ignores at the row that shows its new line, and at the first row of the block where the sides differ in their lines", () => {
+    const levels = [EXPANDED, EXPANDED, EXPANDED]
+    // as many lines on both sides: the lines are unchanged rows, each old line at the row of its own line
+    const same = buildFileRows(textDiff(20, 20, [block(5, 8, 5, 8, { kind: "ignored" }), block(15, 16, 15, 16)]), "unified", levels)
+    expect([5, 6, 7, 8].map(line => rowOfLine(same, OLD, line))).toEqual([5, 6, 7, 8])
+    // a line fewer on the new side: one column shows the two new lines, and the first of them stands for the old ones
+    const fewer = buildFileRows(textDiff(20, 19, [block(5, 8, 5, 7, { kind: "ignored" }), block(15, 16, 14, 15)]), "unified", levels)
+    expect(outline(fewer).slice(4, 8)).toEqual(["4:4", "=_:5", "=_:6", "8:7"])
+    expect([5, 6, 7, 8].map(line => rowOfLine(fewer, OLD, line))).toEqual([5, 5, 5, 7])
+  })
+
   it("leaves a run that lies in no block out, so every line of every block shows", () => {
     const stray = textDiff(10, 10, [block(4, 5, 4, 5)], { runs: [run(0, 1, 0, 1), run(4, 6, 4, 5), run(7, 8, 7, 8)] })
     expect(changed(whole(stray, "inline"))).toEqual(["-4", "+4"])
@@ -564,7 +576,7 @@ describe("the moves of a diff in its rows", () => {
       ])
     }
     // only the note of Inline where the lines left opens: the key of the notes and ⌥-click take it
-    expect([whole(MOVED, "inline").notes, whole(MOVED, "inline").noteRows, whole(MOVED, "unified").notes]).toEqual([[[20, 24]], [25], []])
+    expect([whole(MOVED, "inline").notes, whole(MOVED, "inline").noteRows, whole(MOVED, "unified").notes]).toEqual([[{ key: 20, lines: [[20, 24]] }], [25], []])
     // a block that lost some of its lines is read from a line that stayed
     const mixed = textDiff(50, 48, [block(10, 16, 10, 11), block(35, 35, 30, 33)], { moves: [move(11, 30, 3)] })
     const rows = whole(mixed, "inline")
@@ -760,6 +772,135 @@ describe("buildMergeRows", () => {
     const merge = textMerge([3, 3, 3], [mergeBlock([1, 2], [1, 2], [1, 2], { leftRanges: [[0, 2]], baseRanges: [[0, 2]], rightRanges: [[4, 5]] })])
     expect(outline(buildMergeRows(merge, "base"))).toEqual(["0:0:0", "1|1|1 pale", "2:2:2"])
     expect(RIGHT).toBe(2)
+  })
+})
+
+describe("the renames of a diff in its rows", () => {
+  // the local `total` is `sum` at three lines, far apart, the name alone at each: a run of the kind `renamed` a block
+  const renamed = (quiet: boolean, importBlocks: number[] = []) =>
+    textDiff(60, 60, [block(10, 11, 10, 11, { inlinePairs: true }), block(30, 31, 30, 31, { inlinePairs: true }), block(50, 51, 50, 51, { inlinePairs: true })], {
+      importBlocks,
+      runs: [10, 30, 50].map(line => run(line, line + 1, line, line + 1, { kind: "renamed", quiet })),
+      renames: [
+        rename("total", "sum", [
+          [10, 4, 10, 4],
+          [30, 2, 30, 2],
+          [50, 9, 50, 9],
+        ]),
+      ],
+    })
+  /** The rows of the blocks, no unchanged line and no fold, with the names a note names after it */
+  const named = (rows: FileRows) =>
+    Array.from({ length: rows.rowCount }, (_, index) => rowAt(rows, index)).flatMap(row => {
+      const text = describeRow(row)
+      if (/^\d+:\d+$/.test(text) || row.kind === "fold") {
+        return []
+      }
+      return [row.kind === "note" && row.remark?.renames != null ? `${text} ${row.remark.renames.renames.map(it => `${it.old}>${it.new}`).join(" ")}` : text]
+    })
+
+  it("names a rename once in the rows of a file, before the lines of its declaration, and gives its other sites no note", () => {
+    const label = renamed(false)
+    expect(named(whole(label, "inline"))).toEqual(["remark renamed 10-10 total>sum", "~10:10", "~30:30", "~50:50"])
+    expect(named(whole(label, "unified"))).toEqual(["remark renamed 10-10 total>sum", "-10", "+10", "-30", "+30", "-50", "+50"])
+    expect(named(whole(label, "split"))).toEqual(["remark renamed 10-10 total>sum", "10|10", "30|30", "50|50"])
+    // every line of a label is read: N and P stop at each block, at its line and never at the note; nothing opens
+    const rows = whole(label, "inline")
+    expect([rows.changeStarts.map(row => describeRow(rowAt(rows, row))), rows.changes, rows.notes, rows.noteRows]).toEqual([["~10:10", "~30:30", "~50:50"], 3, [], []])
+  })
+
+  it("shows the lines of a quiet rename once in Inline, which N and P pass, and opens them all by the one note of the rename", () => {
+    const quiet = renamed(true)
+    const closed = whole(quiet, "inline")
+    expect(named(closed)).toEqual(["remark renamed 10-10 closed total>sum", "1x10 quiet", "1x30 quiet", "1x50 quiet"])
+    // nothing of it to read: no stop, and the three blocks are still the changes the file counts
+    expect([closed.changeStarts, closed.changes]).toEqual([[], 3])
+    // the one note that opens, with every line it hides: the key of the notes, ⌥-click and a reveal of an old line take it
+    expect([closed.notes, closed.noteRows.map(row => describeRow(rowAt(closed, row)))]).toEqual([
+      [
+        {
+          key: 10,
+          lines: [
+            [10, 11],
+            [30, 31],
+            [50, 51],
+          ],
+        },
+      ],
+      ["remark renamed 10-10 closed"],
+    ])
+    expect([10, 30, 50, 31].map(line => noteOfLine(closed, line))).toEqual([10, 10, 10, null])
+    // an old line the rows show once is found at the row of its new line, far from the note
+    expect([10, 30, 50].map(line => describeRow(rowAt(closed, rowOfLine(closed, OLD, line))))).toEqual(["1x10 quiet", "1x30 quiet", "1x50 quiet"])
+    // opened: every old line before its new one, all played down
+    const opened = whole(quiet, "inline", [10])
+    expect(named(opened)).toEqual(["remark renamed 10-10 open total>sum", "-10 quiet", "+10 quiet", "-30 quiet", "+30 quiet", "-50 quiet", "+50 quiet"])
+    expect([10, 30, 50].map(line => describeRow(rowAt(opened, rowOfLine(opened, OLD, line))))).toEqual(["-10 quiet", "-30 quiet", "-50 quiet"])
+    // Unified and Split keep both lines of each site, played down; their note opens nothing
+    expect(named(whole(quiet, "unified"))).toEqual(["remark renamed 10-10 total>sum", "-10 quiet", "+10 quiet", "-30 quiet", "+30 quiet", "-50 quiet", "+50 quiet"])
+    expect(named(whole(quiet, "split"))).toEqual(["remark renamed 10-10 total>sum", "10|10 quiet", "30|30 quiet", "50|50 quiet"])
+    expect([whole(quiet, "unified").notes, whole(quiet, "split").changeStarts]).toEqual([[], []])
+  })
+
+  it("takes for the key of the notes the note of a line it hides or shows, wherever that note stands, beside the notes among the rows", () => {
+    const quiet = renamed(true)
+    const closed = whole(quiet, "inline")
+    // the rows around the last site, forty lines below the note: the one note of the rename answers for the line shown once
+    const last = rowOfLine(closed, NEW, 50)
+    expect(describeRow(rowAt(closed, last))).toBe("1x50 quiet")
+    expect(notesOfRows(closed, last - 2, last + 3)).toEqual([10])
+    // unchanged rows alone answer for none; the note and its lines together are one note
+    expect([notesOfRows(closed, last + 1, last + 4), notesOfRows(closed, 0, closed.rowCount), notesOfRows(closed, -5, 2)]).toEqual([[], [10], []])
+    // opened: the old line and the new one of the site answer for the note too, so the key hides them again from there
+    const opened = whole(quiet, "inline", [10])
+    const shown = rowOfLine(opened, OLD, 50)
+    expect([describeRow(rowAt(opened, shown)), notesOfRows(opened, shown, shown + 1), notesOfRows(opened, shown + 1, shown + 2)]).toEqual(["-50 quiet", [10], [10]])
+    // lines that are read, and the layouts that hide no line, have no note to take
+    expect([notesOfRows(whole(renamed(false), "inline"), 0, 100), notesOfRows(whole(quiet, "unified"), 0, 100)]).toEqual([[], []])
+    // a quiet run of formatting: its note by its own row, and by the rows of its lines, closed and opened
+    const wrapped = textDiff(10, 12, [block(3, 4, 3, 6)], { runs: [run(3, 4, 3, 6)] })
+    const call = whole(wrapped, "inline")
+    expect([notesOfRows(call, 3, 4), notesOfRows(call, 5, 7), notesOfRows(whole(wrapped, "inline", [3]), 4, 5)]).toEqual([[3], [3], [3]])
+    // the lines a move took: the note stands for them, and the lines under it answer for it once it is opened
+    const moved = textDiff(40, 40, [block(5, 5, 5, 8), block(20, 23, 21, 21)], { moves: [move(20, 5, 3)] })
+    const left = whole(moved, "inline", [20])
+    const first = rowOfLine(left, OLD, 21)
+    expect([describeRow(rowAt(left, first)), notesOfRows(left, first, first + 1), notesOfRows(whole(moved, "inline"), 0, 100)]).toEqual(["-21 away", [20], [20]])
+    // where the lines stand now nothing is hidden: no note
+    expect(notesOfRows(left, 0, 9)).toEqual([])
+  })
+
+  it("names the rename at its first site in a section of a review that does not show its declaration, and opens the runs of that section alone", () => {
+    const quiet = renamed(true)
+    const units = { marks: new Map([[1, [{ name: "balance", words: "body changed" }]]]), elsewhere: new Map([[0, "Shown in part 1"]]) }
+    const section = whole(quiet, "inline", [], units)
+    // the block of the declaration is one row of words here; the note joins the heading of the block of the first site shown
+    expect(named(section)).toEqual(["elsewhere Shown in part 1", "unit balance — body changed renamed 30-30 closed total>sum", "1x30 quiet", "1x50 quiet"])
+    expect(section.notes).toEqual([
+      {
+        key: 30,
+        lines: [
+          [30, 31],
+          [50, 51],
+        ],
+      },
+    ])
+    expect(named(whole(quiet, "inline", [30], units)).slice(1)).toEqual([
+      "unit balance — body changed renamed 30-30 open total>sum",
+      "-30 quiet",
+      "+30 quiet",
+      "-50 quiet",
+      "+50 quiet",
+    ])
+  })
+
+  it("keeps the note of a rename out of a block of the imports alone that a review plays down while another block holds a site", () => {
+    // the first block is of the imports alone: with the plan of a review it is pale and passed, and the note stands at the next site
+    const label = renamed(false, [0])
+    const played = buildFileRows(label, "unified", [EXPANDED, EXPANDED, EXPANDED, EXPANDED], true)
+    expect(named(played)).toEqual(["-10 whitespace", "+10 whitespace", "remark renamed 30-30 total>sum", "-30", "+30", "-50", "+50"])
+    // without the plan the block is a block as any: the note is at the declaration
+    expect(named(whole(label, "unified"))[0]).toBe("remark renamed 10-10 total>sum")
   })
 })
 

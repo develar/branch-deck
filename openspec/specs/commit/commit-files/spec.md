@@ -1416,8 +1416,8 @@ without a line beside it.
 
 The tints MUST be IntelliJ's: a block with inner ranges draws its lines pale and its ranges in the full colour; a
 block without them (line-level only, or ranges dropped) draws its lines in the full colour; a whitespace-only block
-draws its lines pale with nothing strong. The lines of a quiet run of the marks are our own: in the quiet colour,
-with no range; so are the lines of a move, in its colour, pale where edited on the way
+draws its lines pale with nothing strong. Our own: the lines of a quiet run, quiet with no range; the lines of a
+move, in its colour, pale where edited; a renamed name, a range in no colour of a change
 ([Quiet Changes](../quiet-changes/spec.md#views)).
 
 #### Scenario: Blocks with and without inner ranges
@@ -1440,6 +1440,11 @@ with no range; so are the lines of a move, in its colour, pale where edited on t
 - **THEN** they are cells of a move in every layout, full as they were and pale where edited, with the ranges of the move and none of the block
   [@test] src/lib/diff/row-cells.test.ts (`types a line of a move as its own cell at both ends in every layout, and draws the ranges of the move in an edited line alone`)
   [@test] src/lib/diff/rows.test.ts (`shows the lines of a move once in Inline, where they stand now, and one note that opens where they left`)
+
+#### Scenario: A renamed name
+- **WHEN** a line of a block with inner ranges holds a renamed name, alone or beside another change, and when the line is quiet
+- **THEN** the name is a range of its own kind in place of what the engine marked in it, the other ranges of the line stay, and a quiet line shows that range alone
+  [@test] src/lib/diff/row-cells.test.ts (`gives a renamed name a range of its own kind in place of what the engine marked in it, on both sides, and keeps the other changes of its line`, `draws the name on a line of a quiet run, which shows no other range: once in Inline, on both lines elsewhere and under an opened note`)
 
 ### Requirement: Files section: The colours are IntelliJ's diff types
 

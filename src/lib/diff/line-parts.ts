@@ -11,7 +11,10 @@ export interface LinePart {
   end: number
   /** The style of the syntax runs: the role in the low 4 bits, the font style bits above; 0 the default foreground */
   style: number
-  /** The `RangeKind` of the changed range of the engine that holds the part (0 inserted, 1 deleted, 2 modified); -1 outside one */
+  /**
+   * The `RangeKind` of the changed range of the engine that holds the part (0 inserted, 1 deleted, 2 modified), or
+   * `RENAMED_RANGE` for a part of a renamed name; -1 outside one
+   */
   change: number
   /** A deleted part of the old line in an Inline row: not selectable, not copied */
   deleted: boolean
@@ -24,10 +27,23 @@ export interface LinePart {
 /** The values of one changed range of the engine: `[start, end, kind]` (`DiffBlock.oldRanges`) */
 export const RANGE_STRIDE = 3
 
+/**
+ * The kind of the range of a renamed name (a site of `TextDiff.marks.renames`, rename-sites.ts), beside the
+ * `RangeKind` of the engine: the page's own. The name is drawn in a mark of its own, never as a change; the row of a
+ * pair of lines (Inline) strikes the old name through before the new one, as any deleted part, both in that mark
+ */
+export const RENAMED_RANGE = 3
+
 /** The hits of the find on a line: flat `[start, end, ...]`, and the index of the current one among them, or -1 */
 export interface LineHits {
   ranges: readonly number[]
   current: number
+  /**
+   * The hits of hidden old lines that the line stands for (`DiffFindHit.stand`: a line of a quiet run of a renamed name
+   * that Inline shows once), by its own columns: `[start, end, hit, ...]` in their order, without overlap, `hit` as
+   * `LinePart.hit` (2 for the current hit). Absent where it stands for none
+   */
+  stands?: readonly number[]
 }
 
 /**

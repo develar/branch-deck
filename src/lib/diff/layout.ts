@@ -253,6 +253,21 @@ export class DiffLayout {
     return top >= scrollTop + this.stickyTop + this.metrics.headerHeight && top + this.rowHeight(file, row) <= scrollTop + viewHeight
   }
 
+  /** The rows of a file that are in view (`rowInView`) at `scrollTop` of a view `viewHeight` high: [from, to); empty when none is */
+  rowsInView(file: number, scrollTop: number, viewHeight: number): readonly [number, number] {
+    const count = this.files[file]!.rows?.rowCount ?? 0
+    // the row at the edge below the stuck header, which may cut it
+    let from = Math.max(this.rowAt(file, scrollTop + this.stickyTop + this.metrics.headerHeight), 0)
+    while (from < count && !this.rowInView(file, from, scrollTop, viewHeight) && this.rowTop(file, from) < scrollTop + viewHeight) {
+      from++
+    }
+    let to = from
+    while (to < count && this.rowInView(file, to, scrollTop, viewHeight)) {
+      to++
+    }
+    return [from, to]
+  }
+
   /**
    * Where a file header sticks below the top of the view: the space above the first card, so a card at the top keeps
    * the space it has at the top of the document (`.dv-card > .dv-header` in diff-view.css)

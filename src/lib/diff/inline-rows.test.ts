@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import { inlineRowText, widestInlineRow } from "@/lib/diff/inline-rows"
 import { buildLineTable } from "@/lib/diff/line-table"
-import { block, move, run, textDiff } from "@/test-support/diff-blocks"
+import { block, move, rename, run, textDiff } from "@/test-support/diff-blocks"
 
 describe("inlineRowText", () => {
   it("is the new line with the deleted parts of the old line before the inserted parts", () => {
@@ -21,6 +21,16 @@ describe("widestInlineRow", () => {
     const pair = block(1, 2, 1, 2, { inlinePairs: true, oldRanges: [[11, 26, 2]], newRanges: [[11, 21, 2]] })
     // the tab is 4 columns, `val name: ` 10, the deleted and the inserted name 15 and 10, ` = 1` 4
     expect(widestInlineRow(textDiff(4, 4, [pair]), buildLineTable(oldText), buildLineTable(newText), 4)).toBe(43)
+  })
+
+  it("counts the whole old name of a rename in the row of its pair, though the engine marked only the letters that differ", () => {
+    // `count` is `amount`: the engine deletes `c` and inserts `am`, the row strikes `count` through before `amount`
+    const tables = [buildLineTable("val count = 1\n"), buildLineTable("val amount = 1\n")] as const
+    const pair = block(0, 1, 0, 1, { inlinePairs: true, oldRanges: [[4, 5, 2]], newRanges: [[4, 6, 2]] })
+    // without the rename: `val ` 4, `c` and `am` 3, `ount = 1` 8
+    expect(widestInlineRow(textDiff(2, 2, [pair]), tables[0], tables[1], 4)).toBe(15)
+    // with it: `val ` 4, `count` and `amount` 11, ` = 1` 4
+    expect(widestInlineRow(textDiff(2, 2, [pair], { renames: [rename("count", "amount", [[0, 4, 0, 4]])] }), tables[0], tables[1], 4)).toBe(19)
   })
 
   it("counts no row of a block that is no similar pair, that the policy ignores, or that deletes nothing", () => {

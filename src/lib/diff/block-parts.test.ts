@@ -6,22 +6,38 @@ import {
   inlinePairsOf,
   marksByBlock,
   NO_MARKS,
+  NO_RENAME_NOTES,
+  noteKey,
   partsLines,
   partsMoveNotes,
+  partsNoteOfRow,
   partsNotes,
   partsRow,
   partsRowOfLine,
   partsStopRow,
   readingOf,
+  renameNotesOf,
   stopsOf,
 } from "@/lib/diff/block-parts"
-import type { BlockMarks, PartsOptions } from "@/lib/diff/block-parts"
-import type { LineRun } from "@/lib/diff/file-diff-model"
-import { block, move, run, textDiff } from "@/test-support/diff-blocks"
+import type { BlockMarks, PartsOptions, RenameNotes } from "@/lib/diff/block-parts"
+import type { LineRun, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
+import { block, move, rename, run, textDiff } from "@/test-support/diff-blocks"
 
 const OLD = 0
 const NEW = 1
 const options = (mode: PartsOptions["mode"], open: number[] = []): PartsOptions => ({ mode, tint: "full", open: new Set(open), heading: null })
+/** A small generator with a seed (mulberry32): the next number below `below`, the same numbers in every run of a test */
+function seeded(start: number): (below: number) => number {
+  let seed = start
+  return below => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let mixed = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed
+    return ((mixed ^ (mixed >>> 14)) >>> 0) % below
+  }
+}
+
 /** The marks of a block that has runs alone */
 const ofRuns = (runs: LineRun[]): BlockMarks => ({ ...NO_MARKS, runs })
 
@@ -54,7 +70,7 @@ describe("blockParts", () => {
     // Split: _|2, note, 3 rows, 5|_, note, 6|6, _|7
     expect(blockParts(marked, 0, runs, options("split")).rowCount).toBe(9)
     // only a quiet run of Inline has a note that opens, by the old lines it hides
-    expect([partsNotes(inline), partsNotes(blockParts(marked, 0, runs, options("unified")))]).toEqual([[{ lines: [2, 5], row: 1 }], []])
+    expect([partsNotes(inline), partsNotes(blockParts(marked, 0, runs, options("unified")))]).toEqual([[{ key: 2, lines: [[2, 5]], row: 1 }], []])
   })
 
   it("gives each row by its part, and the row of each line of a side", () => {
@@ -75,6 +91,15 @@ describe("blockParts", () => {
     ])
     // a line of the quiet run, which Rust never names, is where it shows
     expect(partsStopRow(inline, NEW, 4)).toBe(2)
+  })
+
+  it("gives an old line of lines that one column shows by the new ones alone the row of the new line at its place, and the first row where the sides differ in their lines", () => {
+    // a block the whitespace policy ignores, in one column: its new lines stand for the old ones
+    const same = blockParts(block(2, 5, 2, 5, { kind: "ignored" }), 0, NO_MARKS, options("unified"))
+    expect([2, 3, 4, 5].map(line => partsRowOfLine(same, OLD, line))).toEqual([0, 1, 2, 3])
+    const fewer = blockParts(block(2, 5, 2, 4, { kind: "ignored" }), 0, NO_MARKS, options("unified"))
+    expect([2, 3, 4, 5].map(line => partsRowOfLine(fewer, OLD, line))).toEqual([0, 0, 0, 2])
+    expect([2, 3, 4].map(line => partsRowOfLine(fewer, NEW, line))).toEqual([0, 1, 2])
   })
 
   it("starts the reading of a block at its first row of lines to read, in every layout, whatever labels cut it", () => {
@@ -263,7 +288,7 @@ describe("the ends of the moves of a block", () => {
     // Inline: the note alone, which stands for the four old lines and opens
     const closed = blockParts(left, 1, marks, options("inline"))
     expect(rowsOf(closed)).toEqual(["note moved 20-24 closed source"])
-    expect(partsNotes(closed)).toEqual([{ lines: [20, 24], row: 0 }])
+    expect(partsNotes(closed)).toEqual([{ key: 20, lines: [[20, 24]], row: 0 }])
     expect([20, 21, 23, 24].map(line => partsRowOfLine(closed, OLD, line))).toEqual([0, 0, 0, 1])
     expect(partsLines(closed, 0, 1)).toEqual([
       [20, 24],
@@ -388,14 +413,8 @@ describe("the ends of the moves of a block", () => {
   })
 
   it("shows every line of a block once whatever the marks say: by its own row, or behind the note that stands for it", () => {
-    // a small generator with a seed (mulberry32): the same blocks, runs and moves in every run of the test
-    let seed = 20261111
-    const random = (below: number) => {
-      seed = (seed + 0x6d2b79f5) | 0
-      let mixed = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-      mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed
-      return ((mixed ^ (mixed >>> 14)) >>> 0) % below
-    }
+    // the same blocks, runs and moves in every run of the test
+    const random = seeded(20261111)
     // what the rounds held, so the test says when its marks stop being what it is about
     const held = { sources: 0, destinations: 0, overlapping: 0, runs: 0 }
     for (let round = 0; round < 600; round++) {
@@ -462,5 +481,432 @@ describe("the ends of the moves of a block", () => {
     }
     // the rounds held blocks with ends of each side, ends that overlap, and ends beside runs
     expect([held.sources > 50, held.destinations > 50, held.overlapping > 10, held.runs > 10], JSON.stringify(held)).toEqual([true, true, true, true])
+  })
+})
+
+describe("the notes of the renames of a diff", () => {
+  // the local `total` is `sum` at three lines of three blocks, the name alone at each: a run of the kind `renamed` a
+  // block, quiet once Rust says so; its declaration is the first site
+  const sites = [
+    [3, 4, 3, 4],
+    [6, 2, 6, 2],
+    [9, 9, 9, 9],
+  ] as const
+  const blocks = () => [block(3, 4, 3, 4, { inlinePairs: true }), block(6, 7, 6, 7, { inlinePairs: true }), block(9, 10, 9, 10, { inlinePairs: true })]
+  const renamedRuns = (quiet: boolean) => [3, 6, 9].map(line => run(line, line + 1, line, line + 1, { kind: "renamed", quiet }))
+  const local = (quiet: boolean, declared = [0]) => textDiff(20, 20, blocks(), { runs: renamedRuns(quiet), renames: [rename("total", "sum", sites, { declared })] })
+  /** A note as its key, the names it names, the site it stands at and the old lines it opens */
+  const told = (notes: RenameNotes) => [...notes.byBlock].map(([at, note]) => [at, note.key, note.renames.map(it => `${it.old}>${it.new}`).join(" "), note.lines, note.hides])
+  /** The rows of block `index` of a diff in a layout: a note by its kind, whether it opens and the names it names, a line by its kind, its lines and its tint */
+  const rowsOf = (diff: TextDiff, index: number, mode: DiffViewMode, open: number[] = [], renames = renameNotesOf(diff), heading: PartsOptions["heading"] = null) => {
+    const parts = blockParts(diff.blocks[index]!, index, marksByBlock(diff)[index]!, { ...options(mode, open), heading, renames })
+    return Array.from({ length: parts.rowCount }, (_, row) => {
+      const value = partsRow(parts, row)
+      if (value.kind === "note") {
+        const { remark } = value
+        const names = remark?.renames == null ? "" : ` ${remark.renames.renames.map(it => `${it.old}>${it.new}`).join(" ")}`
+        const said = remark === null ? "" : ` ${remark.kind}${remark.open === null ? "" : remark.open ? " open" : " closed"}${remark.quiet ? " quiet" : ""}${names}`
+        return `${value.tone}${value.label === "" ? "" : ` ${value.label}`}${said} ${value.lines.map(([start, end]) => end - start).join("+")}`
+      }
+      return `${value.kind} ${value.lines.map(line => line ?? "_").join(",")}${value.tint === "full" ? "" : ` ${value.tint}`}${value.run === null ? "" : ` ${value.run}`}`
+    })
+  }
+
+  it("gives a rename one note, at its declaration, with the old lines of its quiet runs to open; its runs have no note of their own", () => {
+    const quiet = local(true)
+    const notes = renameNotesOf(quiet)
+    expect(told(notes)).toEqual([
+      [
+        0,
+        3,
+        "total>sum",
+        [3, 3],
+        [
+          [3, 4],
+          [6, 7],
+          [9, 10],
+        ],
+      ],
+    ])
+    // each run of the rename is named by that note
+    const [note] = [...notes.byBlock.values()]
+    expect(quiet.marks.runs.map(one => notes.ofRun.get(one))).toEqual([note, note, note])
+    // a label hides no line: its note opens nothing
+    expect(told(renameNotesOf(local(false)))).toEqual([[0, 3, "total>sum", [3, 3], []]])
+    // the declaration is the place of the note, wherever it is among the sites
+    expect(told(renameNotesOf(local(true, [1]))).map(([at, key]) => [at, key])).toEqual([[1, 6]])
+    // a diff that renames nothing has no note, and costs nothing
+    expect(renameNotesOf(textDiff(20, 20, blocks()))).toBe(NO_RENAME_NOTES)
+  })
+
+  it("stands the note at the first site the rows show where they do not show the declaration, and opens the runs they show alone", () => {
+    const quiet = local(true)
+    // a section of a review that shows the last two blocks: the note is at the first of them
+    expect(told(renameNotesOf(quiet, index => index !== 0))).toEqual([
+      [
+        1,
+        6,
+        "total>sum",
+        [6, 6],
+        [
+          [6, 7],
+          [9, 10],
+        ],
+      ],
+    ])
+    expect(told(renameNotesOf(quiet, index => index === 2)).map(([at, key]) => [at, key])).toEqual([[2, 9]])
+    // rows that show no site of the rename name it nowhere
+    expect(told(renameNotesOf(quiet, () => false))).toEqual([])
+    // a block that is played down (the imports alone, in a review with its plan) has the note only when no other block can
+    expect(told(renameNotesOf(local(true, [1]), () => true, new Set([1]))).map(([at, key]) => [at, key])).toEqual([[0, 3]])
+    expect(told(renameNotesOf(quiet, () => true, new Set([0, 1, 2]))).map(([at, key]) => [at, key])).toEqual([[0, 3]])
+  })
+
+  // `count` is `n` on the line of the declaration of `total`, after it; `flag` is `on` in the last block alone, on a
+  // line that holds a site of `total` too
+  const three = textDiff(20, 20, blocks(), {
+    runs: renamedRuns(true),
+    renames: [rename("count", "n", [[3, 12, 3, 10]]), rename("total", "sum", sites), rename("flag", "on", [[9, 2, 9, 2]])],
+  })
+  /** A run of two lines of the name `total`, a line each on both sides: its places, and the one of them that declares it */
+  const twoLines = (places: readonly (readonly [number, number, number, number])[], declared: number) =>
+    textDiff(20, 20, [block(3, 5, 3, 5)], { runs: [run(3, 5, 3, 5, { kind: "renamed" })], renames: [rename("total", "sum", places, { declared: [declared] })] })
+
+  it("names the renames whose notes stand in one block in one note, at the first of their sites, and any other in its own", () => {
+    const notes = renameNotesOf(three)
+    // the run of the last block holds a site of both notes: it is the run of the note of its first name, `flag`, alone
+    expect(told(notes)).toEqual([
+      [
+        0,
+        3,
+        "total>sum count>n",
+        [3, 3],
+        [
+          [3, 4],
+          [6, 7],
+        ],
+      ],
+      [2, 9, "flag>on", [9, 9], [[9, 10]]],
+    ])
+    const [shared, own] = [...notes.byBlock.values()]
+    expect(three.marks.runs.map(one => notes.ofRun.get(one))).toEqual([shared, shared, own])
+  })
+
+  it("opens a quiet run by one note alone, the note of the first rename with a site in it; a note with no run of its own is plain words", () => {
+    // the run of the last block opens with the note of `flag`, never with the note of `total`, which has a site in it too
+    expect(rowsOf(three, 2, "inline")).toEqual(["remark renamed closed quiet flag>on 0+0", "once _,9 quiet renamed"])
+    expect(rowsOf(three, 2, "inline", [3])).toEqual(["remark renamed closed quiet flag>on 0+0", "once _,9 quiet renamed"])
+    expect(rowsOf(three, 2, "inline", [9])).toEqual(["remark renamed open quiet flag>on 0+0", "deleted 9,_ quiet renamed", "added _,9 quiet renamed"])
+    // so a note that says it is closed hides a line, and one that says it is open shows every line it names
+    expect(rowsOf(three, 0, "inline", [9])).toEqual(["remark renamed closed quiet total>sum count>n 0+0", "once _,3 quiet renamed"])
+    expect(rowsOf(three, 0, "inline", [3])).toEqual(["remark renamed open quiet total>sum count>n 0+0", "deleted 3,_ quiet renamed", "added _,3 quiet renamed"])
+    // a rename declared on a line that is read, whose one quiet line is the run of another note: its note opens nothing
+    const read = textDiff(20, 20, blocks(), {
+      runs: [run(3, 4, 3, 4, { kind: "renamed", quiet: false }), run(9, 10, 9, 10, { kind: "renamed", quiet: true })],
+      renames: [
+        rename("total", "sum", [
+          [3, 4, 3, 4],
+          [9, 9, 9, 9],
+        ]),
+        rename("flag", "on", [[9, 2, 9, 2]]),
+      ],
+    })
+    expect(told(renameNotesOf(read)).map(([at, key, , , hides]) => [at, key, hides])).toEqual([
+      [0, 3, []],
+      [2, 9, [[9, 10]]],
+    ])
+    expect(rowsOf(read, 0, "inline", [3])).toEqual(["remark renamed total>sum 0+0", "inline 3,3"])
+    // the rows of a quiet run answer the key of the notes as its one note does, closed and opened; lines that are read answer none
+    const parts = (index: number, open: number[] = []) =>
+      blockParts(read.blocks[index]!, index, marksByBlock(read)[index]!, { ...options("inline", open), renames: renameNotesOf(read) })
+    expect([partsNoteOfRow(parts(2), 0), partsNoteOfRow(parts(2), 1), partsNoteOfRow(parts(2, [9]), 1), partsNoteOfRow(parts(2, [9]), 2), partsNoteOfRow(parts(0), 1)]).toEqual([
+      null,
+      9,
+      9,
+      9,
+      null,
+    ])
+  })
+
+  it("shows a run of a rename that is a label as the lines of its block, the note before the lines of the declaration alone", () => {
+    const label = local(false)
+    // Inline: the pair of each line is one row; Unified and Split show both lines; the note opens nothing
+    expect([rowsOf(label, 0, "inline"), rowsOf(label, 1, "inline")]).toEqual([["remark renamed total>sum 0+0", "inline 3,3"], ["inline 6,6"]])
+    expect([rowsOf(label, 0, "unified"), rowsOf(label, 2, "unified")]).toEqual([
+      ["remark renamed total>sum 0+0", "deleted 3,_", "added _,3"],
+      ["deleted 9,_", "added _,9"],
+    ])
+    expect([rowsOf(label, 0, "split"), rowsOf(label, 1, "split")]).toEqual([["remark renamed total>sum 0+0", "changed 3,3"], ["changed 6,6"]])
+    // nothing of a label opens, and its lines are read: the reading of each block starts at its line
+    const parts = (index: number) => blockParts(label.blocks[index]!, index, marksByBlock(label)[index]!, { ...options("inline"), renames: renameNotesOf(label) })
+    expect([partsNotes(parts(0)), partsStopRow(parts(0), NEW, 3), partsStopRow(parts(1), NEW, 6)]).toEqual([[], 1, 0])
+  })
+
+  it("shows a quiet run of a rename once in Inline, without a note of its own, until the note of the rename is opened; Unified and Split keep both lines", () => {
+    const quiet = local(true)
+    expect([rowsOf(quiet, 0, "inline"), rowsOf(quiet, 1, "inline"), rowsOf(quiet, 2, "inline")]).toEqual([
+      ["remark renamed closed quiet total>sum 0+0", "once _,3 quiet renamed"],
+      ["once _,6 quiet renamed"],
+      ["once _,9 quiet renamed"],
+    ])
+    // the one note opens the old lines of every run of the rename, in its block and in the others
+    expect([rowsOf(quiet, 0, "inline", [3]), rowsOf(quiet, 2, "inline", [3])]).toEqual([
+      ["remark renamed open quiet total>sum 0+0", "deleted 3,_ quiet renamed", "added _,3 quiet renamed"],
+      ["deleted 9,_ quiet renamed", "added _,9 quiet renamed"],
+    ])
+    expect([rowsOf(quiet, 0, "unified"), rowsOf(quiet, 1, "split")]).toEqual([
+      ["remark renamed quiet total>sum 0+0", "deleted 3,_ quiet renamed", "added _,3 quiet renamed"],
+      ["changed 6,6 quiet renamed"],
+    ])
+    // the note that opens: its key, its row and every line it hides; a block of the rename without the note has none
+    const parts = (index: number, open: number[] = []) =>
+      blockParts(quiet.blocks[index]!, index, marksByBlock(quiet)[index]!, { ...options("inline", open), renames: renameNotesOf(quiet) })
+    expect([partsNotes(parts(0)), partsNotes(parts(1))]).toEqual([
+      [
+        {
+          key: 3,
+          lines: [
+            [3, 4],
+            [6, 7],
+            [9, 10],
+          ],
+          row: 0,
+        },
+      ],
+      [],
+    ])
+    const [note] = parts(0).parts
+    expect(note?.kind === "note" && note.remark !== null ? noteKey(note.remark) : null).toBe(3)
+    // an old line Inline shows once is found at the row of its new line; opened, at its own row
+    expect([partsRowOfLine(parts(0), OLD, 3), partsRowOfLine(parts(1), OLD, 6), partsRowOfLine(parts(0, [3]), OLD, 3), partsRowOfLine(parts(1, [3]), NEW, 6)]).toEqual([1, 0, 1, 1])
+    // a run wrapped otherwise (one old line, two new ones, the name on the first): its old line at the first row of its lines
+    const wrapped = textDiff(20, 21, [block(3, 4, 3, 5)], { runs: [run(3, 4, 3, 5, { kind: "renamed" })], renames: [rename("total", "sum", [[3, 9, 3, 9]])] })
+    const rewrapped = blockParts(wrapped.blocks[0]!, 0, marksByBlock(wrapped)[0]!, { ...options("inline"), renames: renameNotesOf(wrapped) })
+    expect([partsRowOfLine(rewrapped, OLD, 3), partsRowOfLine(rewrapped, NEW, 4)]).toEqual([1, 2])
+    // a run of two lines of the name, each with its new line: each old line at the row of its own new line
+    const two = twoLines(
+      [
+        [3, 4, 3, 4],
+        [4, 2, 4, 2],
+      ],
+      0,
+    )
+    const both = blockParts(two.blocks[0]!, 0, marksByBlock(two)[0]!, { ...options("inline"), renames: renameNotesOf(two) })
+    expect([partsRowOfLine(both, OLD, 3), partsRowOfLine(both, OLD, 4), partsRowOfLine(both, NEW, 4)]).toEqual([1, 2, 2])
+  })
+
+  it("stands the note before the lines that hold its site: after a run that comes first, in the row of the heading where those lines start the block", () => {
+    // a call wrapped (a quiet run of formatting), then the declaration of the name on a line that changed otherwise too
+    // (no run), then a line of the name alone
+    const mixed = textDiff(20, 22, [block(2, 5, 2, 7)], {
+      runs: [run(2, 3, 2, 5), run(4, 5, 6, 7, { kind: "renamed", quiet: true })],
+      renames: [
+        rename("total", "sum", [
+          [3, 4, 5, 4],
+          [4, 0, 6, 0],
+        ]),
+      ],
+    })
+    expect(rowsOf(mixed, 0, "inline")).toEqual([
+      "remark formatting closed quiet 1+0",
+      "once _,2 quiet formatting",
+      "once _,3 quiet formatting",
+      "once _,4 quiet formatting",
+      "remark renamed closed total>sum 0+0",
+      "deleted 3,_",
+      "added _,5",
+      "once _,6 quiet renamed",
+    ])
+    // the note of the rename opens its run, the note of the formatting its own: each by its key
+    expect(rowsOf(mixed, 0, "inline", [3]).slice(4)).toEqual([
+      "remark renamed open total>sum 0+0",
+      "deleted 3,_",
+      "added _,5",
+      "deleted 4,_ quiet renamed",
+      "added _,6 quiet renamed",
+    ])
+    // the heading of a change is the first row of its block: the note joins it only where its lines start the block
+    const heading = { parts: [{ name: "balance", words: "body changed" }], label: "balance — body changed" }
+    expect(rowsOf(mixed, 0, "unified", [], renameNotesOf(mixed), heading)[0]).toBe("unit balance — body changed formatting quiet 0+0")
+    const label = local(false)
+    expect(rowsOf(label, 0, "unified", [], renameNotesOf(label), heading)).toEqual(["unit balance — body changed renamed total>sum 0+0", "deleted 3,_", "added _,3"])
+  })
+
+  it("cuts the lines that hold the site of the note at the site, each side at its line, so the note is the row right above it", () => {
+    // five changed lines of a function with no run; the declaration of the name is the fourth line of both sides
+    const site = [[6, 4, 6, 4]] as const
+    const paired = textDiff(20, 20, [block(3, 8, 3, 8, { inlinePairs: true })], { renames: [rename("total", "sum", site)] })
+    expect(rowsOf(paired, 0, "inline")).toEqual(["inline 3,3", "inline 4,4", "inline 5,5", "remark renamed total>sum 0+0", "inline 6,6", "inline 7,7"])
+    expect(rowsOf(paired, 0, "split")).toEqual(["changed 3,3", "changed 4,4", "changed 5,5", "remark renamed total>sum 0+0", "changed 6,6", "changed 7,7"])
+    // lines the engine does not pair: Unified shows what stands before the site on both sides, the note, then the lines from it
+    const stacked = textDiff(20, 20, [block(3, 8, 3, 7)], { renames: [rename("total", "sum", [[6, 4, 5, 4]])] })
+    expect(rowsOf(stacked, 0, "unified")).toEqual([
+      "deleted 3,_",
+      "deleted 4,_",
+      "deleted 5,_",
+      "added _,3",
+      "added _,4",
+      "remark renamed total>sum 0+0",
+      "deleted 6,_",
+      "deleted 7,_",
+      "added _,5",
+      "added _,6",
+    ])
+    // Split: the two lines of the site in one row, under the note
+    expect(rowsOf(stacked, 0, "split")).toEqual(["changed 3,3", "changed 4,4", "changed 5,_", "remark renamed total>sum 0+0", "changed 6,5", "changed 7,6"])
+    // every line of the block has its row, and the row of a line is the same line
+    const parts = blockParts(stacked.blocks[0]!, 0, marksByBlock(stacked)[0]!, { ...options("unified"), renames: renameNotesOf(stacked) })
+    expect([3, 5, 6, 7].map(line => partsRowOfLine(parts, OLD, line))).toEqual([0, 2, 6, 7])
+    expect([3, 4, 5, 6].map(line => partsRowOfLine(parts, NEW, line))).toEqual([3, 4, 8, 9])
+    // the reading of the block starts at its first row, above the note
+    expect(partsStopRow(parts, NEW, 3)).toBe(0)
+    // a quiet run of two lines of the name, the declaration on the second: Inline shows the first once, then the note
+    const two = twoLines(
+      [
+        [3, 9, 3, 9],
+        [4, 4, 4, 4],
+      ],
+      1,
+    )
+    expect(rowsOf(two, 0, "inline")).toEqual(["once _,3 quiet renamed", "remark renamed closed quiet total>sum 0+0", "once _,4 quiet renamed"])
+    expect(rowsOf(two, 0, "inline", [4])).toEqual([
+      "deleted 3,_ quiet renamed",
+      "added _,3 quiet renamed",
+      "remark renamed open quiet total>sum 0+0",
+      "deleted 4,_ quiet renamed",
+      "added _,4 quiet renamed",
+    ])
+    // a site on the first line of its lines cuts nothing: the note is before them, as it was
+    const first = textDiff(20, 20, [block(3, 8, 3, 8, { inlinePairs: true })], { renames: [rename("total", "sum", [[3, 4, 3, 4]])] })
+    expect(rowsOf(first, 0, "inline").slice(0, 2)).toEqual(["remark renamed total>sum 0+0", "inline 3,3"])
+    // the old line of the site stands before lines the new side has not: those old lines stay above the note
+    const late = textDiff(20, 20, [block(3, 6, 3, 4)], { renames: [rename("total", "sum", [[5, 4, 3, 4]])] })
+    expect(rowsOf(late, 0, "unified")).toEqual(["deleted 3,_", "deleted 4,_", "remark renamed total>sum 0+0", "deleted 5,_", "added _,3"])
+    // Inline shows a quiet run by its new lines: a site on its first new line is under the note, whatever old lines come before it
+    const wrapped = textDiff(20, 20, [block(3, 5, 3, 4)], { runs: [run(3, 5, 3, 4, { kind: "renamed" })], renames: [rename("total", "sum", [[4, 4, 3, 9]])] })
+    expect(rowsOf(wrapped, 0, "inline")).toEqual(["remark renamed closed quiet total>sum 0+0", "once _,3 quiet renamed"])
+  })
+
+  it("shows the lines of a pair apart where a renamed name stands on two lines the engine does not pair, so both lines mark it", () => {
+    // `val a = total` / `  + 1` is `val a =` / `  sum + 1`: the engine pairs line i with line i, the name moved a line down
+    const moved = textDiff(20, 20, [block(3, 5, 3, 5, { inlinePairs: true }), block(9, 10, 9, 10, { inlinePairs: true })], {
+      renames: [
+        rename("total", "sum", [
+          [3, 8, 4, 2],
+          [9, 0, 9, 0],
+        ]),
+      ],
+    })
+    expect(marksByBlock(moved).map(marks => marks.apart)).toEqual([[[3, 4]], []])
+    // Inline: no row of a pair; the new line before the name, the note, then the old lines from the one with the name and
+    // the new line with it. The block whose name stays on its line keeps its row
+    expect(rowsOf(moved, 0, "inline")).toEqual(["added _,3", "remark renamed total>sum 0+0", "deleted 3,_", "deleted 4,_", "added _,4"])
+    expect(rowsOf(moved, 0, "unified")).toEqual(rowsOf(moved, 0, "inline"))
+    expect(rowsOf(moved, 1, "inline")).toEqual(["inline 9,9"])
+    expect(inlinePairsOf(moved.blocks[0]!, 0, marksByBlock(moved)[0]!)).toEqual([])
+    expect(inlinePairsOf(moved.blocks[1]!, 1, marksByBlock(moved)[1]!).map(pair => pair.lines)).toEqual([[9, 9]])
+    // a view that plays a block down keeps what it knows of the names of the block
+    expect(drawnMarks(marksByBlock(moved)[0]!, 0, new Set([1])).apart).toEqual([[3, 4]])
+    // a block the engine does not pair has no pair to take apart
+    const stacked = textDiff(20, 20, [block(3, 5, 3, 5)], { renames: [rename("total", "sum", [[3, 8, 4, 2]])] })
+    expect(marksByBlock(stacked)[0]!.apart).toEqual([])
+  })
+
+  it("shows every line of a block once whatever sites and runs of renames it holds, by its own row or by the new lines of a quiet run of Inline, the note right above the new line of its site", () => {
+    // the same blocks, runs and sites in every run of the test
+    const random = seeded(20261112)
+    // what the rounds held, so the test says when its marks stop being what it is about
+    const held = { cut: 0, apart: 0, quiet: 0 }
+    for (let round = 0; round < 600; round++) {
+      const [oldCount, newCount] = [1 + random(7), 1 + random(7)]
+      const one = block(10, 10 + oldCount, 10, 10 + newCount, { inlinePairs: oldCount === newCount && random(2) === 0 })
+      // a run of the kind `renamed` somewhere in the block, quiet or a label, or none
+      const from = [random(oldCount), random(newCount)] as const
+      const runs =
+        random(3) === 0
+          ? []
+          : [
+              run(10 + from[0], 10 + from[0] + 1 + random(oldCount - from[0]), 10 + from[1], 10 + from[1] + 1 + random(newCount - from[1]), {
+                kind: "renamed",
+                quiet: random(2) === 0,
+              }),
+            ]
+      // one or two renames, each with places at lines of the block in the order of both sides, valid or not
+      const renames = Array.from({ length: 1 + random(2) }, (_, at) => {
+        const olds = Array.from({ length: 1 + random(3) }, () => 10 + random(oldCount)).toSorted((a, b) => a - b)
+        const news = olds.map(() => 10 + random(newCount)).toSorted((a, b) => a - b)
+        return rename(
+          `old${at}`,
+          `new${at}`,
+          olds.map((line, place) => [line, 4 + 10 * at, news[place]!, 4 + 10 * at] as const),
+          { declared: [random(olds.length)] },
+        )
+      })
+      const diff = textDiff(60, 60, [one], { runs, renames })
+      const marks = marksByBlock(diff)[0]!
+      const notes = renameNotesOf(diff)
+      held.apart += marks.apart.length > 0 ? 1 : 0
+      const key = [...notes.byBlock.values()][0]!.key
+      for (const mode of ["inline", "unified", "split"] as const) {
+        for (const open of [[], [key]]) {
+          const parts = blockParts(one, 0, marks, { ...options(mode, open), renames: notes })
+          const shown = [new Map<number, number>(), new Map<number, number>()]
+          let noteRow = -1
+          let once = 0
+          for (let row = 0; row < parts.rowCount; row++) {
+            const value = partsRow(parts, row)
+            if (value.kind === "note") {
+              // the note of the renames; a run that holds no site of them has the note of its kind
+              noteRow = value.remark?.renames == null ? noteRow : row
+              continue
+            }
+            once += value.kind === "once" ? 1 : 0
+            for (const side of [OLD, NEW]) {
+              const line = value.lines[side]
+              if (line != null) {
+                shown[side]!.set(line, (shown[side]!.get(line) ?? 0) + 1)
+              }
+            }
+          }
+          const context = `round ${round} ${mode} ${open.length === 0 ? "closed" : "open"}`
+          held.cut += noteRow > 0 ? 1 : 0
+          held.quiet += once > 0 ? 1 : 0
+          // one note, and every new line once
+          expect(noteRow, context).toBeGreaterThanOrEqual(0)
+          expect(
+            [...shown[NEW]!].toSorted((a, b) => a[0] - b[0]),
+            context,
+          ).toEqual(Array.from({ length: newCount }, (_, at) => [10 + at, 1]))
+          // every old line once, but the lines of a quiet run that Inline shows by its new lines
+          const hidden = (line: number) => once > 0 && runs.some(it => it.oldStart <= line && line < it.oldEnd)
+          for (let line = 10; line < 10 + oldCount; line++) {
+            expect(shown[OLD]!.get(line) ?? 0, `${context} old ${line}`).toBe(hidden(line) ? 0 : 1)
+          }
+          // the row of a new line is where it shows, and the note is the row right above the new line of its site
+          for (let line = 10; line < 10 + newCount; line++) {
+            const value = partsRow(parts, partsRowOfLine(parts, NEW, line))
+            expect(value.kind !== "note" && value.lines[NEW] === line, `${context} new ${line}`).toBe(true)
+          }
+          // the first new line under the note is the new line of its site: no other new line stands between them
+          const site = [...notes.byBlock.values()][0]!.lines
+          let under = noteRow + 1
+          while (under < parts.rowCount && partsRow(parts, under).lines[NEW] == null) {
+            under++
+          }
+          expect(under < parts.rowCount ? partsRow(parts, under).lines[NEW] : null, `${context} under the note`).toBe(site[1])
+        }
+      }
+    }
+    // the rounds held notes inside the lines of a block, names on two lines of no pair, and lines shown once
+    expect([held.cut > 100, held.apart > 20, held.quiet > 50], JSON.stringify(held)).toEqual([true, true, true])
+  })
+
+  it("keeps the note of a run of a renamed name that the marks name no rename for, which opens it as any quiet run", () => {
+    const unnamed = textDiff(20, 20, [block(3, 4, 3, 4)], { runs: renamedRuns(true).slice(0, 1) })
+    expect(rowsOf(unnamed, 0, "inline")).toEqual(["remark renamed closed quiet 1+0", "once _,3 quiet renamed"])
+    expect(rowsOf(unnamed, 0, "inline", [3])).toEqual(["remark renamed open quiet 0+0", "deleted 3,_ quiet renamed", "added _,3 quiet renamed"])
+    // and so do the rows that name no rename (the pairs of the widest row of Inline)
+    const quiet = local(true)
+    expect(rowsOf(quiet, 1, "inline", [], NO_RENAME_NOTES)).toEqual(["remark renamed closed quiet 1+0", "once _,6 quiet renamed"])
   })
 })

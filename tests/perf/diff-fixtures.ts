@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto"
 import type { BlobText, CommitFile } from "../../src/lib/bindings"
-import type { DiffBlock, FileDiff, LineMove, LineRun } from "../../src/lib/diff/file-diff-model"
+import type { DiffBlock, FileDiff, LineMove, LineRun, Rename } from "../../src/lib/diff/file-diff-model"
 
 // Synthetic commits for the diff benchmark: Kotlin-like files whose lines each hold several tokens (a keyword, names,
 // a number, a string, a comment), so a highlighted line differs from a plain one, with the diffs of the engine and
-// their marks: every fourth changed line of a file changes in its formatting alone, a quiet run with its note, and two
+// their marks: every fourth changed line of a file changes in its formatting alone, a quiet run with its note, two
 // changes of every eight are the ends of a move, a line that leaves one place and stands at the next, every second
-// one edited on the way
+// one edited on the way, and one of every eight changes in the name of its value alone, a rename with its note
 
 /** A file of a synthetic commit: its row in the files, its diff as the backend sends it, the blobs of both sides */
 export interface SyntheticFile {
@@ -36,11 +36,25 @@ const QUIET_EVERY = Number(process.env.PERF_QUIET_EVERY ?? 4)
  */
 const MOVE_EVERY = Number(process.env.PERF_MOVE_EVERY ?? 8)
 
-/** `version`: 0 the old line, 1 the line with another number, `"formatted"` the old line with spaces inside its call */
-function codeLine(fileIndex: number, index: number, version: 0 | 1 | "formatted"): string {
-  const call = version === "formatted" ? `compute( ${index}, "file${fileIndex}" )` : `compute(${index + version}, "file${fileIndex}")`
-  return `  val value${index} = ${call} // line ${index}`
+/**
+ * Of every `RENAME_EVERY` changed lines of a file, the third changes in the name of its value alone: a rename of the
+ * marks with that one site, its declaration, in a run of the kind `renamed` that is a label, as the engine gives it:
+ * a note before the line, the name in its mark. `PERF_RENAME_EVERY=0` gives a commit without a rename, to tell the
+ * cost of the sites from the rest
+ */
+const RENAME_EVERY = Number(process.env.PERF_RENAME_EVERY ?? 8)
+
+/**
+ * `version`: 0 the old line, 1 the line with another number, `"formatted"` the old line with spaces inside its call,
+ * `"renamed"` the old line with another name of its value
+ */
+function codeLine(fileIndex: number, index: number, version: 0 | 1 | "formatted" | "renamed"): string {
+  const call = version === "formatted" ? `compute( ${index}, "file${fileIndex}" )` : `compute(${index + (version === 1 ? 1 : 0)}, "file${fileIndex}")`
+  return `  val ${version === "renamed" ? "named" : "value"}${index} = ${call} // line ${index}`
 }
+
+/** The column of the name of the value of `codeLine` */
+const NAME_COLUMN = "  val ".length
 
 /** The offsets of the number argument of `codeLine`: the range the engine marks in a changed line, a modified one */
 function numberRange(line: string): [number, number, number] {
@@ -65,11 +79,14 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
   const edits = (index: number) => Math.floor(ordinal(index) / MOVE_EVERY) % 2 === 1
   /** The changed line `index` changes in its formatting alone: every `QUIET_EVERY`-th change of the file */
   const formats = (index: number) => QUIET_EVERY > 0 && changes(index) && !leaves(index) && !lands(index) && ordinal(index) % QUIET_EVERY === QUIET_EVERY - 1
+  /** The changed line `index` changes in the name of its value alone: the third of every `RENAME_EVERY` changes of the file */
+  const renames = (index: number) => RENAME_EVERY > 2 && changes(index) && !leaves(index) && !lands(index) && !formats(index) && ordinal(index) % RENAME_EVERY === 2
   const oldLines = spec.changeEvery === 0 ? [] : Array.from({ length: spec.lines }, (_, index) => codeLine(fileIndex, index, 0))
   const newLines: string[] = []
   const blocks: DiffBlock[] = []
   const runs: LineRun[] = []
   const moves: LineMove[] = []
+  const renamed: Rename[] = []
   const starts: number[] = []
   /** A block of lines the engine pairs none of: no inner ranges */
   const unpaired = (lines: Pick<DiffBlock, "oldStart" | "oldEnd" | "newStart" | "newEnd">): DiffBlock => ({
@@ -95,9 +112,17 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
       blocks.push(unpaired({ oldStart: index, oldEnd: index, newStart: newLines.length, newEnd: newLines.length + 1 }))
       newLines.push(moved, oldLines[index]!)
     } else if (changes(index)) {
-      const line = codeLine(fileIndex, index, formats(index) ? "formatted" : 1)
+      const line = codeLine(fileIndex, index, formats(index) ? "formatted" : renames(index) ? "renamed" : 1)
       const lines = { oldStart: index, oldEnd: index + 1, newStart: newLines.length, newEnd: newLines.length + 1 }
-      if (formats(index)) {
+      if (renames(index)) {
+        // the name of the value alone: a pair of the engine with the name as its range, a run that is a label, read
+        const [old, name] = [`value${index}`, `named${index}`]
+        const site = (line: number, text: string) => [line, NAME_COLUMN, NAME_COLUMN + text.length]
+        renamed.push({ old, new: name, sites: 1, local: true, declared: [0], oldSites: site(index, old), newSites: site(lines.newStart, name) })
+        runs.push({ ...lines, kind: "renamed", quiet: false })
+        starts.push(blocks.length, 1, lines.newStart)
+        blocks.push({ ...lines, kind: "changed", inlinePairs: true, oldRanges: [[...site(index, old).slice(1), 2]], newRanges: [[...site(lines.newStart, name).slice(1), 2]] })
+      } else if (formats(index)) {
         // a line that only gained spaces is no similar pair the views draw: its run shows it, quiet, with no start
         runs.push({ ...lines, kind: "formatting", quiet: true })
         blocks.push(unpaired(lines))
@@ -149,8 +174,9 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
         newScopes: [{ startLine: 0, endLine: spec.lines, label: `class File${fileIndex}` }],
         importBlocks: [],
         // the marks as the engine gives them: a quiet run for each line that changed in its formatting alone, the
-        // moves by their new lines, and the start of the reading of every block but a quiet one and one a move emptied
-        marks: { runs, moves, renames: [], starts },
+        // moves by their new lines, the renames with a run that is a label, and the start of the reading of every
+        // block but a quiet one and one a move emptied
+        marks: { runs, moves, renames: renamed, starts },
       },
     },
     blobs,
@@ -160,7 +186,7 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
 /**
  * A large commit: 200 files in 20 directories, most of them small with a few changes, 4 of 2,000-5,000 lines with a
  * change every 12 lines, and 10 new files; every fourth change of a file a quiet run of formatting, two of every eight
- * the ends of a move
+ * the ends of a move, one of every eight a rename
  */
 export function largeCommit(): SyntheticFile[] {
   const specs: FileSpec[] = []

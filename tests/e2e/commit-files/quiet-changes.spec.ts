@@ -2,8 +2,21 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { changedParts, copiedByKey, deletedParts, diffRows, diffSides, findMarks, joinedText, quietSides, remarkHits, remarks, scrollDiffsTo } from "../helpers/diff-helpers"
-import { codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview } from "../helpers/marks-helpers"
+import {
+  changedParts,
+  copiedByKey,
+  deletedParts,
+  diffRows,
+  diffSides,
+  findMarks,
+  joinedText,
+  quietSides,
+  remarkHits,
+  remarks,
+  renamedNames,
+  scrollDiffsTo,
+} from "../helpers/diff-helpers"
+import { codeOf, expectScopesShown, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview, switchRenamedOn } from "../helpers/marks-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
@@ -101,6 +114,39 @@ async function pressToStop(page: Page, code: Locator, key: "n" | "p", from: Show
     })
     .toBe(true)
   return shown!
+}
+
+/**
+ * N from the top of Ledger.kt through every stop of the review of the template: `stops` in Ledger.kt, the three of
+ * Report.kt and the one of Store.kt. Each stop is the first row of lines to read of its block, four rows below the
+ * header of its file: a changed line after a row that is none (an unchanged line, a note, a line shown once), further
+ * down than the last. The rows shown, in their order
+ */
+async function pressThroughStops(page: Page, window: Locator, code: Locator, stops: number): Promise<ShownRow[]> {
+  await window.getByRole("treeitem", { name: "Ledger.kt" }).click()
+  await code.locator("[aria-label='Changes of the commit']").focus()
+  const position = window.getByTestId("review-position")
+  const shown: ShownRow[] = []
+  for (const file of [...Array.from({ length: stops }, () => 1), 2, 2, 2, 3]) {
+    const stop = await pressToStop(page, code, "n", shown.at(-1) ?? null)
+    await expect(position).toHaveText(`File ${file} / 3`)
+    // the one stop of Store.kt, the last card, shows with the card at the top: the document ends there
+    if (!stop.end) {
+      expect(READ_KINDS, `the stop ${JSON.stringify(stop)}`).toContain(stop.kind)
+      expect(READ_KINDS, `the row above the stop ${JSON.stringify(stop)}`).not.toContain(stop.above)
+    }
+    shown.push(stop)
+  }
+  return shown
+}
+
+/** P from the last of `shown`, the stops N showed, back to the first: each at the row N showed */
+async function pressBackThrough(page: Page, code: Locator, shown: readonly ShownRow[]): Promise<void> {
+  let last = shown.at(-1)!
+  for (const stop of shown.slice(0, -1).toReversed()) {
+    last = await pressToStop(page, code, "p", last)
+    expect(last).toEqual(stop)
+  }
 }
 
 /** The kinds of a row of changed lines to read: no unchanged line, no row of words, no line of a quiet run that Inline shows once */
@@ -291,22 +337,9 @@ test.describe("The marks of a diff in the review window", () => {
     // Report.kt and Store.kt: every block a stop, no count
     await expect(code.getByTestId("review-file-header").filter({ hasText: "Report.kt" }).getByTestId("review-file-to-read")).toHaveCount(0)
 
-    await window.getByRole("treeitem", { name: "Ledger.kt" }).click()
-    await code.locator("[aria-label='Changes of the commit']").focus()
     // as many stops in Ledger.kt as its header says, fewer than its blocks, then the three of Report.kt and the one of
-    // Store.kt. Each stop is the first row of lines to read of its block, four rows below the header of its file: a
-    // changed line after a row that is none (an unchanged line, a note, a line shown once), further down than the last
-    const shown: ShownRow[] = []
-    for (const file of [...Array.from({ length: stops }, () => 1), 2, 2, 2, 3]) {
-      const stop = await pressToStop(page, code, "n", shown.at(-1) ?? null)
-      await expect(position).toHaveText(`File ${file} / 3`)
-      // the one stop of Store.kt, the last card, shows with the card at the top: the document ends there
-      if (!stop.end) {
-        expect(READ_KINDS, `the stop ${JSON.stringify(stop)}`).toContain(stop.kind)
-        expect(READ_KINDS, `the row above the stop ${JSON.stringify(stop)}`).not.toContain(stop.above)
-      }
-      shown.push(stop)
-    }
+    // Store.kt
+    const shown = await pressThroughStops(page, window, code, stops)
     expect(shown.filter(stop => stop.end).map(stop => stop.path)).toEqual(["src/Store.kt"])
     const ledger = shown.slice(0, stops)
     expect(ledger.map(stop => stop.path)).toEqual(ledger.map(() => "src/Ledger.kt"))
@@ -322,6 +355,13 @@ test.describe("The marks of a diff in the review window", () => {
     }
     // the comment worded again is a stop, a label: its note stands above the line, in view
     expect(ledger.find(stop => stop.text.includes("entry with the largest amount."))).toMatchObject({ kind: "inline", above: "note" })
+    // the lines of the renamed local are labels until their kind is switched on, so each is a stop, at the line: the
+    // first under the one note of the rename, the others where they stand, with no note of their own
+    expect(ledger.filter(stop => stop.text.includes("totalsum")).map(stop => [stop.text, stop.kind, stop.above])).toEqual([
+      ["    var totalsum = 0L", "inline", "note"],
+      ["        totalsum += entry.amount", "inline", "context"],
+      ["    return totalsum", "inline", "context"],
+    ])
     // the real change is one, and the last stop is the one of the last file
     expect(ledger.filter(stop => stop.text.includes("fun isEmpty(): Boolean = entries."))).toHaveLength(1)
     expect(shown.at(-1)).toMatchObject({ path: "src/Store.kt" })
@@ -330,12 +370,43 @@ test.describe("The marks of a diff in the review window", () => {
     await expect(position).toHaveText("File 3 / 3")
     expect(await shownStop(code)).toEqual(shown.at(-1))
     // back through the same stops, each at the row N showed
-    let last = shown.at(-1)!
-    for (const stop of shown.slice(0, -1).toReversed()) {
-      last = await pressToStop(page, code, "p", last)
-      expect(last).toEqual(stop)
-    }
+    await pressBackThrough(page, code, shown)
     await expect(position).toHaveText("File 1 / 3")
+  })
+
+  test("N and P pass the lines of a renamed local once its runs are quiet, and the file counts three changes fewer to read", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("commit_marks")
+    await syncAndWaitForBranches()
+    // the answers of the engine with the kind `renamed` switched on: the three lines of `sum` are quiet runs
+    await switchRenamedOn(page)
+    const { window, code, position } = await openReview(page, "ledger", SUBJECT)
+    const header = code.getByTestId("review-file-header").filter({ hasText: "Ledger.kt" })
+    // eleven blocks: the wrapped call, the two blocks moved lines left and the three lines of the name are no stops
+    await expect(header.getByTestId("review-file-to-read")).toHaveText("5 to read")
+    await expect(header.getByTestId("review-file-to-read")).toHaveAttribute("title", `5 of ${LEDGER_CHANGES} changes to read`)
+    await expect(window.getByRole("treeitem", { name: "Ledger.kt" }).getByTestId("file-to-read")).toHaveText("5 to read")
+
+    // five stops in Ledger.kt, then the three of Report.kt and the one of Store.kt
+    const shown = await pressThroughStops(page, window, code, 5)
+    // no stop is a line of the name, in either spelling; the stops around them are: the function moved into the class
+    // before them, the comment worded again after them
+    const ledger = shown.slice(0, 5)
+    expect(ledger.filter(stop => /\b(sum|total)\b/.test(stop.text))).toEqual([])
+    const texts = ledger.map(stop => stop.text)
+    expect(texts.indexOf("  fun describe(entry: Entry): String {")).toBeGreaterThanOrEqual(0)
+    expect(texts.findIndex(text => text.includes("entry with the largest amount."))).toBe(texts.indexOf("  fun describe(entry: Entry): String {") + 1)
+    // back through the same stops, each at the row N showed
+    await pressBackThrough(page, code, shown)
+    await expect(position).toHaveText("File 1 / 3")
+    // the lines the keys passed are there, each shown once and played down, the name in its mark
+    const once = diffRows(code, "once").filter({ has: renamedNames(page) })
+    await scrollDiffsTo(code, once.filter({ hasText: "return sum" }))
+    await expect.poll(() => codeOf(once)).toEqual(["    var sum = 0L", "        sum += entry.amount", "    return sum"])
+    await expect(quietSides(once)).toHaveCount(3)
   })
 
   test("N stops at the first line a block deletes before a comment worded again, never at the comment below them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -598,6 +669,9 @@ test.describe("The marks of a diff in the review window", () => {
     const { code } = await openReview(page, "ledger", SUBJECT)
     const note = remarks(code, "formatting")
     await expect(note).toHaveAttribute("aria-expanded", "false")
+    // the scopes of the file have come: they lay its rows out again, which paints every row anew and so drops a
+    // selection made before them (under load they come after the note shows)
+    await expectScopesShown(code, "src/Ledger.kt")
     /** Selects from the row of the note to the end of the last line of the run, then copies with the key of the system */
     const copyRun = async (): Promise<string | null> => {
       await code.evaluate(element => {
@@ -614,6 +688,8 @@ test.describe("The marks of a diff in the review window", () => {
     expect(await copyRun()).toBe(NEW_CALL.join("\n"))
     await note.click()
     await expect(note).toHaveAttribute("aria-expanded", "true")
+    // the old line is painted: the copy takes it with the new ones
+    await expect.poll(() => codeOf(diffRows(code, "deleted").filter({ has: quietSides(page) }))).toEqual([OLD_CALL])
     expect(await copyRun()).toBe([OLD_CALL, ...NEW_CALL].join("\n"))
   })
 })

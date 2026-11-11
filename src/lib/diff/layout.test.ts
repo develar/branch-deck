@@ -209,6 +209,33 @@ describe("DiffLayout", () => {
     expect([taken(layout.rowTop(0, 29) - 36, 60), taken(0, 100), moveNoteOfKey(new DiffLayout([], METRICS), 0, 400, null)]).toEqual([null, null, null])
   })
 
+  it("gives the rows of a file that are in view: whole below the header stuck at the top, and above the end of the view", () => {
+    // 41 rows of 20 px under a header of 36 px, then a second file
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const layout = new DiffLayout([file("a", rows), file("b", buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED]))], METRICS)
+    expect(rows.rowCount).toBe(41)
+    expect([layout.rowsInView(0, 0, 400), layout.rowsInView(0, 100, 400), layout.rowsInView(0, 101, 400), layout.rowsInView(0, 100, 415)]).toEqual([
+      [0, 18],
+      [5, 23],
+      [6, 23],
+      [5, 23],
+    ])
+    // every row of the range is in view, and the rows around it are not
+    const [from, to] = layout.rowsInView(0, 101, 400)
+    expect([layout.rowInView(0, from - 1, 101, 400), layout.rowInView(0, from, 101, 400), layout.rowInView(0, to - 1, 101, 400), layout.rowInView(0, to, 101, 400)]).toEqual([
+      false,
+      true,
+      true,
+      false,
+    ])
+    // a file below the view and one above it have no row in view; a view too low for a row has none either
+    const second = layout.offsets[1]!
+    const none = ([start, end]: readonly [number, number]) => end - start
+    expect([none(layout.rowsInView(1, 0, 400)), none(layout.rowsInView(0, second, 400)), none(layout.rowsInView(0, 100, 50))]).toEqual([0, 0, 0])
+    expect(layout.rowsInView(1, second, 400)).toEqual([0, 18])
+    expect(none(new DiffLayout([file("empty", null)], METRICS).rowsInView(0, 0, 400))).toBe(0)
+  })
+
   it("keeps a row of words that stands for no line at the top across a new layout, by the row after it: a note of Unified and Split, an opened note, a label, a heading", () => {
     const whole = (diff: ReturnType<typeof textDiff>, mode: "inline" | "unified" | "split", open: number[] = [], units: Parameters<typeof buildFileRows>[4] = null) =>
       new DiffLayout([file("a", buildFileRows(diff, mode, [EXPANDED, EXPANDED], false, units, new Set(open)))], METRICS)

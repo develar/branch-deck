@@ -37,6 +37,7 @@ export default defineConfig({
     "commit-files/commit-review.spec.ts",
     "commit-files/quiet-changes.spec.ts",
     "commit-files/moved-lines.spec.ts",
+    "commit-files/renamed-names.spec.ts",
     "commit-files/symbol-navigation.spec.ts",
     "commit-message/commit-message.spec.ts",
   ],

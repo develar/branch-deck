@@ -6,12 +6,15 @@ import {
   NO_MARKS,
   partsLines,
   partsMoveNotes,
+  partsNoteOfRow,
   partsNotes,
   partsRow,
   partsRowOfLine,
   partsStopRow,
+  renameNotesOf,
   stopsOf,
 } from "@/lib/diff/block-parts"
+import { noteKey } from "@/lib/diff/block-parts"
 import type { BlockParts, MoveEnd, Remark } from "@/lib/diff/block-parts"
 import type { DiffBlock, RunKind, Scope, TextDiff } from "@/lib/diff/file-diff-model"
 import { middleLineCount } from "@/lib/diff/file-merge-model"
@@ -196,10 +199,12 @@ export interface FileRows {
   /** The blocks of changed lines the rows show (`isChangeBlock`), a stop or not: what `changeStarts` is counted against ("2 of 3 changes to read") */
   readonly changes: number
   /**
-   * The notes that open (`Remark.open` not null), each by the old lines it hides or would hide, [start, end): its key
-   * is the start. What ⌥-click opens together, and what a reveal of one of those lines opens
+   * The notes that open (`Remark.open` not null), each by its key among the open notes (`noteKey`) and the old lines it
+   * hides or would hide, [start, end) each: the lines of its run or of the move that left, of a note of renames the
+   * lines of the quiet runs that are its to open. What ⌥-click opens together, and what a reveal of one of those lines
+   * opens
    */
-  readonly notes: readonly (readonly [number, number])[]
+  readonly notes: readonly OpeningNote[]
   /** The row of each note of `notes`: what the key of the notes takes for the notes in view */
   readonly noteRows: readonly number[]
   /**
@@ -207,6 +212,12 @@ export interface FileRows {
    * the moves takes for the notes in view, and where a jump to an end lands
    */
   readonly moveNotes: readonly { readonly end: MoveEnd; readonly row: number }[]
+}
+
+/** A note that opens: its key, and the old lines it hides while it is closed */
+export interface OpeningNote {
+  readonly key: number
+  readonly lines: readonly (readonly [number, number])[]
 }
 
 interface Gap extends FoldGap {
@@ -250,6 +261,8 @@ function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsO
   const items: Item[] = []
   // the runs and the ends of the moves of each block; `units.marks` below are the headings of a section
   const byBlock = marksByBlock(diff)
+  // the one note of each rename of the diff: at its declaration, or at its first site in a block these rows show
+  const renames = renameNotesOf(diff, index => units?.elsewhere.has(index) !== true, playedImports)
   let oldLine = 0
   let newLine = 0
   diff.blocks.forEach((block, index) => {
@@ -269,6 +282,7 @@ function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsO
         tint: playedImports.has(index) ? "whitespace" : tintOf(block),
         open,
         heading: heading === undefined ? null : { parts: heading, label: headingText(heading) },
+        renames,
       })
       items.push({ kind: "block", block, index, parts })
     }
@@ -440,8 +454,9 @@ interface Labels {
  * lines of their blocks (`drawnMarks`). `units` makes the rows of a section of a review: a heading before each block
  * it marks, one row for each block another section shows, which is no change of this section. A block shows by its
  * parts (`blockParts`): what the marks of the diff say of its lines is a note before them, and Inline shows a quiet
- * run once, and leaves out the lines a move took, until its note is opened (`open`, the notes by the first old line
- * each hides). N and P stop where Rust says the reading of a block starts (`TextDiff.marks.starts`).
+ * run once, and leaves out the lines a move took, until its note is opened (`open`, the notes by their keys). A
+ * rename has one note in the rows (`renameNotesOf`). N and P stop where Rust says the reading of a block starts
+ * (`TextDiff.marks.starts`).
  */
 export function buildFileRows(
   diff: TextDiff,
@@ -477,7 +492,7 @@ function rowsOf(
   const segments: Segment[] = []
   const starts: number[] = []
   const changeStarts: number[] = []
-  const notes: (readonly [number, number])[] = []
+  const notes: OpeningNote[] = []
   const noteRows: number[] = []
   const moveNotes: { end: MoveEnd; row: number }[] = []
   let rowCount = 0
@@ -513,9 +528,9 @@ function rowsOf(
         if (stop !== undefined && rows > 0) {
           changeStarts.push(rowCount + Math.min(partsStopRow(change.parts, stop.side, stop.line), rows - 1))
         }
-        for (const note of partsNotes(change.parts)) {
-          notes.push(note.lines)
-          noteRows.push(rowCount + note.row)
+        for (const { key, lines, row } of partsNotes(change.parts)) {
+          notes.push({ key, lines })
+          noteRows.push(rowCount + row)
         }
         for (const { end, row } of partsMoveNotes(change.parts)) {
           moveNotes.push({ end, row: rowCount + row })
@@ -707,11 +722,38 @@ export function rowOfPlace(rows: FileRows, side: number, line: number): number {
 }
 
 /**
- * The note that hides `line` of the old side, or would once closed, by its key (the first old line it hides); null for
- * a line no note of the rows stands for
+ * The note that hides `line` of the old side, or would once closed, by its key (`noteKey`); null for a line no note of
+ * the rows hides
  */
 export function noteOfLine(rows: FileRows, line: number): number | null {
-  return rows.notes.find(([start, end]) => start <= line && line < end)?.[0] ?? null
+  return rows.notes.find(note => note.lines.some(([start, end]) => start <= line && line < end))?.key ?? null
+}
+
+/**
+ * The notes that the key of the notes takes for rows `[from, to)`, by their keys (`noteKey`), each once, in the order
+ * of the rows: the notes that open among those rows, and the notes that hide or show lines of them: of a line that
+ * Inline shows once, or of a line under an opened note, whose note may stand rows above (the one note of a rename
+ * opens every quiet run of it in the file, the note of a long run is above its last lines)
+ */
+export function notesOfRows(rows: FileRows, from: number, to: number): number[] {
+  const keys = new Set<number>()
+  let index = segmentAt(rows, Math.max(from, 0))
+  for (let row = Math.max(from, 0); row < Math.min(to, rows.rowCount); row++) {
+    while (rows.segmentStarts[index + 1]! <= row) {
+      index++
+    }
+    const segment = rows.segments[index]!
+    if (segment.kind !== "lines" || segment.item.kind !== "block") {
+      continue
+    }
+    const at = segment.from + row - rows.segmentStarts[index]!
+    const value = partsRow(segment.item.parts, at)
+    const key = value.kind === "note" ? (value.remark !== null && value.remark.open !== null ? noteKey(value.remark) : null) : partsNoteOfRow(segment.item.parts, at)
+    if (key !== null) {
+      keys.add(key)
+    }
+  }
+  return [...keys]
 }
 
 /**
@@ -770,7 +812,7 @@ export function setFoldLevels(model: FoldKey, levels: readonly number[]): void {
 // stay shown while the store keeps the diff
 const openNotes = new WeakMap<FoldKey, ReadonlySet<number>>()
 
-/** The notes of a diff or a section that are open, each by the first old line it hides (`Remark.open`) */
+/** The notes of a diff or a section that are open, each by its key (`noteKey`: the first old line a run or a move hides, the site of a note of renames) */
 export function getOpenNotes(model: FoldKey): ReadonlySet<number> {
   return openNotes.get(model) ?? NO_NOTES
 }

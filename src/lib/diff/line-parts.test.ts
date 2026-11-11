@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { inlineOffset, inlinePair, inlineParts, isOwnOldHit, lineParts, ownOldHits, sameTextOffset } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, inlineParts, isOwnOldHit, lineParts, ownOldHits, RENAMED_RANGE, sameTextOffset } from "@/lib/diff/line-parts"
 import type { InlinePair, InlinePart, LinePart } from "@/lib/diff/line-parts"
 
 /** The parts as `text:style`, `+` for a changed range, `-` for a deleted part */
@@ -237,6 +237,42 @@ describe("inlineOffset", () => {
         expect([selected[0], selected.at(-1)], `selection ${start}..${end} of ${tag}`).toEqual([oldText[start], oldText[end - 1]])
       }
     }
+  })
+})
+
+describe("a renamed name in the row of a pair", () => {
+  // `val total = total + 1` becomes `val sum = sum * 2`: the name twice (ranges of the kind of a renamed name) and a real change
+  const pair = inlinePair(
+    "val total = total + 1",
+    "val sum = sum * 2",
+    [4, 9, RENAMED_RANGE, 12, 17, RENAMED_RANGE, 18, 21, 2],
+    [4, 7, RENAMED_RANGE, 10, 13, RENAMED_RANGE, 14, 17, 2],
+  )
+
+  it("strikes the old name through before the new one, each a part of the kind of a renamed name, and hides nothing of the old line", () => {
+    expect(rowText(pair)).toBe("val totalsum = totalsum + 1* 2")
+    expect(describeRow(pair, inlineParts(pair, null, null))).toEqual(["val ", "total-", "sum+", " = ", "total-", "sum+", " ", "+ 1-", "* 2+"])
+    expect(
+      inlineParts(pair, null, null)
+        .filter(part => part.change >= 0)
+        .map(part => [part.side, part.change, part.deleted]),
+    ).toEqual([
+      [0, RENAMED_RANGE, true],
+      [1, RENAMED_RANGE, false],
+      [0, RENAMED_RANGE, true],
+      [1, RENAMED_RANGE, false],
+      [0, 2, true],
+      [1, 2, false],
+    ])
+  })
+
+  it("places and marks the old name as any deleted part: a reveal selects it and a hit of the find is in it", () => {
+    // the second `total` of the old line (12..17) stands struck through before the second `sum`
+    expect(rowText(pair).slice(inlineOffset(pair, 0, 12), inlineOffset(pair, 0, 17, true))).toBe("total")
+    expect(rowText(pair).slice(inlineOffset(pair, 1, 10), inlineOffset(pair, 1, 13, true))).toBe("sum")
+    expect([isOwnOldHit(pair, 4, 9), isOwnOldHit(pair, 0, 3)]).toEqual([true, false])
+    expect(markedBy(pair, [4, 9])).toBe("total")
+    expect(markedBy(pair, [0, 6])).toBe("val to")
   })
 })
 

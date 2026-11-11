@@ -1,4 +1,4 @@
-import type { DiffBlock, LineMove, LineRun, Scope, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffBlock, LineMove, LineRun, Rename, Scope, TextDiff } from "@/lib/diff/file-diff-model"
 import type { MergeBlock, TextMerge } from "@/lib/diff/file-merge-model"
 
 /** A block of the diff engine: a change by default, without inner ranges */
@@ -17,6 +17,24 @@ export function run(oldStart: number, oldEnd: number, newStart: number, newEnd: 
  */
 export function move(oldStart: number, newStart: number, len: number, extra: Partial<LineMove> = {}): LineMove {
   return { oldStart, newStart, len, indent: 0, blanksBefore: 0, blanksAfter: 0, edited: [], oldRanges: [], newRanges: [], ...extra }
+}
+
+/**
+ * A rename of the marks of a diff: the name `old` is `renamed` at `sites`, each `[old line, old column, new line, new
+ * column]` of where the name starts on both sides, in the order of the texts; a local whose first site declares it, by
+ * default
+ */
+export function rename(old: string, renamed: string, sites: readonly (readonly [number, number, number, number])[], extra: Partial<Rename> = {}): Rename {
+  return {
+    old,
+    new: renamed,
+    sites: sites.length,
+    local: true,
+    declared: [0],
+    oldSites: sites.flatMap(([line, column]) => [line, column, column + old.length]),
+    newSites: sites.flatMap(([, , line, column]) => [line, column, column + renamed.length]),
+    ...extra,
+  }
 }
 
 /**
@@ -64,7 +82,7 @@ export function startsOf(blocks: readonly DiffBlock[], runs: readonly LineRun[],
   return starts
 }
 
-/** The text diff of two texts of these line counts with these blocks, and the runs and the moves of its marks; its starts as the engine gives them */
+/** The text diff of two texts of these line counts with these blocks, and the runs, the moves and the renames of its marks; its starts as the engine gives them */
 export function textDiff(
   oldLineCount: number,
   newLineCount: number,
@@ -76,7 +94,8 @@ export function textDiff(
     importBlocks = [],
     runs = [],
     moves = [],
-  }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[]; runs?: LineRun[]; moves?: LineMove[] } = {},
+    renames = [],
+  }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[]; runs?: LineRun[]; moves?: LineMove[]; renames?: Rename[] } = {},
 ): TextDiff {
   return {
     oldLineCount,
@@ -91,7 +110,7 @@ export function textDiff(
     importBlocks,
     oldScopes,
     newScopes,
-    marks: { runs, moves, renames: [], starts: startsOf(blocks, runs, moves) },
+    marks: { runs, moves, renames, starts: startsOf(blocks, runs, moves) },
   }
 }
 

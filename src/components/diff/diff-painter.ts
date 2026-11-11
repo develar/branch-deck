@@ -7,17 +7,18 @@ import { FONT_STYLE_SHIFT, PAGE_LINES, ROLE_MASK } from "@/lib/diff/highlight/pr
 import type { Priority } from "@/lib/diff/highlight/protocol"
 import { moveNoteOfKey } from "@/lib/diff/layout"
 import type { DiffLayout, LayoutPart, MoveHand } from "@/lib/diff/layout"
-import { inlineOffset, inlinePair, inlineParts, lineParts, ownOldHits, runsOf, sameTextOffset } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, inlineParts, lineParts, ownOldHits, RENAMED_RANGE, runsOf, sameTextOffset } from "@/lib/diff/line-parts"
 import type { InlinePair, InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
+import type { RenameSite } from "@/lib/diff/rename-sites"
 import type { RowCells } from "@/lib/diff/row-cells"
 import { foldWords, isLineRow, NEW, OLD, rowAt, rowOfLine, rowOfPlace } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, LineRow, NoteRow, Row } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
-import { formatHiddenMatches, presentRemark } from "@/presenters/diff-marks"
+import { describeRenamedName, formatHiddenMatches, presentRemark } from "@/presenters/diff-marks"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 
 /*
@@ -179,8 +180,18 @@ function partClass(part: LinePart): string {
   return className.trim()
 }
 
-/** The nodes of the parts of a line: a text node where nothing styles a part */
-function partNodes(parts: readonly (LinePart | InlinePart)[], textOf: (part: LinePart | InlinePart) => string): Node[] {
+/** What a part of a renamed name is: the words of its hover ("Renamed from total"), and whether the name starts with the part */
+interface NamePart {
+  readonly hover: string
+  readonly starts: boolean
+}
+
+/**
+ * The nodes of the parts of a line: a text node where nothing styles a part. `nameOf`: what a part of a renamed
+ * name is (`NamePart`). A name is several parts where a hit of the find, a syntax run or a visual line cuts it: the
+ * part it starts with says so (`data-name-start`), so a screen reader hears "renamed" once a name (diff-view.css)
+ */
+function partNodes(parts: readonly (LinePart | InlinePart)[], textOf: (part: LinePart | InlinePart) => string, nameOf?: (part: LinePart | InlinePart) => NamePart | null): Node[] {
   const nodes: Node[] = []
   for (const part of parts) {
     const text = textOf(part)
@@ -190,9 +201,22 @@ function partNodes(parts: readonly (LinePart | InlinePart)[], textOf: (part: Lin
       continue
     }
     const span = element("span", className)
-    // what a part is, for a test: a changed range by its kind, a hit of the find, the current one named
+    // what a part is, for a test: a changed range by its kind (a renamed name by its own), a hit of the find, the current one named
     if (part.marker !== true && part.change >= 0 && !part.deleted) {
       span.dataset.change = String(part.change)
+    }
+    if (part.change === RENAMED_RANGE && part.marker !== true) {
+      // a renamed name says what it was, or what it became; the old one that an Inline row strikes through is one too
+      const name = nameOf?.(part) ?? null
+      if (name !== null) {
+        span.title = name.hover
+        if (name.starts) {
+          span.dataset.nameStart = ""
+        }
+      }
+      if (part.deleted) {
+        span.dataset.renamed = ""
+      }
     }
     if (part.hit !== undefined) {
       span.dataset.hit = part.hit === 2 ? "current" : ""
@@ -295,6 +319,9 @@ export class DiffPainter {
       // the user moves on: the row a reveal landed on is marked no more
       this.letLandedGo()
     }
+    // a press or a key may lay the rows out again (a note that opens, a fold) before the event of a scroll that came
+    // right before it: the anchor is read where the view stands now, never where the last scroll event left it
+    const stand = () => this.readAnchor()
     const onWheel = (event: WheelEvent) => this.onWheel(event)
     const onClick = (event: MouseEvent) => this.onClick(event)
     const onPointerDown = (event: PointerEvent) => this.onPointerDown(event)
@@ -303,6 +330,8 @@ export class DiffPainter {
     const onSelectionChange = () => this.onSelectionChange()
     const onFocusIn = () => this.restoreSelection()
     scroller.addEventListener("scroll", onScroll, { capture: true, passive: true })
+    scroller.addEventListener("pointerdown", stand, { capture: true, passive: true })
+    scroller.addEventListener("keydown", stand, { capture: true, passive: true })
     scroller.addEventListener("wheel", onWheel, { passive: true })
     scroller.addEventListener("click", onClick)
     scroller.addEventListener("pointerdown", onPointerDown)
@@ -325,6 +354,8 @@ export class DiffPainter {
     const unsubscribeTexts = subscribeTexts(() => this.onTexts())
     this.cleanups.push(
       () => scroller.removeEventListener("scroll", onScroll, { capture: true }),
+      () => scroller.removeEventListener("pointerdown", stand, { capture: true }),
+      () => scroller.removeEventListener("keydown", stand, { capture: true }),
       () => scroller.removeEventListener("wheel", onWheel),
       () => scroller.removeEventListener("click", onClick),
       () => scroller.removeEventListener("pointerdown", onPointerDown),
@@ -457,13 +488,24 @@ export class DiffPainter {
     this.painted.clear()
   }
 
+  /**
+   * The anchor of the view, the row at its top, read where the view stands: a new layout keeps that row in place
+   * (`setModel`). Read on every scroll event and paint, and on a press or a key in the view, which may come before the
+   * event of the scroll before it
+   */
+  private readAnchor(): void {
+    if (this.model !== null && this.root !== null) {
+      this.anchor = this.model.layout.anchorAt(Math.max(this.viewTop(), 0))
+    }
+  }
+
   private onVerticalScroll(): void {
     const model = this.model
     if (model === null || this.root === null) {
       return
     }
     const start = performance.now()
-    this.anchor = model.layout.anchorAt(Math.max(this.viewTop(), 0))
+    this.readAnchor()
     this.update(true)
     // the read after the paint lays the new rows out: the cost of the event is its work and that layout
     const top = this.viewTop()
@@ -827,11 +869,13 @@ export class DiffPainter {
    * (`PainterModel.notesKey`) its hint; the hits of the find in the old lines it stands for are named after its
    * words. The note at an end of a move names the other end after its words ("14 lines moved" "to line 210"), a
    * button that shows it, then what else happened to the lines ("re-indented"); the hint of the key of the moves is
-   * on the button of the one note the key takes (`markMoveKey`). Not focusable, as a fold: a review has hundreds, and
-   * the keys reach them
+   * on the button of the one note the key takes (`markMoveKey`). The note of renames sets the two spellings of each
+   * rename it words in the font of the code ("Renamed total → sum · 12 sites") and counts the others ("and 2 more"),
+   * which a hover lists and a screen reader hears after the count, in a note of plain words as in the name of one
+   * that opens. Not focusable, as a fold: a review has hundreds, and the keys reach them
    */
   private remark(file: number, note: NoteRow, remark: Remark): Node[] {
-    const { label, target, detail, name, toggle } = presentRemark(remark)
+    const { label, renamed, target, detail, more, name, toggle } = presentRemark(remark)
     const words = element(toggle === null ? "span" : "button", toggle === null ? "dv-remark" : "dv-remark dv-remark-button", "diff-remark")
     words.dataset.kind = remark.kind
     if (toggle !== null) {
@@ -852,10 +896,32 @@ export class DiffPainter {
     const text = element("span", "dv-remark-label")
     text.textContent = label
     words.append(text)
+    const said = (className: string, content: string, testId?: string) => {
+      const span = element("span", className, testId)
+      span.textContent = content
+      return span
+    }
+    for (const [at, rename] of (renamed ?? []).entries()) {
+      // the two spellings of the name in the font of the code, as the name of a heading; the arrow and the sites in the font of the text
+      words.append(
+        at === 0 ? document.createTextNode(" ") : said("dv-remark-detail", " · "),
+        said("dv-remark-name", rename.old),
+        said("dv-remark-detail", " → "),
+        said("dv-remark-name", rename.new),
+        said("dv-remark-detail", ` · ${rename.sites}`),
+      )
+    }
     const parts: Node[] = [words]
-    const reach = element("span", "dv-remark-detail")
-    reach.textContent = ` · ${detail}`
-    if (target === null) {
+    const reach = said("dv-remark-detail", ` · ${detail}`)
+    if (renamed !== null) {
+      if (more !== null) {
+        // the renames named after the ones worded: counted, each told on a hover, and to a screen reader after the count
+        const others = said("dv-remark-detail", ` · ${more.words}`, "diff-remark-more")
+        others.title = more.names
+        others.append(said("sr-only", more.said))
+        words.append(others)
+      }
+    } else if (target === null) {
       words.append(reach)
     } else {
       // the other end of the move: a button of its own beside the one that opens the note, each with its key
@@ -963,10 +1029,18 @@ export class DiffPainter {
     const oldTable = tables[OLD]
     const textOf = (part: LinePart | InlinePart) =>
       ("side" in part && part.side === OLD && oldTable != null ? lineText(oldTable, value.lines[OLD]!) : content).slice(part.start, part.end)
+    // a renamed name of the line says what it was, or what it became, on a hover; a struck-through part is of the old line
+    const named = painterFile.cells!.renamed(side, line)
+    const oldLine = value.lines[OLD]
+    const struck = value.kind === "inline" && oldLine != null ? painterFile.cells!.renamed(OLD, oldLine) : []
+    const nameOf =
+      named.length === 0 && struck.length === 0
+        ? undefined
+        : (part: LinePart | InlinePart) => (part.deleted ? renamedPart(struck, OLD, part.start) : renamedPart(named, side, part.start))
     if (this.model!.softWraps && height > this.model!.layout.metrics.rowHeight) {
-      this.paintWrapped(text, parts, textOf, painterFile.codeWidths[side] ?? 0)
+      this.paintWrapped(text, parts, textOf, painterFile.codeWidths[side] ?? 0, nameOf)
     } else {
-      appendAll(text, partNodes(parts, textOf))
+      appendAll(text, partNodes(parts, textOf, nameOf))
     }
     if (line === table.lineCount - 1 && !table.endsWithLineEnd) {
       const marker = element("span", "dv-eof")
@@ -1006,10 +1080,17 @@ export class DiffPainter {
       // the ones it shows of that line alone, the struck-through parts; the text both lines share is the new line's
       return inlineParts(pair, runsAt(OLD, oldLine), runsAt(NEW, line), hits, value.move === null || oldHits === null ? oldHits : ownOldHits(pair, oldHits))
     }
-    return lineParts(content.length, runsAt(side, line), cells.ranges(value, side), hits)
+    // a line that Inline shows once stands for its old lines: a hit of theirs is marked where the find says the line stands for it
+    return lineParts(content.length, runsAt(side, line), cells.ranges(value, side), hits, value.kind === "once" ? (hits?.stands ?? null) : null)
   }
 
-  private paintWrapped(text: HTMLElement, parts: readonly (LinePart | InlinePart)[], textOf: (part: LinePart | InlinePart) => string, width: number): void {
+  private paintWrapped(
+    text: HTMLElement,
+    parts: readonly (LinePart | InlinePart)[],
+    textOf: (part: LinePart | InlinePart) => string,
+    width: number,
+    nameOf?: (part: LinePart | InlinePart) => NamePart | null,
+  ): void {
     const full = parts.map(textOf).join("")
     const breaks = [...wrapBreaks(full, width, this.model!.textMetrics), full.length]
     let offset = 0
@@ -1042,7 +1123,7 @@ export class DiffPainter {
         offset = partEnd
         partIndex++
       }
-      appendAll(line, partNodes(lineParts, textOf))
+      appendAll(line, partNodes(lineParts, textOf, nameOf))
       text.append(line)
       start = end
     }
@@ -1683,6 +1764,12 @@ export class DiffPainter {
       this.root?.focus({ preventScroll: true })
     }
   }
+}
+
+/** What the part at column `start` of a line of a side is of a renamed name (`NamePart`); null where no site of `named` holds the column */
+function renamedPart(named: readonly RenameSite[], side: number, start: number): NamePart | null {
+  const site = named.find(it => it.start <= start && start < it.end)
+  return site === undefined ? null : { hover: describeRenamedName(side === OLD ? "old" : "new", site.rename), starts: site.start === start }
 }
 
 /** Appends the nodes one by one: a line may have more parts than a call takes arguments */

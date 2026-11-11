@@ -493,6 +493,22 @@
   --dv-full: var(--diff-modified);
 }
 
+/*
+ * A renamed name (a site of a rename of the marks, row-cells.ts): the change of the line that a reader need not read
+ * word by word, so never in the colour of a change, in any layout and on a line of any type. The colour of a quiet
+ * line a step nearer the text, so it shows on that colour too, and a dotted line along its lower edge, which no
+ * changed range has: the mark does not rest on its colour. Drawn as a layer of the background, never as a text
+ * decoration: the syntax underlines a reassigned variable, a name a change often renames. Before the rule of a hit,
+ * which keeps its own colour on a name
+ */
+.dv-change-3 {
+  --dv-name-dots: repeating-linear-gradient(to right, color-mix(in oklab, var(--foreground) 60%, transparent) 0 2px, transparent 2px 4px);
+
+  background:
+    var(--dv-name-dots) bottom / 100% 1px no-repeat,
+    color-mix(in oklab, var(--diff-quiet), var(--foreground) 12%);
+}
+
 /* the empty side of an inserted or a deleted range: a bar 2 px wide that takes no width (DiffEmptyHighlighterRenderer) */
 .dv-marker {
   position: relative;
@@ -544,6 +560,14 @@
   background: var(--diff-deleted);
   /* struck through, so a deleted run beside an inserted one reads as deleted without its colour (ui-theme.md) */
   text-decoration: line-through;
+}
+
+/*
+ * the old name of a rename in an Inline row: struck through as any deleted part, on the colour of a renamed name.
+ * After the rule of a deleted part and before the rule of a hit, each of one attribute or class: a hit keeps its colour
+ */
+[data-renamed] {
+  background: color-mix(in oklab, var(--diff-quiet), var(--foreground) 12%);
 }
 
 /* a name of the old line that a reveal selected in its Inline row: its deleted parts show the selection while it lasts */
@@ -647,6 +671,14 @@
 
 [data-cell="modified"][data-run="renamed"] > .dv-code::before {
   content: "" / "modified, renamed only";
+}
+
+/*
+ * a renamed name in a line: said before the name, as the type of a line is said before its text; once a name, at the
+ * part it starts with, though a hit of the find or a syntax run cuts it into several
+ */
+.dv-change-3[data-name-start]::before {
+  content: "" / "renamed ";
 }
 
 /* a line of a move: which end of it the line is at (`data-move`), and that it was edited on the way (its pale tint) */
@@ -868,6 +900,11 @@
 
 .dv-remark-label {
   font-weight: 500;
+}
+
+/* the two spellings of a renamed name, in the font of the code and the colour of the text: what the note is about */
+.dv-remark-name {
+  color: var(--foreground);
 }
 
 .dv-remark-button {
@@ -1132,6 +1169,13 @@
 .tu {
   text-decoration: underline;
   text-decoration-color: var(--syntax-mutable-underline);
+}
+/*
+ * a deleted part of an Inline row is struck through whatever its syntax decorates: the underline of a reassigned
+ * variable, of a label or of a parameter would take the place of the strike, and the old name would read as kept
+ */
+[data-inline-deleted]:is(.tu, .t13, .t22, .t29) {
+  text-decoration: line-through;
 }
 
 /* the underline of a name a ⌘-click (Ctrl-click off macOS) goes to the declaration of, as a link of IntelliJ */

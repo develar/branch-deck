@@ -3,11 +3,13 @@ import type { TextDiff } from "@/lib/diff/file-diff-model"
 import { inlinePair, inlineParts, RANGE_STRIDE } from "@/lib/diff/line-parts"
 import { columnsOf, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
+import { pairRanges } from "@/lib/diff/rename-sites"
 
 /*
  * The text of the rows of Inline (docs/design/diff-view.md, "The row model"): a similar pair is one row, the new line
  * with the deleted parts of the old line in it, so the row is longer than either line. An edited line of a move is
- * such a row where the line stands now, of its old line where it left and its new one.
+ * such a row where the line stands now, of its old line where it left and its new one. A pair with a site of a rename
+ * shows the whole old name before the whole new one (rename-sites.ts).
  */
 
 /** The text an Inline row shows: the new line with the deleted parts of the old line before the inserted parts (`inlineParts`) */
@@ -42,11 +44,10 @@ export function widestInlineRow(diff: TextDiff, oldTable: LineTable, newTable: L
     if (played !== all) {
       pairs.push(...inlinePairsOf(block, index, played))
     }
-    for (const {
-      lines: [oldLine, newLine],
-      oldRanges,
-      newRanges,
-    } of pairs) {
+    for (const { lines, oldRanges: engineOld, newRanges: engineNew } of pairs) {
+      const [oldLine, newLine] = lines
+      // the row strikes the whole old name of a rename through before the new one, whatever letters the engine marked
+      const [oldRanges, newRanges] = pairRanges(diff, lines, engineOld, engineNew)
       // a pair without a deleted part (the old line has none, or the markers of its empty sides alone) is its new
       // line, which the widest line of the text counts
       const deletes = oldRanges.length !== newRanges.length || oldRanges.some((start, at) => at % RANGE_STRIDE === 0 && start < oldRanges[at + 1]!)

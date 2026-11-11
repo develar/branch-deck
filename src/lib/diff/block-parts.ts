@@ -1,15 +1,17 @@
-import type { DiffBlock, LineMove, LineRun, RunKind, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffBlock, LineMove, LineRun, Rename, RunKind, TextDiff } from "@/lib/diff/file-diff-model"
+import { renameSites, sitesOfLine } from "@/lib/diff/rename-sites"
+import type { RenameSite } from "@/lib/diff/rename-sites"
 import type { Heading, LineRow, LineRowKind, LineTint, NoteRow } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
 /*
  * The parts of a block of a diff by its marks (docs/design/diff-view.md, "The parts of a block"): Rust says which rows
- * of lines of a block changed in one way alone (`TextDiff.marks.runs`) and which lines moved within the file
+ * of lines of a block changed in one way alone (`TextDiff.marks.runs`), which lines moved within the file
  * (`TextDiff.marks.moves`: the old lines of a move in the block they left, its new lines in the block they stand in
- * now), and a block shows part by part, in the order of both sides. A part is a row of words (the heading of the block
- * in a section of a review, what the diff says of the lines after it) or rows of lines in one shape. Every function of
- * rows.ts that maps the rows of a block to its lines goes through here, so a view never counts the rows of a block by
- * its line counts.
+ * now) and which names the change renamed (`TextDiff.marks.renames`), and a block shows part by part, in the order
+ * of both sides. A part is a row of words (the heading of the block in a section of a review, what the diff says of
+ * the lines after it) or rows of lines in one shape. Every function of rows.ts that maps the rows of a block to its
+ * lines goes through here, so a view never counts the rows of a block by its line counts.
  */
 
 /** The sides of a row of a diff, as `OLD` and `NEW` of rows.ts */
@@ -46,14 +48,61 @@ export interface BlockMarks {
   readonly sources: readonly MoveEnd[]
   /** The moves whose new lines the block holds, by those lines */
   readonly destinations: readonly MoveEnd[]
+  /**
+   * The sites of the renames whose name stands on two lines the block does not pair, in a block whose lines the engine
+   * pairs (`inlinePairs`: line i of both sides): `[old line, new line]` each. The lines that hold one show apart, the
+   * old ones before the new ones, never as the row of a pair, which would draw the name as a deletion in one row and
+   * an insertion in another
+   */
+  readonly apart: readonly (readonly [number, number])[]
 }
 
 /** A block the marks say nothing of */
-export const NO_MARKS: BlockMarks = { runs: [], sources: [], destinations: [] }
+export const NO_MARKS: BlockMarks = { runs: [], sources: [], destinations: [], apart: [] }
+
+/**
+ * The note of the renames a view names at a block (`renameNotesOf`): one note for a rename in the rows of a file, at
+ * its declaration, or at its first site where the rows do not show the declaration; the renames whose notes would
+ * stand in one block share one
+ */
+export interface RenameNote {
+  /**
+   * The key of the note among the open notes (`PartsOptions.open`): the old line of the site it stands at, which is a
+   * line of no other note
+   */
+  readonly key: number
+  /** The renames it names, in the order of their sites in the block: the note words them, a list too long cut (`presentRemark`) */
+  readonly renames: readonly Rename[]
+  /** The site it stands at: its line on each side */
+  readonly lines: readonly [number, number]
+  /**
+   * The old lines of the quiet runs it opens (`RenameNotes.ofRun`), [start, end) each, in their order: what Inline
+   * shows once, by the new lines, until the note is opened. Empty where it opens none: every line of its renames is
+   * read, or the note of another rename opens their runs
+   */
+  readonly hides: readonly (readonly [number, number])[]
+}
+
+/** The notes of the renames of a diff as the rows of a view draw them (`renameNotesOf`) */
+export interface RenameNotes {
+  /** The note that stands in a block, by the index of the block */
+  readonly byBlock: ReadonlyMap<number, RenameNote>
+  /**
+   * The note of a run of the kind `renamed` that holds a site of a rename the rows name: the note of the first such
+   * rename, in the order of the lines of the run. The run has no note of its own, its lines show the name in its mark,
+   * and in Inline the old lines of a quiet one show while that one note is open: a run has one note that opens it, so
+   * a note never says it hides lines that another one shows
+   */
+  readonly ofRun: ReadonlyMap<LineRun, RenameNote>
+}
+
+/** A diff that renames no name, or a view that names none */
+export const NO_RENAME_NOTES: RenameNotes = { byBlock: new Map(), ofRun: new Map() }
 
 /**
  * What the diff says of a row of lines of a block, which a note row words (`presentRemark`): a run of
- * `TextDiff.marks.runs`, or an end of a move of `TextDiff.marks.moves` (`kind: "moved"`)
+ * `TextDiff.marks.runs`, an end of a move of `TextDiff.marks.moves` (`kind: "moved"`), or the renames of
+ * `TextDiff.marks.renames` that a view names there (`kind: "renamed"` with `renames`)
  */
 export interface Remark {
   readonly kind: RunKind | "moved"
@@ -69,6 +118,16 @@ export interface Remark {
   readonly open: boolean | null
   /** The end of the move the note stands at, which its words name and a click on them shows the other end of; null for a run */
   readonly move: MoveEnd | null
+  /**
+   * The renames the note names ("Renamed total → sum · 12 sites"); `lines` are then empty at the site it stands at,
+   * and it opens the old lines of the quiet runs that are its to open (`RenameNote.hides`). Null for any other note
+   */
+  readonly renames: RenameNote | null
+}
+
+/** The key of a note that opens among the open notes (`PartsOptions.open`): the first old line a run or a move hides, or the key of the note of renames */
+export function noteKey(remark: Remark): number {
+  return remark.renames?.key ?? remark.lines[OLD]![0]
 }
 
 /**
@@ -94,6 +153,12 @@ interface LinesPart {
   readonly ignored: boolean
   /** The end of the move the lines are of; null for lines of no move */
   readonly move: MoveEnd | null
+  /**
+   * The key of the note that hides or shows lines of the part (`noteKey`): the lines of a quiet run that Inline shows
+   * once or, its note opened, with their old lines, and the lines a move took, shown under their opened note. Null
+   * for lines no note opens. What the key of the notes takes for the rows of the part, as for the note itself
+   */
+  readonly note: number | null
 }
 
 /** A row of words: the heading of the change the block starts, what the diff says of the lines after it, or both */
@@ -127,6 +192,8 @@ export interface PartsOptions {
   readonly open: ReadonlySet<number>
   /** The heading of the change the block starts in a section of a review, its first row, and its words as one line (`headingText`) */
   readonly heading: { readonly parts: Heading; readonly label: string } | null
+  /** The notes of the renames of the diff as the rows name them (`renameNotesOf`); absent for rows that name none */
+  readonly renames?: RenameNotes
 }
 
 function rowsOf(part: BlockPart): number {
@@ -146,8 +213,8 @@ function rowsOf(part: BlockPart): number {
 }
 
 /**
- * The marks of each block of a diff: its runs in their order, and the ends of the moves it holds, each side in its
- * order. A run lies inside one block (`TextDiff.marks.runs`), the old lines of a move inside one block and its new
+ * The marks of each block of a diff: its runs in their order, the ends of the moves it holds, each side in its
+ * order, and the renamed names that stand on two lines it does not pair (`BlockMarks.apart`). A run lies inside one block (`TextDiff.marks.runs`), the old lines of a move inside one block and its new
  * lines inside one (`TextDiff.marks.moves`), neither in a block the whitespace policy ignores. A run that lies in no
  * block and a move with an end in none, which no engine gives, are left out, so a view shows every line of every
  * block whatever the marks say
@@ -186,8 +253,18 @@ export function marksByBlock(diff: TextDiff): readonly BlockMarks[] {
         newLine = run.newEnd
       }
     }
-    return { runs: own, sources: [] as MoveEnd[], destinations: [] as MoveEnd[] }
+    return { runs: own, sources: [] as MoveEnd[], destinations: [] as MoveEnd[], apart: [] as (readonly [number, number])[] }
   })
+  // the names that stand on two lines a block does not pair
+  for (const places of renameSites(diff).ofRename) {
+    for (const site of places) {
+      const at = blockOf(diff.blocks, NEW, site.line, 1)
+      const block = diff.blocks[at]
+      if (block !== undefined && block.inlinePairs && site.twin.line - block.oldStart !== site.line - block.newStart) {
+        byBlock[at]!.apart.push([site.twin.line, site.line])
+      }
+    }
+  }
   let sorted = true
   for (const move of moves) {
     const from = blockOf(diff.blocks, OLD, move.oldStart, move.len)
@@ -231,13 +308,83 @@ export function drawnMarks(marks: BlockMarks, index: number, played: ReadonlySet
     return marks
   }
   if (played.has(index)) {
-    return { runs: marks.runs, sources: [], destinations: [] }
+    return { ...marks, sources: [], destinations: [] }
   }
   const drawn = (end: MoveEnd) => !played.has(end.otherBlock)
-  return marks.sources.every(drawn) && marks.destinations.every(drawn)
-    ? marks
-    : { runs: marks.runs, sources: marks.sources.filter(drawn), destinations: marks.destinations.filter(drawn) }
+  return marks.sources.every(drawn) && marks.destinations.every(drawn) ? marks : { ...marks, sources: marks.sources.filter(drawn), destinations: marks.destinations.filter(drawn) }
 }
+
+/**
+ * The notes of the renames of a diff (`TextDiff.marks.renames`) as the rows of a view name them. `shown`: the blocks
+ * the rows show (a section of a review shows some blocks of its file, the others one row each); `played`: the blocks
+ * they play down (the imports alone, in a review with its plan). A rename has one note: at its declaration, or, where
+ * the rows do not show that block, at its first site in a block they show, one that is not played down before one
+ * that is. The renames whose notes stand in one block share one note, at the first of those sites. A rename with no
+ * site in the rows has none. A run of the kind `renamed` gets the note of the first rename with a site in it, the one
+ * note that opens it
+ */
+export function renameNotesOf(diff: TextDiff, shown: (block: number) => boolean = () => true, played: ReadonlySet<number> = NO_BLOCKS): RenameNotes {
+  const { renames } = diff.marks
+  if (renames.length === 0) {
+    return NO_RENAME_NOTES
+  }
+  const sites = renameSites(diff)
+  const blockAt = (site: RenameSite) => {
+    const block = blockOf(diff.blocks, NEW, site.line, 1)
+    return block >= 0 && shown(block) ? block : -1
+  }
+  // the sites the notes stand at, by block
+  const standing = new Map<number, RenameSite[]>()
+  sites.ofRename.forEach((places, index) => {
+    const declared = renames[index]!.declared.flatMap(place => places[place] ?? [])
+    const inRows = [...declared, ...places].flatMap(site => {
+      const block = blockAt(site)
+      return block < 0 ? [] : [{ site, block }]
+    })
+    const at = inRows.find(({ site, block }) => declared.includes(site) && !played.has(block)) ?? inRows.find(({ block }) => !played.has(block)) ?? inRows[0]
+    if (at !== undefined) {
+      standing.set(at.block, [...(standing.get(at.block) ?? []), at.site])
+    }
+  })
+  const byBlock = new Map<number, RenameNote & { hides: (readonly [number, number])[] }>()
+  const ofRename = new Map<number, RenameNote & { hides: (readonly [number, number])[] }>()
+  for (const [block, at] of standing) {
+    at.sort((one, other) => one.line - other.line || one.start - other.start)
+    const first = at[0]!
+    const note = { key: first.twin.line, renames: at.map(site => site.rename), lines: [first.twin.line, first.line] as const, hides: [] }
+    byBlock.set(block, note)
+    for (const site of at) {
+      ofRename.set(site.index, note)
+    }
+  }
+  const ofRun = new Map<LineRun, RenameNote>()
+  marksByBlock(diff).forEach((marks, block) => {
+    if (!shown(block)) {
+      return
+    }
+    for (const run of marks.runs) {
+      if (run.kind !== "renamed") {
+        continue
+      }
+      // the note of the first rename with a site in the run: the one that opens it
+      let owner: (RenameNote & { hides: (readonly [number, number])[] }) | undefined
+      for (let line = run.newStart; owner === undefined && line < run.newEnd; line++) {
+        owner = sitesOfLine(sites, NEW, line)
+          .map(site => ofRename.get(site.index))
+          .find(note => note !== undefined)
+      }
+      if (owner !== undefined) {
+        ofRun.set(run, owner)
+        if (run.quiet) {
+          owner.hides.push([run.oldStart, run.oldEnd])
+        }
+      }
+    }
+  })
+  return { byBlock, ofRun }
+}
+
+const NO_BLOCKS: ReadonlySet<number> = new Set()
 
 /**
  * The index of the block that holds the `count` lines of a side from `start`, one the whitespace policy does not
@@ -295,13 +442,27 @@ function nextEnd(ends: readonly MoveEnd[], at: number, cursor: number, limit: nu
  * once, an edited one as the pair of its two lines. The lines of no move between them show as the block did. In lines
  * the engine pairs (`inlinePairs`), a cut of one side cuts the other at the same line, so the lines beside a move
  * keep their pairs and the lines whose pair moved show alone.
+ *
+ * A run of the kind `renamed` that holds a site of a rename the rows name (`PartsOptions.renames`) has no note of its
+ * own: the name is drawn in its mark where it stands, and the one note of the rename is the row right above the line
+ * of the site it stands at ("Renamed total → sum · 12 sites"): the lines that hold the site are cut there, each side
+ * at its line of the site, so the lines before it stay above the note; in the row of the heading when the site starts
+ * the block. In Inline that note opens the old lines of the quiet runs that are its to open (`RenameNotes.ofRun`).
+ * Lines the engine pairs that hold a name on two lines it does not pair (`BlockMarks.apart`) show apart, as lines it
+ * does not pair.
  */
-export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, { mode, tint, open, heading }: PartsOptions): BlockParts {
+export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, { mode, tint, open, heading, renames = NO_RENAME_NOTES }: PartsOptions): BlockParts {
   const parts: BlockPart[] = []
   const ignored = block.kind === "ignored"
-  /** The engine pairs line i of both sides in these lines: as many of each side, at the same place in the block */
+  /**
+   * The engine pairs line i of both sides in these lines: as many of each side, at the same place in the block, and no
+   * renamed name among them that stands on two lines of no pair
+   */
   const paired = (oldStart: number, oldCount: number, newStart: number, newCount: number) =>
-    block.inlinePairs && oldCount === newCount && oldStart - block.oldStart === newStart - block.newStart
+    block.inlinePairs &&
+    oldCount === newCount &&
+    oldStart - block.oldStart === newStart - block.newStart &&
+    !marks.apart.some(([oldLine, newLine]) => (oldStart <= oldLine && oldLine < oldStart + oldCount) || (newStart <= newLine && newLine < newStart + newCount))
   /** The shape of lines that show as the block does: a pair per row only where the engine pairs line i of both sides */
   const plain = (oldStart: number, oldCount: number, newStart: number, newCount: number): PartShape => {
     if (mode === "split") {
@@ -312,7 +473,11 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
     }
     return mode === "inline" && paired(oldStart, oldCount, newStart, newCount) ? "pairs" : "stacked"
   }
-  const lines = (oldStart: number, oldEnd: number, newStart: number, newEnd: number, run: LineRun | null, shown: boolean | null) => {
+  /**
+   * `opens`: of the lines of a quiet run of Inline, which hides the old ones, the key of the note that opens them and
+   * whether it is open; null for lines no note opens
+   */
+  const lines = (oldStart: number, oldEnd: number, newStart: number, newEnd: number, run: LineRun | null, opens: { readonly key: number; readonly open: boolean } | null) => {
     const oldCount = oldEnd - oldStart
     const newCount = newEnd - newStart
     if (oldCount === 0 && newCount === 0) {
@@ -320,8 +485,20 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
     }
     const quiet = run !== null && run.quiet
     // Inline shows a quiet run once, by its new lines, until its note is opened
-    const shape = quiet && mode === "inline" ? (shown === true ? "stacked" : "new") : plain(oldStart, oldCount, newStart, newCount)
-    parts.push({ kind: "lines", shape, oldStart, oldCount, newStart, newCount, tint: quiet ? "quiet" : tint, run: quiet ? run.kind : null, ignored, move: null })
+    const shape = quiet && opens !== null ? (opens.open ? "stacked" : "new") : plain(oldStart, oldCount, newStart, newCount)
+    parts.push({
+      kind: "lines",
+      shape,
+      oldStart,
+      oldCount,
+      newStart,
+      newCount,
+      tint: quiet ? "quiet" : tint,
+      run: quiet ? run.kind : null,
+      ignored,
+      move: null,
+      note: opens?.key ?? null,
+    })
   }
   /** The note of a run or of an end of a move: in the row of the heading when it starts the block, else a row of its own */
   const note = (remark: Remark) => {
@@ -355,6 +532,7 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
           ],
           open: shown,
           move: end,
+          renames: null,
         })
         if (shown !== false) {
           parts.push({
@@ -368,6 +546,7 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
             run: null,
             ignored,
             move: end,
+            note: shown === null ? null : left.start,
           })
         }
         oldLine = left.end
@@ -386,6 +565,7 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
           ],
           open: null,
           move: end,
+          renames: null,
         })
         parts.push({
           kind: "lines",
@@ -398,6 +578,7 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
           run: null,
           ignored,
           move: end,
+          note: null,
         })
         newLine = stands.end
         destination = stands.at + 1
@@ -439,28 +620,86 @@ export function blockParts(block: DiffBlock, index: number, marks: BlockMarks, {
   let newLine = block.newStart
   for (const run of marks.runs) {
     between(oldLine, run.oldStart, newLine, run.newStart)
-    // only Inline hides lines: the old ones of a quiet run
-    const shown = mode === "inline" && run.quiet ? open.has(run.oldStart) : null
-    note({
-      kind: run.kind,
-      quiet: run.quiet,
-      lines: [
-        [run.oldStart, run.oldEnd],
-        [run.newStart, run.newEnd],
-      ],
-      open: shown,
-      move: null,
-    })
-    lines(run.oldStart, run.oldEnd, run.newStart, run.newEnd, run, shown)
+    // the note of a rename the rows name with a site in the run: it says what the run is, and it alone opens it
+    const named = renames.ofRun.get(run)
+    // only Inline hides lines: the old ones of a quiet run, behind its own note or the one of its rename
+    const key = named?.key ?? run.oldStart
+    const opens = mode === "inline" && run.quiet ? { key, open: open.has(key) } : null
+    if (named === undefined) {
+      note({
+        kind: run.kind,
+        quiet: run.quiet,
+        lines: [
+          [run.oldStart, run.oldEnd],
+          [run.newStart, run.newEnd],
+        ],
+        open: opens?.open ?? null,
+        move: null,
+        renames: null,
+      })
+    }
+    lines(run.oldStart, run.oldEnd, run.newStart, run.newEnd, run, opens)
     oldLine = run.oldEnd
     newLine = run.newEnd
   }
   between(oldLine, block.oldEnd, newLine, block.newEnd)
+  const naming = renames.byBlock.get(index)
+  if (naming !== undefined) {
+    // the note of the renames named at the block: the row right above the line of the site it stands at
+    const [oldSite, newSite] = naming.lines
+    const holds = parts.findIndex(part => part.kind === "lines" && part.newStart <= newSite && newSite < part.newStart + part.newCount)
+    let at = holds < 0 ? parts.length : holds
+    const cut = holds < 0 ? null : cutAt(parts[holds] as LinesPart, oldSite, newSite)
+    if (cut !== null) {
+      // the lines of the part before the site stay above the note
+      parts.splice(at, 1, ...cut)
+      at++
+    }
+    const after = parts[at]
+    const remark: Remark = {
+      kind: "renamed",
+      quiet: after?.kind === "lines" && after.run !== null,
+      lines: [
+        [oldSite, oldSite],
+        [newSite, newSite],
+      ],
+      open: mode === "inline" && naming.hides.length > 0 ? open.has(naming.key) : null,
+      move: null,
+      renames: naming,
+    }
+    const before = parts[at - 1]
+    if (before?.kind === "note" && before.remark === null) {
+      // the lines start the block: the words join its heading
+      parts[at - 1] = { ...before, remark }
+    } else {
+      parts.splice(at, 0, { kind: "note", heading: null, label: "", remark })
+    }
+  }
   const starts = new Uint32Array(parts.length + 1)
   parts.forEach((part, at) => {
     starts[at + 1] = starts[at]! + rowsOf(part)
   })
   return { block, index, parts, starts, rowCount: starts[parts.length]! }
+}
+
+/**
+ * A part of lines cut at a site of a rename, the old side at `oldLine` and the new one at `newLine`, a line of the
+ * part: the lines before the site, then the lines from it. Place `i` of a rename is the same place on both sides, so
+ * what stands before it on one side stands before it on the other. Null where the site starts the part (no line of it
+ * would have a row above the site), and for the lines of a move, which have a note of their own
+ */
+function cutAt(part: LinesPart, oldLine: number, newLine: number): [LinesPart, LinesPart] | null {
+  if (part.move !== null) {
+    return null
+  }
+  const newCut = newLine - part.newStart
+  // a row per pair of lines: both sides at the same line; an old line of the site outside the part: at its nearer end
+  const oldCut = part.shape === "pairs" ? newCut : Math.min(Math.max(oldLine - part.oldStart, 0), part.oldCount)
+  const before: LinesPart = { ...part, oldCount: oldCut, newCount: newCut }
+  if (rowsOf(before) === 0) {
+    return null
+  }
+  return [before, { ...part, oldStart: part.oldStart + oldCut, oldCount: part.oldCount - oldCut, newStart: part.newStart + newCut, newCount: part.newCount - newCut }]
 }
 
 /** The index of the part that holds row `row` */
@@ -563,14 +802,17 @@ function isEditedLine({ at, move }: MoveEnd, line: number): boolean {
 /**
  * The row of the parts where `line` of a side, or a later line of it, shows; the row count when no row does. An old
  * line without a row of its own gives the row that stands for it: the note of its quiet run or of the move it left
- * with in Inline, the first new line of an ignored block in one column. The old line of an edited line of a move is
- * found where the lines left, never in the row of its pair where they stand now
+ * with in Inline; in lines that one column shows by the new ones alone (a block the whitespace policy ignores, a quiet
+ * run of a renamed name, which has no note of its own) the row of the new line at its place where both sides have as
+ * many lines, else the first row of those lines. The old line of an edited line of a move is found where the lines
+ * left, never in the row of its pair where they stand now
  */
 export function partsRowOfLine(parts: BlockParts, side: number, line: number): number {
   for (const [at, part] of parts.parts.entries()) {
     const start = parts.starts[at]!
     if (part.kind === "note") {
-      if (side === OLD && part.remark?.open === false && line < part.remark.lines[OLD]![1]) {
+      // a closed note of a run or of a move stands for its old lines; the note of renames for none (the rows of the new lines do)
+      if (side === OLD && part.remark?.open === false && part.remark.renames === null && line < part.remark.lines[OLD]![1]) {
         return start
       }
       continue
@@ -588,7 +830,9 @@ export function partsRowOfLine(parts: BlockParts, side: number, line: number): n
       case "stacked":
         return start + (side === OLD ? offset : part.oldCount + offset)
       case "new":
-        return start + (side === NEW ? offset : 0)
+        // the old lines have no row: where each has its new line (as many of both sides) that row stands for it, else
+        // the first row of the lines
+        return start + (side === NEW || part.oldCount === part.newCount ? offset : 0)
       case "landed":
         return start + offset
     }
@@ -679,13 +923,25 @@ function linesOf(part: LinesPart, from: number, to: number): [number, number][] 
 }
 
 /**
- * The notes of the parts that open (`Remark.open` not null), each with its row and the old lines it hides or would
- * hide: [start, end), the start the key of the note
+ * The notes of the parts that open (`Remark.open` not null), each with its key (`noteKey`), its row and the old lines
+ * it hides or would hide, [start, end) each: the lines of its run or of the move that left, or of the note of renames
+ * the lines of the quiet runs that are its to open, in this block and in others
  */
-export function partsNotes(parts: BlockParts): { readonly lines: readonly [number, number]; readonly row: number }[] {
+export function partsNotes(parts: BlockParts): { readonly key: number; readonly lines: readonly (readonly [number, number])[]; readonly row: number }[] {
   return parts.parts.flatMap((part, at) =>
-    part.kind === "note" && part.remark !== null && part.remark.open !== null ? [{ lines: part.remark.lines[OLD]!, row: parts.starts[at]! }] : [],
+    part.kind === "note" && part.remark !== null && part.remark.open !== null
+      ? [{ key: noteKey(part.remark), lines: part.remark.renames?.hides ?? [part.remark.lines[OLD]!], row: parts.starts[at]! }]
+      : [],
   )
+}
+
+/**
+ * The key of the note that hides or shows lines of row `row` of the parts (`LinesPart.note`): a line that Inline shows
+ * once, or a line under an opened note; null for a row of words and for a line no note opens
+ */
+export function partsNoteOfRow(parts: BlockParts, row: number): number | null {
+  const part = parts.parts[partAt(parts, row)]
+  return part?.kind === "lines" ? part.note : null
 }
 
 /** The notes of the parts that stand at an end of a move, each with its row */

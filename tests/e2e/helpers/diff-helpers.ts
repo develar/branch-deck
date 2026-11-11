@@ -38,9 +38,35 @@ export function diffLineNumbers(scope: Locator | Page, options?: { hasText?: str
   return scope.locator("[data-testid=diff-line-number]", options)
 }
 
-/** The parts of the lines in `scope` that a changed range of the engine holds: inserted or modified text, not the deleted parts of an Inline row */
+/**
+ * The parts of the lines in `scope` that a changed range holds: inserted or modified text, and the renamed names
+ * (`renamedNames`), not the deleted parts of an Inline row
+ */
 export function changedParts(scope: Locator | Page): Locator {
   return scope.locator("[data-change]")
+}
+
+/** The parts of the lines in `scope` that a range of the engine holds, read as a change: no renamed name */
+export function editedParts(scope: Locator | Page): Locator {
+  return scope.locator(`[data-change]:not(${RENAMED_NAME})`)
+}
+
+/** The selector of a part of a renamed name in a line: the name at a site of a rename, in its own mark (`data-change="3"`) */
+export const RENAMED_NAME = '[data-change="3"]'
+
+/**
+ * The selector of the part a renamed name starts with (`data-name-start`): the one part of the name that says
+ * "renamed" to a screen reader, where a hit of the find or a syntax run cuts the name into several
+ */
+export const RENAMED_NAME_START = '[data-change="3"][data-name-start]'
+
+/**
+ * The names a change renamed in the lines of `scope`, each in its mark: the new name on the new side, the old one on
+ * the old side, with what it was or became as its hover ("Renamed from total"). A name is a part per token of the
+ * syntax, one for a plain name
+ */
+export function renamedNames(scope: Locator | Page): Locator {
+  return scope.locator(RENAMED_NAME)
 }
 
 /** The deleted parts of the old line that an Inline row strikes through */
@@ -57,9 +83,10 @@ export function findMarks(scope: Locator | Page, which: "every" | "current" = "e
  * The words of the notes that say what the marks of the diff say of the lines after them ("Formatting only · 3
  * lines"), of one kind of run when given: a button where the note opens (Inline shows its run once: `aria-expanded`
  * says whether its old lines show), plain words elsewhere. Of the note at an end of a move (`moved`) the words before
- * the place it names ("5 lines moved", "Moved"); `moveNotes` gives its whole row
+ * the place it names ("5 lines moved", "Moved"); `moveNotes` gives its whole row. Of the note of a rename (`renamed`)
+ * all its words ("Renamed total → sum · 3 sites")
  */
-export function remarks(scope: Locator | Page, kind?: "formatting" | "comments" | "moved"): Locator {
+export function remarks(scope: Locator | Page, kind?: "formatting" | "comments" | "moved" | "renamed"): Locator {
   return scope.locator(kind === undefined ? "[data-testid=diff-remark]" : `[data-testid=diff-remark][data-kind=${kind}]`)
 }
 
