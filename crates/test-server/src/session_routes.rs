@@ -77,8 +77,9 @@ impl SessionEnvironment for TestSessionEnvironment {
     Ok(RunSetup {
       options: SyncOptions {
         issue_config: IssueConfigSource::Load,
-        // `origin` is a path here: the fake Patronus says whether it knows the repository (`LandingRemote::patronus`)
-        space: Some(space_of(&state, &key.worktree).ok().flatten().is_some()),
+        // `origin` is a path here: the fake Patronus says whether it knows the repository (the test seam of
+        // `LandingRemote::patronus`)
+        test_patronus: Some(space_of(&state, &key.worktree).ok().flatten().is_some()),
         ..Default::default()
       },
       prefix,

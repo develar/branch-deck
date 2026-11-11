@@ -8,6 +8,7 @@
 use crate::landing::Landed;
 use crate::next_step::{StepBlocker, StepFact};
 use crate::operation::OperationId;
+use crate::pull_request::PullRequestAvailability;
 use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use crate::session::StackBranchAlong;
@@ -293,6 +294,11 @@ pub enum ActionBlocker {
   /// Its open pull request is a draft: nobody is asked to review it
   Draft {
     number: u32,
+  },
+  /// GitHub lists no open pull request of it, whose review a request would ask; `unlisted` why GitHub can't list the
+  /// pull requests, which are unknown then
+  NoOpenPullRequest {
+    unlisted: Option<PullRequestAvailability>,
   },
   /// The robot starts from a comment on the pull request, which runs the default checks: no profile to choose
   CommentRoute {

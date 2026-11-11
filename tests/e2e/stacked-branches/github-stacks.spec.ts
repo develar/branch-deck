@@ -98,6 +98,8 @@ test.describe("Stacks of GitHub", () => {
     const pulls = [pullRequest("auth", 6, { baseRefName: "master" }), pullRequest("login", 7, { baseRefName: "master" })]
     const repo = await setupRepo("stacked_chain", { pullRequests: availablePullRequests(...pulls), landing: LANDING })
     await syncAndWaitForBranches()
+    // the menu shows the items it opened with: Link GitHub Stack comes with the listing, which the chip of #7 shows
+    await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
     await openContextMenu(page, findBranchRow(page, "login"))
     await clickContextMenuItem(page, "Link GitHub Stack")
     await expect(page.locator("[data-slot=toast]", { hasText: "Linked the GitHub stack of login" })).toBeVisible()

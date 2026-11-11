@@ -1,4 +1,4 @@
-import { createContext, use, useState } from "react"
+import { createContext, Fragment, use, useState } from "react"
 import type { ComponentProps, ReactNode } from "react"
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import { ContextMenu, ContextMenuContent } from "@/components/ui/context-menu"
@@ -24,8 +24,8 @@ export function TableContextMenu({ menu, children }: TableContextMenuProps) {
   return (
     <ContextMenu>
       <MenuRowContext value={setRow}>{children}</MenuRowContext>
-      {/* the inline form opened from the menu takes the focus */}
-      <ContextMenuContent finalFocus={false}>{row !== null && menu(row)}</ContextMenuContent>
+      {/* the inline form opened from the menu takes the focus; the items of another row mount anew */}
+      <ContextMenuContent finalFocus={false}>{row !== null && <Fragment key={row}>{menu(row)}</Fragment>}</ContextMenuContent>
     </ContextMenu>
   )
 }

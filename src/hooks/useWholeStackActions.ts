@@ -66,15 +66,19 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
   }
   const pullRequest = getStackPullRequest(root)
   const orphaned = describeOrphanedStackPullRequest(root, pullRequest, actionsOf(stackReadinessKey(root)), getLandedState(root))
-  if (pullRequest !== undefined) {
-    const open = stackItem(root, "open-stack-pull-request", {
-      label: `Open Pull Request #${pullRequest.number}`,
-      description: orphaned ?? (pullRequest.state === "merged" ? `#${pullRequest.number} is merged` : `The pull request of ${formatWholeStack(root)}`),
-      onSelect: () => openPullRequest(pullRequest),
-    })
-    if (open !== null) {
-      items.push(open)
-    }
+  const open =
+    pullRequest === undefined
+      ? null
+      : stackItem(root, "open-stack-pull-request", {
+          label: `Open Pull Request #${pullRequest.number}`,
+          description: orphaned ?? (pullRequest.state === "merged" ? `#${pullRequest.number} is merged` : `The pull request of ${formatWholeStack(root)}`),
+          onSelect: () => openPullRequest(pullRequest),
+        })
+  // Open of the live one and Create, which Rust never offers both, in one place: an open menu shows Open in the place of
+  // Create as GitHub lists it (`MenuItem.slot`), Request Review… after it in its place from the first view
+  const pullRequestItem = open ?? (orphaned === null ? getCreateStackPullRequestItem(root) : null)
+  if (pullRequestItem !== null) {
+    items.push({ ...pullRequestItem, slot: STACK_PULL_REQUEST_SLOT })
   }
   // the code owners of the whole stack, its stack branch pushed first: the step of the whole stack when it is the one (it
   // says whose approval is missing, or that nobody of a group can approve); one that no longer matches the stack is closed
@@ -88,11 +92,6 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
     const close = getCloseStackPullRequestItem(root, pullRequest.number, orphaned)
     if (close !== null) {
       items.push(close)
-    }
-  } else {
-    const create = getCreateStackPullRequestItem(root)
-    if (create !== null) {
-      items.push(create)
     }
   }
   if (options.withPush) {
@@ -112,6 +111,9 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
   }
   return items
 }
+
+/** The place Open Pull Request #12 and Create Pull Request of the Stack… share in a menu (`MenuItem.slot`) */
+const STACK_PULL_REQUEST_SLOT = "stack-pull-request"
 
 /** The action of the close of a stack's pull request, whose words name the operation it runs as (`useOperationWords`) */
 export const CLOSE_STACK_PULL_REQUEST: readonly ActionId[] = ["close-stack-pull-request"]

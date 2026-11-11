@@ -150,6 +150,22 @@
       }
     ],
     [
+      "request-review",
+      {
+        "code": "noOpenPullRequest",
+        "unlisted": null
+      }
+    ],
+    [
+      "request-review",
+      {
+        "code": "noOpenPullRequest",
+        "unlisted": {
+          "status": "signedOut"
+        }
+      }
+    ],
+    [
       "safe-push-with-profile",
       {
         "code": "commentRoute",

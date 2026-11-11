@@ -15,7 +15,7 @@ export function formatCandidate(candidate: Pick<ReviewCandidate, "login" | "full
 
 /** What "Request Review…" of a subject (a branch, `stack:<root>`) is built of, as its caller selected them */
 export interface RequestReviewParts {
-  /** Its open pull request (`RepositoryView.openPullRequests` of the subject); none: no item */
+  /** Its open pull request (`RepositoryView.openPullRequests` of the subject); none: the item Rust disables, if any */
   readonly pullRequest: PullRequestView | undefined
   /** Its actions (`RepositoryView.actions` of the subject), `request-review` among them while Rust offers it */
   readonly actions: readonly ActionState[] | undefined
@@ -24,16 +24,15 @@ export interface RequestReviewParts {
 }
 
 /**
- * "Request Review…" of the open pull request of a subject, as Rust offers it (none without an open pull request,
- * disabled for a draft): its popover asks the code owners Patronus suggests (the readiness of the subject), the push
- * first, running in the words of its operation (`words.operations`); null without one
+ * "Request Review…" of the open pull request of a subject, as Rust offers it (disabled for a draft, and without an open
+ * pull request where git names the GitHub repository): its popover asks the code owners Patronus suggests (the
+ * readiness of the subject), the push first, running in the words of its operation (`words.operations`); null where
+ * Rust offers none
  */
 export function getRequestReviewItem(parts: RequestReviewParts, words: BlockerWords): MenuItem | null {
   const { pullRequest } = parts
-  if (pullRequest === undefined) {
-    return null
-  }
-  return presentAction(parts.actions, "request-review", { description: describeRequestReview(pullRequest), onSelect: parts.open }, words)
+  // without an open pull request Rust offers it disabled in its place, where git names the GitHub repository
+  return presentAction(parts.actions, "request-review", { ...(pullRequest !== undefined && { description: describeRequestReview(pullRequest) }), onSelect: parts.open }, words)
 }
 
 /**

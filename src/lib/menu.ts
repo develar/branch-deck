@@ -38,10 +38,59 @@ export interface MenuItem {
   onSelect: (context: SelectContext) => void
   /** Makes the item a submenu */
   children?: MenuItem[]
+  /**
+   * The place it shares with the items that take it as the facts change ("Create Pull Request…" and "Open Pull
+   * Request #7"): a menu open while one takes the other shows the new one there (`frozenMenuGroups`); its id otherwise
+   */
+  slot?: string
 }
 
 /** Groups are separated by a separator. */
 export type MenuItemGroups = MenuItem[][]
+
+/** The key of an item among the items of its menu: its slot, else its id, else its label */
+export function menuItemKey(item: MenuItem): string {
+  return item.slot ?? item.id ?? item.label
+}
+
+/**
+ * What a menu open since `opened` shows of its items `now`: the items as it opened, each in its place as it is now
+ * (known by `menuItemKey`); an item that left stays there, disabled, and an item that came shows at the next open. So
+ * the list never moves under a resting pointer while a fact arrives (a listing of GitHub, a sync that finds a conflict
+ * and leads with "Fix Conflict…"): a click lands on the item it was aimed at, or on nothing
+ */
+export function frozenMenuGroups(opened: MenuItemGroups, now: MenuItemGroups): MenuItemGroups {
+  const pool = itemPool(now.flat())
+  return opened.map(group => group.map(item => frozenItem(item, pool)))
+}
+
+/** The items of `items` by their keys, each key's in the order of the menu */
+function itemPool(items: readonly MenuItem[]): Map<string, MenuItem[]> {
+  const pool = new Map<string, MenuItem[]>()
+  for (const item of items) {
+    const key = menuItemKey(item)
+    pool.set(key, [...(pool.get(key) ?? []), item])
+  }
+  return pool
+}
+
+/** The item of the place of `opened` as it is now (its submenu frozen too), else `opened` disabled: it left */
+function frozenItem(opened: MenuItem, pool: Map<string, MenuItem[]>): MenuItem {
+  const now = pool.get(menuItemKey(opened))?.shift()
+  if (now === undefined) {
+    return { ...opened, disabled: true, running: false, children: undefined }
+  }
+  if (opened.children === undefined || now.children === undefined) {
+    return now
+  }
+  const children = itemPool(now.children)
+  return { ...now, children: opened.children.map(child => frozenItem(child, children)) }
+}
+
+/** Whether `groups` have an item */
+export function hasMenuItems(groups: MenuItemGroups): boolean {
+  return groups.some(group => group.length > 0)
+}
 
 /** The items of `groups` that act, the items of their submenus too, in menu order */
 export function actingMenuItems(groups: MenuItemGroups): MenuItem[] {

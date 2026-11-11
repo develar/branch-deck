@@ -452,6 +452,11 @@ export type ActionBlocker =
 { code: "upToDate" } | 
 /**  Its open pull request is a draft: nobody is asked to review it */
 { code: "draft"; number: number } | 
+/**
+ *  GitHub lists no open pull request of it, whose review a request would ask; `unlisted` why GitHub can't list the
+ *  pull requests, which are unknown then
+ */
+{ code: "noOpenPullRequest"; unlisted: PullRequestAvailability | null } | 
 /**  The robot starts from a comment on the pull request, which runs the default checks: no profile to choose */
 { code: "commentRoute"; number: number } | 
 /**  Every commit of the branch has an issue reference */
@@ -4311,10 +4316,10 @@ export type LandingRemote = {
 	/**  The push URL of `origin` is a repository on Space (`git.jetbrains.team`), where Patronus lands */
 	onSpace: boolean,
 	/**
-	 *  Patronus knows the repository: the Space repository `origin` pushes to (`on_space`), or the one the host of the sync
-	 *  names (`SyncOptions::space`: the fake Patronus of the E2E server). Its starts are offered from the first view of a
-	 *  session, waiting for its answer, and none ever where it doesn't know the repository: its answer that it doesn't
-	 *  needs no request
+	 *  Patronus knows the repository, so its starts are offered from the first view of a session, waiting for its answer,
+	 *  and none ever where it doesn't know it: that answer needs no request. In production it is `on_space`; it is a field
+	 *  of its own only for the test seam of the E2E server (`SyncOptions::test_patronus`), whose fake Patronus knows
+	 *  repositories whose `origin` is a local path, which `on_space`, the route, keeps saying are off Space
 	 */
 	patronus?: boolean,
 	/**

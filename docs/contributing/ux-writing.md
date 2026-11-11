@@ -178,7 +178,10 @@ indicator could cancel a robot but not restart it.
   object's row. Three clicks on an Unstack that nothing disabled once ran three unstacks, two of them failing with
   "tool-events is not stacked".
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
-  on hover (`description`); it disappears only where it never applies (no pull request, no robot).
+  on hover (`description`), what comes first where something does ("auth has no open pull request: Create Pull
+  Request… asks for its review"); it disappears only where it never applies (off GitHub, no robot). Its place is
+  decided on what is known at the first view, so an answer never moves the items below it, and an open menu doesn't
+  move at all ([Branch Row](../../openspec/specs/branch/branch-row/spec.md#requirement-branch-menu-an-open-menu-doesnt-move)).
 - **A step the app can do is part of the action**: a push an action needs, a wait for the sync, a fetch run inside the
   action, which keeps its plain name ("Create Pull Request…", "Safe Push", "Restart Safe Push", "Request
   Review…"); its progress shows in the busy button ("Pushing 45%"). Never disable an action with "push first" or "sync

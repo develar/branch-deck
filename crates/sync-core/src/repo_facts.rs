@@ -73,13 +73,14 @@ impl RepoFacts {
     })
   }
 
-  /// What the route into master and the slots of the landing are decided on of git, from these facts, the config the
-  /// sync read (the setting, `branchdeck.githubRepository`) and the word of the host on Patronus (`space`,
-  /// `SyncOptions::space`): one `cat-file` only for a Space `origin` without the GitHub repository configured, whose
-  /// committed settings may name its mirror (`resolve_github_repository_with`)
-  pub(crate) fn landing_remote(&self, git_executor: &GitCommandExecutor, repository_path: &str, config: &ConfigSnapshot, space: Option<bool>) -> Result<LandingRemote> {
+  /// What the route into master and the slots of the landing are decided on of git, from these facts and the config the
+  /// sync read (the setting, `branchdeck.githubRepository`): one `cat-file` only for a Space `origin` without the GitHub
+  /// repository configured, whose committed settings may name its mirror (`resolve_github_repository_with`).
+  /// `test_patronus` is the test seam of the E2E server (`SyncOptions::test_patronus`); `None` in production, where
+  /// Patronus knows the repositories on Space
+  pub(crate) fn landing_remote(&self, git_executor: &GitCommandExecutor, repository_path: &str, config: &ConfigSnapshot, test_patronus: Option<bool>) -> Result<LandingRemote> {
     let mut remote = landing_remote_of(&self.push_urls, self.upstream.as_ref(), config.landing()?);
-    remote.patronus = space.unwrap_or(remote.on_space);
+    remote.patronus = test_patronus.unwrap_or(remote.on_space);
     let origin = self.push_urls.get("origin").map(String::as_str);
     remote.github = match resolve_github_repository_with(git_executor, repository_path, config.github_repository(), origin)? {
       Some(repository) => LocalGitHub::Repository { name: repository.full_name() },

@@ -28,9 +28,9 @@ describe("what Request Review… says of the code owners", () => {
 describe("the Request Review… item", () => {
   const words = { subject: "auth", operations: {}, named: {} }
 
-  /** The item of the open pull request `view` of `auth`, the request as Rust offers it, its popover opened by `open` */
-  function itemOf(view: PullRequestView | undefined, request?: ActionState, open: () => void = () => {}) {
-    return getRequestReviewItem({ pullRequest: view, actions: request === undefined ? [] : [request], open }, words)
+  /** The item of the open pull request `view` of `subject`, the request as Rust offers it, its popover opened by `open` */
+  function itemOf(view: PullRequestView | undefined, request?: ActionState, open: () => void = () => {}, subject = "auth") {
+    return getRequestReviewItem({ pullRequest: view, actions: request === undefined ? [] : [request], open }, { ...words, subject })
   }
 
   it("asks the chosen code owners on the open pull request, its press opens the popover", () => {
@@ -49,8 +49,18 @@ describe("the Request Review… item", () => {
     expect(item).toMatchObject({ disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" })
   })
 
-  it("is not there without an open pull request, nor while Rust doesn't offer it", () => {
-    expect(itemOf(undefined, enabled("request-review")[0]!)).toBeNull()
+  it("is in its place without an open pull request, disabled with what creates one, and not there while Rust doesn't offer it", () => {
+    expect(itemOf(undefined, disabled("request-review", { code: "noOpenPullRequest", unlisted: null }))).toMatchObject({
+      id: "request-review",
+      disabled: true,
+      description: "auth has no open pull request: Create Pull Request… asks for its review",
+    })
+    expect(itemOf(undefined, disabled("request-review", { code: "noOpenPullRequest", unlisted: null }), () => {}, "stack:air")).toMatchObject({
+      description: "Whole air stack has no open pull request: Create Pull Request of the Stack… asks for its review",
+    })
+    expect(itemOf(undefined, disabled("request-review", { code: "noOpenPullRequest", unlisted: { status: "signedOut" } }))).toMatchObject({
+      description: "No GitHub token to see pull requests",
+    })
     expect(itemOf(pullRequest())).toBeNull()
   })
 })

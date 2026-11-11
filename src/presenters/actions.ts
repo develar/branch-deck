@@ -51,14 +51,15 @@ import {
   UserCheckIcon,
   UserPlusIcon,
 } from "lucide-react"
-import type { ActionBlocker, ActionId, ActionState, Availability, NothingBeyond, OperationId, PatronusRobot, RunningOperation } from "@/lib/bindings"
+import type { ActionBlocker, ActionId, ActionState, Availability, NothingBeyond, OperationId, PatronusRobot, PullRequestAvailability, RunningOperation } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { formatPushMode, formatRobotRestartLabel, formatRobotSubject, openRobot } from "@/lib/patronus"
-import { openPullRequestUrl } from "@/lib/pull-request"
+import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
 import { copyRobotFullPrompt, copyRobotPrompt, startRobotInAir } from "@/lib/robot-prompt-copy"
 import { cancelRobot, forgetStart, openUnknownStart, restartRobot } from "@/lib/robot-run"
 import { formatAskFirst } from "@/lib/stack"
+import { formatWholeStackStart, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { formatPendingFact, formatProblemsFailure, formatStepBlocker } from "@/presenters/next-step"
 import type { OperationWords } from "@/presenters/operations"
 import { presentOperationBusy, presentOperationLabel } from "@/presenters/operations"
@@ -209,6 +210,16 @@ function operationLabel(op: OperationId, words: OperationWords): string {
   return operation === undefined ? "Another operation" : presentOperationLabel(operation, words.named)
 }
 
+/**
+ * Why Request Review… asks nobody while GitHub lists no open pull request of the subject (a branch, or a whole stack by
+ * its key): what creates the one whose review it asks, or why GitHub can't list them, which leaves them unknown
+ */
+function noOpenPullRequestWords(subject: string, unlisted: PullRequestAvailability | null): string {
+  const root = stackRootOfReadinessKey(subject)
+  const [named, create] = root === null ? [subject, ACTION_LOOKS["create-pull-request"].label] : [formatWholeStackStart(root), ACTION_LOOKS["create-stack-pull-request"].label]
+  return formatAvailabilityHint(unlisted) ?? `${named} has no open pull request: ${create} asks for its review`
+}
+
 /** Why nobody is asked to review a draft (`PullRequestView.draft`) */
 export function formatDraftReason(number: number): string {
   return `#${number} is a draft: mark it ready for review on GitHub first`
@@ -229,6 +240,7 @@ const BLOCKERS = {
   noCommits: (_blocker, id) => noCommitsWords(id),
   upToDate: () => "The remote branch is up to date",
   draft: ({ number }) => formatDraftReason(number),
+  noOpenPullRequest: ({ unlisted }, _id, words) => noOpenPullRequestWords(words.subject, unlisted),
   commentRoute: ({ number }) => `A comment on #${number} runs the default checks: it can't choose a profile`,
   allReferenced: () => "Every commit of the branch has an issue reference",
   parkHeld: ({ reason }) => `${formatReason(reason)}: it lands whatever a park says`,

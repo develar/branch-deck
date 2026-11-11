@@ -887,8 +887,7 @@ Stack Pull Request… of a whole stack waits for the listing the same way.
 #### Scenario: GitHub lists an open pull request of the branch
 - **WHEN** "⋯" shows "Create Pull Request…" waiting, and GitHub lists the open #7 of the branch
 - **THEN** "Open Pull Request #7" is in the place of "Create Pull Request…", and the items above it stay in their places
-  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge and Create Pull Request… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
-
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge, Create Pull Request… and Request Review… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
 
 ### Requirement: Facts without an answer: The places of the menu stand from the first view
 
@@ -906,15 +905,15 @@ shown item never leaves, so the item under a resting pointer stays.
 
 #### Scenario: The GitHub repository origin pushes to
 - **WHEN** the route is the merge of the pull request, `origin` pushes to the GitHub repository of the branches, and GitHub hasn't answered
-- **THEN** "⋯" shows "Merge", disabled with "Waits for GitHub to tell what you may do in the repository", and "Create Pull Request…", disabled with "Waits for GitHub to list the pull requests"
-- **AND** once GitHub lists #7, "Merge #7" is in the place of "Merge" and "Open Pull Request #7" in the place of "Create Pull Request…"
-  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge and Create Pull Request… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
+- **THEN** "⋯" shows "Merge", disabled with "Waits for GitHub to tell what you may do in the repository", "Create Pull Request…" and "Request Review…", disabled with "Waits for GitHub to list the pull requests"
+- **AND** once GitHub lists #7, "Merge #7" is in the place of "Merge", "Open Pull Request #7" in the place of "Create Pull Request…", and "Request Review…" is enabled in its place
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge, Create Pull Request… and Request Review… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_leave`)
 
 #### Scenario: A mirror origin doesn't push to
 - **WHEN** the branches end up in a GitHub repository `origin` doesn't push to (`origin` a path, `branchdeck.githubRepository` set)
 - **THEN** "⋯" never shows "Merge", before GitHub answers or after
-- **AND** "Create Pull Request…" waits for the listing, then is enabled in its place
+- **AND** "Create Pull Request…" waits for the listing, then is enabled in its place, and "Request Review…" says "JIRA-456 has no open pull request: Create Pull Request… asks for its review"
   [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Merge on a mirror origin doesn't push to, and keep Create Pull Request… in its place while GitHub lists`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_leave`)
   [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)

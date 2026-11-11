@@ -74,10 +74,18 @@ async function setupUnaskedSmallStack(
   return { repo, popover: page.getByTestId("request-review-popover"), rootSlot: findBranchRow(page, "auth").getByTestId("next-step-slot") }
 }
 
+/**
+ * "Request Review…" of the open submenu "Whole Stack ›": the root's own Request Review… is in the menu around it,
+ * disabled, while the root has no pull request of its own
+ */
+function wholeStackRequestReview(page: Page): Locator {
+  return page.getByRole("menu", { name: "Whole Stack" }).getByRole("menuitem", { name: "Request Review…" })
+}
+
 /** "Request Review…" of "Whole Stack ›" of the root's menu: its popover, which asks on #12, without code owners yet */
 async function openWholeStackRequestReview(page: Page, root: string): Promise<Locator> {
   await openWholeStackSubmenu(page, root)
-  await page.getByRole("menuitem", { name: "Request Review…" }).click()
+  await wholeStackRequestReview(page).click()
   const popover = page.getByTestId("request-review-popover")
   await expect(popover).toContainText("Request a review on #12")
   await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
@@ -284,6 +292,7 @@ test.describe("Whole stack", () => {
       "Safe Push Whole Stack",
       "Dry Run Whole Stack",
       "Create Pull Request of the Stack…",
+      "Request Review…",
       "Push with Children (7 branches)",
       "Review Whole Stack",
       "Collapse Stack",
@@ -487,7 +496,7 @@ test.describe("Whole stack", () => {
     // the right-click on the root: "Whole Stack ›" asks the code owner of the whole stack, the popover at the root's row;
     // its candidate comes with the readiness of the whole stack, which the root's row asks for in the background
     await openWholeStackSubmenu(page, "auth")
-    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await wholeStackRequestReview(page).click()
     await expect(popover).toHaveCount(1)
     await expect(popover).toContainText("Request a review on #12")
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
@@ -498,7 +507,7 @@ test.describe("Whole stack", () => {
 
     // a menu is built on open: with the readiness known, the item's hover says whom it asks and why, and it asks him
     await openWholeStackSubmenu(page, "auth")
-    const item = page.getByRole("menuitem", { name: "Request Review…" })
+    const item = wholeStackRequestReview(page)
     await item.hover()
     await expect(openTooltip(page, { name: ask })).toBeVisible()
     await item.click()
@@ -522,7 +531,7 @@ test.describe("Whole stack", () => {
     // "⋯" of the root's row: the same item, the same popover
     await findBranchRow(page, "auth").getByRole("button", { name: "More actions for auth" }).click()
     await openSubmenu(page, "Whole Stack")
-    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await wholeStackRequestReview(page).click()
     await expect(popover).toContainText("Request a review on #12")
     await expectPopoverAtSlot(popover, rootSlot)
     await page.keyboard.press("Escape")
@@ -532,7 +541,7 @@ test.describe("Whole stack", () => {
     const preview = await openBranchPreview(page, "auth")
     await preview.getByRole("button", { name: "More actions for auth" }).click()
     await openSubmenu(page, "Whole Stack")
-    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await wholeStackRequestReview(page).click()
     await expectClosed(preview)
     await expect(popover).toHaveCount(1)
     await expect(popover).toContainText("Request a review on #12")
@@ -585,7 +594,7 @@ test.describe("Whole stack", () => {
 
     // "Whole Stack ›" of the root's menu: the same popover at the header, none at the root's row
     await openWholeStackSubmenu(page, "air")
-    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await wholeStackRequestReview(page).click()
     await expect(popover).toHaveCount(1)
     await expectPopoverAtSlot(popover, headerSlot)
   })
@@ -612,7 +621,7 @@ test.describe("Whole stack", () => {
     await expectPopoverAtSlot(popover, actions)
   })
 
-  test("should follow the pull requests in the island's ⋯ while it is open: they load after the sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep the places of the pull request in the island's ⋯ while it is open: they load after the sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // GitHub answers once the menu is open
     const repo = await setupRepo("stack_island", {
       patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
@@ -623,13 +632,23 @@ test.describe("Whole stack", () => {
     await openIslandMenu(page, "air")
     const menu = page.getByRole("menu", { name: "More actions for the air stack" })
     await expect(menu.getByRole("menuitem", { name: "Create Pull Request of the Stack…" })).toBeVisible()
-    await expect(menu.getByRole("menuitem", { name: "Request Review…" })).toHaveCount(0)
+    const requestReview = menu.getByRole("menuitem", { name: "Request Review…" })
+    await expect(requestReview).toBeDisabled()
+    const words = await menu.getByRole("menuitem").allTextContents()
 
-    // #12 arrives: the open menu has its items in place of the creation
+    // #12 arrives: the open menu has its open in the place of the creation, and its review asked in its place
     await repo.holdRemoteAnswers({ release: ["pullRequests"] })
     await expect(menu.getByRole("menuitem", { name: "Open Pull Request #12" })).toBeVisible()
     await expect(menu.getByRole("menuitem", { name: "Create Pull Request of the Stack…" })).toHaveCount(0)
-    await menu.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(requestReview).toBeEnabled()
+    // the others in their places as they are now (Push with Children counts the branches of the stack's pull request)
+    const now = await menu.getByRole("menuitem").allTextContents()
+    expect([now.length, now[words.indexOf("Create Pull Request of the Stack…")], now.indexOf("Request Review…")]).toEqual([
+      words.length,
+      "Open Pull Request #12",
+      words.indexOf("Request Review…"),
+    ])
+    await requestReview.click()
     await expect(page.getByTestId("request-review-popover")).toContainText("Request a review on #12")
   })
 
@@ -842,7 +861,13 @@ test.describe("Whole stack", () => {
     // "⋯": the whole menu of the whole stack but its review; its starts run at the header of the island in the main
     // window, its pull request in the window's own dialog
     await actions.getByRole("button", { name: "More actions for the whole air stack" }).click()
-    await expect(window.getByRole("menuitem")).toHaveText(["Safe Push Whole Stack", "Dry Run Whole Stack", "Create Pull Request of the Stack…", "Push with Children (7 branches)"])
+    await expect(window.getByRole("menuitem")).toHaveText([
+      "Safe Push Whole Stack",
+      "Dry Run Whole Stack",
+      "Create Pull Request of the Stack…",
+      "Request Review…",
+      "Push with Children (7 branches)",
+    ])
     await window.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
     await expect(createPullRequestDialog(window).getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
     await expectClosed(createPullRequestDialog(page))

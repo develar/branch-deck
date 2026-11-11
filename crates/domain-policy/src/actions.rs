@@ -156,6 +156,9 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   }
   if let Some(open) = facts.open_pull_request {
     offer(ActionId::RequestReview, open.draft.then_some(ActionBlocker::Draft { number: open.number }));
+  } else if facts.repository {
+    // its place from the first view where git names the GitHub repository: the review is asked on a pull request
+    offer(ActionId::RequestReview, Some(no_open_pull_request(facts.listing)));
   }
   if step.retarget.is_some() {
     offer(ActionId::RetargetPullRequest, None);
@@ -217,6 +220,16 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
     }
   }
   checked(actions, facts.cached)
+}
+
+/// Why Request Review… asks nobody while GitHub lists no open pull request of the subject: the listing is to come, or
+/// GitHub can't give it (the pull requests are unknown then), or it lists none
+fn no_open_pull_request(listing: Listing<'_>) -> ActionBlocker {
+  match listing {
+    Listing::Loading => ActionBlocker::Pending { fact: StepFact::PullRequests },
+    Listing::Unlisted { why } => ActionBlocker::NoOpenPullRequest { unlisted: why.cloned() },
+    Listing::Listed => ActionBlocker::NoOpenPullRequest { unlisted: None },
+  }
 }
 
 fn state(id: ActionId, reason: Option<ActionBlocker>) -> ActionState {
@@ -492,6 +505,9 @@ pub fn stack_actions(facts: &StackFacts<'_>) -> Vec<ActionState> {
   }
   if let Some(open) = facts.open_pull_request {
     offer(ActionId::RequestReview, open.draft.then_some(ActionBlocker::Draft { number: open.number }));
+  } else if matches!(facts.shape, StackShape::Forking { .. }) && facts.repository && pull_request.is_none() {
+    // in its place beside Create Stack Pull Request… from the first view, as of a branch
+    offer(ActionId::RequestReview, Some(no_open_pull_request(facts.listing)));
   }
   if let StackShape::Forking { not_built, .. } = facts.shape
     && facts.repository

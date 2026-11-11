@@ -1673,8 +1673,9 @@ A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "C
 
 `getRequestReviewItem` (`src/presenters/review.ts`) MUST build the item, id `request-review`, "Request Review…", of the
 open pull request and the actions of the subject its caller selected, for every surface that offers it (the row's next
-step, the branch menu, `getRequestReviewItemNow`): there only while the branch has an open pull request (else "Create
-Pull Request…" asks the reviewers).
+step, the branch menu, `getRequestReviewItemNow`). Where git names the GitHub repository it stands in its place from
+the first view, disabled without an open pull request: with the wait for the listing, then with what comes first
+(`noOpenPullRequest`).
 
 #### Scenario: A branch with an open pull request
 - **WHEN** the branch has an open pull request and Rust offers the action
@@ -1683,9 +1684,11 @@ Pull Request…" asks the reviewers).
   [@test] crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
 
 #### Scenario: A branch without an open pull request
-- **WHEN** the branch has no open pull request, or Rust doesn't offer the action
-- **THEN** the item is not there
-  [@test] src/presenters/review.test.ts (`is not there without an open pull request, nor while Rust doesn't offer it`)
+- **WHEN** the branch has no open pull request on GitHub
+- **THEN** the item is disabled with what creates one, or why GitHub can't list them; of a whole stack that forks the same, with "Create Pull Request of the Stack…"
+- **AND** off GitHub, or while Rust doesn't offer the action, it is not there
+  [@test] src/presenters/review.test.ts (`is in its place without an open pull request, disabled with what creates one, and not there while Rust doesn't offer it`)
+  [@test] crates/domain-policy/src/actions_test.rs (`the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_leave`, `the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built`)
 
 ### Requirement: Request Review: A draft disables it with the reason
 

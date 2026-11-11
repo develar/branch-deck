@@ -224,13 +224,17 @@ fn the_remotes_come_with_their_push_urls() {
   assert_eq!(remotes.push_url("upstream"), None);
 }
 
-/// The landing remote of a sync of `repo` with the config it has now and the word of the host on Patronus (`space`), and
-/// how many git processes it cost beside the facts
-fn landing_of(repo: &TestRepo, space: Option<bool>) -> (LandingRemote, u32) {
+/// The landing remote of a sync of `repo` with the config it has now and the test seam of the E2E server
+/// (`test_patronus`), and how many git processes it cost beside the facts. Without the seam, as in production, Patronus
+/// knows exactly the repositories on Space
+fn landing_of(repo: &TestRepo, test_patronus: Option<bool>) -> (LandingRemote, u32) {
   let facts = read_repo_facts(repo.git_executor(), repo.path_str(), "master", "test", None).unwrap();
   let config = ConfigSnapshot::read(repo.git_executor(), repo.path_str()).unwrap();
   let git = GitCommandExecutor::new().with_process_stats("test");
-  let landing = facts.landing_remote(&git, repo.path_str(), &config, space).unwrap();
+  let landing = facts.landing_remote(&git, repo.path_str(), &config, test_patronus).unwrap();
+  if test_patronus.is_none() {
+    assert_eq!(landing.patronus, landing.on_space, "in production Patronus knows the repositories on Space: {landing:?}");
+  }
   (landing, git.process_stats().unwrap().total())
 }
 
@@ -271,8 +275,12 @@ fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
   );
   repo.git(&["config", "--unset", "branchdeck.landing"]);
 
-  // a mirror the config names: the branches are on GitHub, the remote of the baseline pushes elsewhere
+  // a host that is no github.com, nothing configured: off GitHub, no process (GitHub is github.com, `crates/github`)
   repo.git(&["config", "remote.origin.pushurl", "https://gitlab.example.com/acme/app.git"]);
+  let (elsewhere, processes) = landing_of(&repo, None);
+  assert_eq!((elsewhere.github, elsewhere.push_repository, processes), (LocalGitHub::None, None, 0));
+
+  // a mirror the config names: the branches are on GitHub, the remote of the baseline pushes elsewhere
   repo.git(&["config", "branchdeck.githubRepository", "acme/app"]);
   let (mirror, processes) = landing_of(&repo, None);
   assert_eq!(
@@ -293,7 +301,7 @@ fn the_landing_remote_is_read_with_the_facts_of_a_sync() {
   let (space, processes) = landing_of(&repo, None);
   assert_eq!((space.github, processes), (LocalGitHub::Repository { name: "acme/app".to_string() }, 1));
 
-  // the host knows better (the fake Patronus of the E2E server): its word on Patronus, the route of `origin` unchanged
+  // the test seam of the E2E server (its fake Patronus): its word on Patronus, the route of `origin` unchanged
   repo.git(&["config", "remote.origin.pushurl", "."]);
   let (faked, _) = landing_of(&repo, Some(true));
   assert_eq!((faked.on_space, faked.patronus), (false, true));

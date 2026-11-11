@@ -62,9 +62,8 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
 /**
  * Open the submenu `name` of the open menu ("Patronus", "Copy" of the branch menu) as the user does, by hovering its
  * item; resolves once it is open. The one way a test opens a submenu: `hover()` of its item is refused
- * (`refuseSubmenuHovers` of fixtures/base-test.ts). A menu whose items still change as it shows (the facts of the first
- * sync, `waitForStepFacts`) moves the item from under the pointer before the delay ran out, and nothing opens: the
- * error says so
+ * (`refuseSubmenuHovers` of fixtures/base-test.ts). An open menu doesn't move (`frozenMenuGroups`), but a scroll of it
+ * moves the item from under the pointer before the delay ran out, and nothing opens: the error says so
  */
 export async function openSubmenu(page: Page, name: string): Promise<void> {
   const trigger = page.getByRole("menuitem", { name, exact: true })
@@ -79,7 +78,7 @@ export async function openSubmenu(page: Page, name: string): Promise<void> {
     await expect(trigger).toHaveAttribute("aria-expanded", "true")
   } catch (error) {
     if (error instanceof Error && !(await trigger.evaluate(element => element.matches(":hover")))) {
-      error.message = `${error.message}\n\nThe menu moved "${name}" from under the pointer before its submenu opened: its items changed as it showed. Anchor on the state the menu shows first (the facts of the first sync: waitForStepFacts of tests/e2e/helpers/wait-helpers.ts)`
+      error.message = `${error.message}\n\nThe menu moved "${name}" from under the pointer before its submenu opened (a scroll of the menu). An open menu keeps its items in their places: an item a fact brings shows only at the next open (waitForStepFacts of tests/e2e/helpers/wait-helpers.ts before the menu)`
     }
     throw error
   }

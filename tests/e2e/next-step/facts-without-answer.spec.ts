@@ -445,6 +445,37 @@ async function expectItemWaits(page: Page, item: Locator, reason: string): Promi
 
 const LISTING = "Waits for GitHub to list the pull requests"
 
+/**
+ * issue_links mirrored to acme/monorepo (origin a path, `branchdeck.githubRepository`) with the pull requests
+ * `pullRequests`, the listing held: the menu of the row, opened before it, "Create Pull Request…" waiting in it, the
+ * pointer resting on Rename…; then GitHub lists them: Create is enabled in its place, the open menu shows the items it
+ * showed, the one under the pointer too. Returns the menu and the words it showed
+ */
+async function listWhileTheMenuShows(
+  page: Page,
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  pullRequests: PullRequest[],
+): Promise<{ menu: Locator; words: string[] }> {
+  const repo = await setupRepo("issue_links", { pullRequests: availablePullRequests(...pullRequests) })
+  await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
+  await syncAndWaitForBranches()
+  await expectHeld(repo, "pullRequests")
+
+  const menu = await openRowMenu(page)
+  const create = menu.getByRole("menuitem", { name: "Create Pull Request…" })
+  await expectItemWaits(page, create, LISTING)
+  await expect(menu.getByRole("menuitem", { name: /^(Merge|Safe Push)/ })).toHaveCount(0)
+  const words = await itemWords(menu)
+  const pointer = await restOn(page, menu.getByRole("menuitem", { name: "Rename…" }))
+
+  await repo.holdRemoteAnswers({ release: ["pullRequests"] })
+  await expect(create).toBeEnabled()
+  expect(await itemWords(menu)).toEqual(words)
+  expect(await itemAt(page, pointer)).toBe("Rename…")
+  return { menu, words }
+}
+
 test.describe("Places of the menu before the answers", () => {
   test("should keep Safe Push in its place while Patronus answers, disabled until it does, and the item under the pointer where it was @webkit", async ({
     page,
@@ -471,7 +502,7 @@ test.describe("Places of the menu before the answers", () => {
     expect(await itemAt(page, pointer)).toMatch(/^Push Branch/)
   })
 
-  test("should keep Merge and Create Pull Request… in their places while GitHub lists, the open pull request in the place of Create @webkit", async ({
+  test("should keep Merge, Create Pull Request… and Request Review… in their places while GitHub lists, the open pull request in the place of Create @webkit", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -486,23 +517,40 @@ test.describe("Places of the menu before the answers", () => {
     const menu = await openRowMenu(page)
     const merge = menu.getByRole("menuitem", { name: /^Merge/ })
     const create = menu.getByRole("menuitem", { name: "Create Pull Request…" })
+    const requestReview = menu.getByRole("menuitem", { name: "Request Review…" })
     await expectItemWaits(page, merge, "Waits for GitHub to tell what you may do in the repository")
     await expectItemWaits(page, create, LISTING)
+    await expectItemWaits(page, requestReview, LISTING)
     const words = await itemWords(menu)
-    const mergeAt = words.findIndex(word => word.startsWith("Merge"))
-    const createAt = words.indexOf("Create Pull Request…")
-    const pointer = await restOn(page, menu.getByRole("menuitem", { name: /^Push Branch/ }))
+    const pointer = await restOn(page, menu.getByRole("menuitem", { name: "Rename…" }))
 
-    // GitHub lists #7: the merge of it in the place of Merge, its open in the place of Create
+    // GitHub lists #7: the merge of it in the place of Merge, its open in the place of Create, its review asked
     await repo.holdRemoteAnswers({ release: ["pullRequests"] })
-    const open = menu.getByRole("menuitem", { name: /^Open Pull Request #7/ })
-    await expect(open).toBeVisible()
+    await expect(menu.getByRole("menuitem", { name: /^Open Pull Request #7/ })).toBeVisible()
     await expect(merge).toBeEnabled()
-    const answered = await itemWords(menu)
-    expect(answered[mergeAt]).toBe("Merge #7S")
-    expect(answered[createAt]).toMatch(/^Open Pull Request #7/)
-    expect(answered.slice(0, createAt)).toEqual(words.slice(0, createAt).map(word => (word.startsWith("Merge") ? "Merge #7S" : word)))
-    expect(await itemAt(page, pointer)).toMatch(/^Push Branch/)
+    await expect(requestReview).toBeEnabled()
+    const answered = words.map(word => (word.startsWith("Merge") ? "Merge #7S" : word === "Create Pull Request…" ? "Open Pull Request #7O" : word))
+    expect(await itemWords(menu)).toEqual(answered)
+    expect(await itemAt(page, pointer)).toBe("Rename…")
+    // the next open shows the same
+    await page.keyboard.press("Escape")
+    await expectClosed(menu)
+    expect(await itemWords(await openRowMenu(page))).toEqual(answered)
+  })
+
+  test("should show the open of a closed pull request GitHub lists while the menu shows at its next open, the items under the pointer where they were", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // GitHub lists the closed #5: the open menu takes no item in
+    const { menu } = await listWhileTheMenuShows(page, setupRepo, syncAndWaitForBranches, [pullRequest(BRANCH, 5, { state: "closed" })])
+
+    // at the next open "Open Pull Request #5" follows Create
+    await page.keyboard.press("Escape")
+    await expectClosed(menu)
+    const reopened = await itemWords(await openRowMenu(page))
+    expect(reopened[reopened.indexOf("Create Pull Request…") + 1]).toMatch(/^Open Pull Request #5/)
   })
 
   test("should never offer Merge on a mirror origin doesn't push to, and keep Create Pull Request… in its place while GitHub lists", async ({
@@ -510,25 +558,10 @@ test.describe("Places of the menu before the answers", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // origin is a path, the branches mirrored to acme/monorepo (`branchdeck.githubRepository`)
-    const repo = await setupRepo("issue_links", { pullRequests: availablePullRequests() })
-    await repo.holdRemoteAnswers({ hold: ["pullRequests"] })
-    await syncAndWaitForBranches()
-    await expectHeld(repo, "pullRequests")
-
-    const menu = await openRowMenu(page)
-    const create = menu.getByRole("menuitem", { name: "Create Pull Request…" })
-    await expectItemWaits(page, create, LISTING)
+    // GitHub lists none: nothing moves, still no merge, and Request Review… says what comes first
+    const { menu } = await listWhileTheMenuShows(page, setupRepo, syncAndWaitForBranches, [])
     await expect(menu.getByRole("menuitem", { name: /^(Merge|Safe Push)/ })).toHaveCount(0)
-    const words = await itemWords(menu)
-    const pointer = await restOn(page, menu.getByRole("menuitem", { name: "Rename…" }))
-
-    // GitHub lists none: Create is enabled in its place, nothing else moves, and still no merge
-    await repo.holdRemoteAnswers({ release: ["pullRequests"] })
-    await expect(create).toBeEnabled()
-    expect(await itemWords(menu)).toEqual(words)
-    expect(await itemAt(page, pointer)).toBe("Rename…")
-    await expect(menu.getByRole("menuitem", { name: /^(Merge|Safe Push)/ })).toHaveCount(0)
+    await expectItemWaits(page, menu.getByRole("menuitem", { name: "Request Review…" }), `${BRANCH} has no open pull request: Create Pull Request… asks for its review`)
   })
 
   test("should offer no start and no pull request on a local remote from the first view", async ({ page, setupRepo, syncAndWaitForBranches }) => {

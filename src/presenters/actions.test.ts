@@ -48,6 +48,8 @@ describe("the actions Rust offers", () => {
       "The branch has no commits",
       "The remote branch is up to date",
       "#7 is a draft: mark it ready for review on GitHub first",
+      "auth has no open pull request: Create Pull Request… asks for its review",
+      "No GitHub token to see pull requests",
       "A comment on #7 runs the default checks: it can't choose a profile",
       "Every commit of the branch has an issue reference",
       "A Safe Push of auth is running: wait until it merges, or restart it on the current branch: it lands whatever a park says",

@@ -32,6 +32,7 @@ targets:
   - src/lib/rewrite-run.ts
   - src/components/shared/MoreActionsMenu.tsx
   - src/lib/menu.ts
+  - src/hooks/useMenuOpenings.ts
   - src/components/shared/MenuItemButton.tsx
   - src/components/branch/BranchNameCell.tsx
   - src/components/branch/IssueFamilyRow.tsx
@@ -1569,19 +1570,20 @@ over, which came under a still pointer, stays closed until the next move.
 
 ### Requirement: Hover and click: A submenu whose trigger moved from under a still pointer stays open
 
-Content that moves the trigger of an open submenu from under a still pointer MUST close nothing: the submenu stays open
-until the pointer moves; a move away from it then closes it, a move into it keeps it (`hoverClosesOnMove` of
-`src/lib/pointer-moves.ts`, in the submenu roots of `src/components/ui`).
+Content that moves the trigger of an open submenu from under a still pointer (a scroll of the menu by the wheel; an
+open menu's list never moves, [Branch menu](#requirement-branch-menu-an-open-menu-doesnt-move)) MUST close nothing:
+the submenu stays open until the pointer moves; a move away from it then closes it, a move into it keeps it
+(`hoverClosesOnMove` of `src/lib/pointer-moves.ts`, in the submenu roots of `src/components/ui`).
 
-#### Scenario: A sync puts Fix Conflict… above Copy, the pointer resting on Copy
-- **WHEN** "Copy ›" of a branch is open with the pointer resting on Copy, and a sync finds a conflict in the branch, so the menu leads with "Fix Conflict…" and Copy goes down from under the pointer
+#### Scenario: A scroll moves Copy from under the pointer
+- **WHEN** "Copy ›" of a branch is open with the pointer resting on Copy at the end of a menu that scrolls, and the wheel scrolls the menu, so Copy goes down from under the pointer
 - **THEN** "Copy ›" stays open, and the next move away from it closes it
-  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep its open submenu when a sync moves its item from under a still pointer, until the pointer moves away`)
+  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep its open submenu when a scroll moves its item from under a still pointer, until the pointer moves away`)
 
 #### Scenario: The move into the submenu
 - **WHEN** the pointer then moves into "Copy ›"
 - **THEN** it stays open, and its item under the pointer is highlighted
-  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep its open submenu when a sync moves its item from under a still pointer, and a move into it`)
+  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep its open submenu when a scroll moves its item from under a still pointer, and a move into it`)
 
 ### Requirement: Hover and click: A control is the same control only by its identity
 
@@ -1959,8 +1961,9 @@ The groups MUST come in the order of how often their actions are wanted, Safe Pu
   stacked on it "Push with Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond
   the branch: [Stacked Branches](../stacked-branches/spec.md#pull-requests)), and "Mark IJAI-1 Fixed" for a YouTrack issue
 - **AND** the review ("Review Changes", "Create Pull Request…" or "Open Pull Request #7" in its place, both beside a
-  closed pull request, "Request Review…", "Retarget #7 to master", "Link GitHub Stack" of a layer whose stack of GitHub
-  is out of line: [Stacks of GitHub](../stacked-branches/spec.md#stacks-of-github))
+  closed pull request, "Request Review…" on GitHub (disabled without an open pull request), "Retarget #7 to master",
+  "Link GitHub Stack" of a layer whose stack of GitHub is out of line:
+  [Stacks of GitHub](../stacked-branches/spec.md#stacks-of-github))
 - **AND** the shape ("Rename…" or "Name This Branch…", "Move to…", "Stack On… ›", "Unstack from …", "Ungroup")
 - **AND** on every branch of a stack the stack ("Collapse Stack" `⌥←` or "Expand Stack" `⌥→`, "Whole Stack ›", the actions of the
   whole stack of its root: [Whole Stack](../whole-stack/spec.md))
@@ -1971,7 +1974,7 @@ The groups MUST come in the order of how often their actions are wanted, Safe Pu
   with a pull request, "Copy Retarget Command" for an open one into a virtual branch)
   [@test] src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
-  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge and Create Pull Request… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge, Create Pull Request… and Request Review… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
   [@test] tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] src/presenters/robot-actions.test.ts (`cancels a running robot through the engine, and opens it in Patronus and the pull request it was started from`)
   [@test] tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
@@ -1990,16 +1993,30 @@ Name") MUST work on the row as well.
 - **WHEN** the user presses ⌘C, the key of "Copy Full Branch Name" in "Copy ›", on the focused row
 - **THEN** it copies the full branch name as the item does
 
-### Requirement: Branch menu: An open submenu stays open when the menu changes above it
+### Requirement: Branch menu: An open menu doesn't move
 
-A change of the menu while it shows (a sync that puts a group above another) MUST keep each group that stays, with
-its open submenu and the item under the pointer: a group is known by its item that opens a submenu, else by its first
-item, never by its place.
+While a menu shows, its list MUST NOT move (`frozenMenuGroups` in `MenuItems`, every menu of the page): its items are
+the ones it opened with, each in its place as it changes; one that leaves stays there disabled until the menu closes,
+one that comes shows at the next open, and one that takes the place of another shares its slot (`MenuItem.slot`). A
+group is known by its item that opens a submenu, else by its first item, so an open submenu stays mounted.
 
-#### Scenario: A sync puts Fix Conflict… above an open Copy
+#### Scenario: A sync finds a conflict while Copy is open
 - **WHEN** "Copy ›" of a branch is open with the pointer on its items, and a sync finds a conflict in the branch
-- **THEN** the menu leads with "Fix Conflict…", "Copy ›" stays open, and Copy Branch Name copies the name
-  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep its open submenu under the pointer when a sync puts a group above it`)
+- **THEN** the menu keeps its items in their places, without "Fix Conflict…", "Copy ›" stays open, and Copy Branch Name copies the name
+- **AND** the next open of the menu leads with "Fix Conflict…"
+  [@test] tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the items of an open menu in their places as a sync finds a conflict, and lead with Fix Conflict… at the next open`)
+  [@test] src/lib/menu.test.ts (`shows each item in its place as it is now, keeps an item that left there disabled and shows a new one at the next open`, `freezes an open submenu too, and a submenu that left is a disabled item that opens nothing`)
+
+#### Scenario: An item that takes the place of another
+- **WHEN** GitHub lists the open #7 of a branch while its menu shows "Create Pull Request…"
+- **THEN** "Open Pull Request #7" shows in its place
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should keep Merge, Create Pull Request… and Request Review… in their places while GitHub lists, the open pull request in the place of Create @webkit`)
+  [@test] src/lib/menu.test.ts (`shows the item that took the slot of another in its place: Open Pull Request #7 where Create Pull Request… was`)
+
+#### Scenario: An item that comes while the menu shows
+- **WHEN** GitHub lists a closed pull request of a branch while its menu shows
+- **THEN** the menu takes no item in, the item under the pointer stays, and "Open Pull Request #5" follows "Create Pull Request…" at the next open
+  [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should show the open of a closed pull request GitHub lists while the menu shows at its next open, the items under the pointer where they were`)
 
 ### Requirement: Branch menu: Off Space the landing starts with the push
 

@@ -1,4 +1,5 @@
-// local customisation: `DropdownMenu` closes when its view of the main window hides (`useCloseWhenViewHides`); its hover
+// local customisation: `DropdownMenu` closes when its view of the main window hides (`useCloseWhenViewHides`) and counts
+// its openings for the items it shows (`useMenuOpenings`); its hover
 // (a menu of the menubar, a submenu) opens it only with a move of the pointer (`hoverOpensOnMove`), and the trigger of a
 // submenu moved from under a still pointer closes it only at the next move (`hoverClosesOnMove`); `controlKey` on
 // `DropdownMenu`, the trigger named as the control of its root (`useControlRef`)
@@ -8,15 +9,19 @@ import { cn } from "cn"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 import { useCloseWhenViewHides } from "@/hooks/useCloseWhenViewHides"
 import { ControlKeyContext, useControlKey, useControlRef } from "@/hooks/useControlKey"
+import { MenuOpeningContext, useMenuOpenings } from "@/hooks/useMenuOpenings"
 import { hoverClosesOnMove, hoverOpensOnMove } from "@/lib/pointer-moves"
 
 /** `controlKey`: the action and its subject of a control that renders this root anew, else the root is its own control */
 function DropdownMenu({ controlKey, open, onOpenChange, ...props }: Omit<MenuPrimitive.Root.Props, "actionsRef"> & { controlKey?: string }) {
-  const closing = useCloseWhenViewHides(open, hoverOpensOnMove(onOpenChange))
+  const openings = useMenuOpenings(hoverOpensOnMove(onOpenChange))
+  const closing = useCloseWhenViewHides(open, openings.onOpenChange)
   const key = useControlKey(controlKey)
   return (
     <ControlKeyContext value={key}>
-      <MenuPrimitive.Root data-slot="dropdown-menu" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+      <MenuOpeningContext value={openings.openings}>
+        <MenuPrimitive.Root data-slot="dropdown-menu" open={open} {...props} actionsRef={closing.actionsRef} onOpenChange={closing.onOpenChange} />
+      </MenuOpeningContext>
     </ControlKeyContext>
   )
 }

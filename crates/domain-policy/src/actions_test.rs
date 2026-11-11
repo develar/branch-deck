@@ -111,34 +111,35 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
 const REWRITES: [ActionId; 8] = [Rename, MoveTo, StackOn, Ungroup, AmendChanges, AddIssueReference, SquashFixups, Unapply];
 
 /// A branch ready to land offers every start, its push, the review, Create Pull Request…, the rewrites, Add Need… and
-/// the park, all enabled; off Space no start of Patronus, before its answer each start waits for what its step waits for
+/// the park, all enabled, and Request Review… disabled without an open pull request; off Space no start of Patronus,
+/// before its answer each start waits for what its step waits for
 #[test]
 fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus() {
   let step = ready_step();
   let status = remote(PushAction::Push);
   let enabled = |ids: &[ActionId]| ids.iter().map(|id| (*id, None)).collect::<Vec<_>>();
-  assert_eq!(
-    table(&branch_actions(&facts(&step, &status))),
-    enabled(&[
-      SafePush,
-      SafePushWithProfile,
-      DryRun,
-      CheckApprovals,
-      Push,
-      ReviewChanges,
-      CreatePullRequest,
-      Rename,
-      MoveTo,
-      StackOn,
-      Ungroup,
-      AmendChanges,
-      AddIssueReference,
-      SquashFixups,
-      Unapply,
-      AddNeed,
-      Park
-    ])
-  );
+  // Request Review… in its place, disabled while GitHub lists no open pull request of the branch
+  let mut ready = enabled(&[
+    SafePush,
+    SafePushWithProfile,
+    DryRun,
+    CheckApprovals,
+    Push,
+    ReviewChanges,
+    CreatePullRequest,
+    Rename,
+    MoveTo,
+    StackOn,
+    Ungroup,
+    AmendChanges,
+    AddIssueReference,
+    SquashFixups,
+    Unapply,
+    AddNeed,
+    Park,
+  ]);
+  ready.insert(6, (RequestReview, Some(ActionBlocker::NoOpenPullRequest { unlisted: None })));
+  assert_eq!(table(&branch_actions(&facts(&step, &status))), ready);
   let off_space = BranchFacts {
     patronus: PatronusAnswer::NotOnSpace,
     ..facts(&step, &status)
@@ -148,6 +149,7 @@ fn a_ready_branch_offers_every_action_enabled_and_off_space_no_start_of_patronus
     [
       Push,
       ReviewChanges,
+      RequestReview,
       CreatePullRequest,
       Rename,
       MoveTo,
@@ -715,6 +717,7 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
       (SafePushWholeStack, None),
       (DryRunWholeStack, None),
       (SafePushMainLine, Some(ActionBlocker::Step { blocker: StepBlocker::Syncing })),
+      (RequestReview, Some(ActionBlocker::NoOpenPullRequest { unlisted: None })),
       (CreateStackPullRequest, rule.clone()),
       (ReviewWholeStack, rule),
     ]
@@ -774,8 +777,8 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
     ..stack_facts(built, None)
   };
   assert_eq!(
-    table(&stack_actions(&landed_stack))[0],
-    (CreateStackPullRequest, Some(ActionBlocker::Landed { landed: landed.clone() }))
+    reason_of(&stack_actions(&landed_stack), CreateStackPullRequest),
+    Some(ActionBlocker::Landed { landed: landed.clone() })
   );
   // GitHub has not listed the pull requests yet: the pull request of its stack branch may exist, none is created
   let listing = StackFacts {
@@ -783,8 +786,11 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
     ..stack_facts(built, None)
   };
   assert_eq!(
-    table(&stack_actions(&listing))[0],
-    (CreateStackPullRequest, Some(ActionBlocker::Pending { fact: StepFact::PullRequests }))
+    table(&stack_actions(&listing))[..2],
+    [
+      (RequestReview, Some(ActionBlocker::Pending { fact: StepFact::PullRequests })),
+      (CreateStackPullRequest, Some(ActionBlocker::Pending { fact: StepFact::PullRequests }))
+    ]
   );
   // its root landed: a new pull request of it would show a stack that is no more from its start
   let root_landed_stack = StackFacts {
@@ -792,8 +798,8 @@ fn the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_b
     ..stack_facts(built, None)
   };
   assert_eq!(
-    table(&stack_actions(&root_landed_stack))[0],
-    (CreateStackPullRequest, Some(ActionBlocker::Landed { landed: landed.clone() }))
+    reason_of(&stack_actions(&root_landed_stack), CreateStackPullRequest),
+    Some(ActionBlocker::Landed { landed: landed.clone() })
   );
   let unsynced = StackShape::Forking {
     not_built: None,
@@ -1411,7 +1417,12 @@ fn a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_sta
   };
   assert_eq!(
     table(&stack_actions(&stack)),
-    [(PushToBaseline, None), (CreateStackPullRequest, None), (ReviewWholeStack, None)]
+    [
+      (PushToBaseline, None),
+      (RequestReview, Some(ActionBlocker::NoOpenPullRequest { unlisted: None })),
+      (CreateStackPullRequest, None),
+      (ReviewWholeStack, None)
+    ]
   );
   let chain = StackFacts {
     push_route: true,
@@ -1828,7 +1839,16 @@ fn slots(remote: &LandingRemote, robots: &RobotsView, pull_requests: &PullReques
     remote: Some(&status),
     ..facts(step, &status)
   };
-  let slots = [SafePush, SafePushWithProfile, DryRun, CheckApprovals, PushToBaseline, MergePullRequest, CreatePullRequest];
+  let slots = [
+    SafePush,
+    SafePushWithProfile,
+    DryRun,
+    CheckApprovals,
+    PushToBaseline,
+    MergePullRequest,
+    RequestReview,
+    CreatePullRequest,
+  ];
   table(&branch_actions(&facts)).into_iter().filter(|(id, _)| slots.contains(id)).collect()
 }
 
@@ -1873,10 +1893,12 @@ fn listing_answer(on_github: bool) -> PullRequestsView {
 
 /// The slots of the menu of a branch are decided on what git tells at the first view, before Patronus and GitHub
 /// answer (`LandingRemote::patronus`, `LandingRemote::github`): their answers only enable a slot or say why it is
-/// disabled, and a slot shown never leaves. A local path has no start and no pull request; Space the starts of
-/// Patronus; GitHub the merge of the pull request; a mirror `origin` doesn't push to no merge ever; each repository on
-/// GitHub Create Pull Request…, waiting for the listing. Only a remote `brd`'s grouping did not read (no menu shows
-/// it) waits for GitHub to name the repository
+/// disabled, and a slot shown never leaves. A local path and a host that is no github.com (nothing configured) have no
+/// start and no pull request; Space the starts of Patronus; GitHub the merge of the pull request; a mirror `origin`
+/// doesn't push to no merge ever; each repository on GitHub Request Review… and Create Pull Request…, waiting for the
+/// listing. There is no host whose GitHub only an answer tells: GitHub is github.com (`crates/github`), and a repository
+/// elsewhere is on GitHub only by `branchdeck.githubRepository`, a mirror. Only a remote `brd`'s grouping did not read
+/// (no menu shows it) waits for GitHub to name the repository
 #[test]
 fn the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_leave() {
   let monorepo = || LocalGitHub::Repository { name: "acme/monorepo".to_owned() };
@@ -1889,43 +1911,49 @@ fn the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_l
   let ready = ready_step();
   let waits = Some(ActionBlocker::Step { blocker: StepBlocker::Step });
   let listing = Some(ActionBlocker::Pending { fact: StepFact::PullRequests });
+  let no_open = Some(ActionBlocker::NoOpenPullRequest { unlisted: None });
+  // the pull request of the branch: Request Review… and Create Pull Request…, which waits for the listing, then is enabled
+  let pull_request_before = || vec![(RequestReview, listing.clone()), (CreatePullRequest, listing.clone())];
+  let pull_request_after = || vec![(RequestReview, no_open.clone()), (CreatePullRequest, None)];
   let cases = [
     ("a local path", remote_of(false, LocalGitHub::None, None), vec![], vec![]),
+    ("a host that is no github.com", remote_of(false, LocalGitHub::None, None), vec![], vec![]),
     (
       "Space, mirrored to GitHub",
       remote_of(true, monorepo(), None),
-      vec![
-        (SafePush, waits.clone()),
-        (SafePushWithProfile, waits.clone()),
-        (DryRun, waits.clone()),
-        (CheckApprovals, None),
-        (CreatePullRequest, listing.clone()),
-      ],
-      vec![
-        (SafePush, None),
-        (SafePushWithProfile, None),
-        (DryRun, None),
-        (CheckApprovals, None),
-        (CreatePullRequest, None),
-      ],
+      [
+        vec![
+          (SafePush, waits.clone()),
+          (SafePushWithProfile, waits.clone()),
+          (DryRun, waits.clone()),
+          (CheckApprovals, None),
+        ],
+        pull_request_before(),
+      ]
+      .concat(),
+      [
+        vec![(SafePush, None), (SafePushWithProfile, None), (DryRun, None), (CheckApprovals, None)],
+        pull_request_after(),
+      ]
+      .concat(),
     ),
     (
       "GitHub",
       remote_of(false, monorepo(), Some("acme/monorepo")),
-      vec![(MergePullRequest, waits.clone()), (CreatePullRequest, listing.clone())],
-      vec![(MergePullRequest, None), (CreatePullRequest, None)],
+      [vec![(MergePullRequest, waits.clone())], pull_request_before()].concat(),
+      [vec![(MergePullRequest, None)], pull_request_after()].concat(),
     ),
     (
       "a GitHub mirror origin doesn't push to",
       remote_of(false, monorepo(), None),
-      vec![(CreatePullRequest, listing)],
-      vec![(CreatePullRequest, None)],
+      pull_request_before(),
+      pull_request_after(),
     ),
     (
       "a remote brd's grouping did not read",
       remote_of(false, LocalGitHub::Unread, Some("acme/monorepo")),
       vec![(MergePullRequest, waits)],
-      vec![(MergePullRequest, None), (CreatePullRequest, None)],
+      [vec![(MergePullRequest, None)], pull_request_after()].concat(),
     ),
   ];
   for (case, remote, before, after) in cases {

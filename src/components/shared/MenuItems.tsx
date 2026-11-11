@@ -1,11 +1,12 @@
-import { Fragment } from "react"
+import { Fragment, useContext, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { FROM_MENU, kbdLabel } from "@/lib/menu"
+import { MenuOpeningContext } from "@/hooks/useMenuOpenings"
+import { FROM_MENU, frozenMenuGroups, hasMenuItems, kbdLabel, menuItemKey } from "@/lib/menu"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 
 /**
@@ -26,14 +27,22 @@ export interface MenuComponents {
 }
 
 /**
- * Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. A group is
- * known by its item that opens a submenu, else by its first item (`groupKey`), never by its place: a change of a store
- * while the menu shows (a sync that finds a conflict leads with "Fix Conflict…") moves the groups after it, and a group
- * known by its place would mount again, its open submenu closed under the pointer, its item gone from under a click.
+ * Renders groups of menu items, separated by separators, inside the content of a menu built of `components`. While the
+ * menu shows, its list doesn't move (`frozenMenuGroups`): each item stays in its place as it changes, one that leaves
+ * stays there disabled until the menu closes, and one that comes shows at the next open, so a fact that arrives under a
+ * resting pointer (a listing of GitHub, a sync that finds a conflict) never moves the item a click is aimed at. A menu
+ * opened again (`MenuOpeningContext`) or before its items came takes them anew. A group is known by its item that opens
+ * a submenu, else by its first item (`groupKey`): an open submenu stays mounted under the pointer.
  */
 export function MenuItems({ groups, components }: { groups: MenuItemGroups; components: MenuComponents }) {
   const { Group, Separator } = components
-  const nonEmpty = groups.filter(group => group.length > 0)
+  const opening = useContext(MenuOpeningContext)
+  const [opened, setOpened] = useState({ opening, groups })
+  // the menu opened again (its popup kept as it faded out), or before its items came: the list starts from these
+  if (opened.opening !== opening || (!hasMenuItems(opened.groups) && hasMenuItems(groups))) {
+    setOpened({ opening, groups })
+  }
+  const nonEmpty = frozenMenuGroups(opened.groups, groups).filter(group => group.length > 0)
   return nonEmpty.map((group, groupIndex) => (
     <Fragment key={groupKey(group)}>
       {groupIndex > 0 && <Separator />}
@@ -54,7 +63,7 @@ function groupKey(group: readonly MenuItem[]): string {
 
 /** The key of an item among its siblings */
 function itemKey(item: MenuItem): string {
-  return item.id ?? item.label
+  return menuItemKey(item)
 }
 
 function MenuEntry({ item, components }: { item: MenuItem; components: MenuComponents }) {

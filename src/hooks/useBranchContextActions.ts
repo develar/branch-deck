@@ -495,12 +495,18 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
  * The slot of the pull request of a branch on every surface (the menu of the row, the title bar of the review, the
  * footer of the preview): "Create Pull Request…" where Rust offers it (disabled "Waits for GitHub to list the pull
  * requests" from the first view of a branch on GitHub, before the listing), then "Open Pull Request #7" of the one it
- * has. A live pull request takes the place of Create, so the items below keep theirs as the listing comes; a closed one
- * keeps Create, Open after it
+ * has. A live pull request takes the place of Create (`MenuItem.slot`), so the items below keep theirs as the listing
+ * comes, also in an open menu; a closed one keeps Create, Open after it
  */
 export function pullRequestItems(branch: Branch, pullRequest: PullRequest | undefined, actions?: readonly ActionState[]): MenuItem[] {
-  return present(getCreatePullRequestItem(branch, actions), pullRequest === undefined ? null : openPullRequestItemOf(pullRequest))
+  const create = getCreatePullRequestItem(branch, actions)
+  const open = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
+  // one place for both: an open menu shows Open in the place of Create as GitHub lists the live one
+  return present(create === null ? null : { ...create, slot: PULL_REQUEST_SLOT }, open === null ? null : { ...open, ...(create === null && { slot: PULL_REQUEST_SLOT }) })
 }
+
+/** The place "Create Pull Request…" and "Open Pull Request #7" of a live one share in a menu (`MenuItem.slot`) */
+const PULL_REQUEST_SLOT = "pull-request"
 
 /**
  * "Open Pull Request #1593" with the key of the focused row and of the branch preview, one item for every surface (the

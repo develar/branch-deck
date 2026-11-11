@@ -87,9 +87,11 @@ pub struct SyncOptions {
   /// guards and the facts of the sync take them instead of a `symbolic-ref` and a `remote -v`; `None`: the sync reads
   /// them (the app's session)
   pub facts: Option<CommandFacts>,
-  /// Whether Patronus knows the repository, as the host decides it (`LandingRemote::patronus`): the E2E server by its
-  /// fake Patronus; `None`: by the push URL of `origin` (`on_space`), as Patronus itself does
-  pub space: Option<bool>,
+  /// A test seam, set only by the E2E server (`test-server`): whether its fake Patronus knows the repository
+  /// (`LandingRemote::patronus`), whose `origin` is a local path there. git rewrites a URL of `insteadOf` in what
+  /// `remote -v` lists, so a Space URL rewritten to the path would not reach the sync. `None` everywhere else: Patronus
+  /// knows the repositories on Space (`LandingRemote::on_space`)
+  pub test_patronus: Option<bool>,
 }
 
 impl Default for SyncOptions {
@@ -102,7 +104,7 @@ impl Default for SyncOptions {
       object_cache: ObjectCache::disabled(),
       config: None,
       facts: None,
-      space: None,
+      test_patronus: None,
     }
   }
 }
@@ -427,7 +429,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   issue_config: IssueConfigSource,
   config: Option<ConfigSnapshot>,
   command_facts: Option<CommandFacts>,
-  space: Option<bool>,
+  test_patronus: Option<bool>,
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   object_cache: &ObjectCache,
@@ -467,7 +469,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   let resolve = config.resolve_mode()?;
   let signing = config.signing()?;
-  let landing = facts.landing_remote(git_executor, repository_path, &config, space)?;
+  let landing = facts.landing_remote(git_executor, repository_path, &config, test_patronus)?;
   let review_experimental = config.review_experimental();
   let companions = crate::companions::repository_links(git_executor, repository_path, &config);
   // the conflict views of the unchanged branches come from the object cache, the new ones go there
@@ -1016,7 +1018,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     object_cache,
     config,
     facts: command_facts,
-    space,
+    test_patronus,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1064,7 +1066,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           issue_config,
           config,
           command_facts,
-          space,
+          test_patronus,
           detection_strategy,
           archive_retention_days,
           &object_cache,

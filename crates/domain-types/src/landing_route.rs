@@ -82,10 +82,10 @@ pub struct LandingRemote {
   pub setting: Option<LandingSetting>,
   /// The push URL of `origin` is a repository on Space (`git.jetbrains.team`), where Patronus lands
   pub on_space: bool,
-  /// Patronus knows the repository: the Space repository `origin` pushes to (`on_space`), or the one the host of the sync
-  /// names (`SyncOptions::space`: the fake Patronus of the E2E server). Its starts are offered from the first view of a
-  /// session, waiting for its answer, and none ever where it doesn't know the repository: its answer that it doesn't
-  /// needs no request
+  /// Patronus knows the repository, so its starts are offered from the first view of a session, waiting for its answer,
+  /// and none ever where it doesn't know it: that answer needs no request. In production it is `on_space`; it is a field
+  /// of its own only for the test seam of the E2E server (`SyncOptions::test_patronus`), whose fake Patronus knows
+  /// repositories whose `origin` is a local path, which `on_space`, the route, keeps saying are off Space
   #[serde(default)]
   pub patronus: bool,
   /// The GitHub repository the branches end up in, as git names it without a request (`LocalGitHub`): what the slots of

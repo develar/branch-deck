@@ -11,6 +11,7 @@ use domain_types::landing::{Landed, LandedBy};
 use domain_types::next_step::{StepBlocker, StepFact};
 use domain_types::operation::OperationId;
 use domain_types::patronus::PatronusPushMode;
+use domain_types::pull_request::PullRequestAvailability;
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, HoldView};
 use domain_types::session::StackBranchAlong;
@@ -40,10 +41,11 @@ const fn code_index(blocker: &ActionBlocker) -> usize {
     ActionBlocker::OtherBase { .. } => 18,
     ActionBlocker::Busy { .. } => 19,
     ActionBlocker::Cached => 20,
+    ActionBlocker::NoOpenPullRequest { .. } => 21,
   }
 }
 
-const CODES: usize = 21;
+const CODES: usize = 22;
 
 /// What the page reads: every id, the blockers with the action each is an example of, the actions that open a row form
 #[derive(Serialize)]
@@ -83,6 +85,13 @@ fn examples() -> Vec<(ActionId, ActionBlocker)> {
     (ActionId::Rename, ActionBlocker::NoCommits),
     (ActionId::Push, ActionBlocker::UpToDate),
     (ActionId::RequestReview, ActionBlocker::Draft { number: 7 }),
+    (ActionId::RequestReview, ActionBlocker::NoOpenPullRequest { unlisted: None }),
+    (
+      ActionId::RequestReview,
+      ActionBlocker::NoOpenPullRequest {
+        unlisted: Some(PullRequestAvailability::SignedOut),
+      },
+    ),
     (ActionId::SafePushWithProfile, ActionBlocker::CommentRoute { number: 7 }),
     (ActionId::AddIssueReference, ActionBlocker::AllReferenced),
     (

@@ -143,14 +143,17 @@ rules in one line each and links here.
   `expectPushedToast`; two moves queued behind the lock, each with its sync, 3 to 8 s under load: both answers,
   `releaseTheTwoMoves` of move-commits.spec.ts), or once the state its sync shows is there (`releaseTheSyncOfTheUnstack`), and the facts of the
   steps are waited for as long as the test lets them take (`waitForStepFacts`).
-- **A menu opened right after the first sync changes as it shows**: the facts that sync asked for (the permission of
-  Patronus, the route) come after it, in a patch of every next step, and the branch menu loses its Safe Push item at
-  the top as Patronus answers. The items below move up a row under the pointer, the item that was under it hears the
-  pointer leave, and Base UI cancels the open of its submenu or tooltip, as it should: the item left the pointer
-  (stacked-branches.spec.ts, 3 runs in 150 under load). A test opens such a menu once no step says "Checking…"
-  (`waitForStepFacts(page.getByTestId("next-step-slot"))`), never with an answer held. A submenu opens by `openSubmenu`
-  of selection-helpers.ts, which asserts the open and says when the menu moved its item from under the pointer;
-  `hover()` of an item with a submenu is refused (`refuseSubmenuHovers` of fixtures/base-test.ts), and
+- **A menu opened right after the first sync shows the items it opened with**: the facts that sync asked for (the
+  listing of GitHub, the permission of Patronus, the route) come after it, and an open menu doesn't move
+  (`frozenMenuGroups` of src/lib/menu.ts): an item in its place changes there ("Merge" to "Merge #7", Request Review…
+  enabled), one that took the place of another shows there ("Open Pull Request #7" where "Create Pull Request…" was),
+  but an item a fact brings (Link GitHub Stack, a robot's Restart Safe Push, Fix Conflict…) shows only at the next
+  open, and one that leaves stays disabled. A test that clicks such an item opens the menu once no step says
+  "Checking…" (`waitForStepFacts(page.getByTestId("next-step-slot"))`), or once the row shows the fact the item comes
+  with (the chip of its pull request), never with an answer held: a menu opened before the listing of
+  github-stacks.spec.ts waited 30 s for "Link GitHub Stack". A submenu opens by `openSubmenu` of
+  selection-helpers.ts, which asserts the open and says when its item moved from under the pointer (a scroll of the
+  menu); `hover()` of an item with a submenu is refused (`refuseSubmenuHovers` of fixtures/base-test.ts), and
   `hoverSubmenuTrigger` is the plain move for a test that holds the delay.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
