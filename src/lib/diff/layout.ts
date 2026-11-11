@@ -156,16 +156,16 @@ export class DiffLayout {
   }
 
   /**
-   * The lowest `scrollTop` a stop of the document needs to be at the top: the card of the last file (`cardTop`, which
-   * a change N shows in it never passes), else, below an epilogue, its end less a row, as the top of its last opening
-   * is at most
+   * The lowest `scrollTop` a stop of the document needs to be at the top: the stop at the card of the last file
+   * (`stopTop`, below the heading of its group the heading; a change N shows in it lands there at most), else, below an
+   * epilogue, its end less a row, as the top of its last opening is at most
    */
   get lastStopTop(): number {
     const last = this.files.length - 1
     if (last < 0) {
       return 0
     }
-    return this.epilogue > 0 ? Math.max(this.epilogueTop + this.epilogue - this.metrics.rowHeight - this.stickyTop, 0) : this.cardTop(last)
+    return this.epilogue > 0 ? Math.max(this.epilogueTop + this.epilogue - this.metrics.rowHeight - this.stickyTop, 0) : this.stopTop(last)
   }
 
   /** The top of the epilogue: a gap below the last card */
@@ -260,6 +260,17 @@ export class DiffLayout {
    */
   cardTop(file: number): number {
     return Math.max(this.offsets[file]! - this.stickyTop, 0)
+  }
+
+  /**
+   * The `scrollTop` a stop at the card of a file goes to (J and K at a card, a row of the tree, the least top of a
+   * change, a hit of the find or a declaration shown): its card at the top, an opening above the view whole, as the gap
+   * at the end of its layer keeps the opening off the top; the heading of a group (`divider`), which stands right above
+   * the card, at the top with it, so it shows whole and never a cut edge of it under the top of the view
+   */
+  stopTop(file: number): number {
+    const { opening, divider } = this.files[file] ?? {}
+    return opening === undefined && divider === true && this.metrics.cards !== undefined ? this.fileTop(file) : this.cardTop(file)
   }
 
   /** The file whose header is at the top of a view scrolled to `scrollTop`: the one under the middle of a stuck header */

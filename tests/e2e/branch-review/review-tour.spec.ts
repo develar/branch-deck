@@ -26,8 +26,16 @@ function topOf(heading: Locator): Promise<number> {
   return heading.evaluate(element => {
     const view = element.closest("[data-testid=diff-view]")!
     // the card of the opening: its element of the layer of openings
-    return Math.round(element.closest("[data-opening-step]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
+    return element.closest("[data-opening-step]")!.getBoundingClientRect().top - view.getBoundingClientRect().top
   })
+}
+
+/**
+ * How far the opening of `heading` is from the top of a step shown, 10 px below the top of the diffs: the view scrolls
+ * to whole pixels, up (`DiffPainter.scrollTo`), so a stop at a fraction of a pixel stands less than a pixel higher
+ */
+async function offTop(heading: Locator): Promise<number> {
+  return Math.abs((await topOf(heading)) - 10)
 }
 
 /** The distinct left edges of the names in the headers of the diffs */
@@ -321,7 +329,7 @@ test.describe("Review tour", () => {
       await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
       await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
       await expect(tree.getByRole("treeitem", { name: "src/b/Welcome.kt" })).toHaveAttribute("data-active-group", "")
-      await expect.poll(() => topOf(second)).toBe(10)
+      await expect.poll(() => offTop(second)).toBeLessThan(1)
       // a file of its tests shows its test in the diffs, the file selected in the tree
       await opening.getByTestId("review-step-tested").filter({ hasText: "ManagerTest.kt" }).click()
       await expect(window.getByRole("treeitem", { name: "ManagerTest.kt" })).toHaveAttribute("aria-selected", "true")
@@ -463,7 +471,7 @@ test.describe("Review tour", () => {
       // the row of step 1 shows its opening at the top: the bar and the tree follow it
       await tree.getByRole("treeitem", { name: "1 · the manager drops the hooks nothing sets", exact: true }).click()
       await expect(position).toHaveText("Step 1 / 4")
-      await expect.poll(() => topOf(first.getByTestId("review-concern-heading"))).toBe(10)
+      await expect.poll(() => offTop(first.getByTestId("review-concern-heading"))).toBeLessThan(1)
       // J goes from it to the opening of step 2, then to its card; K back the same way, then to the overview
       await window.keyboard.press("j")
       await expect(position).toHaveText("Step 2 / 4")
@@ -482,7 +490,7 @@ test.describe("Review tour", () => {
       // the link of the facts shows the step that shows the change
       await first.getByTestId("review-step-shown-elsewhere").click()
       await expect(position).toHaveText("Step 2 / 4")
-      await expect.poll(() => topOf(second.getByTestId("review-concern-heading"))).toBe(10)
+      await expect.poll(() => offTop(second.getByTestId("review-concern-heading"))).toBeLessThan(1)
     },
   )
 

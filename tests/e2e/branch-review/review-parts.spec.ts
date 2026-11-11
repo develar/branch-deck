@@ -181,11 +181,13 @@ test.describe("Parts of a file", () => {
       await expect(bar).toHaveText("Other changes")
       await expect(selected).toHaveAccessibleName("Loader.kt, also in Other changes")
       await expect.poll(() => offTop(cards.nth(1))).toBeLessThanOrEqual(1)
+      // the imports: the heading of their group at the top, whole, the card right below it
+      const heading = window.getByTestId("diff-view-divider").filter({ hasText: "Imports only (1)" })
       await window.keyboard.press("j")
       await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
       await expect(bar).toHaveText("Imports only")
       await expect(selected).toHaveAccessibleName(LOADER)
-      await expect.poll(() => offTop(cards.nth(2))).toBeLessThanOrEqual(1)
+      await expect.poll(() => offTop(heading)).toBeLessThanOrEqual(1)
 
       // the reader scrolls up, then to the end: the last card at the top again, the space past the end empty below it
       await view.hover()
@@ -194,7 +196,7 @@ test.describe("Parts of a file", () => {
       await window.mouse.wheel(0, 100_000)
       await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
       await expect(bar).toHaveText("Imports only")
-      await expect.poll(() => offTop(cards.nth(2))).toBeLessThanOrEqual(1)
+      await expect.poll(() => offTop(heading)).toBeLessThanOrEqual(1)
       const viewBottom = (await view.boundingBox())!.height
       const cardBottom = (await below(cards.nth(2))) + (await cards.nth(2).boundingBox())!.height
       expect(viewBottom - cardBottom).toBeGreaterThan(300)
@@ -213,6 +215,55 @@ test.describe("Parts of a file", () => {
       await window.keyboard.press("j")
       await expect(bar).toHaveText("Step 1 / 1·probe")
       await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "1 · probe", exact: true })).toHaveAttribute("aria-selected", "true")
+    },
+  )
+
+  test(
+    "should stop at the first card of a group with the heading of the group whole above it, and at a card below an opening with the opening wholly above the view",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const window = await openParts(page, setupRepo, syncAndWaitForBranches)
+      await window.setViewportSize({ width: 1280, height: 900 })
+      const position = window.getByTestId("review-position")
+      const opening = (step: string) => window.locator(`[data-opening-step="${step}"]`)
+      const heading = window.getByTestId("diff-view-divider").getByTestId("review-section-heading")
+      await window.getByRole("region", { name: "Changes of the commit" }).focus()
+
+      // the opening of step 1, then its first card: the opening, read, goes wholly above the view, nothing of it cut
+      await window.keyboard.press("j")
+      const first = opening(
+        await window
+          .getByTestId("review-step-bar")
+          .getAttribute("data-step")
+          .then(step => step!),
+      )
+      await expect(first).toBeInViewport({ ratio: 1 })
+      await window.keyboard.press("j")
+      await expect(position).toHaveText("Step 1 · File 1 / 2")
+      await expect(first).not.toBeInViewport()
+
+      // the second part of Loader.kt, below the opening of Other changes: the same
+      await window.keyboard.press("j")
+      await window.keyboard.press("j")
+      const other = opening(
+        await window
+          .getByTestId("review-step-bar")
+          .getAttribute("data-step")
+          .then(step => step!),
+      )
+      await expect(other).toBeInViewport({ ratio: 1 })
+      await window.keyboard.press("j")
+      await expect(position).toHaveText("File 2 / 2 · part 2 of 3")
+      await expect(other).not.toBeInViewport()
+
+      // the imports, the first card of their group: its heading at the top with it, whole, the card right below it
+      await window.keyboard.press("j")
+      await expect(position).toHaveText("File 2 / 2 · part 3 of 3")
+      await expect(heading).toHaveText("Imports only (1)")
+      await expect(heading).toBeInViewport({ ratio: 1 })
+      const card = window.locator(`[data-testid=diff-view-file][data-path="${LOADER}"]`).nth(2)
+      await expect(card).toBeInViewport()
+      expect((await heading.boundingBox())!.y + (await heading.boundingBox())!.height).toBeLessThanOrEqual((await card.boundingBox())!.y)
     },
   )
 })

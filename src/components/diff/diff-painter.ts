@@ -351,10 +351,15 @@ export class DiffPainter {
     this.followScroll = true
   }
 
+  /**
+   * The view scrolled to `top`, up to a whole pixel: the engines keep a whole `scrollTop` (WebKit drops a fraction,
+   * Chromium rounds it), and a stop below its place would show the edge of what ends right above the view (an
+   * opening, the card before)
+   */
   scrollTo(top: number): void {
     if (this.root !== null) {
       this.followScroll = false
-      this.setViewTop(top)
+      this.setViewTop(Math.ceil(top))
       this.update()
     }
   }

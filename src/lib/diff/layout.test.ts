@@ -290,6 +290,24 @@ describe("DiffLayout of file cards", () => {
     expect(layout.partShownAt(layout.fileTop(1), 100)).toBe("opening")
   })
 
+  it("stops at a card with the heading of its group at the top with it, whole, and at a card below an opening with the opening above the view", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified")
+    // a card of no heading, one below an opening of a step, one below the heading of a group, one of both (the opening
+    // stands for the heading)
+    const layout = new DiffLayout(
+      [file("plain", rows), file("step", rows, { opening: 120 }), file("group", rows, { divider: true }), file("both", rows, { opening: 80, divider: true })],
+      CARDS,
+    )
+    expect([0, 1, 2, 3].map(index => layout.stopTop(index))).toEqual([layout.cardTop(0), layout.cardTop(1), layout.fileTop(2), layout.cardTop(3)])
+    // the heading of the group starts at the sticky top, its 32 px above the card, the card right below it
+    expect(layout.stopTop(2) + layout.stickyTop).toBe(layout.sectionStart(2))
+    expect(layout.offsets[2]! - layout.sectionStart(2)).toBe(32)
+    // a stop there is in the card, of that file
+    expect([layout.fileShownAt(layout.stopTop(2), 100), layout.partShownAt(layout.stopTop(2), 100)]).toEqual([2, "card"])
+    // without cards there is no heading: the top of the file
+    expect(new DiffLayout([file("a", rows, { divider: true })], { rowHeight: 20, headerHeight: 36 }).stopTop(0)).toBe(0)
+  })
+
   it("ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count", () => {
     const long = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
     const short = buildFileRows(ONE_CHANGE, "unified")
@@ -331,6 +349,10 @@ describe("DiffLayout of file cards", () => {
     expect(ending.height - view).toBe(ending.epilogueTop + 120 - 20 - 10)
     // an overview alone: nothing to scroll to
     expect(new DiffLayout([], CARDS, 200, 0, view).pastEnd).toBe(0)
+    // a last card below the heading of its group: scrolled to the end, the heading at the top whole, never cut
+    const grouped = new DiffLayout([file("a", long), file("b", short, { divider: true })], CARDS, 0, 0, view)
+    expect(grouped.height - view).toBe(grouped.stopTop(1))
+    expect(grouped.stopTop(1)).toBe(grouped.fileTop(1))
   })
 
   it("keeps a strip for the scrollbar of a file wider than its columns below its rows, above the line at the end, which the offsets count", () => {

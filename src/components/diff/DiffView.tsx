@@ -822,7 +822,7 @@ export function DiffView({
       }
       reveal.current = null
       const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-      painter.scrollTo(Math.max(top, layout.cardTop(hit.file)))
+      painter.scrollTo(Math.max(top, layout.stopTop(hit.file)))
       return
     }
     if (hit.folds.some(fold => fold.hasAttribute("hidden"))) {
@@ -986,7 +986,7 @@ export function DiffView({
     visiblePart.current = part === "opening" && layout.files[index]!.opening !== undefined ? "opening" : "card"
     visibleStep.current = visiblePart.current === "opening" ? (step ?? file.section?.before?.[0]?.id ?? file.section?.step?.id) : undefined
     visiblePath.current = file.path
-    painter.scrollTo(part === "opening" ? layout.fileTop(index) + openingOffset(file, step) : layout.cardTop(index))
+    painter.scrollTo(part === "opening" ? layout.fileTop(index) + openingOffset(file, step) : layout.stopTop(index))
     fileMap.current?.sync()
   }
 
@@ -1205,7 +1205,7 @@ export function DiffView({
 
   const scrollToChange = (file: number, row: number) => {
     const top = layout.rowTop(file, row) - layout.stickyTop - headerHeight - 4 * metrics.rowHeight
-    painter.scrollTo(Math.max(top, layout.cardTop(file)))
+    painter.scrollTo(Math.max(top, layout.stopTop(file)))
   }
 
   // Go to Declaration: the name under the pointer with the modifier held, its underline, the jump, Back and Forward
@@ -1351,7 +1351,7 @@ export function DiffView({
     }
     pendingReveal.current = null
     const top = layout.rowTop(index, rowOfLine(rows, side, place.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-    painter.scrollTo(Math.max(top, layout.cardTop(index)))
+    painter.scrollTo(Math.max(top, layout.stopTop(index)))
     // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
     scroller.current?.focus({ preventScroll: true })
     // once the row of the name is painted with its text, whenever that is

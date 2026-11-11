@@ -292,9 +292,14 @@ and the opening of each step (below). Each item but those has a known height:
   strip of the scrollbar where a side is wider than its column ("Horizontal scroll with soft wraps off"). An opening or a
   divider belongs to the file below it: its section starts there (`sectionStart`), `fileAt` in it is that file, and
   `fileTop` counts it, so a scroll to a step shows its opening; a y in the gap is the file above. `cardTop` is the
-  scroll that has the card at the top and its opening above the view: the least top of a change N shows, of a hit of
-  the find and of a declaration shown, so their place on screen never depends on the height of an opening; a scroll to
-  a section (the tree, J, the map) keeps `fileTop`. `partAt` says whether a y is in the prologue, in an opening or in
+  scroll that has the card at the top and its opening above the view; `stopTop` is the one a stop at a card goes to
+  (J and K at a card, a row, the least top of a change N shows, of a hit of the find and of a declaration shown): the
+  card, its opening wholly above the view, as the gap at the end of a layer of openings keeps it off the top, so their
+  place on screen never depends on the height of an opening; below the heading of a group (`divider`, its words at its
+  bottom right above the card) the top of the heading, so it shows whole and never a cut edge of it under the bar of
+  the step. The view scrolls to a stop up to a whole pixel (`DiffPainter.scrollTo`): the engines keep a whole
+  `scrollTop` (WebKit drops a fraction, Chromium rounds it), so a stop never stands below its place, which showed a
+  pixel of the opening above it in WebKit. A scroll to a section (the tree, J, the map) keeps `fileTop`. `partAt` says whether a y is in the prologue, in an opening or in
   a card; the view tells the section at the top as it changes (`onVisibleSectionChange`, with its part then) and
   its part at the top as it is asked (`visibleStop`): the stop it showed last, else, before a scroll or a choice
   reported one, the one at the top of the view as it stands, the prologue where a review opens, so the first J goes on
