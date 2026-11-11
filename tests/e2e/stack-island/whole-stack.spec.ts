@@ -743,8 +743,10 @@ test.describe("Whole stack", () => {
     await island(page, "air").getByTestId("stack-island-open-pull-request").click()
     expect(await getOpenedUrls(page)).toEqual([stack.url])
 
-    // bridge waits for approvals in a pull request: the one of the whole stack collects them for its Safe Push
+    // bridge waits for approvals in a pull request: the one of the whole stack collects them for its Safe Push, once
+    // Patronus checked them (its readiness, seconds under load)
     const slot = findBranchRow(page, "bridge").getByTestId("next-step-slot")
+    await waitForStepFacts(slot)
     await expect(slot).toHaveAttribute("data-step", "createPullRequest")
     const step = slot.getByTestId("next-step")
     await expect(step).toHaveText("In #12")
