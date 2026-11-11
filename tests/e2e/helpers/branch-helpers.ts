@@ -1,6 +1,7 @@
 import type { Page, Locator } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
 import type { TestRepositoryBuilder } from "./test-repository"
+import { openToast } from "./toast-helpers"
 import { waitForStepFacts, openTooltip } from "./wait-helpers"
 
 /**
@@ -52,12 +53,14 @@ export async function unstackOauthFromMenuWaiting(page: Page, busy: string | Reg
 
 /**
  * Releases the sync the session holds (`repo.holdRemoteAnswers({ hold: ["sync"] })`) that the unstack of oauth from login
- * (`stacked_branches`) waits behind: its toast comes with the sync that shows oauth at the root
+ * (`stacked_branches`) waits behind: its toast comes with the sync that shows oauth at the root. That sync comes after
+ * the held one and the unstack, seconds each under load, so the wait is for the rows it shows, however long the test
+ * lets it take; the toast is checked once they show
  */
 export async function releaseTheSyncOfTheUnstack(page: Page, repo: TestRepositoryBuilder): Promise<void> {
   await repo.holdRemoteAnswers({ release: ["sync"] })
-  await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
-  await expect.poll(() => branchTree(page)).toContain("oauth@0")
+  await expect.poll(() => branchTree(page), { timeout: 0 }).toContain("oauth@0")
+  await expect(openToast(page, /^Unstacked oauth/)).toBeVisible()
 }
 
 /**

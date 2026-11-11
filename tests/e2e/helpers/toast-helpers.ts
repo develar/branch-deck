@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expectClosed } from "./wait-helpers"
 
 /**
@@ -24,4 +24,13 @@ export async function holdToast(toast: Locator): Promise<Locator> {
   const mark = `held-${++held}`
   await toast.evaluate((element, value) => element.setAttribute("data-held", value), mark)
   return toast.page().locator(`[data-slot=toast][data-held="${mark}"]`)
+}
+
+/**
+ * The open toast whose title is `title`: a toast of an event that timed out while its operation ran on stays in its exit
+ * (`data-ending-style`) until the page paints, which a loaded machine may not do for seconds, and the next state of the
+ * event shows a new one beside it, the toast the user reads
+ */
+export function openToast(page: Page, title: string | RegExp): Locator {
+  return page.locator("[data-slot=toast]:not([data-ending-style])").filter({ has: page.locator("[data-slot=toast-title]", { hasText: title }) })
 }
