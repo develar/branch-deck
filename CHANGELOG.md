@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.7.1](https://github.com/develar/branch-deck/compare/v1.7.0...v1.7.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **bd:** a menu keeps an open submenu when a group comes above it, its groups known by their items, not their place ([3ff7c7b](https://github.com/develar/branch-deck/commit/3ff7c7b07d43895da54b28be081ee7b21ba0572c))
+* **bd:** a submenu whose trigger moved from under a still pointer stays open until the pointer moves ([52e12ce](https://github.com/develar/branch-deck/commit/52e12ce8238f7191566a399ba9a5a3ba42cae864))
+* **e2e:** the toast of an unstack held behind the first sync is checked once the rows of its sync show ([fbef324](https://github.com/develar/branch-deck/commit/fbef32409b78d650b048c99310af5f78d381519d))
+* **lease:** a get that waits for the shrink or the eviction of another goes on once the volume has its minimum ([a37154c](https://github.com/develar/branch-deck/commit/a37154cc651a095aa7459eb1b8a7cb0de8e71c27))
+* **lease:** the shrink and the eviction stop within the delete of a slot once the volume has their target, and a wait says its progress ([5e408b2](https://github.com/develar/branch-deck/commit/5e408b222fec2c736cc165b3fbacff87e7a1c4db))
+
 ## [1.7.0](https://github.com/develar/branch-deck/compare/v1.6.0...v1.7.0) (2026-11-10)
 
 
