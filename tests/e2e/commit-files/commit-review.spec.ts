@@ -135,6 +135,38 @@ async function openTreeReview(page: Page): Promise<Locator> {
   return showReviewWindow(page, await openedReview(page, 1))
 }
 
+/**
+ * D on the preview of the tree commit, the reads `commands` of its review window held: the window shown in the page,
+ * and the release of each command in their order
+ */
+async function openTreeReviewHolding(page: Page, commands: readonly string[]): Promise<{ window: Locator; release: (() => void)[] }> {
+  await openTreePreview(page)
+  await page.keyboard.press("d")
+  const opened = await openedReview(page, 1)
+  const release: (() => void)[] = []
+  for (const command of commands) {
+    release.push(await holdCommand(page, command))
+  }
+  return { window: await showReviewWindow(page, opened), release }
+}
+
+/** The headers of the files on the canvas of a review whose diffs are still read */
+function pendingFileHeaders(window: Locator): Locator {
+  return window.getByTestId("review-pending-files").getByTestId("review-file-header")
+}
+
+function findField(window: Locator): Locator {
+  return window.getByRole("textbox", { name: "Find in the review" })
+}
+
+/** The find bar of the review is open, its field focused, and finds in the diffs */
+async function expectFindOpened(window: Locator): Promise<void> {
+  const field = findField(window)
+  await expect(field).toBeFocused()
+  await field.fill("val")
+  await expect(window.getByTestId("diff-find-count")).toHaveText(/^\d+ results?$/)
+}
+
 /** The review window of the tree commit in a window low enough for the second file to reach the top */
 async function openLowTreeReview(page: Page): Promise<Locator> {
   const viewport = page.viewportSize()!
@@ -510,6 +542,42 @@ simpleTest.describe("Commit review", () => {
     await expect(count).toHaveText(`2 of ${total}`)
     await page.keyboard.press("ControlOrMeta+Shift+g")
     await expect(count).toHaveText(`1 of ${total}`)
+  })
+
+  simpleTest("should open find by ⌘F pressed in the file tree before the diffs of the review came, once they come @webkit", async ({ page }) => {
+    // the diffs of the review wait: its tree shows the files, the canvas their headers alone
+    const { window, release } = await openTreeReviewHolding(page, ["get_file_diffs"])
+    const item = window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first()
+    await item.focus()
+    await expect(item).toBeFocused()
+    await expect(pendingFileHeaders(window)).toHaveCount(5)
+
+    // no diffs, so no find bar to open yet: the key is kept, the focus stays in the tree
+    await page.keyboard.press("ControlOrMeta+f")
+    await expect(pendingFileHeaders(window)).toHaveCount(5)
+    await expect(findField(window)).toHaveCount(0)
+    await expect(item).toBeFocused()
+
+    // the diffs come: the find bar opens with them, its field focused, and finds in them
+    release[0]!()
+    await expectFindOpened(window)
+  })
+
+  simpleTest("should open find by ⌘F pressed while the review still reads its files, once its diffs come @webkit", async ({ page }) => {
+    // neither the files nor the diffs of the review are read: its frame has the focus, the canvas says that it loads
+    const { window, release } = await openTreeReviewHolding(page, ["get_commit_files", "get_file_diffs"])
+    await expect(window.getByText("Loading changes…")).toBeVisible()
+    await expect(window.getByTestId("commit-review")).toBeFocused()
+    await page.keyboard.press("ControlOrMeta+f")
+
+    // the files come: their headers show, still no diffs and no find bar
+    release[0]!()
+    await expect(pendingFileHeaders(window)).toHaveCount(5)
+    await expect(findField(window)).toHaveCount(0)
+
+    // the diffs come: the find bar opens with them
+    release[1]!()
+    await expectFindOpened(window)
   })
 
   simpleTest("should open the review at a file with Enter in the tree, and with the footer button", async ({ page }) => {

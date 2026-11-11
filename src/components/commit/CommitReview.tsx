@@ -342,40 +342,42 @@ export function CommitReview({
     }
   })
   return (
-    <ReviewRoot subjectId={subjectId} onPositionChange={onPositionChange} ready={loaded !== null}>
-      <ReviewLayout
-        loaded={loaded}
-        message={message}
-        onPositionChange={onPositionChange}
-        fileOwners={fileOwners}
-        ownerMarks={ownerMarks}
-        sidebarTop={sidebarTop}
-        commitRows={commitRows}
-        filesHeader={filesHeader}
-        prologue={prologue}
-        initialLink={initialLink}
-        search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
-        onRevealHidden={revealHidden}
-        filesRead={commitFiles !== undefined && commitFiles.files.length > 0}
-        onRevealApplied={forgetReveal}
-      />
-    </ReviewRoot>
+    <ReviewLayout
+      subjectId={subjectId}
+      loaded={loaded}
+      message={message}
+      onPositionChange={onPositionChange}
+      fileOwners={fileOwners}
+      ownerMarks={ownerMarks}
+      sidebarTop={sidebarTop}
+      commitRows={commitRows}
+      filesHeader={filesHeader}
+      prologue={prologue}
+      initialLink={initialLink}
+      search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
+      onRevealHidden={revealHidden}
+      filesRead={commitFiles !== undefined && commitFiles.files.length > 0}
+      onRevealApplied={forgetReveal}
+    />
   )
 }
 
 /**
  * The focusable frame of every state of the review: while another commit loads, has no files or cannot be read, the
- * focus stays here (the diffs that had it are gone), so the keys of the surface (⌥↑/⌥↓, Escape) still reach it
+ * focus stays here (the diffs that had it are gone), so the keys of the surface (⌥↑/⌥↓, Escape) still reach it, and
+ * the keys of the review (`onKeyDown`) are pressed here too: ⌘F while nothing of the subject shows yet
  */
 function ReviewRoot({
   subjectId,
   ready,
   onPositionChange,
+  onKeyDown,
   children,
 }: {
   subjectId: string
   ready: boolean
   onPositionChange: (position: ReviewPosition) => void
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
   children: ReactNode
 }) {
   const root = useRef<HTMLDivElement>(null)
@@ -394,7 +396,7 @@ function ReviewRoot({
     }
   }, [ready, onPositionChange])
   return (
-    <div ref={root} tabIndex={-1} data-review-root="" data-testid="commit-review" className="h-full min-h-0 outline-none">
+    <div ref={root} tabIndex={-1} data-review-root="" data-testid="commit-review" className="h-full min-h-0 outline-none" onKeyDown={onKeyDown}>
       {children}
     </div>
   )
@@ -442,6 +444,8 @@ interface FileSearch {
 }
 
 interface ReviewLayoutProps {
+  /** The subject shown or still read: `LoadedReview.key` once its files are read */
+  subjectId: string
   loaded: LoadedReview | null
   /** Where the diffs are while there are none: loading, the error, no files */
   message: ReactNode
@@ -794,6 +798,7 @@ const SIDEBAR_WIDTH = "24rem"
  * files) stay mounted, only the tree and the diffs start over for another subject.
  */
 function ReviewLayout({
+  subjectId,
   loaded,
   message,
   onPositionChange,
@@ -857,6 +862,9 @@ function ReviewLayout({
   // overview alone on the canvas, a pull request's changes still on their way): kept, the last ask alone, and done as
   // they mount, so a place shown early is not lost
   const waitingForCode = useRef<{ readonly key: string | null; readonly action: (code: CommitReviewCodeHandle) => void } | null>(null)
+  // ⌘F pressed before the diffs mounted (the tree shows the files, or they are still read): the subject it was pressed
+  // at. The find opens as its diffs mount, beside the place asked of them: it is no place, so it replaces none
+  const findWaiting = useRef<string | null>(null)
   const withCode = useCallback(
     (action: (code: CommitReviewCodeHandle) => void) => {
       if (code.current === null) {
@@ -1005,13 +1013,18 @@ function ReviewLayout({
   // the diffs mounted (`viewFiles`, with the first diff read): what was asked of them before, for this subject
   const codeMounted = viewFiles !== null
   useEffect(() => {
-    const waiting = waitingForCode.current
-    if (!codeMounted || waiting === null || code.current === null) {
+    if (!codeMounted || code.current === null) {
       return
     }
+    const waiting = waitingForCode.current
     waitingForCode.current = null
-    if (waiting.key === loadedKey) {
+    if (waiting !== null && waiting.key === loadedKey) {
       waiting.action(code.current)
+    }
+    const find = findWaiting.current
+    findWaiting.current = null
+    if (find !== null && find === loadedKey) {
+      code.current.openFind()
     }
   }, [codeMounted, loadedKey])
   // the section whose layer of openings holds the opening of a step: its first, else the one a step of no card stands
@@ -1387,11 +1400,20 @@ function ReviewLayout({
     if ((event.metaKey || event.ctrlKey) && !event.altKey) {
       if (event.code === "KeyF" && !event.shiftKey) {
         event.preventDefault()
-        code.current?.openFind()
+        if (code.current === null) {
+          findWaiting.current = subjectId
+        } else {
+          findWaiting.current = null
+          code.current.openFind()
+        }
       } else if (event.code === "KeyG") {
         event.preventDefault()
         code.current?.stepFind(event.shiftKey ? -1 : 1)
       }
+      return
+    }
+    // the other keys are of the sidebar and the diffs, not of the frame that holds the focus while neither has it
+    if (event.target === event.currentTarget) {
       return
     }
     if (loaded === null || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
@@ -1434,7 +1456,7 @@ function ReviewLayout({
   }
 
   return (
-    <div className="h-full min-h-0" onKeyDown={handleKeyDown}>
+    <ReviewRoot subjectId={subjectId} onPositionChange={onPositionChange} ready={loaded !== null} onKeyDown={handleKeyDown}>
       <ResizablePanelGroup orientation="horizontal" defaultLayout={sidebarShown ? defaultLayout : undefined} onLayoutChanged={onLayoutChanged}>
         {sidebarShown && (
           <ResizablePanel id="sidebar" defaultSize={SIDEBAR_WIDTH} minSize="16rem" maxSize="50">
@@ -1554,7 +1576,7 @@ function ReviewLayout({
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-    </div>
+    </ReviewRoot>
   )
 }
 

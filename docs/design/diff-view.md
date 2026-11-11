@@ -928,7 +928,11 @@ text and diff hits; Enter and ⌘G go to the next one, Shift with them to the pr
 
 The painter marks diff hits as a layer, the current one stronger. The CSS Custom Highlight API marks text hits with the
 same tokens without mutating React's DOM; without the API, the count and scroll still work. Escape closes the bar and
-clears the marks. ⌘F works anywhere in a review window, including the sidebar; ⌘G steps while the bar is open.
+clears the marks. ⌘F works anywhere in a review window, including the sidebar; ⌘G steps while the bar is open. The
+find is of the diffs, so a ⌘F pressed before they mounted (the tree shows the files, or the files are still read and
+the frame of the review holds the focus) is kept for its subject and opens the bar as they mount (`findWaiting` of
+`CommitReview`, beside the place `withCode` keeps; the frame, `ReviewRoot`, reads the keys of the review, of which
+only ⌘F and ⌘G are its own: J, K, N, P and F belong to the sidebar and the diffs).
 
 Searching story text is synchronous and cheap because the openings are few. The diff search keeps its current cost:
 one pass over the texts it has. A review of many large files can make it a slice job of the worker later.
