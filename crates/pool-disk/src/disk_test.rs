@@ -28,6 +28,19 @@ clean = [
   assert_eq!(build_dirs(&dir.path().join("none")), Vec::<String>::new());
 }
 
+/// Waits until the event log of the volume holds the write of `last`, the last file written below `root` since
+/// the mark `since`. `FSEvents` logs a write some time after it happened, later on a loaded machine, so a mark taken
+/// right after the write may stand before it in the log: the write is then a change since that mark, and a check of
+/// what changed since a measurement finds the files the test wrote before it
+#[cfg(target_os = "macos")]
+fn wait_for_the_event_of(root: &Path, last: &Path, since: Option<fs_walk::changes::Mark>) {
+  let since = since.expect("FSEvents has a mark for a directory");
+  let last = std::fs::canonicalize(last).unwrap();
+  while !matches!(fs_walk::changes::changed_since(&[root], &since), Changes::Paths(paths) if paths.contains(&last)) {
+    std::thread::yield_now();
+  }
+}
+
 #[test]
 fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let repo = TestRepo::new();
@@ -36,6 +49,8 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   let git = GitCommandExecutor::new();
   let dirs = repository_dirs(&git, repo.path_str()).unwrap().unwrap();
   let slot_root = tempfile::tempdir().unwrap();
+  #[cfg(target_os = "macos")]
+  let before_the_files = fs_walk::changes::mark(slot_root.path());
   let slot_path = slot_root.path().join("1/repo");
   std::fs::create_dir_all(slot_path.join("target")).unwrap();
   std::fs::write(slot_path.join(".branchdeck.toml"), "[lease]\nclean = [{ delete = \"target\" }]\n").unwrap();
@@ -45,6 +60,9 @@ fn disk_usage_streams_the_cached_overview_then_each_finished_slot() {
   std::fs::write(slot_path.join("target/output"), vec![2u8; 8192]).unwrap();
   std::fs::write(slot_path.join("target/changed/deep/branch/output"), vec![3u8; 8192]).unwrap();
   std::fs::write(slot_path.join("target/unchanged/deep/branch/output"), vec![4u8; 8192]).unwrap();
+  // the measurement below marks the event log, and the check after it asks what changed since: not these files
+  #[cfg(target_os = "macos")]
+  wait_for_the_event_of(slot_root.path(), &slot_path.join("target/unchanged/deep/branch/output"), before_the_files);
   let lease: Lease = serde_json::from_value(serde_json::json!({
     "id": "lease",
     "holder": "disk-test",
