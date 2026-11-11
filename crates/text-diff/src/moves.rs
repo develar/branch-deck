@@ -242,22 +242,71 @@ pub(crate) fn find_moves_within(
   // the lines of each move taken, by their places among the lines of their sides: its first old one, its first new
   // one and their number
   let mut taken: Vec<(usize, usize, usize)> = Vec::new();
-  let (mut old_taken, mut new_taken) = (vec![false; finder.old.len()], vec![false; finder.new.len()]);
+  let mut lines = TakenLines::new(finder.old.len(), finder.new.len());
   while let Some(Reverse(candidate)) = finder.found.pop() {
     if finder.work.choice >= limits.choice {
       break;
     }
     let (old_at, new_at, len) = (candidate.old as usize, candidate.new as usize, candidate.len.0 as usize);
     finder.work.choice += len as u64;
-    let free = |offset: usize| !old_taken[old_at + offset] && !new_taken[new_at + offset];
-    if (0..len).all(free) {
-      old_taken[old_at..old_at + len].fill(true);
-      new_taken[new_at..new_at + len].fill(true);
-      moves.push(finder.line_move(&candidate));
-      taken.push((old_at, new_at, len));
-      continue;
+    let rows = match lines.take(old_at, new_at, len) {
+      Ok(()) => {
+        moves.push(finder.line_move(&candidate));
+        taken.push((old_at, new_at, len));
+        continue;
+      }
+      // the rows of it that are still free are asked again
+      Err(rows) => rows,
+    };
+    for row in rows {
+      pairs.clear();
+      for offset in row.clone() {
+        let pair = finder.read_pair(old_at + offset, new_at + offset, candidate.shift);
+        pairs.push(pair);
+      }
+      finder.moves_of(old_at + row.start, new_at + row.start, &mut pairs, candidate.shift);
     }
-    // the rows of it that are still free are asked again
+  }
+  // the blank lines that moved with each, from the longest on
+  for (line_move, (old_at, new_at, len)) in moves.iter_mut().zip(taken) {
+    // deleted before it and added after it
+    let before = finder.blanks_beside(&lines.old, &lines.new, old_at, new_at + len, false);
+    lines.old[old_at - before..old_at].fill(true);
+    lines.new[new_at + len..new_at + len + before].fill(true);
+    // deleted after it and added before it
+    let after = finder.blanks_beside(&lines.old, &lines.new, old_at + len, new_at, true);
+    lines.old[old_at + len..old_at + len + after].fill(true);
+    lines.new[new_at - after..new_at].fill(true);
+    (line_move.blanks_before, line_move.blanks_after) = (to_u32(before), to_u32(after));
+  }
+  moves.sort_by_key(|line_move| line_move.new_start);
+  (moves, finder.work)
+}
+
+/// The lines of the two sides that the moves chosen took, by their places among the lines of their sides: a line of
+/// a side is in one move
+pub(crate) struct TakenLines {
+  pub(crate) old: Vec<bool>,
+  pub(crate) new: Vec<bool>,
+}
+
+impl TakenLines {
+  pub(crate) fn new(old: usize, new: usize) -> Self {
+    Self {
+      old: vec![false; old],
+      new: vec![false; new],
+    }
+  }
+
+  /// Takes the row of `len` pairs from the old line at `old_at` and the new line at `new_at` when every line of it
+  /// is free; else takes nothing and answers the rows of it that are still free, by their places in it
+  pub(crate) fn take(&mut self, old_at: usize, new_at: usize, len: usize) -> Result<(), Vec<Range<usize>>> {
+    let free = |offset: usize| !self.old[old_at + offset] && !self.new[new_at + offset];
+    if (0..len).all(free) {
+      self.old[old_at..old_at + len].fill(true);
+      self.new[new_at..new_at + len].fill(true);
+      return Ok(());
+    }
     let mut rows: Vec<Range<usize>> = Vec::new();
     let mut offset = 0;
     while offset < len {
@@ -271,40 +320,19 @@ pub(crate) fn find_moves_within(
       }
       rows.push(from..offset);
     }
-    for row in rows {
-      pairs.clear();
-      for offset in row.clone() {
-        let pair = finder.read_pair(old_at + offset, new_at + offset, candidate.shift);
-        pairs.push(pair);
-      }
-      finder.moves_of(old_at + row.start, new_at + row.start, &mut pairs, candidate.shift);
-    }
+    Err(rows)
   }
-  // the blank lines that moved with each, from the longest on
-  for (line_move, (old_at, new_at, len)) in moves.iter_mut().zip(taken) {
-    // deleted before it and added after it
-    let before = finder.blanks_beside(&old_taken, &new_taken, old_at, new_at + len, false);
-    old_taken[old_at - before..old_at].fill(true);
-    new_taken[new_at + len..new_at + len + before].fill(true);
-    // deleted after it and added before it
-    let after = finder.blanks_beside(&old_taken, &new_taken, old_at + len, new_at, true);
-    old_taken[old_at + len..old_at + len + after].fill(true);
-    new_taken[new_at - after..new_at].fill(true);
-    (line_move.blanks_before, line_move.blanks_after) = (to_u32(before), to_u32(after));
-  }
-  moves.sort_by_key(|line_move| line_move.new_start);
-  (moves, finder.work)
 }
 
 /// Lines of one block that a move may take, on one side
-struct Span {
-  block: u32,
-  lines: Range<u32>,
+pub(crate) struct Span {
+  pub(crate) block: u32,
+  pub(crate) lines: Range<u32>,
 }
 
 /// The lines of `blocks` a move may take on a side, in order: those of the blocks that are a change, without the
 /// lines of `runs` (by `old_start`, in the order of both sides, each inside one block)
-fn free_spans(blocks: &[DiffBlock], runs: &[LineRun], new_side: bool) -> Vec<Span> {
+pub(crate) fn free_spans(blocks: &[DiffBlock], runs: &[LineRun], new_side: bool) -> Vec<Span> {
   let mut spans = Vec::new();
   let mut runs = runs.iter().peekable();
   for (index, block) in blocks.iter().enumerate() {
@@ -332,7 +360,7 @@ fn free_spans(blocks: &[DiffBlock], runs: &[LineRun], new_side: bool) -> Vec<Spa
 /// line after its last line end, and the one line of an empty text. The comparison pairs that line with no line but
 /// its like and no count takes it (docs/design/text-diff.md, Key Decision 8), so it left with no move, as a pair of
 /// a blank line or as a blank line beside one
-fn without_empty_last_line(spans: &mut Vec<Span>, text: &str, starts: &[usize]) {
+pub(crate) fn without_empty_last_line(spans: &mut Vec<Span>, text: &str, starts: &[usize]) {
   let lines = to_u32(starts.len() - usize::from(starts.last() == Some(&text.len())));
   spans.retain_mut(|span| {
     span.lines.end = span.lines.end.min(lines);
@@ -361,10 +389,10 @@ struct Line<'t> {
 }
 
 /// The whitespace of the comparison inside a line (`trim_util::is_space_enter_or_tab`)
-const WHITESPACE: [char; 2] = [' ', '\t'];
+pub(crate) const WHITESPACE: [char; 2] = [' ', '\t'];
 
 /// The byte each line of `text` starts at, as the comparison counts lines: `\n`, `\r\n` and a lone `\r` end one
-fn line_starts(text: &str) -> Vec<usize> {
+pub(crate) fn line_starts(text: &str) -> Vec<usize> {
   let mut starts: Vec<usize> = vec![0];
   if text.contains('\r') {
     let bytes = text.as_bytes();

@@ -18,7 +18,7 @@
 //!    other name changes no binding (no clash): a rename that captures a name is a change of the code, not marked.
 //!    Any other name is every name of its spelling that no such declaration binds; declared in the file it is a
 //!    rename that is a label, declared elsewhere it is handed out unmarked (`Renames::undeclared`) for the reader
-//!    that knows the other files.
+//!    that knows the other files (`marks_subject`).
 //! 4. **The blocks are read again with the two names of a place read as one** (`Renames::cut`): the tokens of each
 //!    place get one text on both sides (`Tokens::with_texts`), a text of that place alone, and the blocks that hold
 //!    one are read as before (`runs_of_block`). Lines that are then the same tokens and hold a place are a run of
@@ -27,6 +27,10 @@
 //!    formatting as they are without the rename, never lines of the rename beside them; and a run the first reading
 //!    found stays where the second aligned its lines otherwise (`with_the_first`): the second reading adds runs and
 //!    takes none.
+//!    **And once more for the names the file declares none of** (`Renames::pending`): the blocks that hold a place of
+//!    one, with those names read as one too. No run of that reading is a run of the pair: each waits, with the names
+//!    it holds, for the reader that knows whether another file of the subject declares them, which then needs no
+//!    text (`leftovers`).
 //! 5. **A run is proven** when it holds only places of local values of their bodies alone, every name of which the
 //!    scopes bind (`LocalBinding::is_of_body_alone`: a value no code outside its body may name, in a text the scopes
 //!    read whole). A place that makes more of the name than its binding (a shorthand property, a destructuring, a
@@ -37,6 +41,7 @@
 //!
 //! Nothing here is a rule of characters: a file of no grammar has no rename.
 
+use crate::leftovers::{PendingBlock, PendingRun};
 use crate::marks::MAX_RENAME_WORK;
 use crate::marks_runs::{Asked, BlockLines, runs_of_block};
 use code_symbols::highlight::Grammar;
@@ -100,7 +105,7 @@ impl Candidates {
 pub(crate) struct Found {
   pub(crate) rename: Rename,
   /// Its places are proven to change nothing: a value of its body alone, every name of which the scopes bind
-  proven: bool,
+  pub(crate) proven: bool,
   /// For each place that is the rename and nothing else, its tokens in the two texts (their places in
   /// `Tokens::all`), which are read as one; `None` for a place that is read
   places: Vec<Option<[usize; 2]>>,
@@ -112,8 +117,8 @@ pub(crate) struct Renames {
   /// The renames the diff marks, by their first place
   pub(crate) found: Vec<Found>,
   /// The names that changed at every place of the file and are declared in none of them, by their first place: the
-  /// diff marks nothing of them
-  pub(crate) undeclared: Vec<Rename>,
+  /// diff marks nothing of them. Never proven: only the file that declares a name says what was renamed
+  pub(crate) undeclared: Vec<Found>,
   /// The resolutions of a name each text took, of those the work paid for
   pub(crate) resolutions: [usize; 2],
 }
@@ -168,23 +173,34 @@ pub(crate) fn renames_within(grammar: Grammar, texts: [&str; 2], tokens: [&Token
     }
     match confirm(&old_names.names[old_entry], &new_names.names[new_entry], tokens, blocks, &aligned) {
       Some(Confirmed::Marked(found)) => renames.found.push(found),
-      Some(Confirmed::Undeclared(rename)) => renames.undeclared.push(rename),
+      Some(Confirmed::Undeclared(found)) => renames.undeclared.push(found),
       None => {}
     }
   }
   let first_place = |rename: &Rename| (rename.old_sites.first().copied(), rename.old_sites.get(1).copied());
   renames.found.sort_by_key(|found| first_place(&found.rename));
-  renames.undeclared.sort_by_key(first_place);
+  renames.undeclared.sort_by_key(|found| first_place(&found.rename));
   // a token is a place of one rename: renames that share one are told apart by nothing here, and none of them holds
   let mut holders: [HashMap<usize, u32>; 2] = [HashMap::new(), HashMap::new()];
-  for places in renames.found.iter().flat_map(|found| found.places.iter().flatten()) {
+  hold(&mut holders, &renames.found);
+  renames.found.retain(|found| holds_alone(&holders, found));
+  // and of one name the file declares none of, beside every rename found: its places are read as one beside theirs
+  hold(&mut holders, &renames.undeclared);
+  renames.undeclared.retain(|found| holds_alone(&holders, found));
+  renames
+}
+
+/// Counts, for each token of each text, the renames of `renames` it is a place of
+fn hold(holders: &mut [HashMap<usize, u32>; 2], renames: &[Found]) {
+  for places in renames.iter().flat_map(|found| found.places.iter().flatten()) {
     *holders[0].entry(places[0]).or_default() += 1;
     *holders[1].entry(places[1]).or_default() += 1;
   }
-  renames
-    .found
-    .retain(|found| found.places.iter().flatten().all(|places| holders[0][&places[0]] == 1 && holders[1][&places[1]] == 1));
-  renames
+}
+
+/// Whether no token of a place of `found` is a place of another rename counted in `holders`
+fn holds_alone(holders: &[HashMap<usize, u32>; 2], found: &Found) -> bool {
+  found.places.iter().flatten().all(|places| holders[0][&places[0]] == 1 && holders[1][&places[1]] == 1)
 }
 
 /// The candidates by their numbers, in the order they are asked: the first place of each pair of names in the order
@@ -232,7 +248,7 @@ impl Aligned {
 enum Confirmed {
   Marked(Found),
   /// Every name of the spelling changed, and the file declares none of them
-  Undeclared(Rename),
+  Undeclared(Found),
 }
 
 /// Whether the names `old` binds in the old text and the names `new` binds in the new one are one binding under two
@@ -287,10 +303,11 @@ fn confirm(old: &NameAt, new: &NameAt, tokens: [&Tokens; 2], blocks: &[DiffBlock
       None
     });
   }
-  if rename.declared.is_empty() {
-    return (!local).then_some(Confirmed::Undeclared(rename));
+  let found = Found { rename, proven, places };
+  if found.rename.declared.is_empty() {
+    return (!local).then_some(Confirmed::Undeclared(found));
   }
-  Some(Confirmed::Marked(Found { rename, proven, places }))
+  Some(Confirmed::Marked(found))
 }
 
 /// The place in `Tokens::all` of the token that is the name `used`: a name that starts and ends where it does
@@ -318,10 +335,17 @@ const fn text_of_place(rename: usize, place: usize) -> u64 {
 }
 
 impl Renames {
-  /// The two texts with the tokens of each place that is a rename and nothing else read as one
-  fn read_as_one(&self, tokens: [&Tokens; 2]) -> [Tokens; 2] {
+  /// The renames whose places a reading reads as one: those the diff marks, and with `undeclared` the names the
+  /// file declares none of after them
+  fn read(&self, undeclared: bool) -> impl Iterator<Item = &Found> {
+    self.found.iter().chain(self.undeclared.iter().filter(move |_| undeclared))
+  }
+
+  /// The two texts with the tokens of each place that is a rename and nothing else read as one; with `undeclared`
+  /// also those of the names the file declares none of
+  fn read_as_one(&self, tokens: [&Tokens; 2], undeclared: bool) -> [Tokens; 2] {
     let side = |side: usize| {
-      tokens[side].with_texts(self.found.iter().enumerate().flat_map(|(rename, found)| {
+      tokens[side].with_texts(self.read(undeclared).enumerate().flat_map(|(rename, found)| {
         found
           .places
           .iter()
@@ -342,24 +366,60 @@ impl Renames {
   /// rename, and lines that hold a place and differ in their comments are no run. The reading adds runs and takes
   /// none: a run the first reading found is in the runs after it (`with_the_first`)
   pub(crate) fn cut(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64, runs: &mut [Vec<LineRun>]) {
-    // the old line of each place that is a rename and nothing else, and whether it is proven
-    let mut places: Vec<(u32, bool)> = self
-      .found
-      .iter()
-      .flat_map(|found| found.places.iter().flatten().map(|places| (tokens[0].all()[places[0]].line, found.proven)))
-      .collect();
-    if places.is_empty() {
+    self.read_again(false, blocks, tokens, has_text, work, &mut |block, second, _| {
+      runs[block] = with_the_first(std::mem::take(&mut runs[block]), second);
+    });
+  }
+
+  /// Reads the blocks that hold a place of a name the file declares none of once more, with those names read as one
+  /// too, beside the renames of the diff: the runs of each such block (`tokens`, `has_text` and `work` as for
+  /// `cut`), each with the names of that kind it holds a place of. A run of the kind `Renamed` that holds one is
+  /// never proven here. A block the work does not pay for, and one whose runs hold no such name, is left out: the
+  /// runs of the pair say all there is of it
+  pub(crate) fn pending(&self, blocks: &[DiffBlock], tokens: [&Tokens; 2], has_text: &dyn Fn(bool, Range<u32>) -> bool, work: &mut u64) -> Vec<PendingBlock> {
+    let mut pending = Vec::new();
+    self.read_again(true, blocks, tokens, has_text, work, &mut |block, read, places| {
+      let runs: Vec<PendingRun> = read
+        .into_iter()
+        .map(|run| {
+          let mut names: Vec<u32> = places.in_lines(run.old_start..run.old_end).iter().filter_map(|place| place.name).collect();
+          names.sort_unstable();
+          names.dedup();
+          PendingRun { run, names }
+        })
+        .collect();
+      if runs.iter().any(|run| !run.names.is_empty()) {
+        pending.push(PendingBlock { block: to_u32(block), runs });
+      }
+    });
+    pending
+  }
+
+  /// One more reading of the blocks: with the places of the renames of the diff read as one, and with `undeclared`
+  /// those of the names the file declares none of too. A block is read when it holds a place of the kind the
+  /// reading is for (of such a name with `undeclared`, of any rename without) and the work pays for it; `read` gets
+  /// its number, its runs, a run of the kind `Renamed` proven when every place in it is, and the places
+  fn read_again(
+    &self,
+    undeclared: bool,
+    blocks: &[DiffBlock],
+    tokens: [&Tokens; 2],
+    has_text: &dyn Fn(bool, Range<u32>) -> bool,
+    work: &mut u64,
+    read: &mut dyn FnMut(usize, Vec<LineRun>, &Places),
+  ) {
+    let places = Places::of(self, tokens[0], undeclared);
+    let wanted = |lines: Range<u32>| places.in_lines(lines).iter().any(|place| !undeclared || place.name.is_some());
+    if !wanted(0..u32::MAX) {
       return;
     }
-    places.sort_unstable();
-    let places_in = |lines: Range<u32>| &places[places.partition_point(|place| place.0 < lines.start)..places.partition_point(|place| place.0 < lines.end)];
     let asked = Asked {
       has_text,
-      renamed: &|lines| !places_in(lines).is_empty(),
+      renamed: &|lines| !places.in_lines(lines).is_empty(),
     };
-    let [old, new] = self.read_as_one(tokens);
-    for (block, runs) in blocks.iter().zip(runs) {
-      if places_in(block.old_start..block.old_end).is_empty() {
+    let [old, new] = self.read_as_one(tokens, undeclared);
+    for (index, block) in blocks.iter().enumerate() {
+      if !wanted(block.old_start..block.old_end) {
         continue;
       }
       let lines = BlockLines {
@@ -367,15 +427,57 @@ impl Renames {
         new: block.new_start..block.new_end,
       };
       // over a limit of work: what the block has stays, none of it a run of a rename
-      let Some(mut second) = runs_of_block(&old, &new, &lines, &asked, work, &mut |_, _| {}) else {
+      let Some(mut runs) = runs_of_block(&old, &new, &lines, &asked, work, &mut |_, _| {}) else {
         continue;
       };
-      for run in second.iter_mut().filter(|run| run.kind == RunKind::Renamed) {
-        run.quiet = places_in(run.old_start..run.old_end).iter().all(|place| place.1);
+      for run in runs.iter_mut().filter(|run| run.kind == RunKind::Renamed) {
+        run.quiet = places.in_lines(run.old_start..run.old_end).iter().all(|place| place.proven);
       }
-      *runs = with_the_first(std::mem::take(runs), second);
+      read(index, runs, &places);
     }
   }
+}
+
+/// A place of a rename that a reading reads as one
+struct Place {
+  /// Its line in the old text
+  line: u32,
+  /// Its rename is proven; never a name the file declares none of
+  proven: bool,
+  /// The name it is of among those the file declares none of, by its number
+  name: Option<u32>,
+}
+
+/// The places a reading reads as one, by their old lines
+struct Places(Vec<Place>);
+
+impl Places {
+  /// The places of the renames of the diff that are a rename and nothing else, and with `undeclared` those of the
+  /// names the file declares none of; `old` are the tokens of the old text
+  fn of(renames: &Renames, old: &Tokens, undeclared: bool) -> Self {
+    let mut places = Vec::new();
+    for (index, found) in renames.read(undeclared).enumerate() {
+      let name = index.checked_sub(renames.found.len()).map(to_u32);
+      places.extend(found.places.iter().flatten().map(|place| Place {
+        line: old.all()[place[0]].line,
+        proven: found.proven && name.is_none(),
+        name,
+      }));
+    }
+    places.sort_unstable_by_key(|place| place.line);
+    Self(places)
+  }
+
+  /// The places on `lines` of the old text
+  fn in_lines(&self, lines: Range<u32>) -> &[Place] {
+    let Self(places) = self;
+    &places[places.partition_point(|place| place.line < lines.start)..places.partition_point(|place| place.line < lines.end)]
+  }
+}
+
+/// The number of a block or of a name; a file has far fewer than 4 G of either
+fn to_u32(value: usize) -> u32 {
+  u32::try_from(value).expect("an index below 4 G")
 }
 
 /// The runs of a block after its two readings, in the order of the lines: those of the second reading (`second`,

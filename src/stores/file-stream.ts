@@ -7,7 +7,8 @@ import { logError } from "@/lib/errors"
 
 /*
  * A store of the files that a command streams through a channel (`get_file_diffs`, `get_file_merges`): the headers
- * first, then the content of each file as it is known, then the scopes of a text the backend parsed late.
+ * first, then the content of each file as it is known, then the scopes of a text the backend parsed late, and the
+ * marks of a file that the other files of its subject or the index of the repository changed after its content.
  */
 
 export type FileStreamEntry<F> =
@@ -25,7 +26,11 @@ export interface FileStreamState<F> {
 }
 
 /** The events of a file stream; `index` points into the headers of `files` */
-export type FileStreamEvent<H, C> = { kind: "files"; files: H[] } | { kind: "content"; index: number; content: C } | { kind: "scopes"; index: number }
+export type FileStreamEvent<H, C> =
+  | { kind: "files"; files: H[] }
+  | { kind: "content"; index: number; content: C }
+  | { kind: "scopes"; index: number }
+  | { kind: "marks"; index: number }
 
 /** The contents that arrive within this time go into the store in one update */
 const BATCH_MS = 16
@@ -42,13 +47,15 @@ export interface FileStream<F extends { path: string }, E> {
 
 /**
  * A file stream that keeps the last `maxEntries` complete reads. `fileOf` gives the file of its header and its
- * `content` event; `scopesOf` the file with the scopes of a `scopes` event, null when the file has no text.
+ * `content` event; `scopesOf` the file with the scopes of a `scopes` event, null when the file has no text; `marksOf`
+ * the file with the marks of a `marks` event, likewise, for a stream that sends them.
  */
 export function createFileStream<H extends { path: string }, C, F extends H & { content: C }, E extends FileStreamEvent<H, C>>(
   maxEntries: number,
   failure: string,
   fileOf: (header: H, event: Extract<E, { kind: "content" }>) => F,
   scopesOf: (file: F, event: Extract<E, { kind: "scopes" }>) => F | null,
+  marksOf?: (file: F, event: Extract<E, { kind: "marks" }>) => F | null,
 ): FileStream<F, E> {
   const store = createStore<FileStreamState<F>>(() => ({ byKey: new Map() }))
   // the keys whose stream runs: a key is read once at a time
@@ -123,6 +130,16 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
           const labelled = file === undefined ? null : scopesOf(file, event as Extract<E, { kind: "scopes" }>)
           if (labelled !== null) {
             files[event.index] = labelled
+            schedule()
+          }
+          break
+        }
+        case "marks": {
+          // after the content of its file, as the scopes are: a file without one has no text to mark
+          const file = files[event.index]
+          const marked = file === undefined ? null : (marksOf?.(file, event as Extract<E, { kind: "marks" }>) ?? null)
+          if (marked !== null) {
+            files[event.index] = marked
             schedule()
           }
           break

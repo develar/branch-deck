@@ -151,3 +151,13 @@ pub(crate) const CH_SMILE: &str = "\u{1F602}";
 pub(crate) const CH_GUN: &str = "\u{1F52B}";
 pub(crate) const CH_MAN: &str = "\u{1F9D2}";
 pub(crate) const CH_FACE: &str = "\u{1F92B}";
+
+/// The lines of `parts` as a text, each ended by `\n`
+pub(crate) fn text(parts: &[&[&str]]) -> String {
+  let mut text = String::new();
+  for line in parts.iter().copied().flatten() {
+    text.push_str(line);
+    text.push('\n');
+  }
+  text
+}

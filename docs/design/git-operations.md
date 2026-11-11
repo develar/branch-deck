@@ -3134,7 +3134,8 @@ the Shape of a review, which counts as `git diff --stat` does.
   the creation
 - **Never in the way.** The map size caps each environment; a full map clears the stores of that environment and the
   write is retried. What is bulky and cheap to read again never evicts what is costly: the diffs and merges of
-  `file_diff` and `file_merge` in `cache/patches/` (512 MiB); the merges of `merge_result`, the trees of `commit_tree`
+  `file_diff` and `file_merge`, with what a diff left to the other files of its subject (`file_leftovers`), in
+  `cache/patches/` (512 MiB); the merges of `merge_result`, the trees of `commit_tree`
   and the resolves of `word_resolution` in `cache/merges/` (256 MiB: about 250 and 130 bytes an entry, the merges and
   trees of some 700,000 commit copies); the conflict views
   of `conflict_info` and the chains of `conflict_chain` in `cache/conflicts/` (512 MiB; a view is a few kilobytes,
@@ -3309,10 +3310,11 @@ git plumbing does not depend on.
   the file on the disk. Its id is the blob id of its bytes, as `git hash-object --no-filters` gives it. A symlink is
   its target. A file with a conflict compares its `ours` stage with the working tree.
 - **The stream.** `get_file_diffs` sends events through a Tauri `Channel`: `files` once (the headers in the order of
-  git), then a `content` for each file, then a `scopes` for a text that the caches did not have. The files in view
-  (`priority_paths`) come first, then the others in the order of the tree, for the cache reads, the blob reads and
-  the work; the events go out as the results come. `FileDiffs::read` collects the same events, for the tests and the
-  command line.
+  git), then a `content` for each file, then a `scopes` for a text that the caches did not have, then a `marks` for
+  each file the others of its subject say something of, and last one more `marks` with what the index answered
+  ("The subject" below). The files in view (`priority_paths`) come first, then the others in the order of the tree,
+  for the cache reads, the blob reads and the work; the events go out as the results come. `FileDiffs::read`
+  collects the same events, for the tests and the command line.
 - **The blobs and the workers.** One `cat-file --batch` reads the blobs that no cache has, at most `MAX_BLOB_BYTES`
   (8 MiB) each. A file goes to a worker as soon as both its sides are read: the cores but one run the comparisons and
   the parses (`std::thread::scope`), while the thread of the caller reads the blobs and sends the events. A file holds
@@ -3342,6 +3344,30 @@ git plumbing does not depend on.
   two texts, with no parse, for every pair. The budgets above change no mark: the runs read the blocks and the
   tokens, the moves the blocks and the lines, never the inner ranges, so a diff the time cut short has the marks of
   its blocks; only a side over the size of the inner ranges has no runs.
+- **The subject.** What only the other files of a subject explain
+  ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), "Subject"; `crates/file-diffs/src/marks_subject.rs`):
+  the lines that moved from one file to another, and the names one file declares and others use. It costs no git
+  process: the worker of a pair, where its texts are, keeps what the pair leaves to the other files
+  (`crates/file-diffs/src/leftovers.rs`: the changed lines no mark took as hashed keys, the names it declares none of
+  with the runs their blocks would have, the places of its declarations), and the pass is a function of what the
+  pairs are and left, in the order of git. When the caches have every pair it runs before the first `content`, which
+  carries its marks; else each `content` goes out as it is known, with the marks of its pair, and the pass runs once
+  all are: a `marks` event for each file it says something of. Such an event adds runs that are labels and words; it
+  takes no row of a file and no stop. Nothing of a subject enters a cache: the same pair stands in other commits
+  beside other files.
+- **The index.** The declarations of the names a subject renamed that are not local are asked of the index of the
+  repository once per subject, all in one process: `accio renames --no-build --format json --project <root> --base
+  <the old tree> --ref <the new tree> --pairs-from -`, a line `<old place><TAB><new place>` per declaration on its
+  standard input (`SymbolIndex::renames`). Only a commit and a range named by full object ids are asked (the parent
+  `<id>~1` and the commit, the base and the head), never the working tree, whose tree the index would read later
+  than the diffs; only when the subject has such a declaration; and only an accio whose `versions` says that it
+  answers `renames` at the revision this reader was written for (`RENAMES_ANSWER`; one more process, once per run of
+  the app). The answer is always a late event: the contents never wait for it. No index of the repository
+  (`available: false`), an accio without the answer, a failure and an answer of another number of pairs leave the
+  names `unavailable`; none fails the diffs. The query is killed once the page that asked went away
+  (`get_file_diffs` is a command of its window: the page of the window is another, `Windows::shows`, or a send to it
+  failed), and the stream ends there. The e2e server answers from the fixture of its repository
+  (`.git/branch-deck-accio.json`, `renames` by the old place of a pair; without any, no answer).
 - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read
   (`diff_options`, the one function of the views and of `blocks_of`): by its grammar, since the scopes and the marks
   of the same bytes are others in a `.ts` and a `.tsx` file, a `.kt` and a `.kts`, a `BUILD` and a `.bzl`; without a
@@ -3351,7 +3377,11 @@ git plumbing does not depend on.
   `file_diff` store, under `model_version()`: `MODEL_VERSION` with the version of the tokens (`store_version`,
   `code_symbols::tokens::tokens_version`) and that of the rules the names of its renames are bound by
   (`code_symbols::navigate::RULES_VERSION`), so a diff made with other parsers or other rules is never read. The store never keeps a
-  diff that the time cut short; memory keeps it for the run, with the marks of its blocks. The blobs that a diff
+  diff that the time cut short; memory keeps it for the run, with the marks of its blocks. What a pair left is a
+  value of its own under the same key and version, in memory (16 MiB, `MarksMemory::leftovers`) and in the
+  `file_leftovers` store, written before its diff: a scan (`blocks_of`) decodes the diff of a pair at every hit and
+  never what the pair left, and a view knows a text with both or compares the pair again, so the pass over a
+  subject never reads a blob. The blobs that a diff
   read stay in a memory cache (128 MiB), so the texts that a view asks for next
   (`blob_texts`) cost no process. A text of the working tree is read again by its path, and only when its bytes still
   have the id.
@@ -3372,7 +3402,8 @@ git plumbing does not depend on.
   (`outside_place_test.rs`).
 
 Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/file-diffs/src/declarations.rs`,
-`crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `crates/object-cache/src/file_diff.rs`.
+`crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `crates/file-diffs/src/leftovers.rs`,
+`crates/file-diffs/src/marks_subject.rs`, `crates/object-cache/src/file_diff.rs`.
 
 #### Review of a target
 

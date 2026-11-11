@@ -6,7 +6,11 @@
 //! `accio tests --at … --tests <file>…`, every place of one plan in one process, which accio answers in parallel. It
 //! reads what a change registers in the platform ("Registrations") with accio's port of the platform's reader:
 //! `accio parse --descriptor --resolve --ref <revision>`, the changed plugin descriptors of one side in one process, the
-//! paths on its standard input, each class a descriptor names resolved in the index at that revision.
+//! paths on its standard input, each class a descriptor names resolved in the index at that revision. The diffs of a
+//! subject ask whether the names it renamed are renamed at every use (openspec/specs/commit/quiet-changes/spec.md,
+//! "Subject"): `accio renames --base <revision> --ref <revision>`, every declaration of the subject in one process, the
+//! pairs of their places on its standard input; only an accio that says it answers them (`accio versions`,
+//! `RENAMES_ANSWER`) is asked.
 //!
 //! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked, so
 //!   the names of one lookup go in one process (`symbols_any`: `Owner.name`, then the bare name). On the IntelliJ
@@ -44,6 +48,10 @@ const LIMIT: &str = "20";
 const SURFACE_BUDGET: &str = "15";
 /// The usages a lookup answers at most
 const REFERENCES_LIMIT: &str = "100";
+/// The revision of the answer of `accio renames` this reader was written for (`answers.renames` of `accio versions`).
+/// accio raises it when a field of the answer changes its meaning or `complete` promises something else: an accio
+/// of another revision, like one without the command, is not asked, since its answer would be read as a proof
+pub const RENAMES_ANSWER: u32 = 1;
 /// The tests a lookup answers at most, per declaration: the given tests of a change reach one declaration by the
 /// hundred (97 tests of 7 files for one place of idea-1)
 const TESTS_LIMIT: &str = "1000";
@@ -677,6 +685,84 @@ const fn complete_by_default() -> bool {
   true
 }
 
+/// A declaration a change may have renamed, by the place of its name in the old tree and in the new one:
+/// `<path>:<line>:<column>`, the path from the root of the repository, the line and the column from 1, the column in
+/// characters, as `--at` takes a place (`Columns::Characters`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamePair {
+  pub old: String,
+  pub new: String,
+}
+
+/// What accio says of a `RenamePair` between two trees (`accio renames`, answer revision `RENAMES_ANSWER`; the
+/// contract is accio's decision 2026-11-11-rename-read-in-two-trees). Only the fields a diff decides by are read
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct RenameAnswer {
+  /// The pair could not be asked: a place names no declaration, or reads as none. Never "no use"
+  #[serde(default)]
+  pub unavailable: bool,
+  /// The two places are one declaration: the same kind, language, owners and signature apart from the name
+  #[serde(default)]
+  pub same: bool,
+  /// Every candidate file of both trees was read, every use listed and tied by more than its name, and every
+  /// relation of the declaration read: only then are the uses all there are, and no conflict "none"
+  #[serde(default)]
+  pub complete: bool,
+  #[serde(default)]
+  pub old: Option<RenamedDeclaration>,
+  #[serde(default)]
+  pub new: Option<RenamedDeclaration>,
+  /// The uses of the old declaration in the old tree, and of the new one in the new tree; absent when the budget of
+  /// the call ran out first
+  #[serde(default)]
+  pub base: Option<RenameUses>,
+  #[serde(default)]
+  pub head: Option<RenameUses>,
+  /// What the rename changed beyond the name
+  #[serde(default)]
+  pub conflicts: Vec<RenameConflict>,
+}
+
+/// A declaration of a `RenameAnswer`
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct RenamedDeclaration {
+  /// accio's name of its language: `kotlin`, `java`, …
+  #[serde(default)]
+  pub language: String,
+}
+
+/// The uses of a declaration in one tree
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct RenameUses {
+  /// By file, line and column, the declaration itself among them; at most the limit of the call
+  #[serde(default)]
+  pub uses: Vec<RenameUse>,
+  /// The uses found: more than `uses` holds when the limit cut them
+  #[serde(default)]
+  pub total: usize,
+}
+
+/// A use of a declaration: a path of its tree, a line from 1 and the zero-based UTF-16 columns of the word written
+/// there
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RenameUse {
+  #[serde(rename = "file")]
+  pub path: String,
+  pub line: u32,
+  pub column: u32,
+  pub end_column: u32,
+  pub kind: Access,
+  /// What ties it to the declaration: a use tied by its name alone proves nothing
+  pub resolved: Resolved,
+}
+
+/// What a rename changed beyond the name: `left` (a use the change did not rename, in a file it left alone),
+/// `captured`, `overrides`, `overridden`, `overload`, `hides`, `hidden`, `namesake`
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct RenameConflict {
+  pub kind: String,
+}
+
 /// The declarations and the usages of a repository by name: accio in the app, a fixture in the e2e server
 pub trait SymbolIndex: Send + Sync {
   /// The declarations of `query` (`Name`, `Owner.name`) in the tree of `revision` (the working tree for `None`);
@@ -731,6 +817,13 @@ pub trait SymbolIndex: Send + Sync {
   fn surface(&self, _repository_root: &str, _modules: &[String], _revision: &str) -> Result<Option<Vec<ModuleSurface>>> {
     Ok(None)
   }
+
+  /// What each of `pairs` is between the tree of `base` and the tree of `head`, in their order, asked in one process:
+  /// whether the two places are one declaration renamed, its uses in both trees and what the rename changed beyond
+  /// the name; `None` when the index answers no renames (an accio of another answer revision, a fixture without them)
+  fn renames(&self, _repository_root: &str, _pairs: &[RenamePair], _base: &str, _head: &str) -> Result<Option<Vec<RenameAnswer>>> {
+    Ok(None)
+  }
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, with a format mismatch
@@ -763,6 +856,8 @@ pub struct AccioCli {
   executable: PathBuf,
   /// Its `Columns`, from its `--version`, asked once
   columns: OnceLock<Columns>,
+  /// The revision of its answer of `renames`, from its `versions`, asked once; `None` for an accio without it
+  renames_answer: OnceLock<Option<u32>>,
 }
 
 /// The lookups of one navigation: each query runs until it answers, at `priority`, and is killed once `canceled` turns
@@ -784,10 +879,7 @@ impl AccioCli {
         // an app started from the Finder has a short PATH: the login shell's has the user's directories
         find_accio(home.as_deref(), path.as_deref())
           .or_else(|| cached_login_shell_path().and_then(|path| find_executable("accio", path)))
-          .map(|executable| Self {
-            executable,
-            columns: OnceLock::new(),
-          })
+          .map(Self::new)
       })
       .as_ref()
   }
@@ -802,13 +894,36 @@ impl AccioCli {
     }
   }
 
-  /// accio at `executable`, for a test
-  #[cfg(test)]
-  pub(crate) const fn at(executable: PathBuf) -> Self {
+  const fn new(executable: PathBuf) -> Self {
     Self {
       executable,
       columns: OnceLock::new(),
+      renames_answer: OnceLock::new(),
     }
+  }
+
+  /// accio at `executable`, for a test
+  #[cfg(test)]
+  pub(crate) const fn at(executable: PathBuf) -> Self {
+    Self::new(executable)
+  }
+
+  /// Where this accio is, for a test that runs it itself
+  #[cfg(test)]
+  pub(crate) fn executable(&self) -> &Path {
+    &self.executable
+  }
+
+  /// Whether this accio answers `renames` as this reader reads it (`RENAMES_ANSWER`), from `accio versions`, asked
+  /// once: its `--version` does not say it (a build from source prints the version of the last release). An accio
+  /// without the answer, one that fails and one of another revision do not
+  pub fn answers_renames(&self) -> bool {
+    let revision = self.renames_answer.get_or_init(|| {
+      let output = windowless_command_at(&self.executable, ChildPriority::Normal).arg("versions").output().ok()?;
+      let versions: serde_json::Value = serde_json::from_slice(&output.stdout).ok().filter(|_| output.status.success())?;
+      versions.get("answers")?.get("renames")?.as_u64().and_then(|revision| u32::try_from(revision).ok())
+    });
+    *revision == Some(RENAMES_ANSWER)
   }
 
   /// How this accio counts columns (`Columns::of_version` of its `--version`), asked once; `Bytes` when it answers none
@@ -898,7 +1013,13 @@ impl AccioSearch<'_> {
       }
     };
     let stdout = self.run(&mut command, None)?;
-    let entries: Vec<serde_json::Value> = serde_json::from_slice(&stdout).context("the answer of accio")?;
+    self.entries(&stdout, asked)
+  }
+
+  /// The entries of a JSON answer of accio to `asked` targets, one for each in their order; `IndexUnavailable` when an
+  /// entry says accio has no usable index of the repository
+  fn entries<T: serde::de::DeserializeOwned>(&self, stdout: &[u8], asked: usize) -> Result<Vec<T>> {
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(stdout).context("the answer of accio")?;
     if let Some(unavailable) = entries.iter().find(|entry| entry.get("available").and_then(serde_json::Value::as_bool) == Some(false)) {
       let note = unavailable
         .get("note")
@@ -1046,6 +1167,30 @@ impl SymbolIndex for AccioSearch<'_> {
     }
     Ok(Some(surfaces))
   }
+
+  /// `accio renames --no-build --base <base> --ref <head> --pairs-from -`, a line `OLD<TAB>NEW` per pair on its
+  /// standard input: every pair of a subject in one process, since a relative that another pair of the call renames
+  /// along is no conflict. An accio that does not answer them as this reader reads them is not started
+  fn renames(&self, repository_root: &str, pairs: &[RenamePair], base: &str, head: &str) -> Result<Option<Vec<RenameAnswer>>> {
+    if pairs.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    if !self.accio.answers_renames() {
+      return Ok(None);
+    }
+    let mut command = windowless_command_at(&self.accio.executable, self.priority);
+    command.args(["renames", "--no-build", "--format", "json", "--project", repository_root]);
+    command.args(["--base", base, "--ref", head, "--pairs-from", "-"]);
+    let listed = pairs.iter().fold(String::new(), |mut listed, pair| {
+      listed.push_str(&pair.old);
+      listed.push('\t');
+      listed.push_str(&pair.new);
+      listed.push('\n');
+      listed
+    });
+    let stdout = self.run(&mut command, Some(listed.into_bytes()))?;
+    self.entries(&stdout, pairs.len()).map(Some)
+  }
 }
 
 /// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer;
@@ -1153,7 +1298,9 @@ impl<'a> Lenient<'a> {
 /// and of `references` (by a name, or by a place as `<path>:<line>`, whatever its revision), the answer of `tests` of
 /// each place whatever the given tests, the line of `parse --descriptor` of each `<full commit id>:<path>` (a path it
 /// lacks is `missing`), the answer of `surface` of each `<full commit id>:<module>` (a module it lacks unknown, not
-/// `complete`; none without any), or the `error` every query fails with; a repository without the file has no index
+/// `complete`; none without any), the answer of `renames` of each pair by the place of its old declaration (a pair
+/// it lacks `unavailable`; none without any), or the `error` every query fails with; a repository without the file
+/// has no index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -1169,6 +1316,10 @@ struct Fixture {
   /// What enters a module, by `"<full commit id>:<module directory>"`
   #[serde(default)]
   surface: std::collections::HashMap<String, ModuleSurface>,
+  /// The answer of `renames` of a pair, by the place of its old declaration (`<path>:<line>:<column>`), whatever its
+  /// trees
+  #[serde(default)]
+  renames: std::collections::HashMap<String, RenameAnswer>,
   error: Option<String>,
 }
 
@@ -1239,6 +1390,21 @@ impl SymbolIndex for FixtureIndex {
           fixture.surface.remove(&format!("{revision}:{module}")).unwrap_or_else(|| ModuleSurface {
             module: module.clone(),
             ..ModuleSurface::default()
+          })
+        })
+        .collect()
+    }))
+  }
+
+  fn renames(&self, repository_root: &str, pairs: &[RenamePair], _base: &str, _head: &str) -> Result<Option<Vec<RenameAnswer>>> {
+    // a fixture that names no rename answers none, as an accio without the command
+    Ok(Self::read(repository_root)?.filter(|fixture| !fixture.renames.is_empty()).map(|mut fixture| {
+      pairs
+        .iter()
+        .map(|pair| {
+          fixture.renames.remove(&pair.old).unwrap_or_else(|| RenameAnswer {
+            unavailable: true,
+            ..RenameAnswer::default()
           })
         })
         .collect()

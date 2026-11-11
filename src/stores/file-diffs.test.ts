@@ -126,6 +126,51 @@ describe("loadFileDiffs", () => {
     expect([getFoldLevels(textDiff(1, 1, [])), getOpenNotes(textDiff(1, 1, [])).size]).toEqual([[], 0])
   })
 
+  it("takes the marks of a late marks event in place of those of the content, and keeps what a view opened of the file", async () => {
+    const { events, end } = holdNextStream()
+    const subject = { kind: "commit", id: "c10" } as const
+    loadFileDiffs(subject, "default")
+    events().onmessage({ kind: "files", files: [header("a.kt"), header("bin.dat")] })
+    const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6), block(8, 9, 8, 9)]) }
+    events().onmessage({ kind: "content", index: 0, content: text, collapse: null })
+    events().onmessage({ kind: "content", index: 1, content: BINARY, collapse: { kind: "noText" } })
+    await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "a.kt")).toMatchObject({ content: text }))
+    setFoldLevels(text, [3])
+    setOpenNotes(text, new Set([5]))
+    // what the other files of the subject say of it: a run that is a label, a name another file declares, lines that
+    // moved in from another file; then what the index answered of the name
+    const renamed = { old: "openStore", new: "connectStore", sites: 1, local: false, declared: [], oldSites: [5, 2, 11], newSites: [5, 2, 14] }
+    const marksOf = (proof: "asked" | "confirmed") => ({
+      ...text.marks,
+      runs: [run(5, 6, 5, 6, { kind: "renamed", quiet: false })],
+      subject: {
+        movedOut: [],
+        movedIn: [{ start: 8, len: 1, file: 1, line: 3 }],
+        declared: [],
+        used: [{ rename: renamed, file: 1, line: 2, proof }],
+        confirmed: proof === "confirmed" ? [0] : [],
+      },
+    })
+    const marked = () => {
+      const file = fileDiffOf(entryOf(subject), "a.kt")
+      return file !== "pending" && file?.content.kind === "text" ? file.content : null
+    }
+    events().onmessage({ kind: "marks", index: 0, marks: marksOf("asked") })
+    await vi.waitFor(() => expect(marked()?.marks.subject?.used[0]?.proof).toBe("asked"))
+    events().onmessage({ kind: "marks", index: 0, marks: marksOf("confirmed") })
+    // the marks of a file without a text, and of a file whose content never came, change nothing
+    events().onmessage({ kind: "marks", index: 1, marks: marksOf("confirmed") })
+    events().onmessage({ kind: "marks", index: 7, marks: marksOf("confirmed") })
+    end()
+    await settle()
+    const content = marked()
+    expect(content).not.toBe(text)
+    expect(content?.marks).toEqual(marksOf("confirmed"))
+    // the same blocks, so the stops and the rows are those of the content: the folds and the notes stay
+    expect([content?.blocks, getFoldLevels(content!), [...getOpenNotes(content!)]]).toEqual([text.blocks, [3], [5]])
+    expect(fileDiffOf(entryOf(subject), "bin.dat")).toMatchObject({ content: BINARY })
+  })
+
   it("tells the end of a subject's read only once its stream ended: the neighbours of a review are read after it", async () => {
     const { events, end } = holdNextStream()
     const shown = { kind: "commit", id: "c3" } as const

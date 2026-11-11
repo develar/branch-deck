@@ -28,6 +28,10 @@
 //!   one, which adds the runs of the lines that hold a place and takes no run the first reading found: a line that
 //!   changed in its formatting alone is a line of formatting beside a rename too. A run of a renamed name is proven
 //!   only for a value of its body alone, and its kind is not switched on yet: every run of it is a label.
+//! - **What the pair leaves** (`PairMarks::undeclared`, `pending`, `proven_renames`; `leftovers`): the names that
+//!   changed at every place of the file, which declares none of them, with the runs their blocks would have were
+//!   they renames. The pass over the files of the subject (`marks_subject`) knows whether another file declares
+//!   them; nothing of them is a mark of the pair.
 //! - **Moves** (`text_diff::moves::find_moves`) need no grammar: every pair of texts has them, from its lines alone,
 //!   after the runs, whose lines no move takes. A move is never quiet: its new lines are in no run, so the block they
 //!   stand in always has a start; its old lines are nothing to read where they left (`starts_of`). Whether the
@@ -36,6 +40,7 @@
 //!
 //! `marks_runs` reads the runs of one block from its tokens, `marks_renames` the renames of a file.
 
+use crate::leftovers::PendingBlock;
 use crate::marks_renames::{Candidates, may_hold_rename, renames_of};
 use crate::marks_runs::{Asked, BlockLines, NO_RENAME, runs_of_block};
 use crate::service::{FileDiffs, fits_inner};
@@ -44,7 +49,7 @@ use code_symbols::tokens::{Tokens, indentation_matters, is_blank, tokens};
 use std::cell::OnceCell;
 use std::ops::Range;
 use std::sync::Arc;
-use text_diff::model::{BlockKind, DiffBlock, DiffMarks, LineRun, Rename, RunKind, TextDiff, starts_of};
+use text_diff::model::{BlockKind, DiffBlock, DiffMarks, LineMove, LineRun, Rename, RunKind, TextDiff, starts_of};
 use text_diff::moves::find_moves;
 use text_diff::policy::WhitespacePolicy;
 
@@ -85,7 +90,10 @@ impl FileDiffs {
     marks_of(diff, texts[0], texts[1], grammar, policy, pair_indented(paths[0], paths[1]), |new_side| {
       let (side, grammar) = (usize::from(new_side), grammar?);
       match ids[side] {
-        Some(id) => self.tokens.get_with((grammar.id(), id.to_string()), || tokens(grammar, texts[side]).map(Arc::new)),
+        Some(id) => self
+          .marks_memory
+          .tokens
+          .get_with((grammar.id(), id.to_string()), || tokens(grammar, texts[side]).map(Arc::new)),
         None => tokens(grammar, texts[side]).map(Arc::new),
       }
     })
@@ -140,6 +148,12 @@ pub struct PairMarks {
   /// empty), by their first place: nothing of them is marked, since only the file of the declaration says what was
   /// renamed. For the pass over the files of a change, which has the declaration
   pub undeclared: Vec<Rename>,
+  /// The blocks that hold a place of an `undeclared` name, read with those names as one too: the runs they have
+  /// once another file of the subject declares the names. No run of them shares a line with a move
+  pub pending: Vec<PendingBlock>,
+  /// The renames of `marks.renames`, by their numbers, whose places the scopes of the file prove: a value of its
+  /// body alone
+  pub proven_renames: Vec<u32>,
   /// The runs of `marks.runs`, by their numbers, that are proven and are labels all the same, since their kind is not
   /// switched on (`is_quiet`): what the measurement that decides the kind reads a sample of
   pub proven: Vec<u32>,
@@ -182,7 +196,13 @@ pub fn marks_of(
   indented: bool,
   tokens: impl Fn(bool) -> Option<Arc<Tokens>>,
 ) -> PairMarks {
-  let PairRuns { mut runs, renames, undeclared } = match grammar {
+  let PairRuns {
+    mut runs,
+    renames,
+    undeclared,
+    mut pending,
+    proven_renames,
+  } = match grammar {
     Some(grammar) if fits_inner(old, diff.old_line_count) && fits_inner(new, diff.new_line_count) => {
       runs_of(diff, &SideText::new(grammar, old), &SideText::new(grammar, new), true, &tokens)
     }
@@ -198,24 +218,51 @@ pub fn marks_of(
   }
   // after the runs: a line of a run is in no move
   let moves = find_moves(old, new, &diff.blocks, &runs, policy, indented);
+  // and a run that waits for another file takes no line of a move either: the moves are read once, here
+  without_moved_lines(&mut pending, &moves);
   PairMarks {
     marks: DiffMarks {
       starts: starts_of(&diff.blocks, &runs, &moves),
       runs,
       moves,
       renames,
+      subject: None,
     },
     undeclared,
+    pending,
+    proven_renames,
     proven,
   }
 }
 
-/// The runs of a pair, each quiet when its lines are proven (`has_proof`), and the renames some of them were cut by
+/// Takes the runs that share a line with one of `moves` out of `pending`, and the blocks that hold no run of a
+/// name the file declares none of then
+pub(crate) fn without_moved_lines(pending: &mut Vec<PendingBlock>, moves: &[LineMove]) {
+  if pending.is_empty() || moves.is_empty() {
+    return;
+  }
+  let meets = |lines: Range<u32>, moved: Range<u32>| lines.start < moved.end && moved.start < lines.end;
+  for block in pending.iter_mut() {
+    block.runs.retain(|pending| {
+      let run = &pending.run;
+      !moves
+        .iter()
+        .any(|moved| meets(run.old_start..run.old_end, moved.old_lines()) || meets(run.new_start..run.new_end, moved.new_lines()))
+    });
+  }
+  pending.retain(|block| block.runs.iter().any(|run| !run.names.is_empty()));
+}
+
+/// The runs of a pair, each quiet when its lines are proven (`has_proof`), the renames some of them were cut by, and
+/// what the pair leaves to the other files of its subject
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct PairRuns {
   pub(crate) runs: Vec<LineRun>,
   pub(crate) renames: Vec<Rename>,
   pub(crate) undeclared: Vec<Rename>,
+  pub(crate) pending: Vec<PendingBlock>,
+  /// The renames of `renames`, by their numbers, whose places are proven
+  pub(crate) proven_renames: Vec<u32>,
 }
 
 /// The runs of the blocks of `diff` and its renames; `ask_first` leaves a block out that answers no before the tokens
@@ -225,7 +272,9 @@ pub(crate) struct PairRuns {
 /// alignment of their tokens put at one place (`read_blocks`), then, where those names are a rename
 /// (`marks_renames`), the blocks that hold a place of one again, with the two names of each place read as one. The
 /// second reading adds runs, those of the lines that changed in such a name alone first of all, and takes none:
-/// every run the first reading found lies in a run of its kind. Both readings spend the one work of the file
+/// every run the first reading found lies in a run of its kind. The blocks that hold a place of a name the file
+/// declares none of are read a third time, with those names read as one too, for the reader of the other files
+/// (`Renames::pending`); that reading changes no run of the pair. Every reading spends the one work of the file
 /// (`MAX_FILE_TOKEN_WORK`). A run comes out of them quiet when its lines are proven; whether its kind is quiet,
 /// `marks_of` asks
 pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, ask_first: bool, tokens: &dyn Fn(bool) -> Option<Arc<Tokens>>) -> PairRuns {
@@ -235,20 +284,19 @@ pub(crate) fn runs_of(diff: &TextDiff, old: &SideText<'_>, new: &SideText<'_>, a
     tokens,
     mut work,
   } = read_blocks(diff, old, new, ask_first, tokens);
-  let (mut renames, mut undeclared) = (Vec::new(), Vec::new());
+  let mut pair = PairRuns::default();
   if let Some([old_tokens, new_tokens]) = &tokens
     && !candidates.is_empty()
   {
     let found = renames_of(old.grammar, [old.text, new.text], [old_tokens, new_tokens], &diff.blocks, &candidates);
     found.cut(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work, &mut runs);
-    renames = found.found.into_iter().map(|found| found.rename).collect();
-    undeclared = found.undeclared;
+    pair.pending = found.pending(&diff.blocks, [old_tokens, new_tokens], &has_text(old, new), &mut work);
+    pair.proven_renames = (0u32..).zip(&found.found).filter(|(_, found)| found.proven).map(|(number, _)| number).collect();
+    pair.renames = found.found.into_iter().map(|found| found.rename).collect();
+    pair.undeclared = found.undeclared.into_iter().map(|found| found.rename).collect();
   }
-  PairRuns {
-    runs: runs.into_iter().flatten().collect(),
-    renames,
-    undeclared,
-  }
+  pair.runs = runs.into_iter().flatten().collect();
+  pair
 }
 
 /// The blocks of a diff after their first reading, from the tokens of the two texts as they are

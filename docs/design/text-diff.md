@@ -82,9 +82,10 @@ flowchart TD
 | `merge_conflict_type.rs` | `diff/util/MergeConflictType.kt`, `MergeConflictResolutionStrategy.kt` |
 | `merge_range_util.rs` | `diff/util/MergeRangeUtil.kt` |
 | `merge_resolve_util.rs` | `diff/comparison/MergeResolveUtil.kt` |
-| `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, `diff_texts`, and the marks of a diff (`DiffMarks`, `starts_of`) |
+| `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, `diff_texts`, and the marks of a diff (`DiffMarks`, `starts_of`, `SubjectMarks`) |
 | `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block, the rule of a similar pair |
 | `moves.rs` | Branch Deck's own: the lines a change moved within a file (`find_moves`) |
+| `moves_across.rs` | Branch Deck's own: what a pair leaves to the other files of its subject (`left_rows`) and the lines a change moved between two files (`find_moves_across`) |
 | `apply.rs` | Branch Deck's own: blocks applied to bytes, the result of a merge on bytes, the ids of the blocks |
 
 ### Model
@@ -149,7 +150,14 @@ flowchart TD
   flat `[line, start, end]`, place `i` of the old text beside place `i` of the new one, and `declared`, the numbers
   of the places that declare it), and `starts`. The comparison knows no grammar, so it fills `starts` alone; the
   file-diffs service fills the runs and the renames from the tokens and the bindings of the texts
-  ([Diff View](diff-view.md#marks)), then the moves from their lines.
+  ([Diff View](diff-view.md#marks)), then the moves from their lines. `subject` (`SubjectMarks`) is what the other
+  files of a subject say of the file, filled by the pass over them and `null` in the diff of a pair alone, which
+  is what a cache keeps: `movedOut` and `movedIn` (`FileMove`: the lines of this file, the other file by its index
+  among the files of the subject, and its first line there; [Moves between files](#moves-between-files)), `declared`
+  (the proof of each rename of `renames` that is not local, `RenameProof`), `used` (the names another file of the
+  subject declares, each a `Rename` without a declaration with the file and the line of the declaration and its
+  proof) and `confirmed` (the runs, by their numbers, that the index proved). Boxed and optional in the bindings:
+  nearly every diff in memory has none.
 - **Starts.** `starts` is flat `[block, side, line]` for each block with something to read, the one source of where
   a reader stops (`starts_of`): the quiet runs cut a block into parts, and the reading starts at the first part with
   a line to read, at its first new line (side 1), at its first old line that no move took (side 0) when it has no
@@ -271,6 +279,44 @@ changes no block and is never quiet: where lines stand is behaviour.
   (16,384) pairs they leave unread: a list of lines that are alike, sorted another way, makes every row of the two
   blocks one such chain, which without the limit used up the work of the search before the lines after the list
   were asked. Past either number a pair of other keys is apart.
+
+### Moves between files
+
+`moves_across` names the lines a change moved from one file to another
+([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), "Subject"). It has two halves, because the
+files of a subject are put together when their texts are gone (the service keeps the diff of a pair of blobs, and a
+subject of cached pairs reads no blob):
+
+- **What a pair leaves** (`left_rows(old, new, blocks, runs, moves)`), made where the texts are: the lines of the
+  blocks that are a change and that no mark took, neither a run nor a move within the file, as rows of lines that
+  follow each other in one block. A line is kept as the hash of the key of a move within a file (its text without
+  the spaces and tabs at its ends; 0 for a blank line) with the number of its characters that are no whitespace. A
+  row keeps no blank line at its ends and is kept only when it can hold a move between files by itself. The hash
+  is written out in the module (FNV-1a and the finalizer of SplitMix64), not taken from a crate or the standard
+  library: the hashes of two pairs are compared whenever they were made, by whichever build, so it changes only
+  with the version of the diffs.
+- **The search** (`find_moves_across(files)`), a function of the rows alone: a row of the same keys, line by line,
+  on the old side of one file and on the new side of another. Exact lines only: a label on two files must not
+  guess, so an edited line ends the row (a function whose one line changed on the way is the lines before it and
+  after it, where each is enough). Blank lines inside the row are lines of it. It counts from `MIN_ACROSS_LINES`
+  (2) lines that are not blank and `MIN_ACROSS_CHARS` (48) characters that are no whitespace, twice what a move
+  within a file needs and never one line: the same boilerplate stands in many files of a change.
+- **One to one, the longest first**: the longest row, then the one with more characters, then the first by its new
+  and by its old lines, the files in their order; a row that shares a line with a taken one is cut to its parts that
+  are still free, which are asked again. Lines that match two places are a move to the first, and the other place
+  is plain added lines.
+- **Two files.** Lines that left a file and stand again in it are the moves of its pair, found first and with the
+  rule of a move within a file; the search between files never pairs two sides of one file. So what a pair marked
+  comes first: two lines that the pair of a file took for a move within it (a `return` and a brace that a deleted
+  function and an added one share) are no lines of a move between files, and a function that left the file is
+  then two moves around them.
+- **Limits by work**: the files are taken in their order, and a file whose rows do not fit into `MAX_ACROSS_LINES`
+  (262,144) lines beside those of the files before it takes no part; a key that more than `MAX_KEY_CANDIDATES`
+  (16) new lines have starts no row; the search reads `MAX_ACROSS_WORK` (4,194,304) pairs of lines. `AcrossWork`
+  says what was left out, which the service logs.
+
+A move between files is a label and nothing else: never quiet, no line of it hidden, no stop taken
+(`SubjectMarks::moved_out`, `moved_in` of the two files).
 
 ### Merge
 

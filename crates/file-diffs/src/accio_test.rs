@@ -4,15 +4,22 @@
 #[cfg(unix)]
 use crate::accio::AccioSearch;
 use crate::accio::{
-  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, Lenient, ReferenceHit, Resolved, SearchCanceled, SurfaceDeclaration, SurfaceSite,
-  SurfaceUse, SymbolHit, SymbolIndex,
+  Access, AccioCli, CallArgument, DeclarationAt, DescriptorClass, DescriptorService, HitKind, IndexUnavailable, Lenient, ReferenceHit, RenameAnswer, RenamePair, RenameUse,
+  Resolved, SearchCanceled, SurfaceDeclaration, SurfaceSite, SurfaceUse, SymbolHit, SymbolIndex,
 };
+use crate::fixture_test::{RENAMED_STORE_ANSWER, renamed_store, repo_path, unhurried};
+use crate::model::{DiffContent, DiffSource};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use sync_utils::child_process::{ChildPriority, windowless_command_at};
 use test_log::test;
+use test_utils::env_vars::EnvVars;
 use test_utils::fake_executable::{fake_executable, shell_path};
+use text_diff::model::RenameProof;
+use text_diff::policy::WhitespacePolicy;
 
 const ROOT: &str = "/work/repository";
 
@@ -476,4 +483,215 @@ fn unknown_accio_kinds_deserialize_to_unknown() {
 
   assert_eq!(symbol.kind, HitKind::Unknown);
   assert_eq!(reference.kind, Access::Unknown);
+}
+
+/// A fake accio whose `versions` prints `versions`, and that runs `then` for every other command after it touched
+/// `started`
+fn fake_accio_with_versions(dir: &Path, started: &Path, versions: &str, then: &str) -> AccioCli {
+  let body = format!("if [ \"$1\" = versions ]; then printf '%s' '{versions}'; exit 0; fi\n: > {}\n{then}", shell_path(started));
+  AccioCli::at(fake_executable(dir, "accio", &body))
+}
+
+const ANSWERS_RENAMES: &str = r#"{"answers":{"moves":1,"renames":1},"index_format":40}"#;
+
+fn store_pair() -> RenamePair {
+  RenamePair {
+    old: "src/Store.kt:6:5".to_string(),
+    new: "src/Store.kt:6:5".to_string(),
+  }
+}
+
+/// The declarations a subject renamed are asked in one process, `renames --no-build` between its two trees, the
+/// pairs of their places on its standard input: one answer per pair in their order, a pair accio could not ask
+/// `unavailable` beside the others
+#[test]
+fn the_renames_of_a_subject_are_asked_in_one_process() {
+  let dir = tempfile::tempdir().unwrap();
+  let (started, args, stdin) = (dir.path().join("started"), dir.path().join("args"), dir.path().join("stdin"));
+  let answered: serde_json::Value = serde_json::from_str(RENAMED_STORE_ANSWER).unwrap();
+  let unasked = r#"{"old_at":"src/Body.kt:2","new_at":"src/Body.kt:2","unavailable":true,"reason":"base: no declaration","same":false,"complete":false}"#;
+  let answer = format!("[{},{unasked}]", answered[0]);
+  let accio = fake_accio_with_versions(
+    dir.path(),
+    &started,
+    ANSWERS_RENAMES,
+    &format!("printf '%s\\n' \"$@\" > {}\ncat > {}\nprintf '%s' '{answer}'", shell_path(&args), shell_path(&stdin)),
+  );
+  let canceled = || false;
+  let pairs = [
+    store_pair(),
+    RenamePair {
+      old: "src/Body.kt:2:1".to_string(),
+      new: "src/Body.kt:2:1".to_string(),
+    },
+  ];
+  let answers = accio.search(&canceled).renames(ROOT, &pairs, "base~1", "head").unwrap().unwrap();
+  assert_eq!(
+    std::fs::read_to_string(&args).unwrap().lines().collect::<Vec<_>>(),
+    [
+      "renames",
+      "--no-build",
+      "--format",
+      "json",
+      "--project",
+      ROOT,
+      "--base",
+      "base~1",
+      "--ref",
+      "head",
+      "--pairs-from",
+      "-"
+    ]
+  );
+  assert_eq!(
+    std::fs::read_to_string(&stdin).unwrap(),
+    "src/Store.kt:6:5\tsrc/Store.kt:6:5\nsrc/Body.kt:2:1\tsrc/Body.kt:2:1\n"
+  );
+
+  let renamed = &answers[0];
+  assert!(renamed.same && renamed.complete && !renamed.unavailable);
+  assert_eq!(renamed.conflicts, []);
+  assert_eq!(renamed.old.as_ref().map(|it| it.language.as_str()), Some("kotlin"));
+  let (base, head) = (renamed.base.as_ref().unwrap(), renamed.head.as_ref().unwrap());
+  assert_eq!((base.total, head.total), (3, 3));
+  assert_eq!(
+    base.uses[0],
+    RenameUse {
+      path: "src/Report.kt".to_string(),
+      line: 4,
+      column: 14,
+      end_column: 23,
+      kind: Access::Call,
+      resolved: Resolved::Import,
+    }
+  );
+  assert_eq!((head.uses[2].kind, head.uses[2].end_column), (Access::Declaration, 16));
+  assert_eq!(
+    answers[1],
+    RenameAnswer {
+      unavailable: true,
+      ..RenameAnswer::default()
+    }
+  );
+
+  // no pair, no process
+  std::fs::remove_file(&started).unwrap();
+  assert_eq!(accio.search(&canceled).renames(ROOT, &[], "base~1", "head").unwrap(), Some(Vec::new()));
+  assert!(!started.exists());
+}
+
+/// Only an accio that says it answers `renames` as this reader reads them is asked: one without the answer (an older
+/// accio, whose `versions` names none), one of another revision of it and one whose `versions` fails answer none,
+/// and their `renames` is never started. The answer of `versions` is asked once
+#[test]
+fn an_accio_that_answers_no_renames_as_they_are_read_is_not_asked() {
+  let canceled = || false;
+  for versions in [r#"{"index_format":39}"#, r#"{"answers":{"moves":1}}"#, r#"{"answers":{"moves":1,"renames":2}}"#, "not json"] {
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let accio = fake_accio_with_versions(dir.path(), &started, versions, "exit 2");
+    assert!(!accio.answers_renames(), "{versions}");
+    assert_eq!(accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap(), None, "{versions}");
+    assert!(!started.exists(), "{versions}");
+  }
+  // an accio whose `versions` fails
+  let dir = tempfile::tempdir().unwrap();
+  let accio = AccioCli::at(fake_executable(dir.path(), "accio", "echo \"error: unrecognized subcommand\" >&2\nexit 2"));
+  assert_eq!(accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap(), None);
+
+  // the one that does is asked its versions once, whatever the number of subjects
+  let dir = tempfile::tempdir().unwrap();
+  let (started, asked) = (dir.path().join("started"), dir.path().join("asked"));
+  let body = format!(
+    "if [ \"$1\" = versions ]; then echo asked >> {}; printf '%s' '{ANSWERS_RENAMES}'; exit 0; fi\n: > {}\nprintf '%s' '{}'",
+    shell_path(&asked),
+    shell_path(&started),
+    RENAMED_STORE_ANSWER.replace('\n', " ")
+  );
+  let accio = AccioCli::at(fake_executable(dir.path(), "accio", &body));
+  for _ in 0..3 {
+    assert_eq!(
+      accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap().map(|answers| answers.len()),
+      Some(1)
+    );
+  }
+  assert_eq!(std::fs::read_to_string(&asked).unwrap().lines().count(), 1);
+}
+
+/// Without a usable index of the repository accio answers `available: false` for each pair: no index, never "no use",
+/// and never a failure of the diffs. A query that fails, and one that answers another number of pairs, is an error
+/// its caller reads as no answer; a canceled one is killed
+#[test]
+fn renames_without_an_index_answer_no_index_and_a_canceled_query_is_killed() {
+  let dir = tempfile::tempdir().unwrap();
+  let started = dir.path().join("started");
+  let canceled = || false;
+  let unavailable = r#"[{"available":false,"note":"no index of this repository","old_at":"src/Store.kt:6:5","new_at":"src/Store.kt:6:5"}]"#;
+  let accio = fake_accio_with_versions(dir.path(), &started, ANSWERS_RENAMES, &format!("printf '%s' '{unavailable}'"));
+  let error = accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap_err();
+  assert_eq!(
+    error.downcast_ref::<IndexUnavailable>().map(ToString::to_string).as_deref(),
+    Some("no index of this repository")
+  );
+
+  let accio = fake_accio_with_versions(dir.path(), &started, ANSWERS_RENAMES, "echo \"fatal: bad revision\" >&2\nexit 1");
+  let error = accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap_err();
+  assert!(!error.is::<IndexUnavailable>() && !error.is::<SearchCanceled>(), "{error:#}");
+  let accio = fake_accio_with_versions(dir.path(), &started, ANSWERS_RENAMES, "printf '%s' '[]'");
+  accio.search(&canceled).renames(ROOT, &[store_pair()], "base", "head").unwrap_err();
+
+  std::fs::remove_file(&started).unwrap();
+  let accio = fake_accio_with_versions(dir.path(), &started, ANSWERS_RENAMES, "exec sleep 600");
+  let flag = AtomicBool::new(false);
+  let canceled = || flag.load(Ordering::SeqCst);
+  let search = accio.search(&canceled);
+  let result = std::thread::scope(|scope| {
+    let query = scope.spawn(|| search.renames(ROOT, &[store_pair()], "base", "head"));
+    wait_for(&started);
+    flag.store(true, Ordering::SeqCst);
+    query.join().unwrap()
+  });
+  assert!(result.unwrap_err().is::<SearchCanceled>());
+}
+
+/// The accio of this machine, when it answers `renames` as they are read, asked of a real repository through the
+/// diffs of a commit: an index of its own (`ACCIO_HOME`), built once, then the query as the app runs it. The rename
+/// of a function with its two calls in another file is proven: the calls are confirmed runs, the declaration is
+/// read. A machine without such an accio proves nothing here
+#[test]
+fn the_accio_of_this_machine_proves_the_rename_of_a_real_repository() {
+  let Some(accio) = AccioCli::discover().filter(|accio| accio.answers_renames()) else {
+    eprintln!("no accio that answers renames on this machine: nothing asked");
+    return;
+  };
+  let (repo, second) = renamed_store();
+  let home = tempfile::tempdir().unwrap();
+  let _env = EnvVars::set(&[("ACCIO_HOME", home.path().as_os_str()), ("ACCIO_NO_LIBS", std::ffi::OsStr::new("1"))]);
+  let indexed = windowless_command_at(accio.executable(), ChildPriority::Normal)
+    .args(["--project", repo_path(&repo), "index", "--quiet"])
+    .output()
+    .unwrap();
+  assert!(indexed.status.success(), "{}", String::from_utf8_lossy(&indexed.stderr));
+
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let source = DiffSource::Commit { id: second };
+  let files = unhurried()
+    .read_checked(
+      repo.git_executor(),
+      repo_path(&repo),
+      &ObjectCache::disabled(),
+      Some(&search),
+      &source,
+      WhitespacePolicy::Default,
+    )
+    .unwrap();
+  let subject = |path: &str| {
+    let file = files.iter().find(|file| file.path == path).unwrap();
+    let DiffContent::Text(diff) = &file.content else { panic!("{path}: {:?}", file.content) };
+    diff.marks.subject.clone().unwrap_or_else(|| panic!("the subject says nothing of {path}"))
+  };
+  let report = subject("src/Report.kt");
+  assert_eq!((report.used[0].proof, &report.confirmed), (RenameProof::Confirmed, &vec![0, 1]));
+  assert_eq!(subject("src/Store.kt").declared[0].proof, RenameProof::Confirmed);
 }

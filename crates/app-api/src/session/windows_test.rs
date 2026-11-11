@@ -56,6 +56,20 @@ fn a_call_names_the_page_of_its_window_and_a_closed_window_answers_its_fetches()
   assert_eq!(windows.open(), [] as [WindowId; 0]);
 }
 
+/// A read only the page that asked waits for (the query of the index of `get_file_diffs`) may end once its window
+/// shows that page no more: it closed, or loads again and shows another page
+#[test]
+fn a_window_shows_the_page_of_a_call_until_it_closes_or_loads_again() {
+  let windows = Windows::default();
+  let (call, other) = (windows.call("main"), windows.call("review-7"));
+  assert!(windows.shows(&call) && windows.shows(&other));
+  windows.forget_page(&call.window);
+  assert!(!windows.shows(&call), "the window shows no page");
+  let reloaded = windows.call("main");
+  assert!(windows.shows(&reloaded) && !windows.shows(&call), "another page of the window");
+  assert!(windows.shows(&other), "the page of another window");
+}
+
 #[test]
 fn a_window_supersedes_only_its_own_request() {
   let (main, review) = (WindowId::new("main"), WindowId::new("review"));

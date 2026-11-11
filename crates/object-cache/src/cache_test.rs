@@ -341,6 +341,29 @@ fn file_diffs_are_read_by_their_blob_pair_policy_grammars_and_version() {
   assert_eq!(cache.get_file_diffs::<Vec<u32>>(2, &[swapped]), [Some(diff)]);
 }
 
+/// What a diff left is a store of its own under the key of its diff: a read of the diff decodes none of it, and
+/// each of the two is there or not by itself
+#[test_log::test]
+fn what_a_diff_left_is_read_by_the_key_of_its_diff_from_a_store_of_its_own() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let (pair, diff) = stored_diff(&cache);
+  let swapped = DiffKey { old_id: "b", new_id: "a", ..pair };
+  assert_eq!(cache.get_file_leftovers::<String>(1, &[pair]), [None], "the write of a diff writes nothing it left");
+
+  let left = "left".to_string();
+  cache.put_file_leftovers(1, &[(pair, &left)]);
+  assert_eq!(cache.get_file_leftovers::<String>(1, &[pair, swapped]), [Some(left.clone()), None]);
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair]), [Some(diff)], "the diff is as it was");
+  assert_eq!(cache.get_file_leftovers::<String>(2, &[pair]), [None], "of another model");
+
+  // the first write of another version clears the store, and not the diffs
+  cache.put_file_leftovers(2, &[(swapped, &left)]);
+  assert_eq!(cache.get_file_leftovers::<String>(1, &[pair]), [None]);
+  assert_eq!(cache.get_file_leftovers::<String>(2, &[swapped]), [Some(left)]);
+  assert!(cache.get_file_diffs::<Vec<u32>>(1, &[pair])[0].is_some());
+}
+
 #[test_log::test]
 fn file_merges_are_read_by_their_three_blobs() {
   let dir = tempfile::tempdir().unwrap();

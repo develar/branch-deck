@@ -7,7 +7,8 @@
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   would fill it, or hits `MDB_MAP_FULL`, clears every database of its environment and is retried once.
 //! - **Four environments**, so that what is bulky never evicts what is small and costly: the diffs and merges of
-//!   `file_diff` and `file_merge` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result`, the trees of
+//!   `file_diff` and `file_merge`, and what a diff leaves to the other files of its subject (`file_leftovers`), in
+//!   `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result`, the trees of
 //!   `commit_tree` and the resolves of `word_resolution`, small entries a check costs most to learn again, in `merges/`
 //!   (`CacheConfig::merge_map_size`); the conflict views of
 //!   `conflict_info`, a few that may each hold megabytes of file contents, and the chains of `conflict_chain`, in
@@ -117,10 +118,11 @@ pub(crate) enum Store {
   FileMerge,
   WordResolution,
   SessionFrame,
+  FileLeftovers,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 18;
+const STORE_COUNT: usize = 19;
 
 /// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
 const RETIRED_STORES: [&str; 1] = ["commit_patch"];
@@ -147,6 +149,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::FileMerge,
   Store::WordResolution,
   Store::SessionFrame,
+  Store::FileLeftovers,
 ];
 
 impl Store {
@@ -182,13 +185,14 @@ impl Store {
       | Self::FileDiff
       | Self::FileMerge
       | Self::WordResolution
-      | Self::SessionFrame => 1,
+      | Self::SessionFrame
+      | Self::FileLeftovers => 1,
     }
   }
 
   pub(crate) const fn environment(self) -> Environment {
     match self {
-      Self::FileDiff | Self::FileMerge => Environment::Patches,
+      Self::FileDiff | Self::FileMerge | Self::FileLeftovers => Environment::Patches,
       Self::MergeResult | Self::CommitTree | Self::WordResolution => Environment::Merges,
       Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
       Self::CommitDiff
@@ -230,6 +234,7 @@ impl Store {
       Self::FileMerge => "file_merge",
       Self::WordResolution => "word_resolution",
       Self::SessionFrame => "session_frame",
+      Self::FileLeftovers => "file_leftovers",
     }
   }
 }
@@ -238,7 +243,7 @@ impl Store {
 pub struct CacheConfig {
   /// The LMDB map size in bytes, rounded up to the page size: the cap of the cache
   pub map_size: usize,
-  /// The map size of the patch environment (`file_diff`, `file_merge`)
+  /// The map size of the patch environment (`file_diff`, `file_merge`, `file_leftovers`)
   pub patch_map_size: usize,
   /// The map size of the merge environment (`merge_result`, `commit_tree`, `word_resolution`)
   pub merge_map_size: usize,

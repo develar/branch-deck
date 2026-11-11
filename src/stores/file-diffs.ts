@@ -27,6 +27,16 @@ const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffE
     keepOpened(file.content, content)
     return { ...file, content }
   },
+  (file, event) => {
+    if (file.content.kind !== "text") {
+      return null
+    }
+    // the marks of the file whole, in place of those its content brought: they add runs that are labels, words and
+    // what a reader may pass, never a row, so what the views opened of the diff stays open
+    const content: DiffContent = { ...file.content, marks: event.marks }
+    keepOpened(file.content, content)
+    return { ...file, content }
+  },
 )
 
 /** By `fileDiffsKey`, the least recently loaded first */
@@ -52,10 +62,12 @@ export interface LoadFileDiffsOptions {
 /**
  * Reads the diffs of every file of a subject (`get_file_diffs`) unless they are loaded or being read; a failed read is
  * tried again. The backend streams them: the files, then the content of each as it is known, the `priorityPaths`
- * first, then the scopes of a text it parsed late. A file appears in the entry with its content; the scopes replace
- * the content of their file, which keeps its fold levels. A commit or a range never changes; the uncommitted changes
- * do, so `refresh` reads them again, and the loaded ones stay shown until the new read ends; a refresh asked while a
- * read runs reads once more after it.
+ * first, then the scopes of a text it parsed late, then the marks of the files that the others of the subject say
+ * something of (the lines that moved between two files, the names another file declares), and last what the index of
+ * the repository answers of the names the subject renamed. A file appears in the entry with its content; the scopes
+ * and the marks replace those of the content of their file, which keeps its fold levels. A commit or a range never
+ * changes; the uncommitted changes do, so `refresh` reads them again, and the loaded ones stay shown until the new
+ * read ends; a refresh asked while a read runs reads once more after it.
  */
 export function loadFileDiffs(subject: FileDiffSubject, policy: WhitespacePolicy, { refresh = false, priorityPaths = [] }: LoadFileDiffsOptions = {}): void {
   const repositoryPath = subject.kind === "uncommitted" ? subject.repositoryPath : getDiffRepositoryPath()

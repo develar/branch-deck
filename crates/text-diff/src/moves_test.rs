@@ -7,7 +7,7 @@ use crate::moves::{
   find_moves_within,
 };
 use crate::policy::WhitespacePolicy;
-use crate::test_support::{between, proptest_config, run};
+use crate::test_support::{between, proptest_config, run, text};
 use pretty_assertions::assert_eq;
 use proptest::prelude::Strategy;
 use proptest::proptest;
@@ -23,16 +23,6 @@ const ALPHA: [&str; 5] = [
 const BETA: [&str; 5] = ["fn beta(names: &[Name]) -> usize {", "  let count = count_names(names);", "  print(count);", "  count", "}"];
 const GAMMA: [&str; 5] = ["fn gamma(rows: &[Row]) -> bool {", "  let found = find_row(rows);", "  show(found);", "  found", "}"];
 const DELTA: [&str; 3] = ["fn delta(pages: &[Page]) -> Page {", "  first_page(pages)", "}"];
-
-/// The lines of `parts` as a text, each ended by `\n`
-fn text(parts: &[&[&str]]) -> String {
-  let mut text = String::new();
-  for line in parts.iter().copied().flatten() {
-    text.push_str(line);
-    text.push('\n');
-  }
-  text
-}
 
 /// The lines of `part`, each after `indent`
 fn indented(part: &[&str], indent: &str) -> Vec<String> {

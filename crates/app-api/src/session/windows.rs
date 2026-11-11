@@ -54,6 +54,12 @@ impl Windows {
     Call { window, page }
   }
 
+  /// Whether the page of `call` is the one its window shows still: false once the window closed or loads again, so
+  /// a read that only that page waits for may end (the query of the index of `get_file_diffs`)
+  pub fn shows(&self, call: &Call) -> bool {
+    self.subscriptions().pages.get(&call.window).is_some_and(|(shown, _)| *shown == call.page)
+  }
+
   /// Keeps `subscription` for the page of `call`; false when that page went away meanwhile, so the caller ends it
   pub fn keep(&self, call: &Call, subscription: SubscriptionId) -> bool {
     self.subscriptions().keep(&call.window, call.page, subscription)

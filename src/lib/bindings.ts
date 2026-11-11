@@ -64,8 +64,11 @@ export const commands = {
 	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], ApiError>(__TAURI_INVOKE("get_blob_texts", { params })),
 	/**
 	 *  The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
-	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
-	 *  memory cache of the app and the `file_diff` store, else one list and one `cat-file --batch`
+	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first, then the
+	 *  marks of the files the others of the subject say something of (the lines that moved between two files, the names
+	 *  another file declares) and what the index of the repository (`accio`) answers of the names the subject renamed,
+	 *  a query killed once the page of the window went away. Through the memory cache of the app and the `file_diff`
+	 *  and `file_leftovers` stores, else one list and one `cat-file --batch`
 	 */
 	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, ApiError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
 	/**
@@ -2360,6 +2363,13 @@ export type DiffMarks = {
 	 *  a quiet run and every old line in a quiet run or in a move
 	 */
 	starts: number[],
+	/**
+	 *  What the other files of the subject say of this one (`SubjectMarks`): the lines that moved between two files
+	 *  and the names another file declares or the index of the repository checked. `None` in the diff of a pair of
+	 *  blobs alone, which is what the caches keep: the same pair stands in other commits beside other files. Boxed:
+	 *  nearly every diff in memory has none
+	 */
+	subject?: SubjectMarks | null,
 };
 
 /**  The commits a review compares: the old side (the parent, the base of a range) and the new one */
@@ -3257,7 +3267,8 @@ export type FetchedBaseline = {
 
 /**
  *  What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
- *  first, and a `scopes` after the `content` of a text that the caches did not have
+ *  first, a `scopes` after the `content` of a text that the caches did not have, and a `marks` for a file whose marks
+ *  the other files of the subject or the index of the repository changed after its `content` went out
  */
 export type FileDiffEvent = 
 /**  The changed files in the order of git; `index` of the other events points into this list */
@@ -3269,7 +3280,14 @@ export type FileDiffEvent =
  */
 { kind: "content"; index: number; content: DiffContent; collapse: Collapse | null } | 
 /**  The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone */
-{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[]; importBlocks: number[] };
+{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[]; importBlocks: number[] } | 
+/**
+ *  The marks of the text of a file, in place of those its `content` brought: with what the other files of the
+ *  subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
+ *  declares), once every file is known, and once more with what the index answered of its renamed names. It adds
+ *  runs that are labels, words and what a reader may pass (`starts`); it takes no row of the file away
+ */
+{ kind: "marks"; index: number; marks: DiffMarks };
 
 /**  The facts of a changed file */
 export type FileFacts = {
@@ -3349,6 +3367,20 @@ export type FileMergeHeader = {
 	 *  the sync committed, which the view shows as the result; `None` without that copy or for a path it lacks
 	 */
 	resolvedId: string | null,
+};
+
+/**
+ *  One end of lines that moved between two files of a subject without a change: `len` lines from `start` of this
+ *  file (0-based: old lines where they left, new lines where they stand now) are the lines from `line` of the file
+ *  `file` of the subject, on its other side. Never quiet, and no line of it is hidden: both ends are read
+ */
+export type FileMove = {
+	start: number,
+	len: number,
+	/**  The other file, by its index among the files of the subject */
+	file: number,
+	/**  The first line of the other end, 0-based */
+	line: number,
 };
 
 /**  The owner of a path and the rule that names it */
@@ -6883,6 +6915,46 @@ export type Rename = {
 	newSites: number[],
 };
 
+/**  What the index says of the uses of a rename of `DiffMarks::renames` that is not local */
+export type RenameCheck = {
+	/**  The number of the rename among `DiffMarks::renames` */
+	rename: number,
+	proof: RenameProof,
+};
+
+/**
+ *  Whether the uses of a renamed name that is not local are proven to be the rename and nothing else, and why not:
+ *  what a view says beside the name. Only `Confirmed` proves anything; every other one leaves the rename a label
+ */
+export type RenameProof = 
+/**  The index of the repository is being asked: the marks of the file come once more with its answer */
+"asked" | 
+/**
+ *  The index answered that the two names are one declaration, that it listed every use of it in both trees, that
+ *  each of them is a place of this rename in the subject or stands on a line that is read anyway, and that no name
+ *  means something else by the rename
+ */
+"confirmed" | 
+/**  A use of the name stands where the subject did not change it: in a file it left alone, on a line it left alone */
+"usesOutside" | 
+/**
+ *  The rename changes what a name means: a use that names another declaration now, an overload, an override, a
+ *  declaration it hides or that hides it, a namesake
+ */
+"otherMeaning" | 
+/**  The two names are not one declaration: its kind, its owner or its signature changed with the name */
+"otherDeclaration" | 
+/**
+ *  The index did not list every use, or tied one by its name alone, or reads the language of the declaration
+ *  without the scopes that would prove a use
+ */
+"incomplete" | 
+/**
+ *  No index answered: none on this machine, one that knows no such answer, no index of the repository, a subject
+ *  it cannot be asked of (the working tree), or a declaration it cannot be asked by its place
+ */
+"unavailable";
+
 /**  Files that get the same edit: one hunk with the same removed and added lines, without whitespace */
 export type RepeatedEditGroup = {
 	/**  At their last paths, in tree order; 3 or more */
@@ -9252,6 +9324,33 @@ export type Subject =
 { kind: "wholeStack"; root: string };
 
 /**
+ *  What the pass over the files of a subject (a commit, a range, the working tree) adds to the marks of one of them
+ *  (openspec/specs/commit/quiet-changes/spec.md, "Subject"). A file of the subject is named by its index in the list
+ *  of its files (`FileDiffEvent::Files`). Nothing here is quiet by itself, and nothing here changes a line of the
+ *  views: the moves are labels at both their ends, and what the index confirmed of a name is in `confirmed`
+ */
+export type SubjectMarks = {
+	/**  The old lines of this file that stand in another file of the subject now, by `start`, without overlap */
+	movedOut: FileMove[],
+	/**  The new lines of this file that stood in another file of the subject, by `start`, without overlap */
+	movedIn: FileMove[],
+	/**  For each rename of `DiffMarks::renames` that is not local, in their order: what the index says of its uses */
+	declared: RenameCheck[],
+	/**
+	 *  The names that changed at every place of this file, which declares none of them, and that another file of the
+	 *  subject declares and renamed so, by their first place: the lines that changed in such a name alone are runs of
+	 *  the kind `Renamed` among `DiffMarks::runs`
+	 */
+	used: UsedRename[],
+	/**
+	 *  The runs of `DiffMarks::runs`, by their numbers, that hold a place of a name that is not local and whose every
+	 *  place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet once their kind
+	 *  is; they came after the rows of the file, so a view passes them and still shows each of their lines
+	 */
+	confirmed: number[],
+};
+
+/**
  *  A commit subject split by the grammar of the grouping (`sync_utils::commit_subject`), so the page shows its parts
  *  (every field written: the object cache keeps it in `postcard`, which knows no skipped field)
  *  without a grammar of its own: `fixup! (auth) IJPL-1: Add login` is the markers `fixup! `, the prefix `auth`, the rest
@@ -10022,6 +10121,17 @@ export type Usages = {
 	 *  name alone. An unknown or incomplete count never is, also at 0
 	 */
 	unbroken: boolean,
+};
+
+/**  A name renamed at every place of a file that another file of the subject declares */
+export type UsedRename = {
+	/**  Its places in this file; `declared` is empty */
+	rename: Rename,
+	/**  The file that declares it, by its index among the files of the subject: the first one that does */
+	file: number,
+	/**  The new line of its declaration there, 0-based */
+	line: number,
+	proof: RenameProof,
 };
 
 /**  The parameters of `validate_branch_name` */

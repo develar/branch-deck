@@ -14,6 +14,14 @@
 //!   first, and only a file with a block that may have a run is parsed for its tokens, once per blob and grammar
 //!   (`TOKENS_CACHE_BYTES`). The moves of a text need no parse: they are read from the lines of every pair. The
 //!   budgets below change no mark: a diff the time cut short has the runs and the moves of its blocks.
+//! - **Subject.** What only the other files of the subject explain (`marks_subject`: the lines that moved between two
+//!   files, the names one file declares and others use) is read from what each pair left (`leftovers`), kept beside
+//!   its diff under the same key, so no blob is read for it. When the caches have every pair, it is read before the
+//!   first content goes out, which carries it; else each content goes out as it is known and the marks of the files
+//!   the subject says something of follow in a `marks` event, once all are. Then the index of the repository is asked
+//!   of the names that are not local, every declaration of the subject in one process, and its answer is one more
+//!   `marks` event of their files: it adds words and what a reader may pass, never a row. Nothing of the subject
+//!   enters a cache: a pair is in other commits beside other files.
 //! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read (`DiffKey`,
 //!   `diff_options`): its grammar, since the scopes and the marks depend on it, `.kt` and `.kts`, `.ts`, `.tsx` and
 //!   `.js` each their own; without a grammar, whether its indentation has a meaning, which the moves depend on, so a
@@ -25,8 +33,11 @@
 //!   subject, so the result does not depend on the load of the machine or the order of the files. A diff that the time
 //!   cut short (`line_level_only` within the size limits) stays in memory only: the store never keeps it.
 
+use crate::accio::{IndexUnavailable, SearchCanceled, SymbolIndex};
 use crate::collapse::collapse_of;
+use crate::leftovers::{LEFTOVERS_CACHE_BYTES, Leftovers};
 use crate::marks::{TOKENS_CACHE_BYTES, tokens_weight};
+use crate::marks_subject::{IndexAnswer, PairFacts, Subject, facts_of};
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
 use crate::model::{BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
 use crate::range_files::RangeFilesCache;
@@ -60,11 +71,11 @@ use sync_utils::span::in_current_span;
 use text_diff::cancellation::Deadline;
 use text_diff::model::{BlockKind, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
-/// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison, the scopes or the marks
-/// change
-pub const MODEL_VERSION: u32 = 10;
+/// The version of the diffs in the `file_diff` store and of what they left in the `file_leftovers` store: bump it
+/// when `TextDiff`, the comparison, the scopes, the marks or `Leftovers` (the hash of a line's key too) change
+pub const MODEL_VERSION: u32 = 11;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens) and
@@ -129,13 +140,22 @@ pub struct FileDiffs {
   pub(crate) blobs: Cache<String, Arc<BlobText>>,
   /// The backend highlighting of blobs by grammar and id, `None` when a blob has none (`syntax.rs`)
   pub(crate) syntax: Cache<(u8, String), Arc<Option<LineRuns>>>,
-  /// The tokens of blobs by grammar and id, for the marks of the diffs, `None` when a blob has none (`marks.rs`)
-  pub(crate) tokens: Cache<(u8, String), Option<Arc<Tokens>>>,
+  /// What the marks of the diffs keep beside them
+  pub(crate) marks_memory: Arc<MarksMemory>,
   pub(crate) limits: DiffLimits,
   /// `blocks_of` keeps the blobs it reads in `blobs` (`for_scans`)
   pub(crate) keep_scan_blobs: bool,
   /// The files of the ranges: the list of a review (`get_range_files`) and its diffs (`stream`) run one `diff-tree`
   pub range_files: RangeFilesCache,
+}
+
+/// What the marks of the diffs keep in memory beside the diffs, behind one pointer: every reader of a review holds
+/// a `FileDiffs` of its own (a clone that shares the caches), a future of a read ahead several of them
+pub(crate) struct MarksMemory {
+  /// The tokens of blobs by grammar and id, `None` when a blob has none (`marks.rs`)
+  pub(crate) tokens: Cache<(u8, String), Option<Arc<Tokens>>>,
+  /// What the diff of a text pair left to the other files of its subjects (`leftovers`), under the key of its diff
+  pub(crate) leftovers: Cache<MemoryKey, Arc<Leftovers>>,
 }
 
 impl Default for FileDiffs {
@@ -212,11 +232,55 @@ struct Job {
 /// What a worker sends back
 enum Outcome {
   Event(FileDiffEvent),
-  /// A diff and summaries for the store
+  /// The diff of a text and what it left, as memory keeps them: for the pass over the files of the subject
+  Text {
+    index: usize,
+    text: KnownText,
+  },
+  /// A diff with what it left and summaries for the store
   Store {
-    diff: Option<(MemoryKey, TextDiff)>,
+    diff: Option<(MemoryKey, TextDiff, Arc<Leftovers>)>,
     summaries: Vec<((u8, String), FileSummary)>,
   },
+}
+
+/// The content of a text file and what its pair left, as the caches keep them
+type KnownText = (Arc<DiffContent>, Arc<Leftovers>);
+
+/// The two halves of a `KnownText`, each as far as a cache has it
+type Halves = (Option<Arc<DiffContent>>, Option<Arc<Leftovers>>);
+
+/// What the caches have of the files of a stream (`FileDiffs::cached`), each list by the index of a file
+struct Cached {
+  /// The content of a file that is no text
+  known: Vec<Option<DiffContent>>,
+  /// The diff of a text with what its pair left
+  texts: Vec<Option<KnownText>>,
+  /// The files no cache has, in the order of the work
+  pending: Vec<usize>,
+}
+
+/// The files of a stream that no cache has (`FileDiffs::compare`)
+#[derive(Clone, Copy)]
+struct Pending<'a> {
+  repository_path: &'a str,
+  entries: &'a [Entry],
+  keys: &'a [MemoryKey],
+  policy: WhitespacePolicy,
+  /// Their indices, in the order of the work
+  order: &'a [usize],
+}
+
+/// The two trees the index is asked of the names a subject renamed, the old one first: of a commit and of a range
+/// named by full object ids, which name the same trees whenever they are read. `None` for the working tree, which
+/// may be another by the time the index reads it, and for a name, which may move: the answer would be of another
+/// text than the one the diffs show
+fn revisions_of(source: &DiffSource) -> Option<(String, String)> {
+  match source {
+    DiffSource::Commit { id } if is_object_id(id) => Some((format!("{id}~1"), id.clone())),
+    DiffSource::Range { base, head } if is_object_id(base) && is_object_id(head) => Some((base.clone(), head.clone())),
+    DiffSource::Commit { .. } | DiffSource::Range { .. } | DiffSource::Uncommitted => None,
+  }
 }
 
 /// The number of worker threads: the cores but one, for the thread that reads the blobs
@@ -255,10 +319,16 @@ impl FileDiffs {
         .max_capacity(SYNTAX_CACHE_BYTES)
         .weigher(|_key: &(u8, String), runs: &Arc<Option<LineRuns>>| syntax_weight(runs))
         .build(),
-      tokens: Cache::builder()
-        .max_capacity(TOKENS_CACHE_BYTES)
-        .weigher(|_key: &(u8, String), tokens: &Option<Arc<Tokens>>| tokens_weight(tokens.as_deref()))
-        .build(),
+      marks_memory: Arc::new(MarksMemory {
+        tokens: Cache::builder()
+          .max_capacity(TOKENS_CACHE_BYTES)
+          .weigher(|_key: &(u8, String), tokens: &Option<Arc<Tokens>>| tokens_weight(tokens.as_deref()))
+          .build(),
+        leftovers: Cache::builder()
+          .max_capacity(LEFTOVERS_CACHE_BYTES)
+          .weigher(|_key: &MemoryKey, left: &Arc<Leftovers>| left.weight())
+          .build(),
+      }),
       limits,
       keep_scan_blobs: false,
       range_files: RangeFilesCache::default(),
@@ -275,8 +345,22 @@ impl FileDiffs {
     }
   }
 
-  /// The diff of each changed file of `source` under `policy`, in the order of git, at once: `stream` collected
+  /// The diff of each changed file of `source` under `policy`, in the order of git, at once: `stream` collected,
+  /// without an index of the repository
   pub fn read(&self, git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, source: &DiffSource, policy: WhitespacePolicy) -> Result<Vec<DiffFile>> {
+    self.read_checked(git, repository_path, cache, None, source, policy)
+  }
+
+  /// `read` with the index `index` of the repository, which the names the subject renamed are asked of
+  pub fn read_checked(
+    &self,
+    git: &GitCommandExecutor,
+    repository_path: &str,
+    cache: &ObjectCache,
+    index: Option<&dyn SymbolIndex>,
+    source: &DiffSource,
+    policy: WhitespacePolicy,
+  ) -> Result<Vec<DiffFile>> {
     let mut headers = Vec::new();
     let mut contents: Vec<Option<(DiffContent, Option<Collapse>)>> = Vec::new();
     let params = GetFileDiffsParams {
@@ -285,12 +369,17 @@ impl FileDiffs {
       policy,
       priority_paths: Vec::new(),
     };
-    self.stream(git, cache, &params, |event| match event {
+    self.stream(git, cache, index, &params, |event| match event {
       FileDiffEvent::Files { files } => {
         contents = vec![None; files.len()];
         headers = files;
       }
       FileDiffEvent::Content { index, content, collapse } => contents[index as usize] = Some((content, collapse)),
+      FileDiffEvent::Marks { index, marks } => {
+        if let Some((DiffContent::Text(diff), _)) = &mut contents[index as usize] {
+          diff.marks = marks;
+        }
+      }
       FileDiffEvent::Scopes {
         index,
         old_scopes,
@@ -326,9 +415,19 @@ impl FileDiffs {
   }
 
   /// The diffs of a subject as events (`FileDiffEvent`): the files, then the content of each file as it is known,
-  /// `priority_paths` first, then the others in the order of the tree
-  #[instrument(skip(self, git, cache, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
-  pub fn stream(&self, git: &GitCommandExecutor, cache: &ObjectCache, params: &GetFileDiffsParams, mut emit: impl FnMut(FileDiffEvent)) -> Result<()> {
+  /// `priority_paths` first, then the others in the order of the tree; then what the files of the subject say of each
+  /// other (module doc, "Subject"), in the content itself when the caches had every pair, and what `index`, the index
+  /// of the repository, answers of the names the subject renamed. A canceled query of the index ends the stream: no
+  /// one listens
+  #[instrument(skip(self, git, cache, index, params, emit), fields(repository_path = %params.repository_path, source = ?params.source))]
+  pub fn stream(
+    &self,
+    git: &GitCommandExecutor,
+    cache: &ObjectCache,
+    index: Option<&dyn SymbolIndex>,
+    params: &GetFileDiffsParams,
+    mut emit: impl FnMut(FileDiffEvent),
+  ) -> Result<()> {
     let (repository_path, policy) = (params.repository_path.as_str(), params.policy);
     let entries = list_entries(git, repository_path, cache, &self.range_files, &params.source)?;
     for blob in entries.iter().filter_map(|entry| entry.worktree.as_ref()) {
@@ -346,36 +445,169 @@ impl FileDiffs {
       content,
     };
 
-    let mut missed = Vec::new();
-    for &index in &order {
-      let entry = &entries[index];
-      let known = match &entry.submodule {
-        Some((old_commit, new_commit)) => Some(DiffContent::Submodule {
-          old_commit: old_commit.clone(),
-          new_commit: new_commit.clone(),
-        }),
-        None if entry.binary => Some(DiffContent::Binary),
-        None => self.diffs.get(&keys[index]).map(|diff| (*diff).clone()),
-      };
-      match known {
-        Some(known) => emit(content_event(index, known)),
-        None => missed.push(index),
-      }
-    }
-    let disk_keys: Vec<DiffKey<'_>> = missed.iter().map(|&index| disk_key(&keys[index])).collect();
-    let stored: Vec<Option<TextDiff>> = cache.get_file_diffs(model_version(), &disk_keys);
-    let stored = stored.into_iter().map(|diff| diff.map(DiffContent::Text)).collect();
-    let pending = keep_stored(missed, stored, &keys, &self.diffs, |index, known| emit(content_event(index, known)));
+    let Cached { mut known, mut texts, pending } = self.cached(cache, &entries, &keys, &order);
     debug!(files = entries.len(), cached = entries.len() - pending.len(), "file diffs");
-    if pending.is_empty() {
-      return Ok(());
+    if !pending.is_empty() {
+      // what the caches have goes out at once; what the files say of each other follows when all are known
+      for &index in &order {
+        if let Some(content) = known[index].take().or_else(|| texts[index].as_ref().map(|(content, _)| (**content).clone())) {
+          emit(content_event(index, content));
+        }
+      }
+      let files = Pending {
+        repository_path,
+        entries: &entries,
+        keys: &keys,
+        policy,
+        order: &pending,
+      };
+      self.compare(git, cache, &files, &mut texts, &mut emit)?;
     }
 
+    let facts: Vec<Option<PairFacts<'_>>> = entries
+      .iter()
+      .zip(&texts)
+      .map(|(entry, text)| match text.as_ref().map(|(content, left)| (content.as_ref(), left.as_ref())) {
+        Some((DiffContent::Text(diff), left)) => Some(facts_of(
+          entry.old_path.as_deref(),
+          &entry.path,
+          [entry.old_id.as_deref(), entry.new_id.as_deref()],
+          diff,
+          left,
+        )),
+        _ => None,
+      })
+      .collect();
+    let subject = Subject::of(&facts);
+    if subject.work.skipped_files > 0 || subject.work.cut {
+      debug!(work = ?subject.work, "the moves between the files of the subject were not all looked for");
+    }
+    // the index is asked of a subject of two trees that never change, by the declarations it renamed
+    let asked = index.zip(revisions_of(&params.source)).filter(|_| !subject.questions().is_empty());
+    let first = subject.marks(if asked.is_some() { IndexAnswer::Asked } else { IndexAnswer::Unavailable });
+    if pending.is_empty() {
+      // every pair was in the caches: the content of a file comes with what the subject says of it
+      for &index in &order {
+        let content = known[index].take().or_else(|| texts[index].as_ref().map(|(content, _)| (**content).clone()));
+        let Some(mut content) = content else { continue };
+        if let (DiffContent::Text(diff), Some(marks)) = (&mut content, &first[index]) {
+          diff.marks = marks.clone();
+        }
+        emit(content_event(index, content));
+      }
+    } else {
+      for (index, marks) in first.iter().enumerate() {
+        if let Some(marks) = marks {
+          emit(FileDiffEvent::Marks {
+            index: to_u32(index),
+            marks: marks.clone(),
+          });
+        }
+      }
+    }
+
+    let Some((index, (base, head))) = asked else { return Ok(()) };
+    let answers = match index.renames(repository_path, subject.questions(), &base, &head) {
+      Ok(Some(answers)) if answers.len() == subject.questions().len() => Some(answers),
+      Ok(_) => None,
+      Err(error) if error.is::<SearchCanceled>() => return Ok(()),
+      Err(error) if error.is::<IndexUnavailable>() => {
+        debug!(%error, "the index of the repository answers no rename");
+        None
+      }
+      Err(error) => {
+        warn!(error = %format!("{error:#}"), "the index of the repository did not answer the renames of the subject");
+        None
+      }
+    };
+    let last = subject.marks(answers.as_deref().map_or(IndexAnswer::Unavailable, IndexAnswer::Answered));
+    for (index, (marks, before)) in last.into_iter().zip(first).enumerate() {
+      if marks != before
+        && let Some(marks) = marks
+      {
+        emit(FileDiffEvent::Marks { index: to_u32(index), marks });
+      }
+    }
+    Ok(())
+  }
+
+  /// What the caches have of the files `entries` with the keys `keys`, read in the order `order`: the content of a
+  /// file that is no text, the diff of a text with what its pair left, from memory, then from the stores, whose
+  /// answers memory keeps. A text is known with what its pair left or not at all: the pass over the subject reads
+  /// no blob, so a pair whose leftovers no cache has is compared again
+  fn cached(&self, cache: &ObjectCache, entries: &[Entry], keys: &[MemoryKey], order: &[usize]) -> Cached {
+    let mut known: Vec<Option<DiffContent>> = vec![None; entries.len()];
+    let mut texts: Vec<Option<KnownText>> = vec![None; entries.len()];
+    // of a text, each half that memory has
+    let mut halves: Vec<Halves> = vec![(None, None); entries.len()];
+    for &index in order {
+      let entry = &entries[index];
+      match &entry.submodule {
+        Some((old_commit, new_commit)) => {
+          known[index] = Some(DiffContent::Submodule {
+            old_commit: old_commit.clone(),
+            new_commit: new_commit.clone(),
+          });
+        }
+        None if entry.binary => known[index] = Some(DiffContent::Binary),
+        None => match self.diffs.get(&keys[index]) {
+          Some(content) if !matches!(*content, DiffContent::Text(_)) => known[index] = Some((*content).clone()),
+          content => halves[index] = (content, self.marks_memory.leftovers.get(&keys[index])),
+        },
+      }
+    }
+    let missed = |half: fn(&Halves) -> bool| -> Vec<usize> { order.iter().copied().filter(|&index| known[index].is_none() && half(&halves[index])).collect() };
+    let (no_diff, no_left) = (missed(|half| half.0.is_none()), missed(|half| half.1.is_none()));
+    let disk_keys = |files: &[usize]| -> Vec<DiffKey<'_>> { files.iter().map(|&index| disk_key(&keys[index])).collect() };
+    let stored: Vec<Option<TextDiff>> = cache.get_file_diffs(model_version(), &disk_keys(&no_diff));
+    let stored_left: Vec<Option<Leftovers>> = cache.get_file_leftovers(model_version(), &disk_keys(&no_left));
+    // the halves the stores had: memory keeps them, once the text is known whole
+    let mut from_store = vec![[false; 2]; entries.len()];
+    for (index, diff) in no_diff.into_iter().zip(stored) {
+      from_store[index][0] = diff.is_some();
+      halves[index].0 = diff.map(|diff| Arc::new(DiffContent::Text(diff)));
+    }
+    for (index, left) in no_left.into_iter().zip(stored_left) {
+      from_store[index][1] = left.is_some();
+      halves[index].1 = left.map(Arc::new);
+    }
+    let mut pending = Vec::new();
+    for &index in order {
+      if known[index].is_some() {
+        continue;
+      }
+      match std::mem::take(&mut halves[index]) {
+        (Some(content), Some(left)) => {
+          if from_store[index][0] {
+            self.diffs.insert(keys[index].clone(), Arc::clone(&content));
+          }
+          if from_store[index][1] {
+            self.marks_memory.leftovers.insert(keys[index].clone(), Arc::clone(&left));
+          }
+          texts[index] = Some((content, left));
+        }
+        _ => pending.push(index),
+      }
+    }
+    Cached { known, texts, pending }
+  }
+
+  /// Compares the files `pending.order` that no cache has: reads their blobs in one `cat-file`, hands each file to a
+  /// worker as soon as its sides are read, sends the events of the workers to `emit`, keeps the diff of each text
+  /// with what it left in `texts`, and writes the diffs, what they left and the summaries to the stores
+  fn compare(&self, git: &GitCommandExecutor, cache: &ObjectCache, pending: &Pending<'_>, texts: &mut [Option<KnownText>], emit: &mut dyn FnMut(FileDiffEvent)) -> Result<()> {
+    let Pending {
+      repository_path,
+      entries,
+      keys,
+      policy,
+      order,
+    } = *pending;
     // the sides of each pending file, and the files that wait for each blob, in the order of the work
-    let mut sides: HashMap<usize, (Side, Side)> = HashMap::with_capacity(pending.len());
+    let mut sides: HashMap<usize, (Side, Side)> = HashMap::with_capacity(order.len());
     let mut waiting: HashMap<String, Vec<usize>> = HashMap::new();
     let mut ids: Vec<String> = Vec::new();
-    for &index in &pending {
+    for &index in order {
       let entry = &entries[index];
       let old = self.side(entry.old_id.as_deref(), None);
       let new = self.side(entry.new_id.as_deref(), entry.worktree.as_ref());
@@ -391,27 +623,28 @@ impl FileDiffs {
       sides.insert(index, (old, new));
     }
 
-    let summaries = cached_summaries(cache, &entries, &pending);
+    let summaries = cached_summaries(cache, entries, order);
     let context = WorkContext {
       service: self,
-      entries: &entries,
-      keys: &keys,
+      entries,
+      keys,
       policy,
       summaries: &summaries,
     };
-    let mut to_store: Vec<(MemoryKey, TextDiff)> = Vec::new();
+    let mut to_store: Vec<(MemoryKey, TextDiff, Arc<Leftovers>)> = Vec::new();
     let mut new_summaries: Vec<((u8, String), FileSummary)> = Vec::new();
     let read = std::thread::scope(|scope| {
       let (job_sender, job_receiver) = channel::<Job>();
       let job_receiver = Arc::new(Mutex::new(job_receiver));
       let (outcome_sender, outcomes) = channel::<Outcome>();
-      spawn_workers(scope, pending.len(), || {
+      spawn_workers(scope, order.len(), || {
         let (jobs, outcome_sender, context) = (Arc::clone(&job_receiver), outcome_sender.clone(), &context);
         move || work_loop(&jobs, &outcome_sender, context)
       });
       drop(outcome_sender);
       let mut deliver = |outcome: Outcome| match outcome {
         Outcome::Event(event) => emit(event),
+        Outcome::Text { index, text } => texts[index] = Some(text),
         Outcome::Store { diff, summaries } => {
           to_store.extend(diff);
           new_summaries.extend(summaries);
@@ -419,7 +652,7 @@ impl FileDiffs {
       };
 
       // the files whose sides are all known go first
-      for &index in &pending {
+      for &index in order {
         if let Some(job) = take_job(&mut sides, index) {
           let _ = job_sender.send(job);
         }
@@ -452,7 +685,10 @@ impl FileDiffs {
     });
     read?;
 
-    let entries_to_store: Vec<(DiffKey<'_>, &TextDiff)> = to_store.iter().map(|(key, diff)| (disk_key(key), diff)).collect();
+    // what the pairs left first: a diff the store has without it is compared again, never shown without it
+    let left_to_store: Vec<(DiffKey<'_>, &Leftovers)> = to_store.iter().map(|(key, _, left)| (disk_key(key), left.as_ref())).collect();
+    cache.put_file_leftovers(model_version(), &left_to_store);
+    let entries_to_store: Vec<(DiffKey<'_>, &TextDiff)> = to_store.iter().map(|(key, diff, _)| (disk_key(key), diff)).collect();
     cache.put_file_diffs(model_version(), &entries_to_store);
     write_summaries(cache, &new_summaries);
     Ok(())
@@ -677,12 +913,24 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     let mut diff = diff_texts(old_text, new_text, context.policy, &budget);
     // the marks before the content: they change the rows of the file
     let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
-    // what the pair leaves to the other files of its change (`PairMarks::undeclared`) and to the measurement of its
-    // proofs (`PairMarks::proven`) has no reader yet
-    diff.marks = context
+    let pair = context
       .service
-      .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text])
-      .marks;
+      .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
+    // what the pair leaves to the other files of its subjects is read here, where its texts are; what it leaves to
+    // the measurement of its proofs (`PairMarks::proven`) has no reader yet
+    let (marks, left) = Leftovers::of(&diff.blocks, pair, old_text, new_text);
+    diff.marks = marks;
+    let left = Arc::new(left);
+    // memory keeps the diff with what it left, and the stream gets both for the pass over its subject
+    let keep = |diff: &TextDiff| {
+      let content = Arc::new(DiffContent::Text(diff.clone()));
+      context.service.diffs.insert(key.clone(), Arc::clone(&content));
+      context.service.marks_memory.leftovers.insert(key.clone(), Arc::clone(&left));
+      send(Outcome::Text {
+        index,
+        text: (content, Arc::clone(&left)),
+      });
+    };
     let cut_short = diff.line_level_only && fits_inner(old_text, diff.old_line_count) && fits_inner(new_text, diff.new_line_count);
     let old_side = entry.old_language().zip(entry.old_id.as_deref());
     let new_side = language_of(&entry.path).zip(entry.new_id.as_deref());
@@ -707,20 +955,22 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
         new_scopes: diff.new_scopes.clone(),
         import_blocks: diff.import_blocks.clone(),
       }));
-      context.service.diffs.insert(key.clone(), Arc::new(DiffContent::Text(diff.clone())));
+      keep(&diff);
       send(Outcome::Store {
-        diff: (!cut_short).then(|| (key.clone(), diff)),
+        diff: (!cut_short).then(|| (key.clone(), diff, left)),
         summaries,
       });
       return;
     }
+    send(content_event(DiffContent::Text(diff.clone())));
+    keep(&diff);
     if !cut_short {
       send(Outcome::Store {
-        diff: Some((key.clone(), diff.clone())),
+        diff: Some((key.clone(), diff, left)),
         summaries,
       });
     }
-    DiffContent::Text(diff)
+    return;
   };
   context.service.diffs.insert(key.clone(), Arc::new(content.clone()));
   send(content_event(content));

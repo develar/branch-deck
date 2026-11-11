@@ -73,9 +73,12 @@ macro_rules! for_each_command {
       read raw get_blob_syntax(params: file_diffs::model::GetBlobSyntaxParams) -> Vec<u8> = $crate::reads::blobs::get_blob_syntax;
 
       /// The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
-      /// the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
-      /// memory cache of the app and the `file_diff` store, else one list and one `cat-file --batch`
-      read json get_file_diffs(params: file_diffs::model::GetFileDiffsParams) [channel events: file_diffs::model::FileDiffEvent] -> () = $crate::reads::diffs::get_file_diffs;
+      /// the files, then the content of each file as it is known, the files in view (`priority_paths`) first, then the
+      /// marks of the files the others of the subject say something of (the lines that moved between two files, the names
+      /// another file declares) and what the index of the repository (`accio`) answers of the names the subject renamed,
+      /// a query killed once the page of the window went away. Through the memory cache of the app and the `file_diff`
+      /// and `file_leftovers` stores, else one list and one `cat-file --batch`
+      read window get_file_diffs(params: file_diffs::model::GetFileDiffsParams) [channel events: file_diffs::model::FileDiffEvent] -> () = $crate::reads::diffs::get_file_diffs;
 
       /// The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
       /// stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first

@@ -20,7 +20,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 use text_diff::cancellation::Deadline;
-use text_diff::model::{BlockKind, DiffBudget, DiffMarks, MAX_INNER_LINES, Rename, RunKind, TextDiff, diff_texts, starts_of};
+use text_diff::model::{BlockKind, DiffBudget, DiffMarks, FileMove, MAX_INNER_LINES, Rename, RunKind, SubjectMarks, TextDiff, diff_texts, starts_of};
 use text_diff::policy::WhitespacePolicy;
 
 use WhitespacePolicy::{Default as Exact, Ignore, IgnoreBlankLines};
@@ -177,7 +177,45 @@ pub(crate) fn show(diff: &TextDiff) -> String {
   } else {
     format!(" renames [{}]", renames.join(", "))
   };
-  format!("blocks [{}] runs [{}]{moves}{renames} starts {:?}", blocks.join(", "), runs.join(", "), diff.marks.starts)
+  let subject = diff.marks.subject.as_deref().map_or_default(show_subject);
+  format!(
+    "blocks [{}] runs [{}]{moves}{renames} starts {:?}{subject}",
+    blocks.join(", "),
+    runs.join(", "),
+    diff.marks.starts
+  )
+}
+
+/// What the other files of a subject say of a file, each part only where it says something: the lines that moved
+/// out of it and into it (`lines->file:line`), the names another file declares (as a rename, with the file and the
+/// line of the declaration and its proof), the proof of each rename it declares, and the runs the index confirmed
+fn show_subject(subject: &SubjectMarks) -> String {
+  let moved = |moves: &[FileMove]| -> Vec<String> {
+    moves
+      .iter()
+      .map(|moved| format!("{}..{}->{}:{}", moved.start, moved.start + moved.len, moved.file, moved.line))
+      .collect()
+  };
+  let used: Vec<String> = subject
+    .used
+    .iter()
+    .map(|used| format!("{} in {}:{} {:?}", show_rename(&used.rename), used.file, used.line, used.proof))
+    .collect();
+  let declared: Vec<String> = subject.declared.iter().map(|check| format!("{} {:?}", check.rename, check.proof)).collect();
+  let confirmed: Vec<String> = subject.confirmed.iter().map(u32::to_string).collect();
+  [
+    ("moved out", moved(&subject.moved_out)),
+    ("moved in", moved(&subject.moved_in)),
+    ("used", used),
+    ("declared", declared),
+    ("confirmed", confirmed),
+  ]
+  .into_iter()
+  .filter(|(_, items)| !items.is_empty())
+  .fold(String::new(), |mut shown, (name, items)| {
+    write!(shown, " {name} [{}]", items.join(", ")).unwrap();
+    shown
+  })
 }
 
 /// Each case against what `show` gives for it; every failure in one message
@@ -1550,18 +1588,22 @@ fn the_marks_template_has_each_case_in_a_block_of_its_own() {
        runs [6..7/11..14 formatting quiet, 13..14/27..28 renamed, 16..17/30..31 renamed, 19..20/33..34 renamed, 27..28/36..37 comments] \
        moves [22..26->5..9 blanks 1+0, 45..52->18..25 indent +2 edited 1] \
        renames [total->sum local declared [0] at 13:8 16:8 19:11 / 27:8 30:8 33:11] \
-       starts [0, 1, 5, 2, 1, 18, 3, 1, 27, 4, 1, 30, 5, 1, 33, 7, 1, 36, 8, 1, 41, 10, 0, 53]"
+       starts [0, 1, 5, 2, 1, 18, 3, 1, 27, 4, 1, 30, 5, 1, 33, 7, 1, 36, 8, 1, 41, 10, 0, 53] \
+       moved out [54..58->1:17]"
         .to_string(),
     ),
-    // the two calls of `openStore`, which the file does not declare: no rename of its own; `reportTitle` moved in
+    // the two calls of `openStore`, which the file does not declare and `Store.kt` does: a rename by the other file,
+    // each call a run of it, a label; `reportTitle` moved in from `Ledger.kt`, a label too: every block is read
     (
       "src/Report.kt",
-      "blocks [4..5/4..5, 10..11/10..11, 16..16/16..21] runs [] starts [0, 1, 4, 1, 1, 10, 2, 1, 16]".to_string(),
+      "blocks [4..5/4..5, 10..11/10..11, 16..16/16..21] runs [4..5/4..5 renamed, 10..11/10..11 renamed] starts [0, 1, 4, 1, 1, 10, 2, 1, 16] \
+       moved in [17..21->0:54] used [openStore->connectStore declared [] at 4:16 10:16 / 4:16 10:16 in 2:18 Unavailable]"
+        .to_string(),
     ),
-    // the declaration of `openStore`, which is `connectStore` now: a rename with one place, read
+    // the declaration of `openStore`, which is `connectStore` now: a rename with one place, read; no index was asked
     (
       "src/Store.kt",
-      "blocks [18..19/18..19] runs [] renames [openStore->connectStore declared [0] at 18:4 / 18:4] starts [0, 1, 18]".to_string(),
+      "blocks [18..19/18..19] runs [] renames [openStore->connectStore declared [0] at 18:4 / 18:4] starts [0, 1, 18] declared [0 Unavailable]".to_string(),
     ),
   ];
   assert_eq!(shown, expected);

@@ -74,6 +74,103 @@ pub struct DiffMarks {
   /// (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every new line is in
   /// a quiet run and every old line in a quiet run or in a move
   pub starts: Vec<u32>,
+  /// What the other files of the subject say of this one (`SubjectMarks`): the lines that moved between two files
+  /// and the names another file declares or the index of the repository checked. `None` in the diff of a pair of
+  /// blobs alone, which is what the caches keep: the same pair stands in other commits beside other files. Boxed:
+  /// nearly every diff in memory has none
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub subject: Option<Box<SubjectMarks>>,
+}
+
+/// What the pass over the files of a subject (a commit, a range, the working tree) adds to the marks of one of them
+/// (openspec/specs/commit/quiet-changes/spec.md, "Subject"). A file of the subject is named by its index in the list
+/// of its files (`FileDiffEvent::Files`). Nothing here is quiet by itself, and nothing here changes a line of the
+/// views: the moves are labels at both their ends, and what the index confirmed of a name is in `confirmed`
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct SubjectMarks {
+  /// The old lines of this file that stand in another file of the subject now, by `start`, without overlap
+  pub moved_out: Vec<FileMove>,
+  /// The new lines of this file that stood in another file of the subject, by `start`, without overlap
+  pub moved_in: Vec<FileMove>,
+  /// For each rename of `DiffMarks::renames` that is not local, in their order: what the index says of its uses
+  pub declared: Vec<RenameCheck>,
+  /// The names that changed at every place of this file, which declares none of them, and that another file of the
+  /// subject declares and renamed so, by their first place: the lines that changed in such a name alone are runs of
+  /// the kind `Renamed` among `DiffMarks::runs`
+  pub used: Vec<UsedRename>,
+  /// The runs of `DiffMarks::runs`, by their numbers, that hold a place of a name that is not local and whose every
+  /// place is proven: by the index for such a name, by the scopes of the file for a local one. Quiet once their kind
+  /// is; they came after the rows of the file, so a view passes them and still shows each of their lines
+  pub confirmed: Vec<u32>,
+}
+
+/// One end of lines that moved between two files of a subject without a change: `len` lines from `start` of this
+/// file (0-based: old lines where they left, new lines where they stand now) are the lines from `line` of the file
+/// `file` of the subject, on its other side. Never quiet, and no line of it is hidden: both ends are read
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FileMove {
+  pub start: u32,
+  pub len: u32,
+  /// The other file, by its index among the files of the subject
+  pub file: u32,
+  /// The first line of the other end, 0-based
+  pub line: u32,
+}
+
+/// What the index says of the uses of a rename of `DiffMarks::renames` that is not local
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RenameCheck {
+  /// The number of the rename among `DiffMarks::renames`
+  pub rename: u32,
+  pub proof: RenameProof,
+}
+
+/// A name renamed at every place of a file that another file of the subject declares
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UsedRename {
+  /// Its places in this file; `declared` is empty
+  pub rename: Rename,
+  /// The file that declares it, by its index among the files of the subject: the first one that does
+  pub file: u32,
+  /// The new line of its declaration there, 0-based
+  pub line: u32,
+  pub proof: RenameProof,
+}
+
+/// Whether the uses of a renamed name that is not local are proven to be the rename and nothing else, and why not:
+/// what a view says beside the name. Only `Confirmed` proves anything; every other one leaves the rename a label
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum RenameProof {
+  /// The index of the repository is being asked: the marks of the file come once more with its answer
+  Asked,
+  /// The index answered that the two names are one declaration, that it listed every use of it in both trees, that
+  /// each of them is a place of this rename in the subject or stands on a line that is read anyway, and that no name
+  /// means something else by the rename
+  Confirmed,
+  /// A use of the name stands where the subject did not change it: in a file it left alone, on a line it left alone
+  UsesOutside,
+  /// The rename changes what a name means: a use that names another declaration now, an overload, an override, a
+  /// declaration it hides or that hides it, a namesake
+  OtherMeaning,
+  /// The two names are not one declaration: its kind, its owner or its signature changed with the name
+  OtherDeclaration,
+  /// The index did not list every use, or tied one by its name alone, or reads the language of the declaration
+  /// without the scopes that would prove a use
+  Incomplete,
+  /// No index answered: none on this machine, one that knows no such answer, no index of the repository, a subject
+  /// it cannot be asked of (the working tree), or a declaration it cannot be asked by its place
+  Unavailable,
 }
 
 /// A run of lines inside one block that changed in one way alone: the old lines `[old_start, old_end)` became the

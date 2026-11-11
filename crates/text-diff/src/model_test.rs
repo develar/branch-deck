@@ -3,8 +3,8 @@
 
 use crate::cancellation::Deadline;
 use crate::model::{
-  BlockKind, DiffBlock, DiffBudget, DiffMarks, EmptyLastLine, FinalNewline, LineEnds, LineMove, LineRun, MAX_INNER_LINES, RangeKind, Rename, RunKind, TextDiff, diff_texts,
-  starts_of,
+  BlockKind, DiffBlock, DiffBudget, DiffMarks, EmptyLastLine, FileMove, FinalNewline, LineEnds, LineMove, LineRun, MAX_INNER_LINES, RangeKind, Rename, RenameCheck, RenameProof,
+  RunKind, SubjectMarks, TextDiff, UsedRename, diff_texts, starts_of,
 };
 use crate::policy::WhitespacePolicy;
 use crate::test_support::{between, block, proptest_config, run, text_of_lines};
@@ -416,7 +416,11 @@ fn the_model_is_camel_case_json() {
 fn the_marks_are_camel_case_json_with_every_field() {
   let mut result = diff("a\nb\n", "a\nc\n");
   let json = serde_json::to_value(&result).expect("serializable");
-  assert_eq!(json["marks"], serde_json::json!({ "runs": [], "moves": [], "renames": [], "starts": [0, 1, 1] }));
+  // what the other files of a subject say is no part of the diff of a pair: written, as nothing
+  assert_eq!(
+    json["marks"],
+    serde_json::json!({ "runs": [], "moves": [], "renames": [], "starts": [0, 1, 1], "subject": null })
+  );
   assert!(json.get("kind").is_none());
 
   result.marks = DiffMarks {
@@ -449,6 +453,33 @@ fn the_marks_are_camel_case_json_with_every_field() {
       new_sites: vec![3, 4, 7],
     }],
     starts: vec![],
+    subject: Some(Box::new(SubjectMarks {
+      moved_out: vec![FileMove {
+        start: 53,
+        len: 4,
+        file: 1,
+        line: 17,
+      }],
+      moved_in: vec![],
+      declared: vec![RenameCheck {
+        rename: 0,
+        proof: RenameProof::UsesOutside,
+      }],
+      used: vec![UsedRename {
+        rename: Rename {
+          old: "openStore".to_string(),
+          new: "connectStore".to_string(),
+          sites: 1,
+          old_sites: vec![4, 14, 23],
+          new_sites: vec![4, 14, 26],
+          ..Rename::default()
+        },
+        file: 2,
+        line: 18,
+        proof: RenameProof::Asked,
+      }],
+      confirmed: vec![0],
+    })),
   };
   let json = serde_json::to_value(&result).expect("serializable");
   assert_eq!(
@@ -461,8 +492,34 @@ fn the_marks_are_camel_case_json_with_every_field() {
       }],
       "renames": [{ "old": "total", "new": "sum", "sites": 1, "local": true, "declared": [0], "oldSites": [3, 4, 9], "newSites": [3, 4, 7] }],
       "starts": [],
+      "subject": {
+        "movedOut": [{ "start": 53, "len": 4, "file": 1, "line": 17 }],
+        "movedIn": [],
+        "declared": [{ "rename": 0, "proof": "usesOutside" }],
+        "used": [{
+          "rename": {
+            "old": "openStore", "new": "connectStore", "sites": 1, "local": false, "declared": [],
+            "oldSites": [4, 14, 23], "newSites": [4, 14, 26],
+          },
+          "file": 2, "line": 18, "proof": "asked",
+        }],
+        "confirmed": [0],
+      },
     })
   );
+  for (proof, word) in [
+    (RenameProof::Confirmed, "confirmed"),
+    (RenameProof::OtherMeaning, "otherMeaning"),
+    (RenameProof::OtherDeclaration, "otherDeclaration"),
+    (RenameProof::Incomplete, "incomplete"),
+    (RenameProof::Unavailable, "unavailable"),
+  ] {
+    assert_eq!(serde_json::to_value(proof).expect("serializable"), word);
+  }
+  // a diff written before the subject had marks reads as one without them
+  let mut older = json.clone();
+  older["marks"].as_object_mut().expect("an object").remove("subject");
+  assert_eq!(serde_json::from_value::<TextDiff>(older).expect("deserializable").marks.subject, None);
   assert_eq!(serde_json::to_value(RunKind::Comments).expect("serializable"), "comments");
   assert_eq!(serde_json::to_value(RunKind::Renamed).expect("serializable"), "renamed");
   let back: TextDiff = serde_json::from_value(json).expect("deserializable");

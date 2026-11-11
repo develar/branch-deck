@@ -1,8 +1,9 @@
 //! What the marks of a diff cost (docs/design/diff-view.md, "Marks"): the tokens of a text, the rule of the tokens,
 //! `marks_of` of a pair, the renames of a file at the limit of their work, the moves of a file of 10,000 lines, of
 //! the file a search costs most in and of a chain of many short moves, and a subject of 200 files, with and without
-//! renamed locals and moved functions: its moves alone, and through the service to its first content and to the end
-//! of its stream. `cargo bench -p file-diffs --bench marks_bench`, on a quiet machine.
+//! renamed locals and moved functions, within a file and between two: its moves alone, the pass over its files
+//! alone, and through the service to its first content and to the end of its stream, compared and from memory.
+//! `cargo bench -p file-diffs --bench marks_bench`, on a quiet machine.
 //!
 //! The pair is two states of a Kotlin file of 3,300 lines, 300 functions of which every fifth changed:
 //! - `formatted`: a call wrapped over three lines and a comment worded again, so every changed block is a run and both
@@ -20,7 +21,9 @@ use code_symbols::highlight::Grammar;
 use code_symbols::navigate::resolution_work;
 use code_symbols::tokens::{Tokens, compare, equal_by_tokens, tokens};
 use criterion::{Criterion, criterion_group, criterion_main};
+use file_diffs::leftovers::Leftovers;
 use file_diffs::marks::{MAX_BLOCK_TOKENS, MAX_RENAME_WORK, MAX_TOKEN_EDITS, marks_of};
+use file_diffs::marks_subject::{IndexAnswer, PairFacts, Subject};
 use file_diffs::model::{DiffSource, FileDiffEvent, GetFileDiffsParams};
 use file_diffs::service::{DiffLimits, FileDiffs};
 use object_cache::cache::ObjectCache;
@@ -476,12 +479,22 @@ fn pairs(files: &[(String, String)]) -> Vec<(&str, &str)> {
   files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect()
 }
 
-/// The time of one stream of the subject by a service with empty caches: to its first content, and to its end
-fn stream(repo: &TestRepo, commit: &str) -> (Duration, Duration) {
-  let diffs = FileDiffs::new(DiffLimits {
+/// A service whose time limits no file of a subject reaches
+fn service() -> FileDiffs {
+  FileDiffs::new(DiffLimits {
     file: Duration::from_secs(60),
     lines: Duration::from_secs(60),
-  });
+  })
+}
+
+/// The time of one stream of the subject by a service with empty caches: to its first content, and to its end
+fn stream(repo: &TestRepo, commit: &str) -> (Duration, Duration) {
+  stream_of(&service(), repo, commit)
+}
+
+/// The time of one stream of the subject by `diffs`: to its first content, and to its end. From the memory of a
+/// service that streamed the subject before, the first content waits for what the files say of each other
+fn stream_of(diffs: &FileDiffs, repo: &TestRepo, commit: &str) -> (Duration, Duration) {
   let params = GetFileDiffsParams {
     repository_path: repo.path().to_str().expect("a UTF-8 path").to_string(),
     source: DiffSource::Commit { id: commit.to_string() },
@@ -491,7 +504,7 @@ fn stream(repo: &TestRepo, commit: &str) -> (Duration, Duration) {
   let start = Instant::now();
   let mut first = None;
   diffs
-    .stream(repo.git_executor(), &ObjectCache::disabled(), &params, |event| {
+    .stream(repo.git_executor(), &ObjectCache::disabled(), None, &params, |event| {
       if matches!(event, FileDiffEvent::Content { .. }) {
         first.get_or_insert_with(|| start.elapsed());
       }
@@ -507,8 +520,12 @@ type Sides = Box<dyn Fn(&str, usize) -> [String; 2]>;
 /// for every block), `formatted` parses both sides of every file for their tokens, `changed` and `renamed` for their
 /// tokens and their names: the difference is what the marks cost when nothing is left out before the tokens, and what
 /// the names add. `moved` has every fifth function of each file at the end of its class, the lines of a function its
-/// own: three moves of eleven lines a file, sixty in the four large ones
-fn subjects() -> [(&'static str, Sides); 5] {
+/// own: three moves of eleven lines a file, sixty in the four large ones. `moved between files` has those functions
+/// at the end of the class of the next file, each function of the subject a text of its own: the moves between two
+/// files that the pass over the files of the subject finds. A function that left a small file is two of them, around
+/// the two lines every function has (`return Response.empty(request.id)` and the brace after it): the pair of its
+/// file took those for a move within the file, to a function that arrived there, before the pass saw the other file
+fn subjects() -> [(&'static str, Sides); 6] {
   let edited = |edit: Edit| -> Sides { Box::new(move |name, functions| [source(name, functions, "", |_| Edit::None), source(name, functions, "", every_fifth(edit))]) };
   let moved: Sides = Box::new(|_, functions| {
     let (stay, leave) = (|index: &usize| index % 5 != 2, |index: &usize| index % 5 == 2);
@@ -517,13 +534,75 @@ fn subjects() -> [(&'static str, Sides); 5] {
       own_source((0..functions).filter(stay).chain((0..functions).filter(leave)), |_| false),
     ]
   });
+  let moved_across: Sides = Box::new(|name, functions| {
+    // the functions of a file, by numbers no other file has, and the ones that leave it
+    let own = |file: usize, functions: usize| file * 1_000..file * 1_000 + functions;
+    let (stay, leave) = (|index: &usize| index % 5 != 2, |index: &usize| index % 5 == 2);
+    let file: usize = name.trim_start_matches("Service").parse().expect("the number of the file");
+    let before = (file + 199) % 200;
+    let arrive = own(before, if before % 50 == 0 { 300 } else { 15 }).filter(leave);
+    [
+      own_source(own(file, functions), |_| false),
+      own_source(own(file, functions).filter(stay).chain(arrive), |_| false),
+    ]
+  });
   [
     ("operator", edited(Edit::Operator)),
     ("changed", edited(Edit::Changed)),
     ("formatted", edited(Edit::Formatted)),
     ("renamed", edited(Edit::Renamed)),
     ("moved", moved),
+    ("moved between files", moved_across),
   ]
+}
+
+/// What the files of a subject say of each other, from what their pairs left: the pass over the 200 files alone, on
+/// one thread, as a stream runs it once every pair is known (before the first content when the caches had them all)
+fn bench_subject_pass(c: &mut Criterion) {
+  let mut group = c.benchmark_group("the pass over the 200 files of a subject");
+  for (name, sides) in subjects() {
+    let [before, after] = subject_files(&sides);
+    let read: Vec<(TextDiff, Leftovers)> = before
+      .iter()
+      .zip(&after)
+      .map(|((_, old), (_, new))| {
+        let mut diff = diff_of(old, new);
+        let tokens_of = |new_side: bool| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new);
+        let pair = marks_of(&diff, old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, tokens_of);
+        let (marks, left) = Leftovers::of(&diff.blocks, pair, old, new);
+        diff.marks = marks;
+        (diff, left)
+      })
+      .collect();
+    let facts: Vec<Option<PairFacts<'_>>> = before
+      .iter()
+      .zip(&read)
+      .map(|((path, _), (diff, left))| {
+        Some(PairFacts {
+          old_path: Some(path),
+          new_path: Some(path),
+          diff,
+          left,
+        })
+      })
+      .collect();
+    let subject = Subject::of(&facts);
+    let marks = subject.marks(IndexAnswer::Unavailable);
+    let moved: usize = marks
+      .iter()
+      .flatten()
+      .filter_map(|marks| marks.subject.as_ref())
+      .map(|subject| subject.moved_in.len())
+      .sum();
+    let left: usize = read.iter().flat_map(|(_, left)| left.lines.iter().flatten()).map(|row| row.keys.len()).sum();
+    println!(
+      "{name}: {left} lines left by the pairs, {moved} moves between files, {} files the subject says something of, work {:?}",
+      marks.iter().flatten().count(),
+      subject.work
+    );
+    group.bench_function(name, |b| b.iter(|| black_box(Subject::of(&facts).marks(IndexAnswer::Unavailable)).len()));
+  }
+  group.finish();
 }
 
 /// The moves of every file of a subject, one file after another on one thread, from the blocks of its diff: what
@@ -574,6 +653,15 @@ fn bench_stream(c: &mut Criterion) {
     group.bench_function(format!("{name}, to the end"), |b| {
       b.iter_custom(|iterations| (0..iterations).map(|_| stream(&repo, &commit).1).sum());
     });
+    // every pair in memory: the first content comes after the pass over the files of the subject
+    let warm = service();
+    stream_of(&warm, &repo, &commit);
+    group.bench_function(format!("{name}, from memory, to the first content"), |b| {
+      b.iter_custom(|iterations| (0..iterations).map(|_| stream_of(&warm, &repo, &commit).0).sum());
+    });
+    group.bench_function(format!("{name}, from memory, to the end"), |b| {
+      b.iter_custom(|iterations| (0..iterations).map(|_| stream_of(&warm, &repo, &commit).1).sum());
+    });
   }
   group.finish();
 }
@@ -588,6 +676,7 @@ criterion_group!(
   bench_moves_short,
   bench_limits,
   bench_subject_moves,
+  bench_subject_pass,
   bench_stream
 );
 criterion_main!(benches);

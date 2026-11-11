@@ -9,9 +9,11 @@ pub mod accio;
 pub mod blocks;
 pub mod collapse;
 pub mod declarations;
+pub mod leftovers;
 pub mod marks;
 mod marks_renames;
 mod marks_runs;
+pub mod marks_subject;
 mod merge;
 pub mod model;
 mod outside_place;
@@ -35,6 +37,8 @@ mod declarations_test;
 mod fixture_test;
 #[cfg(test)]
 mod marks_renames_test;
+#[cfg(test)]
+mod marks_subject_test;
 #[cfg(test)]
 mod marks_test;
 #[cfg(test)]

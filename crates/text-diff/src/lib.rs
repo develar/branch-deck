@@ -30,6 +30,7 @@ pub mod merge_range_util;
 pub mod merge_resolve_util;
 pub mod model;
 pub mod moves;
+pub mod moves_across;
 pub mod policy;
 pub mod provider;
 pub mod range;
@@ -69,6 +70,8 @@ mod merge_model_test;
 mod merge_resolve_util_test;
 #[cfg(test)]
 mod model_test;
+#[cfg(test)]
+mod moves_across_test;
 #[cfg(test)]
 mod moves_test;
 #[cfg(test)]

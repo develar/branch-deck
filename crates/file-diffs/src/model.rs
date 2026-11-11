@@ -4,7 +4,7 @@ use generated_files::names::GeneratedName;
 use object_cache::commit_files::FileStatus;
 use serde::{Deserialize, Serialize};
 use text_diff::merge_model::TextMerge;
-use text_diff::model::{Scope, TextDiff};
+use text_diff::model::{DiffMarks, Scope, TextDiff};
 use text_diff::policy::WhitespacePolicy;
 
 /// The parameters of `get_file_diffs`
@@ -79,7 +79,8 @@ pub struct DiffFileHeader {
 }
 
 /// What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
-/// first, and a `scopes` after the `content` of a text that the caches did not have
+/// first, a `scopes` after the `content` of a text that the caches did not have, and a `marks` for a file whose marks
+/// the other files of the subject or the index of the repository changed after its `content` went out
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -98,6 +99,11 @@ pub enum FileDiffEvent {
     new_scopes: Vec<Scope>,
     import_blocks: Vec<u32>,
   },
+  /// The marks of the text of a file, in place of those its `content` brought: with what the other files of the
+  /// subject say of it (`DiffMarks::subject`: the lines that moved between two files, the names another file
+  /// declares), once every file is known, and once more with what the index answered of its renamed names. It adds
+  /// runs that are labels, words and what a reader may pass (`starts`); it takes no row of the file away
+  Marks { index: u32, marks: DiffMarks },
 }
 
 /// Why the views start a file collapsed: its header is enough to know it is there, its chevron expands it

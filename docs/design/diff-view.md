@@ -113,7 +113,9 @@ rest gets a label and stays a stop.
 | comments alone (`comments`) | yes | no |
 | a file without a grammar | no | no: its block of whitespace stays the pale stop it is; it has its moves |
 | moved lines (`moves`) | yes | never: where lines stand is behaviour. The lines are read where they stand now, and are nothing to read where they left |
+| lines moved between two files (`subject.movedOut`, `movedIn`) | yes, at both ends | never, and no line of them is hidden: both ends are read |
 | a renamed name (`renamed`, `renames`) | yes | not yet: a label until its measurement. Proven are the lines that changed in the name alone, for a value of its body alone, every name of which the scopes bind: a variable, a parameter that no call may name and no annotation or macro may read, in a text the scopes read whole. Never the declaration of a name that is not local, never a place that makes more of the name than its binding |
+| a renamed name that is not local, in the file that declares it and in the files that use it (`subject.declared`, `used`) | yes | not yet, and then only its uses, where the index of the repository lists every use of the declaration in both trees and each is a place of the rename (`subject.confirmed`). The declaration is always read |
 
 - **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
   changed in one way alone), `moves` (the lines that moved within the file), `renames` (the names the change renamed
@@ -125,7 +127,9 @@ rest gets a label and stays a stop.
   a view draws of the runs is "The parts of a block" below.
 - **With the content.** The marks change the rows a view draws (the Inline view shows the new lines of a quiet run
   alone), so marks that came after the content would move a file already drawn. They are made in the worker of the
-  file before its `content` goes out; the scopes still come after it.
+  file before its `content` goes out; the scopes still come after it. What only the other files of the subject
+  explain cannot be: it comes when every pair is known, as a `marks` event that adds runs that are labels and words
+  and takes no row ("What the files of a subject say of each other" below).
 - **A block is read in five steps** (`marks_runs.rs`). The tokens of its code are aligned: lines with the same code
   pair token by token, else by the longest common subsequence of the keys of the tokens. The block is cut at the line
   boundaries both sides share, those no token crosses with the same paired tokens before them. Each segment between
@@ -187,10 +191,10 @@ rest gets a label and stays a stop.
   (`const total = () => 1`). The reader stops at that line, where the behaviour changes, and the uses of the name
   stay proven (`Site` of the navigation, anything but `Plain`). A name that no body binds (a member, a declaration of the file) is every name of its
   spelling, tied by nothing but that: with its declaration in the file it is a rename whose uses are labels and
-  whose declaration is in no run, until the pass over the files of a change asks the index of the repository
-  (accio) whether every use is one of them. Declared in another file, it is no rename of this one: nothing is
-  marked, and the pair hands the name out with its places (`PairMarks::undeclared`), which that pass will keep
-  beside the diff; nothing reads it yet.
+  whose declaration is in no run; the pass over the files of its subject asks the index of the repository (accio)
+  whether every use is one of them. Declared in another file, it is no rename of this pair: nothing is marked, and
+  the pair hands the name out with its places (`PairMarks::undeclared`) and the runs its blocks have were it a
+  rename (`PairMarks::pending`), which that pass reads.
 - **Proven is not yet quiet.** A kind of run is passed only after its measurement (the rule at the top of this
   section): a sample of its proven runs of real ranges, read by a person, with no change of behaviour among them.
   The proof of a rename reads scopes without types and without the other files, and its first review found changes
@@ -199,8 +203,69 @@ rest gets a label and stays a stop.
   `has_proof` names the kinds that can be proven; the marks of a pair name the runs that are proven and labels all
   the same (`PairMarks::proven`), and `PairMarks::as_proven` gives the marks with those runs quiet: what the
   measurement samples, and what the tests of a proof read (they also ask that a view gets the same marks with the
-  kind as labels). Switching the kind on is one line of `is_quiet`; the stage that confirms the uses
-  of a name that is not local makes its runs proven the same way.
+  kind as labels). Switching the kind on is one line of `is_quiet`; the uses of a name that is not local that the
+  index confirmed (`SubjectMarks::confirmed`, `marks_subject::as_confirmed`) are proven runs of the same kind and
+  become quiet with it, not before.
+- **What a pair leaves** (`leftovers.rs`). A pair of blobs is what the caches keep, and it stands in many commits
+  beside other files, so nothing of a subject may enter it. What the other files of a subject need of a pair is made
+  where its texts are, in its worker, and kept beside its diff (in memory and in the `file_leftovers` store, under
+  the key and the version of the diff, never inside the `TextDiff`: a scan decodes the diff of a pair at every hit).
+  It is the changed lines of each side that no mark took, as hashed keys with their weight in rows
+  ([Text Diff Engine](text-diff.md#moves-between-files)); the names that changed at every place of the file and
+  are declared in none; the runs of the blocks that hold a place of such a name, read once more with those names
+  as one (the third reading of a block, `Renames::pending`: every run of it with the names it needs, and none that
+  shares a line with a move of the file); the places of the declarations of its renames that are not local, in the
+  lines and the characters the index counts; and which of its renames the scopes prove. The pass over a subject
+  reads no blob, so a subject whose pairs the caches have costs no process.
+- **What the files of a subject say of each other** (`marks_subject.rs`, the group Subject of the spec). A pure
+  function of what the pairs of the subject are and left, in the order of git, so it is the same from the
+  comparison, from memory and from the store of another app.
+  - *The lines that moved between two files*: rows of the same lines among what the pairs left, deleted in one file
+    and added in another. Exact lines only, from two lines that are not blank and 48 characters, the longest first,
+    each line once; lines that match two places move to the first. A label at both ends, never quiet: no line is
+    hidden, and no stop is taken (the starts of both files are those of their pairs).
+  - *A name another file declares*: a name the pair of a file handed out is a rename of that file once another file
+    of the subject declares a name that is not local and renamed it so. The tie is of the two spellings, as within
+    a file: a label. The runs its pair kept for it hold then, beside the runs of the pair, which stay
+    (`with_the_first`, as the second reading of a pair); a run that needs a name no file of the subject declares
+    does not, and its line is read. A line of such a run is taken from the rows of the moves between files: a line
+    is in a run or in a move.
+- **What the index proves** (`Subject::questions`, `IndexAnswer`). Every declaration of a renamed name that is not
+  local is asked of accio in one call (`accio renames`, its decision 2026-11-11-rename-read-in-two-trees): whether
+  the two places are one declaration, its uses in both trees, what the rename changed beyond the name. accio maps
+  no line of one tree to the other; that is this reader's part. A declaration is proven renamed when the answer
+  says one declaration of Kotlin or Java, complete, without a conflict, and every use it lists in either tree is
+  the declaration, a place of the rename in the subject whose twin of the other tree is listed too, a link of a doc
+  comment (it runs nothing), or stands on a line that is read anyway: a changed line in no run, so a call the
+  change added or deleted in another file stands in the way of nothing. Every other case names why not, for a view
+  to word: `usesOutside` (a use the change left behind in a file it did not touch, which accio reports, or on a
+  line it left alone), `otherMeaning` (a conflict of accio: a capture, an overload, an override, a declaration it
+  hides or that hides it, a namesake; a use without its twin; a use of the new name on a line left alone),
+  `otherDeclaration` (the kind, the owner or the signature changed with the name), `incomplete` (the answer is not
+  complete, a use is tied by its name alone, more uses than listed, another language: accio ties a use by the
+  scopes of its file for Kotlin and Java only) and `unavailable` (no index, an accio without the answer, a
+  failure, a pair it could not ask, the working tree). What the index found wrong comes before what it could not
+  say. The places a proven declaration lists are proven, and a run whose every place is proven (by the index, or
+  for a local name by the scopes of its file) is named in `confirmed`. The declaration is in no run and stays a
+  stop.
+- **The answer comes last.** The index is asked after the contents went out, also when the caches had every pair,
+  so its answer is always a late event, and a late event takes no row: a view passes a confirmed run and shows each
+  of its lines, where a quiet run of the pair is shown once. That is why `confirmed` is a list of its own beside
+  `quiet`. Only a commit and a range named by their ids are asked: the working tree may be another by the time
+  accio reads it, and its answer would be of other texts than the ones shown.
+- **How a view reads the marks of a subject (planned: no view words them yet).** `marks.subject` is absent or
+  `null` for a file the subject says nothing of. `movedOut` and `movedIn` are `{start, len, file, line}`: `len`
+  lines from `start` (old lines where they left, new lines where they stand now), `file` the index of the other
+  file among the files of the subject (the order of `files`), `line` the first line there; a note at each end
+  ("Moved to Report.kt:12", "Moved from Ledger.kt:54") and the colour of a move, every line shown in every view. A
+  file out of the view (a section of a review that leaves it out) is just words. `used` is `{rename, file, line,
+  proof}`: a `Rename` without a declaration, its note at its first place ("Renamed openStore → connectStore ·
+  declared in Store.kt"), its lines the runs of the kind `renamed` that hold its places. `declared` is `{rename,
+  proof}` for the renames of `renames` that are not local, by their number. `proof` is what the note adds: `asked`
+  while the index runs (a `marks` event follows), `confirmed`, or why not. `confirmed` names the runs, by their
+  numbers among `runs`, that are passed once the kind is on (`quiet` then, and the starts without them) and shown
+  line by line all the same. A `marks` event replaces the marks of its file whole; the blocks are those of the
+  content.
 - **How a view reads a rename (planned: no view words one yet).** `renames` holds `{old, new, sites, local,
   declared, oldSites, newSites}`: place `i` is `[line, start, end]` of each text (UTF-16), in the order of the
   texts, `declared` the numbers of the places that declare the name: where the one note of the rename stands
@@ -298,6 +363,13 @@ read from the tokens too now, so the question leaves out only the blocks that ch
 or the order of their words (measured again below, with the renames). There the tokens found 257 runs of formatting (2,489 of 104,084 changed lines) and 3,337
 runs of comments: this repository words its comments with its code. The worst block costs 10 ms, once per blob pair:
 the diff with its marks is kept in memory and in the `file_diff` store.
+
+The pass over the files of a subject (the groups "the pass over the 200 files of a subject" and `stream` of the same
+benchmark, the Studio at a load of 30, so the streams are read by their fastest samples): the pass alone costs 0.05
+ms for 200 files whose pairs left nothing, and 0.8 ms for 200 files whose pairs left 14,836 lines, with 1,428 moves
+between files among them (12,876 pairs of lines read). So it runs before the first content when the caches have
+every pair: a subject of 200 files from memory is at its first content after 33 to 45 ms in every case, which is the
+one `diff-tree` of its list, and its marks cost that stream less than a millisecond.
 
 The renames (the groups `marks_of`, "renamed locals at the limit of their work" and `stream` of the same benchmark;
 the Mac Studio at a load of 4 to 8 of its 20 cores; the same Kotlin pair of 3,300 lines, and files of 3,400 lines

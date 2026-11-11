@@ -53,7 +53,7 @@ fn the_list_and_the_diffs_of_a_range_run_one_diff_tree() {
   for _ in 0..2 {
     std::thread::scope(|scope| {
       scope.spawn(|| diffs.range_files.read(&counting, &path, &subject).unwrap());
-      scope.spawn(|| diffs.stream(&counting, &ObjectCache::disabled(), &params, |_| {}).unwrap());
+      scope.spawn(|| diffs.stream(&counting, &ObjectCache::disabled(), None, &params, |_| {}).unwrap());
     });
   }
   let diff_trees: u32 = counting
