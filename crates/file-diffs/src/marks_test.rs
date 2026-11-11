@@ -2,7 +2,7 @@
 //! limits, and that the question a block is asked before the tokens changes no answer.
 
 use crate::fixture_test::unhurried;
-use crate::marks::{MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, is_quiet, marks_of, may_hold_comment, pair_grammar, runs_of};
+use crate::marks::{MAX_BLOCK_TOKENS, MAX_FILE_TOKEN_WORK, MAX_TOKEN_EDITS, SideText, is_quiet, marks_of, may_hold_comment, pair_grammar, pair_indented, runs_of};
 use crate::marks_runs::{BlockLines, runs_of_block};
 use crate::model::{DiffContent, DiffSource};
 use code_symbols::highlight::{Grammar, grammar_of};
@@ -34,7 +34,7 @@ fn read_counted(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> (
       .get_or_init(|| tokens(grammar?, if new_side { new } else { old }).map(Arc::new))
       .clone()
   };
-  diff.marks = marks_of(&diff, old, new, grammar, |new_side| {
+  diff.marks = marks_of(&diff, old, new, grammar, policy, pair_indented(path, path), |new_side| {
     let side = &asked[usize::from(new_side)];
     side.set(side.get() + 1);
     parse(new_side)
@@ -50,7 +50,8 @@ fn read(path: &str, old: &str, new: &str, policy: WhitespacePolicy) -> TextDiff 
   read_counted(path, old, new, policy).0
 }
 
-/// The blocks, the runs and the starts of a diff as one line: `old/new` lines of each block and each run
+/// The blocks, the runs, the moves and the starts of a diff as one line: `old/new` lines of each block and each run,
+/// `old->new` lines of each move
 fn show(diff: &TextDiff) -> String {
   let blocks: Vec<String> = diff
     .blocks
@@ -84,7 +85,35 @@ fn show(diff: &TextDiff) -> String {
       )
     })
     .collect();
-  format!("blocks [{}] runs [{}] starts {:?}", blocks.join(", "), runs.join(", "), diff.marks.starts)
+  let moves: Vec<String> = diff
+    .marks
+    .moves
+    .iter()
+    .map(|line_move| {
+      let (edited, blanks) = (line_move.edited.len(), (line_move.blanks_before, line_move.blanks_after));
+      format!(
+        "{}..{}->{}..{}{}{}{}",
+        line_move.old_start,
+        line_move.old_start + line_move.len,
+        line_move.new_start,
+        line_move.new_start + line_move.len,
+        if blanks == (0, 0) {
+          String::new()
+        } else {
+          format!(" blanks {}+{}", blanks.0, blanks.1)
+        },
+        if line_move.indent == 0 {
+          String::new()
+        } else {
+          format!(" indent {:+}", line_move.indent)
+        },
+        if edited == 0 { String::new() } else { format!(" edited {edited}") },
+      )
+    })
+    .collect();
+  // the moves only where a diff has them: most cases of the runs have none
+  let moves = if moves.is_empty() { String::new() } else { format!(" moves [{}]", moves.join(", ")) };
+  format!("blocks [{}] runs [{}]{moves} starts {:?}", blocks.join(", "), runs.join(", "), diff.marks.starts)
 }
 
 /// Each case against what `show` gives for it; every failure in one message
@@ -678,7 +707,11 @@ fn a_file_without_a_grammar_and_a_pair_of_two_grammars_have_no_runs() {
   // the same texts, marked as one grammar and unmarked as none
   let (old, new) = ("fun f() {\n  call(a, b)\n}\n", "fun f() {\n  call(a,\n    b)\n}\n");
   let diff = diff_texts(old, new, Exact, &DiffBudget::NONE);
-  let read = |grammar: Option<Grammar>| marks_of(&diff, old, new, grammar, |new_side| tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new));
+  let read = |grammar: Option<Grammar>| {
+    marks_of(&diff, old, new, grammar, Exact, false, |new_side| {
+      tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new)
+    })
+  };
   assert_eq!(read(Some(Grammar::Kotlin)).runs.len(), 1);
   assert_eq!((read(None).runs.len(), read(None).starts), (0, vec![0, 1, 1]));
 }
@@ -691,7 +724,7 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
   let diff = diff_texts(old, new, Exact, &DiffBudget::NONE);
   let kotlin = |text: &str| tokens(Grammar::Kotlin, text).map(Arc::new);
   for missing in [false, true] {
-    let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), |new_side| {
+    let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
       if new_side == missing { None } else { kotlin(if new_side { new } else { old }) }
     });
     assert_eq!(
@@ -702,7 +735,7 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
     );
   }
   // tokens of another text than the diff's prove nothing
-  let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), |new_side| {
+  let marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
     kotlin(if new_side { "fun f() {\n  call(a, b)\n}\n\n\n" } else { old })
   });
   assert_eq!(marks.runs.len(), 0);
@@ -713,7 +746,7 @@ fn a_text_without_tokens_and_a_side_over_the_size_of_the_inner_ranges_have_no_ru
     let (old, new) = (format!("{old}{}", "\n".repeat(blank_lines)), format!("{new}{}", "\n".repeat(blank_lines)));
     let diff = diff_texts(&old, &new, Exact, &DiffBudget::NONE);
     let asked = Cell::new(0);
-    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), |new_side| {
+    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), Exact, false, |new_side| {
       asked.set(asked.get() + 1);
       kotlin(if new_side { &new } else { &old })
     });
@@ -731,7 +764,7 @@ fn a_diff_the_time_cut_short_has_the_marks_of_its_blocks() {
   let (old, new) = ("fun f() {\n  a(1,\n    2)\n  b()\n}\n", "fun f() {\n  a(1, 2)\n  b()\n}\n");
   let read = |budget: &DiffBudget| {
     let mut diff = diff_texts(old, new, Exact, budget);
-    diff.marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), |new_side| {
+    diff.marks = marks_of(&diff, old, new, Some(Grammar::Kotlin), Exact, false, |new_side| {
       tokens(Grammar::Kotlin, if new_side { new } else { old }).map(Arc::new)
     });
     (diff.line_level_only, show(&diff))
@@ -970,6 +1003,33 @@ fn edited(text: &str, random: &mut Random) -> String {
   text
 }
 
+/// `text` with some of its lines at another place: up to twelve lines in a row, as they are, indented by two more
+/// columns, or with a letter of one of them changed
+fn moved(text: &str, random: &mut Random) -> String {
+  let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+  if lines.len() < 8 {
+    return text.to_string();
+  }
+  let count = 1 + random.below(12.min(lines.len() / 2));
+  let from = random.below(lines.len() - count + 1);
+  let mut taken: Vec<String> = lines.drain(from..from + count).collect();
+  match random.below(4) {
+    0 => taken.iter_mut().filter(|line| !line.trim().is_empty()).for_each(|line| line.insert_str(0, "  ")),
+    1 => {
+      let line = &mut taken[count / 2];
+      if let Some(letter) = line.find(|character: char| character.is_ascii_alphabetic()) {
+        line.replace_range(letter..=letter, "q");
+      }
+    }
+    _ => {}
+  }
+  let to = random.below(lines.len() + 1);
+  lines.splice(to..to, taken);
+  let mut text = lines.join("\n");
+  text.push('\n');
+  text
+}
+
 /// `text` with the line ends of `style`: 0 and 1 its own, 2 `\r\n` for each `\n`, 3 a lone `\r` after the lines
 /// that hold a line comment or whose bytes add up to a multiple of three (by the line alone: a line both sides have
 /// ends the same on both); `cut`: without its last line end
@@ -997,8 +1057,10 @@ fn with_line_ends(text: &str, style: usize, cut: bool) -> String {
 
 /// What holds of the marks of every diff: each run is in one block of two sides that is not cut off, in order and
 /// without overlap, with lines on both sides; a run of formatting has the same tokens, a run of comments the same
-/// code; a block has a start exactly when a line of it is in no quiet run; and when no block of a diff that ignores
-/// nothing (`exact`) has a start, the two texts are the same program
+/// code; a move has its old lines in one block that is a change and its new lines in another, none of them in a run
+/// or in another move, and the block of its new lines has a start; a block has a start exactly when a line of it is
+/// to read, a new line in no quiet run or an old line in no quiet run that no move took; and when no block of a diff
+/// that ignores nothing (`exact`) has a start, the two texts are the same program
 fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: bool) {
   let marks = &diff.marks;
   let (mut old_end, mut new_end) = (0, 0);
@@ -1016,8 +1078,8 @@ fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: b
     let expected = if run.kind == RunKind::Formatting { Equality::Same } else { Equality::CodeOnly };
     assert_eq!((answer, run.quiet), (expected, is_quiet(run.kind)), "{context}");
   }
-  let quiet = |new_side: bool, line: u32| {
-    marks.runs.iter().filter(|run| run.quiet).any(|run| {
+  let in_run = |new_side: bool, line: u32, quiet_only: bool| {
+    marks.runs.iter().filter(|run| run.quiet || !quiet_only).any(|run| {
       if new_side {
         run.new_start <= line && line < run.new_end
       } else {
@@ -1025,14 +1087,46 @@ fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: b
       }
     })
   };
+  let quiet = |new_side: bool, line: u32| in_run(new_side, line, true);
+  let block_of = |new_side: bool, start: u32, end: u32| {
+    diff.blocks.iter().position(|block| {
+      let lines = if new_side { block.new_start..block.new_end } else { block.old_start..block.old_end };
+      block.kind == BlockKind::Changed && lines.start <= start && end <= lines.end
+    })
+  };
+  let (mut old_moved, mut new_moved) = (vec![false; diff.old_line_count as usize], vec![false; diff.new_line_count as usize]);
+  let mut last_new = 0;
+  for line_move in &marks.moves {
+    let context = format!("{path}: {line_move:?} of {}", show(diff));
+    // with the blank lines that moved beside it
+    let (old_lines, new_lines) = (line_move.old_lines(), line_move.new_lines());
+    assert!(line_move.len > 0 && new_lines.start >= last_new, "{context}");
+    last_new = new_lines.end;
+    let (old_block, new_block) = (block_of(false, old_lines.start, old_lines.end), block_of(true, new_lines.start, new_lines.end));
+    assert!(old_block.is_some() && new_block.is_some() && old_block != new_block, "{context}");
+    assert!(
+      marks.starts.as_chunks::<3>().0.iter().any(|start| Some(start[0] as usize) == new_block),
+      "{context}: no start where the lines stand"
+    );
+    for (old_line, new_line) in old_lines.zip(new_lines) {
+      assert!(!in_run(false, old_line, false) && !in_run(true, new_line, false), "{context}: a line of a run");
+      assert!(!old_moved[old_line as usize] && !new_moved[new_line as usize], "{context}: a line of two moves");
+      (old_moved[old_line as usize], new_moved[new_line as usize]) = (true, true);
+    }
+  }
   let mut starts = marks.starts.as_chunks::<3>().0.iter().peekable();
   for (index, block) in diff.blocks.iter().enumerate() {
-    let read =
-      block.kind != BlockKind::Ignored && ((block.old_start..block.old_end).any(|line| !quiet(false, line)) || (block.new_start..block.new_end).any(|line| !quiet(true, line)));
+    let read = block.kind != BlockKind::Ignored
+      && ((block.old_start..block.old_end).any(|line| !quiet(false, line) && !old_moved[line as usize]) || (block.new_start..block.new_end).any(|line| !quiet(true, line)));
     let start = starts.next_if(|start| start[0] as usize == index);
     assert_eq!(start.is_some(), read, "{path}: block {index} of {}", show(diff));
     if let Some(start) = start {
       assert!(!quiet(start[1] == 1, start[2]), "{path}: the start {start:?} of {}", show(diff));
+      assert!(
+        start[1] == 1 || !old_moved[start[2] as usize],
+        "{path}: the start {start:?} of {} is a line that moved",
+        show(diff)
+      );
     }
   }
   assert_eq!(starts.next(), None, "{path}: {}", show(diff));
@@ -1042,15 +1136,17 @@ fn check_marks(path: &str, diff: &TextDiff, old: &Tokens, new: &Tokens, exact: b
 }
 
 /// Every file of the corpus against itself after random edits, under each policy, with its own line ends, with
-/// `\r\n`, with lone `\r` among them and without the last one: the question before the tokens changes no run
-/// (`read`), and the marks hold what `check_marks` asks
+/// `\r\n`, with lone `\r` among them and without the last one, and after the edits with some lines at another
+/// place: the question before the tokens changes no run (`read`), and the marks hold what `check_marks` asks
 #[test]
 fn the_marks_of_edited_files_are_proven_by_their_tokens() {
   let mut random = Random(0x9e37_79b9_7f4a_7c15);
+  // the moves have their own numbers, so the edits are the edits they were before lines moved
+  let mut moves_random = Random(0x2545_f491_4f6c_dd1d);
   // `MARKS_EDITS=600 cargo nextest run --release -p file-diffs -E 'test(the_marks_of_edited_files)'` asks more of them.
   // Twelve a file reach a changed line inside a comment that runs over a lone `\r`
   let edits = std::env::var("MARKS_EDITS").ok().and_then(|edits| edits.parse().ok()).unwrap_or(12);
-  let (mut runs, mut quiet_files) = (0, 0);
+  let (mut runs, mut quiet_files, mut moves, mut moves_with_runs) = (0, 0, 0, 0);
   for (path, text) in corpus() {
     let grammar = grammar_of(&path).unwrap();
     for _ in 0..edits {
@@ -1066,10 +1162,18 @@ fn the_marks_of_edited_files_are_proven_by_their_tokens() {
         runs += diff.marks.runs.len();
         quiet_files += usize::from(!diff.blocks.is_empty() && diff.marks.starts.is_empty());
       }
+      // the same edits with some lines at another place
+      let new = with_line_ends(&moved(&new.replace("\r\n", "\n").replace('\r', "\n"), &mut moves_random), ends, false);
+      let Some(new_tokens) = tokens(grammar, &new) else { continue };
+      let diff = read(&path, &text, &new, Exact);
+      check_marks(&path, &diff, &old_tokens, &new_tokens, true);
+      moves += diff.marks.moves.len();
+      moves_with_runs += usize::from(!diff.marks.moves.is_empty() && !diff.marks.runs.is_empty());
     }
   }
-  // the edits do make runs, and files with nothing left to read
+  // the edits do make runs, files with nothing left to read, moves, and files with moves beside runs
   assert!(runs > 100 && quiet_files > 5, "{runs} runs, {quiet_files} files without a start");
+  assert!(moves > 100 && moves_with_runs > 20, "{moves} moves, {moves_with_runs} files with moves and runs");
 }
 
 /// `count` statements of Kotlin in a function, each a call of four arguments
@@ -1140,10 +1244,13 @@ fn the_marks_template_has_each_case_in_a_block_of_its_own() {
     (
       "src/Ledger.kt",
       // `accounts` moved in, the wrapped call, `describe` moved in, the three places of `total`, `accounts` moved
-      // out, the comment, `isEmpty`, `describe` moved out, `reportTitle` moved out
+      // out, the comment, `isEmpty`, `describe` moved out, `reportTitle` moved out. `accounts` moved with the blank
+      // line that was before it and is after it now; `describe` moved with the one after it, was indented and has an
+      // edited line. The blocks the two left have no start
       "blocks [5..5/5..10, 6..7/11..14, 11..11/18..25, 13..14/27..28, 16..17/30..31, 19..20/33..34, 21..26/35..35, 27..28/36..37, 32..33/41..42, 45..52/54..54, 53..58/55..55] \
        runs [6..7/11..14 formatting quiet, 27..28/36..37 comments] \
-       starts [0, 1, 5, 2, 1, 18, 3, 1, 27, 4, 1, 30, 5, 1, 33, 6, 0, 21, 7, 1, 36, 8, 1, 41, 9, 0, 45, 10, 0, 53]"
+       moves [22..26->5..9 blanks 1+0, 45..52->18..25 indent +2 edited 1] \
+       starts [0, 1, 5, 2, 1, 18, 3, 1, 27, 4, 1, 30, 5, 1, 33, 7, 1, 36, 8, 1, 41, 10, 0, 53]"
         .to_string(),
     ),
     // the two calls of `openStore`, `reportTitle` moved in

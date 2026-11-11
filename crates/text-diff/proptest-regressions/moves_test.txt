@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc cc35232e78b49f767aba5e7f8ec663a2b9bf68b76c0be09149f86ac621d912de # shrinks to old = "fn alpha(items: &[Item]) -> u64 {\n\nreport(total, listeners, verbose);\nreport(total, listeners, verbose);\n", new = "report(total, listeners, verbose);\n\nfn alpha(items: &[Item]) -> u64 {"
+cc 71dc5e1cb4f74e24051d05f9fac0a8d616fef2c786622154b5c9a121c2bd57cb # shrinks to old = "let total = compute_total(items);\n  let total = compute_total(items);\nlet total = compute_total(items);\n}\nlet total = compute_total(items);", new = "    let total = compute_total(items);\n}"
+cc cb34151765bcf06ac15d4df5f1073768070e20a92e13850705e1a707857446e1 # shrinks to old = "  }\nlet total = compute_total(items);\nreport(total, listeners);\nlet total = compute_total(items);", new = "report(total, listeners);\n}\n  let total = compute_total(items);"

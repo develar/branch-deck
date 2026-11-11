@@ -357,6 +357,365 @@ fn a_declaration_is_whitespace_only_with_every_line_of_its_blocks() {
   );
 }
 
+/// A declaration that stands at another place of its file with the same code is moved, whatever stands around it
+/// there, wrapped again or not; one that moved and changed is a change of its behaviour, a statement that moved inside
+/// its function too, and a line that only stays where it was with other whitespace is whitespace
+#[test]
+fn a_declaration_at_another_place_with_the_same_code_is_moved() {
+  let function = |name: &str, body: &str| format!("fun {name}(x: Int): Int {{\n  val doubled = x * 2\n  return {body}\n}}\n");
+  let file = |functions: &[String]| format!("package a\n\n{}", functions.join("\n"));
+  let (one, two, three, four) = (
+    function("one", "compute(doubled, 1)"),
+    function("two", "compute(doubled, 2)"),
+    function("three", "compute(doubled, 3)"),
+    function("four", "compute(doubled, 4)"),
+  );
+  let before = file(&[one.clone(), two.clone(), three.clone(), four.clone()]);
+  let moved = UnitKind::Mechanical {
+    mechanical: MechanicalKind::Moved,
+  };
+  // the units of the file after `functions` in place of the four in their order: the kind, the name and the blocks
+  // of each
+  let units_of = |functions: &[String]| -> Vec<(UnitKind, Option<String>, Vec<u32>)> {
+    let repo = TestRepo::new();
+    let base = repo.create_commit("Add", "src/a/Store.kt", &before);
+    let head = repo.create_commit("Move", "src/a/Store.kt", &file(functions));
+    let plan = plan(&repo, &base, &head);
+    units(&plan)
+      .into_iter()
+      .map(|(kind, name, slices)| (kind, name.map(str::to_string), slices.into_iter().flat_map(|(_, blocks)| blocks).collect()))
+      .collect()
+  };
+  // to the end of the file, where other code stands around it; between two other functions; wrapped on the way
+  let wrapped = function("one", "compute(\n    doubled,\n    1\n  )");
+  for functions in [
+    [two.clone(), three.clone(), four.clone(), one.clone()],
+    [two.clone(), three.clone(), one.clone(), four.clone()],
+    [two.clone(), three.clone(), wrapped, four.clone()],
+  ] {
+    assert_eq!(units_of(&functions), [(moved.clone(), None, vec![0, 1])], "{functions:?}");
+  }
+  // moved and changed, and a statement at another place of its function: changes of its behaviour
+  let changed = function("one", "compute(doubled, 100)");
+  let reordered = one.replace(
+    "  val doubled = x * 2\n  return compute(doubled, 1)\n",
+    "  return compute(doubled, 1)\n  val doubled = x * 2\n",
+  );
+  assert_eq!(
+    units_of(&[two.clone(), three.clone(), changed, four.clone()]),
+    [(UnitKind::Behaviour, Some("one".to_string()), vec![0, 1])]
+  );
+  let behaviour: Vec<UnitKind> = units_of(&[reordered, two.clone(), three.clone(), four.clone()])
+    .into_iter()
+    .map(|(kind, _, _)| kind)
+    .collect();
+  assert_eq!(behaviour, [UnitKind::Behaviour]);
+  // a blank line added where the function stays: the same tokens in a block of one side, and no line of it moved
+  let spaced = one.replace("  return", "\n  return");
+  assert_eq!(
+    units_of(&[spaced, two, three, four]),
+    [(
+      UnitKind::Mechanical {
+        mechanical: MechanicalKind::Whitespace
+      },
+      None,
+      vec![0]
+    )]
+  );
+}
+
+/// A declaration that moved is folded only where its place has no meaning: a function or a type of Kotlin, Java, C#
+/// and Rust that crossed declarations alone, a hoisted function of TypeScript, a method of it without a decorator. A
+/// value with its initializer, an enum entry, a function that crossed a macro, an initializer block or the end of an
+/// `impl`, a function a `const` of TypeScript holds, a class of TypeScript, an overload among its overloads, a
+/// method that moved with its decorator or with a decorator of a parameter, one named by an expression, and a
+/// function of Starlark are changes of behaviour, each a unit that is read: where they stand is what the program
+/// does
+#[test]
+fn a_moved_declaration_is_folded_only_where_its_place_has_no_meaning() {
+  // each file: its path, its head, the declaration that moves (its lines), the declarations that stay, whether the
+  // moved one stands after them in the end (before them at first), and the unit it is, `None` for the fold
+  type Case = (&'static str, &'static str, &'static str, &'static str, bool, Option<&'static str>);
+  let cases: Vec<Case> = vec![
+    // Kotlin: a property that another reads as it is made; a top-level one; an enum entry
+    (
+      "src/a/Store.kt",
+      "package a\n\nclass Store(private val source: Source) {\n",
+      "  val items: List<Item> =\n    source.loadItems()\n",
+      "  val total: Int = items.sumOf { it.price }\n\n  fun describe(): String {\n    return \"store of $total\"\n  }\n",
+      true,
+      Some("items"),
+    ),
+    (
+      "src/a/Values.kt",
+      "package a\n\n",
+      "val first: Int =\n  computeFirst()\n",
+      "val second: Int = first + computeSecond()\n\nval third: Int = second + computeThird()\n",
+      true,
+      Some("first"),
+    ),
+    (
+      "src/a/Level.kt",
+      "package a\n\nenum class Level(val weight: Int) {\n",
+      "  LOW(computeLow()),\n",
+      "  HIGH(computeHigh()),\n  HIGHER(computeHigher()),\n",
+      true,
+      Some("LOW"),
+    ),
+    // a function across a property and a function: no order of them means anything
+    (
+      "src/a/Service.kt",
+      "package a\n\nclass Service(private val source: Source) {\n",
+      "  fun first(): Int {\n    return source.read(1)\n  }\n",
+      "  val cached: Int = source.read(0)\n\n  fun second(): Int {\n    return source.read(2)\n  }\n",
+      true,
+      None,
+    ),
+    // a class, whole: the unit of the member that holds most of its lines is folded as the class is
+    (
+      "src/a/Types.kt",
+      "package a\n\n",
+      "class Base {\n  fun read(): Int {\n    return 1\n  }\n}\n",
+      "class Derived : Base() {\n  fun write(): Int {\n    return 2\n  }\n}\n\nclass Last : Base() {\n  fun both(): Int {\n    return 3\n  }\n}\n",
+      true,
+      None,
+    ),
+    // a function with the property beside it, in one block: the property moved too
+    (
+      "src/a/Both.kt",
+      "package a\n\nclass Both(private val source: Source) {\n",
+      "  fun first(): Int {\n    return source.read(1)\n  }\n\n  val cached: Int = source.read(0)\n",
+      "  fun second(): Int {\n    return source.read(2)\n  }\n\n  fun third(): Int {\n    return source.read(3)\n  }\n",
+      true,
+      Some("first"),
+    ),
+    // across an initializer block: code of no declaration
+    (
+      "src/a/Session.kt",
+      "package a\n\nclass Session(private val source: Source) {\n",
+      "  fun open(): Int {\n    return source.read(1)\n  }\n",
+      "  init {\n    source.prepare()\n    source.verify()\n    source.warm()\n  }\n",
+      true,
+      Some("open"),
+    ),
+    // Java: a constant made of another; a method across a field
+    (
+      "src/a/Order.java",
+      "package a;\n\nclass Order {\n",
+      "  static final int DOUBLED =\n      BASE * 2 + offset(1);\n",
+      "  static final int BASE = offset(21);\n\n  static final int LIMIT = offset(34);\n\n  static final int LAST = offset(55);\n",
+      false,
+      Some("DOUBLED"),
+    ),
+    (
+      "src/a/Worker.java",
+      "package a;\n\nclass Worker {\n",
+      "  int first() {\n    return read(1);\n  }\n",
+      "  private final int cached = read(0);\n\n  int second() {\n    return read(2);\n  }\n",
+      true,
+      None,
+    ),
+    // C#: a field made of another; a method across a field
+    (
+      "src/a/Order.cs",
+      "namespace A;\n\nclass Order {\n",
+      "  static readonly int Doubled =\n      Base * 2 + Offset(1);\n",
+      "  static readonly int Base = Offset(21);\n\n  static readonly int Limit = Offset(34);\n\n  static readonly int Last = Offset(55);\n",
+      false,
+      Some("Doubled"),
+    ),
+    (
+      "src/a/Worker.cs",
+      "namespace A;\n\nclass Worker {\n",
+      "  int First() {\n    return Read(1);\n  }\n",
+      "  private readonly int cached = Read(0);\n\n  int Second() {\n    return Read(2);\n  }\n",
+      true,
+      None,
+    ),
+    // Rust: a function above the macros it calls; a variant of an ordered enum; a function across a type, a
+    // constant and a function; a method into another `impl` of its type
+    (
+      "src/a/answer.rs",
+      "",
+      "pub fn answer() -> u32 {\n  double!(7) + triple!(9)\n}\n",
+      "macro_rules! double {\n  ($value:expr) => {\n    $value * 2\n  };\n}\n\nmacro_rules! triple {\n  ($value:expr) => {\n    $value * 3\n  };\n}\n",
+      false,
+      Some("answer"),
+    ),
+    (
+      "src/a/rank.rs",
+      "#[derive(PartialEq, Eq, PartialOrd, Ord)]\npub enum Rank {\n",
+      "  Low(u32),\n",
+      "  High(u32),\n  Higher(u32),\n",
+      true,
+      Some("Low"),
+    ),
+    (
+      "src/a/shapes.rs",
+      "",
+      "pub fn area(shape: &Shape) -> u32 {\n  shape.width * shape.height\n}\n",
+      "pub struct Shape {\n  pub width: u32,\n  pub height: u32,\n}\n\npub const LIMIT: u32 = 64;\n\npub fn within(shape: &Shape) -> bool {\n  area(shape) < LIMIT\n}\n",
+      true,
+      None,
+    ),
+    (
+      "src/a/blocks.rs",
+      "pub struct Shape;\n\nimpl Shape {\n",
+      "  pub fn area(&self) -> u32 {\n    self.width() * self.height()\n  }\n",
+      "  pub fn width(&self) -> u32 {\n    4\n  }\n}\n\nimpl Shape {\n  pub fn height(&self) -> u32 {\n    2\n  }\n",
+      true,
+      Some("area"),
+    ),
+    // TypeScript: a constant another reads as the module loads; a function a constant holds; a hoisted function; a
+    // class; an overload among its overloads
+    (
+      "src/setup.ts",
+      "",
+      "export const defaultTimeout =\n  readTimeoutFromEnvironment()\n",
+      "export const retryTimeout = defaultTimeout * retryFactor()\n\nexport const longTimeout = retryTimeout * retryFactor()\n",
+      true,
+      Some("defaultTimeout"),
+    ),
+    (
+      "src/handlers.ts",
+      "",
+      "export const first = (value: number): number => {\n  return read(value, 1)\n}\n",
+      "export const second = first(2)\n\nexport const third = second + read(3, 3)\n\nexport const fourth = third + read(4, 4)\n",
+      true,
+      Some("first"),
+    ),
+    (
+      "src/functions.ts",
+      "",
+      "export function first(value: number): number {\n  return read(value, 1)\n}\n",
+      "export const cached = read(0, 0)\n\nexport function second(value: number): number {\n  return read(value, 2)\n}\n",
+      true,
+      None,
+    ),
+    (
+      "src/classes.ts",
+      "",
+      "export class Base {\n  read(): number {\n    return 1\n  }\n}\n",
+      "export class Derived extends Base {\n  write(): number {\n    return 2\n  }\n}\n\nexport class Last extends Base {\n  both(): number {\n    return 3\n  }\n}\n",
+      true,
+      // the unit of the member that holds most of the lines of the class
+      Some("read"),
+    ),
+    (
+      "src/overloads.ts",
+      "",
+      "export function parse(value: string, radix: number): string\n",
+      "export function parse(value: number): number\nexport function parse(value: boolean): boolean\n",
+      true,
+      Some("parse"),
+    ),
+    // a method with a decorator, on a line of its own and on the line of the method, and with a decorator of a
+    // parameter: the decorators of a class run in the order of its members, and the routes of a controller are
+    // matched in the order of its methods
+    (
+      "src/cats.controller.ts",
+      "@Controller(\"cats\")\nexport class CatsController {\n",
+      "  @Get(\":id\")\n  findOne(id: string): string {\n    return this.cats.one(id)\n  }\n",
+      "  @Get(\"search\")\n  search(): string {\n    return this.cats.search()\n  }\n\n  @Get(\"stats\")\n  stats(): string {\n    return this.cats.stats()\n  }\n",
+      false,
+      Some("findOne"),
+    ),
+    (
+      "src/dogs.controller.ts",
+      "@Controller(\"dogs\")\nexport class DogsController {\n",
+      "  @Get(\":id\") findOne(id: string): string {\n    return this.dogs.one(id)\n  }\n",
+      "  @Get(\"search\") search(): string {\n    return this.dogs.search()\n  }\n\n  @Get(\"stats\") stats(): string {\n    return this.dogs.stats()\n  }\n",
+      true,
+      Some("findOne"),
+    ),
+    (
+      "src/birds.controller.js",
+      "export class BirdsController {\n",
+      "  @Get(\":id\")\n  findOne(id) {\n    return this.birds.one(id)\n  }\n",
+      "  @Get(\"search\")\n  search() {\n    return this.birds.search()\n  }\n\n  @Get(\"stats\")\n  stats() {\n    return this.birds.stats()\n  }\n",
+      false,
+      Some("findOne"),
+    ),
+    (
+      "src/fish.service.ts",
+      "export class FishService {\n",
+      "  findOne(@Inject(Token) source: Source, id: string): string {\n    return source.one(id)\n  }\n",
+      "  search(source: Source): string {\n    return source.search()\n  }\n\n  stats(source: Source): string {\n    return source.stats()\n  }\n",
+      true,
+      Some("findOne"),
+    ),
+    // a method without a decorator across decorated ones: their order among themselves stays
+    (
+      "src/owls.controller.ts",
+      "@Controller(\"owls\")\nexport class OwlsController {\n",
+      "  private describe(id: string): string {\n    return this.owls.one(id)\n  }\n",
+      "  @Get(\"search\")\n  search(): string {\n    return this.owls.search()\n  }\n\n  @Get(\"stats\")\n  stats(): string {\n    return this.owls.stats()\n  }\n",
+      true,
+      None,
+    ),
+    // a method named by an expression, which runs in its turn as the class is made: no declaration of the file
+    (
+      "src/registry.ts",
+      "export class Registry {\n",
+      "  [nextKeyOfTheRegistry()](id: string): string {\n    return this.entries.one(id)\n  }\n",
+      "  search(): string {\n    return this.entries.search()\n  }\n\n  stats(): string {\n    return this.entries.stats()\n  }\n",
+      true,
+      Some("Registry"),
+    ),
+    // Starlark: a file runs from its first line to its last
+    (
+      "src/defs.bzl",
+      "",
+      "def first(name):\n    native.genrule(\n        name = name,\n    )\n",
+      "def second(name):\n    first(name + \"_a\")\n\ndef third(name):\n    second(name + \"_b\")\n\ndef fourth(name):\n    third(name + \"_c\")\n",
+      true,
+      Some("first"),
+    ),
+  ];
+  // a file: its head, the moved declaration before or after the ones that stay, a blank line between the two unless
+  // they are lines of one list (enum entries, overloads), and the brace that closes a head that opened one
+  let text = |(_, head, moved, stay, _, _): &Case, moved_last: bool| {
+    let end = if head.trim_end().ends_with('{') { "}\n" } else { "" };
+    let overloads = moved.starts_with("export function parse");
+    let between = if overloads || head.contains("enum ") { "" } else { "\n" };
+    let tail = if overloads {
+      "export function parse(value: unknown): unknown {\n  return value\n}\n"
+    } else {
+      ""
+    };
+    if moved_last {
+      format!("{head}{stay}{between}{moved}{tail}{end}")
+    } else {
+      format!("{head}{moved}{between}{stay}{tail}{end}")
+    }
+  };
+  let files = |after: bool| -> Vec<(&str, String)> { cases.iter().map(|case| (case.0, text(case, case.4 == after))).collect() };
+  let (before, after) = (files(false), files(true));
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &before.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
+  let head = repo.create_commit_with_files("Move", &after.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
+  let plan = plan(&repo, &base, &head);
+
+  let (mut folded, mut read): (Vec<&str>, Vec<(&str, &str)>) = (Vec::new(), Vec::new());
+  for (kind, name, slices) in units(&plan) {
+    let paths = slices.iter().map(|(path, _)| *path);
+    match kind {
+      UnitKind::Mechanical {
+        mechanical: MechanicalKind::Moved,
+      } => folded.extend(paths),
+      UnitKind::Behaviour => read.extend(paths.map(|path| (path, name.unwrap_or_default()))),
+      other => panic!("{other:?} of {name:?} in {slices:?}"),
+    }
+  }
+  folded.sort_unstable();
+  read.sort_unstable();
+  let mut expected_folded: Vec<&str> = cases.iter().filter(|case| case.5.is_none()).map(|case| case.0).collect();
+  let mut expected_read: Vec<(&str, &str)> = cases.iter().filter_map(|case| Some((case.0, case.5?))).collect();
+  expected_folded.sort_unstable();
+  expected_read.sort_unstable();
+  assert_eq!((folded, read), (expected_folded, expected_read));
+}
+
 /// The blocks name the lines of the diffs, where a lone `\r` ends a line, and the declarations of a summary those of
 /// git: a block below a lone `\r` goes to the declaration of its lines, a change of its code is a change of its
 /// behaviour and one of its whitespace whitespace, not what the line after it is

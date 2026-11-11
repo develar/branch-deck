@@ -2316,14 +2316,18 @@ export type DiffFileHeader = {
 export type DiffMarks = {
 	/**  By `old_start`, in the order of both sides, each inside one block, without overlap */
 	runs: LineRun[],
-	/**  By `new_start`; each end inside one block */
+	/**
+	 *  By `new_start`, a line of a side in one move at most and in no run: the old lines of a move inside one block
+	 *  (where the lines left: nothing to read there), its new lines inside another (where they stand now: read there),
+	 *  the blank lines that moved with it counted beside them
+	 */
 	moves: LineMove[],
 	renames: Rename[],
 	/**
 	 *  Flat `[block, side, line]` for each block with something to read, in the order of the blocks: the index of the
 	 *  block, the side of the line (0 the old text, 1 the new one) and the 0-based line the reading starts at
-	 *  (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every line is in a
-	 *  quiet run
+	 *  (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every new line is in
+	 *  a quiet run and every old line in a quiet run or in a move
 	 */
 	starts: number[],
 };
@@ -3694,7 +3698,10 @@ export type GroupKind =
 "module" | 
 /**  Of a step of one module: the files of one of its folders */
 "folder" | 
-/**  The mechanical stops: the build model, the lists of modules, imports alone, whitespace, renames, generated files */
+/**
+ *  The mechanical stops: the build model, the lists of modules, imports alone, whitespace, moved declarations,
+ *  renames, generated files
+ */
 "mechanical";
 
 /**  What groups a commit into its branch */
@@ -4405,16 +4412,44 @@ export type LineEnds = {
 	only: boolean,
 };
 
-/**  `len` lines that moved from `old_start` of the old text to `new_start` of the new one */
+/**
+ *  `len` lines that moved from `old_start` of the old text to `new_start` of the new one (0-based): old line
+ *  `old_start + i` is new line `new_start + i`. Never quiet: the new lines are read where they stand now. The blank
+ *  lines that left with it and stand at its other end now are counted beside its lines (`blanks_before`,
+ *  `blanks_after`): they are lines of the move on both sides, and no pair of its lines
+ */
 export type LineMove = {
 	oldStart: number,
 	newStart: number,
 	len: number,
-	/**  The columns every line moved by: "re-indented" */
+	/**
+	 *  The columns of whitespace its lines gained at their start, negative for lost ones: "re-indented". Of every line
+	 *  that is the same on both sides where the indentation of the file has a meaning, of most of them elsewhere
+	 */
 	indent: number,
 	/**
-	 *  For each line of the move, `[start, end, kind, ...]` as the ranges of a `DiffBlock`: what was edited on the way.
-	 *  Empty for an exact move
+	 *  The blank lines right before its old lines that stand right after its new lines: the old lines
+	 *  `[old_start - blanks_before, old_start)`, the new lines `[new_start + len, new_start + len + blanks_before)`
+	 */
+	blanksBefore: number,
+	/**
+	 *  The blank lines right after its old lines that stand right before its new lines: the old lines
+	 *  `[old_start + len, old_start + len + blanks_after)`, the new lines `[new_start - blanks_after, new_start)`
+	 */
+	blanksAfter: number,
+	/**
+	 *  The lines of the move that were edited on the way, by their place in it from 0, in order: a line whose text
+	 *  changed, a line whose indent or whose whitespace after its text changed otherwise than the move says where the
+	 *  policy of the diff counts that whitespace, and a line whose indent did not move as the indents of the move
+	 *  where the indentation of the file has a meaning (its nesting changed, also when no character of it did)
+	 */
+	edited: number[],
+	/**
+	 *  For each line of the move, `[start, end, kind, ...]` as the ranges of a `DiffBlock`, the two lines of a pair
+	 *  with as many ranges of the same kinds, each a text that is another on the other side: what an edited line
+	 *  changed in. A line without a range is the same on both sides but for the indent of the move, and for the
+	 *  whitespace at its ends where the policy of the diff leaves that out. Empty lists for a move none of whose
+	 *  lines has a range
 	 */
 	oldRanges: number[][],
 	newRanges: number[][],
@@ -4550,7 +4585,12 @@ export type MechanicalKind =
 "importsOnly" | 
 /**  Only whitespace changed */
 "whitespace" | 
-/**  Moved, no line changed */
+/**
+ *  Declarations that stand at another place of their file with the same code, where their place has no meaning
+ *  (`moved`): of a unit alone (`units`), never of a file
+ */
+"moved" | 
+/**  The file moved, no line changed */
 "renamed" | 
 /**
  *  Nobody writes it by hand: a lock file, a file the attributes mark generated, a file whose header says a tool wrote
@@ -9471,7 +9511,8 @@ export type TextDiff = {
 	/**
 	 *  What a reader may pass and what a view labels: the runs of lines that changed in their formatting or their
 	 *  comments alone, the moved lines, the renamed names, and the line the reading of each block starts at. The
-	 *  comparison fills `starts` alone; the file-diffs service fills the rest from the tokens of the texts
+	 *  comparison fills `starts` alone; the file-diffs service fills the rest: the runs from the tokens of the texts,
+	 *  the moves from their lines (`moves::find_moves`)
 	 */
 	marks: DiffMarks,
 };

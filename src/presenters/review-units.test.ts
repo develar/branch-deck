@@ -88,6 +88,27 @@ describe("the story of a review", () => {
     expect(api.targets.get(0)).toBe("group:mechanical:src/Api.kt:src/Api.kt")
   })
 
+  it("folds the declarations that moved as one group over their files, headed Moved with their count, each file saying Moved only", () => {
+    const units = [
+      unit({ kind: "behaviour" }, "open", [{ path: "src/Api.kt", blocks: [block(2, 30)] }]),
+      unit({ kind: "mechanical", mechanical: "moved" }, null, [
+        { path: "src/Api.kt", blocks: [block(0, 4), block(1, 20)] },
+        { path: "src/Store.kt", blocks: [block(0, 2), block(1, 9)] },
+      ]),
+    ]
+    const sections = presentNarrative(units, [file("src/Api.kt", [4, 20, 30]), file("src/Store.kt", [2, 9])], [], [], [])
+    expect(sections.map(section => [section.key, section.heading, section.groupName, section.folded])).toEqual([
+      ["file:src/Api.kt", null, null, null],
+      ["group:mechanical:src/Api.kt:src/Api.kt", "Moved (2)", "Moved", "Moved only"],
+      ["group:mechanical:src/Api.kt:src/Store.kt", null, "Moved", "Moved only"],
+    ])
+    // the body that changed names the two blocks the group shows: where the declaration left and where it stands
+    expect([...sections[0]!.units!.elsewhere]).toEqual([
+      [0, "Shown in Moved"],
+      [1, "Shown in Moved"],
+    ])
+  })
+
   it("names a block a group shows by the name of the group on each of its files, never by the count of its heading", () => {
     // B.kt: a line of the same edit as A.kt, an import and the body of open
     const units = [

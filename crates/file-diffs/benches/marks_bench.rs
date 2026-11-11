@@ -1,6 +1,8 @@
 //! What the marks of a diff cost (docs/design/diff-view.md, "Marks"): the tokens of a text, the rule of the tokens,
-//! `marks_of` of a pair, and a subject of 200 files through the service, to its first content and to the end of its
-//! stream. `cargo bench -p file-diffs --bench marks_bench`, on a quiet machine.
+//! `marks_of` of a pair, the moves of a file of 10,000 lines, of the file a search costs most in and of a chain of
+//! many short moves, and a subject of 200 files, with and without moved functions: its moves alone, and through the
+//! service to its first content and to the end of its stream. `cargo bench -p file-diffs --bench marks_bench`, on a
+//! quiet machine.
 //!
 //! The pair is two states of a Kotlin file of 3,300 lines, 300 functions of which every fifth changed:
 //! - `formatted`: a call wrapped over three lines and a comment worded again, so every changed block is a run and both
@@ -21,7 +23,8 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use test_utils::git_test_utils::TestRepo;
-use text_diff::model::{DiffBudget, TextDiff, diff_texts};
+use text_diff::model::{BlockKind, DiffBlock, DiffBudget, TextDiff, diff_texts};
+use text_diff::moves::{MAX_KEY_CANDIDATES, MAX_MOVE_LINES, MAX_MOVE_WORK, find_moves, find_moves_counted};
 use text_diff::policy::WhitespacePolicy;
 
 /// How a function of the generated file differs from its first state
@@ -36,8 +39,13 @@ enum Edit {
 
 /// A Kotlin class of `functions` functions of eleven lines, `edit` saying how each differs
 fn source(name: &str, functions: usize, indent: &str, edit: impl Fn(usize) -> Edit) -> String {
+  source_of(name, 0..functions, indent, edit)
+}
+
+/// A Kotlin class of the functions `functions`, by their numbers and in their order
+fn source_of(name: &str, functions: impl Iterator<Item = usize>, indent: &str, edit: impl Fn(usize) -> Edit) -> String {
   let mut text = format!("package bench\n\nclass {name}(private val repository: Repository) {{\n");
-  for index in 0..functions {
+  for index in functions {
     let edit = edit(index);
     writeln!(text, "{indent}  fun handle{index}(request: Request, limit: Int): Response {{").unwrap();
     if edit == Edit::Formatted {
@@ -114,14 +122,209 @@ fn bench_marks(c: &mut Criterion) {
     let diff = diff_of(&old, new);
     let (old_tokens, new_tokens) = (kotlin(&old), kotlin(new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, new, Some(Grammar::Kotlin), kept);
+    let marks = marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept);
     println!("{name}: {} blocks, {} runs, {} blocks to read", diff.blocks.len(), marks.runs.len(), marks.starts.len() / 3);
     // the tokens of both sides read for the marks: what a file costs before its content goes out
     group.bench_function(format!("{name}, tokens read"), |b| {
-      b.iter(|| marks_of(&diff, &old, new, Some(Grammar::Kotlin), |new_side| Some(kotlin(if new_side { new } else { &old }))));
+      b.iter(|| {
+        marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, |new_side| {
+          Some(kotlin(if new_side { new } else { &old }))
+        })
+      });
     });
     // the tokens in memory already: the question before the tokens and the runs alone
-    group.bench_function(format!("{name}, tokens kept"), |b| b.iter(|| marks_of(&diff, &old, new, Some(Grammar::Kotlin), kept)));
+    group.bench_function(format!("{name}, tokens kept"), |b| {
+      b.iter(|| marks_of(&diff, &old, new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept));
+    });
+  }
+  group.finish();
+}
+
+/// A Kotlin class of the functions `functions`, by their numbers and in their order, each of eleven lines that are
+/// its own (its number is in most of them); `edited` says which have another word in one line
+fn own_source(functions: impl Iterator<Item = usize>, edited: impl Fn(usize) -> bool) -> String {
+  let mut text = String::from("package bench\n\nclass Service(private val repository: Repository) {\n");
+  for index in functions {
+    let amount = if edited(index) { "price" } else { "amount" };
+    writeln!(text, "  fun handle{index}(request: Request{index}, limit: Int): Response {{").unwrap();
+    writeln!(text, "    val items{index} = repository.find{index}(request.id, limit)").unwrap();
+    writeln!(text, "    // Keeps the items of {index} that are still open.").unwrap();
+    writeln!(text, "    val open{index} = items{index}.filter {{ it.state == State.OPEN }}").unwrap();
+    writeln!(text, "    if (open{index}.isEmpty()) {{").unwrap();
+    writeln!(text, "      return Response.empty(request.id)").unwrap();
+    writeln!(text, "    }}").unwrap();
+    writeln!(text, "    val total{index} = open{index}.sumOf {{ it.{amount} }}").unwrap();
+    writeln!(text, "    return Response(request.id, open{index}, total{index})").unwrap();
+    writeln!(text, "  }}\n").unwrap();
+  }
+  text.push_str("}\n");
+  text
+}
+
+/// The moves of a file of 10,000 lines, 910 functions, from the blocks of its diff: what every file pays for them
+/// when none of its lines moved, and what a file with moved functions pays
+fn bench_moves(c: &mut Criterion) {
+  const FUNCTIONS: usize = 910;
+  let old = own_source(0..FUNCTIONS, |_| false);
+  // every 23rd function at the end of the class, in their order
+  let (stay, leave) = (|index: &usize| index % 23 != 7, |index: &usize| index % 23 == 7);
+  let at_the_end = |edited: bool| own_source((0..FUNCTIONS).filter(stay).chain((0..FUNCTIONS).filter(leave)), move |index| edited && leave(&index));
+  let cases = [
+    // a word changed in every fifth function: blocks, and no line that stands at two places
+    ("no line moved", own_source(0..FUNCTIONS, |index| index % 5 == 0)),
+    ("40 functions moved", at_the_end(false)),
+    ("40 functions moved, a line of each edited", at_the_end(true)),
+    // the two halves of the class change places: one move of 5,000 lines
+    ("half the file moved", own_source((FUNCTIONS / 2..FUNCTIONS).chain(0..FUNCTIONS / 2), |_| false)),
+  ];
+  let mut group = c.benchmark_group("moves, 10,000 lines");
+  // what the comparison of such a pair costs, beside its moves
+  group.bench_function("the diff alone, 40 functions moved", |b| b.iter(|| diff_of(black_box(&old), black_box(&cases[1].1))));
+  for (name, new) in &cases {
+    let diff = diff_of(&old, new);
+    let (moves, work) = find_moves_counted(&old, new, &diff.blocks, &[], WhitespacePolicy::Default, false);
+    println!(
+      "{name}: {} blocks, {} moves of {} lines, {} edited lines, {work:?}",
+      diff.blocks.len(),
+      moves.len(),
+      moves.iter().map(|line_move| line_move.len).sum::<u32>(),
+      moves.iter().map(|line_move| line_move.edited.len()).sum::<usize>(),
+    );
+    group.bench_function(*name, |b| {
+      b.iter(|| find_moves(black_box(&old), black_box(new), &diff.blocks, &[], WhitespacePolicy::Default, false));
+    });
+  }
+  group.finish();
+}
+
+/// The lines `old` deleted before ten lines that stay, and the lines `new`, as many, added after them: the two texts
+/// and the two blocks of their diff
+fn moved_sides(old: &[String], new: &[String]) -> (String, String, [DiffBlock; 2]) {
+  let side = |lines: &[String], stay_first: bool| {
+    let mut text = String::new();
+    let stay = |text: &mut String| (0..10).for_each(|index| writeln!(text, "stay_{index}();").unwrap());
+    if stay_first {
+      stay(&mut text);
+    }
+    for line in lines {
+      writeln!(text, "{line}").unwrap();
+    }
+    if !stay_first {
+      stay(&mut text);
+    }
+    text
+  };
+  let count = u32::try_from(old.len()).unwrap();
+  let block = |old: std::ops::Range<u32>, new: std::ops::Range<u32>| DiffBlock {
+    old_start: old.start,
+    old_end: old.end,
+    new_start: new.start,
+    new_end: new.end,
+    kind: BlockKind::Changed,
+    inline_pairs: false,
+    old_ranges: Vec::new(),
+    new_ranges: Vec::new(),
+  };
+  (side(old, false), side(new, true), [block(0..count, 0..0), block(count + 10..count + 10, 10..count + 10)])
+}
+
+/// The file the search for moves costs most in: `lines` lines deleted in one block and added in another, every line
+/// standing `MAX_KEY_CANDIDATES` times on each side and no two lines in a row on both, so every pair of two lines of
+/// a key starts a chain of its own that ends at once
+fn repeated_sides(lines: usize, line: impl Fn(usize) -> String) -> (String, String, [DiffBlock; 2]) {
+  let keys = lines / MAX_KEY_CANDIDATES;
+  let side = |key: &dyn Fn(usize) -> usize| (0..lines).map(|index| line(key(index))).collect::<Vec<String>>();
+  // seven keys on from line to line: a line that follows another on one side never does on the other
+  moved_sides(&side(&|index| index % keys), &side(&|index| index * 7 % keys))
+}
+
+/// The search for moves at its limits: a file of as many lines as a side may have, each standing as often as a line
+/// that starts a chain may. The search ends at `MAX_MOVE_WORK` pairs: what a file costs at the worst
+fn bench_moves_limits(c: &mut Criterion) {
+  // lines that are nothing alike: the text of a line is a number of its own, five times
+  let unlike = |key: usize| format!("{:08x}", key * 2_654_435_761 % 0xffff_fffb).repeat(5);
+  // lines that differ in a number: every pair of lines that ends a chain may be an edited line of it
+  let alike = |key: usize| format!("    registry.register(handler_{key:05}, {});", "option, ".repeat(11));
+  type Line<'a> = &'a dyn Fn(usize) -> String;
+  let cases: [(&str, usize, Line<'_>); 3] = [
+    ("65,536 lines of 40 characters", MAX_MOVE_LINES, &unlike),
+    ("65,536 lines of 120 characters, alike", MAX_MOVE_LINES, &alike),
+    ("10,000 lines of 40 characters", 10_000, &unlike),
+  ];
+  let mut group = c.benchmark_group("moves, every line 16 times");
+  group.sample_size(10);
+  for (name, lines, line) in &cases {
+    let (old, new, blocks) = repeated_sides(*lines, line);
+    let (moves, work) = find_moves_counted(&old, &new, &blocks, &[], WhitespacePolicy::Default, false);
+    println!("{name}: {} moves, {work:?} of {MAX_MOVE_WORK}", moves.len());
+    group.bench_function(*name, |b| {
+      b.iter(|| find_moves(black_box(&old), black_box(&new), &blocks, &[], WhitespacePolicy::Default, false));
+    });
+  }
+  group.finish();
+}
+
+/// A chain of many short moves, in a file of as many lines as a side may have: the longest row of the chain that may
+/// be a move is a line or two, and what is left of the chain after it is nearly all of it. Read again for each
+/// move, such a chain cost seconds; it is read once for all of them (`Finder::many_moves`)
+fn bench_moves_short(c: &mut Criterion) {
+  const LINES: usize = 65_000;
+  // jscpd:ignore-start: the files of `a_chain_of_many_short_moves_is_read_once_for_all_of_them` of text-diff, whose
+  // tests a benchmark of another crate cannot share
+  // a list of YAML, each item of five lines, indented again by two columns a level in place of four
+  let items = |step: usize| -> Vec<String> {
+    (0..LINES / 5)
+      .flat_map(|index| {
+        [
+          format!("{}- name: service_number_{index}_of_the_list", " ".repeat(step)),
+          format!("{}spec:", " ".repeat(2 * step)),
+          format!("{}containers:", " ".repeat(3 * step)),
+          format!("{}image: registry/service_{index}:latest", " ".repeat(4 * step)),
+          format!("{}port: {}", " ".repeat(4 * step), 8_000 + index),
+        ]
+      })
+      .collect()
+  };
+  // every second line under another parent, the lines between them at their indent
+  let alternate = |indent: &str| -> Vec<String> {
+    (0..LINES)
+      .map(|index| {
+        if index % 2 == 0 {
+          format!("{indent}key_number_{index}_of_the_block: value")
+        } else {
+          format!("  nested_key_number_{index}: value")
+        }
+      })
+      .collect()
+  };
+  // a line of its own, a line with another number that a chain grows through unread, and two blank lines
+  let groups = |number: usize| -> Vec<String> {
+    (0..LINES / 4)
+      .flat_map(|index| {
+        [
+          format!("  open_section_number_{index}_of_the_file();"),
+          format!("  let total_{index} = compute_total_of(items, {number});"),
+          String::new(),
+          String::new(),
+        ]
+      })
+      .collect()
+  };
+  // jscpd:ignore-end
+  let cases = [
+    ("a list of YAML indented again, 13,000 items of five lines", items(4), items(2), true),
+    ("every second line under another parent", alternate(""), alternate("  "), true),
+    ("a line of its own among lines that are alike and blank ones", groups(1), groups(2), false),
+  ];
+  let mut group = c.benchmark_group("moves, a chain of many short moves, 65,000 lines");
+  group.sample_size(10);
+  for (name, old, new, indented) in &cases {
+    let (old, new, blocks) = moved_sides(old, new);
+    let (moves, work) = find_moves_counted(&old, &new, &blocks, &[], WhitespacePolicy::Default, *indented);
+    println!("{name}: {} moves, {work:?} of {MAX_MOVE_WORK}", moves.len());
+    group.bench_function(*name, |b| {
+      b.iter(|| find_moves(black_box(&old), black_box(&new), &blocks, &[], WhitespacePolicy::Default, *indented));
+    });
   }
   group.finish();
 }
@@ -158,26 +361,33 @@ fn bench_limits(c: &mut Criterion) {
     let diff = diff_of(&old, &new);
     let (old_tokens, new_tokens) = (kotlin(&old), kotlin(&new));
     let kept = |new_side: bool| Some(Arc::clone(if new_side { &new_tokens } else { &old_tokens }));
-    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), kept);
+    let marks = marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept);
     println!("{name}: {} blocks, {} tokens a side, {} runs", diff.blocks.len(), old_tokens.all().len(), marks.runs.len());
-    group.bench_function(name, |b| b.iter(|| marks_of(&diff, &old, &new, Some(Grammar::Kotlin), kept)));
+    group.bench_function(name, |b| {
+      b.iter(|| marks_of(&diff, &old, &new, Some(Grammar::Kotlin), WhitespacePolicy::Default, false, kept));
+    });
   }
   group.finish();
 }
 
-/// A commit of 200 Kotlin files, four of 3,300 lines and the others of 165, every fifth function of each changed as
-/// `edit` says
-fn subject(edit: Edit) -> (TestRepo, String) {
-  let files = |edit: Edit| -> Vec<(String, String)> {
-    (0..200)
-      .map(|index| {
-        let functions = if index % 50 == 0 { 300 } else { 15 };
-        (format!("src/bench/Service{index}.kt"), source(&format!("Service{index}"), functions, "", every_fifth(edit)))
-      })
-      .collect()
-  };
+/// The 200 Kotlin files of a subject, four of 3,300 lines and the others of 165, before and after its commit:
+/// `sides` are the two texts of a file, by the name of its class and the number of its functions
+fn subject_files(sides: &dyn Fn(&str, usize) -> [String; 2]) -> [Vec<(String, String)>; 2] {
+  let (mut before, mut after) = (Vec::new(), Vec::new());
+  for index in 0..200 {
+    let functions = if index % 50 == 0 { 300 } else { 15 };
+    let path = format!("src/bench/Service{index}.kt");
+    let [old, new] = sides(&format!("Service{index}"), functions);
+    before.push((path.clone(), old));
+    after.push((path, new));
+  }
+  [before, after]
+}
+
+/// The commit of a subject (`subject_files`)
+fn subject(sides: &dyn Fn(&str, usize) -> [String; 2]) -> (TestRepo, String) {
+  let [before, after] = subject_files(sides);
   let repo = TestRepo::new();
-  let (before, after) = (files(Edit::None), files(edit));
   repo.create_commit_with_files("Initial", &pairs(&before));
   let commit = repo.create_commit_with_files("Change", &pairs(&after));
   (repo, commit)
@@ -211,14 +421,67 @@ fn stream(repo: &TestRepo, commit: &str) -> (Duration, Duration) {
   (first.expect("a content"), start.elapsed())
 }
 
-/// The subject through the service, the workers and the parses as the app runs them. `changed` parses no file for its
-/// marks (the question before the tokens answers no for every block), `formatted` parses both sides of every file:
-/// the difference is what the marks cost when nothing is left out before the tokens
+/// The two texts of a file of a subject, by the name of its class and the number of its functions
+type Sides = Box<dyn Fn(&str, usize) -> [String; 2]>;
+
+/// The subjects of the stream. `changed` parses no file for its marks (the question before the tokens answers no for
+/// every block), `formatted` parses both sides of every file: the difference is what the marks cost when nothing is
+/// left out before the tokens. `moved` has every fifth function of each file at the end of its class, the lines of
+/// a function its own: three moves of eleven lines a file, sixty in the four large ones
+fn subjects() -> [(&'static str, Sides); 3] {
+  let edited = |edit: Edit| -> Sides { Box::new(move |name, functions| [source(name, functions, "", |_| Edit::None), source(name, functions, "", every_fifth(edit))]) };
+  let moved: Sides = Box::new(|_, functions| {
+    let (stay, leave) = (|index: &usize| index % 5 != 2, |index: &usize| index % 5 == 2);
+    [
+      own_source(0..functions, |_| false),
+      own_source((0..functions).filter(stay).chain((0..functions).filter(leave)), |_| false),
+    ]
+  });
+  [("changed", edited(Edit::Changed)), ("formatted", edited(Edit::Formatted)), ("moved", moved)]
+}
+
+/// The moves of every file of a subject, one file after another on one thread, from the blocks of its diff: what
+/// the moves add to the work of a stream, whatever the load of the machine does to the stream itself
+fn bench_subject_moves(c: &mut Criterion) {
+  let mut group = c.benchmark_group("moves, the 200 files of a subject");
+  for (name, sides) in subjects() {
+    let [before, after] = subject_files(&sides);
+    let diffs: Vec<TextDiff> = before.iter().zip(&after).map(|((_, old), (_, new))| diff_of(old, new)).collect();
+    let moves_of = |index: usize| find_moves(&before[index].1, &after[index].1, &diffs[index].blocks, &[], WhitespacePolicy::Default, false);
+    let found: Vec<usize> = (0..diffs.len()).map(|index| moves_of(index).len()).collect();
+    let work = (0..diffs.len()).fold((0, 0), |(search, compared), index| {
+      let work = find_moves_counted(&before[index].1, &after[index].1, &diffs[index].blocks, &[], WhitespacePolicy::Default, false).1;
+      (search + work.search, compared + u64::from(work.compared))
+    });
+    println!(
+      "{name}: {} moves in {} files, {} blocks, {} pairs of lines read, {} compared by word",
+      found.iter().sum::<usize>(),
+      found.iter().filter(|moves| **moves > 0).count(),
+      diffs.iter().map(|diff| diff.blocks.len()).sum::<usize>(),
+      work.0,
+      work.1
+    );
+    group.bench_function(name, |b| b.iter(|| (0..diffs.len()).map(|index| black_box(moves_of(index)).len()).sum::<usize>()));
+    group.bench_function(format!("{name}, the diffs alone"), |b| {
+      b.iter(|| {
+        before
+          .iter()
+          .zip(&after)
+          .map(|((_, old), (_, new))| black_box(diff_of(old, new)).blocks.len())
+          .sum::<usize>()
+      });
+    });
+  }
+  group.finish();
+}
+
+/// The subjects through the service, the workers and the parses as the app runs them, to the first content and to
+/// the end of the stream
 fn bench_stream(c: &mut Criterion) {
   let mut group = c.benchmark_group("stream, 200 files");
   group.sample_size(20);
-  for (name, edit) in [("changed", Edit::Changed), ("formatted", Edit::Formatted)] {
-    let (repo, commit) = subject(edit);
+  for (name, sides) in subjects() {
+    let (repo, commit) = subject(&sides);
     group.bench_function(format!("{name}, to the first content"), |b| {
       b.iter_custom(|iterations| (0..iterations).map(|_| stream(&repo, &commit).0).sum());
     });
@@ -229,5 +492,15 @@ fn bench_stream(c: &mut Criterion) {
   group.finish();
 }
 
-criterion_group!(benches, bench_tokens, bench_marks, bench_limits, bench_stream);
+criterion_group!(
+  benches,
+  bench_tokens,
+  bench_marks,
+  bench_moves,
+  bench_moves_limits,
+  bench_moves_short,
+  bench_limits,
+  bench_subject_moves,
+  bench_stream
+);
 criterion_main!(benches);

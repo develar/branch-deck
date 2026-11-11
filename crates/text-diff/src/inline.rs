@@ -39,7 +39,10 @@ pub fn inline_pairs(old: &[LineRanges], new: &[LineRanges]) -> bool {
   old.len() == new.len() && old.iter().zip(new).all(|(line1, line2)| is_similar_pair(line1, line2))
 }
 
-fn is_similar_pair(line1: &LineRanges, line2: &LineRanges) -> bool {
+/// Whether two lines with these changed ranges are a similar pair: neither has more than `SIMILAR_PAIR_MAX_RANGES`
+/// ranges, and less than `SIMILAR_PAIR_MAX_CHANGED` of their chars changed. The rule of a row of the Inline view, and of
+/// an edited line of a move (`moves`)
+pub(crate) fn is_similar_pair(line1: &LineRanges, line2: &LineRanges) -> bool {
   if line1.ranges.len() > SIMILAR_PAIR_MAX_RANGES || line2.ranges.len() > SIMILAR_PAIR_MAX_RANGES {
     return false;
   }

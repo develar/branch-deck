@@ -43,8 +43,9 @@ A review is the story of a change, not a list of files:
 2. **What can break is told, and only what can.** The API whose uses the change left outside, with the places that
    use them; a use a change cannot break (a call that still binds the parameters it bound) is no alarm, and a use
    only the name ties is no use and no proof of none.
-3. **Noise is folded with its reason, and a fold is never wrong.** Imports, whitespace, renames, build entries,
-   generated files fold into one group with a stated reason. The budget of false folds is about zero: a fold that hides
+3. **Noise is folded with its reason, and a fold is never wrong.** Imports, whitespace, declarations that moved
+   where their place has no meaning, renames, build entries, generated files fold into one group with a stated
+   reason. The budget of false folds is about zero: a fold that hides
    real work is the worst defect of the review.
 4. **The changes are grouped into concerns.** The tasks a branch does, each with its files, in an order where a
    declaration comes before its uses: the left side of the window and the right side tell the same story.
@@ -237,7 +238,7 @@ the review.
 | Mark Reviewed, Since Your Review of a local branch | Landed | 1db3d3d4f, 4c0986ecb | the reviewed pair in `refs/branch-deck/reviewed/`; after a rebase with an amend the diff from the carried change shows the amend alone | a carry that conflicts falls back to the commits one at a time; a drop alone offers nothing |
 | Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked |
 | Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | |
-| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none | a move of a block, "rename A→B, N sites" not started; no second oracle yet |
+| Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; whitespace of a file of a grammar is told by its tokens ([Equal by tokens](#equal-by-tokens)), an indent that has a meaning is none; a declaration that stands at another place of its file with the same code (every line of it deleted in blocks of old lines alone and added in blocks of new lines alone, the same content of its tokens) is `moved` where its place has no meaning (a function or a type that crossed declarations alone; decision 26) and a change of behaviour elsewhere, never whitespace; "Moved" is the word a diff has for the lines that moved ([Diff View](diff-view.md#marks)) | a declaration moved to another file, "rename A→B, N sites" not started; no second oracle yet |
 | Folding: generated files | Landed | 46faf0108, b57c2e95b | by name, attributes or the header a tool wrote; the renderer's echo is no repeated edit | |
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
@@ -444,6 +445,42 @@ the review.
    (`whitespace::TextLines`) and translates the lines of a summary, which are git's. And a blank oxc skips is not
    whitespace to an engine of JavaScript (U+0085, U+200B): it is an error in the tokens. A declaration paired with
    itself is whitespace only with every line its blocks change, which may reach past it.
+26. **A declaration that moved is moved, and folded only where its place means nothing** (2026-11-11). A function
+   that stands at another place of its file with the same code had no name: it was a change of behaviour that a
+   reviewer read line by line to find nothing (before the whitespace of a declaration was asked of every line of
+   its blocks it was folded as "Whitespace only", which it is not either). A paired declaration of the same form
+   moved when every line of it was deleted in blocks of old lines alone and added in blocks of new lines alone, with
+   the same content of its tokens on both sides (`Sides::same_code`: the tokens and the tree between them, without
+   what opens before the first and closes after the last, which the place changes). It is asked before whitespace
+   and is never whitespace. A statement that moved inside its function is another sequence of tokens, a change of
+   behaviour; a function that moved with a changed line too.
+   The move is the mechanical kind `moved`, folded as "Moved only", only where the place of the declaration has no
+   meaning (`crates/review-plan/src/moved.rs`); elsewhere it is a unit `behaviour`, read. The first version folded
+   every such pair, and the review of the lane found what principle 3 forbids: a Kotlin property moved below the
+   property that reads it (a null in the constructor), an enum entry (its ordinal), a `const` of TypeScript below
+   its use (a `ReferenceError` as the module loads), a Rust function above the `macro_rules!` it calls, all "Moved
+   only" with no stop. So the fold asks two things. The lines that moved are whole declarations whose place has no
+   meaning and no other code: a function, a type or a type alias of Kotlin, Java, C# and Rust, which name their
+   declarations whatever their order; of TypeScript and JavaScript a type alias and a hoisted function, never a
+   function a `const` holds, a class or an enum, which exist only from their line on; nothing of Starlark, whose
+   file runs from its first line to its last; never a value, a constant, an enum entry, a macro. And between the two
+   places stand only whole declarations beside them that they may cross (not a macro or a module of Rust, an enum
+   entry, an overload of the same name of TypeScript), with blank lines and comments: an initializer block, a
+   statement, the end of an `impl` and the start of the next are code a fold does not cross. Where the rule does
+   not know, the answer is a stop: a function of Kotlin across an `init` block is read though no order of the two
+   means anything.
+   A decorator of TypeScript and JavaScript gives a place a meaning of its own (`moved::ordering_token`, the second
+   round of the review): the decorators of a class are evaluated and applied in the order of its members, each a
+   call of the program's code, and a framework that registers what they see keeps that order. The route `:id` of a
+   NestJS controller moved above `search` and `stats` takes their requests, and the plan folded it as "Moved only"
+   where the released `brd` read it. So lines that moved with a decorator (`@` is no other token of the two
+   languages), of a method or of one of its parameters, are read; a method without one may cross decorated
+   methods, whose order among themselves stays. No such order is defined for the annotations of Kotlin, Java and C#
+   or the attributes of Rust. A method named by an expression (`[key()]() {}`) is no declaration of a summary, so
+   its lines are a change of its class.
+   The kind is of a unit alone, never of a file, and stays in the mechanical group. The word is the one a diff has
+   for the lines that moved ([Diff View](diff-view.md#marks)), found there from the lines alone and never quiet;
+   the plan asks its declarations, by their tokens.
 
 ## Review Rounds
 
@@ -511,7 +548,8 @@ The plan: [Review Plan → Measurements](../../openspec/specs/branch/review-plan
 1. **Concerns**: units joined by static evidence (names declared in the change and their uses, a test and its subject,
    a generated file and the source its header names, a shared rare identifier, a near-repeated edit), now listed by
    the tree and followed by the story; next measured on four corpora against SmartCommit, inspect and sem.
-2. Moves and renames as one unit ("rename A→B, 37 sites"), with RefactoringMiner as the oracle.
+2. Renames as one unit ("rename A→B, 37 sites") and moves between files, with RefactoringMiner as the oracle; a
+   declaration moved within its file is `moved` already.
 3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
 4. Names of concerns by a language model, behind the same gate as the tour.
 5. An LLM tour, rejected unless every hunk is covered exactly once.

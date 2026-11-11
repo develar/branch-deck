@@ -203,7 +203,7 @@ function groupWords(
           kind,
           name: "Mechanical",
           code: false,
-          hover: "The mechanical changes of the step: the build model, imports alone, whitespace, renames, generated files",
+          hover: "The mechanical changes of the step: the build model, imports alone, whitespace, moved declarations, renames, generated files",
           state: null,
           root: null,
         }

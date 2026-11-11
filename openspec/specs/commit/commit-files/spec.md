@@ -567,10 +567,10 @@ The diff of a commit MUST cost one file list and one `cat-file --batch`, and not
 
 ### Requirement: File diffs: The caches key a diff by its blob pair, policy and grammars
 
-The caches MUST key a diff by its blob pair, the policy and the grammar of each side, which its scopes and its marks
-are read by, so two commits with the same blob pair share one diff and the same pair at a path of another grammar is
-another diff. The store MUST NOT keep a diff that the time cut short, and MUST NOT answer a diff made with the tokens
-of other parsers: it keeps the diffs under a version made of the model's and of the tokens'.
+The caches MUST key a diff by its blob pair, the policy and how each side is read: by its grammar, else by whether
+its indentation has a meaning. So two commits with the same blob pair share one diff, and the same pair at a path
+read another way is another diff. The store MUST NOT keep a diff that the time cut short, and MUST NOT answer a diff
+made with the tokens of other parsers: it keeps the diffs under a version made of the model's and of the tokens'.
 
 #### Scenario: Two commits with the same blob pair
 - **WHEN** two commits change a file from the same blob to the same blob
@@ -590,6 +590,12 @@ of other parsers: it keeps the diffs under a version made of the model's and of 
   [@test] crates/file-diffs/src/service_test.rs (`the_same_pair_read_by_two_grammars_is_two_diffs`)
   [@test] crates/file-diffs/src/blocks_test.rs (`a_pair_the_view_showed_costs_no_process`)
   [@test] crates/object-cache/src/cache_test.rs (`file_diffs_are_read_by_their_blob_pair_policy_grammars_and_version`)
+
+#### Scenario: Another meaning of the indentation
+- **WHEN** the same blob pair is a Python file, a text file and a Starlark file of one commit, a rule moved in it with one line at another indent
+- **THEN** each has its own diff, from the comparison, from memory and from the store of another app: the line is an edited line of the move in the Python file and the Starlark file alone
+- **AND** a scan of the pair at each path finds the diff the view made of it there, without a process
+  [@test] crates/file-diffs/src/service_test.rs (`the_moves_of_a_text_come_with_its_content_and_are_those_of_its_indentation`)
 
 #### Scenario: A diff the time cut short
 - **WHEN** the time cut a diff short

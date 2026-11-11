@@ -51,7 +51,8 @@ pub struct TextDiff {
   pub import_blocks: Vec<u32>,
   /// What a reader may pass and what a view labels: the runs of lines that changed in their formatting or their
   /// comments alone, the moved lines, the renamed names, and the line the reading of each block starts at. The
-  /// comparison fills `starts` alone; the file-diffs service fills the rest from the tokens of the texts
+  /// comparison fills `starts` alone; the file-diffs service fills the rest: the runs from the tokens of the texts,
+  /// the moves from their lines (`moves::find_moves`)
   pub marks: DiffMarks,
 }
 
@@ -63,13 +64,15 @@ pub struct TextDiff {
 pub struct DiffMarks {
   /// By `old_start`, in the order of both sides, each inside one block, without overlap
   pub runs: Vec<LineRun>,
-  /// By `new_start`; each end inside one block
+  /// By `new_start`, a line of a side in one move at most and in no run: the old lines of a move inside one block
+  /// (where the lines left: nothing to read there), its new lines inside another (where they stand now: read there),
+  /// the blank lines that moved with it counted beside them
   pub moves: Vec<LineMove>,
   pub renames: Vec<Rename>,
   /// Flat `[block, side, line]` for each block with something to read, in the order of the blocks: the index of the
   /// block, the side of the line (0 the old text, 1 the new one) and the 0-based line the reading starts at
-  /// (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every line is in a
-  /// quiet run
+  /// (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every new line is in
+  /// a quiet run and every old line in a quiet run or in a move
   pub starts: Vec<u32>,
 }
 
@@ -102,20 +105,50 @@ pub enum RunKind {
   Renamed,
 }
 
-/// `len` lines that moved from `old_start` of the old text to `new_start` of the new one
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// `len` lines that moved from `old_start` of the old text to `new_start` of the new one (0-based): old line
+/// `old_start + i` is new line `new_start + i`. Never quiet: the new lines are read where they stand now. The blank
+/// lines that left with it and stand at its other end now are counted beside its lines (`blanks_before`,
+/// `blanks_after`): they are lines of the move on both sides, and no pair of its lines
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct LineMove {
   pub old_start: u32,
   pub new_start: u32,
   pub len: u32,
-  /// The columns every line moved by: "re-indented"
+  /// The columns of whitespace its lines gained at their start, negative for lost ones: "re-indented". Of every line
+  /// that is the same on both sides where the indentation of the file has a meaning, of most of them elsewhere
   pub indent: i32,
-  /// For each line of the move, `[start, end, kind, ...]` as the ranges of a `DiffBlock`: what was edited on the way.
-  /// Empty for an exact move
+  /// The blank lines right before its old lines that stand right after its new lines: the old lines
+  /// `[old_start - blanks_before, old_start)`, the new lines `[new_start + len, new_start + len + blanks_before)`
+  pub blanks_before: u32,
+  /// The blank lines right after its old lines that stand right before its new lines: the old lines
+  /// `[old_start + len, old_start + len + blanks_after)`, the new lines `[new_start - blanks_after, new_start)`
+  pub blanks_after: u32,
+  /// The lines of the move that were edited on the way, by their place in it from 0, in order: a line whose text
+  /// changed, a line whose indent or whose whitespace after its text changed otherwise than the move says where the
+  /// policy of the diff counts that whitespace, and a line whose indent did not move as the indents of the move
+  /// where the indentation of the file has a meaning (its nesting changed, also when no character of it did)
+  pub edited: Vec<u32>,
+  /// For each line of the move, `[start, end, kind, ...]` as the ranges of a `DiffBlock`, the two lines of a pair
+  /// with as many ranges of the same kinds, each a text that is another on the other side: what an edited line
+  /// changed in. A line without a range is the same on both sides but for the indent of the move, and for the
+  /// whitespace at its ends where the policy of the diff leaves that out. Empty lists for a move none of whose
+  /// lines has a range
   pub old_ranges: Vec<Vec<u32>>,
   pub new_ranges: Vec<Vec<u32>>,
+}
+
+impl LineMove {
+  /// Its old lines with the blank lines that left with it
+  pub const fn old_lines(&self) -> Range<u32> {
+    self.old_start - self.blanks_before..self.old_start + self.len + self.blanks_after
+  }
+
+  /// Its new lines with the blank lines that stand beside them now
+  pub const fn new_lines(&self) -> Range<u32> {
+    self.new_start - self.blanks_after..self.new_start + self.len + self.blanks_before
+  }
 }
 
 /// A name that the change renamed
@@ -277,7 +310,7 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
   };
   let changed = || blocks.iter().filter(|block| block.kind != BlockKind::Ignored);
   let marks = DiffMarks {
-    starts: starts_of(&blocks, &[]),
+    starts: starts_of(&blocks, &[], &[]),
     ..DiffMarks::default()
   };
   TextDiff {
@@ -301,25 +334,40 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
 }
 
 /// Where the reading of each block starts (`DiffMarks::starts`), from the quiet runs among `runs` (by `old_start`,
-/// each inside one block, without overlap). The quiet runs of a block cut it into parts in the order of both
-/// sides; the reading starts at the first part with a line: at its first new line, at its first old line when it has
-/// no new one. An `Ignored` block and a block whose every line is in a quiet run have no entry. The one place that
-/// reads `LineRun::quiet` for the stops
-pub fn starts_of(blocks: &[DiffBlock], runs: &[LineRun]) -> Vec<u32> {
+/// each inside one block, without overlap) and from `moves`. The quiet runs of a block cut it into parts in the
+/// order of both sides; the reading starts at the first part with a line to read: at its first new line, at its
+/// first old line that is in no move when it has no new one. The old lines of a move, with the blank lines that
+/// left with it (`LineMove::old_lines`), are read where they stand now, so they are nothing to read where they
+/// left; its new lines are in no quiet run and always read. An `Ignored`
+/// block and a block without a line to read have no entry. The one place that reads `LineRun::quiet` and the moves
+/// for the stops
+pub fn starts_of(blocks: &[DiffBlock], runs: &[LineRun], moves: &[LineMove]) -> Vec<u32> {
   let mut starts = Vec::new();
   let mut quiet = runs.iter().filter(|run| run.quiet).peekable();
+  // the old lines of the moves, in their order
+  let mut left: Vec<Range<u32>> = moves.iter().map(LineMove::old_lines).collect();
+  left.sort_unstable_by_key(|lines| lines.start);
+  // the first of `lines` that no move took
+  let first_kept = |lines: Range<u32>| {
+    let mut line = lines.start;
+    for moved in &left[left.partition_point(|moved| moved.end <= line)..] {
+      if moved.start > line {
+        break;
+      }
+      line = moved.end;
+    }
+    (line < lines.end).then_some(line)
+  };
   for (index, block) in blocks.iter().enumerate() {
     let (mut old, mut new) = (block.old_start, block.new_start);
     let mut start = None;
-    // the first part with a line between `old`, `new` and the next quiet run, or the end of the block
+    // the first part with a line to read between `old`, `new` and the next quiet run, or the end of the block
     let mut part = |old: u32, new: u32, old_end: u32, new_end: u32| {
       if start.is_none() {
         start = if new < new_end {
           Some((1, new))
-        } else if old < old_end {
-          Some((0, old))
         } else {
-          None
+          first_kept(old..old_end).map(|line| (0, line))
         };
       }
     };

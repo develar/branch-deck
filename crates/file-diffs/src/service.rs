@@ -12,10 +12,12 @@
 //! - **Marks.** The marks of a text (`marks.rs`) are made before its content goes out: they change the rows a view
 //!   draws, so marks that came later would move a file already drawn. A block is asked a question of its characters
 //!   first, and only a file with a block that may have a run is parsed for its tokens, once per blob and grammar
-//!   (`TOKENS_CACHE_BYTES`). The budgets below change no mark: a diff the time cut short has the runs of its blocks.
-//! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and the grammar of each side (`DiffKey`,
-//!   `diff_options`): the scopes and the marks depend on the grammar, `.kt` and `.kts`, `.ts`, `.tsx` and `.js` each
-//!   their own. Blobs never change, so one entry serves every commit, range and window that shows the pair. Memory
+//!   (`TOKENS_CACHE_BYTES`). The moves of a text need no parse: they are read from the lines of every pair. The
+//!   budgets below change no mark: a diff the time cut short has the runs and the moves of its blocks.
+//! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and how each side is read (`DiffKey`,
+//!   `diff_options`): its grammar, since the scopes and the marks depend on it, `.kt` and `.kts`, `.ts`, `.tsx` and
+//!   `.js` each their own; without a grammar, whether its indentation has a meaning, which the moves depend on, so a
+//!   `.py` and a `.txt` file of the same blobs are two diffs. Blobs never change, so one entry serves every commit, range and window that shows the pair. Memory
 //!   first (`DIFF_CACHE_BYTES`), then the store. A blob read for a diff stays in a memory cache (`BLOB_CACHE_BYTES`), so
 //!   the texts that a view asks for next cost no process.
 //! - **Budgets.** A side over `MAX_BLOB_BYTES` is `TooLarge`, a binary one `Binary`. Each file has `DiffLimits::file`
@@ -37,7 +39,7 @@ use code_symbols::highlight::grammar_of;
 use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::{FileSummary, LineSpan};
-use code_symbols::tokens::{Tokens, tokens_version};
+use code_symbols::tokens::{Tokens, indentation_matters, tokens_version};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
@@ -61,7 +63,7 @@ use tracing::{debug, instrument};
 
 /// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison, the scopes or the marks
 /// change
-pub const MODEL_VERSION: u32 = 8;
+pub const MODEL_VERSION: u32 = 9;
 
 /// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
 /// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens), so
@@ -98,13 +100,17 @@ pub const DIFF_LIMITS: DiffLimits = DiffLimits {
   lines: Duration::from_secs(1),
 };
 
-/// What a diff depends on beside its two blobs: the whitespace policy and the grammar of each side, the old one first
-/// (`Grammar::id` + 1, 0 without a grammar)
+/// What a diff depends on beside its two blobs: the whitespace policy and how each side is read, the old one first:
+/// its grammar (`Grammar::id` + 1), without one 0, or `INDENTED` when its indentation has a meaning
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct DiffOptions {
   policy: u8,
   grammars: [u8; 2],
 }
+
+/// In the key of a diff, a side without a grammar whose indentation has a meaning (Python, YAML, a Makefile): its
+/// moves are others than those of the same lines where it has none. No grammar has this number
+const INDENTED: u8 = u8::MAX;
 
 /// The memory key of a diff: its options and the two blob ids, empty for a missing side
 pub(crate) type MemoryKey = (DiffOptions, String, String);
@@ -669,7 +675,7 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
     diff.marks = context
       .service
-      .marks(&diff, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
+      .marks(&diff, context.policy, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
     let cut_short = diff.line_level_only && fits_inner(old_text, diff.old_line_count) && fits_inner(new_text, diff.new_line_count);
     let old_side = entry.old_language().zip(entry.old_id.as_deref());
     let new_side = language_of(&entry.path).zip(entry.new_id.as_deref());
@@ -924,9 +930,11 @@ pub(crate) const fn policy_id(policy: WhitespacePolicy) -> u8 {
 /// holds beside the blobs, in memory and in the store. The one function of every reader of a diff (the views, and the
 /// scans of `blocks_of`, which find the entry a view made only under the same key). The grammar of each side, not its
 /// language: the scopes and the marks of the same bytes differ as a `.ts` and a `.tsx`, a `.kt` and a `.kts`, a
-/// `BUILD` and a `.bzl` file
+/// `BUILD` and a `.bzl` file. And of a side without a grammar whether its indentation has a meaning
+/// (`code_symbols::tokens::indentation_matters`, which a grammar decides for its files): the moves of the same lines
+/// differ as a `.py` and a `.txt` file
 pub(crate) fn diff_options(policy: WhitespacePolicy, old_path: Option<&str>, path: &str) -> DiffOptions {
-  let grammar = |path: &str| grammar_of(path).map_or(0, |grammar| grammar.id() + 1);
+  let grammar = |path: &str| grammar_of(path).map_or_else(|| if indentation_matters(path) { INDENTED } else { 0 }, |grammar| grammar.id() + 1);
   DiffOptions {
     policy: policy_id(policy),
     grammars: [grammar(old_path.unwrap_or(path)), grammar(path)],
@@ -967,7 +975,7 @@ fn marks_weight(marks: &DiffMarks) -> usize {
   let moves: usize = marks
     .moves
     .iter()
-    .map(|it| 64 + it.old_ranges.iter().chain(&it.new_ranges).map(|ranges| 24 + ranges.len() * 4).sum::<usize>())
+    .map(|it| 96 + it.edited.len() * 4 + it.old_ranges.iter().chain(&it.new_ranges).map(|ranges| 24 + ranges.len() * 4).sum::<usize>())
     .sum();
   let renames: usize = marks
     .renames

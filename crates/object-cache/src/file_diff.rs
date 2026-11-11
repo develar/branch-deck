@@ -1,4 +1,4 @@
-//! `file_diff`: (model version, whitespace policy, the grammar of each side, old blob id, new blob id) -> the diff of
+//! `file_diff`: (model version, whitespace policy, how each side is read, old blob id, new blob id) -> the diff of
 //! two blobs as the views show it (`text_diff::model::TextDiff` with its scopes and its marks, opaque here). Blobs never change, so one entry serves every commit,
 //! range and window that shows the pair. In the patch environment (`Environment::Patches`), beside the other bulky
 //! values. The version of the model is part of each key; the first write of a process with another version clears the
@@ -21,9 +21,10 @@ fn key(version: u32, pair: &DiffKey<'_>) -> Vec<u8> {
   key
 }
 
-/// The blob pair of a diff with what its diff depends on beside the blobs: the whitespace policy and the grammar the
-/// path of each side is read by, the old side first (numbers of the caller, 0 for a side without a grammar), since the
-/// scopes and the marks of a diff are those of its grammar. An added or a deleted file has the empty id on its missing
+/// The blob pair of a diff with what its diff depends on beside the blobs: the whitespace policy and how the path of
+/// each side is read, the old side first (numbers of the caller: its grammar, 0 for a side without one, another
+/// number for such a side whose indentation has a meaning), since the scopes and the marks of a diff are those of
+/// its grammar and its moves those of its indentation. An added or a deleted file has the empty id on its missing
 /// side
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DiffKey<'a> {

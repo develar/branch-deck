@@ -1,9 +1,47 @@
 //! Helpers of the tests: the parsing of the texts and matchings of the ported tests, the bit sets they compare, and
 //! the seed of the property tests.
 
+use crate::model::{BlockKind, DiffBlock, LineRun, RunKind};
 use crate::text::Utf16Text;
 use fixedbitset::FixedBitSet;
 use proptest::test_runner::{Config, RngSeed};
+use std::ops::Range;
+
+/// A block of the old lines `old` and the new lines `new`, without ranges
+pub(crate) const fn block(old: Range<u32>, new: Range<u32>, kind: BlockKind) -> DiffBlock {
+  DiffBlock {
+    old_start: old.start,
+    old_end: old.end,
+    new_start: new.start,
+    new_end: new.end,
+    kind,
+    inline_pairs: false,
+    old_ranges: Vec::new(),
+    new_ranges: Vec::new(),
+  }
+}
+
+/// A run of the old lines `old` and the new lines `new`: of formatting when `quiet`, a label of comments else
+pub(crate) const fn run(old: Range<u32>, new: Range<u32>, quiet: bool) -> LineRun {
+  LineRun {
+    old_start: old.start,
+    old_end: old.end,
+    new_start: new.start,
+    new_end: new.end,
+    kind: if quiet { RunKind::Formatting } else { RunKind::Comments },
+    quiet,
+  }
+}
+
+/// The text of a line between its ranges (`[start, end, kind, ...]` in UTF-16 code units), one part before each
+/// range and one after the last
+pub(crate) fn between(line: &str, ranges: &[u32]) -> Vec<String> {
+  let units: Vec<u16> = line.encode_utf16().collect();
+  let mut bounds = vec![0];
+  bounds.extend(ranges.chunks(3).flat_map(|range| [range[0] as usize, range[1] as usize]));
+  bounds.push(units.len());
+  bounds.chunks(2).map(|part| String::from_utf16_lossy(&units[part[0]..part[1]])).collect()
+}
 
 /// The configuration of a property test: a fixed seed, so a run is the same in CI and locally, and `cases` cases. A
 /// failure shrinks to a minimal case and is saved in `proptest-regressions/`, which later runs replay first.

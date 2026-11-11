@@ -83,7 +83,8 @@ flowchart TD
 | `merge_range_util.rs` | `diff/util/MergeRangeUtil.kt` |
 | `merge_resolve_util.rs` | `diff/comparison/MergeResolveUtil.kt` |
 | `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, `diff_texts`, and the marks of a diff (`DiffMarks`, `starts_of`) |
-| `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block |
+| `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block, the rule of a similar pair |
+| `moves.rs` | Branch Deck's own: the lines a change moved within a file (`find_moves`) |
 | `apply.rs` | Branch Deck's own: blocks applied to bytes, the result of a merge on bytes, the ids of the blocks |
 
 ### Model
@@ -143,17 +144,131 @@ flowchart TD
 - **Marks.** `marks` (`DiffMarks`, [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)) says what a
   reader may pass and what a view labels, and changes no block: `runs`, rows of lines inside one block that changed
   in one way alone (`LineRun`: formatting, comments, a renamed name; `quiet` when the run provably changes no
-  behaviour), `moves` (`LineMove`) and `renames` (`Rename`), and `starts`. The comparison knows no grammar, so it
-  fills `starts` alone; the file-diffs service fills the runs from the tokens of the texts
-  ([Diff View](diff-view.md#marks)), the moves and the renames with their stages.
+  behaviour), `moves` (`LineMove`: the lines that moved within the file, [Moves](#moves)) and `renames` (`Rename`),
+  and `starts`. The comparison knows no grammar, so it fills `starts` alone; the file-diffs service fills the runs
+  from the tokens of the texts ([Diff View](diff-view.md#marks)), then the moves from their lines, and the renames
+  with their stage.
 - **Starts.** `starts` is flat `[block, side, line]` for each block with something to read, the one source of where
   a reader stops (`starts_of`): the quiet runs cut a block into parts, and the reading starts at the first part with
-  a line, at its first new line (side 1), at its first old line (side 0) when it has none. An `Ignored` block and a
-  block whose every line is in a quiet run have no entry. A diff without runs has an entry for every block that is
-  not `Ignored`: the stops of the change navigation as they were.
+  a line to read, at its first new line (side 1), at its first old line that no move took (side 0) when it has no
+  new one. The old lines of a move, with the blank lines that left with it, are read where they stand now, so they
+  are nothing to read where they left. An
+  `Ignored` block and a block without a line to read have no entry. A diff without runs and moves has an entry for
+  every block that is not `Ignored`: the stops of the change navigation as they were.
 - **Proof.** A property test checks, under every policy and with and without inner ranges, that the blocks partition
   both texts, that the lines between them are equal under `Default`, that each range is inside its line, and that the
-  counts are the lines of the blocks. Another checks `starts` against any blocks with any runs, line by line.
+  counts are the lines of the blocks. Another checks `starts` against any blocks with any runs and moves, line by
+  line.
+
+### Moves
+
+`moves::find_moves(old, new, blocks, runs, policy, indentation_matters)` names the lines a change moved within a
+file ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md), "Moves"): rows of lines that one block
+deletes and another block adds. Branch Deck's own, with no dependency on another crate of the workspace: whether the
+indent of a line has a meaning comes in as a `bool`, beside the whitespace policy the blocks were made under. A move
+changes no block and is never quiet: where lines stand is behaviour.
+
+- **The lines a move may take** are those of the blocks that are a change (`Changed`) and in no run. A run already
+  says what became of its lines at their place, and a pale block is equal to itself under its policy. So the service
+  reads the runs first, and a line is in a run or in a move, never in both.
+- **The key of a line** is its text without the spaces and tabs at its ends, the whitespace of the comparison; the
+  whitespace inside it counts (`a b` is not `ab`), under every policy. A blank line pairs with any blank line. The
+  whitespace at the ends of a line is no part of its key, and is not lost: see "The whitespace at the ends of a
+  line" below.
+- **The lines of a text** are the ones the comparison counts (Key Decision 8): the empty line after its last line
+  end, and the one line of an empty text, is no line of a move. Where only one text ends with a line end, the block
+  at the end of the texts holds that line, and a search that read it as a blank line paired it with a deleted blank
+  line, or counted it as a blank line that left with a move: a move of one line more than its text has, and a
+  deleted blank line without a stop.
+- **A pair** of an old and a new line is exact (the same key), blank, edited or apart. Edited: similar by word
+  (`inline::is_similar_pair` of the comparison by word of the two keys, the rule of a row of the Inline view: less
+  than a third of the characters changed, at most four ranges a line). So a line with a word that is another word is
+  apart, and one with a changed argument is edited. The comparison by word is what a pair costs (some 2 µs), so it
+  is made only where it matters: two lines that may be similar (by their lengths and their characters) are an
+  unread pair, a chain grows through it, and it is read when a row may be a move with it edited. The lines of two
+  functions that are alike (the next `handle` of a class) are such pairs all along, in rows that are no move
+  whatever they are: read at once, they cost a file with three moved functions as much as its comparison.
+- **A chain** grows from a pair of the same key in two blocks, line by line both ways along the two blocks, for as
+  long as the pairs are not apart. **A move** is the longest row of a chain that starts and ends with an exact pair
+  and whose edited pairs are at most a quarter of its pairs that are not blank (`MAX_EDITED_LINES`; an exact pair
+  counts 1, an edited one -3, and the longest row whose count is not negative is found in one pass), with the blank
+  pairs beside it; then the same of what is left of the chain before it and after it. It counts when its exact lines
+  hold `MIN_MOVE_CHARS` (24) characters that are no whitespace: one long line is a move, a `}` and a `return` are not.
+- **What is left of a row is read again**, and that is work. A move of at least half of its row leaves half of it
+  at most, so such rows cost twice their pairs. A row of many short moves does not: a list of YAML whose items
+  moved and were indented again by other columns a level, or a list of calls with an edited line in each, is one
+  chain whose longest row is a line or two, and read again for each of them a chain of n lines cost n² / 10 pairs
+  that no limit counted (65,000 lines: seconds, before the content of the file). Such a row (more than
+  `SHORT_ROW` pairs, its longest move less than half of it) is read once for all its moves
+  (`Finder::many_moves`): each exact pair is asked how far a move that starts with it reaches (`Reach`: the counts
+  before the pairs and a tree of the highest count of each stretch, so the question costs the logarithm of the
+  row), the starts go into a heap by their reach, and the longest is taken, of as long ones the first. A move
+  taken and a pair found apart only cut the reach of the starts before them, which are asked again as they come
+  up, so the moves are those of the row read again for each: a property test compares the two.
+- **The two ends in two blocks.** A pair of lines of one block starts no chain: the comparison shows such lines as
+  one change, with no line between them that stays, and a move there would cross nothing. Two functions that change
+  places and are indented are one such block.
+- **One to one, the longest first.** The moves found go into a heap: the longest, then the fewest edited lines, then
+  the first by its new and its old lines. A move that shares a line with a taken one is cut to its rows that are
+  still free, which are asked again as rows of a chain. The answer is a function of the texts, the blocks, the runs,
+  the policy and whether the indentation has a meaning.
+- **The shift.** What a move did to the indent of its lines is a text, not a number of columns: the same whitespace
+  added to the indent of each line, or taken from it, at one end of the indent (at its start, as a block put under
+  another parent gets it, or before the text of the line). `indent` is its columns. A tab that became a space of the
+  same width is no shift, and two lines that gained two columns, one of spaces and one of tabs, did not move alike:
+  compared by their number of columns, the lines of a recipe of a Makefile whose tabs became spaces were an exact
+  move. A shift of all the lines alike is no edit in any file: a move puts lines under another parent whatever their
+  indent, and the move says the shift.
+- **The whitespace at the ends of a line** follows the policy of the diff. Under the policy that counts every
+  character, a line whose indent is another text and did not move by the shift, or whose whitespace after its text
+  is another, is an edited line with that whitespace as a range (`[0, indent, kind]` on both sides, and a range at
+  the end of the line; inserted where the old line has none, deleted where the new one has none): the text of a raw
+  string indented by eight more columns and a line of Markdown that lost its two last spaces are changes a plain
+  block shows as ranges, and the Inline view shows the old lines of a move once. A blank line too. Where the
+  indentation has no meaning, such a line is still an exact line of the search: it counts in no quarter, ends no
+  move, and its move stays one move. Under `Trim`, `Ignore` and `IgnoreBlankLines` the diff itself leaves that
+  whitespace out, and so does a move, where the indentation has a meaning too.
+- **Where the indentation has a meaning** (Python, YAML, a Makefile, Starlark; under the policy that counts every
+  character), a chain has the shift of the pair that started it (a pair whose indents are no shift of each other
+  starts none), and a line whose indent did not move by it changed its nesting: an edited line of the quarter, so
+  more than a quarter of such lines are no move. Its indent is its first range when it is another text. A line that
+  stayed at its indent while its move shifted (a statement left at the first column, but also the text of a string
+  there) is such a line with no character changed: an edited line without a range. Elsewhere the shift is the one
+  most of the exact lines agree on, the first of them among as many.
+- **The edited lines** of a move are named by their place in it (`LineMove::edited`): the lines similar by word, the
+  lines at another nesting, and the lines whose whitespace at an end is a range. `old_ranges` and `new_ranges` say
+  what to draw of each: the changes of the two keys by word (`by_word::compare`, every character counted), in the
+  offsets of their lines, typed as the ranges of a block, between the range of the indent and the one of the
+  whitespace that ends the line. The two lines of a pair have as many ranges of the same kinds, each a text that is
+  another on the other side, and the text between them is the same: no range is empty on both sides, which is why
+  a line that only stayed at its indent has none.
+- **The blank lines that moved with a move.** The comparison deletes a function with the blank line before it and
+  adds it with the blank line after it as readily as the other way round, so the two blank lines are no pair of the
+  row. Blank lines beside the old lines of a move, in their block, and as many beside its new lines at its other
+  end left with it: the move counts them (`blanks_before`: before its old lines and after its new ones;
+  `blanks_after` the other way round; `LineMove::old_lines` and `new_lines` are its lines with them). They are no
+  entry of `moves` of their own, which a view would have to tell from a move by reading its lines. Without them the
+  block the function left would keep a deleted blank line to read, a stop for nothing. A blank line the other block
+  has no pair for stays a deleted or an added line; under the policy that counts every character, so does one of
+  another whitespace than the blank line at the other end.
+- **Limits by work** ([Budgets](#budgets)): a side with more than `MAX_MOVE_LINES` (65,536) lines a move may take has
+  no moves. A key that more than `MAX_KEY_CANDIDATES` (16) such new lines have starts no chain, and is found as a
+  line of a chain another line started. An exact pair is read in one chain (`seen`), so the search reads some tens of
+  pairs a line whatever the lines repeat; `MAX_MOVE_WORK` (262,144 pairs for the search, as many lines for the
+  choice) is the bound that needs no such argument, and ends the search with the moves found until then. Every read
+  of a pair counts: as its chain grows, again each time what is left of its row is read for the next move, and each
+  start asked for its reach. It is set
+  by the file a search costs most in, every line sixteen times on each side and no two in a row on both, where each
+  pair of two lines of a key is a chain of its own: some tens of milliseconds at the limit
+  ([Diff View](diff-view.md#marks) has the numbers), where the first limit, sixteen times as high, let one file cost
+  seconds before its content. Two lines of other keys are first asked two questions that cost a pass over them and
+  no allocation (a line changes at least what it is longer by, and keeps at most the code units the other has too);
+  that pass is work too, a pair more for each 64 code units of the two lines, so lines of 500 characters cost a
+  search no more time than short ones. At most `MAX_COMPARED_PAIRS` (2,048) pairs of lines of at most
+  `MAX_PAIR_UNITS` (512) code units are compared by word, and the chains grow through at most `MAX_UNREAD_PAIRS`
+  (16,384) pairs they leave unread: a list of lines that are alike, sorted another way, makes every row of the two
+  blocks one such chain, which without the limit used up the work of the search before the lines after the list
+  were asked. Past either number a pair of other keys is apart.
 
 ### Merge
 
@@ -325,6 +440,7 @@ algorithm-specific and non-deterministic cases). `Histogram` is about 10 times f
   block, for the marks): Myers alone, which gives up above `max_edits`, with no patience diff after it. Its work is
   bound by the length of the sequences and the square of `max_edits`, whatever they hold: a limit by work, where the
   thresholds of `build_changes_ints` let two unrelated sequences of 10,000 elements each run to their end.
+- The moves of a diff have no time limit either: the lines, the keys and the pairs of [Moves](#moves).
 - Timings of a release build: 3,000 lines with 15 changed blocks take about 1 ms. 20,000 lines with 3,000 random
   edits take about 6 ms. Two unrelated texts of 20,000 lines take about 115 ms. The FxHash maps cut the last case from
   about 1.2 s with the std hash maps. `DiffBudget` sets the time budget, and the caller the size limits of a file.
@@ -333,7 +449,10 @@ algorithm-specific and non-deterministic cases). `Histogram` is about 10 times f
 
 The tests of the source are ported to `*_test.rs` files beside the modules. The random tests of the source are
 property tests with a fixed seed (`proptest_config` in `src/test_support.rs`). The test builder of `ComparisonUtilTestBase.kt` is
-`src/comparison_util_test_base.rs`: `("x_y" - "x_z")` becomes `text("x_y", "x_z")`. The ranges of the explicit
+`src/comparison_util_test_base.rs`: `("x_y" - "x_z")` becomes `text("x_y", "x_z")`. `moves_test.rs` is a table of
+moves through the comparison itself (the shapes it keeps and the ones it merges into one block), and three
+properties: the moves of any two texts, and of lines that moved with a few changes, are moves (of lines their text
+counts), and the moves of a chain are the same read once for all of them or again for each. The ranges of the explicit
 blocks of `ComparisonUtilAutoTest` come from `compare_lines` instead of the VCS line status, which is not ported.
 
 ## Left Out

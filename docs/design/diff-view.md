@@ -111,17 +111,18 @@ rest gets a label and stays a stop.
 |---|---|---|
 | formatting (`formatting`) | yes | yes: the tokens of the lines are the same on both sides ([Equal by Tokens](../../openspec/specs/commit/equal-by-tokens/spec.md)), only in a file of a grammar |
 | comments alone (`comments`) | yes | no |
-| a file without a grammar | no | no: its block of whitespace stays the pale stop it is |
-| moved lines, a renamed name **(planned)** | yes | a move never; a name bound inside a function body |
+| a file without a grammar | no | no: its block of whitespace stays the pale stop it is; it has its moves |
+| moved lines (`moves`) | yes | never: where lines stand is behaviour. The lines are read where they stand now, and are nothing to read where they left |
+| a renamed name **(planned)** | yes | a name bound inside a function body |
 
 - **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
-  changed in one way alone), `moves`, `renames` (both empty until their stages) and `starts`. The scans of the
-  dependencies, the patches of `brd` and the review plan read the blocks they read before.
+  changed in one way alone), `moves` (the lines that moved within the file), `renames` (empty until its stage) and
+  `starts`. The scans of the dependencies, the patches of `brd` and the review plan read the blocks they read before.
 - **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
-  at (`text_diff::model::starts_of`): the first line outside its quiet runs. A block without an entry has nothing to
-  read. The navigation of changes and the count of what is left to read take only this (`stopsOf` of
-  `src/lib/diff/block-parts.ts`); the runs, the moves and the renames are for drawing. What a view draws of the runs
-  is "The parts of a block" below.
+  at (`text_diff::model::starts_of`): the first line outside its quiet runs that, of its old lines, no move took. A
+  block without an entry has nothing to read. The navigation of changes and the count of what is left to read take
+  only this (`stopsOf` of `src/lib/diff/block-parts.ts`); the runs, the moves and the renames are for drawing. What
+  a view draws of the runs is "The parts of a block" below.
 - **With the content.** The marks change the rows a view draws (the Inline view shows the new lines of a quiet run
   alone), so marks that came after the content would move a file already drawn. They are made in the worker of the
   file before its `content` goes out; the scopes still come after it.
@@ -136,6 +137,43 @@ rest gets a label and stays a stop.
   proves. A subsequence pairs a token with any of its likes (the `)` of `b(1, 2)` with the `)` of the call after it),
   so tokens only one side has are put on whole lines where it leaves the choice; a wrong choice loses a run, never
   makes one.
+- **Moves need no grammar.** The lines that one block deletes and another block adds are a move
+  (`text_diff::moves::find_moves`, [Text Diff Engine](text-diff.md#moves)): the same lines by their text without the
+  whitespace at their ends, with at most a quarter of edited lines between exact ones, from 24 characters of exact
+  lines, the longest first, each line in one move. Every pair of texts has them, read after its runs, whose lines no
+  move takes. The whitespace at the ends of a line follows the policy of the diff: where every character counts, a
+  line indented otherwise than its move, or with other whitespace after its text, is an edited line with that
+  whitespace as a range. The review plan names a declaration that moved whole the same way, "Moved", and folds it
+  only where the place of a declaration has no meaning ([Change Review](change-review.md)).
+- **How a view reads a move (planned: no view draws one yet).** A move is `{oldStart, newStart, len, indent,
+  blanksBefore, blanksAfter, edited, oldRanges, newRanges}`, the moves by `newStart`: old line `oldStart + i` is new
+  line `newStart + i`, the old lines inside one block (where they left), the new lines inside another (where they
+  stand now). Rust names every fact of it; a view reads no line to tell what a move is. The views read `starts`
+  already: N and P pass the block the lines left, and the count of what is left to read leaves it out. Until a view
+  draws a move, the lines show there as the deleted lines they are and, where they stand now, as added ones, with
+  no note and no tone.
+  - *Where the lines left* there is nothing to read: `starts` has no entry for a block whose old lines the moves
+    took all, so N and P pass it, and a block that lost only some of its lines starts at a line that stayed. The
+    Inline view shows one note in place of the lines, "14 lines moved to line 210", that opens; Unified and Split
+    show every line, in the tone of a move.
+  - *Where the lines stand now* they are always read: no line of a move is in a run, so the block has a start, at
+    its first new line outside its quiet runs, which may stand before the lines of the move. The lines have the tone
+    of a move and a note, "Moved from line 120 · re-indented · 1 line edited": `indent` is the columns the lines
+    gained, `edited` the lines that were edited on the way, by their place in the move.
+  - *An edited line* is drawn as the row of a pair, with `oldRanges[i]` and `newRanges[i]` (both lists empty for a
+    move none of whose lines has a range): its two lines have as many ranges, of the same kinds, in the same order,
+    each a text that is another on the other side, and the same text between them, as the pairs of a block with
+    `inlinePairs`. Under the policy that counts every character the ranges hold the whitespace at the ends of a line
+    too: an indent that is another text and did not move as `indent` says, the whitespace after the text. So a
+    line of a move without a range is the same line, shifted by `indent` at most, and the old lines a view hides
+    behind the note of a move hide no change.
+  - *An edited line without a range* is a line that stayed at its indent while its move shifted, where the
+    indentation of the file has a meaning: its nesting changed and no character of it. It counts among the edited
+    lines and is drawn as one, with nothing inside it marked.
+  - *The blank lines that moved with a move* are counted by it: `blanksBefore` blank lines right before its old
+    lines stand right after its new ones, `blanksAfter` the other way round (the blank line the comparison deleted
+    before a function and added after it). They are lines of the move on both sides: the note where the lines left
+    stands for them too, and they have the tone of the move where they stand now.
 - **Before the tokens.** A file is parsed for its marks only when a block of it may hold a run, asked of its
   characters alone (`may_have_run`): some line of one side starts as a line of the other and some line ends as one,
   their blanks aside (a run of formatting is the same text without its blanks), or a comment may have a character in
@@ -150,9 +188,11 @@ rest gets a label and stays a stop.
   tokens of code, a block whose sides differ in more than 2,048 of them (the comparison gives up,
   `build_changes_ints_within`), and a block the work left of its file does not pay for (one block at both limits)
   have no run cut out of them; lines of the same code need no comparison and have no limit. The time of the
-  comparison changes none of this: the runs read the blocks and the tokens, never the inner ranges, so a diff whose
-  inner ranges ran out of their 100 ms (`lineLevelOnly`) has the marks of its blocks, the rows and the stops of a
-  quiet machine.
+  comparison changes none of this: the runs read the blocks and the tokens, the moves the blocks and the lines,
+  never the inner ranges, so a diff whose inner ranges ran out of their 100 ms (`lineLevelOnly`) has the marks of its
+  blocks, the rows and the stops of a quiet machine. The moves have their own limits by work: 65,536 lines a side
+  that a move may take, 16 new lines of a key that starts a move, and 262,144 pairs of lines read
+  ([Text Diff Engine](text-diff.md#moves)), set by what the worst file costs (below).
 
 Measured (`cargo bench -p file-diffs --bench marks_bench`, release, the Mac Studio at a load of 1.4; a Kotlin pair of
 3,300 lines and 25,500 tokens a side, 300 functions of which every fifth changed):
@@ -179,6 +219,65 @@ commits of this repository it left 41 % of the files of a grammar unparsed (1,96
 blocks of two sides asked). There the tokens found 257 runs of formatting (2,489 of 104,084 changed lines) and 3,337
 runs of comments: this repository words its comments with its code. The worst block costs 10 ms, once per blob pair:
 the diff with its marks is kept in memory and in the `file_diff` store.
+
+The moves (`bench_moves` and the groups after it of the same benchmark; the Mac Studio at a load of 10 to 21, never
+quiet while the lanes of this work ran, so the numbers of one thread are the ones to read; a Kotlin pair of 10,000
+lines, 910 functions of eleven lines that are their own):
+
+| what | time |
+|---|---|
+| the diff of the pair alone, 40 functions moved (41 blocks) | 5.4 ms |
+| the moves, no line moved: a word changed in every fifth function, 182 blocks | 0.26 ms |
+| the moves, 40 functions at the end of the class: 40 moves of 440 lines, 680 pairs of lines read | 0.33 ms |
+| the same, a line of each function edited: 40 pairs compared by word | 0.48 ms |
+| the moves, the two halves of the class change places: one move of 5,005 lines, 8,189 pairs read | 1.7 ms |
+| the file a search costs most in, at its limit of 262,144 pairs: 65,536 lines a side, every line 16 times, no two in a row on both sides, lines of 40 characters that are nothing alike | 51 to 64 ms |
+| the same, lines of 120 characters that are alike but for a number | 71 to 94 ms |
+| the same of 10,000 lines a side | 27 to 42 ms |
+| a chain of many short moves, 65,000 lines a side, where the indentation has a meaning: a list of YAML of 13,000 items of five lines, indented again by two columns a level in place of four; 13,000 moves when the work ends (273,000 pairs) | 23 to 26 ms |
+| the same: every second line under another parent; 32,500 moves when the work ends (292,500 pairs) | 38 to 44 ms |
+| the same, any file: a line of its own before a line with another number and two blank lines, 16,250 times; 16,250 moves, 178,749 pairs | 22 to 28 ms |
+| the moves of the 200 files of the subject above, one after another: a name changed in every fifth function, no line moved | 1.2 ms (their diffs alone: 21 ms) |
+| the same 200 files, every fifth function of each at the end of its class: 828 moves | 6.7 to 7.7 ms (their diffs alone: 26 to 31 ms) |
+| the stream of the 200 files with the 828 moves: first content, end of the stream | 46 ms, 64 ms |
+| the stream of the 200 files with a changed name, in the same run | 43 ms, 84 ms |
+
+So a file pays for its moves some 5 % of its comparison when no line moved (the lines of the two texts are found,
+and the changed lines are numbered by their keys), and a third of it when half of it moved; the tokens of one side
+of a third of these lines cost 3.2 ms on a quiet machine. Every read of a pair of lines is work, and a pair is read
+as its chain grows and once more where what is left of its row is asked again: the work grows with the changed
+lines, not with their square, and the time with the work.
+
+- **The limit of the search is set by its worst file.** `MAX_MOVE_WORK` was 4,194,304 pairs at first, a number no
+  measurement stood behind: the file above (every line sixteen times, each pair of two lines of a key a chain of its
+  own) cost 1.7 to 3.9 s at three quarters of it in the probe of its review (a Mac at a load of 60), before the
+  content of the file, where the comparison itself gives up after 1 s. At 262,144 pairs the same file costs some
+  50 to 90 ms on one core, whatever its lines are: the two lines of a pair of other keys are read for their
+  likeness, and that read counts as work by their length. A file under the limit is not affected: 10,000 lines of
+  five keys with fifty lines that stand sixteen times each are one move at 173,000 pairs read.
+- **Every read of a pair is work, and a chain of many short moves is read once.** The longest row of a chain was
+  found by reading what was left of the chain again after each move, and that read was no work: a chain whose
+  moves are a line or two each (a list of YAML moved and indented again by other columns a level, where each
+  line is exact only to the lines of its level; a list with a line of each item edited) cost the square of its
+  lines under every limit. The second round of the review measured it: 65,000 such lines 1.5 to 7.3 s at
+  200,000 pairs counted, 32,000 lines 1.1 to 4.9 s beside 0.3 to 0.6 s of their comparison. What is left of a row
+  is work now, a pair for each pair read again, and a row of many short moves is read once for all of them (each
+  exact pair asked how far a move from it reaches, the longest taken from a heap,
+  [Text Diff Engine](text-diff.md#moves)): the same files cost 22 to 44 ms, the rows of the table, and a property
+  test holds the moves to those of the row read again for each. At 65,000 lines a side such a file ends at its
+  work with a part of its moves (two chains of all the lines, one a level of the list, are over 262,144 pairs);
+  at 30,000 lines it has them all.
+- **A pair is compared by word only where it matters.** The comparison by word of two lines costs 2 µs, and in the
+  subject with moved functions the lines of two functions that are alike (the next `handle` of a class) were such
+  pairs all along: 11,760 comparisons for 828 moves, 28 ms for the 200 files, more than their diffs (26 ms). No row
+  of them was a move. A chain now grows through a pair that may be similar without reading it, and the pair is
+  compared when a row may be a move with it edited: no comparison for that subject, 6.7 ms.
+- **The stream.** The moves of all 200 files cost 1.2 ms of one thread when no line moved and 7 ms with 828 moves,
+  spread over the workers, against 38 ms to the first content and 73 ms to the end of the stream on a quiet machine
+  (the table above). The stream itself was measured again in five runs at a load of 10 to 37 and read from the one
+  with the narrowest intervals: 43 ms to the first content without a move and 46 ms with the moves, a difference
+  inside its noise (± 1.5 ms); the other four runs differ from each other by more than the cases do. A first
+  content waits for the moves of its own file alone: 5 µs for a file of 165 lines, 0.1 ms for one of 3,300.
 
 ### The row model
 

@@ -45,7 +45,8 @@ pub enum GroupKind {
   Module,
   /// Of a step of one module: the files of one of its folders
   Folder,
-  /// The mechanical stops: the build model, the lists of modules, imports alone, whitespace, renames, generated files
+  /// The mechanical stops: the build model, the lists of modules, imports alone, whitespace, moved declarations,
+  /// renames, generated files
   Mechanical,
 }
 

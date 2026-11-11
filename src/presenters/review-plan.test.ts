@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, DependencyChange, FileFacts, FileLink, Interdiff, PairedCommit, ShownForm, ShownParameter, Usages } from "@/lib/bindings"
 import type { FormLine } from "@/presenters/review-plan"
 import {
+  FOLDED_WORDS,
   formatDependencyChange,
   formatMarkedReviewed,
   formatGenerated,
@@ -401,6 +402,9 @@ describe("the badges of the files in the tree", () => {
     expect(formatMechanicalGroup(null, 5)).toBe("Mechanical (5)")
     expect(formatMechanicalGroup("importsOnly", 2)).toBe("Imports only (2)")
     expect(formatMechanicalGroup("generated", 3)).toBe("Generated (3)")
+    // every kind has its word and its reason: declarations that stand at another place of their file are of a unit
+    // alone, never a group of the tree (`review-units.test.ts` reads their heading in the story)
+    expect([FOLDED_WORDS.moved, FOLDED_WORDS.whitespace, FOLDED_WORDS.renamed]).toEqual(["Moved only", "Whitespace only", "Renamed only"])
   })
 
   it("says why a generated file is folded: its name, its attributes, the line its tool wrote, a long one cut", () => {

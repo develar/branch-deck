@@ -309,11 +309,13 @@ export type FileFactsOfPlan = Pick<ReviewPlan, "files" | "links" | "dependencies
 /** What the review window reads of the plan: the facts of the files, the units of the story, its concerns, its steps and its brief */
 export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api" | "concerns" | "steps" | "brief" | "modules" | "registrations" | "texts">
 
+/** The name of each kind of mechanical change; "Moved" is the word of the note of moved lines in a diff too */
 export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build files",
   moduleList: "Module lists",
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
+  moved: "Moved",
   renamed: "Renamed",
   generated: "Generated",
 }
@@ -324,6 +326,7 @@ export const FOLDED_WORDS: Readonly<Record<MechanicalKind, string>> = {
   moduleList: "Module list",
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
+  moved: "Moved only",
   renamed: "Renamed only",
   generated: "Generated",
 }

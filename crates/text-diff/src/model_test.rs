@@ -7,7 +7,7 @@ use crate::model::{
   starts_of,
 };
 use crate::policy::WhitespacePolicy;
-use crate::test_support::{proptest_config, text_of_lines};
+use crate::test_support::{between, block, proptest_config, run, text_of_lines};
 use crate::text::{LineEndKind, SourceText};
 use pretty_assertions::assert_eq;
 use proptest::prelude::Strategy;
@@ -433,6 +433,9 @@ fn the_marks_are_camel_case_json_with_every_field() {
       new_start: 9,
       len: 2,
       indent: -2,
+      blanks_before: 1,
+      blanks_after: 0,
+      edited: vec![0],
       old_ranges: vec![vec![0, 1, MODIFIED], vec![]],
       new_ranges: vec![vec![0, 2, MODIFIED], vec![]],
     }],
@@ -451,7 +454,10 @@ fn the_marks_are_camel_case_json_with_every_field() {
     json["marks"],
     serde_json::json!({
       "runs": [{ "oldStart": 1, "oldEnd": 2, "newStart": 1, "newEnd": 3, "kind": "formatting", "quiet": true }],
-      "moves": [{ "oldStart": 4, "newStart": 9, "len": 2, "indent": -2, "oldRanges": [[0, 1, 2], []], "newRanges": [[0, 2, 2], []] }],
+      "moves": [{
+        "oldStart": 4, "newStart": 9, "len": 2, "indent": -2, "blanksBefore": 1, "blanksAfter": 0, "edited": [0],
+        "oldRanges": [[0, 1, 2], []], "newRanges": [[0, 2, 2], []],
+      }],
       "renames": [{ "old": "total", "new": "sum", "sites": 1, "local": true, "oldSites": [3, 4, 9], "newSites": [3, 4, 7] }],
       "starts": [],
     })
@@ -483,24 +489,6 @@ fn a_diff_without_runs_starts_the_reading_at_each_block_that_counts() {
 /// when it has one. A run that is a label only cuts nothing
 #[test]
 fn the_reading_of_a_block_starts_after_its_quiet_runs() {
-  let block = |old: std::ops::Range<u32>, new: std::ops::Range<u32>, kind: BlockKind| DiffBlock {
-    old_start: old.start,
-    old_end: old.end,
-    new_start: new.start,
-    new_end: new.end,
-    kind,
-    inline_pairs: false,
-    old_ranges: Vec::new(),
-    new_ranges: Vec::new(),
-  };
-  let run = |old: std::ops::Range<u32>, new: std::ops::Range<u32>, quiet: bool| LineRun {
-    old_start: old.start,
-    old_end: old.end,
-    new_start: new.start,
-    new_end: new.end,
-    kind: if quiet { RunKind::Formatting } else { RunKind::Comments },
-    quiet,
-  };
   let changed = block(10..14, 20..25, BlockKind::Changed);
   let cases: Vec<(&str, Vec<LineRun>, Vec<u32>)> = vec![
     ("no run", vec![], vec![0, 1, 20]),
@@ -520,7 +508,7 @@ fn the_reading_of_a_block_starts_after_its_quiet_runs() {
     ("a quiet run after a label", vec![run(10..11, 20..21, false), run(11..14, 21..25, true)], vec![0, 1, 20]),
   ];
   for (name, runs, expected) in cases {
-    assert_eq!(starts_of(std::slice::from_ref(&changed), &runs), expected, "{name}");
+    assert_eq!(starts_of(std::slice::from_ref(&changed), &runs, &[]), expected, "{name}");
   }
   // the runs of the second block do not move the start of the first; an ignored block has no start
   let blocks = [
@@ -528,7 +516,57 @@ fn the_reading_of_a_block_starts_after_its_quiet_runs() {
     block(3..3, 3..4, BlockKind::Ignored),
     block(5..7, 6..8, BlockKind::WhitespaceOnly),
   ];
-  assert_eq!(starts_of(&blocks, &[run(5..6, 6..7, true)]), [0, 1, 0, 2, 1, 7]);
+  assert_eq!(starts_of(&blocks, &[run(5..6, 6..7, true)], &[]), [0, 1, 0, 2, 1, 7]);
+}
+
+/// The old lines of a move are read where they stand now: where they left, the reading starts at the first line
+/// that no move took, and a block of nothing but such lines has no start. The new lines of a move are read
+#[test]
+fn the_old_lines_of_a_move_are_nothing_to_read() {
+  let block = |old: std::ops::Range<u32>, new: std::ops::Range<u32>| block(old, new, BlockKind::Changed);
+  let moved = |old: std::ops::Range<u32>, new_start: u32| LineMove {
+    old_start: old.start,
+    new_start,
+    len: old.end - old.start,
+    ..LineMove::default()
+  };
+  // lines 10..14 deleted, lines 40..46 added further down
+  let blocks = [block(10..14, 20..20), block(30..30, 40..46)];
+  let cases: Vec<(&str, Vec<LineMove>, Vec<u32>)> = vec![
+    ("no move", vec![], vec![0, 0, 10, 1, 1, 40]),
+    ("all the deleted lines", vec![moved(10..14, 40)], vec![1, 1, 40]),
+    ("the first of them", vec![moved(10..12, 42)], vec![0, 0, 12, 1, 1, 40]),
+    ("the last of them", vec![moved(12..14, 40)], vec![0, 0, 10, 1, 1, 40]),
+    ("the lines between", vec![moved(11..13, 44)], vec![0, 0, 10, 1, 1, 40]),
+    (
+      "two moves that leave a line between them",
+      vec![moved(12..14, 40), moved(10..11, 43)],
+      vec![0, 0, 11, 1, 1, 40],
+    ),
+    ("two moves that leave none", vec![moved(12..14, 40), moved(10..12, 43)], vec![1, 1, 40]),
+  ];
+  for (name, moves, expected) in cases {
+    assert_eq!(starts_of(&blocks, &[], &moves), expected, "{name}");
+  }
+  // a block that lost lines to a move and has new lines is read at its new lines
+  let blocks = [block(10..14, 20..22), block(30..30, 42..46)];
+  assert_eq!(starts_of(&blocks, &[], &[moved(10..14, 42)]), [0, 1, 20, 1, 1, 42]);
+  // beside a quiet run: the lines the move took and the lines of the run leave nothing, or the line between them
+  let quiet = |old: std::ops::Range<u32>, new: std::ops::Range<u32>| run(old, new, true);
+  assert_eq!(starts_of(&blocks, &[quiet(12..14, 20..22)], &[moved(10..12, 42)]), [1, 1, 42]);
+  assert_eq!(starts_of(&blocks, &[quiet(13..14, 20..22)], &[moved(10..12, 42)]), [0, 0, 12, 1, 1, 42]);
+  assert_eq!(starts_of(&blocks, &[quiet(10..11, 20..22)], &[moved(12..14, 42)]), [0, 0, 11, 1, 1, 42]);
+  // the blank lines that left with a move are nothing to read either: one before its old lines, one after them
+  let blocks = [block(10..14, 20..20), block(30..30, 40..46)];
+  let with_blanks = |old: std::ops::Range<u32>, new_start: u32, blanks: (u32, u32)| LineMove {
+    blanks_before: blanks.0,
+    blanks_after: blanks.1,
+    ..moved(old, new_start)
+  };
+  assert_eq!(starts_of(&blocks, &[], &[with_blanks(11..14, 40, (1, 0))]), [1, 1, 40]);
+  assert_eq!(starts_of(&blocks, &[], &[with_blanks(10..13, 41, (0, 1))]), [1, 1, 40]);
+  assert_eq!(starts_of(&blocks, &[], &[with_blanks(11..13, 41, (1, 1))]), [1, 1, 40]);
+  assert_eq!(starts_of(&blocks, &[], &[with_blanks(12..13, 41, (1, 1))]), [0, 0, 10, 1, 1, 40]);
 }
 
 //
@@ -633,40 +671,34 @@ fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &TextDiff) {
 /// of both sides shows all of both: no text of the old line stands in the row of another pair
 fn check_pairs(block: &DiffBlock, old_lines: &[String], new_lines: &[String], policy: WhitespacePolicy) {
   assert_eq!(block.old_end - block.old_start, block.new_end - block.new_start, "{block:?}");
-  /// The text of a line between its ranges, one part before each range and one after the last
-  fn between(line: &str, ranges: &[u32], keep_whitespace: bool) -> Vec<String> {
-    let units: Vec<u16> = line.encode_utf16().collect();
-    let mut bounds = vec![0];
-    bounds.extend(ranges.chunks(3).flat_map(|range| [range[0] as usize, range[1] as usize]));
-    bounds.push(units.len());
-    bounds
-      .chunks(2)
-      .map(|part| String::from_utf16_lossy(&units[part[0]..part[1]]))
-      .map(|part| if keep_whitespace { part } else { part.replace([' ', '\t'], "") })
-      .collect()
-  }
+  // the text of a line between its ranges, without its spaces and tabs under a policy that ignores them
+  let parts = |line: &str, ranges: &[u32], keep_whitespace: bool| -> Vec<String> {
+    let parts = between(line, ranges).into_iter();
+    parts.map(|part| if keep_whitespace { part } else { part.replace([' ', '\t'], "") }).collect()
+  };
   for pair in 0..(block.old_end - block.old_start) as usize {
     let (old_ranges, new_ranges): (&[u32], &[u32]) = (block.old_ranges.get(pair).map_or(&[], Vec::as_slice), block.new_ranges.get(pair).map_or(&[], Vec::as_slice));
     let kinds = |ranges: &[u32]| ranges.chunks(3).map(|range| range[2]).collect::<Vec<u32>>();
     assert_eq!(kinds(old_ranges), kinds(new_ranges), "pair {pair} of {block:?}");
     let exact = policy == WhitespacePolicy::Default;
     assert_eq!(
-      between(&old_lines[block.old_start as usize + pair], old_ranges, exact),
-      between(&new_lines[block.new_start as usize + pair], new_ranges, exact),
+      parts(&old_lines[block.old_start as usize + pair], old_ranges, exact),
+      parts(&new_lines[block.new_start as usize + pair], new_ranges, exact),
       "pair {pair} of {block:?} under {policy:?}"
     );
   }
 }
 
-/// Blocks in order with lines between them, and runs inside them in the order of both sides, quiet or not
-fn blocks_with_runs() -> impl Strategy<Value = (Vec<DiffBlock>, Vec<LineRun>)> {
+/// Blocks in order with lines between them, runs inside them in the order of both sides, quiet or not, and old
+/// lines of them that moves took
+fn blocks_with_runs() -> impl Strategy<Value = (Vec<DiffBlock>, Vec<LineRun>, Vec<LineMove>)> {
   use proptest::prelude::any;
   let cuts = || proptest::collection::vec(0..=4u32, 4);
-  let block = (0..3u32, 0..=4u32, 0..=4u32, 0..3u8, cuts(), cuts(), any::<[bool; 2]>());
-  proptest::collection::vec(block, 0..6).prop_map(|specs| {
-    let (mut blocks, mut runs) = (Vec::new(), Vec::new());
+  let spec = (0..3u32, 0..=4u32, 0..=4u32, 0..3u8, cuts(), cuts(), any::<[bool; 2]>(), (0..=4u32, 0..=4u32));
+  proptest::collection::vec(spec, 0..6).prop_map(|specs| {
+    let (mut blocks, mut runs, mut moves) = (Vec::new(), Vec::new(), Vec::new());
     let (mut old, mut new) = (0, 0);
-    for (gap, old_lines, new_lines, kind, mut old_cuts, mut new_cuts, quiet) in specs {
+    for (gap, old_lines, new_lines, kind, mut old_cuts, mut new_cuts, quiet, moved) in specs {
       if old_lines + new_lines == 0 {
         continue;
       }
@@ -674,6 +706,20 @@ fn blocks_with_runs() -> impl Strategy<Value = (Vec<DiffBlock>, Vec<LineRun>)> {
       let kind = [BlockKind::Changed, BlockKind::WhitespaceOnly, BlockKind::Ignored][kind as usize];
       old_cuts.sort_unstable();
       new_cuts.sort_unstable();
+      // the old lines a move took, further down in the new text
+      let (from, to) = (moved.0.min(moved.1).min(old_lines), moved.0.max(moved.1).min(old_lines));
+      if kind == BlockKind::Changed && from < to {
+        // of three lines and more, the first or the last a blank line that left with the others
+        let blanks = if to - from >= 3 { (moved.0 % 2, moved.1 % 2) } else { (0, 0) };
+        moves.push(LineMove {
+          old_start: old + from + blanks.0,
+          new_start: 1_000 + old + from + blanks.1,
+          len: to - from - blanks.0 - blanks.1,
+          blanks_before: blanks.0,
+          blanks_after: blanks.1,
+          ..LineMove::default()
+        });
+      }
       for (index, quiet) in quiet.into_iter().enumerate() {
         let run = LineRun {
           old_start: old + old_cuts[index * 2].min(old_lines),
@@ -687,26 +733,19 @@ fn blocks_with_runs() -> impl Strategy<Value = (Vec<DiffBlock>, Vec<LineRun>)> {
           runs.push(run);
         }
       }
-      blocks.push(DiffBlock {
-        old_start: old,
-        old_end: old + old_lines,
-        new_start: new,
-        new_end: new + new_lines,
-        kind,
-        inline_pairs: false,
-        old_ranges: Vec::new(),
-        new_ranges: Vec::new(),
-      });
+      blocks.push(block(old..old + old_lines, new..new + new_lines, kind));
       (old, new) = (old + old_lines + 1, new + new_lines + 1);
     }
-    (blocks, runs)
+    (blocks, runs, moves)
   })
 }
 
-/// `starts` against the runs, line by line: a block has an entry exactly when it is not ignored and a line of it is
-/// in no quiet run; the entry names such a line of the block, the first new one unless an old one stands in an
-/// earlier part of the block (before more of its quiet runs)
-fn check_starts(blocks: &[DiffBlock], runs: &[LineRun], starts: &[u32]) {
+/// `starts` against the runs and the moves, line by line: a block has an entry exactly when it is not ignored and a
+/// line of it is to read, a new line in no quiet run or an old line in no quiet run that no move took; the entry
+/// names such a line of the block, the first new one unless an old one stands in an earlier part of the block
+/// (before more of its quiet runs)
+fn check_starts(blocks: &[DiffBlock], runs: &[LineRun], moves: &[LineMove], starts: &[u32]) {
+  let moved = |line: u32| moves.iter().any(|line_move| line_move.old_lines().contains(&line));
   let quiet: Vec<&LineRun> = runs.iter().filter(|run| run.quiet).collect();
   let is_quiet = |side: u32, line: u32| {
     quiet.iter().any(|run| {
@@ -731,7 +770,7 @@ fn check_starts(blocks: &[DiffBlock], runs: &[LineRun], starts: &[u32]) {
   let mut entry = entries.next();
   for (index, block) in blocks.iter().enumerate() {
     let first_new = (block.new_start..block.new_end).find(|line| !is_quiet(1, *line));
-    let first_old = (block.old_start..block.old_end).find(|line| !is_quiet(0, *line));
+    let first_old = (block.old_start..block.old_end).find(|line| !is_quiet(0, *line) && !moved(*line));
     let expected = match (first_old, first_new) {
       _ if block.kind == BlockKind::Ignored => None,
       (None, None) => None,
@@ -740,7 +779,7 @@ fn check_starts(blocks: &[DiffBlock], runs: &[LineRun], starts: &[u32]) {
       (Some(old), Some(new)) => Some(if runs_before(block, 0, old) < runs_before(block, 1, new) { (0, old) } else { (1, new) }),
     };
     let found = entry.filter(|it| it[0] as usize == index).map(|it| (it[1], it[2]));
-    assert_eq!(found, expected, "block {index} of {blocks:?} with {runs:?}: {starts:?}");
+    assert_eq!(found, expected, "block {index} of {blocks:?} with {runs:?} and {moves:?}: {starts:?}");
     if found.is_some() {
       entry = entries.next();
     }
@@ -752,15 +791,16 @@ proptest! {
   #![proptest_config(proptest_config(500))]
 
   #[test]
-  fn starts_agree_with_the_runs((blocks, runs) in blocks_with_runs()) {
-    check_starts(&blocks, &runs, &starts_of(&blocks, &runs));
+  fn starts_agree_with_the_runs((blocks, runs, moves) in blocks_with_runs()) {
+    check_starts(&blocks, &runs, &moves, &starts_of(&blocks, &runs, &moves));
+    check_starts(&blocks, &runs, &[], &starts_of(&blocks, &runs, &[]));
   }
 
   #[test]
   fn a_diff_starts_the_reading_at_each_block_that_counts(old in text(), new in text()) {
     for policy in [WhitespacePolicy::Default, WhitespacePolicy::Ignore, WhitespacePolicy::IgnoreBlankLines] {
       let result = diff_with(&old, &new, policy);
-      check_starts(&result.blocks, &[], &result.marks.starts);
+      check_starts(&result.blocks, &[], &[], &result.marks.starts);
     }
   }
 

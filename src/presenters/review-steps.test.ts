@@ -15,7 +15,7 @@ import {
   withCommitTitles,
 } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
-import { moduleShape, reviewPlan, reviewStep, stepCommit, stepGroup } from "@/test-support/review-step"
+import { fileFacts, moduleShape, reviewPlan, reviewStep, stepCommit, stepGroup } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -400,6 +400,29 @@ describe("the groups of a large step", () => {
       null,
       "gui/media · Tests · 1 file",
       null,
+    ])
+  })
+
+  it("names the mechanical group Wiring while it holds the build model alone, else Mechanical, its hover saying what such a group holds: moved declarations too", () => {
+    const stops: [string, string][] = [
+      ["new:gui/src/Embed.kt", "gui/src/Embed.kt"],
+      ["mechanical:buildModel", "gui/BUILD.bazel"],
+      ["mechanical:moved", "gui/src/Store.kt"],
+    ]
+    const modules = [moduleShape("gui", "gui")]
+    const files = [fileFacts("gui/src/Embed.kt", 0), { ...fileFacts("gui/BUILD.bazel", 0), mechanical: "buildModel" as const }, fileFacts("gui/src/Store.kt", 0)]
+    const groupsOf = (end: number) => {
+      const groups: StepGroup[] = [stepGroup("module", 0, [0, 1, 1]), stepGroup("mechanical", null, [1, end, end])]
+      const step = reviewStep("a", [stepCommit("Embed a player")], stops.slice(0, end), {}, { groups })
+      const [chapter] = presentChapters({ steps: { ...reviewPlan().steps, steps: [step] }, concerns: [], modules, files })
+      return chapter!.groups.map(group => [group.name, group.hover, group.paths])
+    }
+    expect(groupsOf(2)[1]).toEqual(["Wiring", "The build files and the lists of modules of the step", ["gui/BUILD.bazel"]])
+    // a declaration that moved is of a unit, never the kind of its file: the group is no wiring with it
+    expect(groupsOf(3)[1]).toEqual([
+      "Mechanical",
+      "The mechanical changes of the step: the build model, imports alone, whitespace, moved declarations, renames, generated files",
+      ["gui/BUILD.bazel", "gui/src/Store.kt"],
     ])
   })
 })

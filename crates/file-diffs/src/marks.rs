@@ -1,6 +1,6 @@
 //! The marks of a diff (openspec/specs/commit/quiet-changes/spec.md; docs/design/diff-view.md, "Marks"): the runs of
-//! lines that changed in their formatting or their comments alone, and the line the reading of each block starts at
-//! (`text_diff::model::DiffMarks`). They change no block of the diff.
+//! lines that changed in their formatting or their comments alone, the lines that moved within the file, and the
+//! line the reading of each block starts at (`text_diff::model::DiffMarks`). They change no block of the diff.
 //!
 //! - **Proof, not a guess.** A run is quiet only when the tokens of its lines are the same on both sides
 //!   (`code_symbols::tokens`, openspec/specs/commit/equal-by-tokens/spec.md): the same tokens parse to the same tree, so
@@ -18,17 +18,24 @@
 //!   (`line_level_only` within the size) has the runs of its blocks: the same blocks have the same marks on every
 //!   machine and under every load.
 //! - **Quiet** is decided for a kind in one place, `is_quiet`.
+//! - **Moves** (`text_diff::moves::find_moves`) need no grammar: every pair of texts has them, from its lines alone,
+//!   after the runs, whose lines no move takes. A move is never quiet: its new lines are in no run, so the block they
+//!   stand in always has a start; its old lines are nothing to read where they left (`starts_of`). Whether the
+//!   indentation of the file has a meaning (`code_symbols::tokens::indentation_matters`, of either path) decides what
+//!   a line at another indent is in a move, so it is in the key of the diff (`service::diff_options`).
 //!
 //! `marks_runs` reads the runs of one block from its tokens.
 
 use crate::marks_runs::{BlockLines, runs_of_block};
 use crate::service::{FileDiffs, fits_inner};
 use code_symbols::highlight::{Grammar, grammar_of};
-use code_symbols::tokens::{Tokens, is_blank, tokens};
+use code_symbols::tokens::{Tokens, indentation_matters, is_blank, tokens};
 use std::cell::OnceCell;
 use std::ops::Range;
 use std::sync::Arc;
 use text_diff::model::{BlockKind, DiffMarks, LineRun, RunKind, TextDiff, starts_of};
+use text_diff::moves::find_moves;
+use text_diff::policy::WhitespacePolicy;
 
 /// A side of a block with more tokens of code is not compared token by token: a block of some three thousand lines
 pub const MAX_BLOCK_TOKENS: usize = 1 << 15;
@@ -54,9 +61,9 @@ impl FileDiffs {
   /// The marks of `diff`, the diff of a file whose sides are at `paths` (the old one first), have the blob `ids` and
   /// the `texts`. The tokens of a side are read once per blob and grammar and kept in memory: the next pair with the
   /// blob (the next commit of a branch, another whitespace policy) parses nothing
-  pub(crate) fn marks(&self, diff: &TextDiff, paths: [&str; 2], ids: [Option<&str>; 2], texts: [&str; 2]) -> DiffMarks {
+  pub(crate) fn marks(&self, diff: &TextDiff, policy: WhitespacePolicy, paths: [&str; 2], ids: [Option<&str>; 2], texts: [&str; 2]) -> DiffMarks {
     let grammar = pair_grammar(paths[0], paths[1]);
-    marks_of(diff, texts[0], texts[1], grammar, |new_side| {
+    marks_of(diff, texts[0], texts[1], grammar, policy, pair_indented(paths[0], paths[1]), |new_side| {
       let (side, grammar) = (usize::from(new_side), grammar?);
       match ids[side] {
         Some(id) => self.tokens.get_with((grammar.id(), id.to_string()), || tokens(grammar, texts[side]).map(Arc::new)),
@@ -84,23 +91,43 @@ pub fn pair_grammar(old_path: &str, new_path: &str) -> Option<Grammar> {
   (old_path == new_path || grammar_of(old_path) == Some(grammar)).then_some(grammar)
 }
 
-/// The marks of `diff`, the diff of `old` and `new`, both read by `grammar` (`pair_grammar`; `None` marks nothing).
+/// Whether the indentation of a side of a pair has a meaning, from their paths (`old_path` of a rename): a line of
+/// a move at another indent than the others is then an edited line of it
+pub fn pair_indented(old_path: &str, new_path: &str) -> bool {
+  indentation_matters(new_path) || (old_path != new_path && indentation_matters(old_path))
+}
+
+/// The marks of `diff`, the diff of `old` and `new`, both read by `grammar` (`pair_grammar`; `None` has no runs).
 /// `tokens` reads the tokens of a side, `false` the old one and `true` the new one, `None` for a text without tokens;
-/// each side is asked once at most, and only when a block may have a run. `starts` is filled for every diff.
+/// each side is asked once at most, and only when a block may have a run. `policy` is the whitespace policy the diff
+/// was made under and `indented` whether the indentation of the file has a meaning (`pair_indented`): what the
+/// whitespace at the ends of a line is to a move. The moves and `starts` are filled for every diff.
 ///
 /// A pair with a side over the size the inner ranges are compared for has no runs: a limit of work. What the time
-/// did to the diff changes nothing here: the runs read its blocks and the tokens, never its inner ranges, so a diff
-/// that is by lines alone for lack of time has the runs of its blocks
-pub fn marks_of(diff: &TextDiff, old: &str, new: &str, grammar: Option<Grammar>, tokens: impl Fn(bool) -> Option<Arc<Tokens>>) -> DiffMarks {
+/// did to the diff changes nothing here: the runs read its blocks and the tokens, the moves its blocks and the lines
+/// of the texts, never its inner ranges, so a diff that is by lines alone for lack of time has the marks of its
+/// blocks
+pub fn marks_of(
+  diff: &TextDiff,
+  old: &str,
+  new: &str,
+  grammar: Option<Grammar>,
+  policy: WhitespacePolicy,
+  indented: bool,
+  tokens: impl Fn(bool) -> Option<Arc<Tokens>>,
+) -> DiffMarks {
   let runs = match grammar {
     Some(grammar) if fits_inner(old, diff.old_line_count) && fits_inner(new, diff.new_line_count) => {
       runs_of(diff, &SideText::new(grammar, old), &SideText::new(grammar, new), true, &tokens)
     }
     _ => Vec::new(),
   };
+  // after the runs: a line of a run is in no move
+  let moves = find_moves(old, new, &diff.blocks, &runs, policy, indented);
   DiffMarks {
-    starts: starts_of(&diff.blocks, &runs),
+    starts: starts_of(&diff.blocks, &runs, &moves),
     runs,
+    moves,
     ..DiffMarks::default()
   }
 }

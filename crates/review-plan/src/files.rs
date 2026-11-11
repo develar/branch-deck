@@ -79,7 +79,10 @@ pub enum MechanicalKind {
   ImportsOnly,
   /// Only whitespace changed
   Whitespace,
-  /// Moved, no line changed
+  /// Declarations that stand at another place of their file with the same code, where their place has no meaning
+  /// (`moved`): of a unit alone (`units`), never of a file
+  Moved,
+  /// The file moved, no line changed
   Renamed,
   /// Nobody writes it by hand: a lock file, a file the attributes mark generated, a file whose header says a tool wrote
   /// it (`FileFacts::generated` says which)

@@ -45,6 +45,7 @@ pub mod links;
 pub mod mark_reviewed;
 pub mod message_steps;
 pub mod modules;
+mod moved;
 pub mod order;
 pub mod pair;
 pub mod prose;

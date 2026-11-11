@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use text_diff::model::{BlockKind, DiffMarks, LineEnds, LineRun, RunKind, TextDiff};
+use text_diff::model::{BlockKind, DiffMarks, LineEnds, LineMove, LineRun, RunKind, TextDiff};
 use text_diff::policy::WhitespacePolicy;
 use text_diff::text::LineEndKind;
 
@@ -76,6 +76,55 @@ fn open_cache(dir: &tempfile::TempDir) -> ObjectCache {
 
 fn commit(id: &str) -> DiffSource {
   DiffSource::Commit { id: id.to_string() }
+}
+
+/// The events of the stream of the diffs of the commit `id`, by a service with empty caches
+fn stream_events(repo: &TestRepo, id: &str) -> Vec<FileDiffEvent> {
+  let params = GetFileDiffsParams {
+    repository_path: repo_path(repo).to_string(),
+    source: commit(id),
+    policy: WhitespacePolicy::Default,
+    priority_paths: Vec::new(),
+  };
+  let mut events = Vec::new();
+  unhurried()
+    .stream(repo.git_executor(), &ObjectCache::disabled(), &params, |event| events.push(event))
+    .unwrap();
+  events
+}
+
+/// The diffs of the commit `id`, whose files are all the same blob pair at other paths
+fn read_one_pair(diffs: &FileDiffs, repo: &TestRepo, cache: &ObjectCache, id: &str) -> Vec<DiffFile> {
+  let files = diffs.read(repo.git_executor(), repo_path(repo), cache, &commit(id), WhitespacePolicy::Default).unwrap();
+  let ids: Vec<_> = files.iter().map(|file| (file.old_id.clone(), file.new_id.clone())).collect();
+  assert!(ids.iter().all(|pair| *pair == ids[0]), "one blob pair at {} paths", ids.len());
+  files
+}
+
+/// The marks a scan gets of the blob pair that the commit `id` changes at each of `paths`, without a process: the
+/// diff a view made of the pair at that path
+fn scanned_marks(diffs: &FileDiffs, repo: &TestRepo, cache: &ObjectCache, paths: &[&str], id: &str) -> Vec<DiffMarks> {
+  let blob = |side: &str| repo.rev_parse(&format!("{side}:{}", paths[0])).unwrap();
+  let (old_id, new_id) = (blob(&format!("{id}~1")), blob(id));
+  let pairs: Vec<BlobPair<'_>> = paths
+    .iter()
+    .map(|path| BlobPair {
+      path,
+      old_path: None,
+      old_id: Some(&old_id),
+      new_id: Some(&new_id),
+    })
+    .collect();
+  let counting = repo.git_executor().with_process_stats("test");
+  let scan = diffs.blocks_of(&counting, repo_path(repo), cache, &pairs).unwrap();
+  assert_eq!(process_counts(&counting), []);
+  scan
+    .into_iter()
+    .map(|diff| match diff {
+      PairDiff::Text(diff) => diff.marks,
+      PairDiff::NoText => panic!("{diff:?}"),
+    })
+    .collect()
 }
 
 #[test]
@@ -504,16 +553,7 @@ fn the_marks_of_a_text_come_with_its_content() {
   let repo = TestRepo::new();
   repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
   let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
-  let params = GetFileDiffsParams {
-    repository_path: repo_path(&repo).to_string(),
-    source: commit(&second),
-    policy: WhitespacePolicy::Default,
-    priority_paths: Vec::new(),
-  };
-  let mut events = Vec::new();
-  unhurried()
-    .stream(repo.git_executor(), &ObjectCache::disabled(), &params, |event| events.push(event))
-    .unwrap();
+  let events = stream_events(&repo, &second);
   let [FileDiffEvent::Files { .. }, FileDiffEvent::Content { content, .. }, FileDiffEvent::Scopes { .. }] = &events[..] else {
     panic!("{events:?}")
   };
@@ -577,12 +617,7 @@ fn the_same_pair_read_by_two_grammars_is_two_diffs() {
   let cache = open_cache(&cache_dir);
   let diffs = unhurried();
   let runs = |diffs: &FileDiffs| -> Vec<(String, usize, Vec<u32>)> {
-    let files = diffs
-      .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
-      .unwrap();
-    let ids: Vec<_> = files.iter().map(|file| (file.old_id.clone(), file.new_id.clone())).collect();
-    assert!(ids.iter().all(|pair| *pair == ids[0]), "one blob pair at three paths");
-    files
+    read_one_pair(diffs, &repo, &cache, &second)
       .iter()
       .map(|file| (file.path.clone(), text(file).marks.runs.len(), text(file).marks.starts.clone()))
       .collect()
@@ -598,26 +633,101 @@ fn the_same_pair_read_by_two_grammars_is_two_diffs() {
   assert_eq!(runs(&unhurried()), expected);
 
   // a scan finds the diff the view made of the pair at its own path
-  let blob = |side: &str| repo.rev_parse(&format!("{side}:a.ts")).unwrap();
-  let (old_id, new_id) = (blob(&format!("{second}~1")), blob(&second));
-  let pairs = ["a.ts", "b.tsx", "c.txt"].map(|path| BlobPair {
-    path,
-    old_path: None,
-    old_id: Some(&old_id),
-    new_id: Some(&new_id),
-  });
   for diffs in [diffs, unhurried()] {
-    let counting = repo.git_executor().with_process_stats("test");
-    let scan = diffs.blocks_of(&counting, repo_path(&repo), &cache, &pairs).unwrap();
-    assert_eq!(process_counts(&counting), []);
-    let found: Vec<usize> = scan
+    let found: Vec<usize> = scanned_marks(&diffs, &repo, &cache, &["a.ts", "b.tsx", "c.txt"], &second)
       .iter()
-      .map(|diff| match diff {
-        PairDiff::Text(diff) => diff.marks.runs.len(),
-        PairDiff::NoText => panic!("{diff:?}"),
-      })
+      .map(|marks| marks.runs.len())
       .collect();
     assert_eq!(found, [1, 0, 0]);
+  }
+}
+
+/// The moves of a text need no grammar and come with its content. A line that stayed at its indent while the lines
+/// of its move shifted is an edited line only where the indentation of the file has a meaning (its nesting changed,
+/// no character of it), so the same two blobs at a `.py` and at a `.txt` path are two diffs, in memory, in the store
+/// and for a scan; a file of Starlark has the answer of its grammar. The time of a file changes no move
+#[test]
+fn the_moves_of_a_text_come_with_its_content_and_are_those_of_its_indentation() {
+  let rule = |indent: &str| format!("{indent}def build(name, sources):\n{indent}    native.library(\n{indent}        name = name,\n        srcs = sources,\n{indent}    )\n");
+  let stay: String = (0..8).fold(String::new(), |mut text, index| {
+    writeln!(text, "value_{index} = {index}").unwrap();
+    text
+  });
+  // the rule moved below the values, its lines indented by four more columns but one, which stayed at its indent
+  let (old, new) = (format!("{}{stay}", rule("")), format!("{stay}{}", rule("    ")));
+  let paths = ["a.py", "b.txt", "defs.bzl"];
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &paths.map(|path| (path, old.as_str())));
+  let second = repo.create_commit_with_files("Move", &paths.map(|path| (path, new.as_str())));
+  let cache_dir = tempfile::tempdir().unwrap();
+  let cache = open_cache(&cache_dir);
+
+  let moved = |edited: bool| LineMove {
+    old_start: 0,
+    new_start: 8,
+    len: 5,
+    indent: 4,
+    edited: if edited { vec![3] } else { Vec::new() },
+    ..LineMove::default()
+  };
+  // the lines the rule left are nothing to read: the reading starts where it stands now
+  let marks = |edited: bool| DiffMarks {
+    moves: vec![moved(edited)],
+    starts: vec![1, 1, 8],
+    ..DiffMarks::default()
+  };
+  let expected = [("a.py", marks(true)), ("b.txt", marks(false)), ("defs.bzl", marks(true))];
+  let read = |diffs: &FileDiffs| -> Vec<(&str, DiffMarks)> {
+    let files = read_one_pair(diffs, &repo, &cache, &second);
+    paths.iter().zip(&files).map(|(path, file)| (*path, text(file).marks.clone())).collect()
+  };
+  // compared, then from memory, then from the store of another app
+  let diffs = unhurried();
+  assert_eq!(read(&diffs), expected);
+  assert_eq!(read(&diffs), expected);
+  assert_eq!(read(&unhurried()), expected);
+
+  // with the content of each file, before the scopes of the one that has a language
+  let mut with_content = Vec::new();
+  for event in &stream_events(&repo, &second) {
+    if let FileDiffEvent::Content {
+      index,
+      content: DiffContent::Text(diff),
+      ..
+    } = event
+    {
+      with_content.push((paths[*index as usize], diff.marks.clone()));
+    }
+  }
+  with_content.sort_by_key(|(path, _)| *path);
+  assert_eq!(with_content, expected);
+  let json = serde_json::to_value(text(
+    &unhurried()
+      .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
+      .unwrap()[0],
+  ))
+  .unwrap();
+  assert_eq!(
+    json["marks"]["moves"],
+    serde_json::json!([{
+      "oldStart": 0, "newStart": 8, "len": 5, "indent": 4, "blanksBefore": 0, "blanksAfter": 0, "edited": [3], "oldRanges": [], "newRanges": [],
+    }])
+  );
+
+  // a diff whose inner ranges ran out of their time has the moves of the diff in time
+  let hurried = FileDiffs::new(DiffLimits {
+    file: Duration::ZERO,
+    lines: Duration::from_secs(60),
+  });
+  let files = hurried
+    .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
+    .unwrap();
+  let cut: Vec<(bool, DiffMarks)> = files.iter().map(|file| (text(file).line_level_only, text(file).marks.clone())).collect();
+  assert_eq!(cut, expected.clone().map(|(_, marks)| (true, marks)));
+
+  // a scan finds the diff the view made of the pair at its own path
+  for diffs in [diffs, unhurried()] {
+    assert_eq!(scanned_marks(&diffs, &repo, &cache, &paths, &second), expected.clone().map(|(_, marks)| marks));
   }
 }
 

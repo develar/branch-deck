@@ -12,7 +12,13 @@
 //!   than whitespace `Behaviour`, one whose lines differ by whitespace alone whitespace (`whitespace::Sides`: equal by
 //!   tokens), its lines being those of the declaration and of every block it holds, so a block that reaches past the
 //!   declaration is whitespace only when all of it is; a declaration of one side alone, its lines changed, is `Added`
-//!   or `Removed`, also when another unit holds its block.
+//!   or `Removed`, also when another unit holds its block. A pair of the same form that stands at another place of
+//!   its file with the same code moved (`SourceFile::moved_pair`): every line of it deleted in blocks of old lines
+//!   alone and added in blocks of new lines alone, the same tokens on both sides. Asked before whitespace, and without
+//!   the code around it, which a move changes: where a declaration stands is a change of its own, never whitespace.
+//!   It is the mechanical kind `Moved` only where its place has no meaning (`SourceFile::moved_freely`, `moved`: a
+//!   function or a type that crossed only declarations any order of which is the same program); a value with its
+//!   initializer, an enum entry, a macro, a function that crossed code of no declaration are `Behaviour`, read.
 //!   A declaration of one side alone inside another of that side alone is part of the unit of the outermost one.
 //! - **API and tests**: a unit of a declaration is `api` when the API of the plan lists it, or would by a change of its
 //!   form (`api::listed`, by the `Surface` of each side), and `test` when it is test code (`DeclarationForm::test`);
@@ -31,6 +37,7 @@
 
 use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
+use crate::moved::{crossable, ordering_token, place_free};
 use crate::pair::{LineBlock, PairBlocks};
 use crate::whitespace::{Sides, TextLines, TextTokens};
 use code_symbols::language::language_of;
@@ -159,11 +166,12 @@ pub struct ReviewUnit {
 
 /// The order of the mechanical units, as the tree of the review lists the kinds: the generated files last, which a
 /// reviewer skips whole
-const MECHANICAL_ORDER: [MechanicalKind; 6] = [
+const MECHANICAL_ORDER: [MechanicalKind; 7] = [
   MechanicalKind::BuildModel,
   MechanicalKind::ModuleList,
   MechanicalKind::ImportsOnly,
   MechanicalKind::Whitespace,
+  MechanicalKind::Moved,
   MechanicalKind::Renamed,
   MechanicalKind::Generated,
 ];
@@ -580,6 +588,7 @@ const fn mechanical_tag(kind: MechanicalKind) -> &'static str {
     MechanicalKind::ModuleList => "moduleList",
     MechanicalKind::ImportsOnly => "importsOnly",
     MechanicalKind::Whitespace => "whitespace",
+    MechanicalKind::Moved => "moved",
     MechanicalKind::Renamed => "renamed",
     MechanicalKind::Generated => "generated",
   }
@@ -623,6 +632,89 @@ impl SourceFile<'_, '_> {
     let old = reach(lines_of(before), blocks, |block| block.old_start..block.old_end);
     let new = reach(lines_of(after), blocks, |block| block.new_start..block.new_end);
     self.whitespace_only(old, new)
+  }
+
+  /// Whether the declaration `before` stands at another place of its file as `after`, with the same code: every
+  /// block of its unit (`blocks`) has lines of one side alone, every line of `before` is in one of them and every
+  /// line of `after` in another (the lines left their place whole, none of them stayed or was edited where it
+  /// stood), and the lines from the first to the last of the declaration and its blocks are the same code on both
+  /// sides (`Sides::same_code`), so a block that reaches past the declaration moved with all its lines
+  fn moved_pair(&self, before: &SpannedDeclaration, after: &SpannedDeclaration, blocks: &[UnitBlock]) -> bool {
+    /// The lines of a block on one side
+    type Side = fn(&UnitBlock) -> Range<u32>;
+    let (old_side, new_side): (Side, Side) = (|block| block.old_start..block.old_end, |block| block.new_start..block.new_end);
+    if blocks.iter().any(|block| !old_side(block).is_empty() && !new_side(block).is_empty()) {
+      return false;
+    }
+    let within = |mut lines: Range<u32>, side: Side| lines.all(|line| blocks.iter().any(|block| side(block).contains(&line)));
+    if !within(lines_of(before), old_side) || !within(lines_of(after), new_side) {
+      return false;
+    }
+    // the lines of a side: of a block of the other side only the place between two lines is on this one
+    let lines = |declaration: &SpannedDeclaration, side: Side| {
+      let changed = blocks.iter().map(side).filter(|lines| !lines.is_empty());
+      changed.fold(lines_of(declaration), |reach, block| reach.start.min(block.start)..reach.end.max(block.end))
+    };
+    self.sides.same_code(lines(before, old_side), lines(after, new_side))
+  }
+
+  /// Whether the pair that moved (`moved_pair`) changed nothing but where it stands, so that a review may fold it
+  /// (`moved`). The lines that moved are its own with the blocks added with them, on the new side; they left the
+  /// places where the blocks of old lines alone stand there. The lines that moved are whole declarations whose
+  /// place has no meaning (the one of the pair, the one around it when that moved whole, the ones beside it in the
+  /// same blocks) and no other code, and hold no token that gives a place a meaning (`ordering_token`: a decorator);
+  /// between the two places stand only whole declarations beside them that each of them may cross, with blank lines
+  /// and comments
+  fn moved_freely(&self, before: &SpannedDeclaration, after: &SpannedDeclaration, blocks: &[UnitBlock]) -> bool {
+    let Some(grammar) = self.sides.grammar() else { return false };
+    if !place_free(grammar, &before.form) {
+      return false;
+    }
+    let added = blocks.iter().filter(|block| block.new_start < block.new_end);
+    let now = added.fold(lines_of(after), |reach, block| reach.start.min(block.new_start)..reach.end.max(block.new_end));
+    // a decorator that moved: what it stands on is applied in its turn
+    if ordering_token(grammar).is_some_and(|token| !self.sides.no_token(now.clone(), token)) {
+      return false;
+    }
+    let left = blocks.iter().filter(|block| block.new_start == block.new_end).map(|block| block.new_start);
+    let (from, to) = left.fold((now.start, now.end), |(from, to), place| (from.min(place), to.max(place)));
+    let within = |outer: &Range<u32>, inner: &Range<u32>| outer.start <= inner.start && inner.end <= outer.end;
+    // the outermost declaration that moved whole: the pair's own, or one around it
+    let around = self.after.declarations.iter().filter(|declaration| {
+      let lines = lines_of(declaration);
+      within(&now, &lines) && within(&lines, &lines_of(after))
+    });
+    let Some(outermost) = around.max_by_key(|declaration| (lines_of(declaration).len(), std::cmp::Reverse(declaration.form.containers.len()))) else {
+      return false;
+    };
+    // the declarations beside it, in the order of their lines
+    let mut beside: Vec<&SpannedDeclaration> = self
+      .after
+      .declarations
+      .iter()
+      .filter(|declaration| declaration.form.containers == outermost.form.containers)
+      .collect();
+    beside.sort_by_key(|declaration| declaration.start_line);
+    let moved: Vec<&SpannedDeclaration> = beside.iter().copied().filter(|declaration| within(&now, &lines_of(declaration))).collect();
+    // `lines` hold nothing but whole declarations of `beside` that are `fine`, blank lines and comments
+    let only = |lines: Range<u32>, fine: &dyn Fn(&SpannedDeclaration) -> bool| {
+      let mut line = lines.start;
+      for declaration in beside.iter().filter(|declaration| {
+        let held = lines_of(declaration);
+        held.start < lines.end && lines.start < held.end
+      }) {
+        let held = lines_of(declaration);
+        if !within(&lines, &held) || !fine(declaration) || (line < held.start && !self.sides.no_code(line..held.start)) {
+          return false;
+        }
+        line = line.max(held.end);
+      }
+      line >= lines.end || self.sides.no_code(line..lines.end)
+    };
+    only(now.clone(), &|declaration| place_free(grammar, &declaration.form))
+      && [from..now.start, now.end..to]
+        .into_iter()
+        .all(|crossed| only(crossed, &|declaration| moved.iter().all(|moved| crossable(grammar, &moved.form, &declaration.form))))
   }
 
   /// The text of `lines` (of the diffs) of a side as a fingerprint reads it, the same after a change of whitespace
@@ -780,9 +872,16 @@ impl SourceFile<'_, '_> {
           changes: form_changes(&before.form.form, &after.form.form),
         },
         (Some(before), Some(after)) => {
-          if self.whitespace_pair(before, after, &unit_blocks) {
-            // the same declaration but for its whitespace: a change of whitespace across lines
-            mechanical.entry(mechanical_place(MechanicalKind::Whitespace)).or_default().extend(unit_blocks);
+          // the same declaration at another place of its file, which a review folds only where that place has no
+          // meaning and is a change of behaviour elsewhere, never whitespace; or the same but for its whitespace: a
+          // change of whitespace across lines
+          let folded = if self.moved_pair(before, after, &unit_blocks) {
+            self.moved_freely(before, after, &unit_blocks).then_some(MechanicalKind::Moved)
+          } else {
+            self.whitespace_pair(before, after, &unit_blocks).then_some(MechanicalKind::Whitespace)
+          };
+          if let Some(kind) = folded {
+            mechanical.entry(mechanical_place(kind)).or_default().extend(unit_blocks);
             continue;
           }
           UnitKind::Behaviour
