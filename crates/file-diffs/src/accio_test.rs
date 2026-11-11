@@ -362,6 +362,29 @@ fn the_places_of_a_plan_are_asked_in_one_process() {
   assert_eq!((answers[1].hits.len(), answers[1].complete), (0, false));
 }
 
+/// accio lists a line once with each usage on it as a mark; an older accio lists each usage. Both answer the same
+/// usages, in the answer's order.
+#[test]
+fn a_line_of_marks_answers_a_usage_for_each_mark() {
+  let lines = r#"{"hits":[
+    {"file":"lib/Use.kt","line":2,"snippet":"twice(twice(1))","marks":[
+      {"column":0,"kind":"call","resolved":"typed","end_line":2,"arguments":[{"position":0}],"fits":true},
+      {"column":6,"kind":"call","resolved":"name"}]},
+    {"file":"lib/Use.kt","line":5,"snippet":"import a.twice","marks":[{"column":9,"kind":"import","resolved":"import"}]}],
+    "total":2,"total_marks":3,"by_name":0,"complete":true}"#;
+  let flat = r#"{"hits":[
+    {"file":"lib/Use.kt","line":2,"column":0,"snippet":"twice(twice(1))","kind":"call","resolved":"typed","end_line":2,"arguments":[{"position":0}],"fits":true},
+    {"file":"lib/Use.kt","line":2,"column":6,"snippet":"twice(twice(1))","kind":"call","resolved":"name"},
+    {"file":"lib/Use.kt","line":5,"column":9,"snippet":"import a.twice","kind":"import","resolved":"import"}],
+    "total":3,"by_name":0,"complete":true}"#;
+  let by_line: crate::accio::References = serde_json::from_str(lines).unwrap();
+  let by_usage: crate::accio::References = serde_json::from_str(flat).unwrap();
+  assert_eq!(by_line, by_usage);
+  let places: Vec<(u32, u32, Resolved)> = by_line.hits.iter().map(|hit| (hit.line, hit.column, hit.resolved)).collect();
+  assert_eq!(places, [(2, 0, Resolved::Typed), (2, 6, Resolved::Name), (5, 9, Resolved::Import)]);
+  assert_eq!((by_line.hits[0].fits, by_line.hits[0].arguments.as_ref().map(Vec::len)), (Some(true), Some(1)));
+}
+
 #[test]
 fn resolved_usages_are_asked_at_a_name_column_and_count_name_only_hits() {
   let dir = tempfile::tempdir().unwrap();
