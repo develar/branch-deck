@@ -314,6 +314,27 @@ fn a_kill_signals_only_the_process_that_has_the_start_time() {
   assert!(!status.success());
 }
 
+/// A process is halted once `stop` took effect, which each of its threads does as it runs again, never while it runs;
+/// one that exited and was reaped tells nothing
+#[cfg(unix)]
+#[test]
+fn a_process_is_halted_once_it_stopped_and_never_while_it_runs() {
+  use crate::process_scan::{halted, stop};
+  use std::time::{Duration, Instant};
+  let mut child = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+  let started = process_started(child.id()).unwrap();
+  assert_eq!(halted(child.id()), Some(false));
+  assert!(stop(child.id(), started));
+  let deadline = Instant::now() + Duration::from_mins(1);
+  while halted(child.id()) != Some(true) {
+    assert!(Instant::now() < deadline, "the stopped sleep is not halted: {:?}", halted(child.id()));
+    std::thread::sleep(Duration::from_millis(1));
+  }
+  child.kill().unwrap();
+  child.wait().unwrap();
+  assert_eq!(halted(child.id()), None);
+}
+
 /// The host is named, the same on every call: the operations registry tells the records of this host by it
 #[test]
 fn the_host_of_this_process_has_a_name() {

@@ -447,8 +447,10 @@ its child): an ssh of a remote that does not answer reads no end of its pipes an
 the kill ends the job object that git was put into when it started: `git` on `PATH` is mostly the launcher of Git for
 Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the launcher alone would leave that
 git running with its ssh or helper, its lock files and our inherited pipe handles. On Unix the kill takes the processes
-below git by their parent pids in passes: it stops git and what each pass found (`SIGSTOP`, so nothing forks more) and
-scans again until a pass finds nothing new, then kills them all; a signal goes only to a process that still has the
+below git by their parent pids in passes: it stops git and what each pass found (`SIGSTOP`, so nothing forks more),
+waits until each of their threads has stopped (a thread in the middle of a fork finishes it first, while macOS calls the
+process stopped as the signal comes; at most 10 s in all) and scans again until a pass finds nothing new, then kills
+them all; a signal goes only to a process that still has the
 start time the scan read, so a reused pid gets none. A process whose parent exited before the kill, which the system gave
 to launchd or init (a daemon that detached), is not found and runs on. git stays in the process group of the caller, so
 the passphrase prompt of an ssh in a terminal still reads it; on Linux `PR_SET_CHILD_SUBREAPER` would keep such orphans

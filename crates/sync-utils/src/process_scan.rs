@@ -409,6 +409,14 @@ pub fn stop(pid: u32, started: u64) -> bool {
   is_running(pid, Some(started)) && signal(pid, Signal::Stop)
 }
 
+/// Whether the process `pid` starts no other process any more: each of its threads has stopped (`stop` took effect: a
+/// thread in the middle of a call, a fork, runs on until the call returns, while the system may call the process
+/// stopped at once), or it has exited. `None` where the system tells nothing of `pid` (gone, a sandbox)
+#[cfg(unix)]
+pub fn halted(pid: u32) -> Option<bool> {
+  platform::halted(pid)
+}
+
 /// The signals of `signal`
 #[derive(Clone, Copy)]
 enum Signal {
@@ -500,7 +508,10 @@ const fn signal(_pid: u32, _signal: Signal) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-#[expect(unsafe_code, reason = "libproc: the pids, the parents, the start times and the working directories of the processes")]
+#[expect(
+  unsafe_code,
+  reason = "libproc: the pids, the parents, the start times, the threads and the working directories of the processes"
+)]
 mod platform {
   use super::ProcessInfo;
   use std::ffi::CStr;
@@ -536,6 +547,46 @@ mod platform {
 
   pub(super) fn started(pid: u32) -> Option<u64> {
     bsd_info(pid).map(|info| start_time(&info))
+  }
+
+  /// `PROC_PIDLISTTHREADS` of `sys/proc_info.h`: the flavor of `proc_pidinfo` that lists the thread handles of a process
+  const PROC_PIDLISTTHREADS: c_int = 6;
+
+  /// A zombie (`SZOMB`), or stopped (`SSTOP`) with each thread suspended, asleep in an interruptible wait (it suspends as
+  /// its call returns) or ending. The signal sets `SSTOP` at once, while a thread runs on to the end of its call: a
+  /// kill read a git that had `SSTOP` and its thread running in a fork, and missed the ssh that the fork started
+  pub(super) fn halted(pid: u32) -> Option<bool> {
+    let info = bsd_info(pid)?;
+    if info.pbi_status == libc::SZOMB {
+      return Some(true);
+    }
+    if info.pbi_status != libc::SSTOP {
+      return Some(false);
+    }
+    let stopped = [libc::TH_STATE_STOPPED, libc::TH_STATE_WAITING, libc::TH_STATE_HALTED];
+    // a thread that ended since the list tells nothing and starts nothing
+    Some(
+      threads(pid)?
+        .into_iter()
+        .all(|thread| thread_info(pid, thread).is_none_or(|info| stopped.contains(&info.pth_run_state))),
+    )
+  }
+
+  /// The thread handles of the process `pid` (`PROC_PIDLISTTHREADS`); `None` when it tells none
+  fn threads(pid: u32) -> Option<Vec<u64>> {
+    let task: libc::proc_taskinfo = pid_info(pid, libc::PROC_PIDTASKINFO)?;
+    // room for the threads started since the count
+    let mut threads = vec![0u64; usize::try_from(task.pti_threadnum).ok()? + 16];
+    let size = c_int::try_from(threads.len() * size_of::<u64>()).ok()?;
+    // SAFETY: the buffer holds `size` bytes of handles; the call writes at most that many and returns how many bytes
+    let written = unsafe { libc::proc_pidinfo(c_int::try_from(pid).ok()?, PROC_PIDLISTTHREADS, 0, threads.as_mut_ptr().cast(), size) };
+    threads.truncate(usize::try_from(written).ok().filter(|written| *written > 0)? / size_of::<u64>());
+    Some(threads)
+  }
+
+  /// The info of the thread `thread` of the process `pid` (`PROC_PIDTHREADINFO`)
+  fn thread_info(pid: u32, thread: u64) -> Option<libc::proc_threadinfo> {
+    pid_info_of(pid, libc::PROC_PIDTHREADINFO, thread)
   }
 
   /// This process, or one that still exists, where libproc gives no process its info (a sandbox denies it)
@@ -702,10 +753,15 @@ mod platform {
 
   /// `proc_pidinfo` of `flavor` into a zeroed `T`; `None` unless it filled the whole struct
   fn pid_info<T>(pid: u32, flavor: c_int) -> Option<T> {
+    pid_info_of(pid, flavor, 0)
+  }
+
+  /// `pid_info` of the item `arg` of the flavor (a thread)
+  fn pid_info_of<T>(pid: u32, flavor: c_int, arg: u64) -> Option<T> {
     let mut info = MaybeUninit::<T>::zeroed();
     let size = c_int::try_from(size_of::<T>()).ok()?;
     // SAFETY: the buffer is a `T` of `size` bytes, which the call writes at most
-    let written = unsafe { libc::proc_pidinfo(c_int::try_from(pid).ok()?, flavor, 0, info.as_mut_ptr().cast(), size) };
+    let written = unsafe { libc::proc_pidinfo(c_int::try_from(pid).ok()?, flavor, arg, info.as_mut_ptr().cast(), size) };
     // SAFETY: the call filled all of it, and every bit pattern is valid for these plain C structs
     (written == size).then(|| unsafe { info.assume_init() })
   }
@@ -780,6 +836,14 @@ mod platform {
     Stat::read(pid).filter(|stat| !stat.zombie).map(|stat| stat.started)
   }
 
+  /// Each thread stopped (`T`, or `t` under a tracer), a zombie (`Z`) or dead (`X`): `/proc/<pid>/stat` has the state of
+  /// the main thread, and another one runs on to the end of its call (a fork)
+  pub(super) fn halted(pid: u32) -> Option<bool> {
+    let tasks = std::fs::read_dir(format!("/proc/{pid}/task")).ok()?;
+    // a thread that ended since the list tells nothing and starts nothing
+    Some(tasks.flatten().all(|task| Stat::at(&task.path().join("stat")).is_none_or(|stat| stat.halted)))
+  }
+
   /// `started` is clock ticks since the boot: `btime` of `/proc/stat` (seconds since the epoch) plus the ticks
   pub(super) fn started_at(started: u64) -> Option<std::time::SystemTime> {
     let stat = std::fs::read_to_string("/proc/stat").ok()?;
@@ -829,11 +893,18 @@ mod platform {
     started: u64,
     /// Field 3, `state`, is `Z`
     zombie: bool,
+    /// Field 3, `state`, is `T`, `t`, `Z` or `X`: the thread forks no more
+    halted: bool,
   }
 
   impl Stat {
     fn read(pid: u32) -> Option<Self> {
-      let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+      Self::at(Path::new(&format!("/proc/{pid}/stat")))
+    }
+
+    /// The `stat` file of a process, or of a thread in `/proc/<pid>/task/<tid>/stat`
+    fn at(path: &Path) -> Option<Self> {
+      let text = std::fs::read_to_string(path).ok()?;
       // `pid (comm) state ppid …`: the name may hold spaces and parentheses, so the fields start after the last `)`
       let (head, rest) = text.rsplit_once(')')?;
       let name = head.split_once('(')?.1.to_string();
@@ -845,6 +916,7 @@ mod platform {
         group: fields.get(2)?.parse().ok()?,
         started: fields.get(19)?.parse().ok()?,
         zombie: fields.first() == Some(&"Z"),
+        halted: fields.first().is_some_and(|state| ["T", "t", "Z", "X"].contains(state)),
       })
     }
   }
@@ -961,6 +1033,10 @@ mod platform {
   #[expect(clippy::missing_const_for_fn, reason = "the signature of the scans of macOS and Linux")]
   pub(super) fn runs_unseen(_pid: u32) -> bool {
     true
+  }
+
+  pub(super) const fn halted(_pid: u32) -> Option<bool> {
+    None
   }
 }
 

@@ -293,13 +293,17 @@ const SSH_STARTED: &str = "ssh-started";
 /// The file with the pid of the ssh of `hanging_fixture`
 const SSH_PID: &str = "ssh-pid";
 
-/// The directory of the ssh of `hanging_fixture`. A stop of the fetch ends its git and the ssh of git with it
-/// (`sync_utils::process_tree`); the drop ends an ssh that a failed test left, which would sleep on for two minutes
-struct HangingSsh(tempfile::TempDir);
+/// The directory of the ssh of `hanging_fixture` and the repository whose git starts it. A stop of the fetch ends its
+/// git and the ssh of git with it (`sync_utils::process_tree`); the drop ends what a failed test left, an ssh that would
+/// sleep on for two minutes
+struct HangingSsh {
+  dir: tempfile::TempDir,
+  repository: std::path::PathBuf,
+}
 
 impl HangingSsh {
   fn path(&self) -> &Path {
-    self.0.path()
+    self.dir.path()
   }
 
   fn pid(&self) -> Option<u32> {
@@ -308,18 +312,39 @@ impl HangingSsh {
 
   /// The ssh ends with the git that the stop killed: it never ends by itself before two minutes
   fn assert_ended_with_git(&self) {
-    let pid = self.pid().expect("the pid of the ssh");
     let deadline = Instant::now() + Duration::from_mins(1);
-    while sync_utils::process_scan::is_running(pid, None) {
-      assert!(Instant::now() < deadline, "the ssh {pid} of the stopped git runs on");
+    loop {
+      let left = self.left();
+      if left.is_empty() {
+        return;
+      }
+      assert!(Instant::now() < deadline, "the processes {left:?} of the stopped git run on");
       std::thread::sleep(Duration::from_millis(5));
     }
+  }
+
+  /// The ssh by its pid, and on Unix each process that works in the repository: git starts the ssh there. A stop may
+  /// come before the ssh wrote its pid (the 300 ms of a stall count from the start of git), and an ssh that a kill missed
+  /// may write it only after this look, seconds later on a loaded machine. Windows has no scan, and the job of git ends
+  /// every process that git started
+  fn left(&self) -> Vec<u32> {
+    let repository = std::fs::canonicalize(&self.repository).unwrap_or_else(|_| self.repository.clone());
+    let mut left: Vec<u32> = match sync_utils::process_scan::ProcessScan::scan() {
+      sync_utils::process_scan::ProcessScan::Done { processes, .. } => processes
+        .iter()
+        .filter(|process| process.cwd.as_ref().is_some_and(|cwd| cwd.starts_with(&repository)))
+        .map(|process| process.pid)
+        .collect(),
+      sync_utils::process_scan::ProcessScan::Unavailable => Vec::new(),
+    };
+    left.extend(self.pid().filter(|pid| sync_utils::process_scan::is_running(*pid, None) && !left.contains(pid)));
+    left
   }
 }
 
 impl Drop for HangingSsh {
   fn drop(&mut self) {
-    if let Some(pid) = self.pid() {
+    for pid in self.left() {
       let _ = sync_utils::process_scan::terminate(pid);
     }
   }
@@ -336,7 +361,8 @@ fn hanging_fixture() -> (Fixture, HangingSsh) {
   let ssh = fake_executable(dir.path(), "ssh", &format!("{pid_of_shell} > '{pid}'\n: > '{started}'\nexec sleep 120"));
   fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
-  (fixture, HangingSsh(dir))
+  let repository = fixture.local.path().to_path_buf();
+  (fixture, HangingSsh { dir, repository })
 }
 
 #[test]
@@ -349,6 +375,8 @@ fn a_cancel_kills_the_fetch() {
   let error = result.unwrap_err();
   assert_eq!(error.downcast_ref::<StoppedCommand>(), Some(&StoppedCommand::Cancelled), "{error:#}");
   assert!(started.elapsed() < Duration::from_mins(1), "{:?}", started.elapsed());
+  // the cancel came at the mark of the ssh, which it writes after its pid
+  assert!(dir.pid().is_some(), "the ssh started without its pid");
   dir.assert_ended_with_git();
 }
 

@@ -9,10 +9,12 @@
 //! asks to break away from it (a daemon) may.
 //!
 //! On Unix a kill takes the processes below the child by their parent pids (`process_scan::descendants`) in passes: it
-//! stops the child and each process a pass found (`SIGSTOP`: a stopped process forks no more) and scans again, until a
-//! pass finds nothing new (at most `MAX_PASSES`), then `SIGKILL`s the child and each of them. A process forked between
-//! two passes is a child of a process still there, stopped or not yet, so the next pass finds it; the usual tree takes
-//! two scans of the process list, about 20 ms each. Each signal goes only to a process that still has the start time the
+//! stops the child and each process a pass found (`SIGSTOP`: a stopped process forks no more), waits until each of
+//! their threads has stopped (`process_scan::halted`, up to `STOP_WAIT` in all: a thread in the middle of a fork
+//! finishes it first, and a load can delay that past the next scan), and scans again, until a pass finds nothing new (at
+//! most `MAX_PASSES`), then `SIGKILL`s the child and each of them. A process forked before its parent stopped is a child
+//! of a process still there, so the next pass finds it; the usual tree takes two scans of the process list, about 20 ms
+//! each. Each signal goes only to a process that still has the start time the
 //! scan read (`process_scan::stop`, `process_scan::kill`), so a pid that the system gave again in the meantime gets none.
 //! Not found, and left running: a process whose parent exited before the kill, which the system gave to launchd or init
 //! (a daemon that detached, the child of a helper that ended), and one that another user's process started.
@@ -28,6 +30,13 @@ use std::process::Child;
 /// its stop adds another
 #[cfg(unix)]
 const MAX_PASSES: usize = 8;
+
+/// The longest wait of a kill for the processes it stopped to halt: a thread stops only once it runs again and its call
+/// returns, which a loaded machine gives a background process only after a while (one in ten waits of the review fetch
+/// tests waited, the longest 150 ms under a load of 100); no tree takes this long but one with a thread stuck in a call
+/// (a hung disk), whose processes the kill then takes as they are
+#[cfg(unix)]
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The job of a started child (none where a job could not be made or joined: then a kill ends the child alone), or on
 /// Unix the child and its start
@@ -72,6 +81,8 @@ impl ProcessTree {
     }
     #[cfg(unix)]
     let below = self.root.map_or_else(Vec::new, stopped_tree);
+    #[cfg(unix)]
+    tracing::debug!(child = child.id(), below = ?below, "killing a process tree");
     let _ = child.kill();
     #[cfg(unix)]
     for (pid, started) in below {
@@ -84,19 +95,35 @@ impl ProcessTree {
 /// until a pass finds nothing new
 #[cfg(unix)]
 fn stopped_tree((pid, started): (u32, u64)) -> Vec<(u32, u64)> {
-  crate::process_scan::stop(pid, started);
+  let deadline = std::time::Instant::now() + STOP_WAIT;
+  stop_all(&[(pid, started)], deadline);
   let mut tree: Vec<(u32, u64)> = Vec::new();
   for _ in 0..MAX_PASSES {
     let new: Vec<(u32, u64)> = crate::process_scan::descendants(pid, started).into_iter().filter(|found| !tree.contains(found)).collect();
     if new.is_empty() {
       break;
     }
-    for &(pid, started) in &new {
-      crate::process_scan::stop(pid, started);
-    }
+    stop_all(&new, deadline);
     tree.extend(new);
   }
   tree
+}
+
+/// Stops each of `processes` and waits until each has halted or gone, or `deadline` passed
+#[cfg(unix)]
+fn stop_all(processes: &[(u32, u64)], deadline: std::time::Instant) {
+  for &(pid, started) in processes {
+    crate::process_scan::stop(pid, started);
+  }
+  for &(pid, started) in processes {
+    while crate::process_scan::is_running(pid, Some(started)) && crate::process_scan::halted(pid) == Some(false) {
+      if std::time::Instant::now() >= deadline {
+        tracing::warn!(pid, "a process of a killed tree did not stop: a process it forks meanwhile may outlive the kill");
+        return;
+      }
+      std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+  }
 }
 
 #[cfg(windows)]
