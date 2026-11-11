@@ -64,6 +64,9 @@
   },
   "devDependencies": {
     "@fission-ai/openspec": "1.16.1",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/core": "2.3.1",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
     "@playwright/test": "1.65.0",
     "@tailwindcss/vite": "4.3.4",
     "@tauri-apps/cli": "2.12.4",

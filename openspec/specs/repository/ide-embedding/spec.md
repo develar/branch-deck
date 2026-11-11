@@ -382,6 +382,7 @@ of every view.
 #### Scenario: The main window
 - **WHEN** the IDE opens the tool window of Branch Deck on a repository
 - **THEN** the page shows the branches of the repository as the desktop app does
+  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`)
 
 ### Requirement: Page: The shim maps the Tauri calls onto x-air-app
 
@@ -422,6 +423,7 @@ The page MUST map the theme and the styles of `hostContext` onto its semantic to
 #### Scenario: Light to Dark
 - **WHEN** the IDE switches from Light to Dark
 - **THEN** the page shows the dark tokens without a reload
+  [@test] tests/e2e/air/air-page.spec.ts (`the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`)
 
 ### Requirement: Page: The mirror is the view, and each change of it a patch of the session
 

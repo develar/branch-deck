@@ -72,8 +72,15 @@ const BUILD_INPUTS = [
   ":(exclude)src/test-support",
 ]
 
-/** The hash of the inputs `dist/` was built from, written after the build; a build empties `dist/`, and with it this file */
-const BUILT_INPUTS = "dist/.e2e-build-inputs"
+/**
+ * The builds of the page: `dist/` of the desktop app, which the test server serves, and `dist-air/` of the page in the
+ * IDE (`vite build --mode air`), which the fake IDE of `tests/e2e/air/` serves at the origin of the app. Each keeps the
+ * hash of the inputs it was built from, written after the build; a build empties its directory, and with it the file
+ */
+const BUILDS = [
+  { command: "pnpm build", builtInputs: "dist/.e2e-build-inputs" },
+  { command: "pnpm build:air", builtInputs: "dist-air/.e2e-build-inputs" },
+]
 
 /**
  * The hash of the build inputs as they are now, by git: the blob of every tracked file as the index has it, and the
@@ -104,9 +111,9 @@ function buildInputsHash(): string {
   return hash.digest("hex")
 }
 
-function readBuiltInputs(): string | null {
+function readBuiltInputs(file: string): string | null {
   try {
-    return readFileSync(BUILT_INPUTS, "utf8")
+    return readFileSync(file, "utf8")
   } catch {
     return null
   }
@@ -119,18 +126,21 @@ function readBuiltInputs(): string | null {
 function buildFrontend() {
   const started = Date.now()
   const inputs = buildInputsHash()
-  if (readBuiltInputs() === inputs) {
+  const stale = BUILDS.filter(build => readBuiltInputs(build.builtInputs) !== inputs)
+  if (stale.length === 0) {
     console.log(`[Global Setup] Frontend is up to date (${Date.now() - started} ms)`)
     return
   }
-  try {
-    execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() })
-  } catch (error) {
-    const { stdout, stderr } = error as { stdout?: Buffer; stderr?: Buffer }
-    console.error(`[Global Setup] Frontend build failed:\n${stdout?.toString() ?? ""}${stderr?.toString() ?? ""}`)
-    throw error
+  for (const build of stale) {
+    try {
+      execSync(build.command, { stdio: "pipe", cwd: process.cwd() })
+    } catch (error) {
+      const { stdout, stderr } = error as { stdout?: Buffer; stderr?: Buffer }
+      console.error(`[Global Setup] Frontend build failed (${build.command}):\n${stdout?.toString() ?? ""}${stderr?.toString() ?? ""}`)
+      throw error
+    }
+    writeFileSync(build.builtInputs, inputs)
   }
-  writeFileSync(BUILT_INPUTS, inputs)
   console.log(`[Global Setup] Built the frontend in ${((Date.now() - started) / 1000).toFixed(1)} s`)
 }
 

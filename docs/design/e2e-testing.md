@@ -597,6 +597,28 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   counts of its meta lines are read ([Commit Files](../../openspec/specs/commit/commit-files/spec.md)).
 - **Update**: `pnpm e2e-up` rewrites snapshots. Review the diff, a changed snapshot can hide a regression.
 
+### The page in the IDE
+
+The Air build (`dist-air/`, [IDE Embedding](ide-embedding.md)) runs in a fake IDE, `tests/e2e/air-host/`, with no mock
+of Tauri: the page runs on its own shim (`src/platform/air/`). The global setup builds `dist-air/` beside `dist/`
+(`pnpm build --mode air`, by the same hash of the inputs).
+
+- **The fake IDE** (`openFakeIde` of `fake-host.ts`): one page of the test server's origin (its `/health`, then the
+  content of the host page), so its WebSocket to the server is a loopback one. Each view is a frame at the origin of the
+  app (`https://branch-deck.air-genui-app.local`), whose files a route of the test serves from `dist-air/` (a path with
+  no file is `index.html`), as `brd mcp` serves them by `resources/read`.
+- **The links**: the frame link is the `AppBridge` of `@modelcontextprotocol/ext-apps` with the extension `x-air-app`
+  (`host-page.ts`); the app link is the WebSocket `ws://127.0.0.1:<port>/repositories/<id>/mcp` of the test server, where
+  `mcp-host` serves `brd mcp` on the fixture repository. The fake IDE plays `air-ide`: it numbers the instances
+  (`main:1`, `review:1`), the subscriptions (`x-air-ide:/appView/<n>`) and the `serverSeq` of each mirror, maps the ids
+  of the calls of a frame to those of the app link (`callId`, `progressToken`), answers `roots/list` with the fixture
+  repository and opens a frame for each `x-air-app/openView`.
+- **What a test reads**: the frame of a view (`ide.frame("review:1")`), the views (`ide.views()`), the requests of
+  `brd mcp` to the IDE and the host tools the pages called (`ide.calls()`); it switches the theme of the IDE
+  (`ide.setTheme(IDE_THEMES.dark)`, the style variables of SEP-1865 of `theme-dark.json`) and closes a view
+  (`ide.closeView`, `x-air-app/viewClosed`).
+  [@test] tests/e2e/air/air-page.spec.ts (`the tool window shows the branches of the repository after a sync of the page, each patch of the mirror a change of its rows`, `Review Changes opens the review as a view of the IDE, whose diffs stream as the call events of its call`, `the page shows the theme of the IDE and follows its switch from Light to Dark without a reload`)
+
 ### The routes of the server
 
 What a test and its page reach on the server (`create_app` of `crates/test-server/src/lib.rs`). The commands are the
