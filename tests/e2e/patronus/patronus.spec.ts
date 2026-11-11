@@ -23,7 +23,7 @@ import {
 import { emitTauriEvent, runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
-import { recordCommand, expectClosed, openTooltip } from "../helpers/wait-helpers"
+import { recordCommand, expectClosed, openTooltip, waitForStepFacts } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -41,8 +41,10 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
     async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
       const repo = await setupRepo("issue_links", { patronus: ALL })
       await syncAndWaitForBranches()
-      // the unassigned commits card can render after the branches and move the rows away from the pointer
+      // the unassigned commits card can render after the branches and move the rows away from the pointer, and so can
+      // a step that comes with a later answer (the restart of the failed robot once Patronus told why it failed)
       await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
+      await waitForStepFacts(page.getByTestId("next-step-slot"))
       // the branch changed since the canceled robot of feature-api: its slot offers a new Safe Push
       await expect(page.getByTestId("patronus-chip")).toHaveCount(4)
       await use(repo)
