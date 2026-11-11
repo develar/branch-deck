@@ -60,6 +60,12 @@ impl<'a> MyersLcs<'a> {
     self.execute_until(threshold, true)
   }
 
+  /// Branch Deck's own: gives up when more than `max_edits` elements differ, after work bound by the square of
+  /// `max_edits` and the length of the sequences. A limit by work: the same answer on every machine
+  pub fn execute_within(&mut self, max_edits: usize) -> Result<(), FilesTooBig> {
+    self.execute_until(max_edits, true)
+  }
+
   /// The changed elements of the first and the second sequence
   pub fn into_changes(self) -> [FixedBitSet; 2] {
     [self.changes1, self.changes2]

@@ -2304,6 +2304,25 @@ export type DiffFileHeader = {
 	newId: string | null,
 };
 
+/**
+ *  The marks of a diff (openspec/specs/commit/quiet-changes/spec.md): they change no block. `starts` is the one source
+ *  of where a reader stops; the runs, the moves and the renames are what a view draws
+ */
+export type DiffMarks = {
+	/**  By `old_start`, in the order of both sides, each inside one block, without overlap */
+	runs: LineRun[],
+	/**  By `new_start`; each end inside one block */
+	moves: LineMove[],
+	renames: Rename[],
+	/**
+	 *  Flat `[block, side, line]` for each block with something to read, in the order of the blocks: the index of the
+	 *  block, the side of the line (0 the old text, 1 the new one) and the 0-based line the reading starts at
+	 *  (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every line is in a
+	 *  quiet run
+	 */
+	starts: number[],
+};
+
 /**  The commits a review compares: the old side (the parent, the base of a range) and the new one */
 export type DiffRevisions = {
 	old: string | null,
@@ -4367,6 +4386,38 @@ export type LineEnds = {
 	new: LineEndKind,
 	/**  The files differ in their line ends only */
 	only: boolean,
+};
+
+/**  `len` lines that moved from `old_start` of the old text to `new_start` of the new one */
+export type LineMove = {
+	oldStart: number,
+	newStart: number,
+	len: number,
+	/**  The columns every line moved by: "re-indented" */
+	indent: number,
+	/**
+	 *  For each line of the move, `[start, end, kind, ...]` as the ranges of a `DiffBlock`: what was edited on the way.
+	 *  Empty for an exact move
+	 */
+	oldRanges: number[][],
+	newRanges: number[][],
+};
+
+/**
+ *  A run of lines inside one block that changed in one way alone: the old lines `[old_start, old_end)` became the
+ *  new lines `[new_start, new_end)` (0-based, the ends exclusive)
+ */
+export type LineRun = {
+	oldStart: number,
+	oldEnd: number,
+	newStart: number,
+	newEnd: number,
+	kind: RunKind,
+	/**
+	 *  The run provably changes no behaviour: a reader passes it, the navigation of changes does not stop in it, and
+	 *  the Inline view shows its new lines alone. A run that is not quiet is a label
+	 */
+	quiet: boolean,
 };
 
 /**  The parameters of a link the user adds to Reviews: a URL of a pull request, `owner/name#123`, `#123` or `123` */
@@ -6694,6 +6745,19 @@ export type RemovedCommit = {
 	branch: string | null,
 };
 
+/**  A name that the change renamed */
+export type Rename = {
+	old: string,
+	new: string,
+	/**  How many places hold the name */
+	sites: number,
+	/**  The name is bound inside the body of a function */
+	local: boolean,
+	/**  Flat `[line, start, end]` of each place: the 0-based line and the UTF-16 offsets inside it, the end exclusive */
+	oldSites: number[],
+	newSites: number[],
+};
+
 /**  Files that get the same edit: one hunk with the same removed and added lines, without whitespace */
 export type RepeatedEditGroup = {
 	/**  At their last paths, in tree order; 3 or more */
@@ -8012,6 +8076,15 @@ export type RunCliToolActionParams = {
 	/**  An install brings the agent skill along */
 	withSkill: boolean,
 };
+
+/**  What alone changed in a run */
+export type RunKind = 
+/**  The same code and the same comments: line breaks, indents, spaces between tokens */
+"formatting" | 
+/**  The same code, other comments */
+"comments" | 
+/**  The same code but for a renamed name */
+"renamed";
 
 /**
  *  The move of a row that an operation makes while it runs (docs/design/landing.md): the node of the row leaves the
@@ -9363,6 +9436,12 @@ export type TextDiff = {
 	 *  of the imports alone, from the syntax of the texts; empty when not known
 	 */
 	importBlocks: number[],
+	/**
+	 *  What a reader may pass and what a view labels: the runs of lines that changed in their formatting or their
+	 *  comments alone, the moved lines, the renamed names, and the line the reading of each block starts at. The
+	 *  comparison fills `starts` alone; the file-diffs service fills the rest from the tokens of the texts
+	 */
+	marks: DiffMarks,
 };
 
 /**  The merge of three texts */

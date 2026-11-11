@@ -9,9 +9,14 @@
 //!   then.
 //! - **Order.** The files in view (`priority_paths`) come first, then the others in the order of the tree, for the
 //!   cache reads, the blob reads and the work. The events go out as the results come.
-//! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and the languages of the scopes (`DiffKey`):
-//!   blobs never change, so one entry serves every commit, range and window that shows the pair. Memory first
-//!   (`DIFF_CACHE_BYTES`), then the store. A blob read for a diff stays in a memory cache (`BLOB_CACHE_BYTES`), so
+//! - **Marks.** The marks of a text (`marks.rs`) are made before its content goes out: they change the rows a view
+//!   draws, so marks that came later would move a file already drawn. A block is asked a question of its characters
+//!   first, and only a file with a block that may have a run is parsed for its tokens, once per blob and grammar
+//!   (`TOKENS_CACHE_BYTES`). The budgets below change no mark: a diff the time cut short has the runs of its blocks.
+//! - **Caches.** A diff is keyed by its blob pair, the whitespace policy and the grammar of each side (`DiffKey`,
+//!   `diff_options`): the scopes and the marks depend on the grammar, `.kt` and `.kts`, `.ts`, `.tsx` and `.js` each
+//!   their own. Blobs never change, so one entry serves every commit, range and window that shows the pair. Memory
+//!   first (`DIFF_CACHE_BYTES`), then the store. A blob read for a diff stays in a memory cache (`BLOB_CACHE_BYTES`), so
 //!   the texts that a view asks for next cost no process.
 //! - **Budgets.** A side over `MAX_BLOB_BYTES` is `TooLarge`, a binary one `Binary`. Each file has `DiffLimits::file`
 //!   for its inner ranges and `DiffLimits::lines` for its lines, for a pathological file only: no budget spans the
@@ -19,6 +24,7 @@
 //!   cut short (`line_level_only` within the size limits) stays in memory only: the store never keeps it.
 
 use crate::collapse::collapse_of;
+use crate::marks::{TOKENS_CACHE_BYTES, tokens_weight};
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
 use crate::model::{BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
 use crate::range_files::RangeFilesCache;
@@ -27,9 +33,11 @@ use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
 use crate::worktree::{read_worktree_blob, uncommitted_entries};
 use anyhow::{Result, bail};
 use code_symbols::extract::{extractor_version, summarize};
+use code_symbols::highlight::grammar_of;
 use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::{FileSummary, LineSpan};
+use code_symbols::tokens::{Tokens, tokens_version};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::{BatchEntry, for_each_object};
 use git_ops::commit_files::{DiffSubject, MAX_BLOB_BYTES, read_commit_files_cached};
@@ -47,12 +55,25 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use sync_utils::span::in_current_span;
 use text_diff::cancellation::Deadline;
-use text_diff::model::{BlockKind, DiffBudget, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
+use text_diff::model::{BlockKind, DiffBudget, DiffMarks, LineRun, MAX_INNER_BYTES, MAX_INNER_LINES, Scope, TextDiff, diff_texts};
 use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
-/// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison or the scopes change
-pub const MODEL_VERSION: u32 = 7;
+/// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison, the scopes or the marks
+/// change
+pub const MODEL_VERSION: u32 = 8;
+
+/// The version the `file_diff` store keeps the diffs under: `MODEL_VERSION` with the version of the tokens the marks
+/// are read from (`code_symbols::tokens::tokens_version`: the parsers of this build and the rules of the tokens), so
+/// a stored diff is never read with marks of other tokens
+pub fn model_version() -> u32 {
+  store_version(MODEL_VERSION, tokens_version())
+}
+
+/// The version of the store for a version of the model and one of the tokens: another for another of either
+pub(crate) const fn store_version(model: u32, tokens: u32) -> u32 {
+  model.wrapping_mul(0x9e37_79b9) ^ tokens
+}
 
 /// The diffs that memory keeps, weighed by the size of their model
 pub const DIFF_CACHE_BYTES: u64 = 64 << 20;
@@ -77,8 +98,16 @@ pub const DIFF_LIMITS: DiffLimits = DiffLimits {
   lines: Duration::from_secs(1),
 };
 
-/// The memory key of a diff: the options byte of `DiffKey` and the two blob ids, empty for a missing side
-type MemoryKey = (u8, String, String);
+/// What a diff depends on beside its two blobs: the whitespace policy and the grammar of each side, the old one first
+/// (`Grammar::id` + 1, 0 without a grammar)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct DiffOptions {
+  policy: u8,
+  grammars: [u8; 2],
+}
+
+/// The memory key of a diff: its options and the two blob ids, empty for a missing side
+pub(crate) type MemoryKey = (DiffOptions, String, String);
 
 /// The diffs and the blobs of the views, shared by every window; cheap to clone
 #[derive(Clone)]
@@ -90,6 +119,8 @@ pub struct FileDiffs {
   pub(crate) blobs: Cache<String, Arc<BlobText>>,
   /// The backend highlighting of blobs by grammar and id, `None` when a blob has none (`syntax.rs`)
   pub(crate) syntax: Cache<(u8, String), Arc<Option<LineRuns>>>,
+  /// The tokens of blobs by grammar and id, for the marks of the diffs, `None` when a blob has none (`marks.rs`)
+  pub(crate) tokens: Cache<(u8, String), Option<Arc<Tokens>>>,
   pub(crate) limits: DiffLimits,
   /// `blocks_of` keeps the blobs it reads in `blobs` (`for_scans`)
   pub(crate) keep_scan_blobs: bool,
@@ -214,6 +245,10 @@ impl FileDiffs {
         .max_capacity(SYNTAX_CACHE_BYTES)
         .weigher(|_key: &(u8, String), runs: &Arc<Option<LineRuns>>| syntax_weight(runs))
         .build(),
+      tokens: Cache::builder()
+        .max_capacity(TOKENS_CACHE_BYTES)
+        .weigher(|_key: &(u8, String), tokens: &Option<Arc<Tokens>>| tokens_weight(tokens.as_deref()))
+        .build(),
       limits,
       keep_scan_blobs: false,
       range_files: RangeFilesCache::default(),
@@ -318,7 +353,7 @@ impl FileDiffs {
       }
     }
     let disk_keys: Vec<DiffKey<'_>> = missed.iter().map(|&index| disk_key(&keys[index])).collect();
-    let stored: Vec<Option<TextDiff>> = cache.get_file_diffs(MODEL_VERSION, &disk_keys);
+    let stored: Vec<Option<TextDiff>> = cache.get_file_diffs(model_version(), &disk_keys);
     let stored = stored.into_iter().map(|diff| diff.map(DiffContent::Text)).collect();
     let pending = keep_stored(missed, stored, &keys, &self.diffs, |index, known| emit(content_event(index, known)));
     debug!(files = entries.len(), cached = entries.len() - pending.len(), "file diffs");
@@ -408,7 +443,7 @@ impl FileDiffs {
     read?;
 
     let entries_to_store: Vec<(DiffKey<'_>, &TextDiff)> = to_store.iter().map(|(key, diff)| (disk_key(key), diff)).collect();
-    cache.put_file_diffs(MODEL_VERSION, &entries_to_store);
+    cache.put_file_diffs(model_version(), &entries_to_store);
     write_summaries(cache, &new_summaries);
     Ok(())
   }
@@ -591,7 +626,8 @@ fn work_loop(jobs: &Mutex<Receiver<Job>>, outcomes: &Sender<Outcome>, context: &
   }
 }
 
-/// Compares one file: its content goes out first, then the scopes of a text; the diff with its scopes is cached
+/// Compares one file: its content goes out first, a text with its marks, then the scopes of a text; the diff with
+/// its scopes is cached
 fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
   let Job { index, old, new } = job;
   let entry = &context.entries[index];
@@ -629,12 +665,17 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
       lines: Deadline::after(limits.lines),
     };
     let mut diff = diff_texts(old_text, new_text, context.policy, &budget);
+    // the marks before the content: they change the rows of the file
+    let paths = [entry.old_path.as_deref().unwrap_or(&entry.path), &entry.path];
+    diff.marks = context
+      .service
+      .marks(&diff, paths, [entry.old_id.as_deref(), entry.new_id.as_deref()], [old_text, new_text]);
     let cut_short = diff.line_level_only && fits_inner(old_text, diff.old_line_count) && fits_inner(new_text, diff.new_line_count);
     let old_side = entry.old_language().zip(entry.old_id.as_deref());
     let new_side = language_of(&entry.path).zip(entry.new_id.as_deref());
     let mut summaries = Vec::new();
     if old_side.is_some() || new_side.is_some() {
-      // the blocks first: the parse of the scopes costs more than the comparison
+      // the blocks first: the parse of the scopes costs more than the comparison, and changes no row
       send(content_event(DiffContent::Text(diff.clone())));
       let old_imports = old_side.map(|(language, id)| {
         let (scopes, imports) = side_facts(context.summaries, language, entry.old_path.as_deref().unwrap_or(&entry.path), id, old_text, &mut summaries);
@@ -850,8 +891,9 @@ fn text_of(blob: Option<&BlobText>) -> &str {
   }
 }
 
-/// Whether the comparison gave a text its inner ranges only for lack of time
-const fn fits_inner(text: &str, line_count: u32) -> bool {
+/// Whether a text is within the size the inner ranges are compared for (`diff_texts`): a diff by lines alone of two
+/// such texts is one the time cut short, and only such texts are read for the runs of their marks
+pub(crate) const fn fits_inner(text: &str, line_count: u32) -> bool {
   text.len() <= MAX_INNER_BYTES && line_count as usize <= MAX_INNER_LINES
 }
 
@@ -868,37 +910,47 @@ pub(crate) fn blob_text(id: String, entry: BatchEntry<'_>) -> BlobText {
   }
 }
 
-/// The options byte of a diff: the policy in bits 0-1, the language of the new side in bits 2-4 and of the old side
-/// in bits 5-7 (`Language::id` + 1, 0 without a grammar), since the scopes depend on the language of the path
-pub(crate) fn options(policy: WhitespacePolicy, old_language: Option<Language>, new_language: Option<Language>) -> u8 {
-  let policy = match policy {
+/// The number of a policy in a cache key
+pub(crate) const fn policy_id(policy: WhitespacePolicy) -> u8 {
+  match policy {
     WhitespacePolicy::Default => 0,
     WhitespacePolicy::Trim => 1,
     WhitespacePolicy::Ignore => 2,
     WhitespacePolicy::IgnoreBlankLines => 3,
-  };
-  let language = |language: Option<Language>| language.map_or(0, |language| language.id() + 1);
-  policy | (language(new_language) << 2) | (language(old_language) << 5)
+  }
+}
+
+/// The options of the diff of a file at `path`, `old_path` before a rename, under `policy`: what the key of its diff
+/// holds beside the blobs, in memory and in the store. The one function of every reader of a diff (the views, and the
+/// scans of `blocks_of`, which find the entry a view made only under the same key). The grammar of each side, not its
+/// language: the scopes and the marks of the same bytes differ as a `.ts` and a `.tsx`, a `.kt` and a `.kts`, a
+/// `BUILD` and a `.bzl` file
+pub(crate) fn diff_options(policy: WhitespacePolicy, old_path: Option<&str>, path: &str) -> DiffOptions {
+  let grammar = |path: &str| grammar_of(path).map_or(0, |grammar| grammar.id() + 1);
+  DiffOptions {
+    policy: policy_id(policy),
+    grammars: [grammar(old_path.unwrap_or(path)), grammar(path)],
+  }
 }
 
 fn memory_key(entry: &Entry, policy: WhitespacePolicy) -> MemoryKey {
-  let old_language = language_of(entry.old_path.as_deref().unwrap_or(&entry.path));
   (
-    options(policy, old_language, language_of(&entry.path)),
+    diff_options(policy, entry.old_path.as_deref(), &entry.path),
     entry.old_id.clone().unwrap_or_default(),
     entry.new_id.clone().unwrap_or_default(),
   )
 }
 
-fn disk_key(key: &MemoryKey) -> DiffKey<'_> {
+pub(crate) fn disk_key(key: &MemoryKey) -> DiffKey<'_> {
   DiffKey {
-    policy: key.0,
+    policy: key.0.policy,
+    grammars: key.0.grammars,
     old_id: &key.1,
     new_id: &key.2,
   }
 }
 
-/// The weight of a diff in the memory cache: its blocks, ranges and scopes, roughly in bytes
+/// The weight of a diff in the memory cache: its blocks, ranges, scopes and marks, roughly in bytes
 fn content_weight(content: &DiffContent) -> u32 {
   let DiffContent::Text(diff) = content else { return 64 };
   let ranges: usize = diff
@@ -907,5 +959,20 @@ fn content_weight(content: &DiffContent) -> u32 {
     .map(|block| block.old_ranges.iter().chain(&block.new_ranges).map(Vec::len).sum::<usize>())
     .sum();
   let scopes: usize = diff.old_scopes.iter().chain(&diff.new_scopes).map(|scope| scope.label.len() + 16).sum();
-  u32::try_from(128 + diff.blocks.len() * 48 + ranges * 4 + scopes).unwrap_or(u32::MAX)
+  u32::try_from(128 + diff.blocks.len() * 48 + ranges * 4 + scopes + marks_weight(&diff.marks)).unwrap_or(u32::MAX)
+}
+
+/// The weight of the marks of a diff, roughly in bytes
+fn marks_weight(marks: &DiffMarks) -> usize {
+  let moves: usize = marks
+    .moves
+    .iter()
+    .map(|it| 64 + it.old_ranges.iter().chain(&it.new_ranges).map(|ranges| 24 + ranges.len() * 4).sum::<usize>())
+    .sum();
+  let renames: usize = marks
+    .renames
+    .iter()
+    .map(|it| 64 + it.old.len() + it.new.len() + (it.old_sites.len() + it.new_sites.len()) * 4)
+    .sum();
+  marks.runs.len() * size_of::<LineRun>() + moves + renames + marks.starts.len() * 4
 }

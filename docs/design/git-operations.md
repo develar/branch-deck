@@ -3333,10 +3333,21 @@ git plumbing does not depend on.
   Deck, one thread), so the `content` of a text goes out before its `scopes`. The same event carries the blocks of
   the imports alone (`import_blocks`): each changed line of each side in an import or package statement of the
   summary (`FileSummary::import_lines`) or blank, which a review with its plan plays down.
-- **Caches.** A diff is keyed by its blob pair, the whitespace policy and the languages of the scopes. Blobs never
+- **Marks.** The marks of a text ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md),
+  `crates/file-diffs/src/marks.rs`) go out with its `content`, not after it: they change the rows a view draws. So a
+  block is first asked a question of its characters alone, and only a file with a block that may hold a run is
+  parsed for its tokens, once per blob and grammar (a memory cache of 32 MiB beside the highlightings): 3.2 ms a
+  side of 3,300 lines, no time limit, the limits are of work ([Diff View](diff-view.md#marks) has the numbers). The
+  budgets above change no mark: the runs read the blocks and the tokens, never the inner ranges, so a diff the time
+  cut short has the marks of its blocks; only a side over the size of the inner ranges has no runs.
+- **Caches.** A diff is keyed by its blob pair, the whitespace policy and the grammar of each side
+  (`diff_options`, the one function of the views and of `blocks_of`): the scopes and the marks of the same bytes are
+  others in a `.ts` and a `.tsx` file, a `.kt` and a `.kts`, a `BUILD` and a `.bzl`. Blobs never
   change, so one entry serves every commit, range and window that shows the pair. Memory first (64 MiB), then the
-  `file_diff` store (`MODEL_VERSION`). The store never keeps a diff that the time cut short; memory keeps it for
-  the run. The blobs that a diff read stay in a memory cache (128 MiB), so the texts that a view asks for next
+  `file_diff` store, under `model_version()`: `MODEL_VERSION` with the version of the tokens (`store_version`,
+  `code_symbols::tokens::tokens_version`), so a diff made with other parsers is never read. The store never keeps a
+  diff that the time cut short; memory keeps it for the run, with the marks of its blocks. The blobs that a diff
+  read stay in a memory cache (128 MiB), so the texts that a view asks for next
   (`blob_texts`) cost no process. A text of the working tree is read again by its path, and only when its bytes still
   have the id.
 - **Go to Declaration** ([Symbol Navigation](../../openspec/specs/commit/symbol-navigation/spec.md)). A declaration of the

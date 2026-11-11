@@ -100,6 +100,85 @@ Two changes:
 ("Binary file", "Too large to show: …", "Submodule: a → b", "Line endings: LF → CRLF"), the files that start
 collapsed, and the grammar of a path.
 
+### Marks
+
+A diff says of its own blocks what a reviewer may pass ([Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)):
+`TextDiff.marks`, decided in Rust (`crates/file-diffs/src/marks.rs`) for every view. The rule of the whole feature: a
+mark is one thing, quiet another. A reviewer passes what is quiet, so only what provably changes no behaviour is; the
+rest gets a label and stays a stop.
+
+| kind | a label | quiet |
+|---|---|---|
+| formatting (`formatting`) | yes | yes: the tokens of the lines are the same on both sides ([Equal by Tokens](../../openspec/specs/commit/equal-by-tokens/spec.md)), only in a file of a grammar |
+| comments alone (`comments`) | yes | no |
+| a file without a grammar | no | no: its block of whitespace stays the pale stop it is |
+| moved lines, a renamed name **(planned)** | yes | a move never; a name bound inside a function body |
+
+- **The marks change no block.** They are a field beside the blocks: `runs` (rows of lines inside one block that
+  changed in one way alone), `moves`, `renames` (both empty until their stages) and `starts`. The scans of the
+  dependencies, the patches of `brd` and the review plan read the blocks they read before.
+- **One source of the stops.** `starts` names, for each block with something to read, the line its reading starts
+  at (`text_diff::model::starts_of`): the first line outside its quiet runs. A block without an entry has nothing to
+  read. The navigation of changes and the count of what is left to read take only this **(planned: the views still
+  stop at every block)**; the runs, the moves and the renames are for drawing.
+- **With the content.** The marks change the rows a view draws (the Inline view shows the new lines of a quiet run
+  alone), so marks that came after the content would move a file already drawn. They are made in the worker of the
+  file before its `content` goes out; the scopes still come after it.
+- **A block is read in five steps** (`marks_runs.rs`). The tokens of its code are aligned: lines with the same code
+  pair token by token, else by the longest common subsequence of the keys of the tokens. The block is cut at the line
+  boundaries both sides share, those no token crosses with the same paired tokens before them. Each segment between
+  two cuts is asked whole: the same code, blank, or different. Rows of segments with the same code are cut into the
+  longest groups whose tokens are the same, comments too (formatting), and what stands between them (comments). A
+  run that reaches an end of its block is one only when the code around the block reads the same there. So forty
+  lines indented inside a new `if` are one quiet run, and the reading of the block starts at the `if`.
+- **The alignment proves nothing.** It only finds the cuts; what a run is, `compare` of the tokens of its lines
+  proves. A subsequence pairs a token with any of its likes (the `)` of `b(1, 2)` with the `)` of the call after it),
+  so tokens only one side has are put on whole lines where it leaves the choice; a wrong choice loses a run, never
+  makes one.
+- **Before the tokens.** A file is parsed for its marks only when a block of it may hold a run, asked of its
+  characters alone (`may_have_run`): some line of one side starts as a line of the other and some line ends as one,
+  their blanks aside (a run of formatting is the same text without its blanks), or a comment may have a character in
+  the lines: what starts a comment of the grammar (the `@*` of Razor too, a comment to the parser of C#), in the
+  lines or before them since the last `\n` (a view ends a line at a lone `\r`, where the lexer of Rust reads a line
+  comment on), or a `/*` before the block that the text does not close. Every block with a run answers
+  yes: the tests read the runs both ways, for every case and for files of every grammar edited at random, with every
+  kind of line end. The tokens of a blob are kept in memory per grammar (32 MiB), so the next commit of a branch and
+  another whitespace policy parse only what they have not met.
+- **Limits by work.** No time limit: the marks must not depend on the load of the machine. A pair with a side over
+  the size the inner ranges are compared for (20,000 lines, 1 MiB) has no runs. A side of a block of more than 32,768
+  tokens of code, a block whose sides differ in more than 2,048 of them (the comparison gives up,
+  `build_changes_ints_within`), and a block the work left of its file does not pay for (one block at both limits)
+  have no run cut out of them; lines of the same code need no comparison and have no limit. The time of the
+  comparison changes none of this: the runs read the blocks and the tokens, never the inner ranges, so a diff whose
+  inner ranges ran out of their 100 ms (`lineLevelOnly`) has the marks of its blocks, the rows and the stops of a
+  quiet machine.
+
+Measured (`cargo bench -p file-diffs --bench marks_bench`, release, the Mac Studio at a load of 1.4; a Kotlin pair of
+3,300 lines and 25,500 tokens a side, 300 functions of which every fifth changed):
+
+| what | time |
+|---|---|
+| the tokens of one side | 3.2 ms |
+| the diff of the pair alone (60 blocks) | 1.7 ms |
+| the marks, every block a wrapped call and a comment worded again, both sides parsed | 6.8 ms |
+| the same, the tokens in memory | 0.3 ms |
+| the marks, every block a changed name: the question alone, nothing parsed | 0.3 ms |
+| the marks, every function indented again (300 blocks, 301 runs), both sides parsed | 8.3 ms |
+| the same, the tokens in memory | 1.7 ms |
+| one block of 29,800 tokens a side, 1,900 of them different | 9.6 ms |
+| the same block over the edits allowed, and with every line different: the comparison gives up | 5.1 ms, 5.8 ms |
+| 200 files (four of 3,300 lines, the others of 165), no file parsed for its marks: first content, end of the stream | 38 ms, 73 ms |
+| the same 200 files, every file parsed for its marks | 34 ms, 75 ms |
+
+So the marks of a subject whose every file is parsed cost 2 ms of 73 (3 %) to the end of its stream, and nothing
+that can be measured to its first content (38 ms without the parses, 34 ms with them: the difference is the noise of
+the two git processes before it). The same benchmark on the Studio at a load of 53: 38 ms and 73 ms without the
+parses, 40 ms and 82 ms with them. The question before the tokens is kept as it is and not made stronger: it costs 0.3 ms for a pair of 3,300 lines against 6.5 ms of parsing, and on the last 400
+commits of this repository it left 41 % of the files of a grammar unparsed (1,960 of 3,339 parsed; 4,601 of 9,572
+blocks of two sides asked). There the tokens found 257 runs of formatting (2,489 of 104,084 changed lines) and 3,337
+runs of comments: this repository words its comments with its code. The worst block costs 10 ms, once per blob pair:
+the diff with its marks is kept in memory and in the `file_diff` store.
+
 ### The row model
 
 A file is a list of segments. A segment holds its start line on each side and the count of its rows:

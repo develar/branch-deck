@@ -309,11 +309,12 @@ fn blob_summaries_are_read_by_the_extractor_version_that_wrote_them() {
   assert_eq!(cache.get_blob_summaries::<String>(8, &[(1, "b2")]), [Some(two)]);
 }
 
-/// The diff `[1, 2, 3]` of the blobs `a` and `b`, kept at version 1 with policy 0
+/// The diff `[1, 2, 3]` of the blobs `a` and `b`, kept at version 1 with policy 0 and the grammar 1 on both sides
 fn stored_diff(cache: &ObjectCache) -> (DiffKey<'static>, Vec<u32>) {
   let diff = vec![1u32, 2, 3];
   let pair = DiffKey {
     policy: 0,
+    grammars: [1, 1],
     old_id: "a",
     new_id: "b",
   };
@@ -322,13 +323,16 @@ fn stored_diff(cache: &ObjectCache) -> (DiffKey<'static>, Vec<u32>) {
 }
 
 #[test_log::test]
-fn file_diffs_are_read_by_their_blob_pair_policy_and_version() {
+fn file_diffs_are_read_by_their_blob_pair_policy_grammars_and_version() {
   let dir = tempfile::tempdir().unwrap();
   let cache = open(dir.path());
   let (pair, diff) = stored_diff(&cache);
   let other_policy = DiffKey { policy: 2, ..pair };
   let swapped = DiffKey { old_id: "b", new_id: "a", ..pair };
   assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair, other_policy, swapped]), [Some(diff.clone()), None, None]);
+  // the same blobs read by another grammar on either side are another diff: its scopes and its marks differ
+  let other_grammars = [[2, 1], [1, 2], [0, 0]].map(|grammars| DiffKey { grammars, ..pair });
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &other_grammars), [None, None, None]);
   assert_eq!(cache.get_file_diffs::<Vec<u32>>(2, &[pair]), [None], "a diff of another model is never read");
 
   // the first write of another version clears the store
@@ -405,6 +409,7 @@ fn a_full_patch_store_keeps_the_other_stores() {
     .iter()
     .map(|id| DiffKey {
       policy: 0,
+      grammars: [0, 0],
       old_id: "",
       new_id: id,
     })
@@ -487,6 +492,7 @@ fn a_retired_store_is_dropped() {
   let cache = open(dir.path());
   let key = DiffKey {
     policy: 0,
+    grammars: [1, 1],
     old_id: "a",
     new_id: "b",
   };

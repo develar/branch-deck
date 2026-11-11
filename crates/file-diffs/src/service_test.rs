@@ -1,17 +1,21 @@
 //! The file diffs of a commit, a range and the working tree on fixture repositories: each kind of file, the blob ids,
 //! the caches and the git processes.
 
+use crate::blocks::{BlobPair, PairDiff};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffSource, FileDiffEvent, GetFileDiffsParams};
-use crate::service::{DiffLimits, FileDiffs, priority_order};
+use crate::service::{DiffLimits, FileDiffs, MODEL_VERSION, MemoryKey, diff_options, disk_key, model_version, priority_order, store_version};
+use code_symbols::highlight::Grammar;
+use code_symbols::tokens::tokens_version;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_files::FileStatus;
 use pretty_assertions::assert_eq;
 use std::fmt::Write as _;
+use std::sync::Arc;
 use std::time::Duration;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-use text_diff::model::{BlockKind, LineEnds, TextDiff};
+use text_diff::model::{BlockKind, DiffMarks, LineEnds, LineRun, RunKind, TextDiff};
 use text_diff::policy::WhitespacePolicy;
 use text_diff::text::LineEndKind;
 
@@ -473,4 +477,234 @@ fn a_block_of_import_statements_alone_is_marked_by_the_syntax() {
   // a line inside a Rust `use` list over several lines
   assert_eq!(text(file(&files, "lib.rs")).import_blocks, [0]);
   assert_eq!(text(file(&files, "notes.txt")).import_blocks, Vec::<u32>::new());
+}
+
+/// A call wrapped over two lines and a changed value, apart from each other
+const WRAPPED: (&str, &str) = (
+  "class A {\n  fun one() = call(1, 2)\n  fun two() = 2\n  fun three() = 3\n}\n",
+  "class A {\n  fun one() = call(1,\n    2)\n  fun two() = 2\n  fun three() = 4\n}\n",
+);
+
+/// The run of the wrapped call of `WRAPPED`
+fn wrapped_run() -> LineRun {
+  LineRun {
+    old_start: 1,
+    old_end: 2,
+    new_start: 1,
+    new_end: 3,
+    kind: RunKind::Formatting,
+    quiet: true,
+  }
+}
+
+/// The marks change the rows a view draws, so they are in the content of a file, before its scopes: no later event
+/// brings a mark. As JSON they are a field of the text beside the `kind` of the content
+#[test]
+fn the_marks_of_a_text_come_with_its_content() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
+  let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
+  let params = GetFileDiffsParams {
+    repository_path: repo_path(&repo).to_string(),
+    source: commit(&second),
+    policy: WhitespacePolicy::Default,
+    priority_paths: Vec::new(),
+  };
+  let mut events = Vec::new();
+  unhurried()
+    .stream(repo.git_executor(), &ObjectCache::disabled(), &params, |event| events.push(event))
+    .unwrap();
+  let [FileDiffEvent::Files { .. }, FileDiffEvent::Content { content, .. }, FileDiffEvent::Scopes { .. }] = &events[..] else {
+    panic!("{events:?}")
+  };
+  let DiffContent::Text(diff) = content else { panic!("{content:?}") };
+  assert!(diff.new_scopes.is_empty(), "the content goes out before the scopes");
+  assert_eq!(diff.marks.runs, [wrapped_run()]);
+  // the wrapped call is passed: the reading starts at the changed value alone
+  assert_eq!((diff.blocks.len(), diff.marks.starts.as_slice()), (2, &[1, 1, 4][..]));
+
+  let json = serde_json::to_value(content).unwrap();
+  assert_eq!(json["kind"], "text");
+  // the marks are a field of the text, beside the `kind` of the content; a kind of their own is the kind of a run
+  let run = &json["marks"]["runs"][0];
+  assert_eq!(
+    (run["kind"].as_str(), run["quiet"].as_bool(), run["newEnd"].as_u64()),
+    (Some("formatting"), Some(true), Some(3))
+  );
+  assert_eq!(json["marks"]["starts"], serde_json::json!([1, 1, 4]));
+  assert_eq!((&json["marks"]["moves"], &json["marks"]["renames"]), (&serde_json::json!([]), &serde_json::json!([])));
+}
+
+/// The time of a file changes no mark: a diff whose inner ranges ran out of their time is by lines alone, and has the
+/// marks of the diff in time. A view under load shows the rows and the stops of a quiet machine
+#[test]
+fn the_marks_of_a_diff_out_of_time_are_those_of_the_diff_in_time() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
+  let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
+  let read = |diffs: &FileDiffs| {
+    let files = diffs
+      .read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(&second), WhitespacePolicy::Default)
+      .unwrap();
+    let diff = text(&files[0]);
+    (diff.line_level_only, diff.marks.clone())
+  };
+  let hurried = FileDiffs::new(DiffLimits {
+    file: Duration::ZERO,
+    lines: Duration::from_secs(60),
+  });
+  let in_time = DiffMarks {
+    runs: vec![wrapped_run()],
+    starts: vec![1, 1, 4],
+    ..DiffMarks::default()
+  };
+  assert_eq!(read(&unhurried()), (false, in_time.clone()));
+  assert_eq!(read(&hurried), (true, in_time.clone()));
+  // from memory, where a diff the time cut short stays for the run
+  assert_eq!(read(&hurried), (true, in_time));
+}
+
+/// The marks and the scopes of a pair are those of its grammar, so the same two blobs at a `.ts` and at a `.tsx` path
+/// are two diffs, in memory, in the store and for a scan: `<T>(a, b)` is a type assertion of TypeScript, whose
+/// spaces are formatting, and the start of an element of TSX
+#[test]
+fn the_same_pair_read_by_two_grammars_is_two_diffs() {
+  let (old, new) = ("const v = <T>(a,   b)\n", "const v = <T>(a, b)\n");
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("a.ts", old), ("b.tsx", old), ("c.txt", old)]);
+  let second = repo.create_commit_with_files("Spaces", &[("a.ts", new), ("b.tsx", new), ("c.txt", new)]);
+  let cache_dir = tempfile::tempdir().unwrap();
+  let cache = open_cache(&cache_dir);
+  let diffs = unhurried();
+  let runs = |diffs: &FileDiffs| -> Vec<(String, usize, Vec<u32>)> {
+    let files = diffs
+      .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
+      .unwrap();
+    let ids: Vec<_> = files.iter().map(|file| (file.old_id.clone(), file.new_id.clone())).collect();
+    assert!(ids.iter().all(|pair| *pair == ids[0]), "one blob pair at three paths");
+    files
+      .iter()
+      .map(|file| (file.path.clone(), text(file).marks.runs.len(), text(file).marks.starts.clone()))
+      .collect()
+  };
+  let expected = [
+    ("a.ts".to_string(), 1, vec![]),
+    ("b.tsx".to_string(), 0, vec![0, 1, 0]),
+    ("c.txt".to_string(), 0, vec![0, 1, 0]),
+  ];
+  // compared, then from memory, then from the store of another app
+  assert_eq!(runs(&diffs), expected);
+  assert_eq!(runs(&diffs), expected);
+  assert_eq!(runs(&unhurried()), expected);
+
+  // a scan finds the diff the view made of the pair at its own path
+  let blob = |side: &str| repo.rev_parse(&format!("{side}:a.ts")).unwrap();
+  let (old_id, new_id) = (blob(&format!("{second}~1")), blob(&second));
+  let pairs = ["a.ts", "b.tsx", "c.txt"].map(|path| BlobPair {
+    path,
+    old_path: None,
+    old_id: Some(&old_id),
+    new_id: Some(&new_id),
+  });
+  for diffs in [diffs, unhurried()] {
+    let counting = repo.git_executor().with_process_stats("test");
+    let scan = diffs.blocks_of(&counting, repo_path(&repo), &cache, &pairs).unwrap();
+    assert_eq!(process_counts(&counting), []);
+    let found: Vec<usize> = scan
+      .iter()
+      .map(|diff| match diff {
+        PairDiff::Text(diff) => diff.marks.runs.len(),
+        PairDiff::NoText => panic!("{diff:?}"),
+      })
+      .collect();
+    assert_eq!(found, [1, 0, 0]);
+  }
+}
+
+/// The tokens of a blob are read once per grammar and kept: the same commit under another whitespace policy, and the
+/// next commit of the file, parse only the blob they have not met, and read the tokens memory has of the others
+#[test]
+fn the_tokens_of_a_blob_are_read_once_per_grammar() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
+  let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
+  let third = repo.create_commit_with_files("Wrap again", &[("A.kt", &WRAPPED.1.replace("call(1,\n    2)", "call(\n    1,\n    2)"))]);
+  let diffs = unhurried();
+  let kept = |diffs: &FileDiffs| {
+    diffs.tokens.run_pending_tasks();
+    diffs.tokens.entry_count()
+  };
+  let read = |id: &str, policy| {
+    let files = diffs.read(repo.git_executor(), repo_path(&repo), &ObjectCache::disabled(), &commit(id), policy).unwrap();
+    text(&files[0]).marks.runs.len()
+  };
+  // the tokens memory has of the file of a commit
+  let tokens_of = |rev: &str| {
+    let blob = repo.rev_parse(&format!("{rev}:A.kt")).unwrap();
+    diffs.tokens.get(&(Grammar::Kotlin.id(), blob)).flatten().expect("the tokens of a blob the marks read")
+  };
+  assert_eq!((read(&second, WhitespacePolicy::Default), kept(&diffs)), (1, 2));
+  let (old, new) = (tokens_of(&format!("{second}~1")), tokens_of(&second));
+  // another diff of the same two blobs: nothing is parsed again, the tokens are the ones of the first read
+  assert_eq!((read(&second, WhitespacePolicy::Trim), kept(&diffs)), (1, 2));
+  assert!(Arc::ptr_eq(&old, &tokens_of(&format!("{second}~1"))) && Arc::ptr_eq(&new, &tokens_of(&second)));
+  // the new side of the second commit is the old side of the third
+  assert_eq!((read(&third, WhitespacePolicy::Default), kept(&diffs)), (1, 3));
+  assert!(Arc::ptr_eq(&new, &tokens_of(&second)));
+}
+
+/// The store keeps a diff under a version made of the model's and of the tokens' (`store_version`): the quiet runs of
+/// a diff are proven by the tokens of the parsers that made it, so a diff an app with other parsers stored is never
+/// answered, to a view or to a scan, and the first write of this app drops it
+#[test]
+fn a_diff_stored_with_the_tokens_of_other_parsers_is_not_read() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files("Initial", &[("A.kt", WRAPPED.0)]);
+  let second = repo.create_commit_with_files("Wrap", &[("A.kt", WRAPPED.1)]);
+  let blob = |rev: &str| repo.rev_parse(&format!("{rev}:A.kt")).unwrap();
+  let (old_id, new_id) = (blob(&format!("{second}~1")), blob(&second));
+  let key: MemoryKey = (diff_options(WhitespacePolicy::Default, None, "A.kt"), old_id.clone(), new_id.clone());
+  let pair = BlobPair {
+    path: "A.kt",
+    old_path: None,
+    old_id: Some(&old_id),
+    new_id: Some(&new_id),
+  };
+  let (ours, others) = (store_version(MODEL_VERSION, tokens_version()), store_version(MODEL_VERSION, tokens_version() ^ 1));
+  assert_eq!(model_version(), ours);
+  assert!(ours != others && ours != store_version(MODEL_VERSION + 1, tokens_version()));
+
+  // what other tokens proved: every line of the file in one quiet run
+  let stale_run = LineRun {
+    old_start: 0,
+    old_end: 6,
+    new_start: 0,
+    new_end: 7,
+    ..wrapped_run()
+  };
+  let stale = TextDiff {
+    marks: DiffMarks {
+      runs: vec![stale_run.clone()],
+      ..DiffMarks::default()
+    },
+    ..TextDiff::default()
+  };
+  // the runs a scan and a view answer for the pair from a store that holds `stale` under `version`
+  let answers = |version: u32| {
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cache = open_cache(&cache_dir);
+    cache.put_file_diffs(version, &[(disk_key(&key), &stale)]);
+    let scan = unhurried().blocks_of(repo.git_executor(), repo_path(&repo), &cache, &[pair]).unwrap();
+    let PairDiff::Text(scan) = &scan[0] else { panic!("{scan:?}") };
+    let view = unhurried()
+      .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
+      .unwrap();
+    let stored = |version: u32| cache.get_file_diffs::<TextDiff>(version, &[disk_key(&key)]).remove(0).map(|diff| diff.marks.runs);
+    (scan.marks.runs.clone(), text(&view[0]).marks.runs.clone(), stored(ours), stored(others))
+  };
+  // other parsers: the scan and the view compare the pair themselves (a scan reads no runs), and the view keeps its
+  // diff under the version of its tokens, which drops the other one
+  assert_eq!(answers(others), (vec![], vec![wrapped_run()], Some(vec![wrapped_run()]), None));
+  // the same store under the version of these tokens is answered: the readers ask by that version
+  assert_eq!(answers(ours), (vec![stale_run.clone()], vec![stale_run.clone()], Some(vec![stale_run]), None));
 }

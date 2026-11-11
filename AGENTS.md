@@ -281,7 +281,7 @@ Rust, in full: [Rust Rules](docs/contributing/rust-rules.md).
 ## Where Things Are
 
 ### Feature Index
-A feature's contract is its spec (`openspec/specs/<id>/spec.md`); every entry file of each feature:
+A feature's contract is its spec (`openspec/specs/<id>/spec.md`); every entry file:
 [Code Map](docs/contributing/code-map.md#feature-index).
 
 | Feature | Specs | Entry |
@@ -309,6 +309,7 @@ A feature's contract is its spec (`openspec/specs/<id>/spec.md`); every entry fi
 | Operations across processes | `cli/agent-cli`, `branch/patronus` | `crates/operations/src/registry_file.rs` |
 | Activity log | `repository/activity` | `crates/operations/src/journal.rs`, `src/stores/activity.ts` |
 | Commit files, diffs, the review | `commit/commit-files`, `commit/commit-review`, `review/review-window` | `crates/file-diffs/`, `crates/sync-core/src/review_target.rs`, `src/components/diff/` |
+| Diff marks | `commit/quiet-changes` | `crates/file-diffs/src/marks.rs` |
 | Go to Declaration, Find Usages | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs` |
 | Command palette, title bar, zoom | `repository/command-palette`, `repository/title-bar`, `repository/zoom` | `src/components/command-palette/`, `src-tauri/src/` |
 | Your Turn, Reviews | `repository/review-requests`, `repository/reviews` | `src/components/review/`, `src/components/reviews/` |
@@ -336,7 +337,7 @@ Design (`docs/design/`): [Landing](docs/design/landing.md) (the product model),
 [UI Theme](docs/design/ui-theme.md), [Diff View](docs/design/diff-view.md), [Text Diff](docs/design/text-diff.md),
 [Symbol Dependencies](docs/design/symbol-dependencies.md), [Integration Detection](docs/design/integration-detection.md),
 [Remote Status](docs/design/remote-status.md), [E2E Testing](docs/design/e2e-testing.md),
-[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md), [Change Review](docs/design/change-review.md); [Specs](openspec/specs/) (start with `commit/commit-row`).
+[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md), [Change Review](docs/design/change-review.md); [Specs](openspec/specs/).
 
 Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), [Checks](docs/contributing/checks.md),
 [Working in a Lease](docs/contributing/leases.md),
@@ -346,7 +347,7 @@ Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), 
 [Agent CLI](docs/contributing/agent-cli.md), [Platform Checks](docs/contributing/platform-checks.md),
 [Studio Runs](docs/contributing/studio-runs.md), [Real App Checks](docs/contributing/real-app-checks.md),
 [Import Guidelines](docs/contributing/imports.md), [UX Writing](docs/contributing/ux-writing.md),
-[Design Docs Guidelines](docs/contributing/design-docs.md), [Releases](docs/contributing/releases.md). Guide for a person: [Runs on Another Mac](docs/guide/host-runs.md).
+[Design Docs Guidelines](docs/contributing/design-docs.md), [Releases](docs/contributing/releases.md). Guide: [Runs on Another Mac](docs/guide/host-runs.md).
 
 ### File Structure
 `src/` is the page (`components/`, `hooks/`, `model/` the window's side of its session, `presenters/` the words of

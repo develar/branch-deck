@@ -49,6 +49,89 @@ pub struct TextDiff {
   /// The blocks, by index, whose every changed line of each side is an import or a package statement or blank: a change
   /// of the imports alone, from the syntax of the texts; empty when not known
   pub import_blocks: Vec<u32>,
+  /// What a reader may pass and what a view labels: the runs of lines that changed in their formatting or their
+  /// comments alone, the moved lines, the renamed names, and the line the reading of each block starts at. The
+  /// comparison fills `starts` alone; the file-diffs service fills the rest from the tokens of the texts
+  pub marks: DiffMarks,
+}
+
+/// The marks of a diff (openspec/specs/commit/quiet-changes/spec.md): they change no block. `starts` is the one source
+/// of where a reader stops; the runs, the moves and the renames are what a view draws
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DiffMarks {
+  /// By `old_start`, in the order of both sides, each inside one block, without overlap
+  pub runs: Vec<LineRun>,
+  /// By `new_start`; each end inside one block
+  pub moves: Vec<LineMove>,
+  pub renames: Vec<Rename>,
+  /// Flat `[block, side, line]` for each block with something to read, in the order of the blocks: the index of the
+  /// block, the side of the line (0 the old text, 1 the new one) and the 0-based line the reading starts at
+  /// (`starts_of`). A block without an entry has nothing to read: an `Ignored` one, or one whose every line is in a
+  /// quiet run
+  pub starts: Vec<u32>,
+}
+
+/// A run of lines inside one block that changed in one way alone: the old lines `[old_start, old_end)` became the
+/// new lines `[new_start, new_end)` (0-based, the ends exclusive)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LineRun {
+  pub old_start: u32,
+  pub old_end: u32,
+  pub new_start: u32,
+  pub new_end: u32,
+  pub kind: RunKind,
+  /// The run provably changes no behaviour: a reader passes it, the navigation of changes does not stop in it, and
+  /// the Inline view shows its new lines alone. A run that is not quiet is a label
+  pub quiet: bool,
+}
+
+/// What alone changed in a run
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum RunKind {
+  /// The same code and the same comments: line breaks, indents, spaces between tokens
+  Formatting,
+  /// The same code, other comments
+  Comments,
+  /// The same code but for a renamed name
+  Renamed,
+}
+
+/// `len` lines that moved from `old_start` of the old text to `new_start` of the new one
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LineMove {
+  pub old_start: u32,
+  pub new_start: u32,
+  pub len: u32,
+  /// The columns every line moved by: "re-indented"
+  pub indent: i32,
+  /// For each line of the move, `[start, end, kind, ...]` as the ranges of a `DiffBlock`: what was edited on the way.
+  /// Empty for an exact move
+  pub old_ranges: Vec<Vec<u32>>,
+  pub new_ranges: Vec<Vec<u32>>,
+}
+
+/// A name that the change renamed
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct Rename {
+  pub old: String,
+  pub new: String,
+  /// How many places hold the name
+  pub sites: u32,
+  /// The name is bound inside the body of a function
+  pub local: bool,
+  /// Flat `[line, start, end]` of each place: the 0-based line and the UTF-16 offsets inside it, the end exclusive
+  pub old_sites: Vec<u32>,
+  pub new_sites: Vec<u32>,
 }
 
 /// A block of changed lines
@@ -193,6 +276,10 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
     lines.into_iter().map(|range| range.end.min(limit).saturating_sub(range.start)).sum()
   };
   let changed = || blocks.iter().filter(|block| block.kind != BlockKind::Ignored);
+  let marks = DiffMarks {
+    starts: starts_of(&blocks, &[]),
+    ..DiffMarks::default()
+  };
   TextDiff {
     old_line_count: to_u32(old_source.line_count()),
     new_line_count: to_u32(new_source.line_count()),
@@ -209,7 +296,45 @@ pub fn diff_texts(old: &str, new: &str, policy: WhitespacePolicy, budget: &DiffB
     old_scopes: Vec::new(),
     new_scopes: Vec::new(),
     import_blocks: Vec::new(),
+    marks,
   }
+}
+
+/// Where the reading of each block starts (`DiffMarks::starts`), from the quiet runs among `runs` (by `old_start`,
+/// each inside one block, without overlap). The quiet runs of a block cut it into parts in the order of both
+/// sides; the reading starts at the first part with a line: at its first new line, at its first old line when it has
+/// no new one. An `Ignored` block and a block whose every line is in a quiet run have no entry. The one place that
+/// reads `LineRun::quiet` for the stops
+pub fn starts_of(blocks: &[DiffBlock], runs: &[LineRun]) -> Vec<u32> {
+  let mut starts = Vec::new();
+  let mut quiet = runs.iter().filter(|run| run.quiet).peekable();
+  for (index, block) in blocks.iter().enumerate() {
+    let (mut old, mut new) = (block.old_start, block.new_start);
+    let mut start = None;
+    // the first part with a line between `old`, `new` and the next quiet run, or the end of the block
+    let mut part = |old: u32, new: u32, old_end: u32, new_end: u32| {
+      if start.is_none() {
+        start = if new < new_end {
+          Some((1, new))
+        } else if old < old_end {
+          Some((0, old))
+        } else {
+          None
+        };
+      }
+    };
+    while let Some(run) = quiet.next_if(|run| run.old_start < block.old_end || run.new_start < block.new_end) {
+      part(old, new, run.old_start, run.new_start);
+      (old, new) = (run.old_end.max(old), run.new_end.max(new));
+    }
+    part(old, new, block.old_end, block.new_end);
+    if block.kind != BlockKind::Ignored
+      && let Some((side, line)) = start
+    {
+      starts.extend([to_u32(index), side, line]);
+    }
+  }
+  starts
 }
 
 fn final_newline(old: &SourceText, new: &SourceText) -> Option<FinalNewline> {

@@ -10,9 +10,9 @@
 //!   `file_merge` store. A merge that the time cut short stays in memory only.
 
 use crate::model::{BlobText, FileMerge, FileMergeEvent, FileMergeHeader, GetFileMergesParams, GitConflictKind, MergeContent, MergeSide, MergeSource};
-use crate::service::{FileDiffs, keep_stored, options, priority_order, read_summaries, side_facts, spawn_workers, to_u32, write_summaries};
+use crate::service::{FileDiffs, keep_stored, policy_id, priority_order, read_summaries, side_facts, spawn_workers, to_u32, write_summaries};
 use anyhow::{Result, bail};
-use code_symbols::language::{language_of, summary_key};
+use code_symbols::language::{Language, language_of, summary_key};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::object_ids_and_types;
@@ -32,7 +32,7 @@ use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
 /// The version of the merges in the `file_merge` store: bump it when `TextMerge`, the merge or the scopes change
-pub(crate) const MERGE_MODEL_VERSION: u32 = 6;
+pub(crate) const MERGE_MODEL_VERSION: u32 = 7;
 
 /// The memory key of a merge: the options byte and the base, left and right blob ids, empty for a missing side
 pub(crate) type MergeMemoryKey = (u8, String, String, String);
@@ -301,10 +301,17 @@ fn header(path: &ConflictPath) -> FileMergeHeader {
   }
 }
 
+/// The options byte of a merge: the policy in bits 0-1, the language of the path in bits 2-4 and again in bits 5-7
+/// (`Language::id` + 1, 0 without one), since the scopes depend on the language. A one-sided diff of a conflict has
+/// no runs of marks, so the grammar is not in the key
+fn options(policy: WhitespacePolicy, language: Option<Language>) -> u8 {
+  let language = language.map_or(0, |language| language.id() + 1);
+  policy_id(policy) | (language << 2) | (language << 5)
+}
+
 fn memory_key(path: &ConflictPath, policy: WhitespacePolicy) -> MergeMemoryKey {
-  let language = language_of(&path.path);
   let [base, left, right] = path.ids.clone().map(Option::unwrap_or_default);
-  (options(policy, language, language), base, left, right)
+  (options(policy, language_of(&path.path)), base, left, right)
 }
 
 fn disk_key(key: &MergeMemoryKey) -> FileMergeKey<'_> {

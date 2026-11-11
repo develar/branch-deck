@@ -1,6 +1,6 @@
 # Text Diff Engine
 
-**Status:** Implemented (the crate and its model; the app does not call it yet)
+**Status:** Implemented (the engine of every diff and merge the app shows)
 **Updated:** 2026-11-11
 **Tags:** [diff, comparison, intellij, port]
 
@@ -50,7 +50,7 @@ flowchart TD
 
 | Module | Source (`community/platform/util/diff/src/com/intellij/`) |
 |---|---|
-| `lcs/diff.rs` | `util/diff/Diff.kt`, `LCSBuilder.kt`, `DiffConfig.kt`, `FilesTooBigForDiffException.kt` |
+| `lcs/diff.rs` | `util/diff/Diff.kt`, `LCSBuilder.kt`, `DiffConfig.kt`, `FilesTooBigForDiffException.kt`; Branch Deck's own: `build_changes_ints_within`, the changes within a number of edits |
 | `lcs/myers.rs` | `util/diff/MyersLCS.kt` |
 | `lcs/patience.rs` | `util/diff/PatienceIntLCS.kt` |
 | `lcs/unique_lcs.rs` | `util/diff/UniqueLCS.kt` |
@@ -82,7 +82,7 @@ flowchart TD
 | `merge_conflict_type.rs` | `diff/util/MergeConflictType.kt`, `MergeConflictResolutionStrategy.kt` |
 | `merge_range_util.rs` | `diff/util/MergeRangeUtil.kt` |
 | `merge_resolve_util.rs` | `diff/comparison/MergeResolveUtil.kt` |
-| `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, and `diff_texts` |
+| `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, `diff_texts`, and the marks of a diff (`DiffMarks`, `starts_of`) |
 | `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block |
 | `apply.rs` | Branch Deck's own: blocks applied to bytes, the result of a merge on bytes, the ids of the blocks |
 
@@ -140,9 +140,20 @@ flowchart TD
   When the line comparison runs out of time too (`DiffBudget::lines`), the diff is one block of both whole texts.
   `old_scopes`, `new_scopes` and `import_blocks` stay empty here: the file-diffs service fills them from the summaries
   of the texts ([Git Operations](git-operations.md), "File diffs").
+- **Marks.** `marks` (`DiffMarks`, [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md)) says what a
+  reader may pass and what a view labels, and changes no block: `runs`, rows of lines inside one block that changed
+  in one way alone (`LineRun`: formatting, comments, a renamed name; `quiet` when the run provably changes no
+  behaviour), `moves` (`LineMove`) and `renames` (`Rename`), and `starts`. The comparison knows no grammar, so it
+  fills `starts` alone; the file-diffs service fills the runs from the tokens of the texts
+  ([Diff View](diff-view.md#marks)), the moves and the renames with their stages.
+- **Starts.** `starts` is flat `[block, side, line]` for each block with something to read, the one source of where
+  a reader stops (`starts_of`): the quiet runs cut a block into parts, and the reading starts at the first part with
+  a line, at its first new line (side 1), at its first old line (side 0) when it has none. An `Ignored` block and a
+  block whose every line is in a quiet run have no entry. A diff without runs has an entry for every block that is
+  not `Ignored`: the stops of the change navigation as they were.
 - **Proof.** A property test checks, under every policy and with and without inner ranges, that the blocks partition
   both texts, that the lines between them are equal under `Default`, that each range is inside its line, and that the
-  counts are the lines of the blocks.
+  counts are the lines of the blocks. Another checks `starts` against any blocks with any runs, line by line.
 
 ### Merge
 
@@ -310,6 +321,10 @@ algorithm-specific and non-deterministic cases). `Histogram` is about 10 times f
 - The deadline is checked when each comparison step starts, as in the source. One LCS does not check it. Myers gives
   up above an edit distance of `max(20000 + 10·√N, 20000)`, and patience diff gives up when the unique lines do not
   halve the problem.
+- `lcs::diff::build_changes_ints_within(a, b, max_edits)` is for sequences that are mostly the same (the tokens of a
+  block, for the marks): Myers alone, which gives up above `max_edits`, with no patience diff after it. Its work is
+  bound by the length of the sequences and the square of `max_edits`, whatever they hold: a limit by work, where the
+  thresholds of `build_changes_ints` let two unrelated sequences of 10,000 elements each run to their end.
 - Timings of a release build: 3,000 lines with 15 changed blocks take about 1 ms. 20,000 lines with 3,000 random
   edits take about 6 ms. Two unrelated texts of 20,000 lines take about 115 ms. The FxHash maps cut the last case from
   about 1.2 s with the std hash maps. `DiffBudget` sets the time budget, and the caller the size limits of a file.

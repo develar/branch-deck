@@ -26,6 +26,7 @@ export function textDiff(
     importBlocks,
     oldScopes,
     newScopes,
+    marks: { runs: [], moves: [], renames: [], starts: [] },
   }
 }
 

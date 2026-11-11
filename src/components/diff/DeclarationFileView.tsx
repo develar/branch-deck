@@ -33,6 +33,7 @@ function fileOf(target: DeclarationTarget): DiffViewFile {
       oldScopes: [],
       newScopes: [],
       importBlocks: [],
+      marks: { runs: [], moves: [], renames: [], starts: [] },
     },
   }
   return {

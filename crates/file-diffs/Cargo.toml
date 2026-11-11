@@ -23,10 +23,16 @@ specta = { workspace = true, optional = true }
 tracing.workspace = true
 
 [dev-dependencies]
+# the benchmark of the marks (`benches/marks_bench.rs`)
+criterion = "0.8"
 pretty_assertions.workspace = true
 tempfile.workspace = true
 test-log.workspace = true
 test-utils = { path = "../test-utils" }
+
+[[bench]]
+name = "marks_bench"
+harness = false
 
 [features]
 default = []

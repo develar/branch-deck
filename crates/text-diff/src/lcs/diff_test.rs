@@ -1,7 +1,7 @@
 // Ported from `community/platform/util/testSrc/com/intellij/util/diff/DiffTest.java` of IntelliJ Platform (Apache
 // License 2.0, Copyright 2000-2020 JetBrains s.r.o. and contributors).
 
-use crate::lcs::diff::{Change, build_changes};
+use crate::lcs::diff::{Change, FilesTooBig, build_changes, build_changes_ints, build_changes_ints_within};
 use pretty_assertions::assert_eq;
 
 const DATA_123: [&str; 3] = ["1", "2", "3"];
@@ -67,4 +67,33 @@ fn nulls() {
     changes(&DATA_12NULLABNULL23, &DATA_NULL12AB23),
     vec![change(0, 0, 1, 0), change(2, 3, 0, 1), change(5, 5, 0, 1)]
   );
+}
+
+// Branch Deck's own
+
+/// Within its edits the bound answer is the answer of `build_changes_ints`; above them it gives up, however long the
+/// sequences are, and an element only one side has is no edit of the bound
+#[test]
+fn the_changes_within_a_number_of_edits_are_the_changes_or_too_big() {
+  let old: Vec<u32> = (0..2_000).map(|index| index % 7).collect();
+  // a few elements replaced by ones the other side has elsewhere
+  let mut new = old.clone();
+  for index in [10, 500, 501, 1_999] {
+    new[index] = (new[index] + 1) % 7;
+  }
+  let expected = build_changes_ints(&old, &new).expect("small inputs");
+  assert_ne!(expected, []);
+  assert_eq!(build_changes_ints_within(&old, &new, 64), Ok(expected));
+  assert_eq!(build_changes_ints_within(&old, &old, 0), Ok(vec![]));
+  assert_eq!(build_changes_ints_within(&old, &[], 0), Ok(vec![change(0, 0, 0, 2_000)]));
+
+  // every element differs from its pair: far above the edits allowed
+  let shifted: Vec<u32> = old.iter().map(|value| (value * 3 + 1) % 7).collect();
+  assert_eq!(build_changes_ints_within(&old, &shifted, 64), Err(FilesTooBig));
+
+  // elements only the new side has are discarded before the comparison: they are no edits of the bound
+  let mut wrapped = vec![100, 101, 102];
+  wrapped.extend(&old);
+  wrapped.push(103);
+  assert_eq!(build_changes_ints_within(&old, &wrapped, 0), Ok(vec![change(0, 0, 3, 0), change(2_000, 2_003, 1, 0)]));
 }

@@ -1,16 +1,17 @@
 //! The blocks of many blob pairs at once, for the dependency scan of the commits (`trial_check::diff_scan`) and the
-//! patches of `brd commits --patch`: the same blocks as the diff views show, under `Default`, without the scopes.
+//! patches of `brd commits --patch`: the same blocks as the diff views show, under `Default`, without the scopes and
+//! the runs of the marks (a pair compared here is not parsed; `marks.starts` names every block that counts).
 //!
-//! - **Caches.** A pair that memory or the `file_diff` store has (the view showed it) costs nothing. The others are
-//!   compared and not cached here: their callers cache them per commit (`commit_diff`), and the views need the scopes.
+//! - **Caches.** A pair that memory or the `file_diff` store has (the view showed it) costs nothing: the key is the
+//!   view's (`diff_options`). The others are compared and not cached here: their callers cache them per commit
+//!   (`commit_diff`), and the views need the scopes and the marks.
 //! - **Processes.** One `cat-file --batch` for the blobs of the pairs that no cache has. A pair goes to a worker as soon as
 //!   both its blobs are read, and a blob that no other pair waits for is dropped, so memory holds the pairs in flight;
 //!   an instance `for_scans` keeps them in its memory cache instead, for the next pass over the same commits.
 
 use crate::model::{BlobText, DiffContent};
-use crate::service::{FileDiffs, MODEL_VERSION, blob_text, options, spawn_workers};
+use crate::service::{FileDiffs, MemoryKey, blob_text, diff_options, disk_key, model_version, spawn_workers};
 use anyhow::Result;
-use code_symbols::language::language_of;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::for_each_object;
 use git_ops::commit_files::MAX_BLOB_BYTES;
@@ -35,6 +36,10 @@ pub struct BlobPair<'a> {
 
 /// What a scan gets of a pair
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+  clippy::large_enum_variant,
+  reason = "nearly every pair of a scan is a text: a box would cost an allocation a pair to shrink the rare other one"
+)]
 pub enum PairDiff {
   /// The diff of the texts, as the views show it (the scopes may be empty)
   Text(TextDiff),
@@ -50,12 +55,11 @@ fn blob_ids<'a>(pair: &BlobPair<'a>) -> impl Iterator<Item = &'a str> {
 impl FileDiffs {
   /// The diff of each pair under `Default`, in the order of `pairs`
   pub fn blocks_of(&self, git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, pairs: &[BlobPair<'_>]) -> Result<Vec<PairDiff>> {
-    let keys: Vec<(u8, String, String)> = pairs
+    let keys: Vec<MemoryKey> = pairs
       .iter()
       .map(|pair| {
-        let old_language = language_of(pair.old_path.unwrap_or(pair.path));
         (
-          options(WhitespacePolicy::Default, old_language, language_of(pair.path)),
+          diff_options(WhitespacePolicy::Default, pair.old_path, pair.path),
           pair.old_id.unwrap_or_default().to_string(),
           pair.new_id.unwrap_or_default().to_string(),
         )
@@ -64,15 +68,8 @@ impl FileDiffs {
     let mut results: Vec<Option<PairDiff>> = keys.iter().map(|key| self.known_diff(key)).collect();
 
     let missed: Vec<usize> = (0..pairs.len()).filter(|&index| results[index].is_none()).collect();
-    let disk_keys: Vec<DiffKey<'_>> = missed
-      .iter()
-      .map(|&index| DiffKey {
-        policy: keys[index].0,
-        old_id: &keys[index].1,
-        new_id: &keys[index].2,
-      })
-      .collect();
-    let stored: Vec<Option<TextDiff>> = cache.get_file_diffs(MODEL_VERSION, &disk_keys);
+    let disk_keys: Vec<DiffKey<'_>> = missed.iter().map(|&index| disk_key(&keys[index])).collect();
+    let stored: Vec<Option<TextDiff>> = cache.get_file_diffs(model_version(), &disk_keys);
     for (&index, diff) in missed.iter().zip(stored) {
       results[index] = diff.map(PairDiff::Text);
     }
@@ -153,7 +150,7 @@ impl FileDiffs {
   }
 
   /// The diff of a pair that memory has
-  fn known_diff(&self, key: &(u8, String, String)) -> Option<PairDiff> {
+  fn known_diff(&self, key: &MemoryKey) -> Option<PairDiff> {
     match self.diffs.get(key)?.as_ref() {
       DiffContent::Text(diff) => Some(PairDiff::Text(diff.clone())),
       _ => Some(PairDiff::NoText),

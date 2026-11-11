@@ -2316,6 +2316,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
+ "criterion",
  "generated-files",
  "git-executor",
  "git-ops",

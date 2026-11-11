@@ -751,6 +751,8 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: He
       oldScopes: [],
       newScopes: [],
       importBlocks: [0],
+      // nothing to read: no start
+      marks: { runs: [], moves: [], renames: [], starts: [] },
     },
   }
   return { file, diff, quietImports: true, section }

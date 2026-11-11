@@ -2,7 +2,7 @@
 // contributors): `community/platform/util/diff/src/com/intellij/util/diff/Diff.kt`, `LCSBuilder.kt`, `DiffConfig.kt`
 // and `FilesTooBigForDiffException.kt`. A `Vec<Change>` replaces the linked list of `Diff.Change`. Left out: the line
 // splitting, `translateLine` and `linesDiff`, which the comparison does not use, and the `USE_PATIENCE_ALG` switch,
-// which is off.
+// which is off. Branch Deck's own: `build_changes_ints_within`.
 
 //! The changes between two sequences: the common prefix and suffix cut off, the elements only one side has discarded,
 //! Myers' algorithm, and patience diff when Myers gives up.
@@ -97,11 +97,23 @@ pub fn build_changes<T: Eq + Hash>(objects1: &[T], objects2: &[T]) -> Result<Vec
   let mut enumerator = Enumerator::new(trimmed_length);
   let ints1 = enumerator.enumerate(objects1, start_shift, end_cut);
   let ints2 = enumerator.enumerate(objects2, start_shift, end_cut);
-  do_build_changes(&ints1, &ints2, ChangeBuilder::new(start_shift))
+  do_build_changes(&ints1, &ints2, ChangeBuilder::new(start_shift), None)
 }
 
 /// The changes between two sequences of integers
 pub fn build_changes_ints(array1: &[u32], array2: &[u32]) -> Result<Vec<Change>, FilesTooBig> {
+  changes_of_ints(array1, array2, None)
+}
+
+/// Branch Deck's own, for sequences that are mostly the same (the tokens of a block of a diff): the changes between
+/// two sequences of integers of which at most `max_edits` elements differ, the elements only one side has not counted.
+/// Myers' algorithm alone, which gives up above `max_edits` (`FilesTooBig`): no patience diff after it, so the work is
+/// bound by the length of the sequences and the square of `max_edits`, whatever the sequences hold
+pub fn build_changes_ints_within(array1: &[u32], array2: &[u32], max_edits: usize) -> Result<Vec<Change>, FilesTooBig> {
+  changes_of_ints(array1, array2, Some(max_edits))
+}
+
+fn changes_of_ints(array1: &[u32], array2: &[u32], max_edits: Option<usize>) -> Result<Vec<Change>, FilesTooBig> {
   let start_shift = get_start_shift(array1, array2);
   let end_cut = get_end_cut(array1, array2, start_shift);
 
@@ -111,7 +123,7 @@ pub fn build_changes_ints(array1: &[u32], array2: &[u32]) -> Result<Vec<Change>,
 
   let ints1 = &array1[start_shift..array1.len() - end_cut];
   let ints2 = &array2[start_shift..array2.len() - end_cut];
-  do_build_changes(ints1, ints2, ChangeBuilder::new(start_shift))
+  do_build_changes(ints1, ints2, ChangeBuilder::new(start_shift), max_edits)
 }
 
 /// The answer without an LCS, when one side is empty after the common prefix and suffix are cut off
@@ -132,7 +144,8 @@ fn build_changes_fast(length1: usize, length2: usize, start_shift: usize, end_cu
   Some(Vec::new())
 }
 
-fn do_build_changes(ints1: &[u32], ints2: &[u32], mut builder: ChangeBuilder) -> Result<Vec<Change>, FilesTooBig> {
+/// With `max_edits` (Branch Deck's own), Myers' algorithm alone within that many edits, and no patience diff
+fn do_build_changes(ints1: &[u32], ints2: &[u32], mut builder: ChangeBuilder, max_edits: Option<usize>) -> Result<Vec<Change>, FilesTooBig> {
   // discard unique elements, that have no chance to be matched
   let mut reindexer = Reindexer::default();
   let [discarded1, discarded2] = reindexer.discard_unique(ints1, ints2);
@@ -144,7 +157,10 @@ fn do_build_changes(ints1: &[u32], ints2: &[u32], mut builder: ChangeBuilder) ->
 
   let changes: [FixedBitSet; 2] = {
     let mut lcs = MyersLcs::new(&discarded1, &discarded2);
-    if lcs.execute_with_threshold() == Ok(()) {
+    if let Some(max_edits) = max_edits {
+      lcs.execute_within(max_edits)?;
+      lcs.into_changes()
+    } else if lcs.execute_with_threshold() == Ok(()) {
       lcs.into_changes()
     } else {
       let mut patience = PatienceIntLcs::new(&discarded1, &discarded2);

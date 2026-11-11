@@ -811,6 +811,77 @@ pub mod templates {
       )
   }
 
+  /// One commit for the marks of the diffs (openspec/specs/commit/quiet-changes/spec.md), each case in a block of its
+  /// own with unchanged lines around it:
+  ///
+  /// - `src/Ledger.kt`: `accounts()` moved up without a change; the call of `Entry` in `record` wrapped over three
+  ///   lines (formatting); the top-level `describe` moved into the class, indented, with one line edited; the local
+  ///   `total` of `balance` renamed to `sum`, three places; the comment of `largest` worded again (comments);
+  ///   `isEmpty` changed for real; `reportTitle` moved to `Report.kt`.
+  /// - `src/Report.kt`: the two calls of `openStore` renamed to `connectStore`, and `reportTitle` moved in from
+  ///   `Ledger.kt` without a change.
+  /// - `src/Store.kt`: the declaration of `openStore` renamed to `connectStore`.
+  pub fn commit_marks() -> RepoTemplate {
+    const HEAD: &str = "package ledger\n\nclass Ledger(private val store: Store) {\n  private val entries = mutableListOf<Entry>()\n\n";
+    // moved up in the class, as it is
+    const ACCOUNTS: &str = "  fun accounts(): List<String> {\n    val names = entries.map { it.account }\n    return names.distinct().sorted()\n  }\n\n";
+    // its call of `Entry` is wrapped
+    const RECORD: &str =
+      "  fun record(account: String, amount: Long, note: String) {\n    val entry = Entry(account, amount, note)\n    entries.add(entry)\n    store.save(entry)\n  }\n\n";
+    // its local `total` is renamed
+    const BALANCE: &str = "  // Sums the amounts of one account.\n  fun balance(account: String): Long {\n    var total = 0L\n    for (entry in entries) {\n      if (entry.account == account) {\n        total += entry.amount\n      }\n    }\n    return total\n  }\n\n";
+    // its comment is worded again
+    const LARGEST: &str = "  // The entry with the largest amount.\n  fun largest(): Entry? {\n    return entries.maxByOrNull { it.amount }\n  }\n\n";
+    // the real change
+    const IS_EMPTY: &str = "  fun isEmpty(): Boolean = entries.isEmpty()\n\n";
+    const REST: &str = "  fun statement(account: String): String {\n    val lines = entries.filter { it.account == account }\n    return lines.joinToString(\"\\n\") { describe(it) }\n  }\n\n  fun clear() {\n    entries.clear()\n    store.clear()\n  }\n}\n\n";
+    // moved into the class: indented, one line edited
+    const DESCRIBE: &str = "fun describe(entry: Entry): String {\n  val sign = if (entry.amount < 0) \"-\" else \"+\"\n  val amount = kotlin.math.abs(entry.amount)\n  val text = \"$sign$amount ${entry.account}\"\n  return text.trim()\n}\n\n";
+    const ENTRY: &str = "data class Entry(val account: String, val amount: Long, val note: String)\n";
+    // moved to `Report.kt`, as it is
+    const REPORT_TITLE: &str =
+      "\nfun reportTitle(ledger: Ledger, account: String): String {\n  val balance = ledger.balance(account)\n  return \"Report for $account: $balance\"\n}\n";
+    const REPORT: &str = "package ledger\n\nclass Report(private val ledger: Ledger) {\n  fun print(path: String, account: String) {\n    val store = openStore(path)\n    store.write(reportTitle(ledger, account))\n    store.write(ledger.statement(account))\n  }\n\n  fun export(path: String) {\n    val store = openStore(path)\n    for (account in ledger.accounts()) {\n      store.write(ledger.statement(account))\n    }\n  }\n}\n";
+    const STORE: &str = "package ledger\n\nclass Store(private val path: String) {\n  private val lines = mutableListOf<String>()\n\n  fun save(entry: Entry) {\n    lines.add(entry.toString())\n  }\n\n  fun write(line: String) {\n    lines.add(line)\n  }\n\n  fun clear() {\n    lines.clear()\n  }\n}\n\nfun openStore(path: String): Store {\n  return Store(path)\n}\n";
+
+    let ledger = [HEAD, RECORD, BALANCE, ACCOUNTS, LARGEST, IS_EMPTY, REST, DESCRIBE, ENTRY, REPORT_TITLE].concat();
+    // each line of `describe` that is not blank two columns to the right
+    let describe: String = DESCRIBE
+      .replace("$sign$amount", "$sign $amount")
+      .split_inclusive('\n')
+      .map(|line| if line == "\n" { line.to_string() } else { format!("  {line}") })
+      .collect();
+    let ledger_after = [
+      HEAD,
+      ACCOUNTS,
+      &RECORD.replace("Entry(account, amount, note)", "Entry(\n      account, amount, note\n    )"),
+      &describe,
+      &BALANCE.replace("total", "sum"),
+      &LARGEST.replace("The entry", "Finds the entry"),
+      &IS_EMPTY.replace("isEmpty()\n", "none()\n"),
+      REST,
+      ENTRY,
+    ]
+    .concat();
+    let renamed = |text: &str| text.replace("openStore", "connectStore");
+    RepoTemplate::new("commit_marks")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[("src/Ledger.kt", &ledger), ("src/Report.kt", REPORT), ("src/Store.kt", STORE)],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(ledger) tidy the ledger and move the report title to the report",
+        &[
+          ("src/Ledger.kt", &ledger_after),
+          ("src/Report.kt", &[&renamed(REPORT), REPORT_TITLE].concat()),
+          ("src/Store.kt", &renamed(STORE)),
+        ],
+        Some(1704119400),
+      )
+  }
+
   /// Two commits with bodies for the whitespace policies in the review of a branch, which tells each commit as a step:
   /// the first adds a blank line apart from a real change in `Format.kt` and changes `Main.kt`, the second adds
   /// `Other.kt`
