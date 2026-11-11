@@ -132,6 +132,22 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   of "nothing here" cannot be told from a deleted line of Inline. The text of a quiet line is not dimmed: a reader
   opens such lines to check the mark. `--diff-line-number-changed` is 4.4:1 on it in the light theme and 6.5:1 in
   the dark one. Never a `dark:` variant: the token has a value per theme.
+- **Moved.** Our own too: `--diff-moved` is the colour of a line that moved within its file, where it left and
+  where it stands now, and of the note at each end; `--diff-moved-pale` (the colour mixed 0.6 with the editor
+  background, as the pale form of a type) the colour of a line of a move that was edited on the way, its edited words
+  in the full colour: the rule of pale and full, in a colour of its own. Both ends have the one colour, since they
+  are the same lines; their line numbers and their notes tell them apart. It is a violet (light `#e4d1f7` and
+  `#f4edfc`, dark `#43345a` and `#2a2435`): the one hue no line of a diff has (green inserted, grey deleted, blue
+  modified, red conflict, sand quiet, amber a hit of the find), as far from each of them as they are from each other
+  to an eye that sees colour (5 to 12 in OKLab × 100 in the light theme, 8 to 11 in the dark one). A violet and a
+  blue of one lightness are one colour to red-green colour blindness (1.0 to 1.5 from the modified blue of the light
+  theme), and no pastel hue is free of that for every eye, so the colour is not the only sign: a rail 2 px wide
+  runs down the start of the lines of a move and of its notes (`--diff-moved` with 55% of `--foreground`, 6.6:1 on
+  the line in the light theme, 3.5:1 in the dark one), which no other line has, and the note says the words. The
+  words of the note are `--foreground` at 80% into the colour (13:1 light, 5.7:1 dark): the muted words of other
+  notes are 3.5:1 on it. `--diff-line-number-changed` is 3.5:1 on the full colour in the light theme and 5.0:1 in
+  the dark one. The row a jump between the ends lands on has a ring of `--ring` that fades (it stays under reduced
+  motion).
 - **Gutter.** The colour of a line fills its line number as well (`DiffLineMarkerRenderer`): no bar beside the code.
   The line numbers are a point smaller than the code, 12 px, in `LINE_NUMBERS_COLOR` (`--diff-line-number`). The
   number of a changed line is our own, `--diff-line-number-changed`: `LINE_NUMBERS_COLOR` is made for the editor

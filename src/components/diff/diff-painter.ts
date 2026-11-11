@@ -1,17 +1,18 @@
-import type { Remark } from "@/lib/diff/block-parts"
+import type { MoveEnd, Remark } from "@/lib/diff/block-parts"
 import { copyFile, copyText } from "@/lib/diff/copy-text"
 import type { CopyFile, CopyPoint } from "@/lib/diff/copy-text"
 import { lineKey } from "@/lib/diff/find"
 import type { HighlightClient, BlobWant } from "@/lib/diff/highlight/client"
 import { FONT_STYLE_SHIFT, PAGE_LINES, ROLE_MASK } from "@/lib/diff/highlight/protocol"
 import type { Priority } from "@/lib/diff/highlight/protocol"
-import type { DiffLayout, LayoutPart } from "@/lib/diff/layout"
-import { inlineOffset, inlinePair, inlineParts, lineParts, runsOf, sameTextOffset } from "@/lib/diff/line-parts"
+import { moveNoteOfKey } from "@/lib/diff/layout"
+import type { DiffLayout, LayoutPart, MoveHand } from "@/lib/diff/layout"
+import { inlineOffset, inlinePair, inlineParts, lineParts, ownOldHits, runsOf, sameTextOffset } from "@/lib/diff/line-parts"
 import type { InlinePair, InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RowCells } from "@/lib/diff/row-cells"
-import { foldWords, isLineRow, NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
+import { foldWords, isLineRow, NEW, OLD, rowAt, rowOfLine, rowOfPlace } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, LineRow, NoteRow, Row } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
@@ -69,6 +70,12 @@ export interface PainterModel {
    * shows it after its words and names it to a screen reader; absent where no key does
    */
   notesKey?: string
+  /**
+   * The key that shows the other end of a move from its note in view (`DiffViewProps.moveKey`): the button of the one
+   * note the key takes now (`DiffPainter.keyedMove`) shows it after its words and names it to a screen reader; absent
+   * where no key does
+   */
+  moveKey?: string
 }
 
 export interface PainterCallbacks {
@@ -90,6 +97,8 @@ export interface PainterCallbacks {
    * note of the file follows it
    */
   onNoteToggle: (file: number, note: NoteRow, all: boolean) => void
+  /** A click on the place a note of a move names ("to line 210"): the other end of the move shows, from this end of it */
+  onMoveJump: (file: number, end: MoveEnd) => void
   /** The rows of the first screen are painted with their texts; the tokens of their pages are there or overdue */
   onFirstScreen: () => void
   /** A wrapped line came out wider in the DOM than measured: the widths are corrected, the heights need a layout */
@@ -231,6 +240,17 @@ export class DiffPainter {
    * name the popup was opened on would be selected no more once it closes, and the keys of the code would read none
    */
   private keptSelection: { anchor: Node; anchorOffset: number; focus: Node; focusOffset: number } | null = null
+  /**
+   * The line a reveal landed on, itself and no name in it (the other end of a move): its row, or the note right above
+   * it that says what it is, is marked once it is painted (`data-landed`, diff-view.css), and again after a paint that
+   * dropped it, until the user scrolls, presses or types in the view. The file by its key: a new model may show other
+   * files before it
+   */
+  private landed: { key: string; side: number; line: number; element: HTMLElement | null } | null = null
+  /** The end of a move the view stands at (`setMoveHand`): the note the key of the moves takes first while it is in view */
+  private moveHand: MoveHand | null = null
+  /** The button of the note the key of the moves takes now, which shows the hint of the key (`markMoveKey`) */
+  private keyedMoveButton: HTMLElement | null = null
   /** The pages of tokens that arrived since the last repaint, as `blobId:page` */
   private readonly arrivedPages = new Set<string>()
   private textsChanged = false
@@ -272,6 +292,8 @@ export class DiffPainter {
     const onParentScroll = () => this.onVerticalScroll()
     const follow = () => {
       this.followScroll = true
+      // the user moves on: the row a reveal landed on is marked no more
+      this.letLandedGo()
     }
     const onWheel = (event: WheelEvent) => this.onWheel(event)
     const onClick = (event: MouseEvent) => this.onClick(event)
@@ -342,6 +364,11 @@ export class DiffPainter {
 
   private viewHeight(): number {
     return (this.scrollParent ?? this.root)?.clientHeight ?? 0
+  }
+
+  /** The height of what scrolls the view: the view itself, or the scroller of the parent it lies in */
+  viewportHeight(): number {
+    return this.viewHeight()
   }
 
   private setViewTop(top: number): void {
@@ -501,6 +528,8 @@ export class DiffPainter {
     this.markStuckHeader(top)
     this.requestTokens(wants)
     this.selectRevealedName()
+    this.markLanded()
+    this.markMoveKey(top, height)
     if (this.firstScreen === "waiting" && firstScreenReady) {
       this.firstScreen = "tokens"
       setTimeout(() => this.finishFirstScreen(), FIRST_SCREEN_TOKENS_MS)
@@ -664,7 +693,19 @@ export class DiffPainter {
           rowElement.dataset.quiet = ""
         }
       }
-      rowElement.append(this.note(file, value))
+      // the note at an end of a move: which end, on the colour of a move (diff-view.css)
+      const words = this.note(file, value)
+      if (value.remark?.move != null) {
+        rowElement.dataset.move = value.remark.move.at
+        if (value.tone === "remark" && sideBySide(painterFile)) {
+          // a column per side: the note lies over the column of its lines, the other one filled as beside them
+          const filler = element("span", "dv-note-filler")
+          rowElement.dataset.over = value.remark.move.at === "source" ? "old" : "new"
+          rowElement.append(...(value.remark.move.at === "source" ? [words, filler] : [filler, words]))
+          return { element: rowElement, cells: [], textsRead: true }
+        }
+      }
+      rowElement.append(words)
       return { element: rowElement, cells: [], textsRead: true }
     }
     rowElement.dataset.kind = value.kind
@@ -705,10 +746,14 @@ export class DiffPainter {
     return { element: rowElement, cells, textsRead }
   }
 
-  private half(side: number, cell: string, { tint, run }: LineRow, resolved: string | null): HTMLElement {
+  private half(side: number, cell: string, { tint, run, move }: LineRow, resolved: string | null): HTMLElement {
     const half = element("div", "dv-half", "diff-side")
     half.dataset.side = String(side)
     half.dataset.cell = cell
+    // a line of a move: which end of it the line is at, for a screen reader (diff-view.css)
+    if (move !== null && cell === "moved") {
+      half.dataset.move = move.at
+    }
     if (tint !== "full" && cell !== "context" && cell !== "filler") {
       half.dataset.tint = tint
       // a line of a quiet run of the marks: what it changed in, for a screen reader (diff-view.css)
@@ -777,13 +822,16 @@ export class DiffPainter {
 
   /**
    * What the diff says of the lines after a note (`NoteRow.remark`), in the words of its presenter: "Formatting only ·
-   * 3 lines". A note that opens (Inline shows its run once) is a button with a chevron, which shows the old lines or
-   * hides them again, and where a key does the same for the notes in view (`PainterModel.notesKey`) its hint; the
-   * hits of the find in the old lines it stands for are named after its words. Not focusable, as a fold: a review
-   * has hundreds, and the key reaches it
+   * 3 lines". A note that opens (Inline shows its run once, or leaves out the lines a move took) is a button with a
+   * chevron, which shows the old lines or hides them again, and where a key does the same for the notes in view
+   * (`PainterModel.notesKey`) its hint; the hits of the find in the old lines it stands for are named after its
+   * words. The note at an end of a move names the other end after its words ("14 lines moved" "to line 210"), a
+   * button that shows it, then what else happened to the lines ("re-indented"); the hint of the key of the moves is
+   * on the button of the one note the key takes (`markMoveKey`). Not focusable, as a fold: a review has hundreds, and
+   * the keys reach them
    */
-  private remark(file: number, note: NoteRow, remark: Remark): HTMLElement[] {
-    const { label, detail, toggle } = presentRemark(remark)
+  private remark(file: number, note: NoteRow, remark: Remark): Node[] {
+    const { label, target, detail, name, toggle } = presentRemark(remark)
     const words = element(toggle === null ? "span" : "button", toggle === null ? "dv-remark" : "dv-remark dv-remark-button", "diff-remark")
     words.dataset.kind = remark.kind
     if (toggle !== null) {
@@ -791,7 +839,7 @@ export class DiffPainter {
       words.tabIndex = -1
       words.dataset.file = String(file)
       words.setAttribute("aria-expanded", String(remark.open === true))
-      words.setAttribute("aria-label", `${label}, ${detail}: ${toggle}`)
+      words.setAttribute("aria-label", `${name}: ${toggle}`)
       words.title = toggle
       const key = this.model?.notesKey
       if (key !== undefined) {
@@ -803,9 +851,26 @@ export class DiffPainter {
     }
     const text = element("span", "dv-remark-label")
     text.textContent = label
+    words.append(text)
+    const parts: Node[] = [words]
     const reach = element("span", "dv-remark-detail")
     reach.textContent = ` · ${detail}`
-    words.append(text, reach)
+    if (target === null) {
+      words.append(reach)
+    } else {
+      // the other end of the move: a button of its own beside the one that opens the note, each with its key
+      const jump = element("button", "dv-remark-target", "diff-move-target")
+      jump.setAttribute("type", "button")
+      jump.tabIndex = -1
+      jump.dataset.file = String(file)
+      jump.textContent = target.words
+      jump.setAttribute("aria-label", target.name)
+      jump.title = target.name
+      parts.push(document.createTextNode(" "), jump)
+      if (detail !== "") {
+        parts.push(reach)
+      }
+    }
     // the hits in the old lines the note stands for: the find lands on the note, which says how many it holds
     const hits = this.model?.hits?.get(file)
     let matches = 0
@@ -817,12 +882,13 @@ export class DiffPainter {
       current ||= (found?.current ?? -1) >= 0
     }
     if (matches === 0) {
-      return [words]
+      return parts
     }
     const hit = element("span", current ? "dv-remark-hits dv-hit dv-hit-current" : "dv-remark-hits dv-hit", "diff-remark-hits")
     hit.dataset.hit = current ? "current" : ""
     hit.textContent = formatHiddenMatches(matches, oldEnd - oldStart)
-    return [words, hit]
+    parts.push(hit)
+    return parts
   }
 
   /**
@@ -933,14 +999,12 @@ export class DiffPainter {
     const oldTable = tables[OLD]
     if (value.kind === "inline" && oldTable != null) {
       const oldLine = value.lines[OLD]!
-      return inlineParts(
-        inlinePair(lineText(oldTable, oldLine), content, cells.ranges(value, OLD) ?? [], cells.ranges(value, NEW) ?? []),
-        runsAt(OLD, oldLine),
-        runsAt(NEW, line),
-        hits,
-        // the hits of the old line: in its deleted parts, and on into the text the row shows from the new line
-        this.model?.hits?.get(file)?.get(lineKey(OLD, oldLine)) ?? null,
-      )
+      const pair = inlinePair(lineText(oldTable, oldLine), content, cells.ranges(value, OLD) ?? [], cells.ranges(value, NEW) ?? [])
+      // the hits of the old line: in its deleted parts, and on into the text the row shows from the new line
+      const oldHits = this.model?.hits?.get(file)?.get(lineKey(OLD, oldLine)) ?? null
+      // the old line of an edited line of a move is found where it left, every hit of it: the row of its pair marks
+      // the ones it shows of that line alone, the struck-through parts; the text both lines share is the new line's
+      return inlineParts(pair, runsAt(OLD, oldLine), runsAt(NEW, line), hits, value.move === null || oldHits === null ? oldHits : ownOldHits(pair, oldHits))
     }
     return lineParts(content.length, runsAt(side, line), cells.ranges(value, side), hits)
   }
@@ -1270,6 +1334,123 @@ export class DiffPainter {
   }
 
   /**
+   * The end of a move at a point of the viewport, for the menu of the code: of a line of a move, or of the note at
+   * its end; null where the row under the point is of no move
+   */
+  moveAt(clientX: number, clientY: number): { file: number; end: MoveEnd } | null {
+    return this.moveOfRow(document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>(".dv-row") ?? null)
+  }
+
+  /**
+   * The end of a move at the start of the selection of the view, for the menu of the code a key opens: of the line of
+   * a move the selection starts in; null where nothing of the view is selected (after a jump to an end, which selects
+   * nothing: the key of the moves goes on from there)
+   */
+  moveAtSelection(): { file: number; end: MoveEnd } | null {
+    const anchor = document.getSelection()?.anchorNode ?? null
+    const element = anchor instanceof Element ? anchor : (anchor?.parentElement ?? null)
+    return this.moveOfRow(element?.closest<HTMLElement>(".dv-row") ?? null)
+  }
+
+  /**
+   * The end of a move the view stands at, by the section that shows it: where a jump, Back or Forward landed, or the
+   * note N or P stopped under; null once the view moved on to a place that is no end of a move. The key of the moves
+   * takes its note first (`keyedMove`)
+   */
+  setMoveHand(hand: MoveHand | null): void {
+    this.moveHand = hand
+    if (this.root !== null) {
+      this.markMoveKey(this.viewTop(), this.viewHeight())
+    }
+  }
+
+  /**
+   * The note of a move the key of the moves takes now (`moveNoteOfKey`): the one at the end the view stands at while
+   * it is in view, else the first note of a move in view; null with none in view
+   */
+  keyedMove(): { file: number; end: MoveEnd; row: number } | null {
+    const model = this.model
+    return model === null || this.root === null ? null : moveNoteOfKey(model.layout, this.viewTop(), this.viewHeight(), this.moveHand)
+  }
+
+  /**
+   * The hint of the key of the moves (`PainterModel.moveKey`), on the button of the one note the key takes now in a
+   * view at `top`, `height` high: after every paint, with the place the paint read, so it follows the scroll and the
+   * place the view stands at; no note shows a key that would act on another one. Drawn after the words of the button
+   * as generated content (diff-view.css), no text of the row
+   */
+  private markMoveKey(top: number, height: number): void {
+    const model = this.model
+    const key = model?.moveKey
+    const taken = model === null || key === undefined ? null : moveNoteOfKey(model.layout, top, height, this.moveHand)
+    const button = taken === null ? null : (this.painted.get(taken.file)?.get(taken.row)?.element.querySelector<HTMLElement>(".dv-remark-target") ?? null)
+    if (button === this.keyedMoveButton) {
+      return
+    }
+    if (this.keyedMoveButton !== null) {
+      delete this.keyedMoveButton.dataset.key
+      this.keyedMoveButton.removeAttribute("aria-keyshortcuts")
+    }
+    if (button !== null && key !== undefined) {
+      button.dataset.key = key
+      button.setAttribute("aria-keyshortcuts", key)
+    }
+    this.keyedMoveButton = button
+  }
+
+  private moveOfRow(row: HTMLElement | null): { file: number; end: MoveEnd } | null {
+    const file = Number(row?.parentElement?.dataset.file)
+    const rows = this.model?.files[file]?.rows
+    if (row === null || this.root === null || !this.root.contains(row) || rows == null || row.dataset.row === undefined) {
+      return null
+    }
+    const value = rowAt(rows, Number(row.dataset.row))
+    const end = value.kind === "fold" ? null : isLineRow(value) ? value.move : (value.remark?.move ?? null)
+    return end === null ? null : { file, end }
+  }
+
+  /**
+   * Marks the row a reveal of a line landed on (`rowOfPlace`): now if it is painted, else once a paint paints it, and
+   * again after a paint that dropped it. A later call replaces it; a scroll, a press or a key of the user ends it, as
+   * a name a reveal selects
+   */
+  land(file: number, side: number, line: number): void {
+    this.letRevealedNameGo()
+    this.letLandedGo()
+    // what was selected in the view is of the place the view left: the line is its place now, which Back and Forward keep
+    const selection = document.getSelection()
+    if (selection !== null && selection.anchorNode !== null && this.root?.contains(selection.anchorNode) === true) {
+      selection.removeAllRanges()
+      this.keptSelection = null
+    }
+    const key = this.model?.files[file]?.key
+    if (key !== undefined) {
+      this.landed = { key, side, line, element: null }
+      this.markLanded()
+    }
+  }
+
+  private letLandedGo(): void {
+    delete this.landed?.element?.dataset.landed
+    this.landed = null
+  }
+
+  private markLanded(): void {
+    const landed = this.landed
+    const file = landed === null ? -1 : (this.model?.layout.indexOf(landed.key) ?? -1)
+    const rows = this.model?.files[file]?.rows
+    if (landed === null || rows == null) {
+      return
+    }
+    const element = this.painted.get(file)?.get(rowOfPlace(rows, landed.side, landed.line))?.element ?? null
+    if (element !== null && element !== landed.element) {
+      delete landed.element?.dataset.landed
+      element.dataset.landed = ""
+      landed.element = element
+    }
+  }
+
+  /**
    * Selects the columns `[start, end)` of a line of a side, or the first whole word `word` there when given, the name a
    * reveal shows: now if its row is painted with its
    * text, else once a paint paints it so (the text of a file outside the review comes after its layout, later under
@@ -1278,6 +1459,7 @@ export class DiffPainter {
    */
   selectWord(file: number, side: number, line: number, start: number, end: number, word: string | null = null): void {
     this.letRevealedNameGo()
+    this.letLandedGo()
     this.revealedName = { file, side, line, start, end, word, selected: false }
     this.selectRevealedName()
   }
@@ -1461,7 +1643,8 @@ export class DiffPainter {
   }
 
   private onClick(event: MouseEvent): void {
-    const button = event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button, .dv-fold-target, .dv-remark-button") : null
+    const button =
+      event.target instanceof Element ? event.target.closest<HTMLElement>(".dv-fold-button, .dv-note-button, .dv-fold-target, .dv-remark-button, .dv-remark-target") : null
     const model = this.model
     if (button === null || model === null) {
       return
@@ -1481,6 +1664,11 @@ export class DiffPainter {
     } else if (value.kind === "fold") {
       this.keepFocus()
       this.callbacks.onFold(file, value, event.altKey)
+    } else if (value.kind === "note" && button.classList.contains("dv-remark-target")) {
+      // the place a note of a move names: the other end of the move
+      if (value.remark?.move != null) {
+        this.callbacks.onMoveJump(file, value.remark.move)
+      }
     } else if (value.kind === "note" && value.remark !== null && value.remark.open !== null) {
       this.keepFocus()
       this.callbacks.onNoteToggle(file, value, event.altKey)

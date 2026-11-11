@@ -146,7 +146,8 @@ publisher: choose More info → Run anyway.
 - **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit, a whole branch or one set aside in a window
   of its own, one scrolling view (`J`/`K` files, `N`/`P` changes), coloured as IntelliJ colours the code, a ⌘-click
   on a name going to its declaration, ⌥F7 listing its usages. Lines that only changed their formatting are played
-  down, and `N` passes them ([quiet changes](openspec/specs/commit/quiet-changes/spec.md)). Your Turn lists the pull requests that wait for your
+  down and `N` passes them, and lines that moved within a file are read once, where they stand now
+  ([quiet changes](openspec/specs/commit/quiet-changes/spec.md)). Your Turn lists the pull requests that wait for your
   review and opens them in the same window to approve or request changes; the Reviews view (⌘2) shows every pull
   request you take part in, and one added by its link ([commit](openspec/specs/commit/commit-review/spec.md), [branch](openspec/specs/branch/branch-review/spec.md), [set aside](openspec/specs/review/review-window/spec.md),
   [navigation](openspec/specs/commit/symbol-navigation/spec.md), [Your Turn](openspec/specs/repository/review-requests/spec.md), [Reviews](openspec/specs/repository/reviews/spec.md)).

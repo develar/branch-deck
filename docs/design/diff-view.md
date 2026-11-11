@@ -145,35 +145,32 @@ rest gets a label and stays a stop.
   line indented otherwise than its move, or with other whitespace after its text, is an edited line with that
   whitespace as a range. The review plan names a declaration that moved whole the same way, "Moved", and folds it
   only where the place of a declaration has no meaning ([Change Review](change-review.md)).
-- **How a view reads a move (planned: no view draws one yet).** A move is `{oldStart, newStart, len, indent,
-  blanksBefore, blanksAfter, edited, oldRanges, newRanges}`, the moves by `newStart`: old line `oldStart + i` is new
-  line `newStart + i`, the old lines inside one block (where they left), the new lines inside another (where they
-  stand now). Rust names every fact of it; a view reads no line to tell what a move is. The views read `starts`
-  already: N and P pass the block the lines left, and the count of what is left to read leaves it out. Until a view
-  draws a move, the lines show there as the deleted lines they are and, where they stand now, as added ones, with
-  no note and no tone.
+- **How a view reads a move.** A move is `{oldStart, newStart, len, indent, blanksBefore, blanksAfter, edited,
+  oldRanges, newRanges}`, the moves by `newStart`: old line `oldStart + i` is new line `newStart + i`, the old lines
+  inside one block (where they left), the new lines inside another (where they stand now). Rust names every fact of
+  it; a view reads no line to tell what a move is. What a view draws of it is "The parts of a block" below.
   - *Where the lines left* there is nothing to read: `starts` has no entry for a block whose old lines the moves
     took all, so N and P pass it, and a block that lost only some of its lines starts at a line that stayed. The
     Inline view shows one note in place of the lines, "14 lines moved to line 210", that opens; Unified and Split
-    show every line, in the tone of a move.
+    show every line, in the colour of a move.
   - *Where the lines stand now* they are always read: no line of a move is in a run, so the block has a start, at
-    its first new line outside its quiet runs, which may stand before the lines of the move. The lines have the tone
-    of a move and a note, "Moved from line 120 · re-indented · 1 line edited": `indent` is the columns the lines
-    gained, `edited` the lines that were edited on the way, by their place in the move.
-  - *An edited line* is drawn as the row of a pair, with `oldRanges[i]` and `newRanges[i]` (both lists empty for a
-    move none of whose lines has a range): its two lines have as many ranges, of the same kinds, in the same order,
-    each a text that is another on the other side, and the same text between them, as the pairs of a block with
-    `inlinePairs`. Under the policy that counts every character the ranges hold the whitespace at the ends of a line
-    too: an indent that is another text and did not move as `indent` says, the whitespace after the text. So a
-    line of a move without a range is the same line, shifted by `indent` at most, and the old lines a view hides
-    behind the note of a move hide no change.
+    its first new line outside its quiet runs, which may stand before the lines of the move. The lines have the
+    colour of a move and a note, "Moved from line 120 · re-indented · 1 line edited": `indent` is the columns the
+    lines gained, `edited` the lines that were edited on the way, by their place in the move.
+  - *An edited line* is drawn as the row of a pair in Inline, with `oldRanges[i]` and `newRanges[i]` (both lists
+    empty for a move none of whose lines has a range): its two lines have as many ranges, of the same kinds, in the
+    same order, each a text that is another on the other side, and the same text between them, as the pairs of a
+    block with `inlinePairs`. Under the policy that counts every character the ranges hold the whitespace at the
+    ends of a line too: an indent that is another text and did not move as `indent` says, the whitespace after the
+    text. So a line of a move without a range is the same line, shifted by `indent` at most, and the old lines a
+    view hides behind the note of a move hide no change.
   - *An edited line without a range* is a line that stayed at its indent while its move shifted, where the
     indentation of the file has a meaning: its nesting changed and no character of it. It counts among the edited
-    lines and is drawn as one, with nothing inside it marked.
+    lines and is drawn as one, pale, with nothing inside it marked.
   - *The blank lines that moved with a move* are counted by it: `blanksBefore` blank lines right before its old
     lines stand right after its new ones, `blanksAfter` the other way round (the blank line the comparison deleted
     before a function and added after it). They are lines of the move on both sides: the note where the lines left
-    stands for them too, and they have the tone of the move where they stand now.
+    stands for them too, and they have the colour of the move where they stand now.
 - **Before the tokens.** A file is parsed for its marks only when a block of it may hold a run, asked of its
   characters alone (`may_have_run`): some line of one side starts as a line of the other and some line ends as one,
   their blanks aside (a run of formatting is the same text without its blanks), or a comment may have a character in
@@ -331,10 +328,12 @@ The rows of an `ignored` block show as unchanged lines. Unified and Inline show 
 lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plain, the shorter side filled.
 
 **The parts of a block.** Rust says which rows of lines of a block changed in one way alone (`TextDiff.marks.runs`,
-"Marks" above), and a view shows a block part by part, in the order of both sides (`src/lib/diff/block-parts.ts`,
+"Marks" above) and which lines moved within the file (`TextDiff.marks.moves`), and a view shows a block part by
+part, in the order of both sides (`src/lib/diff/block-parts.ts`,
 [Quiet Changes](../../openspec/specs/commit/quiet-changes/spec.md#views)). The runs cut the block: the lines between
-two runs are a part that shows as the block did; a run is a row of words, its note, then its lines. A block without
-a run is one part, so its rows are what they were. Every function of `rows.ts` that maps the rows of a block to its
+two runs are a part that shows as the block did; a run is a row of words, its note, then its lines. The ends of the
+moves cut the lines between two runs once more, each on its own side ("The ends of a move" below). A block the marks
+say nothing of is one part, so its rows are what they were. Every function of `rows.ts` that maps the rows of a block to its
 lines asks the parts (`itemRowCount`, `itemRow`, `itemLines`, `itemRowOfLine`, through them `forEachRows`, `foldedOf`
 and `rowOfLine`): none counts the rows of a block by its line counts. The gaps, the levels of the folds and the
 segments are as before.
@@ -344,6 +343,8 @@ segments are as before.
 | lines in no run | a pair per row where the engine pairs line i of both sides, else as Unified | the old lines, then the new ones | a row per line of the longer side |
 | a quiet run (`formatting`) | its note, a button; its new lines once (`once` rows); opened: as Unified | its note; every line, quiet | its note; every line, quiet |
 | a run that is a label (`comments`) | its note; its lines as lines in no run | the same | the same |
+| where the lines of a move left | its note, a button, which stands for the lines; opened: the old lines, rows of the move | its note; the old lines, rows of the move | its note over the old column; the old lines, the new side filled |
+| where the lines of a move stand now | its note; the new lines once, rows of the move, an edited one the row of its two lines | its note; the new lines, rows of the move | its note over the new column; the new lines, the old side filled |
 
 - **The note** is a `NoteRow` of the tone `remark` with its `Remark` (the kind of the run, its lines, whether it is
   quiet, whether its old lines show). Its words are the presenter's (`presentRemark` of `src/presenters/diff-marks.ts`:
@@ -362,10 +363,53 @@ segments are as before.
   (`--diff-quiet`, [UI Theme](ui-theme.md#diffs)), whatever their type, and no inner range (`diffCells.ranges`): the
   ranges of such a line are whitespace between the same tokens. Their text is as readable as any: a reader opens them
   to check the mark. A run that is a label plays nothing down.
+- **The ends of a move.** `marksByBlock(diff)` gives each block its runs and the ends of the moves it holds
+  (`MoveEnd`: `source` where the lines left, `destination` where they stand now, with the lines of that side, the
+  blank lines that moved with them among them, and the lines of the other end, `other`: the one place of the page
+  that reads the lines of an end from the blank lines of a move, as `LineMove::old_lines` and `new_lines` are in
+  Rust); a move with an end in no block, which no engine gives, is left out.
+  Between two runs the old side is cut at the sources and the new side at the destinations, and the parts follow
+  each other as the lines do: an end that starts where the block stands is next, else the lines of no move up to
+  the next end of each side, which show as the block did. In lines the engine pairs (`inlinePairs`) a cut of one
+  side cuts the other at the same line, so the lines beside a move keep their pairs and a line whose pair moved
+  shows alone. Every line of a block shows once whatever the marks say, by its own row or behind the note that
+  stands for it (a property test over random blocks, runs and moves, valid or not).
+  - *The note* of an end is a remark of the kind `moved` with its `MoveEnd`: "14 lines moved to line 210" where
+    the lines left, "Moved from line 120 · re-indented · 1 line edited" where they stand now (`presentRemark`). A
+    line is named by the first line of the other end (`MoveEnd.other`), as a reader counts, the blank lines that
+    moved with the move among them: the line under the note the place names, and the line a jump from this end
+    lands on (`rowOfPlace` finds the note there by it). The place ("to line 210") is a button of its own, with
+    the dotted line of a place a fold names: a click shows the other end ("The other end of a move" under
+    Interaction).
+  - *Where the lines left*, Inline shows the note alone: it stands for the old lines (`NoteRow.lines`), opens as
+    the note of a quiet run does (a click, ⌥-click, H) and then shows them after it, as Unified and Split always
+    do: rows of the kind `deleted` (Split: `changed`, the new side filled) with their `LineRow.move`.
+  - *Where they stand now* every layout shows the lines after the note: rows of the kind `added` (Split:
+    `changed`, the old side filled). Inline shows an edited line as the row of a pair (`inline`, the shape `landed`
+    of its part): its old line, which stands where the lines left, and its new one, with the ranges of the move.
+    Unified and Split keep the two lines at their ends, each with the ranges of its side.
+  - *The cell* of a line of a move is `moved` at both ends, in every layout (`diffCells.cell`), pale where the line
+    was edited on the way (`LineRow.tint`), and its inner ranges are those of the move (`diffCells.ranges`): the
+    ranges of its block compare it with lines it has nothing to do with. An edited line without a range is pale
+    with nothing strong, as a line that changed in its whitespace alone.
+  - *With a column per side* the note lies over the column of its lines, the other column filled beside it as it
+    is beside the lines (`data-over`).
+  - `FileRows.moveNotes` lists the notes at the ends of the moves with their rows: what the key of the moves
+    chooses its note from (`moveNoteOfKey` of `layout.ts`). `rowOfPlace(rows, side, line)` is the row a jump to a
+    line lands on: the note right above the first line of an end, or the note that stands for the line.
+  - *A move is drawn at both ends or at neither.* A block that is played down (a block of the imports alone in a
+    review with its plan, `quietImports`) draws no end of a move: its lines stay pale, every one shown, with no
+    note, as [the review plan](../../openspec/specs/branch/review-plan/spec.md) requires of it; imports that were
+    sorted are moves to the engine and nothing to read. So the view draws a move with an end in such a block
+    nowhere (`drawnMarks`, by `MoveEnd.otherBlock`): at its other end, in a block with code beside the import,
+    its lines are lines of that block, each with its row in every layout, read as the block is. A note that hides
+    the lines where they left would have nothing where they stand now to say that they moved, or to show what an
+    edited one was.
 - **In a section of a review** the heading of a change is the first part of its block (no segment of its own). A run
-  that starts the block says its words in that row, after the heading, and opens from there.
-- **An old line without a row** resolves to the row that stands for it (`partsRowOfLine`): the note of its quiet run,
-  as the first new line of an ignored block stands for its old lines. So `rowOfLine` of the old side gives the note:
+  or an end of a move that starts the block says its words in that row, after the heading, and opens from there.
+- **An old line without a row** resolves to the row that stands for it (`partsRowOfLine`): the note of its quiet run
+  or of the move it left with, as the first new line of an ignored block stands for its old lines. The old line of
+  an edited line of a move is found where the lines left, never in the row of its pair where they stand now. So `rowOfLine` of the old side gives the note:
   the anchor of the scroll keeps a note at the top by that line (`DiffLayout.anchorAt` takes the side a row of words
   stands for), a hit of the find in such a line lands on the note, and a reveal of a name there
   (`DiffView.revealPlace`) opens the note first (`noteOfLine`), as it expands a fold, then selects the name.
@@ -381,12 +425,15 @@ segments are as before.
   old lines of a part before its new ones. So the row is found from the part that shows the line back over the parts
   of no quiet run (lines to read, the note of a label) to the one after the last quiet run: lines deleted before a
   comment worded again are read from the first of them, as they were before the comment had a label, though Rust
-  names the comment. Which lines are read is Rust's, which row shows them first is the layout's.
+  names the comment. The lines a move took are nothing to read either: they end what is read before them as a
+  quiet run does, so a block that starts with them is read from the line after them, and where the lines stand now
+  the stop is the first of them, under their note. Which lines are read is Rust's, which row shows them first is
+  the layout's.
   `FileRows.changes` counts the blocks of changed lines (`isChangeBlock`), and a file says
   "10 to read" beside its counts where its stops are fewer (`readingOf`, `formatToRead`): its row in the tree of the
   files (`withEngineCounts`) and the header of its card in a review, which counts the stops of its section.
-- **A run in no block**, which no engine gives, is left out (`runsByBlock`): every line of every block shows whatever
-  the marks say.
+- **A run in no block and a move with an end in none**, which no engine gives, are left out (`marksByBlock`): every
+  line of every block shows whatever the marks say.
 
 **Sections.** The review with its plan shows the story of its units (openspec/specs/branch/review-units/spec.md), in the order
 of its concerns (openspec/specs/branch/review-concerns/spec.md): a file may be several sections, a run of its units, its parts
@@ -412,7 +459,8 @@ empty last row and a fold counts only real lines.
 ranges draws its lines pale (the change colour mixed 0.6 with the background) and its ranges in the full colour. A
 block without inner ranges (`lineLevelOnly`, or ranges dropped) draws its lines in the full colour. A
 `whitespaceOnly` block draws its lines pale with nothing strong. The tint `quiet` is our own: the lines of a quiet run
-of the marks ("The parts of a block" above). So a re-indent under `Default` shows pale lines with
+of the marks ("The parts of a block" above). A line of a move follows the same rule in its own colour: full as it
+was, pale with its ranges in the full colour where it was edited on the way. So a re-indent under `Default` shows pale lines with
 the indentation in the full colour. A review with its plan (`DiffViewFile::quietImports`) draws a block of the imports
 alone (`TextDiff::import_blocks`, from the syntax: each changed line an import or a package statement, or blank) as a
 `whitespaceOnly` one.
@@ -420,7 +468,9 @@ alone (`TextDiff::import_blocks`, from the syntax: each changed line an import o
 **Types.** The cells take IntelliJ's diff types (`row-cells.ts`, the colours in [UI Theme](ui-theme.md#diffs)). Split
 types a block by its sides, inserted, deleted or modified, and its inner ranges by their own `RangeKind`
 (`data-typed`); the empty side of an inserted or a deleted range is a marker part, a bar 2 px wide that takes no
-width. Unified and Inline type a deleted line deleted and an inserted line inserted, their words too.
+width. Unified and Inline type a deleted line deleted and an inserted line inserted, their words too. Our own types:
+`once`, a line of a quiet run that Inline shows once, and `moved`, a line of a move at either end of it, in every
+layout.
 
 **Context and folds.** The context is 4 lines, as IntelliJ's default. Two blocks whose context touches share one
 span. The unchanged lines outside the context become a fold. The label of a fold is the innermost scope around the
@@ -707,8 +757,12 @@ A component selects narrow slices of the stores, as `AGENTS.md` asks.
 
 **Row elements.** A row is a `div` with `data-row`, `data-kind` (`context`, `added`, `deleted`, `inline`, `once`,
 `fold`, `note`) and `data-tint` (`pale`, `whitespace` or `quiet`) on a half that is not in the full tint; a quiet half
-has `data-run`, the kind of its run. A note has `data-tone` (`unit`, `elsewhere`, `remark`) and, before the lines of a
-quiet run, `data-quiet`; the words of a remark are `diff-remark`, a `button` with `aria-expanded` where the note opens. It holds a gutter cell per line number (`aria-hidden`, not
+has `data-run`, the kind of its run, a half of a line of a move `data-cell="moved"` and `data-move`, its end (`source`,
+`destination`). A note has `data-tone` (`unit`, `elsewhere`, `remark`) and, before the lines of a
+quiet run, `data-quiet`; the words of a remark are `diff-remark`, a `button` with `aria-expanded` where the note opens.
+The note at an end of a move has `data-move` too, with a column per side `data-over` (`old`, `new`: the column it
+lies over), and the place it names is `diff-move-target`, a `button`, with `aria-keyshortcuts` and `data-key` on the
+one the key of the moves takes; the row a jump landed on has `data-landed`. A row holds a gutter cell per line number (`aria-hidden`, not
 selectable) and a code cell. In Split, the row holds a half per side. A gutter has a fixed width: the digits of the
 largest line number of the file.
 
@@ -721,8 +775,10 @@ So each file keeps a horizontal offset per side:
 - A thin native scroller per side is sticky at the bottom of the viewport, inside the section of its file. Its width
   is the widest line of the side, from the line table; the one column of Inline is as wide as its widest row, since
   the row of a similar pair holds the deleted parts of its old line too and is longer than both lines
-  (`widestInlineRow` of `inline-rows.ts`, counted once per diff). It shows only when the side is wider than its column, in a
-  strip of 10 px of its own below the rows (`LayoutFile.scrollbar`, `SCROLLBAR_HEIGHT`): at the end of the file it
+  (`widestInlineRow` of `inline-rows.ts`, counted once per diff for every view of it: of a block that a review with
+  its plan draws without a move, "The ends of a move", the pairs of both readings count). It shows only when the
+  side is wider than its column, in a strip of 10 px of its own below the rows (`LayoutFile.scrollbar`,
+  `SCROLLBAR_HEIGHT`): at the end of the file it
   lies under the last row, so a fold there takes a click anywhere on it (laid over the row, it took the lower half of
   the row). The strip is the one height of the layout that the width and the texts decide: a file has it once its
   text was read, and keeps it while the text leaves the window of the view (`widestColumns`), so a scroll lays
@@ -1111,7 +1167,8 @@ A `copy` event builds the text from the model, not from the DOM. It maps the two
 row, a side and an offset (from `data-row` and the text nodes of the code cell). Then it joins the lines between them
 from the texts. So a selection over rows that are no longer in the DOM copies all its lines. The copy does not take
 the breaks of soft wraps or the deleted parts of an Inline row. Unified copies its rows as shown, deleted and added
-lines. A quiet run of Inline is copied as it shows: its new lines, its old lines too once its note is opened. ⌘A in the diffs selects the side of the file at the top. The one selection that holds a deleted part is the
+lines. A quiet run of Inline is copied as it shows: its new lines, its old lines too once its note is opened; the
+lines of a move likewise, once where they stand now, and where they left once their note is opened. ⌘A in the diffs selects the side of the file at the top. The one selection that holds a deleted part is the
 name of the old line that a reveal selected in its Inline row: its copy is that name. A selection that holds no text
 of a line (a fold, a note) is left to the browser: the view never puts an empty text on the clipboard.
 
@@ -1136,13 +1193,40 @@ whole is no stop. The view stays at its top row (the anchor). It is a key of the
 of `Kbd` as generated content, `aria-keyshortcuts`) only in a view whose surface has the key, so the preview of a
 commit shows none. With no such note in view the key does nothing.
 
-The keys of the review are one table, `REVIEW_KEYS` of `src/lib/review-keys.ts` (J, K, N, P, F, H), read by the
-handler, the hints of the footer and the hint of a note. The review takes its key before the window around it reads
+G (go) shows the other end of a move from the note of one of its ends in view ("The other end of a move" below).
+One note answers the key at a time (`moveNoteOfKey` of `layout.ts`, asked by `DiffPainter.keyedMove`): the note at
+the end the view stands at while that note is in view, else the first note of a move in view. The view stands at an
+end where a reveal of a line landed (a jump, Back, Forward: `revealPlace` tells the painter, `setMoveHand`), so two
+presses go there and back also where both ends are in view, and at the note N or P stopped under, a stop where the
+lines of a move stand now; a reveal of a name, and a stop under no such note, end it. In view as for H. Only the
+button of the place of that one note shows the key after its words (`moveKey`, `DiffPainter.markMoveKey` after every
+paint, so the hint follows the scroll), and only where the surface has the key: with several notes in view no hint
+names a key that would act on another move. With no such note in view the key does nothing.
+
+The keys of the review are one table, `REVIEW_KEYS` of `src/lib/review-keys.ts` (J, K, N, P, F, H, G), read by the
+handler, the hints of the footer and the hints of a note. The review takes its key before the window around it reads
 the event, and only while the diffs or the tree have the focus, so a letter of the table is the key of no action of
 a window that holds a review: O is the pull request's, S the Safe Push's, A, R, M and D a pull request's, I the
 details of a row. A letter that were both would run the action or the review by where the focus is and by what is in
 view: with O as the key of the notes, O would open the pull request only while no note is in view.
 `review-keys.test.ts` compares the table with the keys the actions name.
+
+**The other end of a move.** The note at an end of a move names its other end, and three surfaces go there: a
+click on the place the note names ("to line 210", "from line 120"), G in a review window for the note in view, and
+"Go to Other End of Move" of the menu of the code, which has the item on a line of a move and on its note alone
+(`codeMenuItems`, one builder; `DiffPainter.moveAt`; opened by a menu key, on the line of a move the selection starts
+in, `moveAtSelection`, so after a jump, which selects nothing, the menu of a key has no such item and G goes on).
+The item shows the key only where the end it opened on is the one the key takes. All call `jumpMove` of `DiffView`:
+the place is the first line of the other end (`MoveEnd.other`), a `DeclarationPlace` with `wholeLine`, the variant of a reveal that is of the line and no name in
+it. Such a reveal opens the file and the fold around the line as any does, but opens no note the line is behind
+(the note is the row of the line), selects nothing, and lands on the row that says what the line is (`rowOfPlace`):
+the note of that end, a third of the viewport below the header. The painter marks the row (`DiffPainter.land`,
+`data-landed`): a ring that fades, since no selection shows where the view went; where the OS asks for reduced
+motion the ring stays until the user scrolls, presses or types. `revealPlace` pushes no history itself: in a review
+window (`scroll === "own"`, where Back and Forward exist) `jumpMove` keeps the end it started from for Back, as a
+jump to a declaration keeps its name, and Back and Forward keep the line the view landed on while no name is
+selected (`landedPlace`); the diffs take the focus, so the keys go on. In the preview of a commit, a block of the
+scroller of its parent, the jump scrolls that scroller, keeps no history and moves no focus.
 
 **Find in the review.** ⌘F (Ctrl+F off macOS) in a review window opens a find bar above the document
 (`DiffFindBar.tsx`, labelled "Find in the review"). It combines two searches into one hit list:
@@ -1162,7 +1246,13 @@ view: with O as the key of the notes, O would open the pull request only while n
   ignores and the row does not show. The old lines of a quiet run that Inline shows once are searched too, at the note
   that stands for them, before its new lines: their hits are of the old side, a step lands on the note
   (`rowOfLine`), which names the hits it holds ("1 match in the old line", `formatHiddenMatches`) and marks the
-  current one; the note opened, the same hits are in the old lines. A line may hold more hits than a call takes
+  current one; the note opened, the same hits are in the old lines. The lines a move took are searched the same
+  way at the note that stands for them, after the same lines where they stand now, which are rows above or below.
+  An edited line of a move is the row of a pair where it stands, and that row is searched by its new line alone:
+  its old line is a line of where the lines left (`rowOfLine`), found there once, behind the note or in its own
+  row, so a word the edited line lost is one hit, the note counts it once, and a step lands where the count says.
+  The row of the pair still marks what it shows of that line, the struck-through parts (`ownOldHits`); the text
+  both lines share is marked by the hits of the new line. A line may hold more hits than a call takes
   arguments (a minified file, one letter typed): the hits and the parts of a line are added in loops, never spread
   into a call. "In folded
   lines" searches folded diff lines only; it does not gate story text.
@@ -1195,6 +1285,9 @@ one pass over the texts it has. A review of many large files can make it a slice
 - A note that opens is a `button` named by its words and by what a press does ("Formatting only, 3 lines: Show the
   old line"), with `aria-expanded`; as a fold, it is not in the Tab order (a commit that formats a file has hundreds),
   and in a review H opens the notes in view (`aria-keyshortcuts`). A note that opens nothing is its words.
+- A line of a move says which end it is at, and that it was edited on the way ("moved away", "moved here, edited on
+  the way"), by `data-move` and its tint. The place its note names is a `button` named by where it goes ("Go to
+  line 210, where the lines stand now"); the one the key of the review takes names that key (`aria-keyshortcuts`).
 - The colours have the contrast of the app's tokens. No scroll is animated when the OS asks for reduced motion.
 
 ### One component for every view
@@ -1359,6 +1452,54 @@ the runs). The highlighted time of the 200 files stays the one metric at its tar
 master and with the marks alike, as the paragraph above says of a loaded machine. No frame had an empty row, and no
 long task followed the first rows.
 
+**With the moves (2026-11-11).** The commits of the benchmark hold moves: two changes of every eight of a file are
+the ends of a move (`PERF_MOVE_EVERY`), a line that leaves one change and stands before the next, every second one
+edited on the way. So an eighth of the blocks of a file is a note that stands for a line, another eighth a note and
+the line where it stands, in Inline the row of its two lines where it was edited; the file of 10,000 lines has 63
+moves. No quiet machine was to be had (the Mac Studio did not answer), so the commits with the moves and without
+(`PERF_MOVE_EVERY=0`) were measured in turns on the developer Mac at a load of 15 to 59 (WebKit, four rounds of 5
+runs each; the fastest run of the four rounds, the nearest to a quiet machine):
+
+| metric | commits without a move | every eighth block an end of a move | target |
+|---|---|---|---|
+| 200 files, first rows after ready (Inline, Split) | 244, 255 ms | 245, 256 ms | ≤ 350 ms |
+| 200 files, highlighted (Inline, Split) | 441, 465 ms | 444, 476 ms | ≤ 450 ms |
+| 10k lines, first rows (Inline, Split) | 218, 224 ms | 224, 231 ms | ≤ 300 ms |
+| 10k lines, highlighted (Inline, Split) | 238, 259 ms | 252, 280 ms | ≤ 400 ms |
+| 200 files, expand a fold, highlighted (Inline, Split) | 85, 95 ms | 79, 90 ms | in the same frame |
+| scroll, 20 viewports/s, a scroll event p95 (200 files, 10k lines; Inline, Split) | 3, 3; 4, 4 ms | 3, 3; 4, 4 ms | ≤ 4 ms |
+| DOM nodes of the view (200 files, 10k lines; Split) | 699, 640; 1077, 1032 | 681, 627; 971, 996 | ≤ 4,000 |
+
+Inline is within every target by its fastest run, with the moves as without, and the two columns differ by less than
+the rounds of one of them do: over the four rounds the 200 files were highlighted in 444 to 538 ms with the moves
+and in 441 to 494 ms without, the 10,000 lines in 252 to 503 ms and in 238 to 290 ms, each round at another load.
+What the rows of a move cost is below what this load lets through, so it was measured apart: the rows of the file
+of 10,000 lines are built in 0.42 ms with its 63 moves and in 0.31 ms without one (10,251 and 10,125 rows, all of
+them made in 0.24 and 0.18 ms), and the note the key of the moves takes, looked up in every scroll event of a review
+for the hint of the key, is found in 1 µs. No frame had an empty row, and no long task followed the first rows. The
+targets were read by the fastest run under load, not on a quiet machine: the highlighted time of the 200 files,
+the one metric at its target, is to be read again when one is at hand.
+
+Before the commits of the benchmark held a move, the views of a move were measured against the parent commit on
+commits without one, the two in turns on the Mac Studio (WebKit, 5 runs each, the fastest run; a load of 7 for the
+views of the moves and of 4 for the parent, the quietest pair of two rounds): what they may cost such a commit is
+the lookup of the ends of the moves of each block and the cut of its lines at them.
+
+| metric | the parent | the views of a move | target |
+|---|---|---|---|
+| 200 files, first rows after ready (Inline, Split) | 373, 419 ms | 368, 389 ms | ≤ 350 ms |
+| 200 files, highlighted (Inline, Split) | 666, 746 ms | 657, 709 ms | ≤ 450 ms |
+| 10k lines, first rows (Inline, Split) | 323, 373 ms | 339, 350 ms | ≤ 300 ms |
+| 10k lines, highlighted (Inline, Split) | 344, 448 ms | 380, 374 ms | ≤ 400 ms |
+| scroll, 20 viewports/s, a scroll event p95 (200 files, 10k lines) | 4, 4 ms | 4, 4 ms | ≤ 4 ms |
+| DOM nodes of the view (200 files, 10k lines; Split) | 699, 640; 1077, 1032 | 699, 640; 1077, 1032 | ≤ 4,000 |
+
+The two columns differ by less than two rounds of one of them (the second round, at a load of 16 and of 41, read
+779 and 722 ms for the 200 files and 430 and 392 ms for the 10,000 lines), each way in one layout or the other: the
+views of a move cost a commit without one nothing this benchmark can tell. The Studio opens a review slower than
+the developer Mac at any load (759 and 831 ms for the 200 files in the rounds of the changes before this one), so
+its numbers are read against the parent of the same round, not against the targets.
+
 Two rules keep a scroll event short in WebKit. React mounts the sections three viewports around the view, the ones
 ahead in a transition, so a scroll event mounts a section only when its frame needs it; and a section is a memoized
 component, so a mount renders that section alone. The benchmark times the whole scroll event with the layout of the
@@ -1370,7 +1511,9 @@ leaves the layout to the next read and hides it.
 `pnpm perf:diff` (`tests/perf/diff-review.perf.ts`, `playwright.perf.config.ts`) opens the review window on the
 production build of the e2e setup, over two synthetic commits (`tests/perf/diff-fixtures.ts`): 200 files (four of
 3,000-5,000 lines), and one file of 10,000 lines, each changed line a similar pair but every fourth of a file, which
-changes in its formatting alone: a quiet run of the marks, with its note. It runs each commit in Inline,
+changes in its formatting alone: a quiet run of the marks, with its note; and two of every eight, which are the ends
+of a move: a line that leaves one change and stands before the next, every second one edited on the way
+(`PERF_QUIET_EVERY=0` and `PERF_MOVE_EVERY=0` give the commits without the one or the other). It runs each commit in Inline,
 with nothing stored, so it follows the default and the targets gate the layout a user gets, and in Split, stored
 (the rows "…, Split" of its table); a run asserts the layout its numbers are of. Routed answers of `get_commit_files`, `get_file_diffs` and
 `get_blob_texts` give the diffs of the engine and the texts. `--project=chromium` and `--project=webkit` run one

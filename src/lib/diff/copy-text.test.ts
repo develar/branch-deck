@@ -5,7 +5,7 @@ import type { CopyFile } from "@/lib/diff/copy-text"
 import { buildLineTable } from "@/lib/diff/line-table"
 import { buildFileRows, NEW, OLD } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, run, textDiff } from "@/test-support/diff-blocks"
+import { block, move, run, textDiff } from "@/test-support/diff-blocks"
 
 const OLD_TEXT = "a\nb\nc\nd\n"
 const NEW_TEXT = "a\nB\nc\nd\n"
@@ -41,6 +41,17 @@ describe("copyText", () => {
     expect(copyFile(shown("split"), true, OLD)).toBe("a\ncall(1, 2)\nz")
     // a selection from the note to the second line of the run: the note gives no text
     expect(copyText([shown("inline")], { file: 0, row: 1, offset: 0 }, { file: 0, row: 3, offset: 3 }, false, NEW)).toBe("call(\n  1")
+  })
+
+  it("copies what a move shows: its lines once where they stand now in Inline, the lines that left too once their note is opened or where every line stays", () => {
+    // two lines move from the end of the file to its start; the notes at both ends give no text
+    const diff = textDiff(4, 4, [block(0, 0, 0, 2), block(2, 4, 4, 4)], { moves: [move(2, 0, 2)] })
+    const tables = [buildLineTable("a\nb\nfun f() {\n}\n"), buildLineTable("fun f() {\n}\na\nb\n")]
+    const shown = (mode: DiffViewMode, open: number[] = []): CopyFile => ({ rows: buildFileRows(diff, mode, [], false, null, new Set(open)), tables })
+    expect(copyFile(shown("inline"), false, NEW)).toBe("fun f() {\n}\na\nb")
+    expect(copyFile(shown("inline", [2]), false, NEW)).toBe("fun f() {\n}\na\nb\nfun f() {\n}")
+    expect(copyFile(shown("unified"), false, NEW)).toBe("fun f() {\n}\na\nb\nfun f() {\n}")
+    expect([copyFile(shown("split"), true, OLD), copyFile(shown("split"), true, NEW)]).toEqual(["a\nb\nfun f() {\n}", "fun f() {\n}\na\nb"])
   })
 
   it("copies across files and leaves out a fold and a text not read yet", () => {

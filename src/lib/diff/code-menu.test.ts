@@ -7,7 +7,7 @@ const VIEW = { left: 100, top: 50, right: 900, bottom: 650 }
 describe("the menu of the code", () => {
   it("offers both items for a name, and disables them with the reason where no name is", () => {
     const calls: string[] = []
-    const context = { goToDeclaration: () => calls.push("declaration"), findUsages: () => calls.push("usages") }
+    const context = { goToDeclaration: () => calls.push("declaration"), findUsages: () => calls.push("usages"), moveEnd: null }
     const named = codeMenuItems({ ...context, name: "helper" })
     expect(named.map(item => [item.id, item.disabled, item.description])).toEqual([
       ["go-to-declaration", false, "Go to the declaration of helper"],
@@ -23,6 +23,22 @@ describe("the menu of the code", () => {
     ])
     // a view without Find Usages
     expect(codeMenuItems({ ...context, name: "helper", findUsages: null }).map(item => item.id)).toEqual(["go-to-declaration"])
+  })
+
+  it("offers the other end of a move on a line of a move or the note at its end, with the key of the view where it has one", () => {
+    const calls: string[] = []
+    const context = { name: null, goToDeclaration: () => {}, findUsages: null }
+    const item = (moveEnd: Parameters<typeof codeMenuItems>[0]["moveEnd"]) => codeMenuItems({ ...context, moveEnd }).find(it => it.id === "go-to-move-end")
+    // no row of a move: no such item
+    expect(item(null)).toBeUndefined()
+    const source = item({ at: "source", go: () => calls.push("source"), key: "G" })!
+    expect([source.label, source.kbds, source.description, source.disabled]).toEqual(["Go to Other End of Move", ["g"], "Show where the moved lines stand now", undefined])
+    // a view without the key (the preview of a commit) names none
+    const destination = item({ at: "destination", go: () => calls.push("destination"), key: null })!
+    expect([destination.kbds, destination.description]).toEqual([undefined, "Show where the moved lines were"])
+    source.onSelect(FROM_MENU)
+    destination.onSelect(FROM_MENU)
+    expect(calls).toEqual(["source", "destination"])
   })
 
   it("opens for a menu key under the start of the name at the selection", () => {

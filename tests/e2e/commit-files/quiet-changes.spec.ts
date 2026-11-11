@@ -1,61 +1,25 @@
 // @spec openspec/specs/commit/quiet-changes/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
-import {
-  changedParts,
-  copiedByKey,
-  deletedParts,
-  diffRows,
-  diffSides,
-  expectOverviewLaidOut,
-  findMarks,
-  joinedText,
-  quietSides,
-  remarkHits,
-  remarks,
-  scrollDiffsTo,
-} from "../helpers/diff-helpers"
-import { openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
+import { findBranchRow } from "../helpers/branch-helpers"
+import { changedParts, copiedByKey, deletedParts, diffRows, diffSides, findMarks, joinedText, quietSides, remarkHits, remarks, scrollDiffsTo } from "../helpers/diff-helpers"
+import { codeOf, findInReview, MARKS_SUBJECT, openLedgerPreview, openMarksReview as openReview } from "../helpers/marks-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { openPlanWindow, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
-import { openedReview, openReviewWindow } from "../helpers/review-window-helpers"
+import { openReviewWindow } from "../helpers/review-window-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
-import { openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
-// the `commit_marks` template: one commit of the branch `ledger`. In src/Ledger.kt (11 blocks) the call of `Entry` is
-// wrapped over three lines (a quiet run of formatting, the one block with nothing to read), the comment of `largest`
-// is worded again (a run of comments, a label), a local is renamed, functions move and `isEmpty` really changes;
-// src/Report.kt has three blocks, src/Store.kt one. The stops of Ledger.kt are read from the page, never pinned: a
-// later stage of the marks (the moved lines) takes more of its eleven blocks out of the reading
-const SUBJECT = "tidy the ledger and move the report title to the report"
+// the `commit_marks` template (`MARKS_SUBJECT`): in src/Ledger.kt (11 blocks) the call of `Entry` is wrapped over
+// three lines (a quiet run of formatting, the one block with nothing to read), the comment of `largest` is worded
+// again (a run of comments, a label), a local is renamed, functions move and `isEmpty` really changes; src/Report.kt
+// has three blocks, src/Store.kt one. The stops of Ledger.kt are read from the page, never pinned: the blocks its
+// moved lines left are no stops either
+const SUBJECT = MARKS_SUBJECT
 const OLD_CALL = "    val entry = Entry(account, amount, note)"
 const NEW_CALL = ["    val entry = Entry(", "      account, amount, note", "    )"]
-
-/** The diff of Ledger.kt in the preview of the commit of the marks: its row of the tree of the files, which holds its diff */
-async function openLedgerPreview(page: Page): Promise<{ preview: Locator; ledger: Locator }> {
-  await expandBranch(page, findBranchRow(page, "ledger"))
-  const preview = await openCommitPreview(page, getBranchCommitRow(page, "ledger", SUBJECT))
-  const tree = await openCommitFilesSection(preview)
-  const ledger = tree.getByRole("treeitem", { name: "Ledger.kt" })
-  await ledger.getByText("Ledger.kt").click()
-  await expect(ledger).toContainText("fun record(account: String, amount: Long, note: String) {")
-  return { preview, ledger }
-}
-
-/** D on the preview of the commit of `branch`: its review window shown in the page, once its files stand where they stay */
-async function openReview(page: Page, branch: string, subject: string): Promise<{ window: Locator; code: Locator; position: Locator }> {
-  await expandBranch(page, findBranchRow(page, branch))
-  await openCommitPreview(page, getBranchCommitRow(page, branch, subject))
-  await page.keyboard.press("d")
-  await openSubWindowPage(page, await openedReview(page, 1))
-  const window = page.getByTestId("review-window")
-  const code = window.getByTestId("commit-review-code")
-  await expectOverviewLaidOut(code)
-  return { window, code, position: window.getByTestId("review-position") }
-}
 
 /** Brings `target` back into view after a jump down the diffs took it out of the painted rows: the file of the tree shows its top */
 async function scrollDiffsUpTo(code: Locator, target: Locator): Promise<void> {
@@ -141,11 +105,6 @@ async function pressToStop(page: Page, code: Locator, key: "n" | "p", from: Show
 
 /** The kinds of a row of changed lines to read: no unchanged line, no row of words, no line of a quiet run that Inline shows once */
 const READ_KINDS = ["added", "deleted", "inline", "changed"]
-
-/** The text of each row of `rows`, without its line numbers */
-async function codeOf(rows: Locator): Promise<string[]> {
-  return rows.locator("[data-testid=diff-code]").allTextContents()
-}
 
 test.describe("The marks of a diff in the preview of a commit", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
@@ -352,8 +311,12 @@ test.describe("The marks of a diff in the review window", () => {
     const ledger = shown.slice(0, stops)
     expect(ledger.map(stop => stop.path)).toEqual(ledger.map(() => "src/Ledger.kt"))
     expect(ledger.map(stop => stop.row)).toEqual(ledger.map(stop => stop.row).toSorted((a, b) => a - b))
-    // the first stop is the function moved up in the class; the wrapped call, the block after it, is never one
-    expect(ledger[0]).toMatchObject({ kind: "added", text: "  fun accounts(): List<String> {" })
+    // the first stop is the function moved up in the class, read where it stands now, under the note of its move; the
+    // function moved into the class likewise, and the lines either left are no stop; the wrapped call is never one
+    expect(ledger[0]).toMatchObject({ kind: "added", text: "  fun accounts(): List<String> {", above: "note" })
+    expect(ledger.find(stop => stop.text === "  fun describe(entry: Entry): String {")).toMatchObject({ kind: "added", above: "note" })
+    expect(shown.map(stop => stop.text)).not.toContain("fun describe(entry: Entry): String {")
+    expect(ledger.filter(stop => stop.text.includes("fun accounts()"))).toHaveLength(1)
     for (const line of [OLD_CALL, ...NEW_CALL]) {
       expect(shown.map(stop => stop.text)).not.toContain(line)
     }
@@ -544,13 +507,8 @@ test.describe("The marks of a diff in the review window", () => {
     await syncAndWaitForBranches()
     const { window, code } = await openReview(page, "wrap", "wrap the calls")
     await expect(code.getByTestId("review-file-header").filter({ hasText: "Alpha.kt" })).toBeInViewport()
-    await code.locator("[aria-label='Changes of the commit']").focus()
-    await page.keyboard.press("ControlOrMeta+f")
-    const field = window.getByRole("textbox", { name: "Find in the review" })
-    await expect(field).toBeFocused()
     // only the old line holds the first call on one line: the three new lines break it
-    await field.fill("compute(alpha")
-    const count = window.getByTestId("diff-find-count")
+    const { field, count } = await findInReview(window, code, "compute(alpha")
     await expect(count).toHaveText("1 result")
     // Alpha.kt is still at the top: no row of Wrap.kt is in view
     await expect(code.getByTestId("review-file-header").filter({ hasText: "Alpha.kt" })).toBeInViewport()
@@ -709,7 +667,7 @@ async function expectQuietColour(page: Page, theme: "light" | "dark"): Promise<v
       token: named,
       once: background('[data-testid=diff-side][data-cell="once"]'),
       note: background("[data-testid=diff-row][data-tone=remark][data-quiet]"),
-      inserted: background('[data-testid=diff-side][data-cell="inserted"]:not([data-tint])'),
+      inserted: background('[data-testid=diff-side][data-cell="inserted"]'),
       context: background('[data-testid=diff-side][data-cell="context"]'),
     }
   })

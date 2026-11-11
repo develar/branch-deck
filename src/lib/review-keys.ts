@@ -13,6 +13,8 @@ export const REVIEW_KEYS = {
   sidebar: "F",
   /** The old lines of the notes in view (Inline shows a quiet run once): H, the hidden lines */
   notes: "H",
+  /** The other end of a move, from the note of one of its ends in view: G, go there */
+  moveEnd: "G",
 } as const
 
 export type ReviewKeyAction = keyof typeof REVIEW_KEYS

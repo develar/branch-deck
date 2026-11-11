@@ -19,7 +19,15 @@ describe("the keys of a review", () => {
     const keys = Object.values(REVIEW_KEYS)
     expect(keys.every(key => /^[A-Z]$/.test(key))).toBe(true)
     expect(new Set(keys).size).toBe(keys.length)
-    expect(["KeyJ", "KeyK", "KeyN", "KeyP", "KeyF", "KeyH"].map(reviewKeyAction)).toEqual(["nextSection", "previousSection", "nextChange", "previousChange", "sidebar", "notes"])
+    expect(["KeyJ", "KeyK", "KeyN", "KeyP", "KeyF", "KeyH", "KeyG"].map(reviewKeyAction)).toEqual([
+      "nextSection",
+      "previousSection",
+      "nextChange",
+      "previousChange",
+      "sidebar",
+      "notes",
+      "moveEnd",
+    ])
     // the key of an action of the window, the letter a layout types, a key with no letter
     expect(["KeyO", "h", "H", "Space", ""].map(reviewKeyAction)).toEqual([undefined, undefined, undefined, undefined, undefined])
   })

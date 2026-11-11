@@ -6,7 +6,7 @@ import type { DiffSubject } from "@/lib/commit-files"
  * engine, the texts apart by blob id, no patch text.
  */
 
-export type { BlockKind, DiffBlock, DiffContent, DiffMarks, LineEndKind, LineEnds, LineRun, RunKind, Scope, TextDiff, WhitespacePolicy } from "@/lib/bindings"
+export type { BlockKind, DiffBlock, DiffContent, DiffMarks, LineEndKind, LineEnds, LineMove, LineRun, RunKind, Scope, TextDiff, WhitespacePolicy } from "@/lib/bindings"
 
 /** A changed file with its content, once the stream gave it, and why the views start it collapsed (Rust's `collapse_of`) */
 export interface FileDiff extends DiffFileHeader {

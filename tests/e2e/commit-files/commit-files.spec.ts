@@ -3,7 +3,18 @@ import type { Locator, Page } from "@playwright/test"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { changedParts, deletedParts, diffLineNumbers, diffRows, foldButtons, horizontalBars, quietSides, remarks, visualLines } from "../helpers/diff-helpers"
+import {
+  changedParts,
+  deletedParts,
+  diffLineNumbers,
+  diffRows,
+  expectBarReachesEndOf,
+  foldButtons,
+  horizontalBars,
+  quietSides,
+  remarks,
+  visualLines,
+} from "../helpers/diff-helpers"
 import { chooseWhitespace, openCommitFilesSection, openCommitPreview as openPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
@@ -522,21 +533,9 @@ simpleTest("Inline scrolls a row of a similar pair as far as its deleted part re
   const pair = diffRows(reducer, "inline")
   await expect(deletedParts(pair)).toHaveText("FallbackTimeoutMillisecondsOfTheSession")
 
-  /** How far the end of the text of the row is past the right edge of its column, in px */
-  const cutOff = () =>
-    pair.evaluate(row => {
-      const text = document.createRange()
-      text.selectNodeContents(row.querySelector("[data-testid=diff-code][data-side]")!)
-      return Math.round(text.getBoundingClientRect().right - row.getBoundingClientRect().right)
-    })
   // the row is wider than its column, and the scroll bar of the column reaches its end
-  await expect.poll(cutOff).toBeGreaterThan(0)
   const bar = horizontalBars(reducer)
-  await expect(bar).toHaveCount(1)
-  await bar.evaluate(element => {
-    element.scrollLeft = element.scrollWidth
-  })
-  await expect.poll(cutOff).toBeLessThanOrEqual(0)
+  await expectBarReachesEndOf(pair, bar)
   // Unified shows each line whole on a row of its own: the scroll reaches the end of the longer one
   await preview.getByRole("button", { name: "Unified" }).click()
   await expect(diffRows(reducer, "inline")).toHaveCount(0)

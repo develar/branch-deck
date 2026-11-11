@@ -1,5 +1,18 @@
-import { blockParts, isChangeBlock, partsLines, partsNotes, partsRow, partsRowOfLine, partsStopRow, runsByBlock, stopsOf } from "@/lib/diff/block-parts"
-import type { BlockParts, Remark } from "@/lib/diff/block-parts"
+import {
+  blockParts,
+  drawnMarks,
+  isChangeBlock,
+  marksByBlock,
+  NO_MARKS,
+  partsLines,
+  partsMoveNotes,
+  partsNotes,
+  partsRow,
+  partsRowOfLine,
+  partsStopRow,
+  stopsOf,
+} from "@/lib/diff/block-parts"
+import type { BlockParts, MoveEnd, Remark } from "@/lib/diff/block-parts"
 import type { DiffBlock, RunKind, Scope, TextDiff } from "@/lib/diff/file-diff-model"
 import { middleLineCount } from "@/lib/diff/file-merge-model"
 import type { MergeBlock, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
@@ -32,7 +45,8 @@ export type RowsMode = DiffViewMode | "merge"
  * What a row shows: `context` an unchanged line; `deleted` and `added` the lines of a block in Unified; `inline` a
  * similar pair as one row; `changed` both sides of a block in Split; `merge` the sides of a block of a merge;
  * `ignored` a block the policy ignores, drawn unchanged; `once` a line that Inline shows once, the new line standing
- * for the old lines too (a quiet run of the marks, `block-parts.ts`)
+ * for the old lines too (a quiet run of the marks, `block-parts.ts`). A line of a move is a row of these kinds with
+ * its `move`: `deleted` where it left, `added` where it stands now, `inline` an edited one there in Inline
  */
 export type LineRowKind = "context" | "deleted" | "added" | "inline" | "changed" | "merge" | "ignored" | "once"
 
@@ -54,6 +68,12 @@ export interface LineRow {
   tint: LineTint
   /** The kind of the quiet run of the marks the line is of (`LineRun.kind`): nothing of it to read; null for any other line */
   run: RunKind | null
+  /**
+   * The end of the move the line is of (`TextDiff.marks.moves`): where it left or where it stands now; drawn in the
+   * colour of a move, pale (`tint`) where the line was edited on the way, with the ranges of the move. Null for a line
+   * of no move
+   */
+  move: MoveEnd | null
 }
 
 export type LineTint = "full" | "pale" | "whitespace" | "quiet"
@@ -96,8 +116,8 @@ export function headingText(heading: Heading): string {
 /**
  * A row of words between the lines of a diff: `unit` the heading of the change a block starts in a section of a review
  * (`SectionUnits.marks`, its parts in `heading`), `elsewhere` a block another section shows (`SectionUnits.elsewhere`),
- * which a click opens, `remark` what the diff says of the lines after it (a run of `TextDiff.marks`, in `remark`). A
- * heading whose block starts with a run says the remark too, in one row
+ * which a click opens, `remark` what the diff says of the lines after it (a run of `TextDiff.marks` or an end of a
+ * move, in `remark`). A heading whose block starts with a run or an end of a move says the remark too, in one row
  */
 export interface NoteRow {
   kind: "note"
@@ -110,7 +130,8 @@ export interface NoteRow {
   block: number
   /**
    * The lines of each side the row stands for: [start, end); the lines of a block another section shows, the old lines
-   * a remark hides while Inline shows its run once, empty for a heading and for a remark that hides none
+   * a remark hides while Inline shows its run once or leaves out the lines a move took, empty for a heading and for a
+   * remark that hides none
    */
   lines: readonly (readonly [number, number])[]
   /** What the diff says of the lines after the row; null for a row without it */
@@ -181,6 +202,11 @@ export interface FileRows {
   readonly notes: readonly (readonly [number, number])[]
   /** The row of each note of `notes`: what the key of the notes takes for the notes in view */
   readonly noteRows: readonly number[]
+  /**
+   * The notes at the ends of the moves the rows show, in the order of the rows, each with its row: what the key of
+   * the moves takes for the notes in view, and where a jump to an end lands
+   */
+  readonly moveNotes: readonly { readonly end: MoveEnd; readonly row: number }[]
 }
 
 interface Gap extends FoldGap {
@@ -206,7 +232,10 @@ function pushEqual(items: Item[], starts: readonly number[], count: number, igno
 /** What the rows of a diff depend on beside its blocks */
 interface DiffRowsOptions {
   readonly mode: DiffViewMode
-  /** The blocks of the imports alone that a review plays down: pale, as a block of whitespace alone */
+  /**
+   * The blocks of the imports alone that a review plays down: pale, as a block of whitespace alone. A move with an end
+   * in one is drawn at neither end (`drawnMarks`)
+   */
   readonly playedImports: ReadonlySet<number>
   readonly units: SectionUnits | null
   /** The notes the user opened (`getOpenNotes`) */
@@ -219,7 +248,8 @@ interface DiffRowsOptions {
  */
 function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsOptions): Item[] {
   const items: Item[] = []
-  const runs = runsByBlock(diff)
+  // the runs and the ends of the moves of each block; `units.marks` below are the headings of a section
+  const byBlock = marksByBlock(diff)
   let oldLine = 0
   let newLine = 0
   diff.blocks.forEach((block, index) => {
@@ -232,7 +262,9 @@ function itemsOf(diff: TextDiff, { mode, playedImports, units, open }: DiffRowsO
     } else {
       // the heading of the change the block starts, in a section of a review: the first row of the block
       const heading = block.kind === "ignored" ? undefined : units?.marks.get(index)
-      const parts = blockParts(block, index, runs[index] ?? [], {
+      // a move with an end in a block that is played down is drawn at neither end: the lines of that block stay pale,
+      // with no note of where they went, and the lines of the other end are lines of their block, each with its row
+      const parts = blockParts(block, index, drawnMarks(byBlock[index] ?? NO_MARKS, index, playedImports), {
         mode,
         tint: playedImports.has(index) ? "whitespace" : tintOf(block),
         open,
@@ -316,12 +348,12 @@ function itemRow(item: Item, row: number): LineRow | NoteRow {
     return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block), remark: null }
   }
   if (item.kind === "equal") {
-    return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full", run: null }
+    return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full", run: null, move: null }
   }
   if (item.kind === "merge") {
     const { block, index, starts, counts } = item
     const lines = starts.map((start, side) => (row < counts[side]! ? start + row : null))
-    return { kind: "merge", lines, block: index, blockRow: row, blockRows: Math.max(...counts), tint: mergeTintOf(block), run: null }
+    return { kind: "merge", lines, block: index, blockRow: row, blockRows: Math.max(...counts), tint: mergeTintOf(block), run: null, move: null }
   }
   return partsRow(item.parts, row)
 }
@@ -404,11 +436,12 @@ interface Labels {
  * The rows of a file's diff in a mode. The gaps between the changes fold as IntelliJ's `FoldingModelSupport` nests
  * them: at `levels[gap]` 0, 1 and 2 they keep 4, 8 and 16 lines next to each change, at `EXPANDED` all. A file
  * without a change has no rows. With `quietImports` (the review plan), a block of the imports alone (`importBlocks`
- * of Rust) is pale and N and P pass it. `units` makes the rows of a section of a review: a heading before each block
+ * of Rust) is pale and N and P pass it; a move with an end in such a block is drawn at neither end, its lines the
+ * lines of their blocks (`drawnMarks`). `units` makes the rows of a section of a review: a heading before each block
  * it marks, one row for each block another section shows, which is no change of this section. A block shows by its
  * parts (`blockParts`): what the marks of the diff say of its lines is a note before them, and Inline shows a quiet
- * run once until its note is opened (`open`, the notes by the first old line each hides). N and P stop where Rust
- * says the reading of a block starts (`TextDiff.marks.starts`).
+ * run once, and leaves out the lines a move took, until its note is opened (`open`, the notes by the first old line
+ * each hides). N and P stop where Rust says the reading of a block starts (`TextDiff.marks.starts`).
  */
 export function buildFileRows(
   diff: TextDiff,
@@ -446,6 +479,7 @@ function rowsOf(
   const changeStarts: number[] = []
   const notes: (readonly [number, number])[] = []
   const noteRows: number[] = []
+  const moveNotes: { end: MoveEnd; row: number }[] = []
   let rowCount = 0
   const push = (segment: Segment, rows: number) => {
     segments.push(segment)
@@ -483,6 +517,9 @@ function rowsOf(
           notes.push(note.lines)
           noteRows.push(rowCount + note.row)
         }
+        for (const { end, row } of partsMoveNotes(change.parts)) {
+          moveNotes.push({ end, row: rowCount + row })
+        }
       } else {
         changeStarts.push(rowCount)
       }
@@ -508,6 +545,7 @@ function rowsOf(
     changes: changes.filter(change => change.kind !== "block" || isChangeBlock(change.block)).length,
     notes,
     noteRows,
+    moveNotes,
   }
 }
 
@@ -652,6 +690,20 @@ export function rowOfLine(rows: FileRows, side: number, line: number): number {
     }
   }
   return Math.max(rows.rowCount - 1, 0)
+}
+
+/**
+ * The row a reveal of `line` of a side lands on, the line itself and no name in it (an end of a move): the row of the
+ * line (`rowOfLine`), or the row of words right above it that says what the lines from it are, the note at the end of
+ * a move whose lines start there. A line behind a note is that note
+ */
+export function rowOfPlace(rows: FileRows, side: number, line: number): number {
+  const row = rowOfLine(rows, side, line)
+  if (row === 0) {
+    return row
+  }
+  const above = rowAt(rows, row - 1)
+  return above.kind === "note" && above.remark?.move != null && above.remark.lines[side]![0] === line && isLineRow(rowAt(rows, row)) ? row - 1 : row
 }
 
 /**

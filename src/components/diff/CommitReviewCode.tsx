@@ -159,6 +159,12 @@ export function CommitReviewCode({
         review.current?.toggleNotes()
       }
     },
+    // of the review too: a file over it is a file of one side, which has no move
+    jumpMove: () => {
+      if (fileViews.length === 0) {
+        review.current?.jumpMove()
+      }
+    },
     visibleStop: () => review.current?.visibleStop(),
     focus: () => review.current?.focus(),
     openFind: () => review.current?.openFind(),
@@ -199,6 +205,8 @@ export function CommitReviewCode({
         label="Changes of the commit"
         // the key of the review that calls `toggleNotes` (`CommitReview`, beside N and P)
         notesKey={REVIEW_KEYS.notes}
+        // and the one that calls `jumpMove`
+        moveKey={REVIEW_KEYS.moveEnd}
         onVisibleSectionChange={onVisibleSectionChange}
         onFirstScreen={onFirstScreen}
         onCardsPassed={onCardsPassed}

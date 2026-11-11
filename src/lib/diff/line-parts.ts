@@ -198,6 +198,24 @@ export function isOwnOldHit({ deletions }: InlinePair, start: number, end: numbe
   return false
 }
 
+/**
+ * The hits of the old line of a pair that are its own (`isOwnOldHit`), the current one kept: what the row of an edited
+ * line of a move marks of its old line, whose every hit is found where the line left
+ */
+export function ownOldHits(pair: InlinePair, hits: LineHits): LineHits {
+  const ranges: number[] = []
+  let current = -1
+  for (let at = 0; at + 1 < hits.ranges.length; at += 2) {
+    if (isOwnOldHit(pair, hits.ranges[at]!, hits.ranges[at + 1]!)) {
+      if (hits.current === at / 2) {
+        current = ranges.length / 2
+      }
+      ranges.push(hits.ranges[at]!, hits.ranges[at + 1]!)
+    }
+  }
+  return { ranges, current }
+}
+
 /** A space or a tab: the whitespace inside a line that a whitespace policy ignores (`is_space_enter_or_tab` of text-diff) */
 function isSpace(code: number): boolean {
   return code === 32 || code === 9

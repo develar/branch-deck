@@ -8,6 +8,7 @@
 //   PERF_RUNS=5 pnpm perf:diff          more runs
 //   pnpm perf:diff --project=webkit     in WebKit, the engine of the app on macOS
 //   PERF_QUIET_EVERY=0 pnpm perf:diff   the commits without a quiet run of the marks (every 4th change is one)
+//   PERF_MOVE_EVERY=0 pnpm perf:diff    the commits without a move of the marks (two changes of every 8 are its ends)
 //
 // The table goes to tests/results/perf/diff-review.json too. The commits are routed answers of the review's commands
 // (`get_commit_files`, `get_file_diffs` (as SSE, the way the test server streams its channel), `get_blob_texts`) with the blocks of the diff engine; the window is the

@@ -1,12 +1,12 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { DiffLayout, endsWithFooter, EPILOGUE_KEY, FOOTER_MIN_ROWS, PROLOGUE_KEY, SCROLLBAR_HEIGHT, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, EPILOGUE_KEY, FOOTER_MIN_ROWS, moveHandOf, moveNoteOfKey, PROLOGUE_KEY, SCROLLBAR_HEIGHT, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutFile } from "@/lib/diff/layout"
 import { rowHeightOf } from "@/lib/diff/metrics"
 import { buildFileRows, EXPANDED, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
 import { visualLineCount, wrapBreaks } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
-import { block, run, textDiff } from "@/test-support/diff-blocks"
+import { block, move, run, textDiff } from "@/test-support/diff-blocks"
 
 const METRICS = { rowHeight: 20, headerHeight: 36 }
 /** One px per column; a CJK ideograph two columns wide */
@@ -131,6 +131,82 @@ describe("DiffLayout", () => {
     // with soft wraps a note is one visual line, a line shown once as many as its new line takes
     const wrapped = new DiffLayout([file("a", closed, { visualLines: visualLinePrefix(closed.rowCount, row => (row === 5 ? 2 : 1)) })], METRICS)
     expect([wrapped.rowHeight(0, 3), wrapped.rowHeight(0, 5), wrapped.rowTop(0, 6)]).toEqual([20, 40, 36 + 7 * 20])
+  })
+
+  it("keeps the note of the lines a move took at the top by the old line it stands for, and the note of where they stand by the line after it; each a row", () => {
+    // three lines leave the old lines 20..23 for the new lines 5..8
+    const diff = textDiff(30, 30, [block(5, 5, 5, 8), block(20, 23, 23, 23)], { moves: [move(20, 5, 3)] })
+    const whole = (mode: "inline" | "unified", open: number[] = []) =>
+      new DiffLayout([file("a", buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED], false, null, new Set(open)))], METRICS)
+    // Inline: 5 lines, the note and the 3 lines that stand there, 15 lines, the note that stands for the lines that left
+    const inline = whole("inline")
+    expect([inline.files[0]!.rows!.rowCount, inline.rowHeight(0, 5), inline.rowHeight(0, 24)]).toEqual([32, 20, 20])
+    const atSource = inline.anchorAt(inline.rowTop(0, 24) + 5)!
+    expect(atSource).toEqual({ key: "a", line: { side: OLD, line: 20 }, offset: 5 })
+    expect(inline.scrollTopOf(atSource)).toBe(inline.rowTop(0, 24) + 5)
+    // opened, and in Unified, the old line has its row after the note: the top stays at that line
+    expect([whole("inline", [20]).scrollTopOf(atSource), whole("unified").scrollTopOf(atSource)]).toEqual([inline.rowTop(0, 25) + 5, inline.rowTop(0, 25) + 5])
+    // the note of where the lines stand hides no line: it is held by the first of them, and stays where it was
+    const atDestination = inline.anchorAt(inline.rowTop(0, 5) + 3)!
+    expect(atDestination).toEqual({ key: "a", line: { side: NEW, line: 5 }, offset: -17 })
+    expect([inline.scrollTopOf(atDestination), whole("unified").scrollTopOf(atDestination)]).toEqual([inline.rowTop(0, 5) + 3, inline.rowTop(0, 5) + 3])
+    // with soft wraps the notes are a visual line each, a line of the move as many as its text takes
+    const rows = inline.files[0]!.rows!
+    const wrapped = new DiffLayout([file("a", rows, { visualLines: visualLinePrefix(rows.rowCount, row => (row === 7 ? 3 : 1)) })], METRICS)
+    expect([wrapped.rowHeight(0, 5), wrapped.rowHeight(0, 7), wrapped.rowHeight(0, 24), wrapped.rowTop(0, 8)]).toEqual([20, 60, 20, 36 + 10 * 20])
+  })
+
+  it("gives the key of the moves one note: the one at the end the view stands at while it is in view, else the first note of a move in view", () => {
+    // `a`: three lines leave the old lines 20..23 for the new lines 5..8, and two the old lines 12..14 for the new
+    // lines 28..30; `b`: one line leaves the old line 9 for the new line 2. Rows of 20 px under headers of 36 px
+    const two = textDiff(40, 40, [block(5, 5, 5, 8), block(12, 14, 15, 15), block(20, 23, 21, 21), block(30, 30, 28, 30)], { moves: [move(20, 5, 3), move(12, 28, 2)] })
+    const one = textDiff(12, 12, [block(2, 2, 2, 3), block(9, 10, 10, 10)], { moves: [move(9, 2, 1)] })
+    const levels = [EXPANDED, EXPANDED, EXPANDED, EXPANDED, EXPANDED]
+    const layout = new DiffLayout([file("a", buildFileRows(two, "inline", levels)), file("b", buildFileRows(one, "inline", levels))], METRICS)
+    const notes = layout.files[0]!.rows!.moveNotes
+    expect(notes.map(note => [note.end.at, note.row, note.end.lines[0]])).toEqual([
+      ["destination", 5, 5],
+      ["source", 16, 12],
+      ["source", 23, 20],
+      ["destination", 31, 28],
+    ])
+    const taken = (top: number, height: number, hand: Parameters<typeof moveNoteOfKey>[3] = null) => {
+      const note = moveNoteOfKey(layout, top, height, hand)
+      return note === null ? null : [note.file, note.end.at, note.row]
+    }
+    // the whole file in view: the first note of a move
+    expect(taken(0, 800)).toEqual([0, "destination", 5])
+    // a row is in view whole below the header stuck at the top, and above the end of the view
+    expect([layout.rowInView(0, 5, 100, 400), layout.rowInView(0, 5, 101, 400), layout.rowInView(0, 16, 0, 376), layout.rowInView(0, 16, 0, 375)]).toEqual([
+      true,
+      false,
+      true,
+      false,
+    ])
+    // the first note under the header no more: the next one in view
+    expect(taken(101, 400)).toEqual([0, "source", 16])
+    // the end the view stands at, while its note is in view: where a jump landed, or the note N stopped under
+    const landed = moveHandOf("a", notes[2]!.end)
+    expect(landed).toEqual({ key: "a", side: OLD, line: 20 })
+    expect([taken(0, 800, landed), taken(101, 420, landed)]).toEqual([
+      [0, "source", 23],
+      [0, "source", 23],
+    ])
+    // its note out of view (row 23 ends at 516): the first note in view again
+    expect([taken(0, 515, landed), taken(101, 400, landed)]).toEqual([
+      [0, "destination", 5],
+      [0, "source", 16],
+    ])
+    // an end by its side and its line: the same line of the other side is another place, a line of no end is none
+    expect([taken(0, 800, { key: "a", side: NEW, line: 20 }), taken(0, 800, { key: "a", side: OLD, line: 21 }), taken(0, 800, { key: "gone", side: OLD, line: 20 })]).toEqual([
+      [0, "destination", 5],
+      [0, "destination", 5],
+      [0, "destination", 5],
+    ])
+    // below the notes of `a`, the first note of the next file in view; with no note in view, none
+    const second = layout.offsets[1]!
+    expect(taken(second - 100, 400)).toEqual([1, "destination", 2])
+    expect([taken(layout.rowTop(0, 29) - 36, 60), taken(0, 100), moveNoteOfKey(new DiffLayout([], METRICS), 0, 400, null)]).toEqual([null, null, null])
   })
 
   it("keeps a row of words that stands for no line at the top across a new layout, by the row after it: a note of Unified and Split, an opened note, a label, a heading", () => {

@@ -521,6 +521,12 @@
   --diff-conflict-pale: #ffeeeb;
   /* our own: a line the marks of the diff call quiet (formatting alone), played down; no colour of a change */
   --diff-quiet: #f5f1e6;
+  /*
+   * our own: a line that moved within its file, where it left and where it stands now, and the note at each end; the
+   * pale form (mixed 0.6 with the editor background, as the pale form of a type) for a line edited on the way
+   */
+  --diff-moved: #e4d1f7;
+  --diff-moved-pale: #f4edfc;
   --diff-line-number: #aeb3c2;
   --diff-line-number-changed: #6c707e;
   --diff-separator: #e4e6eb;
@@ -645,6 +651,8 @@
   --diff-conflict: #45302b;
   --diff-conflict-pale: #2b2322;
   --diff-quiet: #2a2820;
+  --diff-moved: #43345a;
+  --diff-moved-pale: #2a2435;
   --diff-line-number: #4b5059;
   --diff-line-number-changed: #a8adbd;
   --diff-separator: #2b2d30;

@@ -69,10 +69,17 @@ rules in one line each and links here.
   `data-side`, `data-cell`, `data-tint`), the code of a line `DIFF_CODE` (`diff-code`), its number
   `diffLineNumbers` (`diff-line-number`); a part of a line by what it is: `changedParts` (`data-change`),
   `deletedParts` of an Inline row (`data-inline-deleted`), `findMarks(scope, "current")` (`data-hit`); and
-  `visualLines` of Soft Wraps, `horizontalBars`, `foldButtons`, the underline of a link (`diff-link`). The marks of a
+  `visualLines` of Soft Wraps, `horizontalBars` (`expectBarReachesEndOf(row, bar)`: the bar of a column scrolls as
+  far as a row wider than the column), `foldButtons`, the underline of a link (`diff-link`). The marks of a
   diff: `remarks(scope, kind)` are the words of the notes of its runs (`diff-remark`, a button with `aria-expanded`
   where Inline shows the run once), `quietSides(scope, side)` the cells of the lines played down
-  (`data-tint="quiet"`), `remarkHits(scope)` the hits of the find a note names (`diff-remark-hits`). The painter draws
+  (`data-tint="quiet"`), `remarkHits(scope)` the hits of the find a note names (`diff-remark-hits`); of a move,
+  `moveNotes(scope, end)` are the rows of the notes at its ends (`data-move`: `source`, `destination`; `data-landed`
+  on the one a jump landed on), `moveTargets(scope)` the buttons of the places they name (`diff-move-target`; the
+  one the key of the moves takes has `aria-keyshortcuts`),
+  `movedSides(scope, end, side)` the cells of its lines (`data-cell="moved"`). The painter adds a row to the page as a
+  scroll brings it near, so the order of the page is the order of the paints: read the code of rows in the order of
+  their files by `codeOf(rows)` of `marks-helpers.ts` (`data-file`, `data-row`), never by the order of a locator. The painter draws
   only the rows around the view: `scrollDiffsTo(scope, target)` scrolls a view in the scroller of its parent (the
   preview of a commit) until a row far below is painted. A part is an
   element per token of the syntax: read a text over several by `joinedText`. Code that runs in the page takes the

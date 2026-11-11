@@ -1,6 +1,6 @@
 // @spec openspec/specs/commit/commit-files/spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { inlineOffset, inlinePair, inlineParts, isOwnOldHit, lineParts, sameTextOffset } from "@/lib/diff/line-parts"
+import { inlineOffset, inlinePair, inlineParts, isOwnOldHit, lineParts, ownOldHits, sameTextOffset } from "@/lib/diff/line-parts"
 import type { InlinePair, InlinePart, LinePart } from "@/lib/diff/line-parts"
 
 /** The parts as `text:style`, `+` for a changed range, `-` for a deleted part */
@@ -142,6 +142,21 @@ describe("inlineParts", () => {
     expect(markedBy(spaced, [10, 20])).toBe("b)  // old")
     // a hit that starts in whitespace takes the whitespace the new line has there
     expect(markedBy(spaced, [9, 20])).toBe(" b)  // old")
+  })
+
+  it("keeps of the hits of the old line of a pair its own alone, the current one among them, for the row of an edited line of a move", () => {
+    // `sum(first)` to `sum(second)`: `first` is struck through in the row, `sum` is text both lines have
+    const pair = inlinePair("  sum(first)", "  sum(second)", [6, 11, 2], [6, 12, 2])
+    // the hits `sum`, `first` and `)` of the old line, the second the current one: `first` alone is the row's own
+    expect(ownOldHits(pair, { ranges: [2, 5, 6, 11, 11, 12], current: 1 })).toEqual({ ranges: [6, 11], current: 0 })
+    // the current hit in the shared text: the row marks none as current, its new line has that text
+    expect(ownOldHits(pair, { ranges: [2, 5, 6, 11], current: 0 })).toEqual({ ranges: [6, 11], current: -1 })
+    expect(ownOldHits(pair, { ranges: [2, 5], current: 0 })).toEqual({ ranges: [], current: -1 })
+    // the row marks the struck-through word and leaves the shared text to the hits of the new line
+    const marked = (hits: { ranges: number[]; current: number }) =>
+      describeRow(pair, inlineParts(pair, null, null, null, ownOldHits(pair, hits))).filter(part => part.endsWith("!"))
+    expect(marked({ ranges: [2, 5, 6, 11], current: 0 })).toEqual(["first-!"])
+    expect(marked({ ranges: [2, 5, 6, 11], current: 1 })).toEqual(["first-!!"])
   })
 })
 

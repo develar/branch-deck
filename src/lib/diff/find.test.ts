@@ -6,7 +6,7 @@ import { buildLineTable } from "@/lib/diff/line-table"
 import { diffCells } from "@/lib/diff/row-cells"
 import { buildFileRows, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, run, textDiff } from "@/test-support/diff-blocks"
+import { block, move, run, textDiff } from "@/test-support/diff-blocks"
 
 const OLD_TEXT = Array.from({ length: 30 }, (_, index) => (index === 20 ? "val Total = 1" : `val total${index} = ${index}`)).join("\n")
 const NEW_TEXT = OLD_TEXT.replace("val Total = 1", "val total = 2")
@@ -155,16 +155,21 @@ describe("findInSegments", () => {
   })
 })
 
-describe("the find in a quiet run", () => {
-  // `call(first, second)` wrapped over three lines, a quiet run of formatting
-  const diff = textDiff(3, 5, [block(1, 2, 1, 4)], { runs: [run(1, 2, 1, 4)] })
-  const tables = [buildLineTable("a\ncall(first, second)\nz\n"), buildLineTable("a\ncall(\n  first, second\n)\nz\n")]
-  const shown = (mode: DiffViewMode, open: number[] = []): FindFile => ({
+/** A diff with marks as a mode shows it, by its texts; `open`: the notes opened, by the first old line each hides */
+const marked =
+  (diff: ReturnType<typeof textDiff>, tables: FindFile["tables"]) =>
+  (mode: DiffViewMode, open: number[] = []): FindFile => ({
     rows: buildFileRows(diff, mode, [], false, null, new Set(open)),
     tables,
     ranges: diffCells(diff, mode).ranges,
   })
-  const lines = (hits: readonly DiffFindHit[]) => hits.map(hit => `${hit.side === OLD ? "-" : "+"}${hit.line}:${hit.start}`)
+/** The hits as `-line:start` of the old side or `+line:start` of the new one */
+const lines = (hits: readonly DiffFindHit[]) => hits.map(hit => `${hit.side === OLD ? "-" : "+"}${hit.line}:${hit.start}`)
+
+describe("the find in a quiet run", () => {
+  // `call(first, second)` wrapped over three lines, a quiet run of formatting
+  const diff = textDiff(3, 5, [block(1, 2, 1, 4)], { runs: [run(1, 2, 1, 4)] })
+  const shown = marked(diff, [buildLineTable("a\ncall(first, second)\nz\n"), buildLineTable("a\ncall(\n  first, second\n)\nz\n")])
 
   it("searches the old lines that Inline shows once, at the note that stands for them, before the new lines", () => {
     const inline = shown("inline")
@@ -183,6 +188,47 @@ describe("the find in a quiet run", () => {
     expect(hits.map(hit => rowOfLine(open.rows!, hit.side, hit.line))).toEqual([2, 4])
     expect(lines(findHits([shown("unified")], "first", { sideBySide: false, folded: false }))).toEqual(["-1:5", "+2:2"])
     expect(lines(findHits([shown("split")], "first", { sideBySide: true, folded: false }))).toEqual(["-1:5", "+2:2"])
+  })
+})
+
+describe("the find in the lines of a move", () => {
+  // `fun total()` and its two lines move from the end of the file to its start, the second line edited on the way
+  const tables = [buildLineTable("a\nb\nfun total() {\n  sum(first)\n}\n"), buildLineTable("fun total() {\n  sum(second)\n}\na\nb\n")]
+  const diff = textDiff(6, 6, [block(0, 0, 0, 3), block(2, 5, 5, 5)], {
+    moves: [move(2, 0, 3, { edited: [1], oldRanges: [[], [6, 11, 2], []], newRanges: [[], [6, 12, 2], []] })],
+  })
+  const shown = marked(diff, tables)
+
+  it("searches the lines that left at the note that stands for them in Inline, after the lines where they stand now", () => {
+    const inline = shown("inline")
+    // the lines once where they stand now, then the old lines behind the note of where they left
+    const hits = findHits([inline], "total", { sideBySide: false, folded: false })
+    expect(lines(hits)).toEqual(["+0:4", "-2:4"])
+    expect(hits.map(hit => rowOfLine(inline.rows!, hit.side, hit.line))).toEqual([1, 6])
+    // the edited line is the row of its two lines where the lines stand now, searched by its new line alone: the word
+    // the old line had is one hit, of the old line where it left, at the note that stands for it, which counts it once
+    const lost = findHits([inline], "first", { sideBySide: false, folded: false })
+    expect(lines(lost)).toEqual(["-3:6"])
+    expect(lost.map(hit => rowOfLine(inline.rows!, hit.side, hit.line))).toEqual([6])
+    expect(hitsByLine(lost, 0).get(0)!.get(lineKey(OLD, 3))).toEqual({ ranges: [6, 11], current: 0 })
+    expect(lines(findHits([inline], "second", { sideBySide: false, folded: false }))).toEqual(["+1:6"])
+    // text both lines of the row have: the new line's in the row, the old line's behind the note; no hit twice
+    const shared = findHits([inline], "sum", { sideBySide: false, folded: false })
+    expect(lines(shared)).toEqual(["+1:2", "-3:2"])
+    expect(new Set(shared.map(hit => `${hit.side}:${hit.line}:${hit.start}`)).size).toBe(shared.length)
+  })
+
+  it("finds the lines that left by their own rows once the note is opened, and where every line stays", () => {
+    const open = shown("inline", [2])
+    const hits = findHits([open], "total", { sideBySide: false, folded: false })
+    expect(lines(hits)).toEqual(["+0:4", "-2:4"])
+    expect(hits.map(hit => rowOfLine(open.rows!, hit.side, hit.line))).toEqual([1, 7])
+    // the word the edited line lost: one hit, in the row of the old line where it left, not in the row of the pair
+    const lost = findHits([open], "first", { sideBySide: false, folded: false })
+    expect(lines(lost)).toEqual(["-3:6"])
+    expect(lost.map(hit => rowOfLine(open.rows!, hit.side, hit.line))).toEqual([8])
+    expect(lines(findHits([shown("unified")], "first", { sideBySide: false, folded: false }))).toEqual(["-3:6"])
+    expect(lines(findHits([shown("split")], "total", { sideBySide: true, folded: false }))).toEqual(["+0:4", "-2:4"])
   })
 })
 

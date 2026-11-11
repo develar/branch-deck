@@ -1,10 +1,12 @@
-import { CodeIcon, ListTreeIcon } from "lucide-react"
+import { ArrowUpDownIcon, CodeIcon, ListTreeIcon } from "lucide-react"
 import type { MenuItem } from "@/lib/menu"
+import { describeMoveEnd, MOVE_END_LABEL } from "@/presenters/diff-marks"
 
 /*
  * The menu of the code of a diff (openspec/specs/commit/symbol-navigation/spec.md): one builder, which the context menu of the
  * code renders, opened by the pointer on the name under it or by a menu key on the name at the selection; the keys of
- * its items work in the view whatever the menu (`DiffView`).
+ * its items work in the view whatever the menu (`DiffView`). On a line of a move, or the note at its end, it has the
+ * item that shows the other end of the move (openspec/specs/commit/quiet-changes/spec.md, "Views").
  */
 
 export interface CodeMenuContext {
@@ -13,9 +15,16 @@ export interface CodeMenuContext {
   goToDeclaration: () => void
   /** Null where the view has no Find Usages */
   findUsages: (() => void) | null
+  /**
+   * The end of a move the menu opened on, a line of a move or the note at its end: which end it is, what shows the
+   * other one, and the key of the view that does the same, given only where the key takes the note of this end (null
+   * where the view has no such key, or the key takes another note). Null on a row of no move: the menu has no such
+   * item
+   */
+  moveEnd: { readonly at: "source" | "destination"; readonly go: () => void; readonly key: string | null } | null
 }
 
-export function codeMenuItems({ name, goToDeclaration, findUsages }: CodeMenuContext): MenuItem[] {
+export function codeMenuItems({ name, goToDeclaration, findUsages, moveEnd }: CodeMenuContext): MenuItem[] {
   const items: MenuItem[] = [
     {
       id: "go-to-declaration",
@@ -36,6 +45,16 @@ export function codeMenuItems({ name, goToDeclaration, findUsages }: CodeMenuCon
       disabled: name === null,
       description: name === null ? "No name here" : `Find the usages of ${name}`,
       onSelect: () => findUsages(),
+    })
+  }
+  if (moveEnd !== null) {
+    items.push({
+      id: "go-to-move-end",
+      label: MOVE_END_LABEL,
+      icon: ArrowUpDownIcon,
+      ...(moveEnd.key !== null && { kbds: [moveEnd.key.toLowerCase()] }),
+      description: describeMoveEnd(moveEnd.at),
+      onSelect: () => moveEnd.go(),
     })
   }
   return items

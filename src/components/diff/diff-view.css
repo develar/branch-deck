@@ -418,10 +418,28 @@
   --dv-pale: var(--diff-conflict-pale);
 }
 
+/*
+ * A line of a move (docs/design/ui-theme.md, "Diffs"), our own: the lines one block deletes and another adds are the
+ * same lines at two places, so both ends have the one colour of a move whatever the layout, `--diff-moved`, and a
+ * line edited on the way its pale form with the edited words in the full one, as a block with inner ranges. A rail
+ * 2 px wide runs down their start, the note at their end with them: no other line has one, so a move reads as a move
+ * where its violet cannot be told from the blue of a modified line (red-green colour blindness)
+ */
+[data-cell="moved"] {
+  --dv-full: var(--diff-moved);
+  --dv-pale: var(--diff-moved-pale);
+}
+
+[data-cell="moved"],
+.dv-note[data-tone="remark"][data-move] {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--diff-moved), var(--foreground) 55%);
+}
+
 [data-cell="inserted"],
 [data-cell="deleted"],
 [data-cell="modified"],
-[data-cell="conflict"] {
+[data-cell="conflict"],
+[data-cell="moved"] {
   background: var(--dv-full);
 }
 
@@ -448,6 +466,7 @@
 [data-cell="deleted"] > .dv-num,
 [data-cell="modified"] > .dv-num,
 [data-cell="conflict"] > .dv-num,
+[data-cell="moved"] > .dv-num,
 [data-cell="once"] > .dv-num {
   color: var(--diff-line-number-changed);
 }
@@ -630,6 +649,23 @@
   content: "" / "modified, renamed only";
 }
 
+/* a line of a move: which end of it the line is at (`data-move`), and that it was edited on the way (its pale tint) */
+[data-cell="moved"][data-move="source"] > .dv-code::before {
+  content: "" / "moved away";
+}
+
+[data-cell="moved"][data-move="destination"] > .dv-code::before {
+  content: "" / "moved here";
+}
+
+[data-cell="moved"][data-move="source"][data-tint] > .dv-code::before {
+  content: "" / "moved away, edited on the way";
+}
+
+[data-cell="moved"][data-move="destination"][data-tint] > .dv-code::before {
+  content: "" / "moved here, edited on the way";
+}
+
 .dv-fold-button {
   display: flex;
   gap: 2ch;
@@ -760,6 +796,60 @@
   background: var(--diff-quiet);
 }
 
+/*
+ * The note at an end of a move: on the colour of a move, as the first row of its lines, or in their place where
+ * Inline leaves out the lines that left. Its words are nearer the text colour than the muted words of other notes,
+ * which are too weak on the violet
+ */
+.dv-note[data-tone="remark"][data-move] {
+  background: var(--diff-moved);
+}
+
+/*
+ * With a column per side (Split) the note lies over the column of its lines, the old one where they left and the new
+ * one where they stand now, and the other column is filled beside it as it is beside the lines (`data-over`)
+ */
+.dv-note[data-tone="remark"][data-move][data-over] {
+  padding-inline-start: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.dv-note[data-over] > .dv-note-label {
+  align-self: stretch;
+  padding-inline-start: calc(var(--dv-gutter, 4ch) - 1ch);
+  background: var(--diff-moved);
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--diff-moved), var(--foreground) 55%);
+}
+
+.dv-note[data-over="old"] > .dv-note-label,
+.dv-note[data-over="new"] > .dv-note-filler {
+  flex: 0 0 calc(var(--dv-split, 0.5) * 100%);
+}
+
+.dv-note[data-over="new"] > .dv-note-label,
+.dv-note[data-over="old"] > .dv-note-filler {
+  flex: 1 1 0;
+  min-width: 0;
+  border-inline-start: 1px solid var(--border);
+}
+
+.dv-note-filler {
+  align-self: stretch;
+  background: color-mix(in oklab, var(--foreground) 3%, var(--card));
+}
+
+.dv-note[data-move] .dv-remark,
+.dv-note[data-move] .dv-remark-detail,
+.dv-note[data-move] .dv-remark-target {
+  color: color-mix(in oklab, var(--foreground) 80%, var(--diff-moved));
+}
+
+.dv-note[data-move] .dv-remark-button:hover,
+.dv-note[data-move] .dv-remark-target:hover {
+  color: var(--foreground);
+}
+
 .dv-note-heading {
   color: var(--foreground);
 }
@@ -811,10 +901,29 @@
 }
 
 /*
- * The key that shows and hides the old lines of the notes in view, where the view has one (a review, `data-key`): a
- * hint after the words of a note that opens, as the key of the line at the end of a card (`Kbd`)
+ * The place the note of a move names, its other end ("to line 210", "from line 120"): a button that shows it, with
+ * the dotted line of a place a fold names (`.dv-fold-target`)
  */
-.dv-remark-button[data-key]::after {
+.dv-remark-target {
+  font-family: var(--font-sans);
+  white-space: pre;
+  color: var(--muted-foreground);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.dv-remark-target:hover {
+  text-decoration-style: solid;
+}
+
+/*
+ * The key that shows and hides the old lines of the notes in view, and the key that shows the other end of a move,
+ * where the view has them (a review, `data-key`): a hint after the words of the button it presses, as the key of the
+ * line at the end of a card (`Kbd`). Every note that opens has the first; the second is on the one note the key takes
+ */
+.dv-remark-button[data-key]::after,
+.dv-remark-target[data-key]::after {
   display: inline-block;
   min-width: 1rem;
   height: 1rem;
@@ -830,6 +939,33 @@
   content: attr(data-key);
   background: var(--muted);
   border-radius: var(--radius-lg);
+}
+
+/*
+ * The row a jump to a line landed on (the note at the other end of a move, `data-landed`): a ring that fades, so the
+ * eye finds where the view went; where the OS asks for reduced motion it stays until the user moves on
+ */
+@keyframes dv-landed {
+  from {
+    outline-color: var(--ring);
+  }
+
+  to {
+    outline-color: transparent;
+  }
+}
+
+.dv-row[data-landed] {
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  animation: dv-landed 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv-row[data-landed] {
+    outline-color: var(--ring);
+    animation: none;
+  }
 }
 
 /* the hits of the find in the old lines a note stands for: named after its words, marked as a hit of a line is */

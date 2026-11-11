@@ -14,6 +14,7 @@ import { useMeasuredHeights } from "@/components/diff/use-measured-heights"
 import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite, ReviewTitle } from "@/lib/bindings"
+import type { MoveEnd } from "@/lib/diff/block-parts"
 import { codeMenuItems, codeMenuKeyPoint } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
@@ -24,7 +25,7 @@ import type { DiffFindHit, FindHit, TextFindHit } from "@/lib/diff/find"
 import { findTextHits, revealTextHit } from "@/lib/diff/find-text"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
 import { inlineRowText, widestInlineRow } from "@/lib/diff/inline-rows"
-import { DiffLayout, endsWithFooter, EPILOGUE_KEY, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, EPILOGUE_KEY, moveHandOf, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
 import { DIFF_FONT_SIZE, DIFF_TAB_SIZE, measureFont, rowHeightOf, textMetricsOf } from "@/lib/diff/metrics"
@@ -44,6 +45,7 @@ import {
   OLD,
   rowAt,
   rowOfLine,
+  rowOfPlace,
   sectionFoldKey,
   setFoldLevels,
   setOpenNotes,
@@ -213,6 +215,14 @@ export interface DiffViewHandle {
    */
   toggleNotes: () => void
   /**
+   * The key of the moves (`REVIEW_KEYS.moveEnd`): shows the other end of a move from the note of one of its ends in
+   * view, the one note that shows the hint of the key: the note of the end the view stands at while it is in view
+   * (where a jump, Back or Forward landed, the note N or P stopped under), else the first one, so two presses go
+   * there and back; the end it starts from is kept for Back. A note is in view when its row is whole below the stuck
+   * header. Nothing changes when no such note is in view
+   */
+  jumpMove: () => void
+  /**
    * The section at the top and its part there, at its opening the step whose opening it is: the one the view showed
    * last, or the one scrolled to (`onVisibleSectionChange`); undefined without files
    */
@@ -239,6 +249,11 @@ export interface DeclarationPlace {
   name?: string
   /** The unit of the review it is of (`ReviewPlace.unit`): shown in the section of that unit */
   unit?: string
+  /**
+   * The place is the line itself and no name in it (an end of a move): a reveal selects nothing, opens no note the
+   * line is behind, and lands on the row that says what the line is (`rowOfPlace`), which it marks
+   */
+  wholeLine?: boolean
 }
 
 export interface DiffViewProps {
@@ -318,6 +333,12 @@ export interface DiffViewProps {
    * its words and names it to a screen reader; absent where no key does, so no hint shows where none works
    */
   notesKey?: string
+  /**
+   * The key by which the surface around the view calls `jumpMove` (G in a review): the button of the one note of a
+   * move the key takes shows it after its words and names it to a screen reader, and the menu of the code beside its
+   * item where the menu opened on that end; absent where no key does
+   */
+  moveKey?: string
   /** The files are the uncommitted changes: the new side is read by its path in the working tree */
   worktree?: boolean
 }
@@ -531,6 +552,7 @@ export function DiffView({
   muted,
   scroll = "own",
   notesKey,
+  moveKey,
   worktree = false,
   onGoToDeclaration,
   onFindUsages,
@@ -842,8 +864,8 @@ export function DiffView({
       worktreePaths: file.worktreePaths,
       codeWidths: codeWidthsOf(file, width, metrics.columnWidth, split),
     }))
-    painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines, notesKey })
-  }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split, notesKey])
+    painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines, notesKey, moveKey })
+  }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split, notesKey, moveKey])
 
   // the hit a step chose: a third of the viewport below the header; a text hit waits until its folds open
   useLayoutEffect(() => {
@@ -1028,28 +1050,37 @@ export function DiffView({
   }
 
   /**
-   * The key of the notes: the notes in view that open show their old lines, or hide them once they all show. In view:
-   * the row whole below the header stuck at the top. A wholly quiet block is no stop of N and P, so the key takes
-   * what the view shows, not a change the keys stepped to
+   * The rows in view among those `pick` gives of each file (the rows of its notes), in the order of the view, each by
+   * its place among them. In view: the row whole below the header stuck at the top
    */
-  const toggleNotesInView = () => {
+  const forEachRowInView = (pick: (rows: FileRows) => readonly number[], visit: (file: PreparedFile, rows: FileRows, at: number) => void) => {
     const view = scroller.current
     if (view === null) {
       return
     }
     const top = view.scrollTop + layout.stickyTop + headerHeight
     const bottom = view.scrollTop + view.clientHeight
-    const inView: { file: PreparedFile; note: number }[] = []
     for (let index = layout.fileAt(top), last = layout.fileAt(bottom); index <= last && index < prepared.length; index++) {
-      const file = prepared[index]!
       const rows = layout.files[index]!.rows
-      for (const [at, row] of (rows?.noteRows ?? []).entries()) {
-        const rowTop = layout.rowTop(index, row)
-        if (rowTop >= top && rowTop + layout.rowHeight(index, row) <= bottom) {
-          inView.push({ file, note: rows!.notes[at]![0] })
+      for (const [at, row] of (rows === null ? [] : pick(rows)).entries()) {
+        if (layout.rowInView(index, row, view.scrollTop, view.clientHeight)) {
+          visit(prepared[index]!, rows!, at)
         }
       }
     }
+  }
+
+  /**
+   * The key of the notes: the notes in view that open show their old lines, or hide them once they all show. In view:
+   * the row whole below the header stuck at the top. A wholly quiet block is no stop of N and P, so the key takes
+   * what the view shows, not a change the keys stepped to
+   */
+  const toggleNotesInView = () => {
+    const inView: { file: PreparedFile; note: number }[] = []
+    forEachRowInView(
+      rows => rows.noteRows,
+      (file, rows, at) => inView.push({ file, note: rows.notes[at]![0] }),
+    )
     const isOpen = ({ file, note }: { file: PreparedFile; note: number }) => file.foldKey !== null && getOpenNotes(file.foldKey).has(note)
     const open = !inView.every(isOpen)
     const byFile = new Map<PreparedFile, Set<number>>()
@@ -1183,6 +1214,88 @@ export function DiffView({
     onVisibleFileChange?.(file.path)
   }
 
+  // the places of the jumps of the view (Go to Declaration, the other end of a move), and the place a reveal waits for
+  const history = useRef<{ back: DeclarationPlace[]; forward: DeclarationPlace[] }>({ back: [], forward: [] })
+  const pendingReveal = useRef<DeclarationPlace | null>(null)
+  // the line a reveal showed for itself last (an end of a move), until a name is revealed: the place of the view then
+  const landedPlace = useRef<DeclarationPlace | null>(null)
+  const [revealTick, setRevealTick] = useState(0)
+  const navigates = onGoToDeclaration !== undefined && scroll === "own"
+
+  /** Shows a place of the view: its file open, its fold expanded, then (`revealTick`) scrolled to and selected */
+  /** Shows `place`: the key of the section that shows it, undefined for a file the view does not show */
+  const revealPlace = (place: DeclarationPlace): string | undefined => {
+    const side = place.side === "old" ? OLD : NEW
+    const index = sectionOf(prepared, place.path, { side, line: place.line, unit: place.unit })
+    const file = prepared[index]
+    if (file === undefined) {
+      return undefined
+    }
+    if (file.collapsed) {
+      toggleFile(file.key)
+    }
+    const text = file.foldKey
+    const fold = file.rows?.segments.find(segment => segment.kind === "fold" && segment.row.lines[side]![0] <= place.line && place.line < segment.row.lines[side]![1])
+    if (text !== null && fold?.kind === "fold" && (getFoldLevels(text)[fold.row.gap] ?? 0) < EXPANDED) {
+      const levels = Array.from({ length: Math.max(getFoldLevels(text).length, fold.row.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
+      levels[fold.row.gap] = EXPANDED
+      setFoldLevels(text, levels)
+      setFolds(previous => new Map(previous).set(text, levels))
+    }
+    // an old line that Inline shows once, by its new line: its note opens, as its fold does, so its name can be selected;
+    // a line shown for itself (an end of a move) is the note that stands for it
+    const note = side === OLD && text !== null && file.rows !== null && place.wholeLine !== true ? noteOfLine(file.rows, place.line) : null
+    if (note !== null && text !== null && !getOpenNotes(text).has(note)) {
+      openNotes(file, new Set(getOpenNotes(text)).add(note))
+    }
+    pendingReveal.current = place
+    // where Forward goes on from after a Back: a line shown for itself selects nothing a place could be read from
+    landedPlace.current = place.wholeLine === true ? place : null
+    // and the end of a move the view stands at, whatever showed it (a jump, Back, Forward): the key of the moves goes
+    // on from its note; a name shown is no end of a move
+    painter.setMoveHand(place.wholeLine === true ? { key: file.key, side, line: place.line } : null)
+    setRevealTick(tick => tick + 1)
+    return file.key
+  }
+
+  /**
+   * Shows the other end of a move from one of its ends (a click on the place its note names, the key of the moves, the
+   * item of the menu of the code): the note of that end a third of the viewport below the header, marked, the file
+   * open. Where the view has Back, this end is the place it returns to. Both ends are in one file, of a review maybe
+   * in two of its sections
+   */
+  const jumpMove = (file: PreparedFile | undefined, end: MoveEnd) => {
+    if (file === undefined) {
+      return
+    }
+    // the first line of an end, the blank lines that moved with the lines among them: what its note stands before
+    const place = (at: MoveEnd["at"], [line]: readonly [number, number]): DeclarationPlace => ({
+      path: file.path,
+      side: at === "source" ? "old" : "new",
+      line,
+      column: 0,
+      endColumn: 0,
+      wholeLine: true,
+    })
+    if (navigates) {
+      history.current.back.push(place(end.at, end.lines))
+      history.current.forward = []
+    }
+    revealPlace(place(end.at === "source" ? "destination" : "source", end.other))
+  }
+
+  /**
+   * The key of the moves: from the note of an end of a move in view to its other end. The one note that shows the hint
+   * of the key (`DiffPainter.keyedMove`): the note of the end the view stands at while it is in view (where a jump,
+   * Back or Forward landed, so a second press goes back; the note N or P stopped under), else the first one in view
+   */
+  const jumpMoveInView = () => {
+    const from = painter.keyedMove()
+    if (from !== null) {
+      jumpMove(prepared[from.file], from.end)
+    }
+  }
+
   useLayoutEffect(() => {
     const callbacks: PainterCallbacks = {
       onWindow: (first, last, when) => {
@@ -1235,6 +1348,7 @@ export function DiffView({
       },
       onFold: (index, fold, all) => (all ? expandAll(prepared[index]) : expandFold(prepared[index], fold)),
       onNoteToggle: (index, note, all) => toggleNote(prepared[index], note, all),
+      onMoveJump: (index, end) => jumpMove(prepared[index], end),
       onNote: (index, note) => {
         const target = prepared[index]?.section?.targets.get(note.block)
         const shown = target === undefined ? -1 : layout.indexOf(target)
@@ -1326,10 +1440,6 @@ export function DiffView({
   /** The trigger of the menu of the code, and what a menu key opens it on: the name at the selection and the point under it */
   const codeDocument = useRef<HTMLDivElement>(null)
   const keyedMenu = useRef<{ word: CodeWord | null; at: { x: number; y: number } } | null>(null)
-  const history = useRef<{ back: DeclarationPlace[]; forward: DeclarationPlace[] }>({ back: [], forward: [] })
-  const pendingReveal = useRef<DeclarationPlace | null>(null)
-  const [revealTick, setRevealTick] = useState(0)
-  const navigates = onGoToDeclaration !== undefined && scroll === "own"
   // ⌘ on macOS, where a Ctrl-click is the context menu; Ctrl elsewhere, the Meta key too
   const modifierHeld = (event: { metaKey: boolean; ctrlKey: boolean }) => event.metaKey || (!isMac && event.ctrlKey)
 
@@ -1366,36 +1476,6 @@ export function DiffView({
       }),
     )
     target.style.cursor = rects.length > 0 ? "pointer" : ""
-  }
-
-  /** Shows a place of the view: its file open, its fold expanded, then (`revealTick`) scrolled to and selected */
-  /** Shows `place`: the key of the section that shows it, undefined for a file the view does not show */
-  const revealPlace = (place: DeclarationPlace): string | undefined => {
-    const side = place.side === "old" ? OLD : NEW
-    const index = sectionOf(prepared, place.path, { side, line: place.line, unit: place.unit })
-    const file = prepared[index]
-    if (file === undefined) {
-      return undefined
-    }
-    if (file.collapsed) {
-      toggleFile(file.key)
-    }
-    const text = file.foldKey
-    const fold = file.rows?.segments.find(segment => segment.kind === "fold" && segment.row.lines[side]![0] <= place.line && place.line < segment.row.lines[side]![1])
-    if (text !== null && fold?.kind === "fold" && (getFoldLevels(text)[fold.row.gap] ?? 0) < EXPANDED) {
-      const levels = Array.from({ length: Math.max(getFoldLevels(text).length, fold.row.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
-      levels[fold.row.gap] = EXPANDED
-      setFoldLevels(text, levels)
-      setFolds(previous => new Map(previous).set(text, levels))
-    }
-    // an old line that Inline shows once, by its new line: its note opens, as its fold does, so its name can be selected
-    const note = side === OLD && text !== null && file.rows !== null ? noteOfLine(file.rows, place.line) : null
-    if (note !== null && text !== null && !getOpenNotes(text).has(note)) {
-      openNotes(file, new Set(getOpenNotes(text)).add(note))
-    }
-    pendingReveal.current = place
-    setRevealTick(tick => tick + 1)
-    return file.key
   }
 
   /** Go to Declaration or Find Usages of a word: the reveal of a target keeps the place of the name for Back */
@@ -1456,11 +1536,17 @@ export function DiffView({
     const at = keyed?.at ?? pointer.current ?? { x: 0, y: 0 }
     const word = keyed === null ? painter.wordAt(at.x, at.y) : keyed.word
     const target = word === null ? null : siteOf(word)
+    // the end of a move the menu opened on: a line of a move or the note at its end; of a menu key the line of a move
+    // the selection starts in
+    const moved = keyed === null ? painter.moveAt(at.x, at.y) : painter.moveAtSelection()
+    // the key of the moves does the same only from the note it takes now: the item names it there alone
+    const keyOfMove = moved !== null && moveKey !== undefined && painter.keyedMove()?.end === moved.end ? moveKey : null
     setCodeMenu(
       codeMenuItems({
         name: target === null ? null : word!.text,
         goToDeclaration: () => goTo(word, at),
         findUsages: onFindUsages === undefined ? null : () => goTo(word, at, onFindUsages),
+        moveEnd: moved === null ? null : { at: moved.end.at, go: () => jumpMove(prepared[moved.file], moved.end), key: keyOfMove },
       }),
     )
   }
@@ -1500,13 +1586,24 @@ export function DiffView({
       return
     }
     pendingReveal.current = null
-    const top = layout.rowTop(index, rowOfLine(rows, side, place.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-    painter.scrollTo(Math.max(top, layout.stopTop(index)))
-    // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
-    scroller.current?.focus({ preventScroll: true })
-    // once the row of the name is painted with its text, whenever that is
-    painter.selectWord(index, side, place.line, place.column, place.endColumn, place.name ?? null)
-  }, [layout, prepared, revealTick, painter, headerHeight])
+    // a line shown for itself: the row of words that says what it is (the note at an end of a move), else its own row
+    const row = place.wholeLine === true ? rowOfPlace(rows, side, place.line) : rowOfLine(rows, side, place.line)
+    const top = layout.rowTop(index, row) - layout.stickyTop - headerHeight - painter.viewportHeight() / 3
+    if (scroll === "own") {
+      painter.scrollTo(Math.max(top, layout.stopTop(index)))
+      // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
+      scroller.current?.focus({ preventScroll: true })
+    } else {
+      // a block of the scroller of its parent: what stands above the view there stays above the row, the focus where it is
+      painter.scrollTo(top)
+    }
+    if (place.wholeLine === true) {
+      painter.land(index, side, place.line)
+    } else {
+      // once the row of the name is painted with its text, whenever that is
+      painter.selectWord(index, side, place.line, place.column, place.endColumn, place.name ?? null)
+    }
+  }, [layout, prepared, revealTick, painter, headerHeight, scroll])
 
   /** Back (⌘[) and Forward (⌘]): the places of the jumps */
   const stepHistory = (direction: "back" | "forward") => {
@@ -1519,10 +1616,11 @@ export function DiffView({
       }
       return
     }
+    // where the view is: the name selected, else the line the last reveal showed for itself (an end of a move)
     const word = painter.wordAtSelection()
-    const current = word === null ? null : siteOf(word)
+    const current = (word === null ? null : siteOf(word))?.place ?? landedPlace.current
     if (current !== null) {
-      to.push(current.place)
+      to.push(current)
     }
     revealPlace(place)
   }
@@ -1593,6 +1691,9 @@ export function DiffView({
         const target = targets[clamped]
         if (target !== undefined && clamped >= 0) {
           changeCursor.current = { key, index: clamped }
+          // the stop under the note of a move (where its lines stand now): the key of the moves takes that note
+          const note = layout.files[fileIndex]!.rows?.moveNotes.find(({ row }) => row === target - 1)
+          painter.setMoveHand(note === undefined ? null : moveHandOf(key, note.end))
           visibleKey.current = key
           visiblePart.current = "card"
           visibleStep.current = undefined
@@ -1613,6 +1714,7 @@ export function DiffView({
       }
     },
     toggleNotes: toggleNotesInView,
+    jumpMove: jumpMoveInView,
     visibleStop: visibleNow,
     focus: () => scroller.current?.focus(),
     openFind,
@@ -2153,6 +2255,7 @@ const EMPTY_CALLBACKS: PainterCallbacks = {
   onFold: () => {},
   onNote: () => {},
   onNoteToggle: () => {},
+  onMoveJump: () => {},
   onFirstScreen: () => {},
   onWidthsCorrected: () => {},
 }

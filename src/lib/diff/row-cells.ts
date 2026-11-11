@@ -26,7 +26,8 @@ export interface RowCells {
   /**
    * The kind of the cell of a side (`data-cell`): IntelliJ's diff types `inserted`, `deleted`, `modified`,
    * `conflict`, or `context` and `filler`; our own `once` for a line that Inline shows once (a quiet run of the marks:
-   * the new line stands for the old lines too, so it is neither inserted nor unchanged)
+   * the new line stands for the old lines too, so it is neither inserted nor unchanged) and `moved` for a line of a
+   * move, at either end of it
    */
   cell: (row: LineRow, side: number) => string
   /** The inner ranges of the line of a side, `[start, end, kind, ...]` (`RANGE_STRIDE`); null for none */
@@ -75,7 +76,10 @@ export function fileLayoutOf(mode: DiffViewMode, oneSide: number | null): DiffVi
  * sides, as IntelliJ's `SimpleDiffChangeUi`: inserted when it has new lines only, deleted when it has old lines only,
  * modified when it has both. Unified and Inline colour a deleted line deleted and an inserted line inserted
  * (`DiffDrawUtil.createUnifiedChunkHighlighters`), and so does a file with one side, all of it one block. A line of a
- * quiet run of the marks (`tint: "quiet"`) is played down: it keeps its type and shows no inner range.
+ * quiet run of the marks (`tint: "quiet"`) is played down: it keeps its type and shows no inner range. A line of a
+ * move (`LineRow.move`) is `moved` in every layout, where it left and where it stands now, and its inner ranges are
+ * those of the move: what an edited line changed in on the way, never the ranges of its block, which compare it with
+ * lines it has nothing to do with.
  */
 export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | null = null): RowCells {
   const split = fileLayoutOf(mode, oneSide) === "split"
@@ -84,6 +88,10 @@ export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | 
     numbers: split ? [] : oneSide === null ? [OLD, NEW] : [oneSide],
     typed: split,
     cell: (row, side) => {
+      if (row.move !== null) {
+        // one column shows the line of the end; of the pair of an edited line the new one, with the old parts in it
+        return split && row.lines[side] == null ? "filler" : "moved"
+      }
       if (split) {
         if (row.lines[side] == null) {
           return "filler"
@@ -105,6 +113,11 @@ export function diffCells(diff: TextDiff, mode: DiffViewMode, oneSide: number | 
       // the ranges of a quiet line are whitespace between the same tokens: nothing in it is strong
       if (block === undefined || block.kind === "ignored" || line == null || row.tint === "quiet") {
         return null
+      }
+      if (row.move !== null) {
+        // the ranges of line i of the move, both lists empty when no line of it has one; none for a blank line beside it
+        const { move } = row.move
+        return nonEmpty(side === OLD ? move.oldRanges[line - move.oldStart] : move.newRanges[line - move.newStart])
       }
       return nonEmpty(side === OLD ? block.oldRanges[line - block.oldStart] : block.newRanges[line - block.newStart])
     },

@@ -18,28 +18,32 @@ import {
   RIGHT,
   rowAt,
   rowOfLine,
+  rowOfPlace,
   setFoldLevels,
   setOpenNotes,
 } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, Heading, LineRow, Row } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
-import { block, mergeBlock, NESTED_SCOPES, run, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, mergeBlock, move, NESTED_SCOPES, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 /**
  * A row as text: `4:4` context, `-4` deleted, `+4` added, `~4:4` inline, `4|_` split, `=_:4` ignored, `1x4` a line
  * shown once, `fold 0-16`; a note its tone and its words, a remark of the marks its kind, the old lines it hides and
- * whether it opens (`remark formatting 3-4 closed`); a changed line not in the full tint ends with ` pale`,
- * ` whitespace` or ` quiet`
+ * whether it opens (`remark formatting 3-4 closed`), the note at an end of a move its end too (`remark moved 20-24
+ * closed source`); a changed line not in the full tint ends with ` pale`, ` whitespace` or ` quiet`, a line of a move
+ * with ` away` where it left and ` here` where it stands now
  */
 function describeRow(row: Row): string {
   const line = (value: number | null | undefined) => (value === null || value === undefined ? "_" : String(value))
-  const tint = row.kind === "fold" || row.kind === "note" || row.tint === "full" ? "" : ` ${row.tint}`
+  const moved = row.kind === "fold" || row.kind === "note" || row.move === null ? "" : row.move.at === "source" ? " away" : " here"
+  const tint = row.kind === "fold" || row.kind === "note" ? "" : `${row.tint === "full" ? "" : ` ${row.tint}`}${moved}`
   switch (row.kind) {
     case "fold":
       return `fold ${row.lines[1]![0]}-${row.lines[1]![1]}${row.label === null ? "" : ` ${row.label}`}`
     case "note": {
       const { remark } = row
-      const said = remark === null ? "" : ` ${remark.kind} ${row.lines[0]![0]}-${row.lines[0]![1]}${remark.open === null ? "" : remark.open ? " open" : " closed"}`
+      const end = remark?.move == null ? "" : ` ${remark.move.at}`
+      const said = remark === null ? "" : ` ${remark.kind} ${row.lines[0]![0]}-${row.lines[0]![1]}${remark.open === null ? "" : remark.open ? " open" : " closed"}${end}`
       return `${row.tone}${row.label === "" ? "" : ` ${row.label}`}${said}`
     }
     case "context":
@@ -49,7 +53,7 @@ function describeRow(row: Row): string {
     case "added":
       return `+${line(row.lines[1])}${tint}`
     case "inline":
-      return `~${line(row.lines[0])}:${line(row.lines[1])}`
+      return `~${line(row.lines[0])}:${line(row.lines[1])}${moved}`
     case "changed":
       return `${line(row.lines[0])}|${line(row.lines[1])}${tint}`
     case "once":
@@ -287,12 +291,13 @@ describe("buildFileRows", () => {
   })
 })
 
+/** Every row of a diff in a mode, nothing folded; `open`: the notes opened, by the first old line each hides */
+const whole = (diff: ReturnType<typeof textDiff>, mode: DiffViewMode, open: number[] = [], units: Parameters<typeof buildFileRows>[4] = null) =>
+  buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED], false, units, new Set(open))
+/** Only the rows of the blocks: no unchanged line */
+const changed = (rows: FileRows) => outline(rows).filter(row => !/^\d+:\d+$/.test(row))
+
 describe("the marks of a diff in its rows", () => {
-  /** Every row of a diff in a mode, nothing folded; `open`: the notes opened, by the first old line each hides */
-  const whole = (diff: ReturnType<typeof textDiff>, mode: DiffViewMode, open: number[] = [], units: Parameters<typeof buildFileRows>[4] = null) =>
-    buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED], false, units, new Set(open))
-  /** Only the rows of the blocks: no unchanged line */
-  const changed = (rows: FileRows) => outline(rows).filter(row => !/^\d+:\d+$/.test(row))
   // a call of one line wrapped over three: the whole block is a quiet run of formatting, nothing of it to read
   const WRAPPED = textDiff(10, 12, [block(3, 4, 3, 6)], { runs: [run(3, 4, 3, 6)] })
   // three lines indented inside a new `if`: the `if` and its brace are read, the lines between them are quiet
@@ -474,6 +479,203 @@ describe("the marks of a diff in its rows", () => {
     expect([...getOpenNotes(WRAPPED)]).toEqual([3])
     expect(getFoldLevels(WRAPPED)).toEqual([])
     setOpenNotes(WRAPPED, new Set())
+  })
+})
+
+describe("the moves of a diff in its rows", () => {
+  // four lines leave the old lines 20..24 and stand at the new lines 5..9, as they were
+  const MOVED = textDiff(40, 40, [block(5, 5, 5, 9), block(20, 24, 24, 24)], { moves: [move(20, 5, 4)] })
+  // indented two columns, the third line edited on the way
+  const EDITED = textDiff(40, 40, [block(5, 5, 5, 9), block(20, 24, 24, 24)], {
+    moves: [move(20, 5, 4, { indent: 2, edited: [2], oldRanges: [[], [], [4, 9, 2], []], newRanges: [[], [], [6, 12, 2], []] })],
+  })
+
+  it("shows the lines of a move once in Inline, where they stand now, and one note that opens where they left", () => {
+    expect(outline(whole(MOVED, "inline"))).toEqual([
+      ...same(0, 5),
+      "remark moved 5-5 destination",
+      "+5 here",
+      "+6 here",
+      "+7 here",
+      "+8 here",
+      ...Array.from({ length: 15 }, (_, at) => `${5 + at}:${9 + at}`),
+      "remark moved 20-24 closed source",
+      ...same(24, 40),
+    ])
+    // opened, the lines that left show after their note, as in Unified; where they stand now nothing changes
+    expect(changed(whole(MOVED, "inline", [20]))).toEqual([
+      "remark moved 5-5 destination",
+      "+5 here",
+      "+6 here",
+      "+7 here",
+      "+8 here",
+      "remark moved 20-20 open source",
+      "-20 away",
+      "-21 away",
+      "-22 away",
+      "-23 away",
+    ])
+    // an edited line is the row of its two lines, pale as a line with inner ranges
+    expect(changed(whole(EDITED, "inline")).slice(0, 5)).toEqual(["remark moved 5-5 destination", "+5 here", "+6 here", "~22:7 here", "+8 here"])
+    const pair = rowAt(whole(EDITED, "inline"), 8) as LineRow
+    expect([pair.kind, pair.lines, pair.tint, pair.move?.at, pair.move?.move]).toEqual(["inline", [22, 7], "pale", "destination", EDITED.marks.moves[0]])
+  })
+
+  it("keeps every line of a move in Unified and Split, both ends rows of the move after a note that opens nothing", () => {
+    expect(changed(whole(EDITED, "unified"))).toEqual([
+      "remark moved 5-5 destination",
+      "+5 here",
+      "+6 here",
+      "+7 pale here",
+      "+8 here",
+      "remark moved 20-20 source",
+      "-20 away",
+      "-21 away",
+      "-22 pale away",
+      "-23 away",
+    ])
+    expect(changed(whole(EDITED, "split"))).toEqual([
+      "remark moved 5-5 destination",
+      "_|5 here",
+      "_|6 here",
+      "_|7 pale here",
+      "_|8 here",
+      "remark moved 20-20 source",
+      "20|_ away",
+      "21|_ away",
+      "22|_ pale away",
+      "23|_ away",
+    ])
+    // an opened note of Inline changes nothing where no line is hidden
+    expect(changed(whole(MOVED, "unified", [20]))).toEqual(changed(whole(MOVED, "unified")))
+  })
+
+  it("stops N and P where the lines stand now and never where they left, and lists the notes of both ends", () => {
+    for (const mode of ["inline", "unified", "split"] as const) {
+      const rows = whole(MOVED, mode)
+      // one stop, the first line of the move under its note; both blocks are changes of the file
+      expect([rows.changeStarts.map(start => describeRow(rowAt(rows, start))), rows.changes], mode).toEqual([[mode === "split" ? "_|5 here" : "+5 here"], 2])
+      expect(
+        rows.moveNotes.map(note => [note.end.at, describeRow(rowAt(rows, note.row))]),
+        mode,
+      ).toEqual([
+        ["destination", "remark moved 5-5 destination"],
+        ["source", mode === "inline" ? "remark moved 20-24 closed source" : "remark moved 20-20 source"],
+      ])
+    }
+    // only the note of Inline where the lines left opens: the key of the notes and ⌥-click take it
+    expect([whole(MOVED, "inline").notes, whole(MOVED, "inline").noteRows, whole(MOVED, "unified").notes]).toEqual([[[20, 24]], [25], []])
+    // a block that lost some of its lines is read from a line that stayed
+    const mixed = textDiff(50, 48, [block(10, 16, 10, 11), block(35, 35, 30, 33)], { moves: [move(11, 30, 3)] })
+    const rows = whole(mixed, "inline")
+    expect(changed(rows)).toEqual(["-10", "+10", "remark moved 11-14 closed source", "-14", "-15", "remark moved 35-35 destination", "+30 here", "+31 here", "+32 here"])
+    expect(rows.changeStarts.map(start => describeRow(rowAt(rows, start)))).toEqual(["-10", "+30 here"])
+    // a line after the note of the lines that left is its own row for a jump, never that note: the note stands
+    // before other lines than the one asked
+    expect([rowOfPlace(rows, OLD, 14), describeRow(rowAt(rows, rowOfPlace(rows, OLD, 14))), describeRow(rowAt(rows, rowOfPlace(rows, OLD, 11)))]).toEqual([
+      rowOfLine(rows, OLD, 14),
+      "-14",
+      "remark moved 11-14 closed source",
+    ])
+  })
+
+  it("finds an old line of a move at the note that stands for it, and lands a jump to an end on its note", () => {
+    const closed = whole(MOVED, "inline")
+    // the lines that left are behind their note; the new lines have their rows
+    expect([20, 21, 23].map(line => rowOfLine(closed, OLD, line))).toEqual([25, 25, 25])
+    expect([noteOfLine(closed, 21), noteOfLine(closed, 24), rowOfLine(closed, NEW, 5), rowOfLine(closed, NEW, 8)]).toEqual([20, null, 6, 9])
+    // a jump to an end lands on its note: the row of words right above the first line of the end, or the note that
+    // stands for the lines
+    expect([rowOfPlace(closed, NEW, 5), rowOfPlace(closed, OLD, 20)]).toEqual([5, 25])
+    const open = whole(MOVED, "inline", [20])
+    expect([rowOfLine(open, OLD, 20), rowOfPlace(open, OLD, 20), rowOfLine(open, OLD, 22)]).toEqual([26, 25, 28])
+    // any other line is its own row: the second line of the move, an unchanged line, the first row of the file
+    expect([rowOfPlace(open, NEW, 6), rowOfPlace(open, OLD, 21), rowOfPlace(open, NEW, 12), rowOfPlace(open, NEW, 0)]).toEqual([7, 27, 13, 0])
+    // the old line of an edited pair is found where the lines left, never in the row of the pair
+    const edited = whole(EDITED, "inline", [20])
+    expect([rowOfLine(edited, OLD, 22), describeRow(rowAt(edited, rowOfLine(edited, OLD, 22)))]).toEqual([28, "-22 pale away"])
+  })
+
+  it("says the words of an end of a move that starts its block in the heading of the change, and leaves a move with an end in no block out", () => {
+    const units = { marks: new Map([[1, [{ name: "describe", words: "removed" }]]]), elsewhere: new Map<number, string>() }
+    expect(changed(whole(MOVED, "inline", [], units)).slice(5)).toEqual(["unit describe — removed moved 20-24 closed source"])
+    expect(changed(whole(MOVED, "unified", [], units)).slice(5, 7)).toEqual(["unit describe — removed moved 20-20 source", "-20 away"])
+    // a block another section shows is one row of words: its move has no note here
+    const elsewhere = { marks: new Map<number, Heading>(), elsewhere: new Map([[1, "Shown in part 2"]]) }
+    const rows = whole(MOVED, "inline", [], elsewhere)
+    expect([changed(rows).slice(5), rows.moveNotes.map(note => note.end.at)]).toEqual([["elsewhere Shown in part 2"], ["destination"]])
+    const stray = textDiff(40, 40, [block(5, 5, 5, 9), block(20, 24, 24, 24)], { moves: [move(18, 5, 4), move(20, 9, 1)] })
+    expect(changed(whole(stray, "inline"))).toEqual(["+5", "+6", "+7", "+8", "-20", "-21", "-22", "-23"])
+  })
+
+  it("lands a jump on the note of the other end by the line that end has, also where blank lines of the move reach out of its block", () => {
+    // marks no engine gives: two blank lines before the old lines and three after them, the blocks hold none of them
+    const tight = textDiff(40, 40, [block(5, 5, 5, 9), block(20, 24, 24, 24)], { moves: [move(20, 5, 4, { blanksBefore: 2, blanksAfter: 3 })] })
+    for (const mode of ["inline", "unified", "split"] as const) {
+      const rows = whole(tight, mode)
+      const [stands, left] = rows.moveNotes
+      // each note names the first line the other end shows, and a jump to that line lands on the note there
+      expect([stands!.end.other, left!.end.other], mode).toEqual([
+        [20, 24],
+        [5, 9],
+      ])
+      expect([rowOfPlace(rows, OLD, stands!.end.other[0]), rowOfPlace(rows, NEW, left!.end.other[0])], mode).toEqual([left!.row, stands!.row])
+    }
+  })
+
+  it("draws a move with an end in a block of the imports alone that a review plays down at neither end: every line a row of its block, no note; elsewhere the move shows", () => {
+    const played = (diff: ReturnType<typeof textDiff>, mode: DiffViewMode) => buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED], true)
+    const stops = (rows: FileRows) => rows.changeStarts.map(start => describeRow(rowAt(rows, start)))
+    // the import of line 3 moves up to line 1: block 0 adds it, block 1 deletes it, both blocks of the imports alone
+    const imports = textDiff(10, 10, [block(1, 1, 1, 2), block(3, 4, 4, 4)], { importBlocks: [0, 1], moves: [move(3, 1, 1)] })
+    for (const mode of ["inline", "unified"] as const) {
+      const rows = played(imports, mode)
+      // every line of both blocks, pale as a change of whitespace alone: no line left out, none in the colour of a move
+      expect([changed(rows), rows.changeStarts, rows.moveNotes, rows.notes], mode).toEqual([["+1 whitespace", "-3 whitespace"], [], [], []])
+    }
+    expect(changed(played(imports, "split"))).toEqual(["_|1 whitespace", "3|_ whitespace"])
+    // outside a review with its plan the same blocks are changes as any: the move shows, a stop where the line stands
+    const plain = whole(imports, "inline")
+    expect([changed(plain), stops(plain)]).toEqual([["remark moved 1-1 destination", "+1 here", "remark moved 3-4 closed source"], ["+1 here"]])
+
+    // an import leaves a block of the imports alone for a block with code beside it: the block that is played down
+    // shows its line as it did, and the line where it stands now is an inserted line of its block, read with it
+    const into = textDiff(12, 12, [block(1, 2, 1, 1), block(6, 7, 5, 7)], { importBlocks: [0], moves: [move(1, 5, 1)] })
+    for (const [mode, rows] of [
+      ["inline", ["-1 whitespace", "-6", "+5", "+6"]],
+      ["unified", ["-1 whitespace", "-6", "+5", "+6"]],
+      ["split", ["1|_ whitespace", "6|5", "_|6"]],
+    ] as const) {
+      const shown = played(into, mode)
+      expect([changed(shown), stops(shown), shown.moveNotes, shown.notes], mode).toEqual([rows, [rows[1]], [], []])
+    }
+    expect(changed(whole(into, "inline"))).toEqual(["remark moved 1-2 closed source", "remark moved 6-6 destination", "+5 here", "-6", "+6"])
+
+    // four imports leave a block with code (a line changed before them) for a block of the imports alone, the second
+    // edited on the way. The block they left shows them as its deleted lines, each with its row: none behind a note
+    // that says they moved, since no row where they stand now says so or shows what the edited line was
+    const out = textDiff(20, 20, [block(1, 6, 1, 2), block(8, 8, 4, 8)], {
+      importBlocks: [1],
+      moves: [move(2, 4, 4, { edited: [1], oldRanges: [[], [7, 10, 2], [], []], newRanges: [[], [7, 12, 2], [], []] })],
+    })
+    const stands = ["+4 whitespace", "+5 whitespace", "+6 whitespace", "+7 whitespace"]
+    for (const [mode, rows] of [
+      ["inline", ["-1", "-2", "-3", "-4", "-5", "+1", ...stands]],
+      ["unified", ["-1", "-2", "-3", "-4", "-5", "+1", ...stands]],
+      ["split", ["1|1", "2|_", "3|_", "4|_", "5|_", ...stands.map(row => `_|${row.slice(1)}`)]],
+    ] as const) {
+      const shown = played(out, mode)
+      // the one stop is the block with code, read from its first row; the imports where they stand are passed
+      expect([changed(shown), stops(shown), shown.moveNotes, shown.notes], mode).toEqual([rows, [rows[0]], [], []])
+      // the old line of the edited import is its own row, in the block it left
+      expect(describeRow(rowAt(shown, rowOfLine(shown, OLD, 3))), mode).toBe(mode === "split" ? "3|_" : "-3")
+      expect([noteOfLine(shown, 3), rowOfPlace(shown, OLD, 2)], mode).toEqual([null, rowOfLine(shown, OLD, 2)])
+    }
+    // outside a review the move shows at both ends, the edited import as the row of its two lines where it stands
+    expect(changed(whole(out, "inline"))).toEqual(["-1", "+1", "remark moved 2-6 closed source", "remark moved 8-8 destination", "+4 here", "~3:5 here", "+6 here", "+7 here"])
+    // a move between two blocks with code in the same review is drawn as anywhere
+    const code = textDiff(20, 20, [block(1, 6, 1, 2), block(8, 8, 4, 8), block(12, 13, 12, 13)], { importBlocks: [2], moves: [move(2, 4, 4)] })
+    expect(played(code, "inline").moveNotes.map(note => note.end.at)).toEqual(["source", "destination"])
   })
 })
 

@@ -56,10 +56,35 @@ export function findMarks(scope: Locator | Page, which: "every" | "current" = "e
 /**
  * The words of the notes that say what the marks of the diff say of the lines after them ("Formatting only · 3
  * lines"), of one kind of run when given: a button where the note opens (Inline shows its run once: `aria-expanded`
- * says whether its old lines show), plain words elsewhere
+ * says whether its old lines show), plain words elsewhere. Of the note at an end of a move (`moved`) the words before
+ * the place it names ("5 lines moved", "Moved"); `moveNotes` gives its whole row
  */
-export function remarks(scope: Locator | Page, kind?: "formatting" | "comments"): Locator {
+export function remarks(scope: Locator | Page, kind?: "formatting" | "comments" | "moved"): Locator {
   return scope.locator(kind === undefined ? "[data-testid=diff-remark]" : `[data-testid=diff-remark][data-kind=${kind}]`)
+}
+
+/** An end of a move: `source` where its lines left, `destination` where they stand now */
+export type MoveEndName = "source" | "destination"
+
+/**
+ * The rows of the notes at the ends of the moves in `scope` ("5 lines moved to line 6", "Moved from line 22 ·
+ * re-indented"), of one end when given (`data-move`); the row a jump to an end landed on has `data-landed`
+ */
+export function moveNotes(scope: Locator | Page, at?: MoveEndName): Locator {
+  return scope.locator(`${diffRowSelector("note")}${at === undefined ? "[data-move]" : `[data-move=${at}]`}`)
+}
+
+/**
+ * The buttons of the notes of the moves in `scope` that show the other end of their move ("to line 6", "from line
+ * 22"); in a review the one the key of the moves takes names the key (`aria-keyshortcuts`)
+ */
+export function moveTargets(scope: Locator | Page): Locator {
+  return scope.getByTestId("diff-move-target")
+}
+
+/** The cells of the lines of a move (`data-cell="moved"`), of one end and of a side when given */
+export function movedSides(scope: Locator | Page, at?: MoveEndName, side?: number): Locator {
+  return scope.locator(`${diffSideSelector(side)}[data-cell="moved"]${at === undefined ? "" : `[data-move=${at}]`}`)
 }
 
 /** The hits of the find in the old lines a note stands for, named after its words ("1 match in the old line"); `data-hit` says whether the current one is among them */
@@ -92,6 +117,26 @@ export function visualLines(scope: Locator | Page): Locator {
 /** The horizontal scroll bars of a file: one in Unified and Inline, one per side in Split */
 export function horizontalBars(scope: Locator | Page, side?: number): Locator {
   return scope.locator(side === undefined ? "[data-testid=diff-hscroll]" : `[data-testid=diff-hscroll][data-side="${side}"]`)
+}
+
+/**
+ * The text of `row` is wider than its column, and the horizontal scroll bar of the column (`bar`), moved to its end,
+ * shows the end of the text: the bar reaches as far as the row is wide
+ */
+export async function expectBarReachesEndOf(row: Locator, bar: Locator): Promise<void> {
+  /** How far the end of the text of the row is past the right edge of its column, in px */
+  const cutOff = () =>
+    row.evaluate(element => {
+      const text = document.createRange()
+      text.selectNodeContents(element.querySelector("[data-testid=diff-code][data-side]")!)
+      return Math.round(text.getBoundingClientRect().right - element.getBoundingClientRect().right)
+    })
+  await expect.poll(cutOff).toBeGreaterThan(0)
+  await expect(bar).toHaveCount(1)
+  await bar.evaluate(element => {
+    element.scrollLeft = element.scrollWidth
+  })
+  await expect.poll(cutOff).toBeLessThanOrEqual(0)
 }
 
 /** The buttons of the folds in `scope`, each "⋯ N unchanged lines" */

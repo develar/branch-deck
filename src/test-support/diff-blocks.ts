@@ -1,4 +1,4 @@
-import type { DiffBlock, LineRun, Scope, TextDiff } from "@/lib/diff/file-diff-model"
+import type { DiffBlock, LineMove, LineRun, Scope, TextDiff } from "@/lib/diff/file-diff-model"
 import type { MergeBlock, TextMerge } from "@/lib/diff/file-merge-model"
 
 /** A block of the diff engine: a change by default, without inner ranges */
@@ -12,12 +12,33 @@ export function run(oldStart: number, oldEnd: number, newStart: number, newEnd: 
 }
 
 /**
- * Where the reading of each block starts, as the engine says it (`text_diff::model::starts_of`): the quiet runs cut a
- * block into parts, the start is the first new line of the first part with a line, else its first old line; an
- * ignored block and one whose every line is in a quiet run have none. Flat `[block, side, line]`
+ * A move of the marks of a diff: `len` lines from the old line `oldStart` stand from the new line `newStart`, as they
+ * were by default (no shift of the indent, no blank line beside them, no edited line)
  */
-export function startsOf(blocks: readonly DiffBlock[], runs: readonly LineRun[]): number[] {
+export function move(oldStart: number, newStart: number, len: number, extra: Partial<LineMove> = {}): LineMove {
+  return { oldStart, newStart, len, indent: 0, blanksBefore: 0, blanksAfter: 0, edited: [], oldRanges: [], newRanges: [], ...extra }
+}
+
+/**
+ * Where the reading of each block starts, as the engine says it (`text_diff::model::starts_of`): the quiet runs cut a
+ * block into parts, the start is the first new line of the first part with a line, else its first old line that no
+ * move took; an ignored block, one whose every line is in a quiet run and one whose old lines the moves took all have
+ * none. Flat `[block, side, line]`
+ */
+export function startsOf(blocks: readonly DiffBlock[], runs: readonly LineRun[], moves: readonly LineMove[] = []): number[] {
   const starts: number[] = []
+  // the old lines of the moves, the blank lines that left with them too (`LineMove::old_lines`)
+  const left = moves.map(it => [it.oldStart - it.blanksBefore, it.oldStart + it.len + it.blanksAfter] as const).toSorted((a, b) => a[0] - b[0])
+  /** The first line of `[from, to)` that no move took; `to` when none */
+  const firstKept = (from: number, to: number) => {
+    let line = from
+    for (const [start, end] of left) {
+      if (start <= line && line < end) {
+        line = end
+      }
+    }
+    return Math.min(line, to)
+  }
   blocks.forEach((it, index) => {
     if (it.kind === "ignored") {
       return
@@ -30,8 +51,10 @@ export function startsOf(blocks: readonly DiffBlock[], runs: readonly LineRun[])
         starts.push(index, 1, newLine)
         return
       }
-      if (oldLine < (part?.oldStart ?? it.oldEnd)) {
-        starts.push(index, 0, oldLine)
+      const oldEnd = part?.oldStart ?? it.oldEnd
+      const kept = firstKept(oldLine, oldEnd)
+      if (kept < oldEnd) {
+        starts.push(index, 0, kept)
         return
       }
       oldLine = part?.oldEnd ?? oldLine
@@ -41,7 +64,7 @@ export function startsOf(blocks: readonly DiffBlock[], runs: readonly LineRun[])
   return starts
 }
 
-/** The text diff of two texts of these line counts with these blocks, and the runs of its marks; its starts as the engine gives them */
+/** The text diff of two texts of these line counts with these blocks, and the runs and the moves of its marks; its starts as the engine gives them */
 export function textDiff(
   oldLineCount: number,
   newLineCount: number,
@@ -52,7 +75,8 @@ export function textDiff(
     emptyLastLine = false,
     importBlocks = [],
     runs = [],
-  }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[]; runs?: LineRun[] } = {},
+    moves = [],
+  }: { oldScopes?: Scope[]; newScopes?: Scope[]; emptyLastLine?: boolean; importBlocks?: number[]; runs?: LineRun[]; moves?: LineMove[] } = {},
 ): TextDiff {
   return {
     oldLineCount,
@@ -67,7 +91,7 @@ export function textDiff(
     importBlocks,
     oldScopes,
     newScopes,
-    marks: { runs, moves: [], renames: [], starts: startsOf(blocks, runs) },
+    marks: { runs, moves, renames: [], starts: startsOf(blocks, runs, moves) },
   }
 }
 

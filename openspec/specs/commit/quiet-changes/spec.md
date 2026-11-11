@@ -1,6 +1,6 @@
 ---
 name: Quiet Changes
-description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the stops of N and P, the count of what is left to read, the find, the copy and the quiet colour.
+description: Requirements for the marks of a diff that say what a reviewer may pass; the runs of lines that changed in their formatting alone, proven by the tokens of both sides and quiet, the runs that changed in their comments alone, a label, a block cut into runs at the line boundaries both sides share, the lines that moved within a file, exact, indented or with a few edited lines, never quiet, the line the reading of each block starts at, what is never marked, the question a block is asked before the tokens of its file are read, the limits by work, which the time of a comparison never changes, and what the views draw of the marks; a note before the lines of each run, a quiet run shown once in Inline and played down elsewhere, the key that shows its old lines, the lines of a move shown once where they stand now with a note at each end that shows the other, the stops of N and P, the count of what is left to read, the find, the copy, the quiet colour and the colour of a move.
 style: plain-1
 targets:
   - crates/text-diff/src/model.rs
@@ -13,8 +13,12 @@ targets:
   - crates/file-diffs/benches/marks_bench.rs
   - crates/test-utils/src/repo_template.rs
   - src/lib/diff/block-parts.ts
+  - src/lib/diff/rows.ts
+  - src/lib/diff/row-cells.ts
+  - src/lib/diff/code-menu.ts
   - src/presenters/diff-marks.ts
   - src/components/diff/diff-painter.ts
+  - src/components/diff/DiffView.tsx
   - src/components/diff/diff-view.css
   - src/lib/diff/layout.ts
   - src/lib/review-keys.ts
@@ -34,10 +38,9 @@ reviewer who passes a quiet block that hid a change has reviewed nothing. This s
 blocks, decided in Rust for every view: which lines changed in their formatting alone (quiet), which in their
 comments alone (a label), which lines moved within the file (a label: where lines stand is behaviour), and where the
 reading of each block starts; and what a view draws of it (the group Views): a note before the lines of each run, a
-quiet run played down, the stops of N and P and the count of what is left to read. The page words what Rust decided
-and decides nothing. No view draws a move yet: its lines show as the deleted and the added lines they are, and N and
-P pass the block they left. What a view draws of a move, and the marks of renamed names, are the next stages of
-[Diff View](../../../../docs/design/diff-view.md#marks).
+quiet run played down, the lines of a move in a colour of their own with a note at each end that shows the other,
+the stops of N and P and the count of what is left to read. The page words what Rust decided and decides nothing.
+The marks of renamed names are the next stage of [Diff View](../../../../docs/design/diff-view.md#marks).
 
 ## Goals
 
@@ -48,8 +51,9 @@ P pass the block they left. What a view draws of a move, and the marks of rename
 - The same marks of the same blocks on every machine and under every load: limits by work, never by time.
 - A file that cannot hold a run costs no parse, and the moves of a file cost none at all.
 - A function that moved is read once, where it stands now, with what changed in it on the way.
-- Every line that is hidden can be shown where it is: only Inline hides a line, the old form of a quiet run, behind
-  a note that opens.
+- Every line that is hidden can be shown where it is: only Inline hides a line, the old form of a quiet run and the
+  lines a move took, each behind a note that opens.
+- The two ends of a move are one step apart: the note at each end shows the other.
 - No new setting: the marks are drawn in every layout as the layout shows lines.
 
 ## Non-goals
@@ -76,8 +80,10 @@ P pass the block they left. What a view draws of a move, and the marks of rename
   than the move says is a range of an edited line.
 - **A start** is the line the reading of a block starts at: its first line that is in no quiet run and, of its old
   lines, that no move took.
-- **A note** is a row of words between the lines of a diff that says what the lines after it changed in. **A stop**
-  is where N and P land: the row of a start in the layout.
+- **A note** is a row of words between the lines of a diff that says what the lines after it changed in, or, at an
+  end of a move, where its other end is. **A stop** is where N and P land: the row of a start in the layout.
+- **The ends of a move**: where its lines left (its old lines, in the block that deletes them) and where they stand
+  now (its new lines, in the block that adds them).
 
 ## Requirements
 
@@ -679,7 +685,7 @@ after a note that opens nothing: no layout hides a line of it.
 
 ### Requirement: Views: The words of a run that starts its block join the heading of the change
 
-In a section of a review, a run that starts a block with a heading MUST say its words in the row of that heading,
+In a section of a review, a run or an end of a move that starts a block with a heading MUST say its words in the row of that heading,
 after it, and open from there: no second row of words stands under the heading. A run after the first lines of the
 block keeps its own note.
 
@@ -696,9 +702,14 @@ block keeps its own note.
 - **AND** the click shows the old line of the statement, and no second row of words comes
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`a run that starts its block says its words in the heading of the change, and opens its old line from there`)
 
+#### Scenario: A heading and an end of a move
+- **WHEN** a block with a heading is the lines a move took, in Inline and in Unified
+- **THEN** one row of words stands before it, the heading then the words of the move, which opens the old lines in Inline; no second row of words comes
+  [@test] src/lib/diff/rows.test.ts (`says the words of an end of a move that starts its block in the heading of the change, and leaves a move with an end in no block out`)
+
 ### Requirement: Views: An old line shown once is found at the note that stands for it
 
-An old line of a quiet run that Inline shows once MUST resolve to the note of its run: the scroll position keeps a
+An old line of a quiet run that Inline shows once, and one a move took, MUST resolve to the note that stands for it: the scroll position keeps a
 note at the top by that line, and a reveal of a name in such a line opens the note, as it expands a fold, and selects
 the name in the line. A row of words that stands for no line MUST stay at the top across a new layout of the same
 rows.
@@ -725,11 +736,19 @@ rows.
 - **THEN** the note opens and the name is selected in the old line
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`Back to a name of an old line that a closed note stands for opens the note and selects the name in the line`)
 
+#### Scenario: A line a move took
+- **WHEN** the row of an old line of a move is asked, the note where the lines left closed and opened, and of the old line of an edited line of the move
+- **THEN** it is the note while it stands for the line, and the row of the line where it left once it has one, never the row of its pair where the lines stand now
+- **AND** a note at the top of the view stays there by that line across a new layout, the note opened or in Unified; the note where the lines stand now by the first of them
+  [@test] src/lib/diff/rows.test.ts (`finds an old line of a move at the note that stands for it, and lands a jump to an end on its note`)
+  [@test] src/lib/diff/layout.test.ts (`keeps the note of the lines a move took at the top by the old line it stands for, and the note of where they stand by the line after it; each a row`)
+
 ### Requirement: Views: The find searches the old lines a note stands for
 
-The find MUST search the old lines of a quiet run that Inline shows once, as hits of the old side before the hits of
-its new lines. A step to such a hit lands on the note, which names the hits it holds ("1 match in the old line") and
-marks the current one. Once the note is opened the same hits are in the old lines.
+The find MUST search the old lines a note of Inline stands for (of a quiet run shown once, before the hits of its new
+lines; of a move, where its lines left), as hits of the old side. A step to such a hit lands on the note, which names the hits it holds ("1 match in the old line") and
+marks the current one; once the note is opened the same hits are in the old lines. The row of an edited line of a
+move MUST be searched by its new line alone: a hit of its old line is one hit, where the line left.
 
 #### Scenario: The hits of a hidden line
 - **WHEN** the query is in the old line of a quiet run, in Inline, the note closed and opened, and in Unified and Split
@@ -745,10 +764,38 @@ marks the current one. Once the note is opened the same hits are in the old line
 - **AND** a text of both forms of the call is found at the note and in the new line
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`the find searches the old line a note stands for and lands on the note; opened, the hit is in the line`)
 
+#### Scenario: The lines a move took
+- **WHEN** the query is in a line of a move, in Inline with the note where the lines left closed and opened, and in Unified and Split
+- **THEN** the line is found where it stands now and, a hit of the old side, at the note that stands for it where it left, or in its own row once the note is opened and where every line stays
+  [@test] src/lib/diff/find.test.ts (`searches the lines that left at the note that stands for them in Inline, after the lines where they stand now`, `finds the lines that left by their own rows once the note is opened, and where every line stays`)
+
+#### Scenario: The word an edited line of a move lost
+- **WHEN** the query is the word an edited line of a move lost, and text both its lines have, the note where the lines left closed and opened
+- **THEN** the word is one hit, of the old line, at the row of the note, which counts one match, or at the row of the old line once the note is opened; never a second hit in the row of the two lines
+- **AND** the text both lines have is found in the new line of the row and in the old line where it left, no hit twice
+- **AND** the row of the two lines marks of its old line the struck-through parts alone, the current hit among them
+  [@test] src/lib/diff/find.test.ts (`searches the lines that left at the note that stands for them in Inline, after the lines where they stand now`, `finds the lines that left by their own rows once the note is opened, and where every line stays`)
+  [@test] src/lib/diff/line-parts.test.ts (`keeps of the hits of the old line of a pair its own alone, the current one among them, for the row of an edited line of a move`)
+
+#### Scenario: A step to the word an edited line lost
+- **GIVEN** a commit that moves a function from the end of its class to its start, a word of one line another, every function between the ends changed
+- **WHEN** the user finds the old word in the review, presses Enter twice, then opens the note
+- **THEN** the find counts one result, marked in the row of the two lines where the line stands now, struck through; the step scrolls to the note where the lines left, which names "1 match in the old lines", the current hit, and a second step stays there
+- **AND** opened, the hit is marked in the old line, still the one result
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`the find counts the word an edited line of a move lost once, marks it in the row of its two lines and lands on the note where the line left`)
+
+#### Scenario: A step lands on the note of a move
+- **WHEN** the user finds "fun accounts" in the review of the `commit_marks` template, presses Enter twice, then opens the note
+- **THEN** the first step marks the line where it stands now, the second goes to the note where the lines left, which names "1 match in the old lines", the current hit
+- **AND** opened, the hit is marked in the old line, still the current one, and the note names none
+- **AND** "val text", which both lines of the edited line of `describe` have, is two results: the first step marks it in the row of the two lines, the second at the note where the lines left, the row marking it as a hit and no more as the current one
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`the find searches the lines a move took at the note that stands for them and lands on it; opened, the hit is in the line`)
+
 ### Requirement: Views: A copy takes the lines the view shows
 
 A copy MUST give the lines the rows show: of a quiet run of Inline its new lines, its old lines too once its note is
-opened and where every line stays. A note gives no text.
+opened and where every line stays; of a move the lines once, where they stand now, and where they left too once
+their note is opened and where every line stays. A note gives no text.
 
 #### Scenario: A selection over a quiet run
 - **WHEN** the user selects from the note of the wrapped call to the end of its last line and copies, the note closed, then opened
@@ -756,11 +803,20 @@ opened and where every line stays. A note gives no text.
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`a copy takes what a quiet run shows: its new lines, and its old line once the note is opened`)
   [@test] src/lib/diff/copy-text.test.ts (`copies what a quiet run shows: its new lines alone in Inline, its old lines too once its note is opened or where every line stays`)
 
+#### Scenario: The lines of a move
+- **WHEN** the user copies the side of Ledger.kt of the `commit_marks` template in a review, the notes closed, then with the note where `accounts()` left opened
+- **THEN** the first copy holds the first line of `accounts()` once and no old line of `describe`, and no words of a note
+- **AND** the second holds the line twice, where it stands now and where it left
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a copy takes the lines of a move once, where they stand now, and the lines that left too once their note is opened`)
+  [@test] src/lib/diff/copy-text.test.ts (`copies what a move shows: its lines once where they stand now in Inline, the lines that left too once their note is opened or where every line stays`)
+
 ### Requirement: Views: A quiet line and a note are named to a screen reader
 
 A line of a quiet run MUST say what it is to a screen reader after its type ("inserted, formatting only"; a line
 shown once "formatting only"), as a changed line says its type. A note that opens MUST be a button named by its words
-and by what a press does, with its expanded state.
+and by what a press does, with its expanded state. A line of a move MUST say which end of it the line is at and
+that it was edited on the way ("moved away", "moved here, edited on the way"), and the place its note names is a
+button named by where it goes.
 
 #### Scenario: The wrapped call
 - **WHEN** Inline shows the wrapped call
@@ -768,17 +824,26 @@ and by what a press does, with its expanded state.
 - **AND** the note is the button "Formatting only, 3 lines: Show the old line", not expanded; opened, "… Hide the old line", expanded
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`Inline shows a wrapped call once, played down after its note, and a click on the note shows and hides its old line`)
 
+#### Scenario: A move
+- **WHEN** Inline shows the moves of the `commit_marks` template
+- **THEN** their lines carry the end of the move they are at, which the generated content of the line reads out
+- **AND** the note where `accounts()` left is the button "5 lines moved to line 6: Show the 5 old lines", not expanded; opened, "… Hide the 5 old lines", expanded
+- **AND** the places are the buttons "Go to line 6, where the lines stand now" and "Go to line 22, where the lines were"
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`Inline shows the lines of a move once where they stand now, an edited one as the row of its two lines, and one note that opens where they left`, `a click on the place a note of a move names shows its other end and marks the note there, without a key in the preview`)
+
 ### Requirement: Views: N and P stop where the reading of a block starts
 
 N and P MUST stop only at the starts of a diff: at the first row of lines of what is read from the line `starts`
 names. Rust cuts a block by its quiet runs alone, so lines deleted before a label are read from the first of them,
-and one column shows the old lines of a part first. A block without a start is passed, and so are a block of the
-imports alone in a review with its plan and a block another section shows.
+and one column shows the old lines of a part first; the lines a move took end what is read before them. A block
+without a start is passed, and so are a block of the imports alone in a review with its plan and a block another
+section shows.
 
 #### Scenario: The stops of the template
 - **WHEN** the user presses N through the review of the `commit_marks` template, then P
 - **THEN** N stops in Ledger.kt as many times as its header says is left to read, fewer than its eleven blocks, which hold the wrapped call, then three times in Report.kt and once in Store.kt
 - **AND** each stop is a changed line four rows below the header of its file, after a row that is none, further down than the stop before it; no line of the wrapped call is one
+- **AND** `accounts()` and `describe`, which moved, are stops where they stand now, each at its first line under the note of its move, and no stop where they left
 - **AND** P goes back through the same stops, each at the row N showed
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`N and P stop where the reading of a block starts and pass the wrapped call; the header counts the same stops`)
 
@@ -808,6 +873,13 @@ imports alone in a review with its plan and a block another section shows.
 - **WHEN** a file no grammar reads indents two lines again, between a file changed before it and one after it
 - **THEN** its lines are pale with the indentation in the full colour, without a note or a quiet line, and N stops at them
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`stays the pale stop it was: no note, no quiet line, and N stops at it`)
+
+#### Scenario: The lines of a move
+- **WHEN** a block is the lines of a move where they stand now, a block lost every old line to a move, and a block lost some of its lines, in each layout
+- **THEN** the first stops at the first line of the move, under its note; the second has no stop; the third stops at a line that stayed, one column at the old line of that part first
+- **AND** a block that starts with lines a move took is read from the line after them, the lines shown or behind their note
+  [@test] src/lib/diff/rows.test.ts (`stops N and P where the lines stand now and never where they left, and lists the notes of both ends`)
+  [@test] src/lib/diff/block-parts.test.ts (`cuts the lines of no run at the ends of the moves, each on its own side, and reads a block from its first line no move took`)
 
 ### Requirement: Views: A file says how many of its changes are left to read
 
@@ -841,7 +913,8 @@ read", in full in its hover and its description ("10 of 11 changes to read"). A 
 
 A note MUST be one row, and a line shown once as many visual lines as its new line takes, so every offset of the
 view is known before a paint. The one column of Inline MUST scroll sideways no further for a pair that a quiet run
-shows once.
+shows once, and as far as the row of an edited line of a move, the pair of its two lines, and as far as the pair of a
+block in which a review with its plan draws no move.
 
 #### Scenario: Heights
 - **WHEN** a quiet run of Inline is laid out, with soft wraps off and on
@@ -853,6 +926,28 @@ shows once.
 - **THEN** the widest row of Inline counts the row of the other pairs alone
   [@test] src/lib/diff/inline-rows.test.ts (`counts no row of a pair in a quiet run, which Inline shows once by its new line`)
 
+#### Scenario: The rows of a move
+- **WHEN** a move is laid out in Inline, with soft wraps off and on
+- **THEN** the note where its lines left and the note where they stand now are a row each, a line of the move as many visual lines as its text takes
+  [@test] src/lib/diff/layout.test.ts (`keeps the note of the lines a move took at the top by the old line it stands for, and the note of where they stand by the line after it; each a row`)
+
+#### Scenario: The row of an edited line of a move
+- **WHEN** a line of a move was edited on the way, and when it moved as it was
+- **THEN** the widest row of Inline counts the first, its new line with the deleted part of its old line, and no row of the second
+  [@test] src/lib/diff/inline-rows.test.ts (`counts the row of an edited line of a move, the pair of its old line and its new one where the line stands now`)
+  [@test] src/lib/diff/block-parts.test.ts (`lists the edited lines of the moves that stand in a block as rows of two lines, with the ranges of their move`)
+
+#### Scenario: The widest row of Inline in a review with its plan
+- **WHEN** the engine pairs the two lines of a block of the imports alone and the marks call its old line a move, or the move stands in such a block
+- **THEN** the widest row of Inline counts the row of the pair, which a review with its plan shows since it draws no move there, though outside a review the move takes the old line of the pair
+  [@test] src/lib/diff/inline-rows.test.ts (`counts the pairs of a block of the imports alone as a review with its plan shows it too, which draws no move there`)
+
+#### Scenario: The scroll of the column in a review with its plan
+- **GIVEN** a commit that gives a long import a longer name in place and adds its old form again below, in a review with its plan, in Inline
+- **WHEN** the section of the imports is opened and the scroll bar of its column is at its end
+- **THEN** the row of the two lines of the import, wider than its column, shows its end
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`the row of two lines of an import that a review plays down is reached by the scroll of its column, though its old line is a move to the engine`)
+
 ### Requirement: Views: The quiet colour is one token of both themes
 
 A line of a quiet run and the note before it MUST be drawn in one colour of their own, the token `--diff-quiet` of
@@ -863,6 +958,257 @@ each theme: no colour of a change, weaker than each of them, with the number of 
 - **THEN** its lines and its note have the colour the token names, light in the light theme and dark in the dark one
 - **AND** an inserted line and an unchanged one have another
   [@test] tests/e2e/commit-files/quiet-changes.spec.ts (`a quiet line and its note have the quiet colour of the light theme, which is no colour of a change`, `a quiet line and its note have the quiet colour of the dark theme, which is no colour of a change`)
+
+### Requirement: Views: A note at each end of a move says where its other end is
+
+A view MUST show a note before the lines of a move at each of its ends: where they left, how many lines moved and to
+which line ("14 lines moved to line 210"); where they stand now, from which line, whether they were indented again
+and how many were edited on the way ("Moved from line 120 · re-indented · 1 line edited"). The line is the first line
+of the other end, the blank lines that moved with the move among them. A move with an end in no block MUST change no
+row.
+
+#### Scenario: The words
+- **WHEN** a note words where fourteen lines left, where they stand now, and a move that was indented again with two lines edited
+- **THEN** it says "14 lines moved" "to line 210" and "Moved" "from line 120", then "re-indented · 2 lines edited", nothing where the lines moved as they were
+- **AND** the line is the first line of the other end as a reader counts, a blank line that moved with the lines among them
+  [@test] src/presenters/diff-marks.test.ts (`says where the lines that left stand now, by the first line of that end, and what its buttons do`, `says where the lines that stand now were, whether they were indented again and how many of them were edited on the way`)
+
+#### Scenario: The moves of the template
+- **WHEN** the preview of the `commit_marks` template shows Ledger.kt, whose `accounts()` moved up in its class as it is and whose `describe` moved into the class, indented, a space added in one line
+- **THEN** the notes where they stand now say "Moved from line 22" and "Moved from line 46 · re-indented · 1 line edited"
+- **AND** the notes where they left say "5 lines moved to line 6" and "7 lines moved to line 19"
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`Inline shows the lines of a move once where they stand now, an edited one as the row of its two lines, and one note that opens where they left`)
+
+#### Scenario: The ends of a block
+- **WHEN** the marks hold a move, one with blank lines beside it, two whose old lines are in another order than their new ones, and one with an end in no block or in a block the policy ignores
+- **THEN** each block has the ends of its moves in the order of its lines, the blank lines among the lines of an end and never out of the block
+- **AND** the move with an end in no block changes no row: every line of every block shows
+  [@test] src/lib/diff/block-parts.test.ts (`gives each block the ends of its moves, the blank lines that moved with them among their lines, and none of a move with an end in no block`)
+  [@test] src/lib/diff/rows.test.ts (`says the words of an end of a move that starts its block in the heading of the change, and leaves a move with an end in no block out`)
+
+### Requirement: Views: Inline shows the lines of a move once, where they stand now
+
+Inline MUST show the lines of a move once: where they stand now, after their note, in the colour of a move, an edited
+line as the row of its old line and its new one with the ranges of the move. Where they left it MUST show the note
+alone, which stands for the old lines and opens as the note of a quiet run does: a click, ⌥-click and H show them
+after it, in the colour of a move.
+
+#### Scenario: The moves of the template
+- **WHEN** Inline shows Ledger.kt of the `commit_marks` template
+- **THEN** the lines of `accounts()` and of `describe` show once after their notes, new lines of the move with their new numbers alone
+- **AND** the edited line of `describe` is one row with both its numbers, pale, the space it has more in the full colour and nothing struck through
+- **AND** where the lines left a note stands alone, no row of them
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`Inline shows the lines of a move once where they stand now, an edited one as the row of its two lines, and one note that opens where they left`)
+  [@test] src/lib/diff/rows.test.ts (`shows the lines of a move once in Inline, where they stand now, and one note that opens where they left`)
+  [@test] src/lib/diff/block-parts.test.ts (`shows the lines of a move once where they stand now, after a note, an edited one as the pair of its two lines in Inline`)
+
+#### Scenario: The note where the lines left opens
+- **WHEN** the user clicks the note where `accounts()` left, then clicks it again; and in a review window presses H with the note where `describe` left in view, clicks it, presses H twice, then ⌥-clicks it, and ⌥-clicks the note where `accounts()` left
+- **THEN** the click shows the blank line and the four lines after the note, deleted rows in the colour of a move, and the second click hides them
+- **AND** H shows the seven old lines of `describe`, the edited one pale, the click hides them, H shows and hides them again, the diffs keeping the focus
+- **AND** ⌥-click opens every note of the file that opens, the notes where both functions left, and no note where lines stand now; ⌥-click on an open one closes them all
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`Inline shows the lines of a move once where they stand now, an edited one as the row of its two lines, and one note that opens where they left`, `H and a click show the lines a move took after the note that stands for them, and hide them again`)
+  [@test] src/lib/diff/block-parts.test.ts (`stands a note for the lines that left in Inline until it is opened, and shows them after it elsewhere`)
+
+#### Scenario: The cells of a move
+- **WHEN** the cells of a move are drawn, a line as it was and an edited one, at both ends, in a block with ranges of its own
+- **THEN** each is a cell of a move, full as it was and pale where it was edited, with the ranges of the move and never those of its block
+  [@test] src/lib/diff/row-cells.test.ts (`types a line of a move as its own cell at both ends in every layout, and draws the ranges of the move in an edited line alone`)
+
+### Requirement: Views: Unified and Split keep every line of a move at both ends
+
+Unified and Split MUST show every line of a move at both ends, in the colour of a move, an edited line pale with the
+ranges of its side of the move, after notes that open nothing. Split MUST show the lines that left on the old side
+and the lines that stand now on the new side, the other side filled, each note over the column of its lines.
+
+#### Scenario: The moves of the template in Unified and Split
+- **WHEN** the user switches the preview of Ledger.kt to Unified, then to Split
+- **THEN** Unified shows the lines of both moves as inserted rows of the move where they stand and as deleted rows of the move where they left, the edited line pale at both ends; the notes are plain words
+- **AND** Split shows the lines that stand now on the new side and the lines that left on the old side, the other side filled beside them, each note over the column of its lines
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`Unified and Split keep every line of a move at both ends, in the colour of a move, after notes that open nothing`)
+  [@test] src/lib/diff/rows.test.ts (`keeps every line of a move in Unified and Split, both ends rows of the move after a note that opens nothing`)
+  [@test] src/lib/diff/row-cells.test.ts (`types a line of a move as its own cell at both ends in every layout, and draws the ranges of the move in an edited line alone`)
+
+### Requirement: Views: The lines of no move beside a move show as the block does
+
+A view MUST cut the lines of a block between its runs at the ends of its moves, each end on its own side, and show
+the lines of no move as the block shows without marks. In lines the engine pairs, a cut of one side MUST cut the
+other at the same line, so the lines beside a move keep their pairs. Every line of a block MUST show once whatever
+the marks say: by its own row, or behind the note that stands for it.
+
+#### Scenario: A block that lost some of its lines
+- **WHEN** a block changes a line, loses three lines to a move and deletes two more
+- **THEN** each layout shows the changed line as the block does, the note of the move (with its lines where the layout keeps them), then the two deleted lines
+  [@test] src/lib/diff/block-parts.test.ts (`cuts the lines of no run at the ends of the moves, each on its own side, and reads a block from its first line no move took`)
+
+#### Scenario: Lines the engine pairs
+- **WHEN** a block of four similar pairs loses its third old line to a move, or a line of a move stands at its third new line
+- **THEN** Inline shows the pairs before and after as a row each, and the line whose pair moved alone
+  [@test] src/lib/diff/block-parts.test.ts (`keeps the pairs of the lines beside a move in a block the engine pairs, and shows the line whose pair moved alone`)
+
+#### Scenario: Any marks
+- **WHEN** blocks get runs and moves at random, valid or not: overlapping each other, reaching past their block
+- **THEN** in every layout, the notes closed and opened, each line of the block shows once: by its own row, or behind the note that stands for it
+  [@test] src/lib/diff/block-parts.test.ts (`shows every line of a block once whatever the marks say: by its own row, or behind the note that stands for it`)
+
+### Requirement: Views: A move with an end in a block that is played down is drawn at neither end
+
+A view MUST draw a move at both its ends or at neither. A block of the imports alone that a review with its plan
+plays down MUST draw no end of a move: its lines show as they did, pale, every one of them, without a note, and it is
+no stop. At the other end of such a move, in a block that is not played down, the lines of the move MUST be lines of
+their block, each with its row in every layout, with no note: none is hidden, and an edited one shows what it was.
+
+#### Scenario: Imports that were sorted
+- **WHEN** an import moves within the blocks of the imports alone, in a review with its plan and outside one
+- **THEN** in the review both blocks show their lines pale, none left out, with no note of a move and no stop; outside it the move shows with its notes and its stop
+  [@test] src/lib/diff/rows.test.ts (`draws a move with an end in a block of the imports alone that a review plays down at neither end: every line a row of its block, no note; elsewhere the move shows`)
+
+#### Scenario: An import that moves into a block with code
+- **WHEN** an import leaves a block of the imports alone for a block with code beside it, in a review with its plan, in Inline, Unified and Split
+- **THEN** the block that is played down shows its line pale, and where the line stands now it is an inserted line of its block, with no note
+- **AND** the block with code is read from its first row, as a block without a move
+  [@test] src/lib/diff/rows.test.ts (`draws a move with an end in a block of the imports alone that a review plays down at neither end: every line a row of its block, no note; elsewhere the move shows`)
+
+#### Scenario: Imports that leave a block with code, one edited on the way
+- **WHEN** four imports leave a block with code for a block of the imports alone, the second edited on the way, in a review with its plan, in Inline, Unified and Split
+- **THEN** the block they left shows them as its deleted lines, each with its row, the old line of the edited import among them: no note stands for a line
+- **AND** where they stand now they are pale inserted lines, with no note, no row of two lines and no stop; the one stop is the first row of the block with code
+- **AND** a move between two blocks with code in the same review shows with its notes
+  [@test] src/lib/diff/rows.test.ts (`draws a move with an end in a block of the imports alone that a review plays down at neither end: every line a row of its block, no note; elsewhere the move shows`)
+  [@test] src/lib/diff/block-parts.test.ts (`leaves a move with an end in a block a view plays down out of both its blocks, and no other move`)
+
+#### Scenario: A review with its plan
+- **GIVEN** a commit that puts four imports of a file in order, two of them moves to the engine, and changes a line of its body
+- **WHEN** the review with its plan shows the section of the imports, opened
+- **THEN** the imports that left and where they stand now are deleted and inserted lines, pale, none in the colour of a move, and no note of a move stands in the review
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`imports that were sorted stay the pale lines of a block the review plays down, with no note of a move`)
+
+#### Scenario: Imports that left the block of a comment, in a review with its plan
+- **GIVEN** a commit that puts four imports before the others, one of them from another package now, and deletes the comment that stood before them
+- **WHEN** the review with its plan shows the section of the file and the section of the imports, opened
+- **THEN** the comment and the four imports as they were are deleted lines of the section of the file, every one shown
+- **AND** the four imports as they are now are pale inserted lines of the section of the imports; no note of a move, no line in its colour and no row of two lines stands in the review
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`imports that left a block with code for the imports, one edited on the way, stay the deleted lines of their block, none behind a note of a move`)
+
+### Requirement: Views: The place a note of a move names shows its other end
+
+The place a note of a move names ("to line 210", "from line 120") MUST be a button: a click shows the note at the
+other end a third of the view below its top, marked as where the view landed, its file open. In a review window the
+end the jump started from MUST be kept for Back, and Forward goes there again, the diffs holding the focus; the
+preview of a commit keeps no history and moves no focus.
+
+#### Scenario: A click in the preview
+- **WHEN** the user clicks "from line 22" of the note where `accounts()` stands now, then "to line 6" of the note the view went to
+- **THEN** the first click shows the note where the lines left, marked, and the second the note where they stand now, the first one marked no more
+- **AND** in Unified and in Split, where the lines stay at both ends, the same clicks go there and back
+- **AND** the buttons are named by where they go ("Go to line 22, where the lines were", "Go to line 6, where the lines stand now") and name no key
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a click on the place a note of a move names shows its other end and marks the note there, without a key in the preview`)
+
+#### Scenario: A click, Back and Forward in a review window
+- **WHEN** the user clicks the place of the note where `accounts()` stands now, presses Back, Forward, clicks the place of the note there, and presses Back
+- **THEN** the click shows the note where the lines left, marked, the diffs holding the focus; Back returns to the note where they stand, Forward goes to the other again
+- **AND** the click there is a jump of its own: Back returns from it to where the lines left
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a click on the place a note names jumps to the other end of the move, Back returns and Forward goes there again`)
+
+#### Scenario: In a review with its plan
+- **GIVEN** a commit that moves a function to the start of its class with one line edited, and one that moves it as it is, each in a review with its plan
+- **WHEN** the user clicks the place in the heading of the change of the first, then presses G twice; and in the second expands the folded section of the moves, clicks the place of a note, presses G and Back, folds the section again and presses Forward
+- **THEN** the heading says the words of the move after the change ("compute — body changed · Moved from line 121 · 1 line edited") and names the key; the click shows the note where the lines left, marked, G returns to the row of the heading, and G goes there again
+- **AND** in the section of the moves the jump goes there and back, and Forward to a place in the section folded again opens it
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a move with an edited line says its words in the heading of the change: a click on its place and G go to where the lines left and back to the heading`, `a move as it was is in the folded section of the moves: a jump in it goes there and back, and Forward opens the section folded again`)
+
+#### Scenario: The row a jump lands on
+- **WHEN** the row of the first line of an end of a move is asked for a jump, the note where the lines left closed and opened, and of any other line; and of the line a note names where blank lines of the move reach out of the block of its other end
+- **THEN** it is the note of that end: the row of words right above its first line, or the note that stands for the line; any other line is its own row
+- **AND** the line a note names is the first line the other end shows in its block, so the jump lands on the note there in every layout
+  [@test] src/lib/diff/rows.test.ts (`finds an old line of a move at the note that stands for it, and lands a jump to an end on its note`, `lands a jump on the note of the other end by the line that end has, also where blank lines of the move reach out of its block`)
+  [@test] src/lib/diff/block-parts.test.ts (`gives each block the ends of its moves, the blank lines that moved with them among their lines, and none of a move with an end in no block`)
+
+### Requirement: Views: G shows the other end of a move in view
+
+In a review window G MUST show the other end of a move from one note of an end in view: the note of the end the view
+stands at while it is in view (where a jump, Back or Forward landed, or the note N or P stopped under), else the first
+one, so two presses go there and back. Only the button of the place of that note MUST name the key, the key MUST move
+nothing with no such note in view, and it MUST be the key of no action of the window.
+
+#### Scenario: The key from the tree and from the diffs
+- **GIVEN** the review of the `commit_marks` template at the top of Ledger.kt, the focus on its row of the tree
+- **WHEN** the user presses G twice, then Back, then shows Report.kt and presses G and N
+- **THEN** the first press shows the note where `accounts()` left, marked, and gives the diffs the focus; the second returns to the note where it stands now; Back returns along the second jump
+- **AND** in Report.kt, which has no note of a move, G moves nothing: N goes on from the top of the file
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`G jumps from the note of a move in view to its other end and back, from the tree of the files and from the diffs`)
+
+#### Scenario: The hint of the key
+- **WHEN** the notes of two moves show in a review window, the user clicks the place of one, and in the preview of a commit
+- **THEN** in the review one button of a place names the key G: of the first note of a move in view, then of the note the click landed on; in the preview none does
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`a click on the place a note names jumps to the other end of the move, Back returns and Forward goes there again`, `a click on the place a note of a move names shows its other end and marks the note there, without a key in the preview`)
+
+#### Scenario: One note at a time
+- **GIVEN** the review of a commit that moves two lines of a file up, each to a place of its own, so both ends of both moves are in view at once
+- **WHEN** the user presses N twice, G twice, clicks the place of the first move, presses Back, then G
+- **THEN** one button names the key at a time: of the first note of a move in view, then of the note N stopped under though the first is still in view above it, then of each note a jump or Back landed on
+- **AND** G goes from the note that names it: from the note N stopped under to where its line left and back, and after Back from the note Back returned to, never from the one the click landed on
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`one note of a move names the key G at a time: the first one in view, the one N stopped under, the one a jump or Back landed on; the menu names the key on that end alone`)
+
+#### Scenario: The note the key takes
+- **WHEN** the note of the key is asked of a layout of two files with notes of moves: the view at the top, scrolled, and standing at an end whose note is in view or out of it
+- **THEN** it is the note at the end the view stands at while its row is whole below the stuck header and above the end of the view, else the first note of a move in view, of the next file where the first has none; none with no note in view
+  [@test] src/lib/diff/layout.test.ts (`gives the key of the moves one note: the one at the end the view stands at while it is in view, else the first note of a move in view`)
+
+#### Scenario: No key of an action
+- **WHEN** the keys of the review are compared with the keys that the actions of a branch and of a pull request name in a review window
+- **THEN** G is the key of none of them, and the review answers it by its physical key
+  [@test] src/lib/review-keys.test.ts (`takes no letter that an action of a window of the review names as its key: O stays the pull request's`, `answers the action of each of its keys by the physical key, and none for another key`)
+
+#### Scenario: The notes of the moves of a file
+- **WHEN** the rows of a file with a move are built in each layout
+- **THEN** the notes at both ends are listed with their rows, in the order of the rows
+  [@test] src/lib/diff/rows.test.ts (`stops N and P where the lines stand now and never where they left, and lists the notes of both ends`)
+
+### Requirement: Views: The menu of the code on a line of a move shows its other end
+
+The menu of the code MUST have the item "Go to Other End of Move" on a line of a move and on the note at its end,
+which shows the other end as a click on the place of the note does; opened by a menu key it is on the line the
+selection starts in. The item MUST show the key of the review only where the key takes the note of that end, and on
+any other row the menu MUST have no such item.
+
+#### Scenario: The item on a line and on a note
+- **WHEN** the user opens the menu of the code on a line of `accounts()` where it stands now and chooses the item, then on the note where the lines left, then on a line of `describe`, the other move in view, then on an unchanged line
+- **THEN** the first has the item with the key G and shows the note where the lines left, marked, the second the note where they stand now
+- **AND** the item on the line of `describe` names no key: the key takes the note the view landed on
+- **AND** the menu of the unchanged line has "Go to Declaration" and no such item
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`the menu of the code on a line of a move and on the note at its end shows the other end`)
+
+#### Scenario: A menu key
+- **WHEN** the user selects a word of a line of `accounts()` where it stands now, presses Shift+F10 and chooses the item, then presses Shift+F10 again
+- **THEN** the menu opens with the item and its key, which shows the note where the lines left, marked, the diffs holding the focus
+- **AND** the jump selected nothing, so the second menu has "Go to Declaration" and no such item, and the note the view landed on names the key
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`the menu of the code a key opens on a line of a move shows the other end, and has no such item once the jump left nothing selected`)
+
+#### Scenario: The key of the item
+- **GIVEN** the review of a commit with two moves, every note of them in view
+- **WHEN** the user opens the menu on a line of each move, before and after N stops under the note of the second
+- **THEN** the item names the key on the line of the move whose note takes the key, and none on the line of the other
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`one note of a move names the key G at a time: the first one in view, the one N stopped under, the one a jump or Back landed on; the menu names the key on that end alone`)
+
+#### Scenario: The item
+- **WHEN** the items of the menu are built on a row of no move, on an end of a move with the key, and on one without it
+- **THEN** the first has no such item; the others have it, with the key only where one is given, and say where it goes from that end
+  [@test] src/lib/diff/code-menu.test.ts (`offers the other end of a move on a line of a move or the note at its end, with the key of the view where it has one`)
+  [@test] src/presenters/diff-marks.test.ts (`names the action that shows the other end of a move, and says where it goes from each end`)
+
+### Requirement: Views: The colour of a move is two tokens of both themes
+
+A line of a move and the note at each of its ends MUST be drawn in the colour of the token `--diff-moved` of each
+theme, a line edited on the way in `--diff-moved-pale`: the colour of no other line of a diff. A rail down the start
+of the lines of a move and of its notes, which no other line has, MUST mark a move without its colour.
+
+#### Scenario: The light and the dark theme
+- **WHEN** the moves of the template show in the light theme, and in the dark one
+- **THEN** their lines and their notes have the colour `--diff-moved` names, the edited line the one `--diff-moved-pale` names, light in the light theme and dark in the dark one
+- **AND** no token of an inserted, a deleted, a modified or a quiet line, pale or full, names either colour
+- **AND** the lines and the notes of a move have the rail; an inserted line, an unchanged one and the note of a quiet run have none
+  [@test] tests/e2e/commit-files/moved-lines.spec.ts (`the lines of a move and the notes at its ends have the moved colour of the light theme, which is the colour of no other line`, `the lines of a move and the notes at its ends have the moved colour of the dark theme, which is the colour of no other line`)
 
 ## User Experience
 
@@ -884,12 +1230,31 @@ each theme: no colour of a change, weaker than each of them, with the number of 
 - The count to read, before the `+/−` counts of a file in the tree of the files and in the header of its card, muted
   `text-xs`: "10 to read", "Nothing to read"; its hover and the description of the row: "10 of 11 changes to read",
   "None of the 3 changes needs reading", "The change needs no reading".
+- The note at an end of a move: what happened in `font-medium` ("14 lines moved", "Moved"), then the place of the
+  other end, a button with a dotted line under it ("to line 210", "from line 120"), then ` · ` and what else happened
+  on the way ("re-indented · 1 line edited"). Its row has the colour of a move, as its lines, its words nearer the
+  text colour than the muted words of other notes. Where the lines left in Inline the first words are the button that
+  shows them, with the chevron and the name "14 lines moved to line 210: Show the 14 old lines". With a column per
+  side the note lies over the column of its lines. The name and the hover of the place: "Go to line 210, where the
+  lines stand now", "Go to line 120, where the lines were".
+- A line of a move: `--diff-moved` over the line and its number, `--diff-moved-pale` with its edited words in the
+  full colour where it was edited on the way, and a rail 2 px wide down its start
+  ([UI Theme](../../../../docs/design/ui-theme.md#diffs)). To a screen reader: "moved away", "moved here", with
+  ", edited on the way".
+- G in a review window (go): the other end of a move, from one note in view: the note of the end the view stands at,
+  else the first one. The button of the place of that note alone shows the key after its words, as H on a note that
+  opens, so with several notes in view the hint says which one G takes. The item of the menu of the code: "Go to Other
+  End of Move", with the key where the menu opened on that end, its hover "Show where the moved lines stand now" or
+  "Show where the moved lines were".
+- The row a jump lands on: a ring of `--ring` that fades in 1.6 s; it stays until the next scroll, press or key
+  where the OS asks for reduced motion.
 - N and P: the next and the previous stop ([Commit Review](../commit-review/spec.md#requirement-the-sidebar-and-the-diffs-n-and-p-show-the-next-and-the-previous-change)).
 
 ## Testing / Local Run
 
 `pnpm test:unit src/lib/diff src/stores/file-diffs.test.ts src/presenters/diff-marks.test.ts` and
-`pnpm e2e tests/e2e/commit-files/quiet-changes.spec.ts` for the views.
+`pnpm e2e tests/e2e/commit-files/quiet-changes.spec.ts tests/e2e/commit-files/moved-lines.spec.ts` for the views
+(`pnpm e2e:webkit` with the same files for the focus after a jump and a click on a note).
 `cargo nextest run -p file-diffs -E 'test(/marks_test/)'` and `-p text-diff -E 'test(/model_test|moves_test/)'`.
 `MARKS_EDITS=600 cargo nextest run --release -p file-diffs -E 'test(the_marks_of_edited_files)'` edits each file of
 the corpus 600 times (12 by default). The E2E template of the marks is `commit_marks` (`crates/test-utils/src/repo_template.rs`):
@@ -929,6 +1294,20 @@ in
   column): `edited` names it, and no range can.
 - A blank line a block deletes beside lines that moved stays a deleted line, a stop, when the block the lines stand
   in now adds no blank line beside them, or one of another whitespace where every character counts.
+- The violet of a move is the blue of a modified line to red-green colour blindness in the light theme: there the
+  rail and the words of the note tell a move, not its colour.
+- A note names the first line of the other end, a blank line that moved with the lines among them, so the number may
+  be of a blank line: it is the line under the note the place shows.
+- G takes one note, the one that shows the key: with several moves in view and no end the view stands at, the first.
+  Another is reached by a click on its place, or by N to where its lines stand, which gives its note the key.
+- The menu a key opens has the item of a move on a selected line of one: after a jump nothing is selected, the menu
+  has no such item, and G goes on from the note.
+- A move with an end in a block of the imports alone that a review plays down is drawn nowhere in that review: its
+  lines are deleted lines where they left and inserted lines where they stand now, with no word that they are the
+  same lines. A block with code whose other lines all left with moves has no stop then, though it shows the imports
+  that left it: N and P pass them as they pass the imports where they stand.
+- In Split an edited line of a move shows at each end with the ranges of its side; only Inline shows its two lines
+  in one row.
 
 ## References
 

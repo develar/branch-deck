@@ -1456,6 +1456,10 @@ function ReviewLayout({
         // the old lines of the notes in view (Inline shows a quiet run once); with no such note there nothing changes
         code.current?.toggleNotes()
         break
+      case "moveEnd":
+        // the other end of a move, from the note of one of its ends in view; with no such note there nothing moves
+        code.current?.jumpMove()
+        break
       default:
         return
     }

@@ -1,4 +1,5 @@
-import { isLineRow, NEW, rowAt as fileRowAt, rowOfLine } from "@/lib/diff/rows"
+import type { MoveEnd } from "@/lib/diff/block-parts"
+import { isLineRow, NEW, OLD, rowAt as fileRowAt, rowOfLine } from "@/lib/diff/rows"
 import type { FileRows, Row } from "@/lib/diff/rows"
 
 /*
@@ -243,6 +244,16 @@ export class DiffLayout {
   }
 
   /**
+   * Whether a row of a file is in view at `scrollTop` of a view `viewHeight` high: whole below the header stuck at
+   * the top, and above the end of the view. What a key that acts on the rows in view takes (the notes that open, the
+   * note of a move)
+   */
+  rowInView(file: number, row: number, scrollTop: number, viewHeight: number): boolean {
+    const top = this.rowTop(file, row)
+    return top >= scrollTop + this.stickyTop + this.metrics.headerHeight && top + this.rowHeight(file, row) <= scrollTop + viewHeight
+  }
+
+  /**
    * Where a file header sticks below the top of the view: the space above the first card, so a card at the top keeps
    * the space it has at the top of the document (`.dv-card > .dv-header` in diff-view.css)
    */
@@ -468,6 +479,60 @@ export class DiffLayout {
     // a row that shows fewer visual lines keeps the anchor inside it
     return this.rowTop(file, row) + Math.max(Math.min(anchor.offset, Math.max(this.rowHeight(file, row) - 1, 0)), this.rowTop(file, above) - this.rowTop(file, row))
   }
+}
+
+/**
+ * An end of a move a view stands at: the section that shows it (`LayoutFile.key`), its side, and its first line, the
+ * blank lines that moved with the move among them (`MoveEnd.lines`)
+ */
+export interface MoveHand {
+  readonly key: string
+  readonly side: number
+  readonly line: number
+}
+
+/** The end of a move as the place a view stands at, in the section `key` */
+export function moveHandOf(key: string, end: MoveEnd): MoveHand {
+  return { key, side: end.at === "source" ? OLD : NEW, line: end.lines[0] }
+}
+
+/**
+ * The note of a move the key of the moves takes in a view at `scrollTop`, `viewHeight` high: the one at the end the
+ * view stands at (`hand`: where a jump, Back or Forward landed, or the note N or P stopped under) while that note is
+ * in view (`rowInView`), else the first note of a move in view. So one note answers the key at a time, the one that
+ * shows its hint, and two presses go to the other end and back also where both ends are in view. Null with no note of
+ * a move in view
+ */
+export function moveNoteOfKey(layout: DiffLayout, scrollTop: number, viewHeight: number, hand: MoveHand | null): { file: number; end: MoveEnd; row: number } | null {
+  if (layout.files.length === 0) {
+    return null
+  }
+  const at = hand === null ? -1 : layout.indexOf(hand.key)
+  const held =
+    at < 0 ? undefined : layout.files[at]!.rows?.moveNotes.find(({ end }) => hand !== null && (end.at === "source" ? OLD : NEW) === hand.side && end.lines[0] === hand.line)
+  if (held !== undefined && layout.rowInView(at, held.row, scrollTop, viewHeight)) {
+    return { file: at, ...held }
+  }
+  const top = scrollTop + layout.stickyTop + layout.metrics.headerHeight
+  for (let file = layout.fileAt(top), last = layout.fileAt(scrollTop + viewHeight); file <= last; file++) {
+    const notes = layout.files[file]!.rows?.moveNotes ?? []
+    // the notes are in the order of the rows: the first one at or below the top of the view
+    let low = 0
+    let high = notes.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (layout.rowTop(file, notes[middle]!.row) < top) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    const note = notes[low]
+    if (note !== undefined && layout.rowInView(file, note.row, scrollTop, viewHeight)) {
+      return { file, ...note }
+    }
+  }
+  return null
 }
 
 /**

@@ -48,7 +48,10 @@ export interface FindFile extends CopyFile {
  * the row share is the new line's: where a whitespace policy pairs lines of another indent, the row shows and the
  * find reads the whitespace of the new line. The old lines of a quiet run that Inline shows once are searched at the
  * note that stands for them (`NoteRow.lines`), before the new lines: their hits are of the old side, and
- * `rowOfLine` gives the note. With `folded` the folded lines of that side are searched too.
+ * `rowOfLine` gives the note. So are the lines a move took, where they left; the row of an edited line of a move,
+ * the pair of its old line and its new one where the lines stand now, is searched by its new line alone, so a hit of
+ * the old line is one hit, at the row `rowOfLine` gives it. With `folded` the folded lines of that side are searched
+ * too.
  */
 export function findHits(files: readonly FindFile[], query: string, { sideBySide, folded }: { sideBySide: boolean; folded: boolean }): DiffFindHit[] {
   const needle = query.toLowerCase()
@@ -98,7 +101,9 @@ export function findHits(files: readonly FindFile[], query: string, { sideBySide
       }
       if (!sideBySide && row.kind === "inline") {
         const newHits = hitsIn(file, NEW, row.lines[NEW], -1)
-        const oldHits = hitsIn(file, OLD, row.lines[OLD], -1)
+        // the old line of an edited line of a move is a line of where the lines left (`rowOfLine`): found there once,
+        // behind its note or in its own row, never a second time in the row of its pair
+        const oldHits = row.move === null ? hitsIn(file, OLD, row.lines[OLD], -1) : []
         const newTable = tables[NEW]
         if (oldHits.length === 0 || newTable == null) {
           add(newHits)

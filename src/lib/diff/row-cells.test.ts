@@ -1,9 +1,9 @@
 // @spec openspec/specs/commit/commit-row/spec.md
 import { describe, expect, it } from "vite-plus/test"
 import { diffCells, fileLayoutOf, mergeCells, oneSideOf } from "@/lib/diff/row-cells"
-import { buildFileRows, buildMergeRows, LEFT, MIDDLE, NEW, OLD, RIGHT, rowAt } from "@/lib/diff/rows"
+import { buildFileRows, buildMergeRows, EXPANDED, LEFT, MIDDLE, NEW, OLD, RIGHT, rowAt } from "@/lib/diff/rows"
 import type { LineRow } from "@/lib/diff/rows"
-import { block, mergeBlock, run, textDiff, textMerge } from "@/test-support/diff-blocks"
+import { block, mergeBlock, move, run, textDiff, textMerge } from "@/test-support/diff-blocks"
 
 const lineRow = (row: ReturnType<typeof rowAt>): LineRow => {
   if (row.kind === "fold" || row.kind === "note") {
@@ -103,6 +103,55 @@ describe("diffCells", () => {
     const quiet = at("split", 3)
     expect([quiet.tint, split.cell(quiet, OLD), split.cell(quiet, NEW), split.ranges(quiet, OLD), split.ranges(quiet, NEW)]).toEqual(["quiet", "modified", "modified", null, null])
     expect(split.ranges(at("split", 5), NEW)).toEqual([4, 5, 2])
+  })
+
+  it("types a line of a move as its own cell at both ends in every layout, and draws the ranges of the move in an edited line alone", () => {
+    // three lines leave the old lines 20..23 for the new lines 5..8, the second edited on the way. The block they stand
+    // in has ranges of its own, which compare its lines with lines they have nothing to do with
+    const stands = block(5, 5, 5, 8, {
+      newRanges: [
+        [0, 3, 0],
+        [0, 3, 0],
+        [0, 3, 0],
+      ],
+    })
+    const left = block(20, 23, 23, 23, {
+      oldRanges: [
+        [1, 2, 1],
+        [1, 2, 1],
+        [1, 2, 1],
+      ],
+    })
+    const diff = textDiff(30, 30, [stands, left], { moves: [move(20, 5, 3, { edited: [1], oldRanges: [[], [4, 9, 2], []], newRanges: [[], [4, 7, 2], []] })] })
+    // every line shown: 5 lines, the note and the 3 lines that stand there, 15 lines, the note and the lines that left
+    const at = (mode: "inline" | "unified" | "split", row: number, open: number[] = []) =>
+      lineRow(rowAt(buildFileRows(diff, mode, [EXPANDED, EXPANDED, EXPANDED], false, null, new Set(open)), row))
+    // Inline, where the lines stand now: a line as it was, then the pair of the edited one
+    const inline = diffCells(diff, "inline")
+    const exact = at("inline", 6)
+    expect([exact.kind, exact.tint, inline.cell(exact, NEW), inline.ranges(exact, NEW)]).toEqual(["added", "full", "moved", null])
+    const pair = at("inline", 7)
+    expect([pair.kind, pair.lines, pair.tint, inline.cell(pair, NEW), inline.ranges(pair, OLD), inline.ranges(pair, NEW)]).toEqual([
+      "inline",
+      [21, 6],
+      "pale",
+      "moved",
+      [4, 9, 2],
+      [4, 7, 2],
+    ])
+    // Unified: the new line at one end and the old line at the other, each with the ranges of its side of the move
+    const unified = diffCells(diff, "unified")
+    const added = at("unified", 7)
+    expect([added.kind, added.tint, unified.cell(added, NEW), unified.ranges(added, NEW)]).toEqual(["added", "pale", "moved", [4, 7, 2]])
+    const deleted = at("unified", 26)
+    expect([deleted.kind, deleted.lines, deleted.tint, unified.cell(deleted, OLD), unified.ranges(deleted, OLD)]).toEqual(["deleted", [21, null], "pale", "moved", [4, 9, 2]])
+    expect([unified.cell(at("unified", 25), OLD), unified.ranges(at("unified", 25), OLD)]).toEqual(["moved", null])
+    // Split: the side of the line is moved, the other one filled; the opened note of Inline shows the old lines the same
+    const split = diffCells(diff, "split")
+    expect([split.cell(at("split", 7), OLD), split.cell(at("split", 7), NEW), split.ranges(at("split", 7), NEW)]).toEqual(["filler", "moved", [4, 7, 2]])
+    expect([split.cell(at("split", 26), OLD), split.cell(at("split", 26), NEW), split.ranges(at("split", 26), OLD)]).toEqual(["moved", "filler", [4, 9, 2]])
+    const opened = at("inline", 26, [20])
+    expect([opened.kind, opened.lines, inline.cell(opened, OLD), inline.ranges(opened, OLD)]).toEqual(["deleted", [21, null], "moved", [4, 9, 2]])
   })
 
   it("shows a file with one side as that side alone in every layout, with its line numbers, as IntelliJ's one-sided viewer", () => {
