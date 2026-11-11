@@ -217,7 +217,7 @@ function operationLabel(op: OperationId, words: OperationWords): string {
 function noOpenPullRequestWords(subject: string, unlisted: PullRequestAvailability | null): string {
   const root = stackRootOfReadinessKey(subject)
   const [named, create] = root === null ? [subject, ACTION_LOOKS["create-pull-request"].label] : [formatWholeStackStart(root), ACTION_LOOKS["create-stack-pull-request"].label]
-  return formatAvailabilityHint(unlisted) ?? `${named} has no open pull request: ${create} asks for its review`
+  return formatAvailabilityHint(unlisted) ?? `${named} has no open pull request: ${create} asks for a review as it opens one`
 }
 
 /** Why nobody is asked to review a draft (`PullRequestView.draft`) */

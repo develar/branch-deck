@@ -53,10 +53,10 @@ describe("the Request Review… item", () => {
     expect(itemOf(undefined, disabled("request-review", { code: "noOpenPullRequest", unlisted: null }))).toMatchObject({
       id: "request-review",
       disabled: true,
-      description: "auth has no open pull request: Create Pull Request… asks for its review",
+      description: "auth has no open pull request: Create Pull Request… asks for a review as it opens one",
     })
     expect(itemOf(undefined, disabled("request-review", { code: "noOpenPullRequest", unlisted: null }), () => {}, "stack:air")).toMatchObject({
-      description: "Whole air stack has no open pull request: Create Pull Request of the Stack… asks for its review",
+      description: "Whole air stack has no open pull request: Create Pull Request of the Stack… asks for a review as it opens one",
     })
     expect(itemOf(undefined, disabled("request-review", { code: "noOpenPullRequest", unlisted: { status: "signedOut" } }))).toMatchObject({
       description: "No GitHub token to see pull requests",

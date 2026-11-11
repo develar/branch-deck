@@ -913,7 +913,7 @@ shown item never leaves, so the item under a resting pointer stays.
 #### Scenario: A mirror origin doesn't push to
 - **WHEN** the branches end up in a GitHub repository `origin` doesn't push to (`origin` a path, `branchdeck.githubRepository` set)
 - **THEN** "⋯" never shows "Merge", before GitHub answers or after
-- **AND** "Create Pull Request…" waits for the listing, then is enabled in its place, and "Request Review…" says "JIRA-456 has no open pull request: Create Pull Request… asks for its review"
+- **AND** "Create Pull Request…" waits for the listing, then is enabled in its place, and "Request Review…" says "JIRA-456 has no open pull request: Create Pull Request… asks for a review as it opens one"
   [@test] tests/e2e/next-step/facts-without-answer.spec.ts (`should never offer Merge on a mirror origin doesn't push to, and keep Create Pull Request… in its place while GitHub lists`)
   [@test] crates/domain-policy/src/actions_test.rs (`the_slots_of_a_branch_are_decided_on_its_remote_before_any_answer_and_never_leave`)
   [@test] crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)

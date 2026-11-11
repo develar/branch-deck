@@ -561,7 +561,11 @@ test.describe("Places of the menu before the answers", () => {
     // GitHub lists none: nothing moves, still no merge, and Request Review… says what comes first
     const { menu } = await listWhileTheMenuShows(page, setupRepo, syncAndWaitForBranches, [])
     await expect(menu.getByRole("menuitem", { name: /^(Merge|Safe Push)/ })).toHaveCount(0)
-    await expectItemWaits(page, menu.getByRole("menuitem", { name: "Request Review…" }), `${BRANCH} has no open pull request: Create Pull Request… asks for its review`)
+    await expectItemWaits(
+      page,
+      menu.getByRole("menuitem", { name: "Request Review…" }),
+      `${BRANCH} has no open pull request: Create Pull Request… asks for a review as it opens one`,
+    )
   })
 
   test("should offer no start and no pull request on a local remote from the first view", async ({ page, setupRepo, syncAndWaitForBranches }) => {
