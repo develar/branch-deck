@@ -70,6 +70,8 @@
         "cancelled",
         "noConsent",
         "agentOrigin",
+        "notHolder",
+        "modelOnly",
         "unknownView",
         "unknownInstance",
         "unknownAction",
@@ -101,7 +103,7 @@
       }
     },
     "ErrorObject": {
-      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32009 noConsent and agentOrigin, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
+      "description": "A JSON-RPC error. -32001 badTicket, -32002 serverExited and notStarted, -32003 connectionLost, -32004 tooLarge, -32008 unknownChannel and unknownInstance, -32009 noConsent, agentOrigin, notHolder and modelOnly, -32601 unknownMethod and unknownTool, -32800 cancelled; the other codes are those of JSON-RPC and of air-ide.",
       "type": "object",
       "required": ["code", "message"],
       "properties": {
@@ -344,7 +346,7 @@
       ]
     },
     "CallMeta": {
-      "description": "_meta[\"x-air-app\"] of a tools/call that air-ide sends: the origin, and the view of a click.",
+      "description": "_meta[\"x-air-app\"] of a tools/call that air-ide sends: the origin and the app; the view and the instance of a click; the action of an action, and the view and the instance of a title action.",
       "type": "object",
       "required": ["origin"],
       "properties": {
@@ -1736,7 +1738,8 @@
                     "$ref": "#/$defs/AppViewChannel"
                   },
                   "reason": {
-                    "enum": ["closed", "snapshotFailed", "serverExited", "viewEnded"]
+                    "description": "closed: air-ide closed the channel for another cause. serverExited: the process of the app exited. sessionClosed: the app ended the mirror (x-air-app/viewEnded). A receiver reads an unknown reason as closed.",
+                    "enum": ["closed", "snapshotFailed", "serverExited", "sessionClosed"]
                   }
                 }
               }
@@ -2625,6 +2628,7 @@
           "required": ["state"],
           "properties": {
             "state": {
+              "description": "starting: a first start or a restart of the user, until the process is ready. restarting: from an exit until the process of the backoff restart is ready. failed: the fourth exit in a row, or a refused process.",
               "enum": ["stopped", "starting", "running", "restarting", "failed"]
             },
             "restarts": {
@@ -3330,13 +3334,18 @@
           "type": "object"
         },
         "conn": {
-          "description": "The connection of the line when its link has more than one at a time: a WebSocket by the order of its handshake, from 1. Without it, the line is on the last one that opened.",
+          "description": "The connection of the line when its link has more than one at a time: a WebSocket of the link page by the order of its handshake, and a connection of the link ide by the order of its initialize, from 1. Without it, the line is on the last one of its link that opened.",
           "type": "integer",
           "minimum": 1
         },
         "raw": {
           "description": "A line or a text frame that is no JSON message, as sent.",
           "type": "string"
+        },
+        "binary": {
+          "description": "A binary frame of a WebSocket, its bytes in base64.",
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "oneOf": [
@@ -3345,6 +3354,9 @@
         },
         {
           "required": ["raw"]
+        },
+        {
+          "required": ["binary"]
         }
       ],
       "allOf": [
@@ -3427,12 +3439,12 @@
       ]
     },
     "Step": {
-      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see. httpRequest sends one HTTP request without an upgrade and expects its status, the headers by their lowercase names and a text of the body. pageLoad is the load of the host document by the IDE and the address of the page after it, and pageTicket the call window.airAppHost.connect(ticket) of the IDE in the main frame of a loaded page: a runner of air-ide skips both.",
+      "description": "An event of the world that a runner makes happen or expects. A runner skips a step that its end cannot see. httpRequest sends one HTTP request without an upgrade and expects its status, the headers by their lowercase names and the exact body. pageLoad is the load of the host document by the IDE and the address of the page after it. pageShow, pageTheme and pageTicket are the calls window.airAppHost.show({frame, theme}), setTheme(theme) and connect(ticket) of the IDE in the main frame of a loaded page. A runner of air-ide skips the four page steps.",
       "type": "object",
       "required": ["step"],
       "properties": {
         "step": {
-          "enum": ["appExit", "appStart", "httpRequest", "wsHandshake", "wsClose", "jcefReload", "pageLoad", "pageTicket", "clock", "file", "fileRemoved"]
+          "enum": ["appExit", "appStart", "httpRequest", "wsHandshake", "wsClose", "jcefReload", "pageLoad", "pageShow", "pageTheme", "pageTicket", "clock", "file", "fileRemoved"]
         },
         "code": {
           "type": ["integer", "null"]
@@ -3461,7 +3473,7 @@
             "type": "string"
           }
         },
-        "bodyIncludes": {
+        "body": {
           "type": "string"
         },
         "closeCode": {
@@ -3485,6 +3497,27 @@
         },
         "ticket": {
           "type": "string"
+        },
+        "frame": {
+          "description": "The frame of the view that pageShow mounts: the resource of the view on the origin of its app.",
+          "type": "string",
+          "pattern": "^https://[a-z0-9-]+\\.air-genui-app\\.local/"
+        },
+        "theme": {
+          "description": "The theme of the IDE that pageShow and pageTheme give the page, as the IDE captures it: dark, and the values of its colors.",
+          "type": "object",
+          "required": ["dark", "values"],
+          "properties": {
+            "dark": {
+              "type": "boolean"
+            },
+            "values": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
         },
         "command": {
           "type": "array",

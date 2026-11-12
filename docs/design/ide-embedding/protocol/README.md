@@ -23,15 +23,20 @@ These files pin the wire.
 ## A line
 
 - `{"comment": "..."}` explains the lines after it. The first comment of a file names its setup.
-- `{"link", "from", "message"}` is one message. `conn` names the WebSocket when more than one is open: the order of
-  its handshake, from 1. Without `conn`, the line is on the WebSocket that opened last.
+- `{"link", "from", "message"}` is one message. `conn` names the connection when its link has more than one open: a
+  WebSocket of the link `page` by the order of its handshake, a connection of the link `ide` by the order of its
+  `initialize`, from 1. Without `conn`, the line is on the connection of its link that opened last.
 - `{"link", "from", "raw"}` is a line or a text frame that is no JSON message. `${16MiB+1}` stands for a text of that
-  size.
+  size. `{"link", "from", "binary"}` is a binary frame of a WebSocket, its bytes in base64.
 - `{"step": "<kind>", ...}` is an event of the world: `file`, `fileRemoved`, `appStart`, `appExit`, `httpRequest`,
-  `wsHandshake`, `wsClose`, `jcefReload`, `pageLoad`, `pageTicket` and `clock`. The first comment of a file defines the
-  steps that it uses. `pageLoad` (the IDE loads the host document with the ticket in the fragment) and `pageTicket` (the
-  IDE calls `window.airAppHost.connect(ticket)` in a loaded page) are steps of the host page, which a runner of
-  `air-ide` skips.
+  `wsHandshake`, `wsClose`, `jcefReload`, `pageLoad`, `pageShow`, `pageTheme`, `pageTicket` and `clock`. The first
+  comment of a file defines the steps that it uses. The four page steps are steps of the host page, which a runner of
+  `air-ide` skips:
+  - `pageLoad {url, location}`: the IDE loads the host document with the ticket in the fragment.
+  - `pageShow {frame, theme}`: the IDE calls `window.airAppHost.show({frame, theme})` in the main frame of the loaded
+    page, which mounts the frame of the view once. `theme` is the theme of the IDE, `{dark, values}`.
+  - `pageTheme {theme}`: the IDE calls `window.airAppHost.setTheme(theme)` after a change of its theme.
+  - `pageTicket {ticket}`: the IDE calls `window.airAppHost.connect(ticket)` with a new ticket after a drop.
 - `{"state": {"link", "channel", "state"}}` is the mirror of a channel after the lines before it, by the table rule.
 - The line schema takes a result and the action of an echo as any value. A check of the corpus validates them by the def
   of their method: the answer of `x-air-ide/appViewTicket` by `AppViewTicketResult`, of `initialize` by

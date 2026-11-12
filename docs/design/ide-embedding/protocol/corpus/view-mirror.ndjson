@@ -74,6 +74,6 @@
 {"comment":"A change for a mirror that air-apps does not hold is dropped with one log entry."}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/viewChanged","params":{"mirror":"/other","ops":[{"op":"set","part":"branches","key":"b","value":{"n":3}}]}}}
 {"link":"ide","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/apps/1","level":"warn","category":"apps","message":"${any}","dropped":0}}}
-{"comment":"The app ends a mirror when its session closes: each channel of the mirror ends without a resync, and its page may open the view again. sessionClosed is the one reason of version 1."}
+{"comment":"The app ends a mirror when its session closes: each channel of the mirror ends with subscriptionEnded of the reason of the app, without a resync, and its page may open the view again. sessionClosed is the one reason of version 1."}
 {"link":"app","from":"app","message":{"jsonrpc":"2.0","method":"x-air-app/viewEnded","params":{"mirror":"/r","reason":"sessionClosed"}}}
-{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/subscriptionEnded","params":{"channel":"x-air-ide:/appView/2","reason":"viewEnded"}},"conn":2}
+{"link":"page","from":"air-ide","message":{"jsonrpc":"2.0","method":"x-air-ide/subscriptionEnded","params":{"channel":"x-air-ide:/appView/2","reason":"sessionClosed"}},"conn":2}
